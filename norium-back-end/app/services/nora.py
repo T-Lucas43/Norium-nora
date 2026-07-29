@@ -23,11 +23,15 @@ class NoraIAService:
         self.model = os.getenv("NORA_MODEL", "llama-3.1-8b-instant").strip() or "llama-3.1-8b-instant"
         self.system_prompt = NORA_SYSTEM_PROMPT
 
-    async def perguntar_nora(self, mensagens: list[dict[str, str]]) -> str:
+    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None) -> str:
         if not self.api_key:
             return "A Nora está temporariamente sem acesso ao provedor de IA. Configure a GROQ_API_KEY no backend."
 
-        payload_messages: list[dict[str, str]] = [{"role": "system", "content": self.system_prompt}]
+        system_content = self.system_prompt
+        if screen_context:
+            system_content = f"{system_content}\n\nContexto atual do usuario na interface: {screen_context}"
+
+        payload_messages: list[dict[str, str]] = [{"role": "system", "content": system_content}]
         for message in mensagens:
             role = message.get("role", "user")
             payload_messages.append(

@@ -39,8 +39,57 @@ interface NoraProps {
   profile?: PerfilOperador | null;
   eventsBySource?: Partial<Record<EventSource, OmnichannelEvent[]>>;
   userId?: string;
+  activeTab?: string;
   onOpenEmail?: (messageId: string) => void;
   contextualRequest?: { id: number; prompt: string } | null;
+}
+
+const SCREEN_LABELS: Record<string, string> = {
+  Dashboard: "Dashboard",
+  Controle: "Controle operacional",
+  Central: "Central de atividades",
+  Pendencias: "Central de atividades",
+  "E-mails": "E-mails",
+  "E-mail": "E-mails",
+  Agenda: "Agenda",
+  Chat: "Chat",
+  Tarefas: "Tarefas",
+  Gastos: "Financeiro",
+  Financeiro: "Financeiro",
+  Automacoes: "Automações",
+  "Automações": "Automações",
+  Relatorios: "Relatórios",
+  "Relatórios": "Relatórios",
+  Equipe: "Equipe",
+  Clientes: "Clientes",
+  Governanca: "Governança",
+  Brainstorm: "Brainstorm",
+  Perfil: "Perfil",
+  Configuracoes: "Configurações",
+  "Configurações": "Configurações",
+  Ajuda: "Ajuda",
+  Mais: "Mais recursos",
+};
+
+function buildScreenContext(
+  activeTab: string | undefined,
+  eventsBySource: Partial<Record<EventSource, OmnichannelEvent[]>> | undefined,
+): string {
+  if (!activeTab) return "";
+  const label = SCREEN_LABELS[activeTab] || activeTab;
+  const parts = [`O usuario esta na tela "${label}" do Norium.`];
+  if (eventsBySource) {
+    const counts = Object.entries(eventsBySource)
+      .map(([source, events]) => [source, events?.length ?? 0] as const)
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([source, count]) => `${count} em ${source}`);
+    if (counts.length > 0) {
+      parts.push(`Eventos recentes monitorados: ${counts.join(", ")}.`);
+    }
+  }
+  return parts.join(" ");
 }
 
 const BACKEND_URL = apiBaseUrl();
@@ -821,6 +870,7 @@ async function askNaturalNora(
   agendaSessionId: string | null,
   emailSessionId: string | null,
   userId: string,
+  screenContext: string,
 ) {
   const payloadMessages = messages.slice(-6).map((message) => ({
     role: message.role === "user" ? "user" : "assistant",
@@ -836,6 +886,7 @@ async function askNaturalNora(
       messages: payloadMessages,
       agenda_session_id: agendaSessionId,
       email_session_id: emailSessionId,
+      screen_context: screenContext || undefined,
     }),
   });
   const data = await res.json();
@@ -921,7 +972,8 @@ function interruptsActiveAgentSession(text: string) {
   );
 }
 
-export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "lucas123", onOpenEmail, contextualRequest }: NoraProps) {
+export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "lucas123", activeTab, onOpenEmail, contextualRequest }: NoraProps) {
+  const screenContext = buildScreenContext(activeTab, eventsBySource);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1152,7 +1204,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             ? `${result.text}\n\nEnvio bloqueado porque o historico esta vazio. Muito sensato da minha parte, diga-se.`
             : result.text;
       } else {
-        const result = await askNaturalNora(messages, finalText, effectiveAgendaSessionId, effectiveEmailSessionId, userId);
+        const result = await askNaturalNora(messages, finalText, effectiveAgendaSessionId, effectiveEmailSessionId, userId, screenContext);
         applyNaturalAgentEffects(result);
         responseAgent = naturalIntentToAgent(result.intent);
         responseStatus = result.status;

@@ -81,6 +81,7 @@ class NoraNaturalPayload(StrictModel):
     user_id: str = "lucas123"
     agenda_session_id: str | None = None
     email_session_id: str | None = None
+    screen_context: str | None = Field(default=None, max_length=500)
 
 
 class NoraVoicePayload(StrictModel):
@@ -955,7 +956,7 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
 
         mensagens_dict = [msg.model_dump() for msg in payload.messages[-6:]]
         mensagens_dict.append({"role": "user", "content": await message_with_memory(user, texto, {"communication", "client", "project", "process", "general"})})
-        resposta = await nora_service.perguntar_nora(mensagens_dict)
+        resposta = await nora_service.perguntar_nora(mensagens_dict, payload.screen_context)
         return {
             "intent": "chat",
             "skill": "chat",

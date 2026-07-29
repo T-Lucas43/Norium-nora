@@ -248,6 +248,7 @@ export default function NoriumApp() {
             profile={profile}
             eventsBySource={eventsBySource}
             userId={currentUser?.id || "lucas123"}
+            activeTab={activeTab}
             contextualRequest={noraContextRequest}
             onOpenEmail={(messageId) => {
               setEmailToOpenId(messageId);

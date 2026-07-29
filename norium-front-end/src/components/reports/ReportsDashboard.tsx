@@ -1927,6 +1927,9 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                   const meta = sourceMeta[event.source];
                   const Icon = meta.icon;
                   const impact = classifyEvent(event);
+                  const metadataEntries = Object.entries(event.metadata || {}).filter(
+                    ([, value]) => value !== null && value !== undefined && value !== "",
+                  );
                   return (
                     <article key={event.id} className="grid grid-cols-[40px_1fr_auto] gap-3 px-5 py-3">
                       <span className={`grid h-10 w-10 place-items-center rounded-lg ${meta.tabColor}`}>
@@ -1940,6 +1943,23 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                         <p className="mt-1 text-[11px] font-bold text-cyan-300">
                           {impact.reason} · +{impact.savedMinutes} min
                         </p>
+                        {metadataEntries.length > 0 && (
+                          <details className="mt-1.5">
+                            <summary className="cursor-pointer text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text)]">
+                              Detalhes ({metadataEntries.length})
+                            </summary>
+                            <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5">
+                              {metadataEntries.slice(0, 8).map(([key, value]) => (
+                                <div key={key} className="contents">
+                                  <dt className="text-[10px] font-black uppercase text-[var(--text-secondary)]">{key}</dt>
+                                  <dd className="min-w-0 truncate text-[11px] font-semibold text-[var(--text)]">
+                                    {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                                  </dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </details>
+                        )}
                       </div>
                       <time className="shrink-0 text-xs font-bold text-[var(--text-secondary)]">{formatDate(event.timestamp)}</time>
                     </article>

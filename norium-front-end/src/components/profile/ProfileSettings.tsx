@@ -153,6 +153,7 @@ export default function ProfileSettings({
                 onClick={() => photoInputRef.current?.click()}
                 className="relative mb-4 grid h-28 w-28 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--background)] text-3xl font-black text-[var(--primary)] transition hover:border-[var(--primary)]"
                 title="Escolher foto da galeria"
+                aria-label="Escolher foto da galeria"
               >
                 {profile.fotoUrl ? (
                   <img src={profile.fotoUrl} alt="Foto do perfil" className="h-full w-full object-cover" />

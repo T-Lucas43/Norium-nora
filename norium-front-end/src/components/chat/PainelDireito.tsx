@@ -46,7 +46,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar }: PainelD
           {modo === "config-propria" && "Minhas contas"}
           {modo === "nora" && "Modulo Nora IA"}
         </h4>
-        <button onClick={onFechar} className="h-8 w-8 rounded-lg hover:bg-[var(--surface-hover)] flex items-center justify-center">
+        <button onClick={onFechar} aria-label="Fechar painel" className="h-8 w-8 rounded-lg hover:bg-[var(--surface-hover)] flex items-center justify-center">
           <X size={15} />
         </button>
       </div>
@@ -75,7 +75,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar }: PainelD
             {midiasGaleria.length > 0 ? (
               <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto">
                 {midiasGaleria.map((midia) => (
-                  <button key={midia.id} className="h-12 bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)]" onClick={() => midia.arquivoUrl && window.open(midia.arquivoUrl, "_blank")}>
+                  <button key={midia.id} aria-label="Abrir midia em nova aba" className="h-12 bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)]" onClick={() => midia.arquivoUrl && window.open(midia.arquivoUrl, "_blank")}>
                     {midia.arquivoUrl ? (
                       <img src={midia.arquivoUrl} alt="Midia" className="w-full h-full object-cover" />
                     ) : (

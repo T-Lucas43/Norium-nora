@@ -3,6 +3,8 @@ import {
   BarChart3,
   CalendarDays,
   CheckSquare,
+  ChevronDown,
+  ChevronUp,
   CreditCard,
   EyeOff,
   GitBranch,
@@ -163,6 +165,10 @@ function MiniInboxPanel({
   onHide,
   onDragStart,
   onDrop,
+  onMoveLeft,
+  onMoveRight,
+  canMoveLeft,
+  canMoveRight,
 }: {
   config: InboxPanelConfig;
   events: OmnichannelEvent[];
@@ -171,6 +177,10 @@ function MiniInboxPanel({
   onHide: () => void;
   onDragStart: () => void;
   onDrop: () => void;
+  onMoveLeft: () => void;
+  onMoveRight: () => void;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
 }) {
   const Icon = config.icon;
   const visibleEvents = events.slice(0, 12);
@@ -185,8 +195,36 @@ function MiniInboxPanel({
     >
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="cursor-grab text-[var(--text-secondary)] active:cursor-grabbing">
+          <span className="cursor-grab text-[var(--text-secondary)] active:cursor-grabbing" aria-hidden="true">
             <GripVertical size={16} />
+          </span>
+          <span className="flex shrink-0 flex-col gap-0.5">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onMoveLeft();
+              }}
+              disabled={!canMoveLeft}
+              aria-label={`Mover ${config.title} para cima na ordem`}
+              title={`Mover ${config.title} para cima na ordem`}
+              className="grid h-4 w-4 place-items-center rounded text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-30"
+            >
+              <ChevronUp size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onMoveRight();
+              }}
+              disabled={!canMoveRight}
+              aria-label={`Mover ${config.title} para baixo na ordem`}
+              title={`Mover ${config.title} para baixo na ordem`}
+              className="grid h-4 w-4 place-items-center rounded text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-30"
+            >
+              <ChevronDown size={12} />
+            </button>
           </span>
           <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${config.accentClassName}`}>
             <Icon size={19} />
@@ -219,6 +257,7 @@ function MiniInboxPanel({
             }}
             className="grid h-7 w-7 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
             title={`Ocultar ${config.title}`}
+            aria-label={`Ocultar ${config.title}`}
           >
             <EyeOff size={14} />
           </button>
@@ -325,6 +364,21 @@ export default function InboxUniversal({ eventsBySource, connected, onRefresh }:
     setDraggingSource(null);
   }
 
+  function movePanelByStep(source: EventSource, step: -1 | 1) {
+    setPanelOrder((current) => {
+      const visible = current.filter((item) => !hiddenSources.includes(item));
+      const fromVisibleIndex = visible.indexOf(source);
+      const toVisibleIndex = fromVisibleIndex + step;
+      if (fromVisibleIndex < 0 || toVisibleIndex < 0 || toVisibleIndex >= visible.length) return current;
+      const swapWith = visible[toVisibleIndex];
+      const next = [...current];
+      const fromIndex = next.indexOf(source);
+      const toIndex = next.indexOf(swapWith);
+      [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
+      return next;
+    });
+  }
+
   return (
     <section className="flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
       <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
@@ -375,7 +429,7 @@ export default function InboxUniversal({ eventsBySource, connected, onRefresh }:
           </div>
         )}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-4">
-          {orderedPanels.map((panel) => (
+          {orderedPanels.map((panel, index) => (
             <MiniInboxPanel
               key={panel.source}
               config={panel}
@@ -385,6 +439,10 @@ export default function InboxUniversal({ eventsBySource, connected, onRefresh }:
               onHide={() => setHiddenSources((current) => (current.includes(panel.source) ? current : [...current, panel.source]))}
               onDragStart={() => setDraggingSource(panel.source)}
               onDrop={() => movePanel(panel.source)}
+              onMoveLeft={() => movePanelByStep(panel.source, -1)}
+              onMoveRight={() => movePanelByStep(panel.source, 1)}
+              canMoveLeft={index > 0}
+              canMoveRight={index < orderedPanels.length - 1}
             />
           ))}
         </div>

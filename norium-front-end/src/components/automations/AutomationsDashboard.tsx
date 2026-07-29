@@ -1196,7 +1196,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               <button
                 onClick={() => void saveBuilderAutomation()}
                 disabled={saving || !form.name.trim()}
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-black text-white shadow-lg shadow-blue-950/20 disabled:opacity-50"
+                className="inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--primary)] px-5 text-sm font-black text-white shadow-lg shadow-blue-950/20 disabled:opacity-50"
               >
                 <Save size={17} />
                 {saving ? "Salvando..." : "Salvar fluxo"}
@@ -1673,7 +1673,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                         event.stopPropagation();
                         void executeAutomation(automation);
                       }}
-                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-black text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--primary)] px-4 text-xs font-black text-white transition hover:brightness-110disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Play size={15} />
                       Executar
@@ -1868,7 +1868,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                   Use a Nora dentro dos fluxos para raciocinar sobre textos, conversas, e-mails, gastos e tarefas.
                 </p>
               </div>
-              <button onClick={onOpenNora} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-blue-600 text-white">
+              <button onClick={onOpenNora} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--primary)] text-white">
                 <Sparkles size={20} />
               </button>
             </div>
@@ -2053,7 +2053,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               </div>
               <footer className="flex justify-end gap-3 border-t border-[var(--border)] p-5">
                 <button onClick={() => setModal(null)} className="h-11 rounded-xl border border-[var(--border)] px-5 text-sm font-black">Cancelar</button>
-                <button onClick={() => void submitForm()} disabled={saving || !form.name.trim()} className="h-11 rounded-xl bg-blue-600 px-5 text-sm font-black text-white disabled:opacity-50">
+                <button onClick={() => void submitForm()} disabled={saving || !form.name.trim()} className="h-11 rounded-xl bg-[var(--primary)] px-5 text-sm font-black text-white disabled:opacity-50">
                   {saving ? "Salvando..." : "Salvar automação"}
                 </button>
               </footer>
@@ -2163,7 +2163,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                   <Trash2 size={16} />
                   Excluir
                 </button>
-                <button onClick={() => setLogAutomation(null)} className="h-11 rounded-xl bg-blue-600 px-5 text-sm font-black text-white">
+                <button onClick={() => setLogAutomation(null)} className="h-11 rounded-xl bg-[var(--primary)] px-5 text-sm font-black text-white">
                   Fechar
                 </button>
               </footer>

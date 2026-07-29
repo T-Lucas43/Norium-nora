@@ -599,7 +599,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 setCreatePanel("entry");
                 setActiveView("entries");
               }}
-              className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-black text-white transition hover:bg-blue-500"
+              className="flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-xs font-black text-white transition hover:brightness-110"
             >
               <Plus size={15} />
               Novo lancamento
@@ -650,7 +650,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               }}
               className={`flex h-10 shrink-0 items-center gap-2 rounded-md px-4 text-xs font-black transition ${
                 activeView === view
-                  ? "bg-blue-600 text-white shadow-lg shadow-blue-950/20"
+                  ? "bg-[var(--primary)] text-white shadow-lg shadow-blue-950/20"
                   : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
               }`}
             >
@@ -708,7 +708,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 <button
                   onClick={() => void consultarBoletos()}
                   disabled={syncingBoletos}
-                  className="flex h-11 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-50 md:col-span-2 2xl:col-span-1"
+                  className="flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-black text-white transition hover:brightness-110disabled:opacity-50 md:col-span-2 2xl:col-span-1"
                 >
                   <FileSearch size={16} />
                   {syncingBoletos ? "Consultando..." : "Buscar boletos"}
@@ -933,7 +933,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 <button
                   onClick={() => void createLancamento()}
                   disabled={creatingLancamento || !lancamentoForm.title.trim() || !lancamentoForm.amount}
-                  className="h-11 w-full rounded-lg bg-blue-600 text-sm font-black text-white transition hover:bg-blue-500 disabled:opacity-45"
+                  className="h-11 w-full rounded-lg bg-[var(--primary)] text-sm font-black text-white transition hover:brightness-110disabled:opacity-45"
                 >
                   {creatingLancamento ? "Salvando..." : "Criar lancamento"}
                 </button>
@@ -1252,7 +1252,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingAttachments}
-                  className="flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-3 text-xs font-black text-white transition hover:bg-blue-500 disabled:opacity-50"
+                  className="flex h-9 items-center gap-2 rounded-lg bg-[var(--primary)] px-3 text-xs font-black text-white transition hover:brightness-110disabled:opacity-50"
                 >
                   <Paperclip size={14} />
                   Adicionar arquivos
@@ -1289,7 +1289,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     <button
                       type="button"
                       onClick={() => void downloadWithAuth(item.url, item.name)}
-                      className="flex h-8 items-center justify-center gap-1 rounded-lg bg-blue-600 text-[11px] font-black text-white hover:bg-blue-500"
+                      className="flex h-8 items-center justify-center gap-1 rounded-lg bg-[var(--primary)] text-[11px] font-black text-white hover:brightness-110"
                     >
                       <Download size={13} />
                       Baixar

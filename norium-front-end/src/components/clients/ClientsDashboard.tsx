@@ -184,7 +184,7 @@ export default function ClientsDashboard() {
             <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><UserRoundCheck size={21} /></span>
             <div><h1 className="text-2xl font-black">Clientes</h1><p className="text-sm font-semibold text-[var(--text-secondary)]">Relacionamento, etapa comercial e proximo contato em uma unica fila.</p></div>
           </div>
-          <button type="button" onClick={openCreate} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-black text-white hover:bg-blue-500"><Plus size={16} /> Novo cliente</button>
+          <button type="button" onClick={openCreate} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-black text-white hover:brightness-110"><Plus size={16} /> Novo cliente</button>
         </header>
 
         {error && <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-300">{error}</div>}
@@ -276,7 +276,7 @@ export default function ClientsDashboard() {
         <Field label="Proximo contato" value={form.nextActionAt} onChange={(value) => setForm({ ...form, nextActionAt: value })} type="datetime-local" />
         <Field label="Tags separadas por virgula" value={form.tags} onChange={(value) => setForm({ ...form, tags: value })} />
         <label className="sm:col-span-2 text-xs font-black uppercase text-[var(--text-secondary)]">Observacoes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 normal-case text-[var(--text)] outline-none focus:border-blue-500" /></label>
-      </div><footer className="flex justify-end gap-2 border-t border-[var(--border)] p-5"><button type="button" onClick={() => setEditorOpen(false)} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-black">Cancelar</button><button type="button" disabled={saving || !form.name.trim()} onClick={() => void saveClient()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-black text-white disabled:opacity-50">{saving && <LoaderCircle className="animate-spin" size={15} />} Salvar cliente</button></footer></div></div>}
+      </div><footer className="flex justify-end gap-2 border-t border-[var(--border)] p-5"><button type="button" onClick={() => setEditorOpen(false)} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-black">Cancelar</button><button type="button" disabled={saving || !form.name.trim()} onClick={() => void saveClient()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-black text-white disabled:opacity-50">{saving && <LoaderCircle className="animate-spin" size={15} />} Salvar cliente</button></footer></div></div>}
     </main>
   );
 }

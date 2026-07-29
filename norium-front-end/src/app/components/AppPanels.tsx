@@ -159,6 +159,7 @@ export default function AppPanels({
             userId={currentUser.id}
             telegramEnabled={telegramEnabledForUser}
             onConversaAtivaChange={onActiveConversationChange}
+            onOpenNora={onOpenNora}
           />
         </section>
       )}

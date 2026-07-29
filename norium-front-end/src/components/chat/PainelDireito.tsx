@@ -1,4 +1,4 @@
-import { Image as ImageIcon, ShieldAlert, User, Users, X } from "lucide-react";
+import { Image as ImageIcon, MessageSquareText, ShieldAlert, Sparkles, User, Users, X } from "lucide-react";
 import { useState } from "react";
 import type { ChatConversa } from "./types";
 
@@ -6,6 +6,7 @@ interface PainelDireitoProps {
   modo: "nora" | "perfil" | "config-propria";
   conversaAtiva: ChatConversa | undefined;
   onFechar: () => void;
+  onAskNora?: (prompt?: string) => void;
 }
 
 function initials(name: string) {
@@ -34,7 +35,7 @@ function ProfileAvatar({ conversa }: { conversa: ChatConversa }) {
   );
 }
 
-export default function PainelDireito({ modo, conversaAtiva, onFechar }: PainelDireitoProps) {
+export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora }: PainelDireitoProps) {
   const midiasGaleria = conversaAtiva?.mensagens.filter((mensagem) => mensagem.tipo === "midia" || mensagem.tipo === "sticker") || [];
   const participantes = conversaAtiva?.metadados?.participantes || [];
 
@@ -122,9 +123,40 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar }: PainelD
       )}
 
       {modo === "nora" && (
-        <div className="bg-[var(--background)] border border-[var(--border)] p-4 rounded-lg space-y-2 text-xs font-semibold text-center">
-          <p className="text-[var(--primary)] font-bold">Nora IA ativa</p>
-          <p className="text-[var(--text-secondary)]">Analise contextual habilitada para a conversa selecionada.</p>
+        <div className="bg-[var(--background)] border border-[var(--border)] p-4 rounded-lg space-y-3 text-xs font-semibold">
+          <p className="text-[var(--primary)] font-bold text-center">Nora IA ativa</p>
+          {conversaAtiva ? (
+            <>
+              <p className="text-[var(--text-secondary)] text-center">
+                Analise contextual da conversa com {conversaAtiva.contato}.
+              </p>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => onAskNora?.(`Resuma a conversa com ${conversaAtiva.contato} no Chat e destaque os pontos principais.`)}
+                  className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-left transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                >
+                  <MessageSquareText size={14} className="shrink-0" /> Resumir esta conversa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAskNora?.(`Sugira uma resposta adequada para a ultima mensagem de ${conversaAtiva.contato} no Chat.`)}
+                  className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-left transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                >
+                  <Sparkles size={14} className="shrink-0" /> Sugerir resposta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAskNora?.(`Analise o tom e o sentimento da conversa com ${conversaAtiva.contato} e diga se preciso de atencao especial.`)}
+                  className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-left transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+                >
+                  <ShieldAlert size={14} className="shrink-0" /> Analisar tom da conversa
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-[var(--text-secondary)] text-center">Selecione uma conversa para a Nora analisar o contexto.</p>
+          )}
         </div>
       )}
 

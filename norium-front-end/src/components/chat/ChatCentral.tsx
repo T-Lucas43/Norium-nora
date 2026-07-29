@@ -23,9 +23,10 @@ interface ChatCentralProps {
   userId?: string;
   telegramEnabled?: boolean;
   onConversaAtivaChange?: (conversaId: string | null) => void;
+  onOpenNora?: (prompt?: string) => void;
 }
 
-export default function ChatCentral({ userId = "lucas123", telegramEnabled = true, onConversaAtivaChange }: ChatCentralProps) {
+export default function ChatCentral({ userId = "lucas123", telegramEnabled = true, onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [canaisStatus, setCanaisStatus] = useState<{ [key: string]: { conectado: boolean; qrcode?: string | null; detail?: string; username?: string; webhookUrl?: string; webhookEsperado?: string } }>({});
   const [canalSelecionadoLogin, setCanalSelecionadoLogin] = useState<"whatsapp" | "telegram" | null>(null);
@@ -772,7 +773,7 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
       )}
 
       {painelPerfilAberto && (
-        <PainelDireito modo={abaDireitaModo} conversaAtiva={conversaAtiva} onFechar={() => setPainelPerfilAberto(false)} />
+        <PainelDireito modo={abaDireitaModo} conversaAtiva={conversaAtiva} onFechar={() => setPainelPerfilAberto(false)} onAskNora={onOpenNora} />
       )}
 
       {modalContatosAberto && (

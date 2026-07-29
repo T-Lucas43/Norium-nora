@@ -41,7 +41,7 @@ export const PRIMARY_TABS = [
   "Agenda",
   "Chat",
   "Tarefas",
-  "Gastos",
+  "Financeiro",
   "Automações",
   "Relatorios",
   "Equipe",

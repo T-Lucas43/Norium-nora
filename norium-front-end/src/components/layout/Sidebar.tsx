@@ -52,7 +52,7 @@ const navigation: NavigationItem[] = [
   { title: "Agenda", icon: CalendarDays },
   { title: "Chat", icon: MessageSquare },
   { title: "Tarefas", icon: CheckSquare },
-  { title: "Gastos", icon: CreditCard },
+  { title: "Financeiro", icon: CreditCard },
   { title: "Automações", icon: GitBranch },
   { title: "Relatorios", icon: BarChart3 },
   { title: "Equipe", icon: UsersRound },

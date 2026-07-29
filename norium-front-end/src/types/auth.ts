@@ -65,7 +65,7 @@ export const permissionLabels: Record<PermissionKey, string> = {
   agenda: "Agenda",
   chat: "Chat",
   tarefas: "Tarefas",
-  gastos: "Gastos",
+  gastos: "Financeiro",
   automacoes: "Automações",
   relatorios: "Relatorios",
   nora: "Nora",

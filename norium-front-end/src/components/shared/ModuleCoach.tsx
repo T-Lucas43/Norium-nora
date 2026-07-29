@@ -22,11 +22,17 @@ export type GuidedModule =
   | "Ajuda"
   | "Mais";
 
+type QuickPrompt = {
+  label: string;
+  prompt: string;
+};
+
 type ModuleGuide = {
   title: string;
   description: string;
   topics: string[];
   prompt: string;
+  quickPrompts?: QuickPrompt[];
 };
 
 const guides: Record<GuidedModule, ModuleGuide> = {
@@ -41,24 +47,37 @@ const guides: Record<GuidedModule, ModuleGuide> = {
     description: "Acompanhe os acontecimentos de cada canal sem misturar notificacoes do sistema.",
     topics: ["Reordene e redimensione os canais", "Clique em um evento para abrir a origem", "O contador mostra o volume de cada integracao"],
     prompt: "Explique de forma pratica como usar a Central de atividades do Norium e me ajude a identificar o que exige atencao agora.",
+    quickPrompts: [
+      { label: "Analisar metricas", prompt: "Analise os eventos recentes da Central de atividades e aponte o que precisa de atencao imediata." },
+      { label: "Gerar insights", prompt: "Gere insights sobre os padroes de atividade recentes na Central de atividades." },
+    ],
   },
   Controle: {
     title: "Controle operacional",
     description: "Reuna aprovacoes, saude das integracoes, auditoria, modelos e acoes reversiveis.",
     topics: ["Aprovacoes protegem acoes sensiveis", "Saude mostra falhas de sincronizacao", "Auditoria registra quem fez cada alteracao"],
     prompt: "Explique o Controle operacional do Norium e verifique aprovacoes, integracoes ou riscos que exigem minha atencao.",
+    quickPrompts: [
+      { label: "Sugerir resumo", prompt: "Resuma o estado atual do Controle operacional: aprovacoes pendentes, saude das integracoes e auditoria recente." },
+    ],
   },
   Pendencias: {
     title: "Centro de pendencias",
     description: "Priorize tudo que ainda depende de resposta, correcao, aprovacao ou pagamento.",
     topics: ["Use os filtros por origem e urgencia", "Abra o item original pelo atalho", "Conclua somente depois de validar a acao"],
     prompt: "Analise meu Centro de pendencias, explique os grupos e sugira uma ordem objetiva para resolver o que esta aberto.",
+    quickPrompts: [
+      { label: "Priorizar pendencias", prompt: "Analise minhas pendencias abertas e sugira a ordem de resolucao mais eficiente." },
+    ],
   },
   Notificacoes: {
     title: "Notificacoes do sistema",
     description: "Veja alertas globais, erros de conexao e avisos importantes do Norium.",
     topics: ["Alertas de canais ficam na Central", "Erros persistentes devem ser investigados", "Limpe apenas notificacoes ja conferidas"],
     prompt: "Explique minhas notificacoes do sistema e diga quais alertas devo investigar primeiro.",
+    quickPrompts: [
+      { label: "Analisar alertas", prompt: "Analise minhas notificacoes do sistema e aponte quais exigem acao imediata." },
+    ],
   },
   Emails: {
     title: "E-mails",
@@ -89,18 +108,30 @@ const guides: Record<GuidedModule, ModuleGuide> = {
     description: "Controle entradas, saidas, programacoes, boletos, comprovantes e conciliacoes.",
     topics: ["Visao geral resume caixa e vencimentos", "Lancamentos guardam anexos e comprovantes", "Programados podem ser pagos, pausados ou recorrentes"],
     prompt: "Explique a tela Financeiro e analise meus lancamentos, vencimentos e proximas acoes sem alterar nada sem confirmacao.",
+    quickPrompts: [
+      { label: "Gerar insights financeiros", prompt: "Analise meus lancamentos financeiros recentes e aponte padroes, riscos ou economias possiveis." },
+      { label: "Resumir vencimentos", prompt: "Resuma meus proximos vencimentos e boletos pendentes." },
+    ],
   },
   Automacoes: {
     title: "Automacoes",
     description: "Crie fluxos visuais, teste sem efeitos reais e publique somente depois de homologar.",
     topics: ["Rascunho e o ambiente de edicao", "Homologacao valida o fluxo", "Producao executa a automacao real"],
     prompt: "Explique a tela de Automacoes e me ajude a criar ou revisar um fluxo usando linguagem simples, perguntando os dados que faltarem.",
+    quickPrompts: [
+      { label: "Analisar metricas", prompt: "Analise as automacoes ativas, quantas execucoes tiveram e quanto tempo economizaram." },
+      { label: "Sugerir automacao", prompt: "Sugira uma nova automacao util com base no que ja esta configurado no Norium." },
+    ],
   },
   Relatorios: {
     title: "Relatorios",
     description: "Transforme eventos e dados financeiros em indicadores, comparacoes e arquivos profissionais.",
     topics: ["Escolha periodo e canais", "Personalize as secoes antes de exportar", "Confira a origem dos numeros apresentados"],
     prompt: "Explique os relatorios do Norium e sugira o melhor periodo, indicadores e secoes para o relatorio que devo gerar.",
+    quickPrompts: [
+      { label: "Analisar metricas", prompt: "Analise as metricas de produtividade e financeiro do periodo atual e destaque os pontos mais importantes." },
+      { label: "Gerar insights", prompt: "Gere insights acionaveis a partir do relatorio operacional atual." },
+    ],
   },
   Perfil: {
     title: "Perfil do operador",
@@ -119,24 +150,37 @@ const guides: Record<GuidedModule, ModuleGuide> = {
     description: "Gerencie membros, permissoes, responsabilidades e produtividade sem misturar contas.",
     topics: ["Selecione um membro para ver detalhes", "Permissoes controlam telas e integracoes", "O relatorio usa as tarefas atribuidas a cada pessoa"],
     prompt: "Explique a tela Equipe e resuma membros, permissoes e distribuicao das tarefas atuais.",
+    quickPrompts: [
+      { label: "Resumir atividade", prompt: "Resuma a atividade recente da equipe: membros, permissoes e distribuicao de tarefas." },
+    ],
   },
   Clientes: {
     title: "Clientes",
     description: "Centralize dados, contatos, historico e proximas acoes de cada relacionamento.",
     topics: ["Evite cadastros duplicados", "Use a timeline para recuperar contexto", "Vincule tarefas e conversas ao cliente"],
     prompt: "Explique a area de Clientes e me ajude a organizar cadastros, historicos e proximos contatos.",
+    quickPrompts: [
+      { label: "Sugerir proximos passos", prompt: "Analise minha carteira de clientes e sugira proximos passos para os relacionamentos mais importantes." },
+    ],
   },
   Governanca: {
     title: "Governanca",
     description: "Administre empresas, atendimento, documentos, seguranca e politicas operacionais.",
     topics: ["Cada empresa mantem dados isolados", "Documentos autorizados fundamentam respostas da Nora", "Regras protegem credenciais e acoes sensiveis"],
     prompt: "Explique a Governanca do Norium e avalie empresas, documentos, atendimento e seguranca que precisam de configuracao.",
+    quickPrompts: [
+      { label: "Analisar seguranca", prompt: "Analise as regras de aprovacao, o cofre de credenciais e as simulacoes de permissao configuradas na Governanca." },
+      { label: "Resumir documentos", prompt: "Resuma os documentos e a base de conhecimento cadastrados na Governanca." },
+    ],
   },
   Brainstorm: {
     title: "Brainstorm colaborativo",
     description: "Organize ideias em tempo real, defina responsavel e encerre a sessao com decisoes claras.",
     topics: ["O cronometro delimita a dinamica", "Blocos podem ser agrupados e conectados", "Depois do encerramento a sessao fica bloqueada"],
     prompt: "Explique como conduzir um brainstorm no Norium e me ajude a preparar objetivo, duracao e estrutura da sessao.",
+    quickPrompts: [
+      { label: "Resumir sessoes", prompt: "Resuma as sessoes de brainstorm ativas e as principais ideias registradas." },
+    ],
   },
   Ajuda: {
     title: "Ajuda e guia pratico",
@@ -190,9 +234,21 @@ export default function ModuleCoach({
           {guide.topics.map((topic) => <li key={topic}>{topic}</li>)}
         </ul>
       </details>
-      <button type="button" className="norium-module-coach__ask" onClick={() => onAskNora(guide.prompt)}>
-        <Sparkles size={16} /> Perguntar a Nora
-      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className="norium-module-coach__ask" onClick={() => onAskNora(guide.prompt)}>
+          <Sparkles size={16} /> Perguntar a Nora
+        </button>
+        {guide.quickPrompts?.map((quick) => (
+          <button
+            key={quick.label}
+            type="button"
+            onClick={() => onAskNora(quick.prompt)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          >
+            <Sparkles size={12} /> {quick.label}
+          </button>
+        ))}
+      </div>
     </aside>
   );
 }

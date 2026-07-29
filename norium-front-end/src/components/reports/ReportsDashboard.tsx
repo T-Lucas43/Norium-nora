@@ -29,6 +29,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { EventSource, OmnichannelEvent, SystemNotification } from "../../types/omnichannel";
 import { loadFinanceReportData, registerReportEvent } from "../../features/reports/api";
 import type {
@@ -152,6 +153,11 @@ const sourcePdfColors: Record<EventSource, PdfColor> = {
   sistema: [0.55, 0.36, 0.96],
 };
 
+function sourceChartColor(source: EventSource) {
+  const [r, g, b] = pdfColor(sourcePdfColors[source]);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 const emptyFinanceData: FinanceData = {
   lancamentos: [],
   programados: [],
@@ -190,6 +196,44 @@ function formatDate(timestamp: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(parsed);
+}
+
+type TimeSeriesPoint = { key: string; label: string; total: number };
+
+function buildTimeSeries(events: OmnichannelEvent[], period: Period): TimeSeriesPoint[] {
+  const byHour = period === "24h";
+  const buckets = new Map<string, TimeSeriesPoint>();
+
+  function ensureBucket(date: Date) {
+    const key = byHour
+      ? `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`
+      : `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    if (!buckets.has(key)) {
+      const label = byHour
+        ? new Intl.DateTimeFormat("pt-BR", { hour: "2-digit" }).format(date)
+        : new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" }).format(date);
+      buckets.set(key, { key, label, total: 0 });
+    }
+    return buckets.get(key) as TimeSeriesPoint;
+  }
+
+  const now = new Date();
+  const spanCount = byHour ? 24 : period === "7d" ? 7 : 14;
+  for (let index = spanCount - 1; index >= 0; index -= 1) {
+    const reference = new Date(now);
+    if (byHour) reference.setHours(reference.getHours() - index, 0, 0, 0);
+    else reference.setDate(reference.getDate() - index);
+    ensureBucket(reference);
+  }
+
+  events.forEach((event) => {
+    const parsed = new Date(event.timestamp);
+    if (Number.isNaN(parsed.getTime())) return;
+    const bucket = ensureBucket(parsed);
+    bucket.total += 1;
+  });
+
+  return Array.from(buckets.values()).slice(-spanCount);
 }
 
 function formatGeneratedAt() {
@@ -1087,6 +1131,14 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
 
   const productivity = useMemo(() => calculateProductivity(filteredEvents), [filteredEvents]);
   const finance = useMemo(() => calculateFinanceMetrics(financeData, period), [financeData, period]);
+  const timeSeries = useMemo(() => buildTimeSeries(filteredEvents, period), [filteredEvents, period]);
+  const channelChartData = useMemo(
+    () =>
+      sourceCounts
+        .filter((item) => item.count > 0)
+        .map((item) => ({ name: sourceMeta[item.source].label, value: item.count, source: item.source })),
+    [sourceCounts],
+  );
   const maxCount = Math.max(1, ...sourceCounts.map((item) => item.count));
   const maxFinanceCategory = Math.max(1, ...finance.categories.map((item) => item.amount));
   const totalEvents = filteredEvents.length;
@@ -1624,6 +1676,47 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
         </div>
 
         <section className="mt-5 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-black">Tendencia de eventos</h2>
+              <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
+                Volume de eventos {period === "24h" ? "por hora, nas ultimas 24h" : "por dia, no periodo selecionado"}.
+              </p>
+            </div>
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-400">
+              <TrendingUp size={20} />
+            </span>
+          </div>
+          {timeSeries.every((point) => point.total === 0) ? (
+            <p className="rounded-lg border border-dashed border-[var(--border)] px-4 py-8 text-center text-sm font-semibold text-[var(--text-secondary)]">
+              Nenhum evento no periodo para tracar a tendencia.
+            </p>
+          ) : (
+            <div className="h-56 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={timeSeries} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="reportsTrendFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.45} />
+                      <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-secondary)" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--text-secondary)" }} axisLine={false} tickLine={false} width={28} />
+                  <Tooltip
+                    contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: "var(--text)", fontWeight: 700 }}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    formatter={(((value: number) => [`${value} eventos`, ""]) as any)}
+                  />
+                  <Area type="monotone" dataKey="total" stroke="#22d3ee" strokeWidth={2} fill="url(#reportsTrendFill)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </section>
+
+        <section className="mt-5 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-base font-black">Financeiro persistido</h2>
@@ -1729,6 +1822,35 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                 Todos
               </button>
             </div>
+
+            {channelChartData.length > 0 && (
+              <div className="mb-4 flex items-center gap-4">
+                <div className="h-32 w-32 shrink-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={channelChartData} dataKey="value" nameKey="name" innerRadius={38} outerRadius={58} paddingAngle={2}>
+                        {channelChartData.map((entry) => (
+                          <Cell key={entry.source} fill={sourceChartColor(entry.source)} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        formatter={(((value: number, name: string) => [`${value} eventos`, name]) as any)}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex flex-1 flex-wrap gap-x-4 gap-y-1.5">
+                  {channelChartData.map((entry) => (
+                    <span key={entry.source} className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--text-secondary)]">
+                      <span className="h-2 w-2 rounded-full" style={{ background: sourceChartColor(entry.source) }} />
+                      {entry.name} · {entry.value}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-3">
               {sourceCounts.map((item) => {

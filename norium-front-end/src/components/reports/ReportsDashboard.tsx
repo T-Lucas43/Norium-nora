@@ -392,7 +392,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
       </button>
 
       {customizerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm" onClick={() => setCustomizerOpen(false)}>
+        <div className="fixed inset-0 z-[95] bg-black/40 backdrop-blur-sm" onClick={() => setCustomizerOpen(false)}>
           <aside
             className="flex h-full w-[390px] max-w-[92vw] flex-col border-r border-cyan-400/20 bg-[var(--surface)] text-[var(--text)] shadow-2xl"
             onClick={(event) => event.stopPropagation()}

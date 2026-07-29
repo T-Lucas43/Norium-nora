@@ -13,7 +13,7 @@ from typing import Any, Literal, List
 import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import Field
 
 from app.shared.schemas import StrictModel
@@ -971,6 +971,55 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Nora natural falhou: {str(exc)}") from exc
+
+
+@router.post("/natural/stream")
+async def conversar_com_nora_natural_stream(
+    payload: NoraNaturalPayload, user: dict[str, Any] = Depends(require_nora_permission)
+):
+    """Streama a resposta da Nora token a token quando a mensagem e conversa geral.
+
+    So assume o caminho de streaming quando a mensagem nao ativa nenhum agente
+    especializado (sessao de agenda/email, pedido composto, memoria, saudacao,
+    ajuda de modulo). Nesses outros casos devolve {"redirect": true} e o
+    frontend refaz a chamada em /natural, que ja trata cada um desses fluxos
+    com o resultado estruturado (nao apenas texto) que cada agente precisa.
+    """
+    texto = payload.message.strip()
+
+    has_active_session = bool(payload.email_session_id or payload.agenda_session_id)
+    needs_structured_flow = (
+        has_active_session
+        or memory_preference_request(texto) is not None
+        or mensagem_social_curta(texto) is not None
+        or answer_module_help(texto) is not None
+        or is_compound_request(texto)
+    )
+
+    if not needs_structured_flow:
+        resolution = resolve_skill(texto)
+        intent = resolution.skill_id
+        semantic_enabled = os.getenv("NORA_INTENT_LLM", "1").strip() != "0"
+        if resolution.needs_semantic_fallback and semantic_enabled and len(texto.split()) >= 2:
+            recent_context = "\n".join(f"{message.role}: {message.content}" for message in payload.messages[-4:])
+            semantic_intent, semantic_confidence = await classificar_intencao_com_nora(texto, resolution, recent_context)
+            if semantic_confidence >= 0.55 or resolution.score <= 0:
+                intent = semantic_intent
+
+        if intent == "chat":
+            mensagens_dict = [msg.model_dump() for msg in payload.messages[-6:]]
+            mensagens_dict.append(
+                {"role": "user", "content": await message_with_memory(user, texto, {"communication", "client", "project", "process", "general"})}
+            )
+
+            async def event_stream():
+                async for delta in nora_service.perguntar_nora_stream(mensagens_dict, payload.screen_context):
+                    yield f"data: {json.dumps({'delta': delta})}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    return JSONResponse({"redirect": True})
 
 
 @router.post("/voz")

@@ -26,7 +26,7 @@ export default function ConfirmDialog({
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
-      className="fixed inset-0 z-[70] grid place-items-center bg-black/50 p-4"
+      className="fixed inset-0 z-[95] grid place-items-center bg-black/50 p-4"
       onClick={onCancel}
     >
       <div

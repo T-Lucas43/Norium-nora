@@ -864,6 +864,65 @@ async function askEmailAgent(message: string, sessionId: string | null, userId: 
   };
 }
 
+async function askNaturalNoraStream(
+  messages: Msg[],
+  finalText: string,
+  userId: string,
+  screenContext: string,
+  onDelta: (fullText: string) => void,
+): Promise<{ redirect: true } | { redirect: false; fullText: string }> {
+  const payloadMessages = messages.slice(-6).map((message) => ({
+    role: message.role === "user" ? "user" : "assistant",
+    content: message.text,
+  }));
+
+  const res = await fetch(`${BACKEND_URL}/api/nora/natural/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: userId,
+      message: finalText,
+      messages: payloadMessages,
+      screen_context: screenContext || undefined,
+    }),
+  });
+
+  const contentType = res.headers.get("content-type") || "";
+  if (!res.ok || !res.body || !contentType.includes("text/event-stream")) {
+    return { redirect: true };
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullText = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+    for (const event of events) {
+      const line = event.trim();
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice("data:".length).trim();
+      if (data === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(data) as { delta?: string };
+        if (typeof parsed.delta === "string") {
+          fullText += parsed.delta;
+          onDelta(fullText);
+        }
+      } catch {
+        // pedaco de evento incompleto ou malformado; ignora e segue
+      }
+    }
+  }
+
+  return { redirect: false, fullText };
+}
+
 async function askNaturalNora(
   messages: Msg[],
   finalText: string,
@@ -1150,6 +1209,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       let responseStatus = "";
       let responseEmailMessages: NoraEmailMessage[] | undefined;
       let responseAgendaEvents: NoraAgendaEvent[] | undefined;
+      let handledInline = false;
       const sessionInterrupted = interruptsActiveAgentSession(finalText);
       const explicitEmailSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isAgendaIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
       const explicitAgendaSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isEmailIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
@@ -1204,32 +1264,57 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             ? `${result.text}\n\nEnvio bloqueado porque o historico esta vazio. Muito sensato da minha parte, diga-se.`
             : result.text;
       } else {
-        const result = await askNaturalNora(messages, finalText, effectiveAgendaSessionId, effectiveEmailSessionId, userId, screenContext);
-        applyNaturalAgentEffects(result);
-        responseAgent = naturalIntentToAgent(result.intent);
-        responseStatus = result.status;
-        if (result.intent === "email") {
-          responseEmailMessages = normalizeEmailMessages(result.agent_result?.messages);
-        }
-        if (result.intent === "agenda") {
-          responseAgendaEvents = normalizeAgendaEvents(result.agent_result?.events);
-          if (!responseAgendaEvents.length && result.agent_result?.event && typeof result.agent_result.event === "object") {
-            responseAgendaEvents = [result.agent_result.event as NoraAgendaEvent];
+        let streamStarted = false;
+        const streamResult = await askNaturalNoraStream(messages, finalText, userId, screenContext, (partial) => {
+          setMessages((prev) => {
+            if (!streamStarted) {
+              streamStarted = true;
+              return [...prev, { role: "ai", text: partial, agent: "geral", status: "chat" }];
+            }
+            const next = [...prev];
+            next[next.length - 1] = { ...next[next.length - 1], text: partial };
+            return next;
+          });
+        }).catch(() => ({ redirect: true as const }));
+
+        if (!streamResult.redirect) {
+          response = streamResult.fullText || "Entendi, mas nao recebi resposta do agente.";
+          responseAgent = "geral";
+          responseStatus = "chat";
+          handledInline = true;
+        } else {
+          if (streamStarted) {
+            setMessages((prev) => prev.slice(0, -1));
           }
+          const result = await askNaturalNora(messages, finalText, effectiveAgendaSessionId, effectiveEmailSessionId, userId, screenContext);
+          applyNaturalAgentEffects(result);
+          responseAgent = naturalIntentToAgent(result.intent);
+          responseStatus = result.status;
+          if (result.intent === "email") {
+            responseEmailMessages = normalizeEmailMessages(result.agent_result?.messages);
+          }
+          if (result.intent === "agenda") {
+            responseAgendaEvents = normalizeAgendaEvents(result.agent_result?.events);
+            if (!responseAgendaEvents.length && result.agent_result?.event && typeof result.agent_result.event === "object") {
+              responseAgendaEvents = [result.agent_result.event as NoraAgendaEvent];
+            }
+          }
+          response = result.response || "Entendi, mas nao recebi resposta do agente.";
         }
-        response = result.response || "Entendi, mas nao recebi resposta do agente.";
       }
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "ai",
-          text: response,
-          agent: responseAgent,
-          status: responseStatus,
-          emailMessages: responseEmailMessages,
-          agendaEvents: responseAgendaEvents,
-        },
-      ]);
+      if (!handledInline) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: response,
+            agent: responseAgent,
+            status: responseStatus,
+            emailMessages: responseEmailMessages,
+            agendaEvents: responseAgendaEvents,
+          },
+        ]);
+      }
       if (speakReply || voiceRepliesEnabled) speakNoraResponse(response);
     } catch (err) {
       setMessages((prev) => [...prev, { role: "ai", text: err instanceof Error ? err.message : "Erro ao se conectar com o back-end.", agent: "erro" }]);

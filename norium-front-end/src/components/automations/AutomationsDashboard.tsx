@@ -1992,7 +1992,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
 
       <AnimatePresence>
         {modal && (
-          <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.div
               initial={{ scale: 0.96, y: 12 }}
               animate={{ scale: 1, y: 0 }}
@@ -2065,7 +2065,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
 
       <AnimatePresence>
         {logAutomation && (
-          <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.div
               initial={{ scale: 0.96, y: 12 }}
               animate={{ scale: 1, y: 0 }}

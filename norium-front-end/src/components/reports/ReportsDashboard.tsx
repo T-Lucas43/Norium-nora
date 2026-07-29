@@ -21,6 +21,7 @@ import {
   Receipt,
   ShieldAlert,
   SlidersHorizontal,
+  Sparkles,
   Target,
   Wallet,
   TrendingUp,
@@ -53,6 +54,7 @@ type ReportsDashboardProps = {
   notifications: SystemNotification[];
   connected: boolean;
   userId?: string;
+  onOpenNora?: (prompt?: string) => void;
 };
 
 const sourceMeta: Record<EventSource, { label: string; icon: LucideIcon; color: string; tabColor: string }> = {
@@ -1066,7 +1068,7 @@ function printReportDocument(params: {
   printWindow.document.close();
 }
 
-export default function ReportsDashboard({ eventsBySource, notifications, connected, userId = "lucas123" }: ReportsDashboardProps) {
+export default function ReportsDashboard({ eventsBySource, notifications, connected, userId = "lucas123", onOpenNora }: ReportsDashboardProps) {
   const [period, setPeriod] = useState<Period>("7d");
   const [activeSource, setActiveSource] = useState<ReportSource>("all");
   const [customizerOpen, setCustomizerOpen] = useState(false);
@@ -1163,6 +1165,17 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
 
   function updateCustomReport<K extends keyof ReportCustomizerState>(key: K, value: ReportCustomizerState[K]) {
     setCustomReport((current) => ({ ...current, [key]: value }));
+  }
+
+  function askNoraToExplain() {
+    const prompt = [
+      `Explique o relatorio operacional do Norium para o periodo "${periodLabels[period]}".`,
+      `Dados atuais: ${totalEvents} eventos filtrados, produtividade em ${productivity.score}%,`,
+      `${formatSavedTime(productivity.savedMinutes)} economizados, ${activeChannels} canais ativos e ${systemWarnings} alertas do sistema.`,
+      `Financeiro do periodo: saldo de ${money(finance.saldo)}, ${finance.vencidos} lancamento(s) vencido(s).`,
+      "Destaque o que merece atencao e sugira uma proxima acao concreta.",
+    ].join(" ");
+    onOpenNora?.(prompt);
   }
 
   function toggleCustomSection(section: ReportSection) {
@@ -1505,6 +1518,14 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
         </div>
 
         <div className="norium-reports-actions flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={askNoraToExplain}
+            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-4 text-xs font-black text-[var(--primary)] transition hover:bg-[var(--primary)]/20"
+          >
+            <Sparkles size={15} />
+            Pedir a Nora para explicar
+          </button>
           <button
             type="button"
             onClick={() => setCustomizerOpen(true)}

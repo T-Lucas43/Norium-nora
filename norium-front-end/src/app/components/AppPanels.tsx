@@ -189,6 +189,7 @@ export default function AppPanels({
             notifications={systemNotifications}
             connected={connected}
             userId={currentUser.id}
+            onOpenNora={onOpenNora}
           />
         </section>
       )}

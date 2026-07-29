@@ -26,6 +26,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { apiBaseUrl } from "../../utils/api";
 import { downloadWithAuth, openWithAuth } from "../../utils/download";
+import LoadingState from "../shared/LoadingState";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -760,7 +761,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               </header>
               <div className="divide-y divide-[var(--border)]">
                 {loading ? (
-                  <EmptyLine text="Carregando financeiro..." />
+                  <LoadingState label="Carregando financeiro..." />
                 ) : data.lancamentos.length === 0 ? (
                   <EmptyLine text="Nenhum lancamento criado." />
                 ) : (

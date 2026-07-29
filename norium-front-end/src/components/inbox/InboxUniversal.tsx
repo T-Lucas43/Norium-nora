@@ -398,7 +398,11 @@ export default function InboxUniversal({ eventsBySource, connected, onRefresh }:
           <span className="hidden rounded-full border border-[var(--border)] px-3 py-1 text-xs font-bold text-[var(--text-secondary)] md:inline-flex">
             {totalEvents} eventos
           </span>
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${connected ? "bg-emerald-500/12 text-emerald-400" : "bg-amber-500/12 text-amber-400"}`}>
+          <span
+            role="status"
+            aria-live="polite"
+            className={`rounded-full px-3 py-1 text-xs font-bold ${connected ? "bg-emerald-500/12 text-emerald-400" : "bg-amber-500/12 text-amber-400"}`}
+          >
             {connected ? "tempo real ativo" : "reconectando"}
           </span>
           <button

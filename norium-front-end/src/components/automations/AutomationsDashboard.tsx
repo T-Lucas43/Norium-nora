@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { automationsApiRequest, fetchActiveTaskProjects } from "../../features/automations/api";
+import LoadingState from "../shared/LoadingState";
 import type {
   Automation,
   AutomationConnection,
@@ -1610,8 +1611,8 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
         <div className="min-w-0 space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             {loading ? (
-              <div className="col-span-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-8 text-center text-sm font-black">
-                Carregando automações...
+              <div className="col-span-full rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <LoadingState label="Carregando automações..." />
               </div>
             ) : (
               filteredAutomations.map((automation, index) => (

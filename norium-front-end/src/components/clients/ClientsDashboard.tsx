@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, CalendarDays, CheckSquare, History, LoaderCircle, Mail, MessageSquare, Paperclip, Pencil, Phone, Plus, Search, Trash2, UserRoundCheck, Wallet, X } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
+import LoadingState from "../shared/LoadingState";
+import EmptyState from "../shared/EmptyState";
 
 type ClientStage = "new" | "contacted" | "proposal" | "won" | "lost";
 type ClientStatus = "lead" | "active" | "inactive";
@@ -194,13 +196,15 @@ export default function ClientsDashboard() {
               <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 focus-within:border-blue-500"><Search size={16} className="text-[var(--text-secondary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar cliente, empresa ou tag" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
             </div>
             <div className="max-h-[600px] overflow-y-auto">
-              {loading ? <div className="grid h-40 place-items-center"><LoaderCircle className="animate-spin text-blue-400" /></div> : filtered.map((client) => (
+              {loading ? <LoadingState label="Carregando clientes..." /> : filtered.map((client) => (
                 <button key={client.id} type="button" onClick={() => setSelectedId(client.id)} className={`flex w-full items-start gap-3 border-b border-[var(--border)] p-4 text-left hover:bg-[var(--surface-hover)] ${selectedId === client.id ? "bg-blue-500/10" : ""}`}>
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/12 font-black text-blue-300">{client.name.slice(0, 2).toUpperCase()}</span>
                   <span className="min-w-0 flex-1"><strong className="block truncate text-sm font-black">{client.name}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{client.company || client.email || "Sem empresa informada"}</small><span className="mt-2 inline-flex rounded-full border border-[var(--border)] px-2 py-0.5 text-[9px] font-black uppercase text-blue-300">{stageLabels[client.stage]}</span></span>
                 </button>
               ))}
-              {!loading && filtered.length === 0 && <p className="p-8 text-center text-sm font-semibold text-[var(--text-secondary)]">Nenhum cliente encontrado.</p>}
+              {!loading && filtered.length === 0 && (
+                <EmptyState title="Nenhum cliente encontrado" className="border-none" />
+              )}
             </div>
           </aside>
 
@@ -259,7 +263,15 @@ export default function ClientsDashboard() {
                   )}
                 </section>
               </>
-            ) : <div className="grid h-full place-items-center text-center"><div><UserRoundCheck className="mx-auto text-blue-400" size={34} /><h2 className="mt-3 font-black">Comece seu relacionamento comercial</h2><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Cadastre o primeiro cliente para acompanhar contexto e proximos passos.</p></div></div>}
+            ) : (
+              <div className="grid h-full place-items-center">
+                <EmptyState
+                  icon={UserRoundCheck}
+                  title="Comece seu relacionamento comercial"
+                  description="Cadastre o primeiro cliente para acompanhar contexto e proximos passos."
+                />
+              </div>
+            )}
           </section>
         </div>
       </div>

@@ -2,9 +2,12 @@ import { useCallback, useState, useEffect, useRef } from "react";
 import SidebarEsquerda from "./SidebarEsquerda";
 import AreaCentralChat from "./AreaCentralChat";
 import PainelDireito from "./PainelDireito";
-import { Menu, X, Search, User } from "lucide-react";
+import { Menu, X, Search, User, Send } from "lucide-react";
 import type { AnexoPendente, ChatConversa } from "./types";
 import { apiBaseUrl } from "../../utils/api";
+import StatusBanner from "../shared/StatusBanner";
+import ConfirmDialog from "../shared/ConfirmDialog";
+import Button from "../shared/Button";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -51,6 +54,14 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
   const [anexosPendentes, setAnexosPendentes] = useState<AnexoPendente[]>([]);
   const [enviandoAnexos, setEnviandoAnexos] = useState<boolean>(false);
   const [statusMicrofone, setStatusMicrofone] = useState<"idle" | "solicitando" | "liberado" | "negado">("idle");
+  const [aviso, setAviso] = useState<{ tone: "error" | "info" | "success"; texto: string } | null>(null);
+  const [conversaParaExcluir, setConversaParaExcluir] = useState<string | null>(null);
+  const [excluindoConversa, setExcluindoConversa] = useState(false);
+  const [modalEncaminharAberto, setModalEncaminharAberto] = useState(false);
+  const [mensagensParaEncaminhar, setMensagensParaEncaminhar] = useState<string[]>([]);
+  const [destinoEncaminhar, setDestinoEncaminhar] = useState<string | null>(null);
+  const [encaminhando, setEncaminhando] = useState(false);
+  const avisoTimeoutRef = useRef<number | null>(null);
   const arquivoInputRef = useRef<HTMLInputElement>(null);
   const anexosPendentesRef = useRef<AnexoPendente[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -194,10 +205,10 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
 
   const executarCriacaoGrupo = () => {
     if (!nomeNovoGrupo.trim() || contatosSelecionadosGrupo.length === 0) {
-      alert("Preencha o nome e selecione ao menos um contato.");
+      mostrarAviso("error", "Preencha o nome e selecione ao menos um contato.");
       return;
     }
-    alert(`Grupo "${nomeNovoGrupo}" criado.`);
+    mostrarAviso("success", `Grupo "${nomeNovoGrupo}" criado.`);
     setModalGrupoAberto(false);
     setNomeNovoGrupo("");
     setContatosSelecionadosGrupo([]);
@@ -286,7 +297,7 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
     });
 
     if (ignorados > 0) {
-      alert(`${ignorados} arquivo(s) ficaram fora porque passam de 14 MB.`);
+      mostrarAviso("error", `${ignorados} arquivo(s) ficaram fora porque passam de 14 MB.`);
     }
     if (novos.length > 0) {
       setAnexosPendentes((prev) => [...prev, ...novos]);
@@ -342,7 +353,7 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
       await carregarConversasDoBackend();
     } catch (err) {
       console.error(err);
-      alert(err instanceof Error ? err.message : "Nao foi possivel enviar.");
+      mostrarAviso("error", err instanceof Error ? err.message : "Nao foi possivel enviar.");
     } finally {
       setEnviandoAnexos(false);
     }
@@ -350,7 +361,7 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
 
   const handleAnexarArquivo = () => {
     if (!conversaSelecionada) {
-      alert("Selecione uma conversa antes de anexar.");
+      mostrarAviso("info", "Selecione uma conversa antes de anexar.");
       return;
     }
     arquivoInputRef.current?.click();
@@ -390,15 +401,15 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
       return;
     }
     if (!conversaSelecionada) {
-      alert("Selecione uma conversa antes de gravar audio.");
+      mostrarAviso("info", "Selecione uma conversa antes de gravar audio.");
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert("Seu navegador nao liberou gravacao de audio.");
+      mostrarAviso("error", "Seu navegador nao liberou gravacao de audio.");
       return;
     }
     if (typeof MediaRecorder === "undefined") {
-      alert("Seu navegador nao suporta gravacao de audio.");
+      mostrarAviso("error", "Seu navegador nao suporta gravacao de audio.");
       return;
     }
 
@@ -443,7 +454,7 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
         if (deveEnviar && blob.size > 0) {
           adicionarAnexosPendentes([{ arquivo: blob, nomeArquivo: `audio-${Date.now()}.${extensao}`, mimeType: tipoAudio }]);
         } else if (deveEnviar) {
-          alert("A gravacao saiu vazia. Verifique a permissao do microfone.");
+          mostrarAviso("error", "A gravacao saiu vazia. Verifique a permissao do microfone.");
         }
       };
 
@@ -453,7 +464,7 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
       console.error(err);
       setGravando(false);
       setStatusMicrofone("negado");
-      alert("Nao foi possivel acessar o microfone.");
+      mostrarAviso("error", "Nao foi possivel acessar o microfone.");
     }
   };
 
@@ -516,18 +527,72 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
     } catch { setErroLogin("Erro de conexão."); }
   };
 
-  const handleExcluirChat = async (id: string, e: React.MouseEvent) => {
+  const mostrarAviso = useCallback((tone: "error" | "info" | "success", texto: string) => {
+    if (avisoTimeoutRef.current) window.clearTimeout(avisoTimeoutRef.current);
+    setAviso({ tone, texto });
+    avisoTimeoutRef.current = window.setTimeout(() => setAviso(null), 5000);
+  }, []);
+
+  const handleExcluirChat = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Apagar conversa?")) {
-      try {
-        await fetch(`${BACKEND_URL}/api/chat/conversas/${encodeURIComponent(id)}?user_id=${userId}`, {
-          method: "DELETE"
+    setConversaParaExcluir(id);
+  };
+
+  const confirmarExclusaoChat = async () => {
+    const id = conversaParaExcluir;
+    if (!id) return;
+    setExcluindoConversa(true);
+    try {
+      await fetch(`${BACKEND_URL}/api/chat/conversas/${encodeURIComponent(id)}?user_id=${userId}`, {
+        method: "DELETE"
+      });
+    } catch (err) { console.error(err); }
+    finally {
+      setConversas((prev) => prev.filter(c => c.id !== id));
+      if (conversaSelecionada === id) setConversaSelecionada(null);
+      setExcluindoConversa(false);
+      setConversaParaExcluir(null);
+    }
+  };
+
+  const handleAbrirEncaminhar = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setMensagensParaEncaminhar(ids);
+    setDestinoEncaminhar(null);
+    setModalEncaminharAberto(true);
+  };
+
+  const confirmarEncaminhamento = async () => {
+    if (!destinoEncaminhar || !conversaAtiva) return;
+    const destino = conversas.find((c) => c.id === destinoEncaminhar);
+    if (!destino) return;
+    const textos = conversaAtiva.mensagens
+      .filter((m) => mensagensParaEncaminhar.includes(m.id) && m.texto?.trim())
+      .map((m) => m.texto as string);
+    if (textos.length === 0) {
+      mostrarAviso("error", "As mensagens selecionadas nao tem texto para encaminhar.");
+      setModalEncaminharAberto(false);
+      return;
+    }
+    setEncaminhando(true);
+    try {
+      for (const texto of textos) {
+        const res = await fetch(`${BACKEND_URL}/api/chat/enviar`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userId, conversa_id: destino.id, canal: destino.canal, texto }),
         });
-      } catch (err) { console.error(err); }
-      finally {
-        setConversas((prev) => prev.filter(c => c.id !== id));
-        if (conversaSelecionada === id) setConversaSelecionada(null);
+        if (!res.ok) throw new Error("Falha ao encaminhar para " + destino.contato);
       }
+      await carregarConversasDoBackend();
+      mostrarAviso("success", `${textos.length} mensagem(ns) encaminhada(s) para ${destino.contato}.`);
+    } catch (err) {
+      mostrarAviso("error", err instanceof Error ? err.message : "Nao foi possivel encaminhar.");
+    } finally {
+      setEncaminhando(false);
+      setModalEncaminharAberto(false);
+      setMensagensParaEncaminhar([]);
+      setDestinoEncaminhar(null);
     }
   };
 
@@ -642,9 +707,70 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
         onRemoverAnexo={removerAnexoPendente}
         onLimparAnexos={limparAnexosPendentes}
         onApagarMensagensEmMassa={handleApagarMensagensMassa}
-        onEncaminharMensagens={(ids) => alert(`Encaminhar as mensagens: ${ids.join(", ")}`)}
+        onEncaminharMensagens={handleAbrirEncaminhar}
       />
-      
+
+      {aviso && (
+        <div className="absolute left-1/2 top-4 z-[80] w-[min(420px,90%)] -translate-x-1/2">
+          <StatusBanner tone={aviso.tone === "success" ? "success" : aviso.tone} onDismiss={() => setAviso(null)}>
+            {aviso.texto}
+          </StatusBanner>
+        </div>
+      )}
+
+      {conversaParaExcluir && (
+        <ConfirmDialog
+          title="Apagar conversa?"
+          description="Essa acao remove a conversa e o historico de mensagens associado a ela."
+          confirmLabel="Apagar"
+          danger
+          busy={excluindoConversa}
+          onConfirm={confirmarExclusaoChat}
+          onCancel={() => setConversaParaExcluir(null)}
+        />
+      )}
+
+      {modalEncaminharAberto && (
+        <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/60 p-4">
+          <div className="flex max-h-[80vh] w-[420px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-xs font-bold text-[var(--text)] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-[var(--border)] p-4">
+              <h3 className="text-sm font-extrabold">Encaminhar {mensagensParaEncaminhar.length} mensagem(ns)</h3>
+              <button onClick={() => setModalEncaminharAberto(false)} aria-label="Fechar" className="rounded p-1 hover:bg-[var(--surface-hover)]">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {conversas.filter((c) => c.id !== conversaSelecionada).length === 0 ? (
+                <p className="p-4 text-[var(--text-secondary)]">Nenhuma outra conversa disponivel.</p>
+              ) : (
+                conversas
+                  .filter((c) => c.id !== conversaSelecionada)
+                  .map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setDestinoEncaminhar(c.id)}
+                      className={`flex w-full items-center gap-3 border-b border-[var(--border)] p-3 text-left hover:bg-[var(--surface-hover)] ${destinoEncaminhar === c.id ? "bg-[var(--surface-hover)]" : ""}`}
+                    >
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--primary)_16%,transparent)] text-[var(--primary)]">
+                        <User size={16} />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{c.contato}</span>
+                      {destinoEncaminhar === c.id && <Send size={14} className="text-[var(--primary)]" />}
+                    </button>
+                  ))
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[var(--border)] p-4">
+              <Button variant="ghost" onClick={() => setModalEncaminharAberto(false)}>Cancelar</Button>
+              <Button variant="primary" disabled={!destinoEncaminhar} loading={encaminhando} onClick={confirmarEncaminhamento}>
+                Encaminhar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {painelPerfilAberto && (
         <PainelDireito modo={abaDireitaModo} conversaAtiva={conversaAtiva} onFechar={() => setPainelPerfilAberto(false)} />
       )}

@@ -58,11 +58,21 @@ type Workspace = JsonItem & {
 type PlatformDashboardProps = {
   session: AuthSession;
   onSessionUpdate: (session: AuthSession) => void;
+  onNavigate?: (tab: string) => void;
+};
+
+type AuditEntry = JsonItem & {
+  timestamp?: string;
+  action?: string;
+  source?: string;
+  status?: string;
+  description?: string;
+  actor?: { name?: string; email?: string };
 };
 
 const areas: Array<{ id: PlatformArea; label: string; icon: typeof Gauge }> = [
   { id: "overview", label: "Visao geral", icon: Gauge },
-  { id: "companies", label: "Empresas", icon: Building2 },
+  { id: "companies", label: "Ambientes", icon: Building2 },
   { id: "service", label: "Atendimento", icon: TimerReset },
   { id: "knowledge", label: "IA e documentos", icon: BookOpen },
   { id: "security", label: "Seguranca", icon: ShieldCheck },
@@ -90,11 +100,12 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-export default function PlatformDashboard({ session, onSessionUpdate }: PlatformDashboardProps) {
+export default function PlatformDashboard({ session, onSessionUpdate, onNavigate }: PlatformDashboardProps) {
   const [area, setArea] = useState<PlatformArea>("overview");
   const [summary, setSummary] = useState(initialSummary);
   const [data, setData] = useState<Record<string, unknown>>({});
   const [users, setUsers] = useState<NoriumUser[]>([]);
+  const [auditPreview, setAuditPreview] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -117,8 +128,10 @@ export default function PlatformDashboard({ session, onSessionUpdate }: Platform
           apiRequest<{ items: JsonItem[] }>("/api/plataforma/cofre").catch(() => ({ items: [] })),
         ]);
       const teamUsers = await apiRequest<{ users: NoriumUser[] }>("/api/auth/users").catch(() => ({ users: [] }));
+      const audit = await apiRequest<{ items: AuditEntry[] }>("/api/operacao/auditoria?limit=5").catch(() => ({ items: [] }));
       setSummary(summaryPayload);
       setUsers(teamUsers.users);
+      setAuditPreview(audit.items);
       setData({
         companies: companies.items,
         absences: absences.items,
@@ -172,7 +185,7 @@ export default function PlatformDashboard({ session, onSessionUpdate }: Platform
               <p className="text-[11px] font-bold uppercase tracking-wider text-blue-400">Operacao e governanca</p>
               <h1 className="text-2xl font-black">Plataforma Norium</h1>
               <p className="text-sm text-[var(--text-secondary)]">
-                Empresas, atendimento, documentos, dados e seguranca em um unico controle.
+                Ambientes, atendimento, documentos, dados e seguranca em um unico controle.
               </p>
             </div>
           </div>
@@ -241,9 +254,11 @@ export default function PlatformDashboard({ session, onSessionUpdate }: Platform
                 users={users}
                 rules={(data.rules as JsonItem[]) || []}
                 credentials={(data.vault as JsonItem[]) || []}
+                auditPreview={auditPreview}
                 mutate={mutate}
                 busy={busy}
                 onSessionUpdate={onSessionUpdate}
+                onNavigate={onNavigate}
               />
             )}
           </>
@@ -266,7 +281,7 @@ function OverviewArea({
   const [ocrText, setOcrText] = useState("");
   const [scan, setScan] = useState<Record<string, unknown> | null>(null);
   const metrics = [
-    ["Empresas", summary.workspaces, Building2],
+    ["Ambientes", summary.workspaces, Building2],
     ["Portais", summary.portalClients, UsersRound],
     ["Documentos", summary.knowledgeDocuments, BookOpen],
     ["Assinaturas pendentes", summary.pendingSignatures, FileSignature],
@@ -401,7 +416,14 @@ function CompaniesArea({
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
-      <Panel title="Empresas e operacoes" subtitle="Cada empresa possui dados, integracoes e permissoes isolados." icon={Building2}>
+      <div className="xl:col-span-2 flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-xs font-semibold text-[var(--text-secondary)]">
+        <BriefcaseBusiness size={15} className="mt-0.5 shrink-0 text-[var(--primary)]" />
+        <span>
+          Aqui voce gerencia <strong className="text-[var(--text)]">ambientes de trabalho</strong> (instancias isoladas do Norium, com dados e integracoes proprios) —
+          diferente de <strong className="text-[var(--text)]">Clientes</strong>, que e o seu CRM de relacionamento comercial.
+        </span>
+      </div>
+      <Panel title="Ambientes de trabalho" subtitle="Cada ambiente possui dados, integracoes e permissoes isolados." icon={Building2}>
         <div className="grid gap-3 md:grid-cols-2">
           {companies.map((company) => (
             <article key={company.id} className={`norium-platform-card ${activeId === company.id ? "is-selected" : ""}`}>
@@ -427,14 +449,14 @@ function CompaniesArea({
                   <button
                     type="button"
                     className="norium-platform-icon-button is-danger"
-                    title="Excluir empresa"
+                    title="Excluir ambiente"
                     aria-label={`Excluir ${company.name}`}
                     onClick={() => {
-                      if (!window.confirm(`Excluir a empresa ${company.name}? Os dados isolados deixarao de ser acessiveis.`)) return;
+                      if (!window.confirm(`Excluir o ambiente ${company.name}? Os dados isolados deixarao de ser acessiveis.`)) return;
                       void mutate(
                         `delete-${company.id}`,
                         () => apiRequest(`/api/plataforma/empresas/${company.id}`, { method: "DELETE" }),
-                        "Empresa excluida.",
+                        "Ambiente excluido.",
                       );
                     }}
                   >
@@ -447,9 +469,9 @@ function CompaniesArea({
         </div>
       </Panel>
 
-      <Panel title="Nova empresa" subtitle="Crie um workspace com identidade propria." icon={Plus}>
+      <Panel title="Novo ambiente" subtitle="Crie um workspace com identidade propria." icon={Plus}>
         <label className="norium-platform-label">
-          Nome da empresa
+          Nome do ambiente
           <input className="norium-platform-input" value={name} onChange={(event) => setName(event.target.value)} />
         </label>
         <button
@@ -476,11 +498,11 @@ function CompaniesArea({
                 });
                 setName("");
               },
-              "Empresa criada com isolamento proprio.",
+              "Ambiente criado com isolamento proprio.",
             )
           }
         >
-          <Plus size={16} /> Criar empresa
+          <Plus size={16} /> Criar ambiente
         </button>
       </Panel>
     </div>
@@ -681,6 +703,7 @@ function KnowledgeArea({
   const [answer, setAnswer] = useState("");
   const [transcript, setTranscript] = useState("");
   const [signatureTitle, setSignatureTitle] = useState("");
+  const [signatureProvider, setSignatureProvider] = useState<"manual" | "clicksign" | "docusign" | "zapsign">("manual");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
 
   return (
@@ -872,36 +895,51 @@ function KnowledgeArea({
         </button>
       </Panel>
 
-      <Panel title="Assinatura eletronica" subtitle="Acompanhe o ciclo do documento; provedores externos usam credenciais do Cofre." icon={FileSignature}>
-        <div className="flex gap-2">
+      <Panel title="Assinatura eletronica" subtitle="Acompanhe o ciclo do documento; o status e sempre atualizado manualmente por aqui." icon={FileSignature}>
+        <div className="grid gap-2 sm:grid-cols-[1fr_170px]">
           <input className="norium-platform-input" value={signatureTitle} onChange={(event) => setSignatureTitle(event.target.value)} placeholder="Contrato comercial" />
-          <button
-            type="button"
-            className="norium-platform-button is-primary shrink-0"
-            disabled={signatureTitle.trim().length < 2 || busy === "signature"}
-            onClick={() =>
-              void mutate(
-                "signature",
-                async () => {
-                  await apiRequest("/api/plataforma/assinaturas", {
-                    method: "POST",
-                    body: JSON.stringify({
-                      title: signatureTitle,
-                      provider: "manual",
-                      documentUrl: "documento-pendente",
-                      signers: [{ name: "Signatario", email: "pendente@norium.local" }],
-                      message: "",
-                    }),
-                  });
-                  setSignatureTitle("");
-                },
-                "Envelope criado para acompanhamento.",
-              )
-            }
+          <select
+            className="norium-platform-input"
+            value={signatureProvider}
+            onChange={(event) => setSignatureProvider(event.target.value as typeof signatureProvider)}
           >
-            <FileSignature size={16} /> Criar envelope
-          </button>
+            <option value="manual">Manual</option>
+            <option value="clicksign">ClickSign</option>
+            <option value="docusign">DocuSign</option>
+            <option value="zapsign">ZapSign</option>
+          </select>
         </div>
+        <p className="mt-2 text-[11px] leading-5 text-[var(--text-secondary)]">
+          {signatureProvider === "manual"
+            ? "Voce mesmo atualiza o status conforme o documento e assinado fora do Norium."
+            : `Ainda nao ha integracao automatica com ${signatureProvider === "clicksign" ? "ClickSign" : signatureProvider === "docusign" ? "DocuSign" : "ZapSign"}. O envelope fica registrado aqui, mas voce precisa atualizar o status manualmente ate a integracao ser conectada.`}
+        </p>
+        <button
+          type="button"
+          className="norium-platform-button is-primary mt-3"
+          disabled={signatureTitle.trim().length < 2 || busy === "signature"}
+          onClick={() =>
+            void mutate(
+              "signature",
+              async () => {
+                await apiRequest("/api/plataforma/assinaturas", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    title: signatureTitle,
+                    provider: signatureProvider,
+                    documentUrl: "documento-pendente",
+                    signers: [{ name: "Signatario", email: "pendente@norium.local" }],
+                    message: "",
+                  }),
+                });
+                setSignatureTitle("");
+              },
+              "Envelope criado para acompanhamento.",
+            )
+          }
+        >
+          <FileSignature size={16} /> Criar envelope
+        </button>
         <CompactList items={signatures} empty="Nenhum documento em assinatura." />
       </Panel>
     </div>
@@ -913,17 +951,21 @@ function SecurityArea({
   users,
   rules,
   credentials,
+  auditPreview,
   mutate,
   busy,
   onSessionUpdate,
+  onNavigate,
 }: {
   session: AuthSession;
   users: NoriumUser[];
   rules: JsonItem[];
   credentials: JsonItem[];
+  auditPreview: AuditEntry[];
   mutate: MutationRunner;
   busy: string;
   onSessionUpdate: (session: AuthSession) => void;
+  onNavigate?: (tab: string) => void;
 }) {
   const [ruleName, setRuleName] = useState("");
   const [amount, setAmount] = useState("1000");
@@ -933,6 +975,33 @@ function SecurityArea({
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
+      <Panel title="Trilha de auditoria" subtitle="Registro de acoes sensiveis do sistema, consolidado no Controle operacional." icon={ScanSearch}>
+        {auditPreview.length === 0 ? (
+          <EmptyState text="Nenhum evento de auditoria registrado ainda." />
+        ) : (
+          <div className="mt-1 space-y-2">
+            {auditPreview.map((entry) => (
+              <div key={entry.id} className="rounded-lg border border-[var(--border)] bg-black/10 px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="min-w-0 truncate text-sm font-bold">{entry.description || entry.action || "Acao registrada"}</span>
+                  <span className="shrink-0 text-[10px] font-bold uppercase text-[var(--text-secondary)]">{entry.status || ""}</span>
+                </div>
+                <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
+                  {entry.actor?.name || "Sistema"} - {entry.source || "geral"}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          className="norium-platform-button mt-3 w-full justify-center"
+          onClick={() => onNavigate?.("Controle")}
+        >
+          <ScanSearch size={16} /> Ver auditoria completa no Controle
+        </button>
+      </Panel>
+
       <Panel title="Regras de aprovacao" subtitle="Bloqueie gastos, envios em massa e exclusoes ate um responsavel aprovar." icon={ShieldCheck}>
         <div className="grid gap-2 sm:grid-cols-[1fr_130px]">
           <input className="norium-platform-input" value={ruleName} onChange={(event) => setRuleName(event.target.value)} placeholder="Gastos de alto valor" />

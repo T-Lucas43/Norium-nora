@@ -1,0 +1,253 @@
+// Concentra o roteamento visual e carrega cada modulo somente quando necessario.
+import { lazy, Suspense } from "react";
+import type { AuthSession } from "../../types/auth";
+import type {
+  EventSource,
+  OmnichannelEvent,
+  PerfilOperador,
+  SystemNotification,
+} from "../../types/omnichannel";
+import ModuleCoach, { type GuidedModule } from "../../components/shared/ModuleCoach";
+
+const AgendaDashboard = lazy(() => import("../../components/agenda/AgendaDashboard"));
+const AutomationsDashboard = lazy(() => import("../../components/automations/AutomationsDashboard"));
+const BrainstormDashboard = lazy(() => import("../../components/brainstorm/BrainstormDashboard"));
+const ChatCentral = lazy(() => import("../../components/chat/ChatCentral"));
+const ClientsDashboard = lazy(() => import("../../components/clients/ClientsDashboard"));
+const Dashboard = lazy(() => import("../../components/dashboard/Dashboard"));
+const EmailDashboard = lazy(() => import("../../components/emails/EmailDashboard"));
+const FinanceDashboard = lazy(() => import("../../components/finance/FinanceDashboard"));
+const HelpDashboard = lazy(() => import("../../components/help/HelpDashboard"));
+const InboxUniversal = lazy(() => import("../../components/inbox/InboxUniversal"));
+const MoreDashboard = lazy(() => import("../../components/more/MoreDashboard"));
+const OperationsDashboard = lazy(() => import("../../components/operations/OperationsDashboard"));
+const ProfileSettings = lazy(() => import("../../components/profile/ProfileSettings"));
+const PlatformDashboard = lazy(() => import("../../components/platform/PlatformDashboard"));
+const ReportsDashboard = lazy(() => import("../../components/reports/ReportsDashboard"));
+const SettingsDashboard = lazy(() => import("../../components/settings/SettingsDashboard"));
+const SystemNotificationsCenter = lazy(() => import("../../components/notifications/SystemNotificationsCenter"));
+const TasksDashboard = lazy(() => import("../../components/tasks/TasksDashboard"));
+const TeamDashboard = lazy(() => import("../../components/team/TeamDashboard"));
+const WorkHubDashboard = lazy(() => import("../../components/workhub/WorkHubDashboard"));
+
+function PanelLoading() {
+  return (
+    <div className="grid min-h-[calc(100vh-74px)] place-items-center bg-[var(--background)] text-sm font-semibold text-[var(--text-secondary)]">
+      Carregando modulo...
+    </div>
+  );
+}
+
+type EventGroups = Record<EventSource, OmnichannelEvent[]>;
+
+type AppPanelsProps = {
+  activeTab: string;
+  authSession: AuthSession;
+  canUseNora: boolean;
+  connected: boolean;
+  emailToOpenId: string | null;
+  eventsBySource: EventGroups;
+  mountedTabs: Set<string>;
+  profile: PerfilOperador | null;
+  systemNotifications: SystemNotification[];
+  telegramEnabledForUser: boolean;
+  onActiveConversationChange: (conversationId: string | null) => void;
+  onEmailHandled: () => void;
+  onLogout: () => void;
+  onNavigate: (tab: string) => void;
+  onOpenDeepLink: (link: { tab: string; entityType: string; entityId: string; metadata?: Record<string, unknown> }) => void;
+  onOpenNora: (prompt?: string) => void;
+  onProfileSaved: (profile: PerfilOperador) => void;
+  onRefreshEvents: () => void;
+  onSessionUpdate: (session: AuthSession) => void;
+  onClearSystemNotifications: () => void;
+};
+
+export default function AppPanels({
+  activeTab,
+  authSession,
+  canUseNora,
+  connected,
+  emailToOpenId,
+  eventsBySource,
+  mountedTabs,
+  profile,
+  systemNotifications,
+  telegramEnabledForUser,
+  onActiveConversationChange,
+  onClearSystemNotifications,
+  onEmailHandled,
+  onLogout,
+  onNavigate,
+  onOpenDeepLink,
+  onOpenNora,
+  onProfileSaved,
+  onRefreshEvents,
+  onSessionUpdate,
+}: AppPanelsProps) {
+  const currentUser = authSession.user;
+  const activePanelClass = (...tabs: string[]) => (tabs.includes(activeTab) ? "contents" : "hidden");
+  const isPanelMounted = (...tabs: string[]) => tabs.some((tab) => mountedTabs.has(tab) || tabs.includes(activeTab));
+  const coach = (module: GuidedModule, compact = false) => (
+    <ModuleCoach module={module} onAskNora={onOpenNora} compact={compact} />
+  );
+
+  return (
+    <Suspense fallback={<PanelLoading />}>
+      {isPanelMounted("Dashboard", "Resumo") && (
+        <section className={activePanelClass("Dashboard", "Resumo")}>
+          {coach("Dashboard", true)}
+          <Dashboard
+            eventsBySource={eventsBySource}
+            connected={connected}
+            profile={profile}
+            onNavigate={onNavigate}
+            onOpenNora={onOpenNora}
+          />
+        </section>
+      )}
+      {isPanelMounted("Inbox", "Central") && (
+        <section className={activePanelClass("Inbox", "Central")}>
+          {coach("Central")}
+          <InboxUniversal eventsBySource={eventsBySource} connected={connected} onRefresh={onRefreshEvents} />
+        </section>
+      )}
+      {isPanelMounted("Controle") && (
+        <section className={activePanelClass("Controle")}>
+          {coach("Controle")}
+          <OperationsDashboard onNavigate={onNavigate} />
+        </section>
+      )}
+      {isPanelMounted("Pendencias") && (
+        <section className={activePanelClass("Pendencias")}>
+          {coach("Pendencias")}
+          <WorkHubDashboard onNavigate={onNavigate} onOpenDeepLink={onOpenDeepLink} />
+        </section>
+      )}
+      {isPanelMounted("Notificacoes", "Notificações") && (
+        <section className={activePanelClass("Notificacoes", "Notificações")}>
+          {coach("Notificacoes")}
+          <SystemNotificationsCenter
+            notifications={systemNotifications}
+            connected={connected}
+            onClear={onClearSystemNotifications}
+            onNavigate={onNavigate}
+          />
+        </section>
+      )}
+      {isPanelMounted("E-mail", "E-mails") && (
+        <section className={activePanelClass("E-mail", "E-mails")}>
+          {coach("Emails", true)}
+          <EmailDashboard
+            userId={currentUser.id}
+            canUseNora={canUseNora}
+            selectedEmailId={emailToOpenId}
+            onSelectedEmailHandled={onEmailHandled}
+          />
+        </section>
+      )}
+      {isPanelMounted("Agenda") && (
+        <section className={activePanelClass("Agenda")}>
+          {coach("Agenda", true)}
+          <AgendaDashboard userId={currentUser.id} />
+        </section>
+      )}
+      {isPanelMounted("Chat") && (
+        <section className={activePanelClass("Chat")}>
+          {coach("Chat", true)}
+          <ChatCentral
+            userId={currentUser.id}
+            telegramEnabled={telegramEnabledForUser}
+            onConversaAtivaChange={onActiveConversationChange}
+          />
+        </section>
+      )}
+      {isPanelMounted("Tarefas") && (
+        <section className={activePanelClass("Tarefas")}>
+          {coach("Tarefas", true)}
+          <TasksDashboard session={authSession} />
+        </section>
+      )}
+      {isPanelMounted("Gastos", "Financeiro") && (
+        <section className={activePanelClass("Gastos", "Financeiro")}>
+          {coach("Gastos")}
+          <FinanceDashboard userId={currentUser.id} />
+        </section>
+      )}
+      {isPanelMounted("Automacoes", "Automações") && (
+        <section className={activePanelClass("Automacoes", "Automações")}>
+          {coach("Automacoes")}
+          <AutomationsDashboard onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("Relatorios", "Relatórios") && (
+        <section className={activePanelClass("Relatorios", "Relatórios")}>
+          {coach("Relatorios")}
+          <ReportsDashboard
+            eventsBySource={eventsBySource}
+            notifications={systemNotifications}
+            connected={connected}
+            userId={currentUser.id}
+          />
+        </section>
+      )}
+      {isPanelMounted("Perfil") && (
+        <section className={activePanelClass("Perfil")}>
+          {coach("Perfil")}
+          <ProfileSettings
+            userId={currentUser.id}
+            currentUser={currentUser}
+            onSaved={onProfileSaved}
+            onLogout={onLogout}
+          />
+        </section>
+      )}
+      {isPanelMounted("Configuracoes", "Configurações") && (
+        <section className={activePanelClass("Configuracoes", "Configurações")}>
+          {coach("Configuracoes")}
+          <SettingsDashboard
+            userId={currentUser.id}
+            currentUser={currentUser}
+            onSaved={onProfileSaved}
+          />
+        </section>
+      )}
+      {isPanelMounted("Equipe") && (
+        <section className={activePanelClass("Equipe")}>
+          {coach("Equipe")}
+          <TeamDashboard session={authSession} onSessionUpdate={onSessionUpdate} />
+        </section>
+      )}
+      {isPanelMounted("Clientes") && (
+        <section className={activePanelClass("Clientes")}>
+          {coach("Clientes")}
+          <ClientsDashboard />
+        </section>
+      )}
+      {isPanelMounted("Governanca") && (
+        <section className={activePanelClass("Governanca")}>
+          {coach("Governanca")}
+          <PlatformDashboard session={authSession} onSessionUpdate={onSessionUpdate} />
+        </section>
+      )}
+      {isPanelMounted("Brainstorm") && (
+        <section className={activePanelClass("Brainstorm")}>
+          {coach("Brainstorm")}
+          <BrainstormDashboard session={authSession} />
+        </section>
+      )}
+      {isPanelMounted("Ajuda") && (
+        <section className={activePanelClass("Ajuda")}>
+          {coach("Ajuda")}
+          <HelpDashboard onNavigate={onNavigate} onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("Mais") && (
+        <section className={activePanelClass("Mais")}>
+          {coach("Mais")}
+          <MoreDashboard onNavigate={onNavigate} onOpenNora={onOpenNora} onLogout={onLogout} />
+        </section>
+      )}
+    </Suspense>
+  );
+}

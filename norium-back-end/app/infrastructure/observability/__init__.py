@@ -1,0 +1,1 @@
+"""Observabilidade local do Norium."""

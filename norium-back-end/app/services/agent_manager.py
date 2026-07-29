@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List, Literal, Optional
+
+from app.services.conversation_store import (
+    EMPTY_HISTORY_MARKER,
+    append_outgoing_message,
+    build_conversation_history,
+    is_empty_history,
+)
+from app.services.nora import NoraIAService
+from app.services.telegram import TelegramConfigError, TelegramService
+from app.services.whatsapp import WhatsAppService
+
+AgentStatus = Literal["ativo", "planejado"]
+TELEGRAM_OWNER_USER_ID = "lucas123"
+
+
+class AgentManager:
+    def __init__(self) -> None:
+        self.nora_service = NoraIAService()
+        self.whatsapp_service = WhatsAppService()
+        self.telegram_service = TelegramService()
+        self._agents: List[Dict[str, Any]] = [
+            {
+                "id": "mensagens",
+                "nome": "Agente de Mensagens",
+                "status": "ativo",
+                "canais": ["whatsapp", "telegram"],
+                "descricao": "Gera rascunhos e envia respostas aprovadas no chat ativo.",
+            },
+            {
+                "id": "agenda",
+                "nome": "Agente de Agenda",
+                "status": "ativo",
+                "canais": ["whatsapp", "telegram"],
+                "descricao": "Consulta compromissos e cria eventos no Google Agenda com perguntas sequenciais.",
+            },
+            {
+                "id": "tarefas",
+                "nome": "Agente de Tarefas",
+                "status": "ativo",
+                "canais": ["norium", "whatsapp", "telegram"],
+                "descricao": "Cria, consulta e conclui tarefas do Kanban do Norium.",
+            },
+            {
+                "id": "emails",
+                "nome": "Agente de E-mails",
+                "status": "ativo",
+                "canais": ["gmail", "norium"],
+                "descricao": "Consulta, resume e conduz envios pelo Gmail com confirmacao antes do disparo.",
+            },
+            {
+                "id": "relatorios",
+                "nome": "Agente de Relatorios",
+                "status": "planejado",
+                "canais": ["whatsapp", "telegram"],
+                "descricao": "Base reservada para metricas e analises operacionais.",
+            },
+        ]
+
+    def list_agents(self) -> List[Dict[str, Any]]:
+        return self._agents
+
+    async def draft_message(
+        self,
+        conversa_id: str,
+        *,
+        instrucao: Optional[str] = None,
+        tom_atendente: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        history = await build_conversation_history(conversa_id, limit=30)
+        empty_context = is_empty_history(history)
+
+        if empty_context:
+            return {
+                "agent_id": "mensagens",
+                "status": "sem_contexto",
+                "empty_context": True,
+                "draft": (
+                    "Historico vazio no banco local. Eu ate queria fazer magia, mas sem mensagem real "
+                    "o Agente de Mensagens fica oficialmente proibido de inventar novela."
+                ),
+                "history": EMPTY_HISTORY_MARKER,
+            }
+
+        prompt = (
+            "Voce e o Agente de Mensagens da Nora. Gere um rascunho curto, humano e pronto para envio, "
+            "mantendo o tom do atendente e sem inventar fatos fora do historico.\n\n"
+            f"Tom desejado: {tom_atendente or 'profissional, direto e cordial'}\n"
+            f"Instrucao extra do operador: {instrucao or 'responder ao cliente da forma mais util agora'}\n\n"
+            f"Historico real:\n{history}\n\n"
+            "Responda apenas com o texto do rascunho que poderia ser enviado ao cliente."
+        )
+        draft = await self.nora_service.perguntar_nora([{"role": "user", "content": prompt}])
+        return {
+            "agent_id": "mensagens",
+            "status": "rascunho_gerado",
+            "empty_context": False,
+            "draft": draft,
+            "history": history,
+        }
+
+    async def execute_message(
+        self,
+        conversa_id: str,
+        texto: str,
+        *,
+        canal: Literal["whatsapp", "telegram"] = "whatsapp",
+        autorizado: bool = False,
+        user_id: str = "lucas123",
+    ) -> Dict[str, Any]:
+        if not autorizado:
+            return {
+                "agent_id": "mensagens",
+                "status": "bloqueado_sem_autorizacao",
+                "sent": False,
+            }
+
+        if canal == "telegram":
+            if user_id != TELEGRAM_OWNER_USER_ID:
+                return {
+                    "agent_id": "mensagens",
+                    "status": "telegram_restrito",
+                    "sent": False,
+                    "detail": "Telegram liberado somente para a conta principal do Norium.",
+                }
+            try:
+                await self.telegram_service.send_text(conversa_id, texto)
+                success = True
+            except TelegramConfigError:
+                success = False
+        else:
+            success = await self.whatsapp_service.enviar_mensagem_texto(conversa_id, texto)
+
+        if success:
+            await append_outgoing_message(
+                conversa_id,
+                texto,
+                channel=canal,
+                sender_label="Agente de Mensagens",
+                status="enviado",
+                user_id=user_id,
+            )
+
+        return {
+            "agent_id": "mensagens",
+            "status": "enviado" if success else "falha_gateway",
+            "sent": success,
+        }

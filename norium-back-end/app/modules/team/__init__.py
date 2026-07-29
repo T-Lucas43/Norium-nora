@@ -1,0 +1,1 @@
+"""Equipe e chat interno."""

@@ -1,0 +1,871 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  BellRing,
+  BrainCircuit,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  CircleDollarSign,
+  ClipboardCheck,
+  Clock3,
+  Download,
+  DatabaseBackup,
+  FileCheck2,
+  FileStack,
+  ExternalLink,
+  ListChecks,
+  LoaderCircle,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Send,
+  ShieldCheck,
+  SlidersHorizontal,
+  Trash2,
+  Undo2,
+  X,
+  XCircle,
+} from "lucide-react";
+
+import { apiBaseUrl, authToken } from "../../utils/api";
+
+type Summary = {
+  pendingApprovals: number;
+  activeTasks: number;
+  overdueTasks: number;
+  todayEvents: number;
+  financialReminders: number;
+  unhealthyIntegrations: number;
+};
+
+type Approval = {
+  id: string;
+  title: string;
+  description: string;
+  action: string;
+  source: string;
+  status: "pending" | "approved" | "rejected" | "cancelled" | "executed" | "failed";
+  createdAt: string;
+  requestedBy?: { name?: string };
+};
+
+type IntegrationHealth = {
+  id: string;
+  name: string;
+  status: "online" | "attention" | "offline";
+  connected: boolean;
+  lastSync?: string | null;
+  detail: string;
+  permissions: string[];
+  failures: number;
+};
+
+type OperationEntry = {
+  id: string;
+  action: string;
+  title?: string;
+  description: string;
+  status: string;
+  timestamp: string;
+  actor?: { name?: string };
+  entityType?: string | null;
+  entityId?: string | null;
+  undoAction?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+type TaskItem = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  dueDate?: string | null;
+};
+
+type CalendarItem = {
+  id: string;
+  title: string;
+  description: string;
+  timestamp: string;
+};
+
+type FinancialReminder = {
+  id: string;
+  title: string;
+  amount: number;
+  dueDate: string;
+  daysUntil: number;
+};
+
+type OperationsOverview = {
+  generatedAt: string;
+  summary: Summary;
+  myDay: {
+    tasks: TaskItem[];
+    calendar: CalendarItem[];
+    financialReminders: FinancialReminder[];
+    financeSummary: Record<string, number>;
+  };
+  approvals: Approval[];
+  audit: OperationEntry[];
+  receipts: OperationEntry[];
+  integrations: IntegrationHealth[];
+  briefing: {
+    greeting: string;
+    title: string;
+    description: string;
+    generatedAt: string;
+    priority?: ProactiveAlert | null;
+  };
+  alerts: ProactiveAlert[];
+  memory: NoraMemory[];
+  templates: OperationTemplate[];
+  followUps: FollowUp[];
+  settings: OperationSettings;
+};
+
+type OperationTemplate = {
+  id: string;
+  name: string;
+  kind: "email" | "task" | "calendar" | "finance" | "automation" | "message";
+  description: string;
+  tags: string[];
+};
+
+type FollowUp = {
+  id: string;
+  title: string;
+  channel: string;
+  status: "open" | "done" | "cancelled" | "snoozed";
+  counterpart: string;
+  dueAt?: string | null;
+};
+
+type OperationSettings = {
+  autonomy: "confirm_all" | "balanced" | "autonomous";
+  dailyBriefing: boolean;
+  smartReminders: boolean;
+  followUpHours: number;
+};
+
+type ProactiveAlert = {
+  id: string;
+  kind: string;
+  severity: "info" | "warning" | "error";
+  title: string;
+  description: string;
+  tab: string;
+};
+
+type NoraMemory = {
+  id: string;
+  key: string;
+  value: string;
+  category: "communication" | "client" | "project" | "process" | "general";
+  scope: "personal" | "team";
+  updatedAt?: string;
+};
+
+type TimelineMode = "receipts" | "audit";
+
+const API_URL = `${apiBaseUrl()}/api/operacao`;
+const CACHE_KEY = "norium-operations-overview";
+
+function headers(): HeadersInit {
+  const token = authToken();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function cachedOverview(): OperationsOverview | null {
+  try {
+    const payload = sessionStorage.getItem(CACHE_KEY);
+    return payload ? (JSON.parse(payload) as OperationsOverview) : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatDate(value?: string | null, includeDate = true) {
+  if (!value) return "Ainda nao sincronizado";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("pt-BR", {
+    ...(includeDate ? { day: "2-digit", month: "short" } : {}),
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
+function money(value: number) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+}
+
+function formatReminderTiming(daysUntil: number) {
+  if (daysUntil < 0) return `vencido ha ${Math.abs(daysUntil)} dia(s)`;
+  if (daysUntil === 0) return "vence hoje";
+  if (daysUntil === 1) return "vence amanha";
+  return `vence em ${daysUntil} dia(s)`;
+}
+
+function entryTarget(entry: OperationEntry): string | null {
+  const value = `${entry.entityType || ""} ${entry.action || ""}`.toLocaleLowerCase("pt-BR");
+  if (/email|gmail/.test(value)) return "E-mails";
+  if (/task|tarefa|kanban/.test(value)) return "Tarefas";
+  if (/financ|lancamento|boleto|gasto/.test(value)) return "Gastos";
+  if (/calendar|agenda|evento/.test(value)) return "Agenda";
+  if (/automation|automacao/.test(value)) return "Automações";
+  if (/team|equipe/.test(value)) return "Equipe";
+  return null;
+}
+
+type OperationsDashboardProps = {
+  onNavigate?: (tab: string) => void;
+};
+
+export default function OperationsDashboard({ onNavigate }: OperationsDashboardProps) {
+  const [overview, setOverview] = useState<OperationsOverview | null>(cachedOverview);
+  const [loading, setLoading] = useState(!overview);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [timelineMode, setTimelineMode] = useState<TimelineMode>("receipts");
+  const [approvalOpen, setApprovalOpen] = useState(false);
+  const [approvalTitle, setApprovalTitle] = useState("");
+  const [approvalDescription, setApprovalDescription] = useState("");
+  const [savingApproval, setSavingApproval] = useState(false);
+  const [decisionId, setDecisionId] = useState<string | null>(null);
+  const [editingApproval, setEditingApproval] = useState<Approval | null>(null);
+  const [checkingIntegrationId, setCheckingIntegrationId] = useState<string | null>(null);
+  const [memoryKey, setMemoryKey] = useState("");
+  const [memoryValue, setMemoryValue] = useState("");
+  const [memoryScope, setMemoryScope] = useState<"personal" | "team">("personal");
+  const [savingMemory, setSavingMemory] = useState(false);
+  const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
+  const [undoingReceiptId, setUndoingReceiptId] = useState<string | null>(null);
+  const [templateName, setTemplateName] = useState("");
+  const [templateKind, setTemplateKind] = useState<OperationTemplate["kind"]>("email");
+  const [followUpTitle, setFollowUpTitle] = useState("");
+  const [followUpDueAt, setFollowUpDueAt] = useState("");
+
+  const loadOverview = useCallback(async (silent = false) => {
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/resumo`, { headers: headers() });
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao carregar o controle operacional.");
+      const payload = (await response.json()) as OperationsOverview;
+      setOverview(payload);
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+      setError("");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Controle operacional indisponivel.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOverview(Boolean(sessionStorage.getItem(CACHE_KEY)));
+    const timer = window.setInterval(() => void loadOverview(true), 30_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void loadOverview(true);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [loadOverview]);
+
+  const pendingApprovals = useMemo(
+    () => (overview?.approvals || []).filter((approval) => approval.status === "pending"),
+    [overview?.approvals],
+  );
+  const timeline = timelineMode === "receipts" ? overview?.receipts || [] : overview?.audit || [];
+
+  function closeApprovalDialog() {
+    setApprovalOpen(false);
+    setEditingApproval(null);
+    setApprovalTitle("");
+    setApprovalDescription("");
+  }
+
+  function openNewApproval() {
+    setEditingApproval(null);
+    setApprovalTitle("");
+    setApprovalDescription("");
+    setApprovalOpen(true);
+  }
+
+  function openApprovalEditor(approval: Approval) {
+    setEditingApproval(approval);
+    setApprovalTitle(approval.title);
+    setApprovalDescription(approval.description || "");
+    setApprovalOpen(true);
+  }
+
+  async function saveApproval() {
+    if (!approvalTitle.trim()) {
+      setError("Informe o que precisa ser aprovado.");
+      return;
+    }
+    setSavingApproval(true);
+    try {
+      const response = await fetch(`${API_URL}/aprovacoes${editingApproval ? `/${editingApproval.id}` : ""}`, {
+        method: editingApproval ? "PUT" : "POST",
+        headers: headers(),
+        body: JSON.stringify(editingApproval
+          ? { title: approvalTitle.trim(), description: approvalDescription.trim() }
+          : {
+              title: approvalTitle.trim(),
+              description: approvalDescription.trim(),
+              action: "manual_review",
+              source: "operacao",
+              payload: {},
+              metadata: { createdFrom: "operations_dashboard" },
+            }),
+      });
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao solicitar aprovacao.");
+      const wasEditing = Boolean(editingApproval);
+      closeApprovalDialog();
+      setNotice(wasEditing ? "Solicitacao atualizada antes da decisao." : "Aprovacao criada e enviada para o controle operacional.");
+      await loadOverview(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Falha ao solicitar aprovacao.");
+    } finally {
+      setSavingApproval(false);
+    }
+  }
+
+  async function decideApproval(approvalId: string, decision: "approved" | "rejected") {
+    setDecisionId(approvalId);
+    try {
+      const response = await fetch(`${API_URL}/aprovacoes/${approvalId}`, {
+        method: "PATCH",
+        headers: headers(),
+        body: JSON.stringify({ decision, note: "Decisao registrada pelo painel operacional." }),
+      });
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao registrar a decisao.");
+      setNotice(decision === "approved" ? "Solicitacao aprovada." : "Solicitacao rejeitada.");
+      await loadOverview(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Falha ao registrar a decisao.");
+    } finally {
+      setDecisionId(null);
+    }
+  }
+
+  async function testIntegration(integrationId: string) {
+    setCheckingIntegrationId(integrationId);
+    try {
+      const response = await fetch(`${API_URL}/integracoes/${integrationId}/testar`, {
+        method: "POST",
+        headers: headers(),
+      });
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; detail?: string };
+      if (!response.ok) throw new Error(payload.detail || "Falha ao testar a integracao.");
+      setNotice(payload.ok ? "Integracao testada com sucesso." : "A integracao precisa ser reconectada.");
+      await loadOverview(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Falha ao testar a integracao.");
+    } finally {
+      setCheckingIntegrationId(null);
+    }
+  }
+
+  async function saveMemory() {
+    if (!memoryKey.trim() || !memoryValue.trim()) {
+      setError("Informe um nome e o conteudo da preferencia.");
+      return;
+    }
+    setSavingMemory(true);
+    try {
+      const response = await fetch(`${API_URL}/memoria-nora`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          key: memoryKey.trim(),
+          value: memoryValue.trim(),
+          category: "general",
+          scope: memoryScope,
+        }),
+      });
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao salvar a preferencia.");
+      setMemoryKey("");
+      setMemoryValue("");
+      setNotice("Preferencia salva na memoria controlada da Nora.");
+      await loadOverview(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Falha ao salvar a preferencia.");
+    } finally {
+      setSavingMemory(false);
+    }
+  }
+
+  async function deleteMemory(memoryId: string) {
+    setDeletingMemoryId(memoryId);
+    try {
+      const response = await fetch(`${API_URL}/memoria-nora/${memoryId}`, { method: "DELETE", headers: headers() });
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao remover a preferencia.");
+      setNotice("Preferencia removida da memoria da Nora.");
+      await loadOverview(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Falha ao remover a preferencia.");
+    } finally {
+      setDeletingMemoryId(null);
+    }
+  }
+
+  async function exportAudit() {
+    try {
+      const response = await fetch(`${API_URL}/auditoria/exportar`, { headers: headers() });
+      if (!response.ok) throw new Error((await response.text()) || "Falha ao exportar a auditoria.");
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "norium-auditoria.csv";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setNotice("Auditoria exportada em CSV.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Falha ao exportar a auditoria.");
+    }
+  }
+
+  async function undoOperation(receiptId: string) {
+    if (!window.confirm("Desfazer esta operacao e restaurar o estado anterior?")) return;
+    setUndoingReceiptId(receiptId);
+    try {
+      const response = await fetch(`${API_URL}/comprovantes/${receiptId}/desfazer`, { method: "POST", headers: headers() });
+      const payload = await response.json().catch(() => ({})) as { detail?: string };
+      if (!response.ok) throw new Error(payload.detail || "Nao foi possivel desfazer a operacao.");
+      setNotice("Operacao desfeita e estado anterior restaurado.");
+      await loadOverview(true);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel desfazer a operacao.");
+    } finally {
+      setUndoingReceiptId(null);
+    }
+  }
+
+  async function createTemplate() {
+    if (!templateName.trim()) return;
+    const response = await fetch(`${API_URL}/modelos`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ name: templateName.trim(), kind: templateKind, description: "", content: {}, tags: [] }),
+    });
+    if (!response.ok) {
+      setError((await response.text()) || "Falha ao criar o modelo.");
+      return;
+    }
+    setTemplateName("");
+    setNotice("Modelo operacional criado.");
+    await loadOverview(true);
+  }
+
+  async function deleteTemplate(templateId: string) {
+    const response = await fetch(`${API_URL}/modelos/${templateId}`, { method: "DELETE", headers: headers() });
+    if (!response.ok) {
+      setError((await response.text()) || "Falha ao excluir o modelo.");
+      return;
+    }
+    await loadOverview(true);
+  }
+
+  async function createFollowUp() {
+    if (!followUpTitle.trim()) return;
+    const response = await fetch(`${API_URL}/acompanhamentos`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ title: followUpTitle.trim(), channel: "other", dueAt: followUpDueAt || null, counterpart: "", description: "", metadata: {} }),
+    });
+    if (!response.ok) {
+      setError((await response.text()) || "Falha ao criar o acompanhamento.");
+      return;
+    }
+    setFollowUpTitle("");
+    setFollowUpDueAt("");
+    setNotice("Acompanhamento adicionado.");
+    await loadOverview(true);
+  }
+
+  async function updateFollowUp(followUpId: string, status: FollowUp["status"]) {
+    const response = await fetch(`${API_URL}/acompanhamentos/${followUpId}`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ status }),
+    });
+    if (!response.ok) {
+      setError((await response.text()) || "Falha ao atualizar o acompanhamento.");
+      return;
+    }
+    await loadOverview(true);
+  }
+
+  async function updateAutonomy(autonomy: OperationSettings["autonomy"]) {
+    const response = await fetch(`${API_URL}/configuracoes`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ autonomy }),
+    });
+    if (!response.ok) {
+      setError((await response.text()) || "Falha ao atualizar a autonomia.");
+      return;
+    }
+    setNotice("Nivel de autonomia atualizado.");
+    await loadOverview(true);
+  }
+
+  async function downloadBackup() {
+    const response = await fetch(`${API_URL}/backup`, { headers: headers() });
+    if (!response.ok) {
+      setError((await response.text()) || "Falha ao gerar o backup.");
+      return;
+    }
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "norium-backup.zip";
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setNotice("Backup do seu espaco gerado.");
+  }
+
+  if (loading && !overview) {
+    return (
+      <div className="grid h-full min-h-[560px] place-items-center bg-[var(--background)] text-[var(--text-secondary)]">
+        <span className="flex items-center gap-3 text-sm font-bold"><LoaderCircle className="animate-spin" size={19} /> Preparando o controle operacional...</span>
+      </div>
+    );
+  }
+
+  const summary = overview?.summary || {
+    pendingApprovals: 0,
+    activeTasks: 0,
+    overdueTasks: 0,
+    todayEvents: 0,
+    financialReminders: 0,
+    unhealthyIntegrations: 0,
+  };
+
+  return (
+    <div className="h-full overflow-y-auto bg-[var(--background)] p-4 text-[var(--text)] sm:p-6 xl:p-8">
+      <div className="mx-auto max-w-[1680px] space-y-5">
+        <header className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-4">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><ShieldCheck size={24} /></span>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wider text-blue-400">Governanca em tempo real</p>
+              <h1 className="mt-1 text-2xl font-black">Controle operacional</h1>
+              <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Seu dia, aprovacoes, integracoes, auditoria e comprovantes em uma unica visao.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void loadOverview(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-4 text-sm font-black transition hover:bg-[var(--surface-hover)]">
+              <RefreshCw className={refreshing ? "animate-spin" : ""} size={16} /> Atualizar
+            </button>
+            <button type="button" onClick={openNewApproval} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-black text-white transition hover:bg-blue-500">
+              <Plus size={17} /> Nova aprovacao
+            </button>
+          </div>
+        </header>
+
+        {(error || notice) && (
+          <div className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm font-bold ${error ? "border-rose-500/30 bg-rose-500/10 text-rose-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>
+            <span>{error || notice}</span>
+            <button type="button" onClick={() => { setError(""); setNotice(""); }} aria-label="Fechar aviso"><X size={16} /></button>
+          </div>
+        )}
+
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+          <MetricCard icon={ClipboardCheck} label="Aprovacoes" value={summary.pendingApprovals} tone="amber" />
+          <MetricCard icon={ListChecks} label="Tarefas ativas" value={summary.activeTasks} tone="blue" />
+          <MetricCard icon={AlertTriangle} label="Tarefas vencidas" value={summary.overdueTasks} tone="rose" />
+          <MetricCard icon={CalendarDays} label="Agenda hoje" value={summary.todayEvents} tone="violet" />
+          <MetricCard icon={CircleDollarSign} label="Lembretes" value={summary.financialReminders} tone="emerald" />
+          <MetricCard icon={Activity} label="Integracoes em atencao" value={summary.unhealthyIntegrations} tone="cyan" />
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,.75fr)_minmax(0,1.25fr)]">
+          <article className="rounded-lg border border-blue-500/25 bg-blue-500/8 p-5">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/15 text-blue-300"><BrainCircuit size={20} /></span>
+              <div>
+                <p className="text-[10px] font-black uppercase text-blue-300">Briefing da Nora</p>
+                <h2 className="mt-1 font-black">{overview?.briefing?.greeting || "Resumo"}. {overview?.briefing?.title || "Seu painel esta atualizado"}</h2>
+                <p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{overview?.briefing?.description || "Os dados operacionais estao sendo consolidados."}</p>
+                <p className="mt-3 text-[10px] font-bold uppercase text-[var(--text-secondary)]">Atualizado em {formatDate(overview?.briefing?.generatedAt || overview?.generatedAt)}</p>
+              </div>
+            </div>
+          </article>
+          <article className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <SectionHeader title="Alertas proativos" description="Pendencias calculadas com seus dados reais." icon={BellRing} action={`${overview?.alerts?.length || 0} alerta(s)`} />
+            <div className="grid max-h-52 gap-2 overflow-y-auto p-3 sm:grid-cols-2">
+              {(overview?.alerts || []).length === 0 ? (
+                <p className="col-span-full rounded-lg border border-dashed border-[var(--border)] p-5 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhum alerta operacional neste momento.</p>
+              ) : (overview?.alerts || []).map((alert) => (
+                <button key={alert.id} type="button" onClick={() => onNavigate?.(alert.tab)} className="flex min-w-0 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left hover:bg-[var(--surface-hover)]">
+                  <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${alert.severity === "error" ? "bg-rose-400" : alert.severity === "warning" ? "bg-amber-400" : "bg-blue-400"}`} />
+                  <span className="min-w-0 flex-1"><strong className="block truncate text-xs font-black">{alert.title}</strong><small className="mt-1 line-clamp-2 font-semibold leading-5 text-[var(--text-secondary)]">{alert.description}</small></span>
+                  <ChevronRight className="mt-1 shrink-0 text-[var(--text-secondary)]" size={14} />
+                </button>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-3">
+          <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
+              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><FileStack size={17} /></span><span><strong className="block text-sm font-black">Modelos reutilizaveis</strong><small className="font-semibold text-[var(--text-secondary)]">{overview?.templates?.length || 0} modelo(s)</small></span></span>
+              <ChevronRight className="transition group-open:rotate-90" size={16} />
+            </summary>
+            <div className="space-y-3 border-t border-[var(--border)] p-4">
+              <div className="grid grid-cols-[1fr_120px_auto] gap-2">
+                <input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Nome do modelo" className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
+                <select value={templateKind} onChange={(event) => setTemplateKind(event.target.value as OperationTemplate["kind"])} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="email">E-mail</option><option value="task">Tarefa</option><option value="calendar">Agenda</option><option value="finance">Financeiro</option><option value="automation">Automacao</option><option value="message">Mensagem</option></select>
+                <button type="button" onClick={() => void createTemplate()} disabled={!templateName.trim()} className="grid h-9 w-9 place-items-center rounded-lg bg-blue-600 text-white disabled:opacity-40" title="Criar modelo"><Plus size={15} /></button>
+              </div>
+              <div className="max-h-40 space-y-2 overflow-y-auto">
+                {(overview?.templates || []).map((template) => <article key={template.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-black">{template.name}</strong><small className="font-bold uppercase text-blue-300">{template.kind}</small></div><button type="button" onClick={() => void deleteTemplate(template.id)} className="grid h-7 w-7 place-items-center rounded-md text-rose-300 hover:bg-rose-500/10" title="Excluir modelo"><Trash2 size={13} /></button></article>)}
+                {(overview?.templates || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Crie respostas, tarefas e rotinas padronizadas.</p>}
+              </div>
+            </div>
+          </details>
+
+          <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
+              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><Send size={17} /></span><span><strong className="block text-sm font-black">Aguardando resposta</strong><small className="font-semibold text-[var(--text-secondary)]">{(overview?.followUps || []).filter((item) => item.status === "open").length} aberto(s)</small></span></span>
+              <ChevronRight className="transition group-open:rotate-90" size={16} />
+            </summary>
+            <div className="space-y-3 border-t border-[var(--border)] p-4">
+              <input value={followUpTitle} onChange={(event) => setFollowUpTitle(event.target.value)} placeholder="O que precisa de retorno?" className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
+              <div className="grid grid-cols-[1fr_auto] gap-2"><input type="datetime-local" value={followUpDueAt} onChange={(event) => setFollowUpDueAt(event.target.value)} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold" /><button type="button" onClick={() => void createFollowUp()} disabled={!followUpTitle.trim()} className="h-9 rounded-lg bg-cyan-600 px-3 text-xs font-black text-white disabled:opacity-40">Adicionar</button></div>
+              <div className="max-h-32 space-y-2 overflow-y-auto">{(overview?.followUps || []).filter((item) => item.status === "open").map((item) => <article key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-black">{item.title}</strong><small className="font-semibold text-[var(--text-secondary)]">{item.dueAt ? formatDate(item.dueAt) : "Sem prazo"}</small></div><button type="button" onClick={() => void updateFollowUp(item.id, "done")} className="grid h-7 w-7 place-items-center rounded-md text-emerald-300 hover:bg-emerald-500/10" title="Marcar como concluido"><Check size={14} /></button></article>)}</div>
+            </div>
+          </details>
+
+          <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
+              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-violet-500/12 text-violet-300"><SlidersHorizontal size={17} /></span><span><strong className="block text-sm font-black">Autonomia e dados</strong><small className="font-semibold text-[var(--text-secondary)]">Controle por usuario</small></span></span>
+              <ChevronRight className="transition group-open:rotate-90" size={16} />
+            </summary>
+            <div className="space-y-3 border-t border-[var(--border)] p-4">
+              <label className="block text-[10px] font-black uppercase text-[var(--text-secondary)]">Nivel de autonomia<select value={overview?.settings?.autonomy || "balanced"} onChange={(event) => void updateAutonomy(event.target.value as OperationSettings["autonomy"])} className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold normal-case text-[var(--text)]"><option value="confirm_all">Confirmar todas as acoes</option><option value="balanced">Equilibrado</option><option value="autonomous">Autonomo em baixo risco</option></select></label>
+              <p className="text-xs font-semibold leading-5 text-[var(--text-secondary)]">Envios, exclusoes e alteracoes sensiveis continuam protegidos pela Central de aprovacoes.</p>
+              <button type="button" onClick={() => void downloadBackup()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-xs font-black hover:bg-[var(--surface-hover)]"><DatabaseBackup size={15} /> Baixar backup do meu espaco</button>
+            </div>
+          </details>
+        </section>
+
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,.65fr)]">
+          <div className="space-y-5">
+            <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <SectionHeader title="Meu Dia" description="O que merece sua atencao agora." icon={Clock3} />
+              <div className="grid gap-4 p-4 lg:grid-cols-3">
+                <DayColumn title="Tarefas prioritarias" empty="Nenhuma tarefa ativa." icon={ListChecks}>
+                  {(overview?.myDay.tasks || []).slice(0, 5).map((task) => <CompactRow key={task.id} title={task.title} detail={`${task.status} · ${task.priority}`} accent={task.priority === "urgente" ? "rose" : "blue"} onClick={() => onNavigate?.("Tarefas")} />)}
+                </DayColumn>
+                <DayColumn title="Agenda de hoje" empty="Nenhum compromisso hoje." icon={CalendarDays}>
+                  {(overview?.myDay.calendar || []).slice(0, 5).map((event) => <CompactRow key={event.id} title={event.title} detail={formatDate(event.timestamp, false)} accent="violet" onClick={() => onNavigate?.("Agenda")} />)}
+                </DayColumn>
+                <DayColumn title="Financeiro" empty="Nenhum lembrete financeiro." icon={CircleDollarSign}>
+                  {(overview?.myDay.financialReminders || []).slice(0, 5).map((reminder) => <CompactRow key={reminder.id} title={reminder.title} detail={`${money(reminder.amount)} · ${formatReminderTiming(reminder.daysUntil)}`} accent="emerald" onClick={() => onNavigate?.("Gastos")} />)}
+                </DayColumn>
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <SectionHeader title="Central de aprovacoes" description="Acoes sensiveis ficam visiveis antes da decisao." icon={ClipboardCheck} action={`${pendingApprovals.length} pendente(s)`} />
+              <div className="divide-y divide-[var(--border)]">
+                {pendingApprovals.length === 0 ? (
+                  <EmptyState icon={CheckCircle2} title="Tudo aprovado por aqui" description="Novas solicitacoes aparecerao automaticamente." />
+                ) : pendingApprovals.map((approval) => (
+                  <article key={approval.id} className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm font-black">{approval.title}</strong><span className="rounded-full bg-amber-500/12 px-2 py-1 text-[10px] font-black uppercase text-amber-300">pendente</span></div>
+                      <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{approval.description || `Acao: ${approval.action}`}</p>
+                      <p className="mt-2 text-[11px] font-bold text-[var(--text-secondary)]">{approval.requestedBy?.name || "Operador"} · {formatDate(approval.createdAt)}</p>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button type="button" disabled={decisionId === approval.id} onClick={() => openApprovalEditor(approval)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-black hover:bg-[var(--surface-hover)] disabled:opacity-50"><Pencil size={14} /> Editar</button>
+                      <button type="button" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "rejected")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-500/25 px-3 text-xs font-black text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"><XCircle size={15} /> Rejeitar</button>
+                      <button type="button" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "approved")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white hover:bg-emerald-500 disabled:opacity-50">{decisionId === approval.id ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />} Aprovar</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <div className="flex flex-col gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div><h2 className="font-black">Rastreabilidade</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Veja o que foi executado e por quem.</p></div>
+                <div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[var(--border)] p-1"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>{timelineMode === "audit" && <button type="button" onClick={() => void exportAudit()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-xs font-black hover:bg-[var(--surface-hover)]"><Download size={14} /> Exportar CSV</button>}</div>
+              </div>
+              <div className="max-h-[390px] divide-y divide-[var(--border)] overflow-y-auto">
+                {timeline.length === 0 ? (
+                  <EmptyState icon={FileCheck2} title="Historico pronto para registrar" description="As proximas acoes concluidas aparecerao aqui." />
+                ) : timeline.map((entry) => (
+                  <article key={entry.id} className="flex items-start gap-3 px-5 py-4">
+                    <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg ${entry.status === "failed" || entry.status === "error" ? "bg-rose-500/12 text-rose-300" : "bg-emerald-500/12 text-emerald-300"}`}>{entry.status === "failed" || entry.status === "error" ? <XCircle size={17} /> : <FileCheck2 size={17} />}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-4"><strong className="truncate text-sm font-black">{entry.title || entry.action}</strong><time className="shrink-0 text-[11px] font-bold text-[var(--text-secondary)]">{formatDate(entry.timestamp)}</time></div>
+                      <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{entry.description}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-3">
+                        <span className="inline-flex text-[10px] font-black uppercase text-blue-400">{entry.actor?.name || "Norium"}</span>
+                        {entry.entityId && <span className="truncate text-[10px] font-bold text-[var(--text-secondary)]">Registro: {entry.entityId}</span>}
+                        {timelineMode === "receipts" && entryTarget(entry) && onNavigate && (
+                          <button type="button" onClick={() => onNavigate(entryTarget(entry) as string)} className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-cyan-300 hover:text-cyan-200">
+                            Abrir resultado <ExternalLink size={12} />
+                          </button>
+                        )}
+                        {timelineMode === "receipts" && entry.undoAction && !entry.metadata?.undoneAt && (
+                          <button type="button" disabled={undoingReceiptId === entry.id} onClick={() => void undoOperation(entry.id)} className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-amber-300 hover:text-amber-200 disabled:opacity-50">
+                            {undoingReceiptId === entry.id ? <LoaderCircle className="animate-spin" size={12} /> : <Undo2 size={12} />} Desfazer
+                          </button>
+                        )}
+                        {timelineMode === "receipts" && Boolean(entry.metadata?.undoneAt) && <span className="text-[10px] font-black uppercase text-amber-300">Operacao desfeita</span>}
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <aside className="space-y-5">
+            <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <SectionHeader title="Saude das integracoes" description="Estado local e ultima sincronizacao." icon={Activity} />
+              <div className="divide-y divide-[var(--border)]">
+                {(overview?.integrations || []).map((integration) => (
+                  <article key={integration.id} className="flex items-start gap-3 px-4 py-4">
+                    <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${integration.status === "online" ? "bg-emerald-500/12 text-emerald-300" : "bg-amber-500/12 text-amber-300"}`}>{integration.status === "online" ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3"><strong className="truncate text-sm font-black">{integration.name}</strong><span className={`text-[10px] font-black uppercase ${integration.status === "online" ? "text-emerald-300" : "text-amber-300"}`}>{integration.status === "online" ? "online" : "atencao"}</span></div>
+                      <p className="mt-1 truncate text-xs font-semibold text-[var(--text-secondary)]">{integration.detail}</p>
+                      <p className="mt-1 text-[10px] font-bold text-[var(--text-secondary)]">Ultima sincronizacao: {formatDate(integration.lastSync)}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {(integration.permissions || []).map((permission) => <span key={permission} className="rounded-full border border-[var(--border)] px-2 py-1 text-[9px] font-black uppercase text-[var(--text-secondary)]">{permission}</span>)}
+                        {integration.failures > 0 && <span className="rounded-full bg-rose-500/12 px-2 py-1 text-[9px] font-black uppercase text-rose-300">{integration.failures} falha(s)</span>}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="button" disabled={checkingIntegrationId === integration.id} onClick={() => void testIntegration(integration.id)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 text-[10px] font-black uppercase hover:bg-[var(--surface-hover)] disabled:opacity-50">
+                          {checkingIntegrationId === integration.id ? <LoaderCircle className="animate-spin" size={13} /> : <RefreshCw size={13} />} Testar
+                        </button>
+                        {!integration.connected && onNavigate && (
+                          <button type="button" onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" || integration.id === "telegram" ? "Chat" : "Mais")} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 text-[10px] font-black uppercase text-white hover:bg-blue-500">
+                            Reconectar <ChevronRight size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {onNavigate && integration.connected && (
+                      <button
+                        type="button"
+                        onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" || integration.id === "telegram" ? "Chat" : "Mais")}
+                        className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                        aria-label={`Abrir ${integration.name}`}
+                        title={`Abrir ${integration.name}`}
+                      >
+                        <ChevronRight size={15} />
+                      </button>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 hover:bg-[var(--surface-hover)]">
+                <span className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><BrainCircuit size={17} /></span><span className="min-w-0"><strong className="block truncate text-sm font-black">Memoria controlada da Nora</strong><small className="block truncate font-semibold text-[var(--text-secondary)]">{overview?.memory?.length || 0} preferencia(s) salva(s)</small></span></span>
+                <ChevronRight className="shrink-0 transition group-open:rotate-90" size={16} />
+              </summary>
+              <div className="space-y-3 border-t border-[var(--border)] p-4">
+                <input value={memoryKey} onChange={(event) => setMemoryKey(event.target.value)} maxLength={120} placeholder="Nome da preferencia" className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
+                <textarea value={memoryValue} onChange={(event) => setMemoryValue(event.target.value)} maxLength={1200} rows={3} placeholder="Ex.: prefiro respostas profissionais e objetivas." className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold outline-none focus:border-blue-500" />
+                <div className="flex gap-2">
+                  <select value={memoryScope} onChange={(event) => setMemoryScope(event.target.value as "personal" | "team")} className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none">
+                    <option value="personal">Somente para mim</option><option value="team">Compartilhar com a equipe</option>
+                  </select>
+                  <button type="button" disabled={savingMemory} onClick={() => void saveMemory()} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50">{savingMemory ? <LoaderCircle className="animate-spin" size={14} /> : <Plus size={14} />} Salvar</button>
+                </div>
+                <div className="max-h-52 space-y-2 overflow-y-auto">
+                  {(overview?.memory || []).map((memory) => (
+                    <article key={memory.id} className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                      <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-1.5"><strong className="truncate text-xs font-black">{memory.key}</strong><span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase text-blue-300">{memory.scope === "team" ? "equipe" : "pessoal"}</span></div><p className="mt-1 line-clamp-3 text-[11px] font-semibold leading-4 text-[var(--text-secondary)]">{memory.value}</p></div>
+                      <button type="button" disabled={deletingMemoryId === memory.id} onClick={() => void deleteMemory(memory.id)} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-rose-300 hover:bg-rose-500/10 disabled:opacity-50" aria-label={`Remover ${memory.key}`}>{deletingMemoryId === memory.id ? <LoaderCircle className="animate-spin" size={14} /> : <Trash2 size={14} />}</button>
+                    </article>
+                  ))}
+                  {(overview?.memory || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-[11px] font-semibold text-[var(--text-secondary)]">Nenhuma preferencia salva. A Nora tambem aprende quando voce diz "lembre que...".</p>}
+                </div>
+              </div>
+            </details>
+
+            <section className="rounded-lg border border-blue-500/25 bg-blue-500/8 p-5">
+              <div className="flex items-center gap-3 text-blue-300"><ShieldCheck size={21} /><h2 className="font-black">Politica de seguranca</h2></div>
+              <p className="mt-3 text-sm font-semibold leading-6 text-[var(--text-secondary)]">Operacoes sensiveis podem passar por aprovacao e cada decisao gera um registro rastreavel por usuario.</p>
+              <button type="button" onClick={openNewApproval} className="mt-4 inline-flex items-center gap-2 text-xs font-black text-blue-300 hover:text-blue-200">Solicitar revisao <ChevronRight size={15} /></button>
+            </section>
+          </aside>
+        </div>
+      </div>
+
+      {approvalOpen && (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/65 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
+            <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+              <div><h2 className="font-black">{editingApproval ? "Editar solicitacao" : "Nova solicitacao de aprovacao"}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{editingApproval ? "Ajuste o plano antes de aprovar ou rejeitar." : "Registre a decisao antes de executar uma acao sensivel."}</p></div>
+              <button type="button" onClick={closeApprovalDialog} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]" aria-label="Fechar"><X size={18} /></button>
+            </header>
+            <div className="space-y-4 p-5">
+              <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">O que precisa ser aprovado?<input value={approvalTitle} onChange={(event) => setApprovalTitle(event.target.value)} maxLength={180} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Ex.: autorizar envio para toda a base" /></label>
+              <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Contexto<textarea value={approvalDescription} onChange={(event) => setApprovalDescription(event.target.value)} maxLength={1200} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-semibold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Explique o impacto e o motivo da solicitacao." /></label>
+            </div>
+            <footer className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
+              <button type="button" onClick={closeApprovalDialog} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-black hover:bg-[var(--surface-hover)]">Cancelar</button>
+              <button type="button" disabled={savingApproval} onClick={() => void saveApproval()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-black text-white hover:bg-blue-500 disabled:opacity-50">{savingApproval ? <LoaderCircle className="animate-spin" size={16} /> : <ClipboardCheck size={16} />} {editingApproval ? "Salvar alteracoes" : "Solicitar aprovacao"}</button>
+            </footer>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value: number; tone: "amber" | "blue" | "rose" | "violet" | "emerald" | "cyan" }) {
+  const tones = { amber: "bg-amber-500/12 text-amber-300", blue: "bg-blue-500/12 text-blue-300", rose: "bg-rose-500/12 text-rose-300", violet: "bg-violet-500/12 text-violet-300", emerald: "bg-emerald-500/12 text-emerald-300", cyan: "bg-cyan-500/12 text-cyan-300" };
+  return <article className="flex min-h-28 items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${tones[tone]}`}><Icon size={20} /></span><div className="min-w-0"><strong className="block text-2xl font-black">{value}</strong><span className="mt-1 block text-xs font-bold leading-4 text-[var(--text-secondary)]">{label}</span></div></article>;
+}
+
+function SectionHeader({ title, description, icon: Icon, action }: { title: string; description: string; icon: LucideIcon; action?: string }) {
+  return <header className="flex items-center justify-between gap-4 border-b border-[var(--border)] px-5 py-4"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><Icon size={17} /></span><div className="min-w-0"><h2 className="truncate font-black">{title}</h2><p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>{action && <span className="shrink-0 rounded-full bg-amber-500/12 px-3 py-1 text-[10px] font-black uppercase text-amber-300">{action}</span>}</header>;
+}
+
+function DayColumn({ title, empty, icon: Icon, children }: { title: string; empty: string; icon: LucideIcon; children: ReactNode }) {
+  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
+  return <section className="min-h-60 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><h3 className="flex items-center gap-2 text-sm font-black"><Icon className="text-blue-400" size={16} /> {title}</h3><div className="mt-3 space-y-2">{hasChildren ? children : <p className="rounded-lg border border-dashed border-[var(--border)] p-4 text-center text-xs font-semibold text-[var(--text-secondary)]">{empty}</p>}</div></section>;
+}
+
+function CompactRow({ title, detail, accent, onClick }: { title: string; detail: string; accent: "rose" | "blue" | "violet" | "emerald"; onClick?: () => void }) {
+  const dots = { rose: "bg-rose-400", blue: "bg-blue-400", violet: "bg-violet-400", emerald: "bg-emerald-400" };
+  return <button type="button" onClick={onClick} className="flex w-full items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-3 text-left hover:bg-[var(--surface-hover)]"><span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dots[accent]}`} /><span className="min-w-0 flex-1"><strong className="block truncate text-xs font-black">{title}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{detail}</small></span><ChevronRight className="mt-1 shrink-0 text-[var(--text-secondary)]" size={14} /></button>;
+}
+
+function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return <button type="button" onClick={onClick} className={`rounded-md px-3 py-2 text-xs font-black transition ${active ? "bg-blue-600 text-white" : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"}`}>{children}</button>;
+}
+
+function EmptyState({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
+  return <div className="grid min-h-44 place-items-center p-6 text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-emerald-500/10 text-emerald-300"><Icon size={22} /></span><strong className="mt-3 block text-sm font-black">{title}</strong><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>;
+}

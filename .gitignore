@@ -1,0 +1,16 @@
+# Pastas de execução/artefatos locais
+tmp/
+output/
+*.log
+
+# Ambientes e dependências (também cobertos pelos .gitignore internos)
+**/venv/
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/dist/
+
+# Segredos
+.env
+.env.*
+!.env.example

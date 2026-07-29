@@ -1,0 +1,409 @@
+from __future__ import annotations
+
+import re
+import unicodedata
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from app.services.gmail_service import GmailService
+from app.services.nora import NoraIAService
+
+
+@dataclass
+class EmailSession:
+    id: str
+    user_id: str
+    fields: dict[str, Any] = field(default_factory=dict)
+    awaiting: str = "to"
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class EmailAgent:
+    SESSION_TTL = timedelta(minutes=20)
+
+    def __init__(self) -> None:
+        self.sessions: dict[str, EmailSession] = {}
+        self.nora = NoraIAService()
+
+    def cancel_session(self, session_id: str | None) -> None:
+        if session_id:
+            self.sessions.pop(session_id, None)
+
+    async def handle(self, *, message: str, session_id: str | None, user_id: str = "lucas123") -> dict[str, Any]:
+        text = message.strip()
+        normalized = self._normalize(text)
+        service = GmailService(user_id)
+        status = service.status()
+        if not status.get("connected"):
+            return {
+                "session_id": session_id,
+                "status": "desconectado",
+                "response": "O Gmail ainda nao esta conectado. Abre E-mails > Conectar Gmail e eu ja consigo ler, resumir e enviar.",
+            }
+
+        session = self.sessions.get(session_id or "") if session_id else None
+        if session and datetime.now(timezone.utc) - session.updated_at > self.SESSION_TTL:
+            self.sessions.pop(session.id, None)
+            session = None
+        if self._is_cancel(normalized):
+            if session:
+                self.sessions.pop(session.id, None)
+            return {"session_id": None, "status": "cancelado", "response": "Rascunho cancelado. Nada foi enviado."}
+
+        if session:
+            session.updated_at = datetime.now(timezone.utc)
+            return await self._continue_compose(session, text, normalized)
+
+        if self._is_compose_intent(normalized):
+            session = EmailSession(id=session_id or uuid.uuid4().hex, user_id=user_id)
+            self.sessions[session.id] = session
+            self._extract_initial_fields(session, text)
+            return await self._next_question(session)
+
+        if self._is_category_intent(normalized):
+            return self._group_messages_by_category(service, normalized)
+
+        if self._is_summary_intent(normalized):
+            return await self._summarize_inbox(service, normalized)
+
+        if self._is_list_intent(normalized):
+            return self._list_messages(service, normalized)
+
+        return {
+            "session_id": None,
+            "status": "ajuda",
+            "response": (
+                "Posso listar enviados, nao lidos, com anexo, resumir sua caixa ou enviar e-mails em linguagem natural. "
+                "Exemplo: 'mande um e-mail para cliente@email.com sobre proposta, dizendo que retorno hoje'."
+            ),
+        }
+
+    async def _continue_compose(self, session: EmailSession, text: str, normalized: str) -> dict[str, Any]:
+        fields = session.fields
+        if session.awaiting == "confirmacao":
+            if self._is_yes(normalized):
+                result = GmailService(session.user_id).send_message(
+                    to=fields["to"],
+                    subject=fields["subject"],
+                    body=fields["body"],
+                    cc=fields.get("cc", []),
+                    bcc=fields.get("bcc", []),
+                )
+                self.sessions.pop(session.id, None)
+                return {
+                    "session_id": None,
+                    "status": "enviado",
+                    "response": f"Enviei o e-mail para {', '.join(fields['to'])}. Assunto: {fields['subject']}",
+                    "result": result,
+                }
+            if self._is_no(normalized):
+                session.awaiting = "body"
+                return {
+                    "session_id": session.id,
+                    "status": "coletando",
+                    "response": "Beleza. Me manda o corpo do e-mail revisado.",
+                    "fields": fields,
+                }
+
+        if session.awaiting == "to":
+            recipients = self._extract_emails(text)
+            if recipients:
+                fields["to"] = recipients
+        elif session.awaiting == "subject":
+            fields["subject"] = text[:180]
+        elif session.awaiting == "body":
+            fields["body"] = self._clean_body_for_send(text[:12000])
+
+        return await self._next_question(session)
+
+    async def _next_question(self, session: EmailSession) -> dict[str, Any]:
+        fields = session.fields
+        if not fields.get("to"):
+            session.awaiting = "to"
+            response = "Para qual e-mail eu envio?"
+        elif not fields.get("subject"):
+            session.awaiting = "subject"
+            response = "Qual vai ser o assunto?"
+        elif not fields.get("body"):
+            session.awaiting = "body"
+            response = "Qual mensagem voce quer enviar? Pode mandar em texto livre."
+        else:
+            session.awaiting = "confirmacao"
+            draft = await self._polish_body(fields)
+            fields["body"] = draft
+            response = f"Confirma o envio?\n\n{self._summary(fields)}"
+
+        return {
+            "session_id": session.id,
+            "status": "confirmar" if session.awaiting == "confirmacao" else "coletando",
+            "response": response,
+            "fields": fields,
+        }
+
+    async def _polish_body(self, fields: dict[str, Any]) -> str:
+        body = str(fields.get("body") or "").strip()
+        if not body:
+            return body
+        prompt = (
+            "Transforme o texto abaixo em um e-mail claro, humano e pronto para envio. "
+            "Nao invente fatos, valores, datas ou promessas. Responda apenas com o corpo do e-mail.\n\n"
+            f"Assunto: {fields.get('subject')}\n"
+            f"Texto base:\n{body}"
+        )
+        response = await self.nora.perguntar_nora([{"role": "user", "content": prompt}])
+        if "GROQ_API_KEY" in response or response.lower().startswith("ih, deu ruim"):
+            return body
+        cleaned = self._clean_body_for_send(response)
+        return cleaned or body
+
+    async def _summarize_inbox(self, service: GmailService, normalized: str) -> dict[str, Any]:
+        folder = self._folder_from_text(normalized)
+        query = self._query_from_text(normalized)
+        data = service.list_messages(folder=folder, query=query, max_results=10)
+        messages = data.get("messages", [])
+        if not messages:
+            return {"session_id": None, "status": "resumo", "response": "Nao encontrei e-mails para resumir nesse filtro."}
+
+        facts = "\n".join(
+            f"- De: {msg.get('fromName')} <{msg.get('fromEmail')}> | Assunto: {msg.get('subject')} | Trecho: {msg.get('snippet')}"
+            for msg in messages[:10]
+        )
+        prompt = (
+            "Resuma esta caixa de e-mails em portugues, com prioridades e proximas acoes. "
+            "Use somente os dados abaixo, sem inventar detalhes.\n\n"
+            f"{facts}"
+        )
+        summary = await self.nora.perguntar_nora([{"role": "user", "content": prompt}])
+        return {"session_id": None, "status": "resumo", "response": summary, "messages": messages, "folder": folder, "query": query}
+
+    def _list_messages(self, service: GmailService, normalized: str) -> dict[str, Any]:
+        folder = self._folder_from_text(normalized)
+        query = self._query_from_text(normalized)
+        data = service.list_messages(folder=folder, query=query, max_results=8)
+        messages = data.get("messages", [])
+        if not messages:
+            return {"session_id": None, "status": "consulta", "response": "Nao encontrei e-mails nesse filtro."}
+        lines = [
+            f"- {msg.get('fromName')}: {msg.get('subject')} ({msg.get('dateLabel')})"
+            for msg in messages
+        ]
+        return {
+            "session_id": None,
+            "status": "consulta",
+            "response": f"Aqui estao os e-mails em {self._folder_label(folder)}:\n" + "\n".join(lines),
+            "messages": messages,
+            "folder": folder,
+            "query": query,
+        }
+
+    def _group_messages_by_category(self, service: GmailService, normalized: str) -> dict[str, Any]:
+        folder = self._folder_from_text(normalized)
+        data = service.list_messages(folder=folder, query=self._query_from_text(normalized), max_results=20)
+        messages = data.get("messages", [])
+        if not messages:
+            return {"session_id": None, "status": "categorias", "response": "Nao encontrei e-mails para agrupar nesse filtro."}
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for message in messages:
+            category = self._classify_category(message)
+            groups.setdefault(category, []).append(message)
+        labels = {
+            "principal": "Principal",
+            "financeiro": "Financeiro",
+            "trabalho": "Trabalho",
+            "promocoes": "Promocoes",
+            "social": "Social",
+            "atualizacoes": "Atualizacoes",
+            "suporte": "Suporte",
+        }
+        lines = []
+        for category, items in sorted(groups.items(), key=lambda item: (-len(item[1]), item[0])):
+            preview = "; ".join(str(msg.get("subject") or "(sem assunto)")[:70] for msg in items[:3])
+            lines.append(f"- {labels.get(category, category.title())}: {len(items)} e-mail(s). {preview}")
+        return {
+            "session_id": None,
+            "status": "categorias",
+            "response": "Agrupei os e-mails recentes por categoria:\n" + "\n".join(lines),
+            "groups": {category: [msg.get("id") for msg in items] for category, items in groups.items()},
+            "messages": messages,
+            "folder": folder,
+        }
+
+    def _extract_initial_fields(self, session: EmailSession, text: str) -> None:
+        emails = self._extract_emails(text)
+        if emails:
+            session.fields["to"] = emails
+
+        subject = self._extract_subject(text)
+        if subject:
+            session.fields["subject"] = subject
+
+        body = self._extract_body(text)
+        if body:
+            session.fields["body"] = self._clean_body_for_send(body)
+            if not session.fields.get("subject"):
+                session.fields["subject"] = self._infer_subject_from_body(body)
+
+    def _summary(self, fields: dict[str, Any]) -> str:
+        return "\n".join(
+            [
+                f"- Para: {', '.join(fields.get('to', []))}",
+                f"- Assunto: {fields.get('subject')}",
+                "",
+                str(fields.get("body") or "").strip(),
+            ]
+        )
+
+    def _extract_emails(self, text: str) -> list[str]:
+        return sorted(set(re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", text)))
+
+    def _extract_subject(self, text: str) -> str:
+        match = re.search(r"\b(?:assunto|sobre)\s*[:\-]?\s*(.+?)(?:\s+(?:mensagem|corpo|dizendo|texto)\b|$)", text, re.I)
+        return match.group(1).strip(" .,:;-")[:180] if match else ""
+
+    def _extract_body(self, text: str) -> str:
+        match = re.search(
+            r"\b(?:mensagem|corpo|dizendo|texto|perguntando|pergunte|diga|avisando|avise|falando|fale|com o texto|com a mensagem)\s*[:\-]?\s*(.+)$",
+            text,
+            re.I | re.S,
+        )
+        if match:
+            return match.group(1).strip()[:12000]
+        marker = re.search(r"\b(?:para|pra)\s+[\w.+-]+@[\w-]+\.[\w.-]+(.+)$", text, re.I | re.S)
+        return marker.group(1).strip(" ,.:;-")[:12000] if marker else ""
+
+    def _infer_subject_from_body(self, body: str) -> str:
+        clean = re.sub(r"\s+", " ", body).strip(" .,:;-")
+        if not clean:
+            return "Mensagem do Norium"
+        if "como foi seu dia" in self._normalize(clean):
+            return "Como foi seu dia?"
+        return clean[:72].rstrip(" .,:;-") or "Mensagem do Norium"
+
+    def _is_compose_intent(self, value: str) -> bool:
+        if re.search(r"\b(enviar|envie|mande|mandar|redigir|escrever)\s+(?:um|uma|o|a)?\s*e-?mail\b", value):
+            return True
+        if re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", value) and any(word in value for word in ["envie", "enviar", "mande", "mandar", "redigir", "escrever"]):
+            return True
+        return any(word in value for word in [
+            "enviar email", "enviar e-mail", "mandar email", "mandar e-mail", "mande email", "mande e-mail",
+            "envie email", "envie e-mail", "novo email", "novo e-mail", "redigir email", "redigir e-mail",
+            "escrever email", "escrever e-mail",
+        ])
+
+    def _is_summary_intent(self, value: str) -> bool:
+        return any(word in value for word in ["resumir", "resumo", "prioridades", "importante"])
+
+    def _is_category_intent(self, value: str) -> bool:
+        return any(word in value for word in ["agrupar", "categorizar", "categoria", "categorias", "classificar emails", "classificar e-mails"])
+
+    def _is_list_intent(self, value: str) -> bool:
+        return any(word in value for word in [
+            "listar", "mostrar", "ver emails", "ver e-mails", "caixa de entrada", "nao lidos", "nao lido",
+            "enviados", "enviado", "rascunhos", "spam", "lixeira", "com anexo", "anexos", "pesquisar email",
+        ])
+
+    def _folder_from_text(self, value: str) -> str:
+        if "enviados" in value or "enviado" in value or "sent" in value:
+            return "sent"
+        if "rascunho" in value:
+            return "drafts"
+        if "spam" in value:
+            return "spam"
+        if "lixeira" in value or "lixo" in value:
+            return "trash"
+        if "estrela" in value or "favorito" in value:
+            return "starred"
+        if "importante" in value or "prioridade" in value:
+            return "important"
+        if "nao lido" in value or "nao lidos" in value:
+            return "unread"
+        if "todos os emails" in value or "todos os e-mails" in value:
+            return "all"
+        return "inbox"
+
+    def _query_from_text(self, value: str) -> str:
+        query: list[str] = []
+        if "com anexo" in value or "anexos" in value:
+            query.append("has:attachment")
+        if "hoje" in value:
+            today = datetime.now(timezone(timedelta(hours=-3))).strftime("%Y/%m/%d")
+            query.append(f"after:{today}")
+        if "ontem" in value:
+            today = datetime.now(timezone(timedelta(hours=-3))).date()
+            yesterday = today - timedelta(days=1)
+            query.append(f"after:{yesterday.strftime('%Y/%m/%d')} before:{today.strftime('%Y/%m/%d')}")
+        sender = re.search(r"\b(?:de|remetente)\s+([\w.+-]+@[\w-]+\.[\w.-]+)", value)
+        if sender:
+            query.append(f"from:{sender.group(1)}")
+        to_match = re.search(r"\b(?:para|destinatario)\s+([\w.+-]+@[\w-]+\.[\w.-]+)", value)
+        if to_match:
+            query.append(f"to:{to_match.group(1)}")
+        subject = re.search(r"\b(?:assunto|titulo)\s+(.+)$", value)
+        if subject:
+            cleaned = subject.group(1).strip(" :.-")
+            if cleaned:
+                query.append(f"subject:({cleaned[:80]})")
+        return " ".join(query).strip()
+
+    def _classify_category(self, message: dict[str, Any]) -> str:
+        labels = {str(label).upper() for label in message.get("labels", [])}
+        text = self._normalize(
+            f"{message.get('fromName', '')} {message.get('fromEmail', '')} {message.get('subject', '')} {message.get('snippet', '')}"
+        )
+        if "CATEGORY_PROMOTIONS" in labels or any(term in text for term in ("promocao", "promocoes", "oferta", "desconto", "cupom")):
+            return "promocoes"
+        if "CATEGORY_SOCIAL" in labels or any(term in text for term in ("linkedin", "facebook", "instagram", "rede social")):
+            return "social"
+        if any(term in text for term in ("boleto", "fatura", "recibo", "pagamento", "pix", "nubank", "banco")):
+            return "financeiro"
+        if "CATEGORY_UPDATES" in labels or any(term in text for term in ("atualizacao", "notificacao", "confirmacao", "alerta")):
+            return "atualizacoes"
+        if any(term in text for term in ("cliente", "proposta", "contrato", "reuniao", "orcamento", "trabalho", "comercial")):
+            return "trabalho"
+        if any(term in text for term in ("suporte", "ticket", "erro", "chamado", "atendimento")):
+            return "suporte"
+        return "principal"
+
+    def _folder_label(self, folder: str) -> str:
+        return {
+            "inbox": "caixa de entrada",
+            "sent": "enviados",
+            "drafts": "rascunhos",
+            "spam": "spam",
+            "trash": "lixeira",
+            "starred": "com estrela",
+            "important": "importantes",
+            "unread": "nao lidos",
+            "all": "todos os e-mails",
+        }.get(folder, folder)
+
+    def _clean_body_for_send(self, value: str) -> str:
+        body = value.strip()
+        forbidden = [
+            "nao tenho contexto", "não tenho contexto", "nao consigo", "não consigo",
+            "desculpa", "desculpe", "olhei para o historico", "histórico vazio",
+            "preciso de mais contexto", "se voce precisar", "se você precisar",
+        ]
+        lowered = self._normalize(body)
+        if any(self._normalize(item) in lowered for item in forbidden):
+            lines = [
+                line for line in body.splitlines()
+                if not any(self._normalize(item) in self._normalize(line) for item in forbidden)
+            ]
+            body = "\n".join(lines).strip()
+        return body[:12000]
+
+    def _is_cancel(self, value: str) -> bool:
+        return value in {"cancelar", "cancela", "desistir", "parar"}
+
+    def _is_yes(self, value: str) -> bool:
+        return value in {"sim", "s", "confirmo", "confirmar", "pode enviar", "envia", "enviar", "ok"}
+
+    def _is_no(self, value: str) -> bool:
+        return value in {"nao", "n", "negativo", "corrigir", "editar"}
+
+    def _normalize(self, value: str) -> str:
+        lowered = value.lower().strip()
+        return "".join(char for char in unicodedata.normalize("NFKD", lowered) if not unicodedata.combining(char))

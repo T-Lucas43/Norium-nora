@@ -1,0 +1,11 @@
+.env
+venv
+__pycache__
+*.pyc
+data
+uploads
+finance_uploads
+task_uploads
+oauth_accounts
+*.json
+!requirements.txt

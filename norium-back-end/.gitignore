@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+venv/
+.venv/
+
+# Segredos e configuracao local
+.env
+.env.*
+!.env.example
+
+# Bancos e tokens locais
+data/
+oauth_accounts/
+uploads/
+finance_uploads/
+task_uploads/
+team_chat_uploads/
+*_db.json
+*_token.json
+*_state.json
+*_cache.json
+mock_database.json
+
+# Logs e artefatos
+*.log
+reports/
+output/
+dist/

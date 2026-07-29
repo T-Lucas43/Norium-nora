@@ -1,0 +1,583 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  Check,
+  CheckCheck,
+  Clock3,
+  Copy,
+  CornerUpRight,
+  FileText,
+  Languages,
+  Mic,
+  MoreVertical,
+  Paperclip,
+  Pause,
+  Play,
+  Search,
+  SendHorizontal,
+  Smile,
+  Trash2,
+  User,
+  Users,
+  X,
+} from "lucide-react";
+import type { AnexoPendente, ChatConversa, MsgConteudo } from "./types";
+
+interface AreaCentralProps {
+  conversaAtiva: ChatConversa | undefined;
+  onEnviar: (texto: string) => void | Promise<void>;
+  onAbrirDadosPerfil: () => void;
+  onAnexarArquivo: () => void;
+  onGravarAudio: () => void;
+  gravando: boolean;
+  tempoGravacao: number;
+  formatarTempo: (segundos: number) => string;
+  anexosPendentes: AnexoPendente[];
+  enviandoAnexos: boolean;
+  statusMicrofone: "idle" | "solicitando" | "liberado" | "negado";
+  onRemoverAnexo: (id: string) => void;
+  onLimparAnexos: () => void;
+  onApagarMensagensEmMassa: (mensagensIds: string[]) => void;
+  onEncaminharMensagens: (mensagensIds: string[]) => void;
+}
+
+function initials(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "?";
+}
+
+function HeaderAvatar({ conversa }: { conversa: ChatConversa }) {
+  const [failed, setFailed] = useState(false);
+  const photoUrl = conversa.metadados?.photoUrl || conversa.photoUrl;
+
+  return (
+    <div className="h-10 w-10 rounded-full bg-[var(--background)] border border-[var(--border)] flex items-center justify-center overflow-hidden shrink-0 text-[var(--text-secondary)]">
+      {photoUrl && !failed ? (
+        <img src={photoUrl} alt={conversa.contato} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      ) : conversa.esGrupo ? (
+        <Users size={17} />
+      ) : conversa.contato ? (
+        <span className="text-xs font-extrabold">{initials(conversa.contato)}</span>
+      ) : (
+        <User size={17} />
+      )}
+    </div>
+  );
+}
+
+function MessageStatus({ status }: { status?: MsgConteudo["status"] }) {
+  if (status === "lido") return <CheckCheck size={15} className="text-sky-500" />;
+  if (status === "entregue") return <CheckCheck size={15} className="text-current opacity-60" />;
+  if (status === "enviado") return <Check size={15} className="text-current opacity-60" />;
+  return <Clock3 size={13} className="text-current opacity-40" />;
+}
+
+function formatAudioTime(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+function AudioMessage({ src, outgoing }: { src: string; outgoing: boolean }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const bars = [12, 18, 9, 24, 16, 28, 11, 20, 30, 15, 23, 13, 26, 18, 10, 22, 29, 14, 20, 11, 25, 16, 28, 12, 18, 24, 10, 21];
+  const progress = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const activeBars = Math.round((progress / 100) * bars.length);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const updateMetadata = () => {
+      setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+      audio.playbackRate = speed;
+    };
+    const updateTime = () => setCurrentTime(audio.currentTime || 0);
+    const finish = () => {
+      setPlaying(false);
+      setCurrentTime(Number.isFinite(audio.duration) ? audio.duration : 0);
+    };
+
+    audio.addEventListener("loadedmetadata", updateMetadata);
+    audio.addEventListener("timeupdate", updateTime);
+    audio.addEventListener("ended", finish);
+    updateMetadata();
+
+    return () => {
+      audio.removeEventListener("loadedmetadata", updateMetadata);
+      audio.removeEventListener("timeupdate", updateTime);
+      audio.removeEventListener("ended", finish);
+    };
+  }, [src, speed]);
+
+  const togglePlay = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+      return;
+    }
+
+    try {
+      await audio.play();
+      setPlaying(true);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const cycleSpeed = () => {
+    const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
+    setSpeed(next);
+    if (audioRef.current) audioRef.current.playbackRate = next;
+  };
+
+  const handleSeek = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextTime = Number(event.target.value);
+    setCurrentTime(nextTime);
+    if (audioRef.current) {
+      audioRef.current.currentTime = nextTime;
+    }
+  };
+
+  return (
+    <div className={`w-[320px] max-w-[70vw] rounded-xl px-3 py-2.5 ${outgoing ? "bg-white/10" : "bg-[#111b21]"}`}>
+      <audio ref={audioRef} src={src} preload="metadata" />
+      <div className="flex items-center gap-3">
+        <button
+          onClick={togglePlay}
+          className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition ${outgoing ? "bg-white text-[#005c4b]" : "bg-[#00a884] text-[#111b21]"}`}
+          title={playing ? "Pausar audio" : "Tocar audio"}
+        >
+          {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="relative h-8">
+            <div className="absolute inset-0 flex items-center gap-[3px] overflow-hidden">
+              {bars.map((height, index) => (
+                <span
+                  key={`${height}-${index}`}
+                  className={`w-[3px] shrink-0 rounded-full transition-colors ${index <= activeBars ? "bg-current" : "bg-current/30"}`}
+                  style={{ height }}
+                />
+              ))}
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={duration || 1}
+              step="0.01"
+              value={Math.min(currentTime, duration || 0)}
+              onChange={handleSeek}
+              className="absolute inset-0 h-8 w-full cursor-pointer opacity-0"
+              aria-label="Progresso do audio"
+            />
+          </div>
+          <div className="mt-0.5 flex items-center justify-between text-[10px] font-bold opacity-70">
+            <span>{formatAudioTime(currentTime)}</span>
+            <span>{formatAudioTime(duration)}</span>
+          </div>
+        </div>
+
+        <button onClick={cycleSpeed} className="h-8 min-w-10 rounded-full border border-current/20 px-2 text-[11px] font-extrabold">
+          {speed}x
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MessageMedia({ msg, outgoing }: { msg: MsgConteudo; outgoing: boolean }) {
+  const mime = msg.arquivoMime || "";
+  const fileName = msg.nomeArquivo || "Arquivo";
+  const looksVideo = mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(fileName);
+
+  if (!msg.arquivoUrl) {
+    return <p className="text-sm font-medium">{msg.texto || "Midia sem URL disponivel"}</p>;
+  }
+
+  if (msg.tipo === "audio") {
+    return <AudioMessage src={msg.arquivoUrl} outgoing={outgoing} />;
+  }
+
+  if (msg.tipo === "sticker") {
+    return (
+      <div className="h-36 w-36 bg-transparent">
+        <img src={msg.arquivoUrl} alt="Figurinha" className="h-full w-full object-contain" />
+      </div>
+    );
+  }
+
+  if (msg.tipo === "documento") {
+    return (
+      <a href={msg.arquivoUrl} target="_blank" rel="noreferrer" className={`flex max-w-[320px] items-center gap-3 rounded-lg p-3 ${outgoing ? "bg-white/15" : "bg-[var(--background)]"}`}>
+        <FileText size={24} />
+        <span className="min-w-0 flex-1 truncate text-xs font-bold">{fileName}</span>
+      </a>
+    );
+  }
+
+  if (looksVideo) {
+    return (
+      <div className="max-w-[420px] overflow-hidden rounded-lg">
+        <video src={msg.arquivoUrl} controls className="max-h-[320px] w-full bg-black" />
+        {msg.texto && msg.texto !== "[Video]" && <p className="mt-2 text-sm font-medium">{msg.texto}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-[420px] overflow-hidden rounded-lg">
+      <img src={msg.arquivoUrl} alt={msg.texto || "Imagem"} className="max-h-[320px] w-full object-contain bg-black/5" />
+      {msg.texto && msg.texto !== "[Imagem]" && <p className="mt-2 text-sm font-medium">{msg.texto}</p>}
+    </div>
+  );
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function AttachmentPreviewCard({ anexo, onRemover }: { anexo: AnexoPendente; onRemover: (id: string) => void }) {
+  return (
+    <div className={`relative h-32 shrink-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] ${anexo.tipo === "audio" ? "w-[340px]" : "w-44"}`}>
+      <button
+        onClick={() => onRemover(anexo.id)}
+        className="absolute right-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/65 text-white shadow"
+        title="Remover anexo"
+      >
+        <X size={14} />
+      </button>
+
+      {anexo.tipo === "image" && (
+        <img src={anexo.urlPreview} alt={anexo.nomeArquivo} className="h-full w-full object-cover" />
+      )}
+
+      {anexo.tipo === "video" && (
+        <video src={anexo.urlPreview} controls className="h-full w-full bg-black object-contain" />
+      )}
+
+      {anexo.tipo === "audio" && (
+        <div className="flex h-full w-full items-center justify-center p-2">
+          <AudioMessage src={anexo.urlPreview} outgoing />
+        </div>
+      )}
+
+      {anexo.tipo === "document" && (
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-4 text-center">
+          <FileText size={28} className="text-[var(--primary)]" />
+          <span className="line-clamp-2 max-w-full break-words text-xs font-bold">{anexo.nomeArquivo}</span>
+        </div>
+      )}
+
+      {anexo.tipo !== "audio" && (
+        <div className="absolute bottom-0 left-0 right-0 bg-black/65 px-2 py-1.5 text-white">
+          <p className="truncate text-[11px] font-bold">{anexo.nomeArquivo}</p>
+          <p className="text-[10px] opacity-75">{formatFileSize(anexo.tamanho)}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AttachmentPreviewTray({
+  anexos,
+  onRemover,
+  onLimpar,
+}: {
+  anexos: AnexoPendente[];
+  onRemover: (id: string) => void;
+  onLimpar: () => void;
+}) {
+  if (anexos.length === 0) return null;
+
+  return (
+    <div className="mb-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2">
+      <div className="mb-2 flex items-center justify-between px-1 text-xs font-bold text-[var(--text)]">
+        <span>{anexos.length} anexo{anexos.length > 1 ? "s" : ""}</span>
+        <button onClick={onLimpar} className="flex h-7 items-center gap-1 rounded-md px-2 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]">
+          <X size={13} /> Limpar
+        </button>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {anexos.map((anexo) => (
+          <AttachmentPreviewCard key={anexo.id} anexo={anexo} onRemover={onRemover} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function AreaCentralChat({
+  conversaAtiva,
+  onEnviar,
+  onAbrirDadosPerfil,
+  onAnexarArquivo,
+  onGravarAudio,
+  gravando,
+  tempoGravacao,
+  formatarTempo,
+  anexosPendentes,
+  enviandoAnexos,
+  statusMicrofone,
+  onRemoverAnexo,
+  onLimparAnexos,
+  onApagarMensagensEmMassa,
+  onEncaminharMensagens,
+}: AreaCentralProps) {
+  const [resposta, setResposta] = useState("");
+  const [mostrarPesquisa, setMostrarPesquisa] = useState(false);
+  const [termoPesquisa, setTermoPesquisa] = useState("");
+  const [traduzirChat, setTraduzirChat] = useState(false);
+  const [menuMensagemId, setMenuMensagemId] = useState<string | null>(null);
+  const [modoSelecao, setModoSelecao] = useState(false);
+  const [selecionadas, setSelecionadas] = useState<string[]>([]);
+  const [mostrarPainelEmojis, setMostrarPainelEmojis] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [conversaAtiva?.id, conversaAtiva?.mensagens.length]);
+
+  useEffect(() => {
+    const fecharFlutuantes = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest("[data-message-menu-root]")) {
+        setMenuMensagemId(null);
+      }
+      if (!target.closest("[data-emoji-panel-root]")) {
+        setMostrarPainelEmojis(false);
+      }
+    };
+
+    document.addEventListener("mousedown", fecharFlutuantes);
+    return () => document.removeEventListener("mousedown", fecharFlutuantes);
+  }, []);
+
+  if (!conversaAtiva) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-[var(--background)] text-sm font-semibold text-[var(--text-secondary)]">
+        Selecione uma conversa para comecar.
+      </div>
+    );
+  }
+
+  const mensagensFiltradas = conversaAtiva.mensagens.filter((mensagem) => {
+    if (!termoPesquisa) return true;
+    return mensagem.texto?.toLowerCase().includes(termoPesquisa.toLowerCase());
+  });
+
+  const acionarEnviar = () => {
+    const texto = resposta.trim();
+    if (!texto && anexosPendentes.length === 0) return;
+    void onEnviar(texto);
+    setResposta("");
+  };
+
+  const alternarSelecaoMensagem = (id: string) => {
+    setSelecionadas((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
+
+  return (
+    <section className="flex-1 flex flex-col h-full border-r border-[var(--border)] bg-[var(--background)] min-w-0">
+      {!modoSelecao ? (
+        <div className="h-16 px-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--surface)]">
+          <button className="min-w-0 flex items-center gap-3 text-left" onClick={onAbrirDadosPerfil}>
+            <HeaderAvatar conversa={conversaAtiva} />
+            <div className="min-w-0">
+              <h3 className="font-semibold text-sm truncate text-[var(--text)]">{conversaAtiva.contato}</h3>
+              <p className="text-xs text-[var(--text-secondary)] truncate">
+                {conversaAtiva.esGrupo ? `${conversaAtiva.metadados?.participantes?.length || 0} participantes` : conversaAtiva.metadados?.numeroCompleto || conversaAtiva.id}
+              </p>
+            </div>
+          </button>
+
+          <div className="flex items-center gap-1">
+            <button title="Pesquisar" onClick={() => setMostrarPesquisa(!mostrarPesquisa)} className={`h-9 w-9 rounded-lg flex items-center justify-center transition ${mostrarPesquisa ? "bg-[var(--primary)] text-white" : "hover:bg-[var(--surface-hover)] text-[var(--text)]"}`}>
+              <Search size={17} />
+            </button>
+            <button title="Traduzir" onClick={() => setTraduzirChat(!traduzirChat)} className={`h-9 w-9 rounded-lg flex items-center justify-center transition ${traduzirChat ? "bg-[var(--primary)] text-white" : "hover:bg-[var(--surface-hover)] text-[var(--text)]"}`}>
+              <Languages size={17} />
+            </button>
+            <button onClick={onAbrirDadosPerfil} className="h-9 px-3 text-xs font-bold border border-[var(--border)] rounded-lg hover:bg-[var(--surface-hover)] text-[var(--text)]">
+              Dados
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="h-16 px-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--surface)] text-[var(--text)]">
+          <div className="flex items-center gap-3">
+            <button onClick={() => { setModoSelecao(false); setSelecionadas([]); }} className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg">
+              <X size={17} />
+            </button>
+            <span className="text-sm font-bold">{selecionadas.length} selecionadas</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => { onEncaminharMensagens(selecionadas); setModoSelecao(false); setSelecionadas([]); }} className="h-9 px-3 border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-lg flex items-center gap-1.5 text-xs font-bold">
+              <CornerUpRight size={14} /> Encaminhar
+            </button>
+            <button onClick={() => { onApagarMensagensEmMassa(selecionadas); setModoSelecao(false); setSelecionadas([]); }} className="h-9 px-3 bg-red-600 text-white rounded-lg flex items-center gap-1.5 text-xs font-bold">
+              <Trash2 size={14} /> Apagar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mostrarPesquisa && (
+        <div className="bg-[var(--surface)] p-2.5 border-b border-[var(--border)] flex gap-2">
+          <input
+            type="text"
+            placeholder="Buscar nesta conversa"
+            value={termoPesquisa}
+            onChange={(event) => setTermoPesquisa(event.target.value)}
+            className="flex-1 h-9 bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 text-sm outline-none text-[var(--text)]"
+          />
+          <button onClick={() => { setTermoPesquisa(""); setMostrarPesquisa(false); }} className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg text-[var(--text)]">
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
+      <div
+        className="flex-1 overflow-y-auto px-8 py-6 space-y-2 bg-[#0b141a] dark:bg-[#0b141a]"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 20px 20px, rgba(255,255,255,0.035) 1px, transparent 1.4px), radial-gradient(circle at 70px 60px, rgba(255,255,255,0.025) 1.4px, transparent 1.8px)",
+          backgroundSize: "96px 96px",
+        }}
+      >
+        {mensagensFiltradas.map((msg) => {
+          const outgoing = msg.remetente === "usuario";
+          const estaSelecionada = selecionadas.includes(msg.id);
+
+          return (
+            <div key={msg.id} onClick={() => modoSelecao && alternarSelecaoMensagem(msg.id)} className={`flex w-full items-end gap-3 group ${outgoing ? "justify-end" : "justify-start"} ${modoSelecao ? "cursor-pointer" : ""}`}>
+              {modoSelecao && (
+                <input
+                  type="checkbox"
+                  checked={estaSelecionada}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={() => alternarSelecaoMensagem(msg.id)}
+                  className="h-4 w-4 cursor-pointer"
+                />
+              )}
+
+              <div
+                className={`relative max-w-[68%] rounded-lg px-3 py-2 shadow-sm ${outgoing ? "bg-[#005c4b] text-white" : "bg-[#202c33] text-[#e9edef]"} ${estaSelecionada ? "ring-2 ring-[#00a884]" : ""}`}
+                data-message-menu-root
+              >
+                {!modoSelecao && (
+                  <button onClick={(event) => { event.stopPropagation(); setMenuMensagemId(menuMensagemId === msg.id ? null : msg.id); }} className="absolute top-1 right-1 h-7 w-7 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 transition hover:bg-black/20">
+                    <MoreVertical size={14} />
+                  </button>
+                )}
+
+                {menuMensagemId === msg.id && (
+                  <div className="absolute right-1 top-8 bg-[#233138] border border-white/10 rounded-lg shadow-xl z-50 text-xs font-bold text-[#e9edef] py-1 w-32 overflow-hidden">
+                    <button onClick={() => { if (msg.texto) void navigator.clipboard.writeText(msg.texto); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
+                      <Copy size={13} /> Copiar
+                    </button>
+                    <button onClick={() => { setModoSelecao(true); setSelecionadas([msg.id]); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
+                      <Check size={13} /> Selecionar
+                    </button>
+                    <button onClick={() => { onApagarMensagensEmMassa([msg.id]); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-red-500 text-left">
+                      <Trash2 size={13} /> Apagar
+                    </button>
+                  </div>
+                )}
+
+                {msg.remetenteNome && !outgoing && (
+                  <span className="mb-1 block text-[11px] font-extrabold text-[var(--primary)]">~ {msg.remetenteNome}</span>
+                )}
+
+                {msg.tipo === "texto" ? (
+                  <p className="whitespace-pre-wrap break-words pr-6 text-sm leading-relaxed font-medium">{msg.texto}</p>
+                ) : (
+                  <MessageMedia msg={msg} outgoing={outgoing} />
+                )}
+
+                <div className="mt-1 flex items-center justify-end gap-1 opacity-70">
+                  <span className="text-[10px] font-medium">{msg.horario}</span>
+                  {outgoing && <MessageStatus status={msg.status} />}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="p-3 border-t border-[var(--border)] bg-[var(--surface)] relative">
+        {mostrarPainelEmojis && (
+          <div data-emoji-panel-root className="absolute bottom-16 left-4 bg-[var(--surface)] border border-[var(--border)] p-3 rounded-lg shadow-2xl z-50 w-72 text-xs font-bold text-[var(--text)]">
+            <p className="text-[var(--text-secondary)] mb-2 uppercase tracking-wide text-[10px]">Mais usados</p>
+            <div className="grid grid-cols-6 gap-2 text-xl">
+              {["😂", "👍", "😍", "🔥", "🙏", "😭", "👏", "🎉", "🚀", "❤️", "👀", "✨"].map((emoji) => (
+                <button key={emoji} onClick={() => { setResposta((prev) => prev + emoji); setMostrarPainelEmojis(false); }} className="h-8 rounded-md hover:bg-[var(--surface-hover)]">
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <AttachmentPreviewTray anexos={anexosPendentes} onRemover={onRemoverAnexo} onLimpar={onLimparAnexos} />
+
+        {(gravando || statusMicrofone === "solicitando" || statusMicrofone === "negado") && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs font-bold text-[var(--text)]">
+            <span className={`h-2 w-2 rounded-full ${gravando ? "animate-pulse bg-red-500" : statusMicrofone === "negado" ? "bg-red-500" : "bg-amber-400"}`} />
+            <span>
+              {gravando
+                ? `Gravando audio: ${formatarTempo(tempoGravacao)}`
+                : statusMicrofone === "negado"
+                  ? "Microfone bloqueado"
+                  : "Permissao do microfone"}
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <button onClick={onAnexarArquivo} title="Anexar" className="h-11 w-11 border border-[var(--border)] rounded-lg flex items-center justify-center hover:bg-[var(--surface-hover)] text-[var(--text)]">
+            <Paperclip size={19} />
+          </button>
+          <button data-emoji-panel-root onClick={() => setMostrarPainelEmojis(!mostrarPainelEmojis)} title="Emoji" className={`h-11 w-11 border rounded-lg flex items-center justify-center transition ${mostrarPainelEmojis ? "bg-[var(--primary)] text-white border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"}`}>
+            <Smile size={19} />
+          </button>
+          <input
+            type="text"
+            value={resposta}
+            disabled={gravando || enviandoAnexos}
+            onChange={(event) => setResposta(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") acionarEnviar(); }}
+            placeholder={gravando ? `Gravando audio: ${formatarTempo(tempoGravacao)}` : "Digite uma mensagem"}
+            className="h-11 min-w-0 flex-1 bg-[var(--background)] border border-[var(--border)] rounded-lg px-4 text-sm outline-none focus:border-[var(--primary)] text-[var(--text)]"
+          />
+          <button onClick={onGravarAudio} disabled={enviandoAnexos} title="Audio" className={`h-11 w-11 border rounded-lg flex items-center justify-center ${gravando ? "bg-red-500 text-white animate-pulse border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"} ${enviandoAnexos ? "opacity-50" : ""}`}>
+            <Mic size={19} />
+          </button>
+          <button
+            onClick={acionarEnviar}
+            disabled={enviandoAnexos || (!resposta.trim() && anexosPendentes.length === 0)}
+            title="Enviar"
+            className={`h-11 w-11 bg-[var(--primary)] text-white rounded-lg flex items-center justify-center shadow-sm ${enviandoAnexos || (!resposta.trim() && anexosPendentes.length === 0) ? "opacity-50" : ""}`}
+          >
+            <SendHorizontal size={18} />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}

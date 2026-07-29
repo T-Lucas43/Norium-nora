@@ -1,0 +1,1 @@
+"""Quadros colaborativos de brainstorm."""

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BookOpen,
   BriefcaseBusiness,
   Building2,
+  Check,
   CheckCircle2,
   ClipboardCheck,
   Download,
@@ -15,6 +16,7 @@ import {
   KeyRound,
   LoaderCircle,
   Mic2,
+  Minus,
   Plus,
   RefreshCw,
   ScanSearch,
@@ -30,6 +32,7 @@ import {
 
 import { apiRequest } from "../../core/api/client";
 import type { AuthSession, NoriumUser } from "../../types/auth";
+import { normalizePermissions, ownerPermissions, defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { downloadWithAuth, openWithAuth } from "../../utils/download";
 
 type PlatformArea = "overview" | "companies" | "service" | "knowledge" | "security";
@@ -1002,6 +1005,57 @@ function SecurityArea({
         </button>
       </Panel>
 
+      <Panel title="Matriz de permissoes" subtitle="Quem tem acesso a cada tela e integracao, de relance." icon={UserRoundCog} className="xl:col-span-2">
+        {users.length === 0 ? (
+          <EmptyState text="Nenhum usuario encontrado." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-xs">
+              <thead>
+                <tr>
+                  <th className="p-2 text-left font-black text-[var(--text-secondary)]">Permissao</th>
+                  {users.map((member) => (
+                    <th key={member.id} className="p-2 text-center font-black text-[var(--text-secondary)]" title={member.email}>
+                      {member.nome.split(" ")[0]}
+                      {member.systemAdmin && <ShieldCheck size={11} className="ml-1 inline text-amber-400" />}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {permissionGroups.map((group) => (
+                  <Fragment key={group.title}>
+                    <tr>
+                      <td colSpan={users.length + 1} className="pb-1 pt-3 text-[10px] font-black uppercase tracking-wider text-[var(--text-secondary)]">
+                        {group.title}
+                      </td>
+                    </tr>
+                    {group.keys.map((key) => (
+                      <tr key={key} className="border-t border-[var(--border)]">
+                        <td className="p-2 font-semibold">{permissionLabels[key]}</td>
+                        {users.map((member) => {
+                          const perms = normalizePermissions(member.permissions, member.role === "owner" ? ownerPermissions : defaultMemberPermissions);
+                          const has = member.systemAdmin || perms[key];
+                          return (
+                            <td key={member.id} className="p-2 text-center">
+                              {has ? (
+                                <Check size={14} className="inline text-emerald-400" aria-label="Permitido" />
+                              ) : (
+                                <Minus size={14} className="inline text-[var(--text-secondary)] opacity-40" aria-label="Sem acesso" />
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
+
       <Panel title="Regras de aprovacao" subtitle="Bloqueie gastos, envios em massa e exclusoes ate um responsavel aprovar." icon={ShieldCheck}>
         <div className="grid gap-2 sm:grid-cols-[1fr_130px]">
           <input className="norium-platform-input" value={ruleName} onChange={(event) => setRuleName(event.target.value)} placeholder="Gastos de alto valor" />
@@ -1115,14 +1169,16 @@ function Panel({
   subtitle,
   icon: Icon,
   children,
+  className = "",
 }: {
   title: string;
   subtitle: string;
   icon: typeof Gauge;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="norium-platform-card">
+    <section className={`norium-platform-card ${className}`}>
       <div className="mb-4 flex items-start gap-3">
         <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-400">
           <Icon size={18} />

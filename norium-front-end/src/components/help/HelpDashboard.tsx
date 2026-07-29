@@ -94,7 +94,7 @@ const sections: GuideSection[] = [
       { title: "Pesquisa global", description: "Use Ctrl + K para buscar telas, recursos e ações em qualquer lugar do sistema." },
       { title: "Barra lateral", description: "Recolha a navegação para ganhar espaço; seus ícones continuam disponíveis." },
       { title: "Chat da equipe", description: "Use o ícone de conversa no topo para falar com todo o time ou enviar mensagem direta." },
-      { title: "Configurações", description: "Altere tema, aparência e preferências sem misturar essas opções com os dados do perfil.", action: "Abrir configurações", tab: "Configuracoes" },
+      { title: "Configurações", description: "Altere tema, aparência e preferências sem misturar essas opções com os dados do perfil.", action: "Abrir configurações", tab: "Configurações" },
     ],
   },
 ];

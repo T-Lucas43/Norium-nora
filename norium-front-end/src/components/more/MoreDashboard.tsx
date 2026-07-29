@@ -43,7 +43,7 @@ export default function MoreDashboard({ onNavigate, onOpenNora, onLogout }: More
         { title: "Controle operacional", description: "Meu Dia, aprovacoes, integracoes, auditoria e comprovantes.", icon: ShieldCheck, action: () => onNavigate("Controle") },
         { title: "Integracoes", description: "Central de eventos das integracoes conectadas.", icon: Puzzle, action: () => onNavigate("Central") },
         { title: "Agentes da Nora", description: "Abra a Nora e acesse os agentes de e-mail, agenda e tarefas.", icon: Bot, action: onOpenNora },
-        { title: "Notificacoes", description: "Alertas globais, conexoes e avisos operacionais.", icon: Bell, action: () => onNavigate("Notificacoes") },
+        { title: "Notificacoes", description: "Alertas globais, conexoes e avisos operacionais.", icon: Bell, action: () => onNavigate("Notificações") },
       ],
     },
     {
@@ -58,7 +58,7 @@ export default function MoreDashboard({ onNavigate, onOpenNora, onLogout }: More
     {
       title: "Conta e sistema",
       items: [
-        { title: "Configuracoes", description: "Tema, aparencia, notificacoes e preferencias da Nora.", icon: Settings, action: () => onNavigate("Configuracoes") },
+        { title: "Configuracoes", description: "Tema, aparencia, notificacoes e preferencias da Nora.", icon: Settings, action: () => onNavigate("Configurações") },
         { title: "Seguranca", description: "Sessoes, auditoria e politicas de acesso.", icon: Shield, action: () => onNavigate("Controle") },
         { title: "Sair da conta", description: "Encerrar sua sessao atual no Norium.", icon: LogOut, action: onLogout, tone: "danger" },
       ],
@@ -66,7 +66,7 @@ export default function MoreDashboard({ onNavigate, onOpenNora, onLogout }: More
   ];
 
   const advanced: MoreItem[] = [
-    { title: "Exportar dados", description: "Baixe relatorios e dados consolidados.", icon: Download, action: () => onNavigate("Relatorios") },
+    { title: "Exportar dados", description: "Baixe relatorios e dados consolidados.", icon: Download, action: () => onNavigate("Relatórios") },
     { title: "Logs de atividades", description: "Historico operacional em tempo real.", icon: Logs, action: () => onNavigate("Controle") },
     { title: "Webhooks", description: "Gerencie webhooks de entrada e saida.", icon: Webhook, action: () => onNavigate("Automações") },
   ];

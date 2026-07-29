@@ -43,7 +43,7 @@ export const PRIMARY_TABS = [
   "Tarefas",
   "Financeiro",
   "Automações",
-  "Relatorios",
+  "Relatórios",
   "Equipe",
   "Clientes",
   "Governanca",

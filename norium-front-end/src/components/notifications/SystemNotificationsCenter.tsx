@@ -137,11 +137,11 @@ export default function SystemNotificationsCenter({
     if (context.includes("agenda") || context.includes("calendar")) return "Agenda";
     if (context.includes("whatsapp") || context.includes("telegram") || context.includes("chat")) return "Chat";
     if (context.includes("tarefa") || context.includes("kanban")) return "Tarefas";
-    if (context.includes("financ") || context.includes("gasto") || context.includes("boleto")) return "Gastos";
+    if (context.includes("financ") || context.includes("gasto") || context.includes("boleto")) return "Financeiro";
     if (context.includes("automa")) return "Automações";
     if (context.includes("equipe")) return "Equipe";
     if (context.includes("brainstorm")) return "Brainstorm";
-    if (context.includes("relatorio") || context.includes("relatório")) return "Relatorios";
+    if (context.includes("relatorio") || context.includes("relatório")) return "Relatórios";
     return "Controle";
   }
 

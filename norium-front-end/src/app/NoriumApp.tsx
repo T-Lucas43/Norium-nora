@@ -125,7 +125,7 @@ export default function NoriumApp() {
   }, [profile?.tema, profile?.tema_personalizado, setAppMode]);
 
   useEffect(() => {
-    if (activeTab === "Notificacoes") clearSystemUnread();
+    if (activeTab === "Notificações") clearSystemUnread();
   }, [activeTab, clearSystemUnread]);
 
   useEffect(() => {
@@ -160,7 +160,7 @@ export default function NoriumApp() {
   }, [authSession, canAccessTab]);
 
   const openNotifications = useCallback(() => {
-    setActiveTab("Notificacoes");
+    setActiveTab("Notificações");
     clearSystemUnread();
   }, [clearSystemUnread]);
 
@@ -298,7 +298,7 @@ export default function NoriumApp() {
           }}
           onOpenNotifications={openNotifications}
           onOpenProfile={() => setActiveTab("Perfil")}
-          onOpenSettings={() => setActiveTab("Configuracoes")}
+          onOpenSettings={() => setActiveTab("Configurações")}
           onLogout={handleLogout}
           onToggleSidebar={() => {
             if (window.matchMedia("(max-width: 900px)").matches) {

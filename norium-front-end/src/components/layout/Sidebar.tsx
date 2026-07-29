@@ -54,7 +54,7 @@ const navigation: NavigationItem[] = [
   { title: "Tarefas", icon: CheckSquare },
   { title: "Financeiro", icon: CreditCard },
   { title: "Automações", icon: GitBranch },
-  { title: "Relatorios", icon: BarChart3 },
+  { title: "Relatórios", icon: BarChart3 },
   { title: "Equipe", icon: UsersRound },
   { title: "Clientes", icon: UserRoundCheck },
   { title: "Governanca", icon: ShieldCheck },
@@ -136,7 +136,8 @@ export default function Sidebar({
             const active =
               activeTab === item.title ||
               (activeTab === "Inbox" && item.title === "Central") ||
-              (activeTab === "Automacoes" && item.title === "Automações");
+              (activeTab === "Automacoes" && item.title === "Automações") ||
+              (activeTab === "Relatorios" && item.title === "Relatórios");
 
             return (
               <button
@@ -160,7 +161,7 @@ export default function Sidebar({
           <button
             type="button"
             className={`norium-sidebar-item ${activeTab === "Configuracoes" || activeTab === "Configurações" ? "is-active" : ""}`}
-            onClick={() => navigate("Configuracoes")}
+            onClick={() => navigate("Configurações")}
             title={compact ? "Configurações" : undefined}
           >
             <span className="norium-sidebar-item-icon">

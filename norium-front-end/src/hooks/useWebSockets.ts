@@ -12,7 +12,7 @@ const API_URL = `${apiBaseUrl()}/api/omnichannel/inbox`;
 const WS_URL = `${wsBaseUrl()}/api/omnichannel/ws`;
 const CALENDAR_SYNC_URL = `${apiBaseUrl()}/api/agenda/sync`;
 const GMAIL_SYNC_URL = `${apiBaseUrl()}/api/emails/gmail/sync-central`;
-const NOTIFICATIONS_TAB = "Notificacoes";
+const NOTIFICATIONS_TAB = "Notificações";
 
 type SocketMessage = {
   type?: string;

@@ -112,14 +112,14 @@ export default function Header({
       { title: "Agenda", description: "Compromissos e novos eventos.", keywords: "calendario reuniao compromisso", icon: CalendarDays, tab: "Agenda" },
       { title: "Chat", description: "WhatsApp, Telegram, grupos e mídia.", keywords: "conversas mensagens whatsapp telegram", icon: MessageSquare, tab: "Chat" },
       { title: "Tarefas", description: "Projetos, Kanban, prazos e responsáveis.", keywords: "cards projetos prioridade", icon: CheckSquare, tab: "Tarefas" },
-      { title: "Gastos", description: "Entradas, saídas, boletos e anexos.", keywords: "financeiro pagamentos lancamentos", icon: CreditCard, tab: "Gastos" },
+      { title: "Financeiro", description: "Entradas, saídas, boletos e anexos.", keywords: "financeiro pagamentos lancamentos", icon: CreditCard, tab: "Financeiro" },
       { title: "Automações", description: "Fluxos, gatilhos e execuções.", keywords: "workflow fluxo nora gatilho", icon: GitBranch, tab: "Automações" },
-      { title: "Relatórios", description: "Produtividade, canais e exportações.", keywords: "graficos pdf indicadores", icon: BarChart3, tab: "Relatorios" },
+      { title: "Relatórios", description: "Produtividade, canais e exportações.", keywords: "graficos pdf indicadores", icon: BarChart3, tab: "Relatórios" },
       { title: "Equipe", description: "Membros, acessos e produtividade.", keywords: "usuarios permissoes time", icon: UsersRound, tab: "Equipe" },
       { title: "Brainstorm", description: "Quadros colaborativos da equipe.", keywords: "ideias miro postit reuniao", icon: BrainCircuit, tab: "Brainstorm" },
       { title: "Clientes", description: "Relacionamentos, etapas e proximos contatos.", keywords: "crm cliente lead proposta contato", icon: UserRoundCheck, tab: "Clientes" },
       { title: "Meu perfil", description: "Foto, nome, idioma e CEP.", keywords: "perfil foto nome cep", icon: UserCircle2, tab: "Perfil" },
-      { title: "Configurações", description: "Tema, aparência e preferências.", keywords: "tema cores nora notificacoes", icon: Settings, tab: "Configuracoes" },
+      { title: "Configurações", description: "Tema, aparência e preferências.", keywords: "tema cores nora notificacoes", icon: Settings, tab: "Configurações" },
       { title: "Ajuda e guia", description: "Guia prático de módulos, integrações e atalhos.", keywords: "ajuda suporte guia como usar primeiros passos", icon: CircleHelp, tab: "Ajuda" },
       { title: "Nora", description: "Conversar com sua assistente inteligente.", keywords: "assistente ia voz ajuda", icon: Sparkles, run: onOpenNora },
     ],
@@ -129,7 +129,7 @@ export default function Header({
   const filteredCommands = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("pt-BR");
     return commands
-      .filter((command) => !command.tab || !allowedTabs || allowedTabs.includes(command.tab) || command.tab === "Perfil" || command.tab === "Configuracoes" || command.tab === "Ajuda")
+      .filter((command) => !command.tab || !allowedTabs || allowedTabs.includes(command.tab) || command.tab === "Perfil" || command.tab === "Configurações" || command.tab === "Ajuda")
       .filter((command) =>
         !normalized ||
         `${command.title} ${command.description} ${command.keywords}`

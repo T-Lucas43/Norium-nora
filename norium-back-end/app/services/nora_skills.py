@@ -300,6 +300,13 @@ def semantic_routing_prompt(message: str, resolution: SkillResolution, context: 
         f"- {skill.id}: {skill.description} Exemplos: {' | '.join(skill.examples)}"
         for skill in SKILLS
     )
+    catalog += (
+        "\n- chat: Conversa geral da Nora quando a mensagem nao pede nenhuma acao das skills acima. "
+        "Cobre small talk, curiosidades, perguntas genericas, piadas e pedidos de ajuda sem citar um "
+        "modulo especifico do Norium. Exemplos: me conte uma curiosidade sobre o espaco | "
+        "voce pode contar uma piada | qual e a capital da Australia | explique o que eu posso fazer "
+        "nesta tela (sem citar um modulo especifico)"
+    )
     alternatives = ", ".join(
         f"{item.get('skill_id')}={item.get('score')}" for item in resolution.alternatives
     )
@@ -307,6 +314,8 @@ def semantic_routing_prompt(message: str, resolution: SkillResolution, context: 
         "Voce e o roteador de skills da Nora. Escolha a skill que representa a ACAO principal pedida pelo usuario. "
         "Diferencie o canal de destino do assunto: 'avise a equipe sobre tarefas' usa equipe; "
         "'quando chegar e-mail crie tarefa' usa automacoes; 'caixa de entrada' usa email, nunca financeiro. "
+        "Se a mensagem nao pedir nenhuma acao das skills especificas e for so conversa, pergunta geral ou "
+        "curiosidade, use chat -- nao chute uma skill especifica so porque ela existe na lista. "
         "Responda SOMENTE JSON valido: "
         '{"intent":"equipe|automacoes|brainstorm|operacoes|email|financeiro|tarefas|agenda|chat","confidence":0.0,"reason":"curto"}.\n\n'
         f"Skills disponiveis:\n{catalog}\n\n"

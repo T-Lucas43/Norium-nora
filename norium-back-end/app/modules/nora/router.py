@@ -856,7 +856,7 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
                 resolution,
                 recent_context,
             )
-            if semantic_confidence >= 0.55 or resolution.score <= 0:
+            if semantic_confidence >= 0.55:
                 intent = semantic_intent
 
         approval_response = await request_sensitive_approval(
@@ -870,7 +870,8 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             return approval_response
 
         if intent == "financeiro":
-            result = await handle_finance_agent(resolved_user_id, texto)
+            finance_message = await message_with_memory(user, texto, {"finance", "process", "general"})
+            result = await handle_finance_agent(resolved_user_id, finance_message)
             return resposta_agente("financeiro", result, resolution=resolution)
 
         if intent == "tarefas":
@@ -887,11 +888,13 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             return resposta_agente("agenda", result, "agenda", resolution)
 
         if intent == "equipe":
-            result = await handle_team_agent(resolved_user_id, texto, str(user.get("nome") or "Nora"))
+            team_message = await message_with_memory(user, texto, {"communication", "process", "general"})
+            result = await handle_team_agent(resolved_user_id, team_message, str(user.get("nome") or "Nora"))
             return resposta_agente("equipe", result, resolution=resolution)
 
         if intent == "automacoes":
-            result = await handle_automation_agent(resolved_user_id, texto, str(user.get("nome") or "Nora"))
+            automation_message = await message_with_memory(user, texto, {"process", "general"})
+            result = await handle_automation_agent(resolved_user_id, automation_message, str(user.get("nome") or "Nora"))
             return resposta_agente("automacoes", result, resolution=resolution)
 
         if intent == "brainstorm":

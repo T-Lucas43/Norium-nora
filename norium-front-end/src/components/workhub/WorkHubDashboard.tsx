@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, authToken } from "../../utils/api";
 import { apiRequest } from "../../core/api/client";
+import { showConfirm, showPrompt } from "../shared/AppDialogProvider";
 
 type DeepLink = {
   tab: string;
@@ -303,7 +304,13 @@ export default function WorkHubDashboard({
   }
 
   async function importCsv(file: File) {
-    const kind = window.prompt("Importar como: clientes, tarefas ou lancamentos?", "clientes");
+    const kind = await showPrompt({
+      title: "Importar arquivo CSV",
+      description: "Informe clientes, tarefas ou lancamentos para definir o destino dos registros.",
+      defaultValue: "clientes",
+      confirmLabel: "Validar arquivo",
+      required: true,
+    });
     if (!kind || !["clientes", "tarefas", "lancamentos"].includes(kind)) return;
     const content = await file.text();
     await mutate(
@@ -324,7 +331,12 @@ export default function WorkHubDashboard({
         if (!preview.ok || validation.errors?.length) {
           throw new Error(`Importação cancelada: ${validation.errors?.length || 1} linha(s) inválida(s).`);
         }
-        if (!window.confirm(`${validation.valid} registro(s) válidos. Confirmar importação?`)) return;
+        const confirmed = await showConfirm({
+          title: "Confirmar importação",
+          description: `${validation.valid} registro(s) válidos foram encontrados e serão importados.`,
+          confirmLabel: "Importar dados",
+        });
+        if (!confirmed) return;
         const response = await fetch(`${apiBaseUrl}/api/operacao/dados/importar-csv?kind=${kind}`, {
           method: "POST",
           headers: {
@@ -505,8 +517,14 @@ export default function WorkHubDashboard({
             </div>
             <div className="workhub-backups">
               <h3>Backups disponíveis</h3>
-              {data.backups.items.map((backup) => <article key={backup.id}><span><strong>{formatDate(backup.createdAt)}</strong><small>{backup.files.length} arquivo(s) · {(backup.sizeBytes / 1024).toFixed(1)} KB</small></span><button type="button" title="Restaurar backup" onClick={() => {
-                if (window.confirm("Restaurar este backup substituirá os dados atuais. Continuar?")) void mutate(`restore:${backup.id}`, () => apiRequest(`/api/operacao/backups/${backup.id}/restaurar`, { method: "POST", body: JSON.stringify({ confirmation: "RESTAURAR" }) }), "Backup restaurado.");
+              {data.backups.items.map((backup) => <article key={backup.id}><span><strong>{formatDate(backup.createdAt)}</strong><small>{backup.files.length} arquivo(s) · {(backup.sizeBytes / 1024).toFixed(1)} KB</small></span><button type="button" title="Restaurar backup" onClick={async () => {
+                const confirmed = await showConfirm({
+                  title: "Restaurar backup?",
+                  description: "A restauração substituirá os dados atuais deste ambiente.",
+                  confirmLabel: "Restaurar backup",
+                  tone: "warning",
+                });
+                if (confirmed) void mutate(`restore:${backup.id}`, () => apiRequest(`/api/operacao/backups/${backup.id}/restaurar`, { method: "POST", body: JSON.stringify({ confirmation: "RESTAURAR" }) }), "Backup restaurado.");
               }}><ArchiveRestore size={16} /></button></article>)}
               {!data.backups.items.length && <p>Nenhum backup manual criado.</p>}
             </div>

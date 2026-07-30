@@ -3,6 +3,7 @@ import { Building2, CalendarDays, CheckSquare, History, LoaderCircle, Mail, Mess
 import { apiRequest } from "../../core/api/client";
 import LoadingState from "../shared/LoadingState";
 import EmptyState from "../shared/EmptyState";
+import { showConfirm } from "../shared/AppDialogProvider";
 
 type ClientStage = "new" | "contacted" | "proposal" | "won" | "lost";
 type ClientStatus = "lead" | "active" | "inactive";
@@ -168,7 +169,13 @@ export default function ClientsDashboard() {
   }
 
   async function removeClient(client: Client) {
-    if (!window.confirm(`Excluir o cliente "${client.name}"?`)) return;
+    const confirmed = await showConfirm({
+      title: "Excluir cliente?",
+      description: `"${client.name}" será removido. Os registros históricos relacionados não serão reatribuídos automaticamente.`,
+      confirmLabel: "Excluir cliente",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       await apiRequest(`/api/clientes/${client.id}`, { method: "DELETE" });
       setClients((current) => current.filter((item) => item.id !== client.id));

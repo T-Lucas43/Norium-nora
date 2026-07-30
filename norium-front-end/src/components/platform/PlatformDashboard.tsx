@@ -33,6 +33,7 @@ import {
 import { apiRequest } from "../../core/api/client";
 import type { AuthSession, NoriumUser } from "../../types/auth";
 import { normalizePermissions, ownerPermissions, defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
+import { showAlert, showConfirm } from "../shared/AppDialogProvider";
 import { downloadWithAuth, openWithAuth } from "../../utils/download";
 
 type PlatformArea = "overview" | "companies" | "service" | "knowledge" | "security";
@@ -454,8 +455,14 @@ function CompaniesArea({
                     className="norium-platform-icon-button is-danger"
                     title="Excluir ambiente"
                     aria-label={`Excluir ${company.name}`}
-                    onClick={() => {
-                      if (!window.confirm(`Excluir o ambiente ${company.name}? Os dados isolados deixarao de ser acessiveis.`)) return;
+                    onClick={async () => {
+                      const confirmed = await showConfirm({
+                        title: "Excluir ambiente?",
+                        description: `${company.name} e seus dados isolados deixarão de ser acessíveis.`,
+                        confirmLabel: "Excluir ambiente",
+                        tone: "danger",
+                      });
+                      if (!confirmed) return;
                       void mutate(
                         `delete-${company.id}`,
                         () => apiRequest(`/api/plataforma/empresas/${company.id}`, { method: "DELETE" }),
@@ -756,10 +763,14 @@ function KnowledgeArea({
             type="button"
             className="norium-platform-button"
             disabled={!pdfFile || busy === "knowledge-pdf"}
-            onClick={() => {
+            onClick={async () => {
               if (!pdfFile) return;
               if (pdfFile.size > 12 * 1024 * 1024) {
-                window.alert("O PDF deve ter no maximo 12 MB.");
+                await showAlert({
+                  title: "Arquivo acima do limite",
+                  description: "O PDF deve ter no máximo 12 MB.",
+                  tone: "warning",
+                });
                 return;
               }
               void mutate(
@@ -830,9 +841,15 @@ function KnowledgeArea({
                   title="Excluir fonte"
                   aria-label={`Excluir ${String(document.title || "documento")}`}
                   disabled={busy === `knowledge-delete-${document.id}`}
-                  onClick={() => {
+                  onClick={async () => {
                     const documentTitle = String(document.title || "este documento");
-                    if (!window.confirm(`Excluir "${documentTitle}" da base de conhecimento?`)) return;
+                    const confirmed = await showConfirm({
+                      title: "Excluir fonte de conhecimento?",
+                      description: `"${documentTitle}" deixará de estar disponível para consultas da Nora.`,
+                      confirmLabel: "Excluir fonte",
+                      tone: "danger",
+                    });
+                    if (!confirmed) return;
                     void mutate(
                       `knowledge-delete-${document.id}`,
                       () => apiRequest(`/api/plataforma/conhecimento/${document.id}`, { method: "DELETE" }),
@@ -1152,7 +1169,10 @@ function SecurityArea({
           className="norium-platform-button"
           onClick={async () => {
             const payload = await apiRequest<{ pending: number; failed: number }>("/api/system/outbox");
-            window.alert(`Pendentes: ${payload.pending}\nFalhas: ${payload.failed}`);
+            await showAlert({
+              title: "Diagnóstico da fila",
+              description: `Operações pendentes: ${payload.pending}\nOperações com falha: ${payload.failed}`,
+            });
           }}
         >
           <ScanSearch size={16} /> Abrir diagnostico

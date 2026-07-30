@@ -38,6 +38,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { showConfirm } from "../shared/AppDialogProvider";
 import type { LucideIcon } from "lucide-react";
 import { automationsApiRequest, fetchActiveTaskProjects } from "../../features/automations/api";
 import LoadingState from "../shared/LoadingState";
@@ -851,7 +852,13 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
   }
 
   async function deleteAutomation(automation: Automation) {
-    if (!window.confirm(`Excluir a automacao "${automation.name}"?`)) return;
+    const confirmed = await showConfirm({
+      title: "Excluir automação?",
+      description: `"${automation.name}" e sua configuração serão removidos.`,
+      confirmLabel: "Excluir automação",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     if (localMode) {
       const next = normalizeAutomationResponse({
         ...data,

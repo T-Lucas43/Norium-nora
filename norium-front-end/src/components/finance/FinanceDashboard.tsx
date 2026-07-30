@@ -27,6 +27,7 @@ import type { ReactNode } from "react";
 import { apiBaseUrl } from "../../utils/api";
 import { downloadWithAuth, openWithAuth } from "../../utils/download";
 import LoadingState from "../shared/LoadingState";
+import { showConfirm } from "../shared/AppDialogProvider";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -442,9 +443,11 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
   }
 
   async function payProgramado(item: Programado) {
-    const confirmed = window.confirm(
-      `Confirmar o pagamento de "${item.title}" no valor de ${money(item.amount)}?`,
-    );
+    const confirmed = await showConfirm({
+      title: "Confirmar pagamento programado",
+      description: `"${item.title}" será marcado como pago no valor de ${money(item.amount)}.`,
+      confirmLabel: "Marcar como pago",
+    });
     if (!confirmed) return;
 
     try {
@@ -472,9 +475,11 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
   }
 
   async function payLancamento(item: Lancamento) {
-    const confirmed = window.confirm(
-      `Confirmar o pagamento de "${item.title}" no valor de ${money(item.amount)}?`,
-    );
+    const confirmed = await showConfirm({
+      title: "Confirmar pagamento",
+      description: `"${item.title}" será marcado como pago no valor de ${money(item.amount)}.`,
+      confirmLabel: "Marcar como pago",
+    });
     if (!confirmed) return;
 
     try {
@@ -527,7 +532,12 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
 
   async function removeAttachment(attachment: Attachment) {
     if (!selected) return;
-    const confirmed = window.confirm(`Remover o anexo "${attachment.name}" deste lancamento?`);
+    const confirmed = await showConfirm({
+      title: "Remover anexo?",
+      description: `"${attachment.name}" será desvinculado deste lançamento.`,
+      confirmLabel: "Remover anexo",
+      tone: "danger",
+    });
     if (!confirmed) return;
 
     try {

@@ -15,6 +15,7 @@ import { defaultMemberPermissions, permissionGroups, permissionLabels } from "..
 import { authJson } from "../../utils/authApi";
 import LocalThemeToggle from "../layout/LocalThemeToggle";
 import BrandLogo from "../layout/BrandLogo";
+import { showConfirm } from "../shared/AppDialogProvider";
 
 interface AdminDashboardProps {
   session: AuthSession;
@@ -139,7 +140,13 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
   }
 
   async function deactivateUser(userId: string) {
-    if (!window.confirm("Deseja realmente desativar este usuário?")) return;
+    const confirmed = await showConfirm({
+      title: "Desativar usuário?",
+      description: "O acesso será bloqueado até que um administrador reative esta conta.",
+      confirmLabel: "Desativar usuário",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     setSaving(userId);
     try {
       const result = await authJson<{ user: NoriumUser }>(`/api/auth/users/${userId}`, session.token, {

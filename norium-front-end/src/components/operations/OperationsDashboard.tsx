@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 
 import { apiBaseUrl, authToken } from "../../utils/api";
+import { showConfirm } from "../shared/AppDialogProvider";
 
 type Summary = {
   pendingApprovals: number;
@@ -443,7 +444,13 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
   }
 
   async function undoOperation(receiptId: string) {
-    if (!window.confirm("Desfazer esta operacao e restaurar o estado anterior?")) return;
+    const confirmed = await showConfirm({
+      title: "Desfazer operação?",
+      description: "O Norium tentará restaurar o estado anterior e registrará a reversão na auditoria.",
+      confirmLabel: "Desfazer operação",
+      tone: "warning",
+    });
+    if (!confirmed) return;
     setUndoingReceiptId(receiptId);
     try {
       const response = await fetch(`${API_URL}/comprovantes/${receiptId}/desfazer`, { method: "POST", headers: headers() });

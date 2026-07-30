@@ -2,6 +2,7 @@ import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { PerfilTema } from "../../types/omnichannel";
 import { applyNoriumTheme } from "../../utils/theme";
+import Button from "../shared/Button";
 
 interface LocalThemeToggleProps {
   storageKey: string;
@@ -35,9 +36,9 @@ export default function LocalThemeToggle({ storageKey, label = "Tema", defaultTh
   }
 
   return (
-    <button
+    <Button size="lg"
       onClick={toggleTheme}
-      className="flex h-11 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text)] shadow-sm transition hover:bg-[var(--surface-hover)]"
+      className="bg-[var(--background)] shadow-sm"
       aria-label={`Alternar ${label}`}
       title={`Alternar ${label}`}
     >
@@ -45,6 +46,6 @@ export default function LocalThemeToggle({ storageKey, label = "Tema", defaultTh
         {isDark ? <Moon size={15} /> : <Sun size={15} />}
       </span>
       <span className="hidden sm:inline">{isDark ? "Escuro" : "Claro"}</span>
-    </button>
+    </Button>
   );
 }

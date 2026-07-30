@@ -17,6 +17,7 @@ import {
   loadOperatorProfile,
   saveOperatorProfile,
 } from "./profileService";
+import Button from "../shared/Button";
 
 type ProfileSettingsProps = {
   userId?: string;
@@ -116,24 +117,24 @@ export default function ProfileSettings({
 
         <div className="flex items-center gap-2">
           {onLogout && (
-            <button
-              type="button"
+            <Button variant="danger"
+             
               onClick={onLogout}
-              className="flex h-10 items-center gap-2 rounded-lg border border-red-400/30 bg-red-500/10 px-4 text-sm font-bold text-red-300 hover:bg-red-500/16"
+              className="border-red-400/30 bg-red-500/10 text-red-300 hover:bg-red-500/16"
             >
               <LogOut size={16} />
               Sair
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
+          <Button variant="primary"
+           
             onClick={() => void save()}
             disabled={saving || loading}
-            className="flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white transition hover:brightness-110 disabled:opacity-50"
+           
           >
             <Save size={16} />
             {saving ? "Salvando..." : "Salvar perfil"}
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -148,10 +149,10 @@ export default function ProfileSettings({
                 className="hidden"
                 onChange={(event) => void selectPhoto(event)}
               />
-              <button
-                type="button"
+              <Button iconOnly
+               
                 onClick={() => photoInputRef.current?.click()}
-                className="relative mb-4 grid h-28 w-28 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--background)] text-3xl font-black text-[var(--primary)] transition hover:border-[var(--primary)]"
+                className="relative mb-4 h-28 w-28 overflow-hidden rounded-full bg-[var(--background)] text-3xl text-[var(--primary)] hover:border-[var(--primary)]"
                 title="Escolher foto da galeria"
                 aria-label="Escolher foto da galeria"
               >
@@ -163,28 +164,28 @@ export default function ProfileSettings({
                 <span className="absolute bottom-1 right-1 grid h-9 w-9 place-items-center rounded-full border border-[var(--border)] bg-[var(--surface)]">
                   <Camera size={16} />
                 </span>
-              </button>
+              </Button>
               <h2 className="text-lg font-bold">{profile.nome}</h2>
               <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
                 {currentUser?.email || "Operador Norium"}
               </p>
 
               <div className="mt-5 flex w-full gap-2">
-                <button
-                  type="button"
+                <Button variant="primary"
+                 
                   onClick={() => photoInputRef.current?.click()}
-                  className="flex-1 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-bold text-white"
+                  className="flex-1 py-2"
                 >
                   Alterar foto
-                </button>
+                </Button>
                 {profile.fotoUrl && (
-                  <button
-                    type="button"
+                  <Button
+                   
                     onClick={() => setProfile((current) => ({ ...current, fotoUrl: "" }))}
-                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold"
+                    className="py-2"
                   >
                     Remover
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>

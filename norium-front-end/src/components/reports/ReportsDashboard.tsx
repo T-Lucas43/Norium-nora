@@ -50,6 +50,7 @@ import { buildFinancePdfReport, buildPdfReport, csvEscape, downloadBlob, sanitiz
 import type { PdfThemeName } from "../../features/reports/pdfBuilder";
 import { printReportDocument } from "../../features/reports/printBuilder";
 import noriumLogo from "../../assets/logo-text-white.png";
+import Button from "../shared/Button";
 
 type ReportsDashboardProps = {
   eventsBySource: Record<EventSource, OmnichannelEvent[]>;
@@ -382,14 +383,14 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
 
   return (
     <>
-      <button
+      <Button
         onClick={() => setCustomizerOpen(true)}
-        className="fixed left-0 top-1/2 z-30 flex -translate-y-1/2 items-center gap-2 rounded-r-xl border border-l-0 border-cyan-400/25 bg-gradient-to-b from-blue-700 to-cyan-500 px-3 py-4 text-xs font-bold text-white shadow-xl shadow-blue-950/30 transition hover:translate-x-1"
+        className="fixed left-0 top-1/2 z-30 -translate-y-1/2 rounded-r-xl border-l-0 border-cyan-400/25 bg-gradient-to-b from-blue-700 to-cyan-500 py-4 shadow-xl shadow-blue-950/30 hover:translate-x-1"
         title="Gerar relatorio personalizado"
        aria-label="Gerar relatorio personalizado">
         <PanelLeftOpen size={17} />
         <span className="[writing-mode:vertical-rl]">Relatorio</span>
-      </button>
+      </Button>
 
       {customizerOpen && (
         <div className="fixed inset-0 z-[95] bg-black/40 backdrop-blur-sm" onClick={() => setCustomizerOpen(false)}>
@@ -407,9 +408,9 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                   <p className="truncate text-xs font-semibold text-white/75">Monte o PDF com o recorte que voce precisa.</p>
                 </div>
               </div>
-              <button onClick={() => setCustomizerOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-white/10">
+              <Button variant="ghost" size="sm" iconOnly onClick={() => setCustomizerOpen(false)} className="hover:bg-white/10">
                 <X size={18} />
-              </button>
+              </Button>
             </header>
 
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
@@ -518,27 +519,27 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
             </div>
 
             <footer className="grid gap-2 border-t border-[var(--border)] p-5">
-              <button
+              <Button variant="ghost" size="lg"
                 onClick={() => void exportCustomPdf().catch((error) => setReportActionError(error instanceof Error ? error.message : "Falha ao gerar PDF."))}
-                className="flex h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-700 to-cyan-500 text-sm font-bold text-white transition hover:brightness-110"
+                className="bg-gradient-to-r from-blue-700 to-cyan-500"
               >
                 <FileText size={16} />
                 Gerar PDF personalizado
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button size="lg"
+               
                 onClick={printCustomReport}
-                className="flex h-11 items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-sm font-bold transition hover:bg-[var(--surface-hover)]"
+               
               >
                 <Printer size={16} />
                 Imprimir personalizado
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={applyCustomFiltersToScreen}
-                className="h-10 rounded-lg border border-[var(--border)] text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                className="text-[var(--text-secondary)] hover:text-[var(--text)]"
               >
                 Aplicar filtros na tela
-              </button>
+              </Button>
             </footer>
           </aside>
         </div>
@@ -559,22 +560,22 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
         </div>
 
         <div className="norium-reports-actions flex shrink-0 items-center gap-2">
-          <button
-            type="button"
+          <Button variant="primary"
+           
             onClick={askNoraToExplain}
-            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-4 text-xs font-bold text-[var(--primary)] transition hover:bg-[var(--primary)]/20"
+            className="border-[var(--primary)]/30 bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)]/20"
           >
             <Sparkles size={15} />
             Pedir a Nora para explicar
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+           
             onClick={() => setCustomizerOpen(true)}
-            className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-4 text-xs font-bold text-cyan-200 transition hover:bg-cyan-400/20"
+            className="border-cyan-400/30 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/20"
           >
             <SlidersHorizontal size={15} />
             Personalizar relatorio
-          </button>
+          </Button>
           <select
             value={period}
             onChange={(event) => setPeriod(event.target.value as Period)}
@@ -594,35 +595,35 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
             <option value="dark">Tema escuro</option>
             <option value="light">Tema claro</option>
           </select>
-          <button
+          <Button
             onClick={exportCsv}
-            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+            className="bg-[var(--background)]"
           >
             <Download size={15} />
             CSV
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+           
             onClick={printCurrentReport}
-            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+            className="bg-[var(--background)]"
           >
             <Printer size={15} />
             Imprimir
-          </button>
-          <button
+          </Button>
+          <Button variant="primary"
             onClick={() => void exportPdf().catch((error) => setReportActionError(error instanceof Error ? error.message : "Falha ao gerar PDF."))}
-            className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white transition hover:bg-blue-500"
+            className="bg-blue-600 hover:bg-blue-500"
           >
             <FileText size={15} />
             Gerar PDF
-          </button>
-          <button
+          </Button>
+          <Button variant="ghost"
             onClick={() => void exportFinancePdf().catch((error) => setReportActionError(error instanceof Error ? error.message : "Falha ao gerar PDF financeiro."))}
-            className="flex h-10 items-center gap-2 rounded-lg bg-cyan-600 px-4 text-xs font-bold text-white transition hover:bg-cyan-500"
+            className="bg-cyan-600 hover:bg-cyan-500"
           >
             <CreditCard size={15} />
             PDF financeiro
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -792,13 +793,13 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                   Carregando
                 </span>
               )}
-              <button
+              <Button
                 onClick={exportFinancePdf}
-                className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 text-xs font-bold text-cyan-100 transition hover:bg-cyan-500/20"
+                className="border-cyan-400/30 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/20"
               >
                 <FileText size={15} />
                 Gerar PDF financeiro
-              </button>
+              </Button>
             </div>
           </div>
 

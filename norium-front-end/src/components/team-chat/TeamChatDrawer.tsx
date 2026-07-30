@@ -5,6 +5,7 @@ import { canUse, type AuthSession, type NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authToken, wsBaseUrl } from "../../utils/api";
 import { downloadWithAuth } from "../../utils/download";
 import NoraAvatar from "../layout/NoraAvatar";
+import Button from "../shared/Button";
 
 type Attachment = {
   id: string;
@@ -362,9 +363,9 @@ function AttachmentPreviewModal({ attachment, onClose, token }: { attachment: At
             <p className="truncate text-sm font-bold text-[var(--text)]">{attachment.name}</p>
             <p className="text-xs font-semibold text-[var(--text-secondary)]">{attachment.mimeType} · {formatBytes(attachment.size)}</p>
           </div>
-          <button onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl hover:bg-[var(--surface-hover)]">
+          <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
             <X size={18} />
-          </button>
+          </Button>
         </header>
         <div className="max-h-[calc(88dvh-64px)] overflow-auto bg-black/20 p-4">
           {!objectUrl ? (
@@ -580,9 +581,9 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">{onlineUserIds.length} online agora</p>
               </span>
             </div>
-            <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-xl hover:bg-[var(--surface-hover)]">
+            <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
               <X size={18} />
-            </button>
+            </Button>
           </header>
 
           <div className="grid grid-cols-2 gap-2 border-b border-[var(--border)] p-3">
@@ -726,13 +727,13 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
               placeholder={scope === "team" && canUse(session.user, "nora") ? "Mensagem interna... Use @nora para chamar" : "Mensagem interna..."}
               className="team-chat-input h-11 min-w-0 flex-1 rounded-xl border border-[var(--border)] px-3 text-sm font-semibold outline-none"
             />
-            <button
+            <Button variant="ghost" size="lg" iconOnly
               onClick={() => void sendMessage()}
               disabled={sending}
-              className="team-chat-send grid h-11 w-11 shrink-0 place-items-center rounded-xl disabled:cursor-wait disabled:opacity-60"
+              className="team-chat-send"
             >
               <Send size={18} />
-            </button>
+            </Button>
           </footer>
           {previewAttachment && <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} token={session.token} />}
         </motion.aside>

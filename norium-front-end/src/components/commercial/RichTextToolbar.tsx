@@ -20,6 +20,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { showPrompt } from "../shared/AppDialogProvider";
+import Button from "../shared/Button";
 
 type RichTextToolbarProps = {
   editorRef: RefObject<HTMLDivElement | null>;
@@ -167,16 +168,16 @@ export default function RichTextToolbar({
 
   return (
     <div className="flex min-h-12 flex-wrap items-center gap-1 border-b border-[var(--border)] bg-[var(--surface)] px-3 py-2">
-      <button
-        type="button"
+      <Button size="sm"
+       
         onClick={onWriteWithNora}
         disabled={writingWithNora}
-        className="mr-1 inline-flex h-8 items-center gap-2 rounded-md border border-cyan-400/35 bg-cyan-400/10 px-3 text-xs font-bold text-cyan-300 hover:bg-cyan-400/16 disabled:opacity-60"
+        className="mr-1 border-cyan-400/35 bg-cyan-400/10 text-cyan-300 hover:bg-cyan-400/16"
         title="Descrever uma ideia para a Nora desenvolver no documento"
        aria-label="Descrever uma ideia para a Nora desenvolver no documento">
         <Sparkles size={14} />
         {writingWithNora ? "Escrevendo..." : "Escrever com a Nora"}
-      </button>
+      </Button>
       {canUndoNora && onUndoNora && (
         <button
           type="button"
@@ -237,9 +238,9 @@ export default function RichTextToolbar({
       </label>
       <span className="mx-1 h-6 w-px bg-[var(--border)]" />
       {commands.map(({ command, label, icon: Icon, value }) => (
-        <button
+        <Button variant="ghost" size="sm" iconOnly
           key={command}
-          type="button"
+         
           aria-label={label}
           title={label}
           onMouseDown={(event) => {
@@ -247,16 +248,16 @@ export default function RichTextToolbar({
             event.preventDefault();
           }}
           onClick={() => execute(command, value)}
-          className="grid h-8 w-8 place-items-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+          className="text-[var(--text-secondary)] hover:text-[var(--text)]"
         >
           <Icon size={15} />
-        </button>
+        </Button>
       ))}
       <span className="mx-1 h-6 w-px bg-[var(--border)]" />
-      <button type="button" onClick={() => void insertLink()} title="Inserir link" aria-label="Inserir link" className="grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]"><Link size={15} /></button>
-      <button type="button" onClick={() => void insertImage()} title="Inserir imagem" aria-label="Inserir imagem" className="grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]"><Image size={15} /></button>
-      <button type="button" onClick={() => void insertTable()} title="Inserir tabela" aria-label="Inserir tabela" className="grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]"><Table2 size={15} /></button>
-      <button type="button" onClick={() => execute("insertHorizontalRule")} title="Inserir linha" aria-label="Inserir linha" className="grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]"><Minus size={15} /></button>
+      <Button variant="ghost" size="sm" iconOnly onClick={() => void insertLink()} title="Inserir link" aria-label="Inserir link"><Link size={15} /></Button>
+      <Button variant="ghost" size="sm" iconOnly onClick={() => void insertImage()} title="Inserir imagem" aria-label="Inserir imagem"><Image size={15} /></Button>
+      <Button variant="ghost" size="sm" iconOnly onClick={() => void insertTable()} title="Inserir tabela" aria-label="Inserir tabela"><Table2 size={15} /></Button>
+      <Button variant="ghost" size="sm" iconOnly onClick={() => execute("insertHorizontalRule")} title="Inserir linha" aria-label="Inserir linha"><Minus size={15} /></Button>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import Button from "../shared/Button";
 import { Calendar, Filter, ArrowUpRight, ArrowDownRight, CheckSquare, MessageSquare, Clock, ThumbsUp } from "lucide-react";
 
 interface ReportViewProps {
@@ -20,10 +21,10 @@ export default function ReportView({ title }: ReportViewProps) {
             <Calendar size={14} />
             <span>01 - 31 Mai, 2025</span>
           </div>
-          <button className="flex items-center gap-1.5 text-xs font-bold text-[var(--secondary-foreground)] bg-[var(--card-background)] border border-[var(--border)] px-3 py-2 rounded-xl hover:bg-[var(--hover-background)] transition shadow-sm">
+          <Button className="text-[var(--secondary-foreground)] bg-[var(--card-background)] py-2 hover:bg-[var(--hover-background)] shadow-sm">
             <Filter size={14} />
             <span>Filtros</span>
-          </button>
+          </Button>
         </div>
       </div>
 

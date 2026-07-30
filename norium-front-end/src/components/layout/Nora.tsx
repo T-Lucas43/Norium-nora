@@ -33,6 +33,7 @@ import { authToken } from "../../core/api/config";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
 import { apiBaseUrl } from "../../utils/api";
 import NoraAvatar from "./NoraAvatar";
+import Button from "../shared/Button";
 
 interface NoraProps {
   open: boolean;
@@ -642,13 +643,13 @@ function AgendaContent({ text, events = [], onAgendaPrompt }: { text: string; ev
                     Evento
                   </span>
                 </div>
-                <button
-                  type="button"
+                <Button
+                 
                   onClick={() => onAgendaPrompt?.(`editar evento ${title}${date ? ` em ${date}` : ""}`)}
-                  className="mt-3 rounded-full border border-current/15 px-3 py-1.5 text-xs font-bold uppercase opacity-90 transition hover:bg-current/[0.08]"
+                  className="mt-3 rounded-full border-current/15 py-1.5 uppercase opacity-90 hover:bg-current/[0.08]"
                 >
                   Editar evento
-                </button>
+                </Button>
               </div>
             );
           })}
@@ -746,14 +747,14 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
         <div className="nora-message-markdown">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
         </div>
-        <button
-          type="button"
+        <Button variant="ghost"
+         
           onClick={copyMessage}
-          className="nora-message-copy mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-bold text-white/65 transition hover:bg-white/10 hover:text-white"
+          className="nora-message-copy mt-2 py-1 text-white/65 hover:bg-white/10 hover:text-white"
           title="Copiar mensagem"
          aria-label="Copiar mensagem">
           <Copy size={12} /> {copied ? "Copiada" : "Copiar"}
-        </button>
+        </Button>
       </motion.div>
     );
   }
@@ -792,14 +793,14 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
           />
         </div>
         <span className="mt-2 flex items-center gap-2">
-          <button
-            type="button"
+          <Button variant="ghost"
+           
             onClick={copyMessage}
-            className="nora-message-copy inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            className="nora-message-copy h-7 text-[var(--text-secondary)] hover:text-[var(--text)]"
             title="Copiar mensagem"
            aria-label="Copiar mensagem">
             <Copy size={12} /> {copied ? "Copiada" : "Copiar"}
-          </button>
+          </Button>
         </span>
       </div>
     </motion.div>
@@ -1770,16 +1771,16 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 >
                   <Settings2 size={18} />
                 </button>
-                <button
+                <Button variant="ghost" size="sm" iconOnly
                   onClick={() => setExpanded((value) => !value)}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg text-white hover:bg-white/10"
+                  className="hover:bg-white/10"
                   title={expanded ? "Voltar para lateral" : "Expandir Nora"}
                  aria-label={expanded ? "Voltar para lateral" : "Expandir Nora"}>
                   {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-                </button>
-                <button aria-label="Fechar Nora" title="Fechar Nora" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-white hover:bg-white/10">
+                </Button>
+                <Button variant="ghost" size="sm" iconOnly aria-label="Fechar Nora" title="Fechar Nora" onClick={onClose} className="hover:bg-white/10">
                   <X size={18} />
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -1851,12 +1852,12 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-xs font-semibold text-[var(--text)] shadow-sm">
                   <p className="mb-2 text-[var(--text-secondary)] uppercase tracking-wide text-xs">Rascunho aprovado pelo operador?</p>
                   <div className="flex gap-2">
-                    <button onClick={() => void navigator.clipboard.writeText(agentDraft)} className="h-9 flex-1 rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)] flex items-center justify-center gap-2">
+                    <Button size="sm" onClick={() => void navigator.clipboard.writeText(agentDraft)} className="flex-1">
                       <Copy size={14} /> Copiar
-                    </button>
-                    <button onClick={sendAgentDraft} className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-700 to-cyan-500 text-white">
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={sendAgentDraft} className="flex-1 bg-gradient-to-r from-blue-700 to-cyan-500">
                       <SendHorizontal size={14} /> Enviar
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1869,16 +1870,16 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                     {suggestions.map((suggestion) => {
                       const Icon = suggestion.icon;
                       return (
-                        <button
+                        <Button
                           key={suggestion.title}
                           onClick={() => handleSuggestion(suggestion.action, suggestion.title)}
-                          className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-sm font-bold hover:bg-[var(--surface-hover)] transition text-[var(--text)]"
+                          className="p-3"
                         >
                           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-r from-blue-800 to-cyan-500 text-white">
                             <Icon size={16} />
                           </div>
                           <span>{suggestion.title}</span>
-                        </button>
+                        </Button>
                       );
                     })}
                   </div>
@@ -1888,16 +1889,16 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
             <div className="nora-composer border-t border-[var(--border)] p-3">
               {voiceIsLocked && (
-                <button
-                  type="button"
+                <Button
+                 
                   onClick={() => void unlockVoice()}
                   disabled={voiceAccess === "requesting"}
-                  className="mb-2 inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-wait disabled:opacity-70"
+                  className="mb-2 h-7 rounded-full text-[var(--text-secondary)] hover:text-[var(--text)]"
                   title={voiceStatusLabel}
                  aria-label={voiceStatusLabel}>
                   {voiceAccess === "requesting" ? <Loader2 size={12} className="animate-spin" /> : <Lock size={12} />}
                   {voiceAccess === "requesting" ? "Solicitando microfone..." : "Ativar microfone"}
-                </button>
+                </Button>
               )}
 
               {voiceError && (

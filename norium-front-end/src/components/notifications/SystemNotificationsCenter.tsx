@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { SystemNotification, SystemNotificationSeverity } from "../../types/omnichannel";
 import NotificationVisual from "./NotificationVisual";
 import { notificationVisual } from "./notificationVisualConfig";
+import Button from "../shared/Button";
 
 type SystemNotificationsCenterProps = {
   notifications: SystemNotification[];
@@ -181,15 +182,15 @@ export default function SystemNotificationsCenter({
           <span className={`rounded-full px-3 py-1 text-xs font-bold ${connected ? "bg-emerald-500/12 text-emerald-400" : "bg-amber-500/12 text-amber-400"}`}>
             {connected ? "WebSocket online" : "WebSocket reconectando"}
           </span>
-          <button
+          <Button
             onClick={onClear}
             disabled={notifications.length === 0}
-            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-45"
+            className="text-[var(--text-secondary)] hover:text-[var(--text)]"
             title="Limpar notificacoes"
            aria-label="Limpar notificacoes">
             <Trash2 size={15} />
             Limpar
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -253,13 +254,13 @@ export default function SystemNotificationsCenter({
                         {formatNotificationTime(notification.timestamp)}
                       </time>
                       {onNavigate && (
-                        <button
-                          type="button"
+                        <Button
+                         
                           onClick={() => onNavigate(notificationTarget(notification))}
-                          className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--background)] hover:text-[var(--text)]"
+                          className="py-1 text-[var(--text-secondary)] hover:bg-[var(--background)] hover:text-[var(--text)]"
                         >
                           Abrir <ChevronRight size={13} />
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </article>

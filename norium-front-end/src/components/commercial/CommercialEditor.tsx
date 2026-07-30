@@ -582,7 +582,7 @@ export default function CommercialEditor({
     <main className={`${fullScreen ? "fixed inset-0 z-[110]" : "min-h-[calc(100dvh-74px)]"} flex flex-col overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
       <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
-          <button type="button" onClick={onBack} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)]" aria-label="Voltar para documentos"><ArrowLeft size={17} /></button>
+          <Button size="sm" iconOnly onClick={onBack} aria-label="Voltar para documentos"><ArrowLeft size={17} /></Button>
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400">{proposal ? <FileSignature size={18} /> : <FileCheck2 size={18} />}</span>
           <div className="min-w-0">
             <input value={title} disabled={readOnly} onChange={(event) => setTitle(event.target.value)} className="block w-full min-w-0 bg-transparent text-base font-black outline-none" aria-label="Titulo do documento" />
@@ -614,8 +614,8 @@ export default function CommercialEditor({
               Compartilhar
             </Button>
           </div>
-          {proposal && !proposal.contractId && <button type="button" onClick={() => void onDeleteProposal(proposal)} className="grid h-9 w-9 place-items-center rounded-lg border border-rose-500/25 text-rose-400 hover:bg-rose-500/10" aria-label="Excluir proposta"><Trash2 size={15} /></button>}
-          <button type="button" onClick={() => setFullScreen((current) => !current)} className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)]" aria-label={fullScreen ? "Sair da tela cheia" : "Abrir em tela cheia"}>{fullScreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>
+          {proposal && !proposal.contractId && <Button variant="danger" size="sm" iconOnly onClick={() => void onDeleteProposal(proposal)} className="border-rose-500/25 text-rose-400 hover:bg-rose-500/10" aria-label="Excluir proposta"><Trash2 size={15} /></Button>}
+          <Button size="sm" iconOnly onClick={() => setFullScreen((current) => !current)} aria-label={fullScreen ? "Sair da tela cheia" : "Abrir em tela cheia"}>{fullScreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</Button>
         </div>
       </header>
 

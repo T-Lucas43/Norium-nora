@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import type { AnexoPendente, ChatConversa, MsgConteudo } from "./types";
+import Button from "../shared/Button";
 
 interface AreaCentralProps {
   conversaAtiva: ChatConversa | undefined;
@@ -190,9 +191,9 @@ function AudioMessage({ src, outgoing }: { src: string; outgoing: boolean }) {
           </div>
         </div>
 
-        <button onClick={cycleSpeed} className="h-8 min-w-10 rounded-full border border-current/20 px-2 text-xs font-extrabold">
+        <Button size="sm" onClick={cycleSpeed} className="min-w-10 rounded-full border-current/20 font-extrabold">
           {speed}x
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -254,13 +255,13 @@ function formatFileSize(bytes: number) {
 function AttachmentPreviewCard({ anexo, onRemover }: { anexo: AnexoPendente; onRemover: (id: string) => void }) {
   return (
     <div className={`relative h-32 shrink-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] ${anexo.tipo === "audio" ? "w-[340px]" : "w-44"}`}>
-      <button
+      <Button variant="ghost" iconOnly
         onClick={() => onRemover(anexo.id)}
-        className="absolute right-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/65 text-white shadow"
+        className="absolute right-1.5 top-1.5 z-10 h-7 w-7 rounded-full bg-black/65 shadow"
         title="Remover anexo"
        aria-label="Remover anexo">
         <X size={14} />
-      </button>
+      </Button>
 
       {anexo.tipo === "image" && (
         <img src={anexo.urlPreview} alt={anexo.nomeArquivo} className="h-full w-full object-cover" />
@@ -308,9 +309,9 @@ function AttachmentPreviewTray({
     <div className="mb-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2">
       <div className="mb-2 flex items-center justify-between px-1 text-xs font-bold text-[var(--text)]">
         <span>{anexos.length} anexo{anexos.length > 1 ? "s" : ""}</span>
-        <button onClick={onLimpar} className="flex h-7 items-center gap-1 rounded-md px-2 text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]">
+        <Button variant="ghost" onClick={onLimpar} className="h-7 text-[var(--text-secondary)] hover:text-[var(--text)]">
           <X size={13} /> Limpar
-        </button>
+        </Button>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {anexos.map((anexo) => (
@@ -412,26 +413,26 @@ export default function AreaCentralChat({
             <button title="Traduzir" onClick={() => setTraduzirChat(!traduzirChat)} className={`h-9 w-9 rounded-lg flex items-center justify-center transition ${traduzirChat ? "bg-[var(--primary)] text-white" : "hover:bg-[var(--surface-hover)] text-[var(--text)]"}`} aria-label="Traduzir">
               <Languages size={17} />
             </button>
-            <button onClick={onAbrirDadosPerfil} className="h-9 px-3 text-xs font-bold border border-[var(--border)] rounded-lg hover:bg-[var(--surface-hover)] text-[var(--text)]">
+            <Button size="sm" onClick={onAbrirDadosPerfil}>
               Dados
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         <div className="h-16 px-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--surface)] text-[var(--text)]">
           <div className="flex items-center gap-3">
-            <button onClick={() => { setModoSelecao(false); setSelecionadas([]); }} className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg">
+            <Button variant="ghost" size="sm" iconOnly onClick={() => { setModoSelecao(false); setSelecionadas([]); }}>
               <X size={17} />
-            </button>
+            </Button>
             <span className="text-sm font-bold">{selecionadas.length} selecionadas</span>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => { onEncaminharMensagens(selecionadas); setModoSelecao(false); setSelecionadas([]); }} className="h-9 px-3 border border-[var(--border)] hover:bg-[var(--surface-hover)] rounded-lg flex items-center gap-1.5 text-xs font-bold">
+            <Button size="sm" onClick={() => { onEncaminharMensagens(selecionadas); setModoSelecao(false); setSelecionadas([]); }}>
               <CornerUpRight size={14} /> Encaminhar
-            </button>
-            <button onClick={() => { onApagarMensagensEmMassa(selecionadas); setModoSelecao(false); setSelecionadas([]); }} className="h-9 px-3 bg-red-600 text-white rounded-lg flex items-center gap-1.5 text-xs font-bold">
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => { onApagarMensagensEmMassa(selecionadas); setModoSelecao(false); setSelecionadas([]); }} className="bg-red-600">
               <Trash2 size={14} /> Apagar
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -445,9 +446,9 @@ export default function AreaCentralChat({
             onChange={(event) => setTermoPesquisa(event.target.value)}
             className="flex-1 h-9 bg-[var(--background)] border border-[var(--border)] rounded-lg px-3 text-sm outline-none text-[var(--text)]"
           />
-          <button onClick={() => { setTermoPesquisa(""); setMostrarPesquisa(false); }} className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg text-[var(--text)]">
+          <Button variant="ghost" size="sm" iconOnly onClick={() => { setTermoPesquisa(""); setMostrarPesquisa(false); }}>
             <X size={15} />
-          </button>
+          </Button>
         </div>
       )}
 
@@ -526,9 +527,9 @@ export default function AreaCentralChat({
             <p className="text-[var(--text-secondary)] mb-2 uppercase tracking-wide text-xs">Mais usados</p>
             <div className="grid grid-cols-6 gap-2 text-xl">
               {["😂", "👍", "😍", "🔥", "🙏", "😭", "👏", "🎉", "🚀", "❤️", "👀", "✨"].map((emoji) => (
-                <button key={emoji} onClick={() => { setResposta((prev) => prev + emoji); setMostrarPainelEmojis(false); }} className="h-8 rounded-md hover:bg-[var(--surface-hover)]">
+                <Button variant="ghost" size="sm" key={emoji} onClick={() => { setResposta((prev) => prev + emoji); setMostrarPainelEmojis(false); }}>
                   {emoji}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -550,9 +551,9 @@ export default function AreaCentralChat({
         )}
 
         <div className="flex items-center gap-2">
-          <button onClick={onAnexarArquivo} title="Anexar" className="h-11 w-11 border border-[var(--border)] rounded-lg flex items-center justify-center hover:bg-[var(--surface-hover)] text-[var(--text)]" aria-label="Anexar">
+          <Button size="lg" iconOnly onClick={onAnexarArquivo} title="Anexar" aria-label="Anexar">
             <Paperclip size={19} />
-          </button>
+          </Button>
           <button data-emoji-panel-root onClick={() => setMostrarPainelEmojis(!mostrarPainelEmojis)} title="Emoji" className={`h-11 w-11 border rounded-lg flex items-center justify-center transition ${mostrarPainelEmojis ? "bg-[var(--primary)] text-white border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"}`} aria-label="Emoji">
             <Smile size={19} />
           </button>

@@ -51,6 +51,7 @@ import type {
   TaskWorkspace,
   WorkspaceForm,
 } from "../../features/tasks/types";
+import Button from "../shared/Button";
 
 const emptyForm: TaskForm = {
   title: "",
@@ -737,21 +738,21 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {archivedWorkspaces.length > 0 && (
-                <button
+                <Button
                   onClick={() => setShowArchivedProjects((current) => !current)}
-                  className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-4 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                  className="text-[var(--text-secondary)] hover:text-[var(--text)]"
                 >
                   <Archive size={15} />
                   {showArchivedProjects ? "Ocultar arquivados" : `Arquivados (${archivedWorkspaces.length})`}
-                </button>
+                </Button>
               )}
-              <button
+              <Button variant="primary"
                 onClick={() => setShowWorkspaceCreate((current) => !current)}
-                className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white hover:bg-blue-500"
+                className="bg-blue-600 hover:bg-blue-500"
               >
                 {showWorkspaceCreate ? <X size={16} /> : <FolderPlus size={16} />}
                 {showWorkspaceCreate ? "Fechar formulario" : "Novo projeto"}
-              </button>
+              </Button>
             </div>
           </div>
         </header>
@@ -797,28 +798,28 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                     </span>
                   </div>
                   <div className="mt-4 grid grid-cols-[1fr_auto_auto] gap-2">
-                    <button
+                    <Button variant="primary"
                       onClick={() => setActiveWorkspace(workspace)}
-                      className="h-10 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white transition hover:bg-blue-500"
+                      className="bg-blue-600 hover:bg-blue-500"
                     >
                       Abrir Kanban
-                    </button>
-                    <button
+                    </Button>
+                    <Button iconOnly
                       onClick={() => openProjectSettings(workspace)}
                       disabled={!canManageProject(workspace)}
-                      className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] transition hover:bg-[var(--background)] hover:text-blue-300"
+                      className="text-[var(--text-secondary)] hover:bg-[var(--background)] hover:text-blue-300"
                       title="Configuracoes do projeto"
                      aria-label="Configuracoes do projeto">
                       <Settings size={16} />
-                    </button>
-                    <button
+                    </Button>
+                    <Button iconOnly
                       onClick={() => setPendingProjectAction({ type: "archive", workspace })}
                       disabled={!canManageProject(workspace)}
-                      className="grid h-10 w-10 place-items-center rounded-lg border border-amber-400/25 text-amber-200 transition hover:bg-amber-500/10"
+                      className="border-amber-400/25 text-amber-200 hover:bg-amber-500/10"
                       title="Arquivar projeto"
                      aria-label="Arquivar projeto">
                       <Archive size={16} />
-                    </button>
+                    </Button>
                   </div>
                   <button
                     onClick={() => setPendingProjectAction({ type: "delete", workspace })}
@@ -860,27 +861,27 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                           </span>
                         </div>
                         <div className="mt-4 grid grid-cols-3 gap-2">
-                          <button
+                          <Button size="sm"
                             onClick={() => openProjectSettings(workspace)}
-                            className="flex h-9 items-center justify-center gap-1 rounded-lg border border-[var(--border)] text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--background)]"
+                            className="text-[var(--text-secondary)] hover:bg-[var(--background)]"
                           >
                             <Settings size={14} />
                             Config
-                          </button>
-                          <button
+                          </Button>
+                          <Button variant="primary" size="sm"
                             onClick={() => setPendingProjectAction({ type: "restore", workspace })}
-                            className="flex h-9 items-center justify-center gap-1 rounded-lg border border-emerald-400/25 text-xs font-bold text-emerald-200 hover:bg-emerald-500/10"
+                            className="border-emerald-400/25 text-emerald-200 hover:bg-emerald-500/10"
                           >
                             <RotateCcw size={14} />
                             Restaurar
-                          </button>
-                          <button
+                          </Button>
+                          <Button variant="danger" size="sm"
                             onClick={() => setPendingProjectAction({ type: "delete", workspace })}
-                            className="flex h-9 items-center justify-center gap-1 rounded-lg border border-rose-400/25 text-xs font-bold text-rose-200 hover:bg-rose-500/10"
+                            className="border-rose-400/25 text-rose-200 hover:bg-rose-500/10"
                           >
                             <Trash2 size={14} />
                             Excluir
-                          </button>
+                          </Button>
                         </div>
                       </article>
                     ))}
@@ -1054,16 +1055,16 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
         />
       )}
       <aside className="flex h-full w-72 shrink-0 flex-col gap-4 border-r border-[var(--border)] bg-[var(--surface)] p-4">
-        <button
+        <Button
           onClick={() => {
             setMobileSidebarOpen(false);
             setActiveWorkspace(null);
           }}
-          className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+          className="text-[var(--text-secondary)] hover:text-[var(--text)]"
         >
           <ArrowLeft size={15} />
           Trocar projeto
-        </button>
+        </Button>
         <div className="rounded-lg border border-blue-400/20 bg-blue-500/10 p-3">
           <div className="flex items-start gap-3">
             <span
@@ -1099,18 +1100,18 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
               : "Projeto compartilhado com voce"}
           </p>
         </div>
-        <button
+        <Button
           onClick={() => {
             setMobileSidebarOpen(false);
             openProjectSettings(activeWorkspace);
           }}
           disabled={!canManageProject(activeWorkspace)}
-          className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+          className="text-[var(--text-secondary)] hover:text-[var(--text)]"
         >
           <Settings size={15} />
           Configuracoes do projeto
-        </button>
-        <button
+        </Button>
+        <Button variant="primary" size="lg"
           onClick={() => {
             setMobileSidebarOpen(false);
             setForm({
@@ -1121,11 +1122,11 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
             });
             setShowCreate(true);
           }}
-          className="flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] text-sm font-bold text-white shadow-sm"
+          className="shadow-sm"
         >
           <Plus size={17} />
           Nova tarefa
-        </button>
+        </Button>
 
         <div className="grid grid-cols-2 gap-2">
           <Metric label="Ativas" value={stats.ativas} />
@@ -1187,14 +1188,14 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           <h3 className="text-xs font-bold uppercase text-[var(--text-secondary)]">Etiquetas</h3>
           <div className="flex flex-wrap gap-2">
             {labels.map((label) => (
-              <button
+              <Button
                 key={label.id}
                 onClick={() => setFilters({ ...filters, label: label.id })}
-                className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold"
+                className="rounded-full py-1"
               >
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: label.color }} />
                 {label.name}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -1345,9 +1346,9 @@ function ProjectActionConfirmModal({
         </div>
 
         <footer className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-          <button onClick={onCancel} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-bold hover:bg-[var(--surface-hover)]">
+          <Button onClick={onCancel}>
             Cancelar
-          </button>
+          </Button>
           <button onClick={onConfirm} className={`h-10 rounded-lg px-4 text-sm font-bold text-white transition ${config.button}`}>
             {config.confirm}
           </button>
@@ -1523,9 +1524,9 @@ function TaskDetails({
           <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Detalhes</p>
           <h2 className="truncate text-base font-bold">{task.title}</h2>
         </div>
-        <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+        <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
           <X size={18} />
-        </button>
+        </Button>
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto p-4">
@@ -1614,9 +1615,9 @@ function TaskDetails({
               <Paperclip size={14} />
               Anexos
             </h3>
-            <button onClick={() => fileInputRef.current?.click()} className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)]">
+            <Button size="sm" iconOnly onClick={() => fileInputRef.current?.click()}>
               <FileUp size={14} />
-            </button>
+            </Button>
             <input
               ref={fileInputRef}
               type="file"
@@ -1658,9 +1659,9 @@ function TaskDetails({
               placeholder="Adicionar comentário"
               className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-semibold outline-none"
             />
-            <button onClick={onAddComment} className="h-10 rounded-lg bg-[var(--primary)] px-3 text-xs font-bold text-white">
+            <Button variant="primary" onClick={onAddComment}>
               Enviar
-            </button>
+            </Button>
           </div>
         </section>
       </div>
@@ -1700,9 +1701,9 @@ function ProjectSettingsModal({
               Prazos, responsavel, categoria e padroes para tarefas e agenda.
             </p>
           </div>
-          <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+          <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
             <X size={18} />
-          </button>
+          </Button>
         </header>
 
         <div className="grid gap-4 p-5 md:grid-cols-2">
@@ -1836,12 +1837,12 @@ function ProjectSettingsModal({
         </div>
 
         <footer className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-          <button onClick={onClose} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-bold hover:bg-[var(--surface-hover)]">
+          <Button onClick={onClose}>
             Cancelar
-          </button>
-          <button disabled={!form.name.trim()} onClick={onSubmit} className="h-10 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white disabled:opacity-40">
+          </Button>
+          <Button variant="primary" disabled={!form.name.trim()} onClick={onSubmit}>
             Salvar configuracoes
-          </button>
+          </Button>
         </footer>
       </div>
     </div>
@@ -1870,9 +1871,9 @@ function CreateTaskModal({
       <div className="w-full max-w-xl rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
         <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <h2 className="text-base font-bold">Nova tarefa</h2>
-          <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+          <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
             <X size={18} />
-          </button>
+          </Button>
         </header>
         <div className="space-y-3 p-5">
           <input
@@ -1929,12 +1930,12 @@ function CreateTaskModal({
           </div>
         </div>
         <footer className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-          <button onClick={onClose} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-bold hover:bg-[var(--surface-hover)]">
+          <Button onClick={onClose}>
             Cancelar
-          </button>
-          <button disabled={!form.title.trim()} onClick={onSubmit} className="h-10 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white disabled:opacity-40">
+          </Button>
+          <Button variant="primary" disabled={!form.title.trim()} onClick={onSubmit}>
             Criar
-          </button>
+          </Button>
         </footer>
       </div>
     </div>

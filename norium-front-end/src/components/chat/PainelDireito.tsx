@@ -1,6 +1,7 @@
 import { Image as ImageIcon, MessageSquareText, ShieldAlert, Sparkles, User, Users, X } from "lucide-react";
 import { useState } from "react";
 import type { ChatConversa } from "./types";
+import Button from "../shared/Button";
 
 interface PainelDireitoProps {
   modo: "nora" | "perfil" | "config-propria";
@@ -47,9 +48,9 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
           {modo === "config-propria" && "Minhas contas"}
           {modo === "nora" && "Modulo Nora IA"}
         </h4>
-        <button onClick={onFechar} aria-label="Fechar painel" className="h-8 w-8 rounded-lg hover:bg-[var(--surface-hover)] flex items-center justify-center">
+        <Button variant="ghost" size="sm" iconOnly onClick={onFechar} aria-label="Fechar painel">
           <X size={15} />
-        </button>
+        </Button>
       </div>
 
       {modo === "perfil" && conversaAtiva && (
@@ -76,13 +77,13 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
             {midiasGaleria.length > 0 ? (
               <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto">
                 {midiasGaleria.map((midia) => (
-                  <button key={midia.id} aria-label="Abrir midia em nova aba" className="h-12 bg-[var(--surface)] rounded-lg overflow-hidden border border-[var(--border)]" onClick={() => midia.arquivoUrl && window.open(midia.arquivoUrl, "_blank")}>
+                  <Button key={midia.id} aria-label="Abrir midia em nova aba" className="h-12 overflow-hidden" onClick={() => midia.arquivoUrl && window.open(midia.arquivoUrl, "_blank")}>
                     {midia.arquivoUrl ? (
                       <img src={midia.arquivoUrl} alt="Midia" className="w-full h-full object-cover" />
                     ) : (
                       <ImageIcon size={16} className="mx-auto opacity-50" />
                     )}
-                  </button>
+                  </Button>
                 ))}
               </div>
             ) : (

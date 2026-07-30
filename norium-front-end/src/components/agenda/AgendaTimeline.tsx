@@ -10,6 +10,7 @@ import {
   Video,
 } from "lucide-react";
 import type { AgendaStatus, Evento, ViewMode } from "./AgendaDashboard";
+import Button from "../shared/Button";
 
 interface TimelineProps {
   eventos: Evento[];
@@ -300,15 +301,15 @@ export default function AgendaTimeline({
     <section className="flex h-full min-w-0 flex-1 flex-col bg-[var(--background)]">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
-          <button onClick={() => setDataSelecionada(navigate(dataSelecionada, viewMode, -1))} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+          <Button variant="ghost" size="sm" iconOnly onClick={() => setDataSelecionada(navigate(dataSelecionada, viewMode, -1))}>
             <ChevronLeft size={18} />
-          </button>
-          <button onClick={() => setDataSelecionada(navigate(dataSelecionada, viewMode, 1))} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+          </Button>
+          <Button variant="ghost" size="sm" iconOnly onClick={() => setDataSelecionada(navigate(dataSelecionada, viewMode, 1))}>
             <ChevronRight size={18} />
-          </button>
-          <button onClick={() => setDataSelecionada(new Date())} className="h-9 rounded-lg border border-[var(--border)] px-3 text-xs font-bold hover:bg-[var(--surface-hover)]">
+          </Button>
+          <Button size="sm" onClick={() => setDataSelecionada(new Date())}>
             Hoje
-          </button>
+          </Button>
           <h1 className="truncate px-2 text-lg font-bold capitalize">{headerTitle(viewMode, dataSelecionada)}</h1>
         </div>
 
@@ -316,12 +317,12 @@ export default function AgendaTimeline({
           <span className={`hidden rounded-full px-2 py-1 text-xs font-bold md:inline-flex ${status.connected ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-300"}`}>
             {status.connected ? "Google em tempo real" : "Modo local"}
           </span>
-          <button onClick={onRefresh} className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)]">
+          <Button size="sm" iconOnly onClick={onRefresh}>
             {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          </button>
-          <button onClick={() => onCreateEvent(dataSelecionada)} className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--primary)] text-white">
+          </Button>
+          <Button variant="primary" size="sm" iconOnly onClick={() => onCreateEvent(dataSelecionada)}>
             <CalendarPlus size={17} />
-          </button>
+          </Button>
           <div className="flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-1">
             {views.map((mode) => (
               <button
@@ -346,10 +347,10 @@ export default function AgendaTimeline({
         {eventos.length === 0 && !loading && (
           <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3 text-sm font-semibold text-[var(--text-secondary)]">
             <span>Nenhum evento neste período.</span>
-            <button onClick={() => onCreateEvent(dataSelecionada)} className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold hover:bg-[var(--surface-hover)]">
+            <Button onClick={() => onCreateEvent(dataSelecionada)} className="py-2">
               <CalendarPlus size={14} />
               Criar
-            </button>
+            </Button>
           </div>
         )}
 

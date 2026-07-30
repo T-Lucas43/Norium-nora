@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import type { Email } from "./EmailDashboard";
 import EmailTabs from "./EmailTabs";
+import Button from "../shared/Button";
 
 interface EmailContentProps {
   selectedEmail: Email | null;
@@ -32,23 +33,23 @@ export default function EmailContent({ selectedEmail, onClose }: EmailContentPro
       {/* Barra de Ações */}
       <div className="p-4 border-b border-[var(--border)] flex items-center justify-between sticky top-0 bg-[var(--background)] z-10 shrink-0">
         <div className="flex items-center gap-1 text-[var(--secondary-foreground)]">
-          <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition"><ChevronLeft size={18} /></button>
-          <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition"><Archive size={18} /></button>
-          <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition"><Trash2 size={18} /></button>
-          <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition"><Mail size={18} /></button>
-          <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition"><Star size={18} /></button>
-          <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition"><MoreHorizontal size={18} /></button>
+          <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><ChevronLeft size={18} /></Button>
+          <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><Archive size={18} /></Button>
+          <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><Trash2 size={18} /></Button>
+          <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><Mail size={18} /></Button>
+          <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><Star size={18} /></Button>
+          <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><MoreHorizontal size={18} /></Button>
         </div>
         
         <div>
-          <button 
+          <Button variant="danger" 
             onClick={onClose} 
-            className="p-2 hover:bg-red-500/10 text-[var(--secondary-foreground)] hover:text-red-500 rounded-lg transition flex items-center gap-1 text-xs font-semibold"
+            className="p-2 hover:bg-red-500/10 text-[var(--secondary-foreground)] hover:text-red-500"
             title="Fechar e-mail"
            aria-label="Fechar e-mail">
             <span>Fechar</span>
             <X size={16} />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -105,13 +106,13 @@ export default function EmailContent({ selectedEmail, onClose }: EmailContentPro
           />
           <div className="p-3 bg-[var(--background)] border-t border-[var(--border)] flex items-center justify-between">
             <div className="flex items-center gap-1 text-[var(--secondary-foreground)]">
-              <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition"><Paperclip size={16} /></button>
-              <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition"><Image size={16} /></button>
+              <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><Paperclip size={16} /></Button>
+              <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><Image size={16} /></Button>
             </div>
-            <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs py-2 px-4 rounded-lg flex items-center gap-1.5 transition">
+            <Button variant="primary" className="bg-blue-600 hover:bg-blue-700 py-2">
               <Send size={14} />
               <span>Enviar</span>
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -3,6 +3,7 @@ import { Menu, X } from "lucide-react";
 import AgendaSidebar from "./AgendaSidebar";
 import AgendaTimeline from "./AgendaTimeline";
 import { apiBaseUrl } from "../../utils/api";
+import Button from "../shared/Button";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -283,9 +284,9 @@ export default function AgendaDashboard({ userId = "lucas123" }: { userId?: stri
           <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
             <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
               <h2 className="text-base font-bold">Novo evento</h2>
-              <button onClick={() => setShowCreate(false)} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+              <Button variant="ghost" size="sm" iconOnly onClick={() => setShowCreate(false)}>
                 <X size={18} />
-              </button>
+              </Button>
             </div>
             <div className="grid gap-3 p-5 text-sm">
               <input value={form.titulo} onChange={(event) => setForm({ ...form, titulo: event.target.value })} placeholder="Título" className="h-11 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 outline-none" />
@@ -303,8 +304,8 @@ export default function AgendaDashboard({ userId = "lucas123" }: { userId?: stri
               </label>
             </div>
             <div className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-              <button onClick={() => setShowCreate(false)} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-bold hover:bg-[var(--surface-hover)]">Cancelar</button>
-              <button disabled={!form.titulo} onClick={() => void criarEvento()} className="h-10 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white disabled:opacity-40">Salvar</button>
+              <Button onClick={() => setShowCreate(false)}>Cancelar</Button>
+              <Button variant="primary" disabled={!form.titulo} onClick={() => void criarEvento()}>Salvar</Button>
             </div>
           </div>
         </div>

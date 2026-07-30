@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import type { SystemNotificationToast } from "../../types/omnichannel";
 import NotificationVisual from "./NotificationVisual";
 import { notificationVisual } from "./notificationVisualConfig";
+import Button from "../shared/Button";
 
 type SystemNotificationToastsProps = {
   toasts: SystemNotificationToast[];
@@ -45,13 +46,13 @@ export default function SystemNotificationToasts({
                   </span>
                 </span>
               </button>
-              <button
+              <Button variant="ghost" iconOnly
                 onClick={() => onDismiss(toast.id)}
-                className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                className="absolute right-2 top-2 h-7 w-7 text-[var(--text-secondary)] hover:text-[var(--text)]"
                 title="Dispensar notificacao"
                aria-label="Dispensar notificacao">
                 <X size={14} />
-              </button>
+              </Button>
             </motion.article>
           );
         })}

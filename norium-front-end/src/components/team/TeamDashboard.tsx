@@ -3,6 +3,7 @@ import { AlertTriangle, BarChart3, CheckCircle2, Clock3, ListChecks, Lock, PlayC
 import type { AuthSession, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
+import Button from "../shared/Button";
 
 interface TeamDashboardProps {
   session: AuthSession;
@@ -179,13 +180,13 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
             <p className="text-sm font-semibold text-[var(--text-secondary)]">Crie usuarios menores e defina acessos por tela e integracao.</p>
           </div>
         </div>
-        <button
+        <Button
           onClick={() => void refresh()}
-          className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold hover:bg-[var(--surface-hover)]"
+          className="bg-[var(--background)]"
         >
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           Atualizar
-        </button>
+        </Button>
       </header>
 
       <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 xl:grid-cols-[360px_1fr]">
@@ -249,13 +250,13 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
                 <h2 className="mt-1 text-2xl font-black">{selectedUser.nome}</h2>
                 <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{selectedUser.email}</p>
               </div>
-              <button
+              <Button
                 onClick={() => void patchUser(selectedUser, { status: selectedUser.status === "ativo" ? "inativo" : "ativo" }, "Status atualizado.")}
                 disabled={selectedUser.id === session.user.id || saving === selectedUser.id}
-                className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold disabled:opacity-50"
+                className="bg-[var(--background)]"
               >
                 {selectedUser.status === "ativo" ? "Bloquear acesso" : "Ativar acesso"}
-              </button>
+              </Button>
             </div>
 
             <div className="mb-5 grid gap-3 md:grid-cols-3">

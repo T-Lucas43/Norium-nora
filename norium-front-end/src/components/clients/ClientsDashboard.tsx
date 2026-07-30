@@ -4,6 +4,7 @@ import { apiRequest } from "../../core/api/client";
 import LoadingState from "../shared/LoadingState";
 import EmptyState from "../shared/EmptyState";
 import { showConfirm } from "../shared/AppDialogProvider";
+import Button from "../shared/Button";
 
 type ClientStage = "new" | "contacted" | "proposal" | "won" | "lost";
 type ClientStatus = "lead" | "active" | "inactive";
@@ -193,7 +194,7 @@ export default function ClientsDashboard() {
             <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><UserRoundCheck size={21} /></span>
             <div><h1 className="text-2xl font-black">Clientes</h1><p className="text-sm font-semibold text-[var(--text-secondary)]">Relacionamento, etapa comercial e proximo contato em uma unica fila.</p></div>
           </div>
-          <button type="button" onClick={openCreate} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white hover:brightness-110"><Plus size={16} /> Novo cliente</button>
+          <Button variant="primary" onClick={openCreate}><Plus size={16} /> Novo cliente</Button>
         </header>
 
         {error && <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-300">{error}</div>}
@@ -220,7 +221,7 @@ export default function ClientsDashboard() {
               <>
                 <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 sm:flex-row sm:items-start sm:justify-between">
                   <div><p className="text-xs font-bold uppercase text-blue-400">{stageLabels[selected.stage]}</p><h2 className="mt-1 text-2xl font-black">{selected.name}</h2><p className="mt-1 font-semibold text-[var(--text-secondary)]">{selected.company || "Cliente individual"} {selected.segment && `• ${selected.segment}`}</p></div>
-                  <div className="flex gap-2"><button type="button" onClick={() => openEdit(selected)} className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)]" title="Editar cliente" aria-label="Editar cliente"><Pencil size={16} /></button><button type="button" onClick={() => void removeClient(selected)} className="grid h-10 w-10 place-items-center rounded-lg border border-rose-500/25 text-rose-300 hover:bg-rose-500/10" title="Excluir cliente" aria-label="Excluir cliente"><Trash2 size={16} /></button></div>
+                  <div className="flex gap-2"><Button iconOnly onClick={() => openEdit(selected)} title="Editar cliente" aria-label="Editar cliente"><Pencil size={16} /></Button><Button variant="danger" iconOnly onClick={() => void removeClient(selected)} className="border-rose-500/25 text-rose-300 hover:bg-rose-500/10" title="Excluir cliente" aria-label="Excluir cliente"><Trash2 size={16} /></Button></div>
                 </div>
                 <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   <InfoCard icon={Mail} label="E-mail" value={selected.email || "Nao informado"} />
@@ -283,7 +284,7 @@ export default function ClientsDashboard() {
         </div>
       </div>
 
-      {editorOpen && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 p-4 backdrop-blur-sm"><div className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl"><header className="flex items-center justify-between border-b border-[var(--border)] p-5"><div><h2 className="font-black">{editingId ? "Editar cliente" : "Novo cliente"}</h2><p className="text-xs font-semibold text-[var(--text-secondary)]">Dados comerciais e proximo acompanhamento.</p></div><button type="button" onClick={() => setEditorOpen(false)} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]"><X size={18} /></button></header><div className="grid gap-4 p-5 sm:grid-cols-2">
+      {editorOpen && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 p-4 backdrop-blur-sm"><div className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl"><header className="flex items-center justify-between border-b border-[var(--border)] p-5"><div><h2 className="font-black">{editingId ? "Editar cliente" : "Novo cliente"}</h2><p className="text-xs font-semibold text-[var(--text-secondary)]">Dados comerciais e proximo acompanhamento.</p></div><Button variant="ghost" size="sm" iconOnly onClick={() => setEditorOpen(false)}><X size={18} /></Button></header><div className="grid gap-4 p-5 sm:grid-cols-2">
         <Field label="Nome" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
         <Field label="Empresa" value={form.company} onChange={(value) => setForm({ ...form, company: value })} />
         <Field label="E-mail" value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
@@ -295,7 +296,7 @@ export default function ClientsDashboard() {
         <Field label="Proximo contato" value={form.nextActionAt} onChange={(value) => setForm({ ...form, nextActionAt: value })} type="datetime-local" />
         <Field label="Tags separadas por virgula" value={form.tags} onChange={(value) => setForm({ ...form, tags: value })} />
         <label className="sm:col-span-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Observacoes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 normal-case text-[var(--text)] outline-none focus:border-blue-500" /></label>
-      </div><footer className="flex justify-end gap-2 border-t border-[var(--border)] p-5"><button type="button" onClick={() => setEditorOpen(false)} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-bold">Cancelar</button><button type="button" disabled={saving || !form.name.trim()} onClick={() => void saveClient()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white disabled:opacity-50">{saving && <LoaderCircle className="animate-spin" size={15} />} Salvar cliente</button></footer></div></div>}
+      </div><footer className="flex justify-end gap-2 border-t border-[var(--border)] p-5"><Button onClick={() => setEditorOpen(false)}>Cancelar</Button><Button variant="primary" disabled={saving || !form.name.trim()} onClick={() => void saveClient()}>{saving && <LoaderCircle className="animate-spin" size={15} />} Salvar cliente</Button></footer></div></div>}
     </main>
   );
 }

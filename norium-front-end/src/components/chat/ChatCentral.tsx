@@ -648,8 +648,8 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
             </div>
           )}
           <div className="flex gap-2">
-            <button onClick={() => setCanalSelecionadoLogin(null)} className="flex-1 h-10 rounded-xl border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]">Voltar</button>
-            <button onClick={() => { setCanalSelecionadoLogin(null); carregarConversasDoBackend(); }} className="flex-1 h-10 rounded-xl bg-sky-600 text-white shadow-md">Abrir chat</button>
+            <Button onClick={() => setCanalSelecionadoLogin(null)} className="flex-1 text-[var(--text-secondary)]">Voltar</Button>
+            <Button variant="ghost" onClick={() => { setCanalSelecionadoLogin(null); carregarConversasDoBackend(); }} className="flex-1 bg-sky-600 shadow-md">Abrir chat</Button>
           </div>
         </div>
       </div>
@@ -736,9 +736,9 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
           <div className="flex max-h-[80vh] w-[420px] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-xs font-bold text-[var(--text)] shadow-2xl">
             <div className="flex items-center justify-between border-b border-[var(--border)] p-4">
               <h3 className="text-sm font-extrabold">Encaminhar {mensagensParaEncaminhar.length} mensagem(ns)</h3>
-              <button onClick={() => setModalEncaminharAberto(false)} aria-label="Fechar" className="rounded p-1 hover:bg-[var(--surface-hover)]">
+              <Button variant="ghost" onClick={() => setModalEncaminharAberto(false)} aria-label="Fechar" className="rounded p-1">
                 <X size={16} />
-              </button>
+              </Button>
             </div>
             <div className="flex-1 overflow-y-auto">
               {conversas.filter((c) => c.id !== conversaSelecionada).length === 0 ? (

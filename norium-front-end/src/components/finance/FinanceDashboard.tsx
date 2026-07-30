@@ -28,6 +28,7 @@ import { apiBaseUrl } from "../../utils/api";
 import { downloadWithAuth, openWithAuth } from "../../utils/download";
 import LoadingState from "../shared/LoadingState";
 import { showConfirm } from "../shared/AppDialogProvider";
+import Button from "../shared/Button";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -605,33 +606,33 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <Button variant="primary"
               onClick={() => {
                 setCreatePanel("entry");
                 setActiveView("entries");
               }}
-              className="flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-xs font-bold text-white transition hover:brightness-110"
+             
             >
               <Plus size={15} />
               Novo lancamento
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => {
                 setCreatePanel("scheduled");
                 setActiveView("scheduled");
               }}
-              className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 px-4 text-xs font-bold text-cyan-200 transition hover:bg-cyan-500/10"
+              className="border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/10"
             >
               <BellRing size={15} />
               Programar gasto
-            </button>
-            <button
+            </Button>
+            <Button iconOnly
               onClick={() => void loadFinance()}
-              className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+              className="text-[var(--text-secondary)] hover:text-[var(--text)]"
               title="Atualizar financeiro"
              aria-label="Atualizar financeiro">
               <RefreshCw size={15} />
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -716,14 +717,14 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none placeholder:text-[var(--text-secondary)]"
                   />
                 </div>
-                <button
+                <Button variant="primary" size="lg"
                   onClick={() => void consultarBoletos()}
                   disabled={syncingBoletos}
-                  className="flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white transition hover:brightness-110disabled:opacity-50 md:col-span-2 2xl:col-span-1"
+                  className="hover:brightness-110disabled:opacity-50 md:col-span-2 2xl:col-span-1"
                 >
                   <FileSearch size={16} />
                   {syncingBoletos ? "Consultando..." : "Buscar boletos"}
-                </button>
+                </Button>
               </div>
               <div className="divide-y divide-[var(--border)]">
                 {data.boletos.length === 0 ? (
@@ -805,14 +806,14 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     </button>
                     <div className="flex flex-wrap items-center gap-2 bg-[var(--surface)] px-5 pb-4">
                       {item.status === "pendente" && (
-                        <button
+                        <Button variant="primary" size="sm"
                           onClick={() => void payLancamento(item)}
                           disabled={payingLancamentoId === item.id}
-                          className="flex h-8 items-center gap-1 rounded-lg bg-emerald-600 px-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
+                          className="bg-emerald-600 hover:bg-emerald-500"
                         >
                           <CheckCircle2 size={13} />
                           {payingLancamentoId === item.id ? "Registrando..." : "Marcar como pago"}
-                        </button>
+                        </Button>
                       )}
                       <button
                         onClick={() => selectLancamento(item)}
@@ -821,13 +822,13 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                         <Eye size={13} />
                         Visualizar
                       </button>
-                      <button
+                      <Button size="sm"
                         onClick={() => startEditLancamento(item)}
-                        className="flex h-8 items-center gap-1 rounded-lg border border-cyan-400/25 px-2 text-xs font-bold text-cyan-100 hover:bg-cyan-500/10"
+                        className="border-cyan-400/25 text-cyan-100 hover:bg-cyan-500/10"
                       >
                         <Edit3 size={13} />
                         Editar
-                      </button>
+                      </Button>
                       <button
                         onClick={() => openAttachmentPicker(item)}
                         disabled={uploadingAttachments}
@@ -836,16 +837,16 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                         <Paperclip size={13} />
                         Anexar
                       </button>
-                      <button
+                      <Button variant="danger" size="sm"
                         onClick={() => {
                           selectLancamento(item);
                           setDeleteConfirmId(item.id);
                         }}
-                        className="flex h-8 items-center gap-1 rounded-lg border border-rose-400/25 px-2 text-xs font-bold text-rose-100 hover:bg-rose-500/10"
+                        className="border-rose-400/25 text-rose-100 hover:bg-rose-500/10"
                       >
                         <Trash2 size={13} />
                         Excluir
-                      </button>
+                      </Button>
                     </div>
                     </div>
                   ))
@@ -885,21 +886,21 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                         </div>
                       </div>
                       <div className="mt-4 flex gap-2">
-                        <button
+                        <Button variant="primary" size="sm"
                           onClick={() => void payProgramado(item)}
                           disabled={!item.active || payingProgramadoId === item.id}
-                          className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-45"
+                          className="flex-1 bg-emerald-600 hover:bg-emerald-500"
                         >
                           <CheckCircle2 size={14} />
                           {payingProgramadoId === item.id ? "Registrando..." : "Marcar como pago"}
-                        </button>
-                        <button
+                        </Button>
+                        <Button variant="danger" size="sm" iconOnly
                           onClick={() => void deleteProgramado(item.id)}
-                          className="grid h-9 w-9 place-items-center rounded-lg border border-rose-400/25 text-rose-200 hover:bg-rose-500/10"
+                          className="border-rose-400/25 text-rose-200 hover:bg-rose-500/10"
                           title="Excluir gasto programado"
                          aria-label="Excluir gasto programado">
                           <Trash2 size={14} />
-                        </button>
+                        </Button>
                       </div>
                     </article>
                   ))}
@@ -915,9 +916,9 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               <h2 className="flex items-center gap-2 text-base font-black">
                 <Plus size={18} className="text-blue-300" />
                 Novo lancamento
-                <button onClick={() => setCreatePanel(null)} className="ml-auto grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]" title="Fechar formulario" aria-label="Fechar formulario">
+                <Button variant="ghost" size="sm" iconOnly onClick={() => setCreatePanel(null)} className="ml-auto" title="Fechar formulario" aria-label="Fechar formulario">
                   <X size={15} />
-                </button>
+                </Button>
               </h2>
               <div className="mt-4 space-y-3">
                 <input value={lancamentoForm.title} onChange={(event) => setLancamentoForm({ ...lancamentoForm, title: event.target.value })} placeholder="Titulo" className="field" />
@@ -957,9 +958,9 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               <h2 className="flex items-center gap-2 text-base font-black">
                 <BellRing size={18} className="text-cyan-300" />
                 Programar gasto fixo
-                <button onClick={() => setCreatePanel(null)} className="ml-auto grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]" title="Fechar formulario" aria-label="Fechar formulario">
+                <Button variant="ghost" size="sm" iconOnly onClick={() => setCreatePanel(null)} className="ml-auto" title="Fechar formulario" aria-label="Fechar formulario">
                   <X size={15} />
-                </button>
+                </Button>
               </h2>
               <div className="mt-4 space-y-3">
                 <input value={programadoForm.title} onChange={(event) => setProgramadoForm({ ...programadoForm, title: event.target.value })} placeholder="Nome do gasto" className="field" />
@@ -1028,21 +1029,21 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
+                      <Button variant="primary" size="sm"
                         onClick={() => void payProgramado(item)}
                         disabled={!item.active || payingProgramadoId === item.id}
-                        className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-400/25 px-3 text-xs font-bold text-emerald-200 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-45"
+                        className="flex-1 border-emerald-400/25 text-emerald-200 hover:bg-emerald-500/10"
                       >
                         <CheckCircle2 size={14} />
                         {payingProgramadoId === item.id ? "Registrando..." : "Marcar como pago"}
-                      </button>
-                      <button
+                      </Button>
+                      <Button variant="danger" size="sm" iconOnly
                         onClick={() => void deleteProgramado(item.id)}
-                        className="grid h-9 w-9 place-items-center rounded-lg border border-rose-400/25 text-rose-200 hover:bg-rose-500/10"
+                        className="border-rose-400/25 text-rose-200 hover:bg-rose-500/10"
                         title="Excluir gasto programado"
                        aria-label="Excluir gasto programado">
                         <Trash2 size={14} />
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -1064,17 +1065,17 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button
+                <Button
                   onClick={() => startEditLancamento(selected)}
-                  className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/25 px-3 text-xs font-bold text-cyan-100 hover:bg-cyan-500/10"
+                  className="border-cyan-400/25 text-cyan-100 hover:bg-cyan-500/10"
                 >
                   <Edit3 size={15} />
                   Editar
-                </button>
-                <button onClick={() => void patchLancamento(selected.id, { status: "pago" })} className="flex h-10 items-center gap-2 rounded-lg border border-emerald-400/25 px-3 text-xs font-bold text-emerald-200 hover:bg-emerald-500/10">
+                </Button>
+                <Button variant="primary" onClick={() => void patchLancamento(selected.id, { status: "pago" })} className="border-emerald-400/25 text-emerald-200 hover:bg-emerald-500/10">
                   <CheckCircle2 size={15} />
                   Marcar pago
-                </button>
+                </Button>
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingAttachments}
@@ -1083,21 +1084,21 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                   <FileUp size={15} />
                   {uploadingAttachments ? "Anexando..." : "Anexar documentos"}
                 </button>
-                <button onClick={() => setDeleteConfirmId(selected.id)} className="flex h-10 items-center gap-2 rounded-lg border border-rose-400/25 px-3 text-xs font-bold text-rose-200 hover:bg-rose-500/10">
+                <Button variant="danger" onClick={() => setDeleteConfirmId(selected.id)} className="border-rose-400/25 text-rose-200 hover:bg-rose-500/10">
                   <Trash2 size={15} />
                   Excluir
-                </button>
-                <button
+                </Button>
+                <Button iconOnly
                   onClick={() => {
                     setSelectedId(null);
                     setEditingId(null);
                     setDeleteConfirmId(null);
                   }}
-                  className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                  className="text-[var(--text-secondary)]"
                   title="Fechar visualizacao"
                  aria-label="Fechar visualizacao">
                   <X size={16} />
-                </button>
+                </Button>
               </div>
               <input
                 ref={fileInputRef}
@@ -1123,18 +1124,18 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <button
+                    <Button size="sm"
                       onClick={() => setDeleteConfirmId(null)}
-                      className="h-9 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                      className="text-[var(--text-secondary)]"
                     >
                       Cancelar
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="danger" size="sm"
                       onClick={() => void deleteLancamento(selected.id)}
-                      className="h-9 rounded-lg bg-rose-600 px-3 text-xs font-bold text-white hover:bg-rose-500"
+                      className="bg-rose-600 hover:bg-rose-500"
                     >
                       Confirmar exclusao
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -1149,13 +1150,13 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                       Atualize valor, categoria, vencimento, status e descricao.
                     </p>
                   </div>
-                  <button
+                  <Button size="sm" iconOnly
                     onClick={cancelEditLancamento}
-                    className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                    className="text-[var(--text-secondary)]"
                     title="Cancelar edicao"
                    aria-label="Cancelar edicao">
                     <X size={16} />
-                  </button>
+                  </Button>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
@@ -1206,20 +1207,20 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button
+                  <Button variant="ghost"
                     onClick={() => void saveEditLancamento()}
                     disabled={savingEdit}
-                    className="flex h-10 items-center gap-2 rounded-lg bg-cyan-600 px-4 text-xs font-bold text-white transition hover:bg-cyan-500 disabled:opacity-50"
+                    className="bg-cyan-600 hover:bg-cyan-500"
                   >
                     <Save size={15} />
                     {savingEdit ? "Salvando..." : "Salvar alteracoes"}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={cancelEditLancamento}
-                    className="h-10 rounded-lg border border-[var(--border)] px-4 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                    className="text-[var(--text-secondary)]"
                   >
                     Cancelar
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -1260,14 +1261,14 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     </p>
                   </div>
                 </div>
-                <button
+                <Button variant="primary" size="sm"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingAttachments}
-                  className="flex h-9 items-center gap-2 rounded-lg bg-[var(--primary)] px-3 text-xs font-bold text-white transition hover:brightness-110disabled:opacity-50"
+                  className="hover:brightness-110disabled:opacity-50"
                 >
                   <Paperclip size={14} />
                   Adicionar arquivos
-                </button>
+                </Button>
               </div>
             </div>
             <div className="mt-4 grid gap-2 md:grid-cols-3">
@@ -1297,22 +1298,22 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     >
                       Abrir
                     </button>
-                    <button
-                      type="button"
+                    <Button variant="primary" size="sm"
+                     
                       onClick={() => void downloadWithAuth(item.url, item.name)}
-                      className="flex h-8 items-center justify-center gap-1 rounded-lg bg-[var(--primary)] text-xs font-bold text-white hover:brightness-110"
+                     
                     >
                       <Download size={13} />
                       Baixar
-                    </button>
-                    <button
+                    </Button>
+                    <Button variant="danger" size="sm"
                       onClick={() => void removeAttachment(item)}
                       disabled={removingAttachmentId === item.id}
-                      className="flex h-8 items-center justify-center gap-1 rounded-lg border border-rose-400/25 text-xs font-bold text-rose-100 hover:bg-rose-500/10 disabled:opacity-50"
+                      className="border-rose-400/25 text-rose-100 hover:bg-rose-500/10"
                     >
                       <Trash2 size={13} />
                       {removingAttachmentId === item.id ? "..." : "Remover"}
-                    </button>
+                    </Button>
                   </div>
                 </article>
               ))}

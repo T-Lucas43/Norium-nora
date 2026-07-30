@@ -20,6 +20,7 @@ import {
   loadOperatorProfile,
   saveOperatorProfile,
 } from "../profile/profileService";
+import Button from "../shared/Button";
 
 type SettingsDashboardProps = {
   userId?: string;
@@ -162,15 +163,15 @@ export default function SettingsDashboard({
             </p>
           </div>
         </div>
-        <button
-          type="button"
+        <Button variant="primary"
+         
           onClick={() => void save()}
           disabled={saving || loading}
-          className="flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
+         
         >
           <Save size={16} />
           {saving ? "Salvando..." : "Salvar configurações"}
-        </button>
+        </Button>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -229,19 +230,19 @@ export default function SettingsDashboard({
                 </div>
                 <div className="flex items-center gap-2">
                   {canCustomizeTheme && (
-                    <button
-                      type="button"
+                    <Button size="sm"
+                     
                       onClick={() =>
                         updateCustomization((customization) => ({
                           ...customization,
                           [profile.tema]: { ...defaultThemeCustomization[profile.tema] },
                         }))
                       }
-                      className="flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-bold"
+                     
                     >
                       <RotateCcw size={14} />
                       Restaurar
-                    </button>
+                    </Button>
                   )}
                   <button
                     type="button"

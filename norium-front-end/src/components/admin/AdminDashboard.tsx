@@ -16,6 +16,7 @@ import { authJson } from "../../utils/authApi";
 import LocalThemeToggle from "../layout/LocalThemeToggle";
 import BrandLogo from "../layout/BrandLogo";
 import { showConfirm } from "../shared/AppDialogProvider";
+import Button from "../shared/Button";
 
 interface AdminDashboardProps {
   session: AuthSession;
@@ -206,19 +207,19 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
 
           <div className="flex items-center gap-2">
             <LocalThemeToggle storageKey="norium-admin-theme" label="tema do admin" />
-            <button
+            <Button size="lg" iconOnly
               onClick={() => void refresh()}
-              className="grid h-11 w-11 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)] transition hover:bg-[var(--surface-hover)]"
+              className="bg-[var(--background)]"
               title="Atualizar"
              aria-label="Atualizar">
               <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
-            </button>
-            <button
+            </Button>
+            <Button size="lg"
               onClick={onUseSystem}
-              className="hidden h-11 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-bold transition hover:bg-[var(--surface-hover)] sm:flex"
+              className="hidden bg-[var(--background)] sm:flex"
             >
               <LayoutDashboard size={17} /> Usar sistema
-            </button>
+            </Button>
           </div>
         </div>
       </header>
@@ -255,12 +256,12 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
                 <h2 className="text-lg font-black">Usuarios</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">Selecione para editar permissões.</p>
               </div>
-              <button
+              <Button variant="primary" iconOnly
                 onClick={() => setCreateOpen((value) => !value)}
-                className="grid h-10 w-10 place-items-center rounded-xl bg-blue-600 text-white"
+                className="bg-blue-600"
               >
                 <UserPlus size={18} />
-              </button>
+              </Button>
             </div>
 
             <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
@@ -327,12 +328,12 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
               <PermissionEditor permissions={createForm.permissions} onToggle={toggleCreatePermission} />
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <button onClick={() => void createUser()} disabled={saving === "create"} className="h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white disabled:opacity-60">
+                <Button variant="primary" size="lg" onClick={() => void createUser()} disabled={saving === "create"} className="bg-blue-600">
                   {saving === "create" ? "Criando..." : "Criar usuário"}
-                </button>
-                <button onClick={() => setCreateOpen(false)} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-5 text-sm font-bold">
+                </Button>
+                <Button size="lg" onClick={() => setCreateOpen(false)} className="bg-[var(--background)]">
                   Cancelar
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -354,18 +355,18 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
                     <option key={plan.code} value={plan.code}>{plan.name}</option>
                   ))}
                 </select>
-                <button
+                <Button
                   onClick={() => void patchUser(selectedUser.id, { status: selectedUser.status === "ativo" ? "inativo" : "ativo" }, "Status atualizado.")}
-                  className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold"
+                  className="bg-[var(--background)]"
                 >
                   {selectedUser.status === "ativo" ? "Bloquear" : "Ativar"}
-                </button>
-                <button
+                </Button>
+                <Button variant="danger"
                   onClick={() => void deactivateUser(selectedUser.id)}
-                  className="h-10 rounded-xl border border-red-400/30 bg-red-500/12 px-4 text-xs font-bold text-red-100"
+                  className="border-red-400/30 bg-red-500/12 text-red-100"
                 >
                   Desativar
-                </button>
+                </Button>
               </div>
             </div>
 

@@ -128,9 +128,9 @@ export default function AppDialogProvider({ children }: { children: ReactNode })
                 {active.description && <p className="mt-1.5 whitespace-pre-line text-sm font-semibold leading-6 text-[var(--text-secondary)]">{active.description}</p>}
               </div>
               {active.kind !== "alert" && (
-                <button type="button" onClick={() => finish(active.kind === "confirm" ? false : null)} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-[var(--surface-hover)]" aria-label="Fechar">
+                <Button variant="ghost" size="sm" iconOnly onClick={() => finish(active.kind === "confirm" ? false : null)} aria-label="Fechar">
                   <X size={16} />
-                </button>
+                </Button>
               )}
             </header>
 

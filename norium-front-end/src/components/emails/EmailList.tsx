@@ -1,5 +1,6 @@
 import { RotateCw, Filter } from "lucide-react";
 import type { Email } from "./EmailDashboard";
+import Button from "../shared/Button";
 
 interface EmailListProps {
   emails: Email[];
@@ -20,8 +21,8 @@ export default function EmailList({ emails, selectedEmail, setSelectedEmail, act
             <span className="text-xs text-[var(--secondary-foreground)] font-medium">12 não lidos</span>
           </div>
           <div className="flex items-center gap-1 text-[var(--secondary-foreground)]">
-            <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition"><RotateCw size={16} /></button>
-            <button className="p-2 hover:bg-[var(--hover-background)] rounded-lg transition flex items-center gap-1 text-sm font-medium"><Filter size={16} /> Filtro</button>
+            <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><RotateCw size={16} /></Button>
+            <Button variant="ghost" className="p-2 hover:bg-[var(--hover-background)]"><Filter size={16} /> Filtro</Button>
           </div>
         </div>
       </div>

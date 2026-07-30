@@ -1,6 +1,7 @@
 import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 import { applyNoriumTheme, readStoredTheme, toggleNoriumTheme } from "../../utils/theme";
+import Button from "../shared/Button";
 
 export default function ThemeToggle() {
   const [dark, setDark] = useState(false);
@@ -28,25 +29,10 @@ export default function ThemeToggle() {
   }
 
   return (
-    <button
+    <Button size="lg" iconOnly
       onClick={toggleTheme}
       aria-label="Alternar tema"
-      className="
-        relative
-        flex
-        h-11
-        w-20
-        items-center
-        rounded-full
-        border
-        border-[var(--border)]
-        bg-[var(--surface)]
-        px-1
-        transition-all
-        duration-300
-        hover:scale-105
-        active:scale-95
-      "
+      className="relative w-20 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
     >
       <div
         className={`
@@ -77,6 +63,6 @@ export default function ThemeToggle() {
           className={!dark ? "opacity-40" : "text-white"}
         />
       </div>
-    </button>
+    </Button>
   );
 }

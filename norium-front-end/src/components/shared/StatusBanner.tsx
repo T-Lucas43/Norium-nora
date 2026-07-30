@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { cn } from "../../utils/cn";
+import Button from "../shared/Button";
 
 type BannerTone = "error" | "success" | "warning" | "info";
 
@@ -38,14 +39,14 @@ export default function StatusBanner({ tone, children, action, onDismiss, classN
       <div className="min-w-0 flex-1 font-semibold">{children}</div>
       {action}
       {onDismiss && (
-        <button
-          type="button"
+        <Button variant="ghost"
+         
           onClick={onDismiss}
           aria-label="Fechar aviso"
-          className="shrink-0 rounded p-0.5 opacity-70 transition hover:opacity-100"
+          className="rounded p-0.5 opacity-70 hover:opacity-100"
         >
           <X size={14} />
-        </button>
+        </Button>
       )}
     </div>
   );

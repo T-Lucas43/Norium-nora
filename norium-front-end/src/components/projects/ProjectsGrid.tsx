@@ -1,5 +1,6 @@
 import { Grid, List, ChevronDown, MoreVertical, Rocket, ShoppingCart, BarChart3, User, Smartphone, CheckCircle, Plus } from "lucide-react";
 import type { Projeto } from "./ProjectsDashboard";
+import Button from "../shared/Button";
 
 interface GridProps {
   projetos: Projeto[];
@@ -28,8 +29,8 @@ export default function ProjectsGrid({ projetos }: GridProps) {
 
         <div className="flex items-center gap-4">
           <div className="flex items-center bg-[var(--card-background)] p-1 rounded-xl text-xs font-bold text-[var(--secondary-foreground)] border border-[var(--border)]">
-            <button className="px-3 py-1.5 rounded-lg bg-[var(--background)] text-[var(--foreground)] shadow-sm flex items-center gap-1.5 border border-[var(--border)]"><Grid size={14} /> Grade</button>
-            <button className="px-3 py-1.5 rounded-lg text-[var(--secondary-foreground)] hover:text-[var(--foreground)] flex items-center gap-1.5"><List size={14} /> Lista</button>
+            <Button className="py-1.5 bg-[var(--background)] text-[var(--foreground)] shadow-sm"><Grid size={14} /> Grade</Button>
+            <Button variant="ghost" className="py-1.5 text-[var(--secondary-foreground)] hover:text-[var(--foreground)]"><List size={14} /> Lista</Button>
           </div>
           
           <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--secondary-foreground)] bg-[var(--card-background)] border border-[var(--border)] px-3 py-2 rounded-xl cursor-pointer hover:bg-[var(--hover-background)] transition">
@@ -50,7 +51,7 @@ export default function ProjectsGrid({ projetos }: GridProps) {
                 <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${projeto.badgeColor}`}>
                   {projeto.status}
                 </span>
-                <button className="p-1 text-[var(--secondary-foreground)] hover:text-[var(--foreground)] rounded-lg"><MoreVertical size={16} /></button>
+                <Button variant="ghost" className="p-1 text-[var(--secondary-foreground)] hover:text-[var(--foreground)]"><MoreVertical size={16} /></Button>
               </div>
             </div>
 

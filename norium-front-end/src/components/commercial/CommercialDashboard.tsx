@@ -423,15 +423,15 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                         <time className="text-xs font-bold text-[var(--text-secondary)]">{formatDate(item.updatedAt)}</time>
                       </button>
                       {isProposal(item) && !item.contractId && (
-                        <button
-                          type="button"
+                        <Button variant="danger" iconOnly
+                         
                           onClick={() => void handleDeleteProposal(item)}
-                          className="m-3 grid h-10 w-10 shrink-0 place-items-center self-center rounded-lg border border-red-400/20 text-red-400 hover:bg-red-500/10"
+                          className="m-3 self-center border-red-400/20 text-red-400 hover:bg-red-500/10"
                           aria-label={`Excluir proposta ${item.title}`}
                           title="Excluir proposta"
                         >
                           <Trash2 size={16} />
-                        </button>
+                        </Button>
                       )}
                     </article>
                   ))}
@@ -928,7 +928,7 @@ function TemplateDialog({ busy, onClose, onSubmit }: { busy: boolean; onClose: (
 }
 
 function Dialog({ title, subtitle, onClose, children, wide = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
-  return <div className="fixed inset-0 z-[120] grid place-items-center bg-black/65 p-4" onClick={onClose}><section className={`w-full ${wide ? "max-w-6xl" : "max-w-xl"} rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl`} onClick={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-3 border-b border-[var(--border)] p-5"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{subtitle}</p></div><button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]" aria-label="Fechar"><X size={17} /></button></header><div className="max-h-[82dvh] overflow-y-auto p-5">{children}</div></section></div>;
+  return <div className="fixed inset-0 z-[120] grid place-items-center bg-black/65 p-4" onClick={onClose}><section className={`w-full ${wide ? "max-w-6xl" : "max-w-xl"} rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl`} onClick={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-3 border-b border-[var(--border)] p-5"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{subtitle}</p></div><Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar"><X size={17} /></Button></header><div className="max-h-[82dvh] overflow-y-auto p-5">{children}</div></section></div>;
 }
 
 function FormField({ label, children }: { label: string; children: ReactNode }) {

@@ -1,3 +1,4 @@
+import Button from "../shared/Button";
 import { ChevronDown, CircleHelp, Sparkles } from "lucide-react";
 
 export type GuidedModule =
@@ -246,14 +247,14 @@ export default function ModuleCoach({
           <Sparkles size={16} /> Perguntar a Nora
         </button>
         {guide.quickPrompts?.map((quick) => (
-          <button
+          <Button size="sm"
             key={quick.label}
-            type="button"
+           
             onClick={() => onAskNora(quick.prompt)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            className="rounded-full text-[var(--text-secondary)] hover:border-[var(--primary)] hover:text-[var(--primary)]"
           >
             <Sparkles size={12} /> {quick.label}
-          </button>
+          </Button>
         ))}
       </div>
     </aside>

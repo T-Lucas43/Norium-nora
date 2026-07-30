@@ -33,6 +33,7 @@ import {
 
 import { apiBaseUrl, authToken } from "../../utils/api";
 import { showConfirm } from "../shared/AppDialogProvider";
+import Button from "../shared/Button";
 
 type Summary = {
   pendingApprovals: number;
@@ -579,12 +580,12 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => void loadOverview(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-4 text-sm font-bold transition hover:bg-[var(--surface-hover)]">
+            <Button onClick={() => void loadOverview(true)}>
               <RefreshCw className={refreshing ? "animate-spin" : ""} size={16} /> Atualizar
-            </button>
-            <button type="button" onClick={openNewApproval} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-500">
+            </Button>
+            <Button variant="primary" onClick={openNewApproval} className="bg-blue-600 hover:bg-blue-500">
               <Plus size={17} /> Nova aprovacao
-            </button>
+            </Button>
           </div>
         </header>
 
@@ -642,10 +643,10 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
               <div className="grid grid-cols-[1fr_120px_auto] gap-2">
                 <input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Nome do modelo" className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
                 <select value={templateKind} onChange={(event) => setTemplateKind(event.target.value as OperationTemplate["kind"])} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="email">E-mail</option><option value="task">Tarefa</option><option value="calendar">Agenda</option><option value="finance">Financeiro</option><option value="automation">Automacao</option><option value="message">Mensagem</option></select>
-                <button type="button" onClick={() => void createTemplate()} disabled={!templateName.trim()} className="grid h-9 w-9 place-items-center rounded-lg bg-blue-600 text-white disabled:opacity-40" title="Criar modelo" aria-label="Criar modelo"><Plus size={15} /></button>
+                <Button variant="primary" size="sm" iconOnly onClick={() => void createTemplate()} disabled={!templateName.trim()} className="bg-blue-600" title="Criar modelo" aria-label="Criar modelo"><Plus size={15} /></Button>
               </div>
               <div className="max-h-40 space-y-2 overflow-y-auto">
-                {(overview?.templates || []).map((template) => <article key={template.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{template.name}</strong><small className="font-bold uppercase text-blue-300">{template.kind}</small></div><button type="button" onClick={() => void deleteTemplate(template.id)} className="grid h-7 w-7 place-items-center rounded-md text-rose-300 hover:bg-rose-500/10" title="Excluir modelo" aria-label="Excluir modelo"><Trash2 size={13} /></button></article>)}
+                {(overview?.templates || []).map((template) => <article key={template.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{template.name}</strong><small className="font-bold uppercase text-blue-300">{template.kind}</small></div><Button variant="danger" iconOnly onClick={() => void deleteTemplate(template.id)} className="h-7 w-7 text-rose-300 hover:bg-rose-500/10" title="Excluir modelo" aria-label="Excluir modelo"><Trash2 size={13} /></Button></article>)}
                 {(overview?.templates || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Crie respostas, tarefas e rotinas padronizadas.</p>}
               </div>
             </div>
@@ -658,8 +659,8 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
             </summary>
             <div className="space-y-3 border-t border-[var(--border)] p-4">
               <input value={followUpTitle} onChange={(event) => setFollowUpTitle(event.target.value)} placeholder="O que precisa de retorno?" className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
-              <div className="grid grid-cols-[1fr_auto] gap-2"><input type="datetime-local" value={followUpDueAt} onChange={(event) => setFollowUpDueAt(event.target.value)} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold" /><button type="button" onClick={() => void createFollowUp()} disabled={!followUpTitle.trim()} className="h-9 rounded-lg bg-cyan-600 px-3 text-xs font-bold text-white disabled:opacity-40">Adicionar</button></div>
-              <div className="max-h-32 space-y-2 overflow-y-auto">{(overview?.followUps || []).filter((item) => item.status === "open").map((item) => <article key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{item.title}</strong><small className="font-semibold text-[var(--text-secondary)]">{item.dueAt ? formatDate(item.dueAt) : "Sem prazo"}</small></div><button type="button" onClick={() => void updateFollowUp(item.id, "done")} className="grid h-7 w-7 place-items-center rounded-md text-emerald-300 hover:bg-emerald-500/10" title="Marcar como concluido" aria-label="Marcar como concluido"><Check size={14} /></button></article>)}</div>
+              <div className="grid grid-cols-[1fr_auto] gap-2"><input type="datetime-local" value={followUpDueAt} onChange={(event) => setFollowUpDueAt(event.target.value)} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold" /><Button variant="ghost" size="sm" onClick={() => void createFollowUp()} disabled={!followUpTitle.trim()} className="bg-cyan-600">Adicionar</Button></div>
+              <div className="max-h-32 space-y-2 overflow-y-auto">{(overview?.followUps || []).filter((item) => item.status === "open").map((item) => <article key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{item.title}</strong><small className="font-semibold text-[var(--text-secondary)]">{item.dueAt ? formatDate(item.dueAt) : "Sem prazo"}</small></div><Button variant="primary" iconOnly onClick={() => void updateFollowUp(item.id, "done")} className="h-7 w-7 text-emerald-300 hover:bg-emerald-500/10" title="Marcar como concluido" aria-label="Marcar como concluido"><Check size={14} /></Button></article>)}</div>
             </div>
           </details>
 
@@ -706,9 +707,9 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
                       <p className="mt-2 text-xs font-bold text-[var(--text-secondary)]">{approval.requestedBy?.name || "Operador"} · {formatDate(approval.createdAt)}</p>
                     </div>
                     <div className="flex shrink-0 gap-2">
-                      <button type="button" disabled={decisionId === approval.id} onClick={() => openApprovalEditor(approval)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-bold hover:bg-[var(--surface-hover)] disabled:opacity-50"><Pencil size={14} /> Editar</button>
-                      <button type="button" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "rejected")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-500/25 px-3 text-xs font-bold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"><XCircle size={15} /> Rejeitar</button>
-                      <button type="button" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "approved")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50">{decisionId === approval.id ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />} Aprovar</button>
+                      <Button size="sm" disabled={decisionId === approval.id} onClick={() => openApprovalEditor(approval)}><Pencil size={14} /> Editar</Button>
+                      <Button variant="danger" size="sm" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "rejected")} className="border-rose-500/25 text-rose-300 hover:bg-rose-500/10"><XCircle size={15} /> Rejeitar</Button>
+                      <Button variant="primary" size="sm" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "approved")} className="bg-emerald-600 hover:bg-emerald-500">{decisionId === approval.id ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />} Aprovar</Button>
                     </div>
                   </article>
                 ))}
@@ -718,7 +719,7 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
             <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <div className="flex flex-col gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="font-black">Rastreabilidade</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Veja o que foi executado e por quem.</p></div>
-                <div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[var(--border)] p-1"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>{timelineMode === "audit" && <button type="button" onClick={() => void exportAudit()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-xs font-bold hover:bg-[var(--surface-hover)]"><Download size={14} /> Exportar CSV</button>}</div>
+                <div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[var(--border)] p-1"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>{timelineMode === "audit" && <Button size="sm" onClick={() => void exportAudit()}><Download size={14} /> Exportar CSV</Button>}</div>
               </div>
               <div className="max-h-[390px] divide-y divide-[var(--border)] overflow-y-auto">
                 {timeline.length === 0 ? (
@@ -767,26 +768,26 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
                         {integration.failures > 0 && <span className="rounded-full bg-rose-500/12 px-2 py-1 text-xs font-bold uppercase text-rose-300">{integration.failures} falha(s)</span>}
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <button type="button" disabled={checkingIntegrationId === integration.id} onClick={() => void testIntegration(integration.id)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 text-xs font-bold uppercase hover:bg-[var(--surface-hover)] disabled:opacity-50">
+                        <Button size="sm" disabled={checkingIntegrationId === integration.id} onClick={() => void testIntegration(integration.id)} className="uppercase">
                           {checkingIntegrationId === integration.id ? <LoaderCircle className="animate-spin" size={13} /> : <RefreshCw size={13} />} Testar
-                        </button>
+                        </Button>
                         {!integration.connected && onNavigate && (
-                          <button type="button" onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" || integration.id === "telegram" ? "Chat" : "Mais")} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 text-xs font-bold uppercase text-white hover:bg-blue-500">
+                          <Button variant="primary" size="sm" onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" || integration.id === "telegram" ? "Chat" : "Mais")} className="bg-blue-600 uppercase hover:bg-blue-500">
                             Reconectar <ChevronRight size={13} />
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </div>
                     {onNavigate && integration.connected && (
-                      <button
-                        type="button"
+                      <Button size="sm" iconOnly
+                       
                         onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" || integration.id === "telegram" ? "Chat" : "Mais")}
-                        className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                        className="text-[var(--text-secondary)] hover:text-[var(--text)]"
                         aria-label={`Abrir ${integration.name}`}
                         title={`Abrir ${integration.name}`}
                       >
                         <ChevronRight size={15} />
-                      </button>
+                      </Button>
                     )}
                   </article>
                 ))}
@@ -805,13 +806,13 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
                   <select value={memoryScope} onChange={(event) => setMemoryScope(event.target.value as "personal" | "team")} className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none">
                     <option value="personal">Somente para mim</option><option value="team">Compartilhar com a equipe</option>
                   </select>
-                  <button type="button" disabled={savingMemory} onClick={() => void saveMemory()} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50">{savingMemory ? <LoaderCircle className="animate-spin" size={14} /> : <Plus size={14} />} Salvar</button>
+                  <Button variant="primary" size="sm" disabled={savingMemory} onClick={() => void saveMemory()} className="bg-blue-600 hover:bg-blue-500">{savingMemory ? <LoaderCircle className="animate-spin" size={14} /> : <Plus size={14} />} Salvar</Button>
                 </div>
                 <div className="max-h-52 space-y-2 overflow-y-auto">
                   {(overview?.memory || []).map((memory) => (
                     <article key={memory.id} className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                       <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-1.5"><strong className="truncate text-xs font-bold">{memory.key}</strong><span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-xs font-bold uppercase text-blue-300">{memory.scope === "team" ? "equipe" : "pessoal"}</span></div><p className="mt-1 line-clamp-3 text-xs font-semibold leading-4 text-[var(--text-secondary)]">{memory.value}</p></div>
-                      <button type="button" disabled={deletingMemoryId === memory.id} onClick={() => void deleteMemory(memory.id)} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-rose-300 hover:bg-rose-500/10 disabled:opacity-50" aria-label={`Remover ${memory.key}`}>{deletingMemoryId === memory.id ? <LoaderCircle className="animate-spin" size={14} /> : <Trash2 size={14} />}</button>
+                      <Button variant="danger" size="sm" iconOnly disabled={deletingMemoryId === memory.id} onClick={() => void deleteMemory(memory.id)} className="text-rose-300 hover:bg-rose-500/10" aria-label={`Remover ${memory.key}`}>{deletingMemoryId === memory.id ? <LoaderCircle className="animate-spin" size={14} /> : <Trash2 size={14} />}</Button>
                     </article>
                   ))}
                   {(overview?.memory || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhuma preferencia salva. A Nora tambem aprende quando voce diz "lembre que...".</p>}
@@ -833,15 +834,15 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
           <div className="w-full max-w-lg overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
             <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
               <div><h2 className="font-black">{editingApproval ? "Editar solicitacao" : "Nova solicitacao de aprovacao"}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{editingApproval ? "Ajuste o plano antes de aprovar ou rejeitar." : "Registre a decisao antes de executar uma acao sensivel."}</p></div>
-              <button type="button" onClick={closeApprovalDialog} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]" aria-label="Fechar"><X size={18} /></button>
+              <Button variant="ghost" size="sm" iconOnly onClick={closeApprovalDialog} aria-label="Fechar"><X size={18} /></Button>
             </header>
             <div className="space-y-4 p-5">
               <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">O que precisa ser aprovado?<input value={approvalTitle} onChange={(event) => setApprovalTitle(event.target.value)} maxLength={180} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Ex.: autorizar envio para toda a base" /></label>
               <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">Contexto<textarea value={approvalDescription} onChange={(event) => setApprovalDescription(event.target.value)} maxLength={1200} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-semibold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Explique o impacto e o motivo da solicitacao." /></label>
             </div>
             <footer className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-              <button type="button" onClick={closeApprovalDialog} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-bold hover:bg-[var(--surface-hover)]">Cancelar</button>
-              <button type="button" disabled={savingApproval} onClick={() => void saveApproval()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-50">{savingApproval ? <LoaderCircle className="animate-spin" size={16} /> : <ClipboardCheck size={16} />} {editingApproval ? "Salvar alteracoes" : "Solicitar aprovacao"}</button>
+              <Button onClick={closeApprovalDialog}>Cancelar</Button>
+              <Button variant="primary" disabled={savingApproval} onClick={() => void saveApproval()} className="bg-blue-600 hover:bg-blue-500">{savingApproval ? <LoaderCircle className="animate-spin" size={16} /> : <ClipboardCheck size={16} />} {editingApproval ? "Salvar alteracoes" : "Solicitar aprovacao"}</Button>
             </footer>
           </div>
         </div>

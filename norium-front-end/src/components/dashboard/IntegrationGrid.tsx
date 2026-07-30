@@ -1,3 +1,4 @@
+import Button from "../shared/Button";
 import {
   CalendarDays,
   CheckCircle2,
@@ -59,13 +60,13 @@ export default function IntegrationGrid({ onNavigate }: { onNavigate: (tab: stri
           <p className="text-sm font-semibold text-[var(--text-secondary)]">Canais disponiveis e integrados ao Norium.</p>
         </div>
 
-        <button
-          type="button"
+        <Button
+         
           onClick={() => onNavigate("Mais")}
-          className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+          className="py-2"
         >
           Gerenciar
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">

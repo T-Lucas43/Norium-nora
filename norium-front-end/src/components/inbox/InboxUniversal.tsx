@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { EventSource, OmnichannelEvent } from "../../types/omnichannel";
+import Button from "../shared/Button";
 
 type InboxUniversalProps = {
   eventsBySource: Record<EventSource, OmnichannelEvent[]>;
@@ -199,8 +200,8 @@ function MiniInboxPanel({
             <GripVertical size={16} />
           </span>
           <span className="flex shrink-0 flex-col gap-0.5">
-            <button
-              type="button"
+            <Button variant="ghost" iconOnly
+             
               onClick={(event) => {
                 event.stopPropagation();
                 onMoveLeft();
@@ -208,12 +209,12 @@ function MiniInboxPanel({
               disabled={!canMoveLeft}
               aria-label={`Mover ${config.title} para cima na ordem`}
               title={`Mover ${config.title} para cima na ordem`}
-              className="grid h-4 w-4 place-items-center rounded text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-30"
+              className="h-4 w-4 rounded text-[var(--text-secondary)] hover:text-[var(--text)]"
             >
               <ChevronUp size={12} />
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button variant="ghost" iconOnly
+             
               onClick={(event) => {
                 event.stopPropagation();
                 onMoveRight();
@@ -221,10 +222,10 @@ function MiniInboxPanel({
               disabled={!canMoveRight}
               aria-label={`Mover ${config.title} para baixo na ordem`}
               title={`Mover ${config.title} para baixo na ordem`}
-              className="grid h-4 w-4 place-items-center rounded text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-30"
+              className="h-4 w-4 rounded text-[var(--text-secondary)] hover:text-[var(--text)]"
             >
               <ChevronDown size={12} />
-            </button>
+            </Button>
           </span>
           <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${config.accentClassName}`}>
             <Icon size={19} />
@@ -249,18 +250,18 @@ function MiniInboxPanel({
           <span className="grid h-7 min-w-7 place-items-center rounded-full border border-[var(--border)] px-2 text-xs font-bold text-[var(--text-secondary)]">
             {events.length}
           </span>
-          <button
-            type="button"
+          <Button iconOnly
+           
             onClick={(event) => {
               event.stopPropagation();
               onHide();
             }}
-            className="grid h-7 w-7 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            className="h-7 w-7 text-[var(--text-secondary)] hover:text-[var(--text)]"
             title={`Ocultar ${config.title}`}
             aria-label={`Ocultar ${config.title}`}
           >
             <EyeOff size={14} />
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -405,13 +406,13 @@ export default function InboxUniversal({ eventsBySource, connected, onRefresh }:
           >
             {connected ? "tempo real ativo" : "reconectando"}
           </span>
-          <button
+          <Button iconOnly
             onClick={onRefresh}
-            className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            className="text-[var(--text-secondary)] hover:text-[var(--text)]"
             title="Atualizar Inbox"
            aria-label="Atualizar Inbox">
             <RefreshCw size={17} />
-          </button>
+          </Button>
         </div>
       </header>
 
@@ -420,15 +421,15 @@ export default function InboxUniversal({ eventsBySource, connected, onRefresh }:
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
             <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Adicionar mini tela</span>
             {hiddenPanels.map((panel) => (
-              <button
+              <Button size="sm"
                 key={panel.source}
-                type="button"
+               
                 onClick={() => setHiddenSources((current) => current.filter((source) => source !== panel.source))}
-                className="inline-flex h-8 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+               
               >
                 <Plus size={14} />
                 {panel.title}
-              </button>
+              </Button>
             ))}
           </div>
         )}

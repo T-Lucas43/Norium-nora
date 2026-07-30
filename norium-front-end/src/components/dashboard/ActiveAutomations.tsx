@@ -1,6 +1,7 @@
 import { ArrowRight, CheckCircle2, Clock3, GitBranch, PlayCircle, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { apiBaseUrl, authToken } from "../../utils/api";
+import Button from "../shared/Button";
 
 type DashboardAutomation = {
   id: string;
@@ -121,13 +122,13 @@ export default function ActiveAutomations({ onNavigate }: ActiveAutomationsProps
           </p>
         </div>
 
-        <button
+        <Button
           onClick={() => onNavigate("Automações")}
-          className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] px-4 text-xs font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+         
         >
           Abrir automacoes
           <ArrowRight size={15} />
-        </button>
+        </Button>
       </div>
 
       {loading ? (

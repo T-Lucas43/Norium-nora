@@ -53,6 +53,7 @@ import type {
   MessageListResponse,
   NoraEmailSuggestion,
 } from "../../features/mail/types";
+import Button from "../shared/Button";
 export type { Email } from "../../features/mail/types";
 
 const GMAIL_PAGE_SIZE = 14;
@@ -1040,13 +1041,13 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               <p className="text-xs font-bold uppercase tracking-wide text-cyan-200">Sugestao da Nora</p>
               <p className="text-xs font-semibold text-white/50">Revise antes de colocar no e-mail.</p>
             </div>
-            <button
-              type="button"
+            <Button
+             
               onClick={discardNoraSuggestion}
-              className="rounded-lg border border-white/10 px-2 py-1 text-xs font-bold text-white/55 hover:bg-white/7"
+              className="border-white/10 py-1 text-white/55 hover:bg-white/7"
             >
               Descartar
-            </button>
+            </Button>
           </div>
           <textarea
             value={noraSuggestion.text}
@@ -1066,29 +1067,29 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               className="h-10 rounded-lg border border-white/10 bg-black/20 px-3 text-xs font-semibold text-white outline-none placeholder:text-white/35"
             />
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
+              <Button variant="ghost"
+               
                 onClick={acceptNoraSuggestion}
-                className="mail-primary rounded-lg bg-[#0EA5E9] px-3 py-2 text-xs font-bold text-white"
+                className="mail-primary bg-[#0EA5E9] py-2"
               >
                 Aceitar sugestao
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+               
                 onClick={() => void askNoraEmailSuggestion(target, "Refaca a resposta com outra abordagem, mantendo o sentido e sendo mais precisa.")}
                 disabled={noraSuggesting !== null}
-                className="mail-hover rounded-lg border border-white/12 px-3 py-2 text-xs font-bold text-white/75 hover:bg-white/7 disabled:opacity-45"
+                className="mail-hover border-white/12 py-2 text-white/75 hover:bg-white/7"
               >
                 Refazer
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+               
                 onClick={() => void askNoraEmailSuggestion(target, noraSuggestionInstruction)}
                 disabled={noraSuggesting !== null || !noraSuggestionInstruction.trim()}
-                className="mail-hover rounded-lg border border-cyan-400/25 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-400/10 disabled:opacity-45"
+                className="mail-hover border-cyan-400/25 py-2 text-cyan-200 hover:bg-cyan-400/10"
               >
                 Aplicar ajuste
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1237,15 +1238,15 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 <Folder size={14} />
                 Pastas
               </span>
-              <button
-                type="button"
+              <Button variant="ghost" iconOnly
+               
                 onClick={() => setLabelDialogOpen(true)}
-                className="mail-hover grid h-7 w-7 place-items-center rounded-md hover:bg-white/7 hover:text-white"
+                className="mail-hover h-7 w-7 hover:bg-white/7 hover:text-white"
                 title="Criar marcador"
                 aria-label="Criar marcador"
               >
                 <Plus size={15} />
-              </button>
+              </Button>
             </div>
             <button
               onClick={() => selectMailbox("starred")}
@@ -1376,7 +1377,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                       <p className="text-sm font-bold">Pesquisa avancada</p>
                       <p className="text-xs font-semibold text-white/45">Combine campos para localizar mensagens no Gmail.</p>
                     </div>
-                    <button type="button" onClick={() => setFiltersOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/7"><X size={16} /></button>
+                    <Button variant="ghost" size="sm" iconOnly onClick={() => setFiltersOpen(false)} className="hover:bg-white/7"><X size={16} /></Button>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="grid gap-1 text-xs font-bold text-white/60">De
@@ -1404,8 +1405,8 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                     </label>
                   </div>
                   <div className="mt-4 flex justify-end gap-2">
-                    <button type="button" onClick={clearAdvancedSearch} className="h-9 rounded-lg border border-white/12 px-4 text-xs font-bold text-white/65 hover:bg-white/7">Limpar</button>
-                    <button type="submit" className="mail-primary h-9 rounded-lg bg-[#0EA5E9] px-5 text-xs font-bold text-white">Pesquisar</button>
+                    <Button size="sm" onClick={clearAdvancedSearch} className="border-white/12 text-white/65 hover:bg-white/7">Limpar</Button>
+                    <Button variant="ghost" size="sm" type="submit" className="mail-primary bg-[#0EA5E9]">Pesquisar</Button>
                   </div>
                 </form>
                 </div>,
@@ -1422,30 +1423,30 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
 
           <div className="flex items-center gap-2">
             {canUseNora && (
-              <button
+              <Button
                 onClick={() => {
                   setAiOpen(true);
                   if (!aiMessages.length) void askEmailAgent("resumir minha caixa de entrada");
                 }}
-                className="flex h-10 items-center gap-2 rounded-full border border-[#38BDF8] px-4 text-xs font-bold text-white hover:bg-[#38BDF8]/12"
+                className="rounded-full border-[#38BDF8] hover:bg-[#38BDF8]/12"
               >
                 <Bot size={15} />
                 Nora para E-mails
-              </button>
+              </Button>
             )}
-            <button onClick={() => setShowPreview((value) => !value)} title="Alternar previa" className="mail-hover flex h-10 w-10 items-center justify-center rounded-full border border-white/12 hover:bg-white/7" aria-label="Alternar previa">
+            <Button iconOnly onClick={() => setShowPreview((value) => !value)} title="Alternar previa" className="mail-hover rounded-full border-white/12 hover:bg-white/7" aria-label="Alternar previa">
               <Eye size={17} />
-            </button>
-            <button onClick={() => setSettingsOpen(true)} title="Configuracoes do Mail" className="mail-hover flex h-10 w-10 items-center justify-center rounded-full border border-white/12 hover:bg-white/7" aria-label="Configuracoes do Mail">
+            </Button>
+            <Button iconOnly onClick={() => setSettingsOpen(true)} title="Configuracoes do Mail" className="mail-hover rounded-full border-white/12 hover:bg-white/7" aria-label="Configuracoes do Mail">
               <Settings size={17} />
-            </button>
-            <button onClick={() => setProfileOpen((value) => !value)} title="Perfil" className="mail-hover flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/12 bg-[#4A3B8F] text-sm font-bold" aria-label="Perfil">
+            </Button>
+            <Button onClick={() => setProfileOpen((value) => !value)} title="Perfil" className="mail-hover overflow-hidden rounded-full border-white/12 bg-[#4A3B8F]" aria-label="Perfil">
               {status?.picture ? (
                 <img src={status.picture} alt="Foto do perfil" className="h-full w-full object-cover" />
               ) : (
                 <span>{accountInitials(status)}</span>
               )}
-            </button>
+            </Button>
           </div>
         </header>
 
@@ -1461,20 +1462,20 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               </p>
               {error && <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm font-bold text-red-200">{error}</p>}
               <div className="mt-6 flex justify-center gap-3">
-                <button
+                <Button variant="ghost" size="lg"
                   onClick={() => void connectGmail()}
-                  className="mail-primary flex h-11 items-center gap-2 rounded-lg bg-[#0EA5E9] px-5 text-sm font-bold hover:bg-[#0284C7]"
+                  className="mail-primary bg-[#0EA5E9] hover:bg-[#0284C7]"
                 >
                   <Sparkles size={17} />
                   Conectar Gmail
-                </button>
-                <button
+                </Button>
+                <Button size="lg"
                   onClick={() => void fetchStatus()}
-                  className="mail-hover flex h-11 items-center gap-2 rounded-lg border border-white/12 px-5 text-sm font-bold text-white/80 hover:bg-white/7"
+                  className="mail-hover border-white/12 text-white/80 hover:bg-white/7"
                 >
                   <RefreshCw size={16} />
                   Ja autorizei
-                </button>
+                </Button>
               </div>
             </div>
           </main>
@@ -1496,28 +1497,28 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 </div>
 
                 <div className="flex items-center gap-2 text-xs font-bold text-white/60">
-                  <button onClick={() => void fetchMessages(false)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7">
+                  <Button variant="ghost" size="sm" iconOnly onClick={() => void fetchMessages(false)} className="hover:bg-white/7">
                     {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                  </button>
+                  </Button>
                   <span>
                     {visibleRange} / {resultSize || messages.length}
                   </span>
-                  <button
-                    type="button"
+                  <Button variant="ghost" size="sm" iconOnly
+                   
                     disabled={messages.length <= GMAIL_PAGE_SIZE}
                     onClick={() => void fetchMessages(false, null)}
                     title="Voltar ao inicio"
-                    className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7 disabled:opacity-30"
+                    className="hover:bg-white/7"
                    aria-label="Voltar ao inicio">
                     <ChevronLeft size={16} />
-                  </button>
-                  <button
+                  </Button>
+                  <Button variant="ghost" size="sm" iconOnly
                     disabled={!nextPageToken}
                     onClick={() => void fetchMessages(true, nextPageToken)}
-                    className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7 disabled:opacity-30"
+                    className="hover:bg-white/7"
                   >
                     <ChevronRight size={16} />
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -1552,12 +1553,12 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 <div className="flex items-center gap-2">
                   {selectedIds.size > 0 && (
                     <>
-                      <button onClick={() => void runBulkAction("archive")} className="mail-hover rounded-lg border border-white/12 px-3 py-2 text-xs font-bold hover:bg-white/7">
+                      <Button onClick={() => void runBulkAction("archive")} className="mail-hover border-white/12 py-2 hover:bg-white/7">
                         Arquivar
-                      </button>
-                      <button onClick={() => void runBulkAction("trash")} className="mail-hover rounded-lg border border-white/12 px-3 py-2 text-xs font-bold hover:bg-white/7">
+                      </Button>
+                      <Button onClick={() => void runBulkAction("trash")} className="mail-hover border-white/12 py-2 hover:bg-white/7">
                         Lixeira
-                      </button>
+                      </Button>
                     </>
                   )}
                   <button
@@ -1576,10 +1577,10 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                     <Tags size={14} />
                     Agrupar categorias
                   </button>
-                  <button onClick={() => setFiltersOpen(true)} className="mail-hover flex h-9 items-center gap-2 rounded-lg border border-white/12 px-3 text-xs font-bold text-white/70 hover:bg-white/7">
+                  <Button size="sm" onClick={() => setFiltersOpen(true)} className="mail-hover border-white/12 text-white/70 hover:bg-white/7">
                     <Filter size={14} />
                     Filtros
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -1591,9 +1592,9 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                   <span className="min-w-0 flex-1 truncate">
                     A Nora agora esta na sua caixa de entrada. Elabore, resuma e responda de forma mais inteligente.
                   </span>
-                  <button onClick={() => void askEmailAgent("resumir minha caixa de entrada")} className="mail-primary rounded-lg bg-[#0EA5E9] px-4 py-2 text-xs text-white">
+                  <Button variant="ghost" onClick={() => void askEmailAgent("resumir minha caixa de entrada")} className="mail-primary bg-[#0EA5E9] py-2">
                     Experimente
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -1653,21 +1654,21 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               >
                 <div className="mail-surface flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
                   <div className="flex items-center gap-1 text-white/70">
-                    <button onClick={() => setSelectedMessage(null)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title="Voltar para a lista" aria-label="Voltar para a lista">
+                    <Button variant="ghost" size="sm" iconOnly onClick={() => setSelectedMessage(null)} className="hover:bg-white/7" title="Voltar para a lista" aria-label="Voltar para a lista">
                       <ChevronLeft size={17} />
-                    </button>
-                    <button onClick={() => void runMessageAction(selectedMessage.id, "archive", true)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title="Arquivar" aria-label="Arquivar">
+                    </Button>
+                    <Button variant="ghost" size="sm" iconOnly onClick={() => void runMessageAction(selectedMessage.id, "archive", true)} className="hover:bg-white/7" title="Arquivar" aria-label="Arquivar">
                       <Archive size={17} />
-                    </button>
-                    <button onClick={() => void runMessageAction(selectedMessage.id, "trash", true)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title="Mover para a lixeira" aria-label="Mover para a lixeira">
+                    </Button>
+                    <Button variant="ghost" size="sm" iconOnly onClick={() => void runMessageAction(selectedMessage.id, "trash", true)} className="hover:bg-white/7" title="Mover para a lixeira" aria-label="Mover para a lixeira">
                       <Trash2 size={17} />
-                    </button>
-                    <button onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.unread ? "read" : "unread")} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title={selectedMessage.unread ? "Marcar como lido" : "Marcar como nao lido"} aria-label={selectedMessage.unread ? "Marcar como lido" : "Marcar como nao lido"}>
+                    </Button>
+                    <Button variant="ghost" size="sm" iconOnly onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.unread ? "read" : "unread")} className="hover:bg-white/7" title={selectedMessage.unread ? "Marcar como lido" : "Marcar como nao lido"} aria-label={selectedMessage.unread ? "Marcar como lido" : "Marcar como nao lido"}>
                       {selectedMessage.unread ? <MailOpen size={17} /> : <MailCheck size={17} />}
-                    </button>
-                    <button onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.starred ? "unstar" : "star")} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title={selectedMessage.starred ? "Remover estrela" : "Adicionar estrela"} aria-label={selectedMessage.starred ? "Remover estrela" : "Adicionar estrela"}>
+                    </Button>
+                    <Button variant="ghost" size="sm" iconOnly onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.starred ? "unstar" : "star")} className="hover:bg-white/7" title={selectedMessage.starred ? "Remover estrela" : "Adicionar estrela"} aria-label={selectedMessage.starred ? "Remover estrela" : "Adicionar estrela"}>
                       <Star size={17} fill={selectedMessage.starred ? "currentColor" : "none"} />
-                    </button>
+                    </Button>
                     <button
                       onClick={() => setMessageMenuOpen((value) => !value)}
                       className={cx(
@@ -1681,54 +1682,54 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                     </button>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
-                      type="button"
+                    <Button variant="ghost" size="sm" iconOnly
+                     
                       onClick={() => setMessageFullscreen((value) => !value)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-white/70 hover:bg-white/7 hover:text-white"
+                      className="text-white/70 hover:bg-white/7 hover:text-white"
                       title={messageFullscreen ? "Sair da tela cheia" : "Abrir em tela cheia"}
                       aria-label={messageFullscreen ? "Sair da tela cheia" : "Abrir e-mail em tela cheia"}
                     >
                       {messageFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button variant="ghost" size="sm" iconOnly
+                     
                       onClick={() => setSelectedMessage(null)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-white/60 hover:bg-white/7 hover:text-white"
+                      className="text-white/60 hover:bg-white/7 hover:text-white"
                       title="Fechar e-mail"
                       aria-label="Fechar e-mail"
                     >
                       <X size={18} />
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
                 {messageMenuOpen && (
                   <div className="mail-surface flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-4 py-2.5 text-xs font-bold text-white/75">
-                    <button
+                    <Button size="sm"
                       onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.important ? "unimportant" : "important")}
-                      className="mail-hover inline-flex h-9 min-w-[150px] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/12 px-3 hover:bg-white/7"
+                      className="mail-hover min-w-[150px] flex-1 whitespace-nowrap border-white/12 hover:bg-white/7"
                     >
                       <Star size={15} fill={selectedMessage.important ? "currentColor" : "none"} />
                       {selectedMessage.important ? "Remover importante" : "Marcar importante"}
-                    </button>
-                    <button
+                    </Button>
+                    <Button size="sm"
                       onClick={() => void runMessageAction(selectedMessage.id, "spam", true)}
-                      className="mail-hover inline-flex h-9 min-w-[110px] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/12 px-3 hover:bg-white/7"
+                      className="mail-hover min-w-[110px] flex-1 whitespace-nowrap border-white/12 hover:bg-white/7"
                     >
                       <ShieldAlert size={15} />
                       Spam
-                    </button>
+                    </Button>
                     {!messageFullscreen && (
-                      <button
+                      <Button size="sm"
                         onClick={() => {
                           setMessageFullscreen(true);
                           setMessageMenuOpen(false);
                         }}
-                        className="mail-hover inline-flex h-9 min-w-[120px] flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-white/12 px-3 hover:bg-white/7"
+                        className="mail-hover min-w-[120px] flex-1 whitespace-nowrap border-white/12 hover:bg-white/7"
                       >
                         <Maximize2 size={15} />
                         Tela cheia
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}
@@ -1879,24 +1880,24 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                               <input type="file" multiple className="hidden" onChange={(event) => void addFiles(event.target.files, "reply")} />
                             </label>
                             {canUseNora && (
-                              <button
+                              <Button size="sm"
                                 onClick={() => void askNoraEmailSuggestion("reply")}
                                 disabled={noraSuggesting !== null}
-                                className="mail-hover flex h-9 items-center gap-2 rounded-lg border border-cyan-400/25 px-3 text-xs font-bold text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-45"
+                                className="mail-hover border-cyan-400/25 text-cyan-300 hover:bg-cyan-400/10"
                               >
                                 {noraSuggesting === "reply" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
                                 Gerar sugestao
-                              </button>
+                              </Button>
                             )}
                           </div>
-                          <button
+                          <Button variant="ghost" size="sm"
                             disabled={sending || !replyText.trim()}
                             onClick={() => void sendReply()}
-                            className="mail-primary flex h-9 items-center gap-2 rounded-lg bg-[#0EA5E9] px-4 text-xs font-bold disabled:opacity-45"
+                            className="mail-primary bg-[#0EA5E9]"
                           >
                             {sending ? <Loader2 size={15} className="animate-spin" /> : <Reply size={15} />}
                             Responder
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     </>
@@ -1914,16 +1915,16 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
           <div className="mail-modal flex h-[680px] w-[680px] max-w-[calc(100vw-48px)] flex-col overflow-hidden rounded-lg border border-white/12 bg-[#18181B] shadow-2xl">
             <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
               <h2 className="text-sm font-bold">Nova mensagem</h2>
-              <button
+              <Button variant="ghost" size="sm" iconOnly
                 onClick={() => {
                   setComposeOpen(false);
                   setNoraSuggestion((current) => (current?.target === "compose" ? null : current));
                   setNoraSuggestionInstruction("");
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/7"
+                className="hover:bg-white/7"
               >
                 <X size={17} />
-              </button>
+              </Button>
             </div>
             <div className="grid gap-0 border-b border-white/10">
               <input value={compose.to} onChange={(event) => setCompose((prev) => ({ ...prev, to: event.target.value }))} placeholder="Para" className="h-11 border-b border-white/8 bg-transparent px-4 text-sm outline-none placeholder:text-white/35" />
@@ -1953,27 +1954,27 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                   <input type="file" multiple className="hidden" onChange={(event) => void addFiles(event.target.files, "compose")} />
                 </label>
                 {canUseNora && (
-                  <button
+                  <Button
                     onClick={() => void askNoraEmailSuggestion("compose")}
                     disabled={noraSuggesting !== null}
-                    className="mail-hover flex h-10 items-center gap-2 rounded-lg border border-cyan-400/25 px-4 text-xs font-bold text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-40"
+                    className="mail-hover border-cyan-400/25 text-cyan-300 hover:bg-cyan-400/10"
                   >
                     {noraSuggesting === "compose" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
                     Gerar sugestao
-                  </button>
+                  </Button>
                 )}
-                <button onClick={() => void sendEmail(true)} disabled={sending || !compose.to.trim()} className="mail-hover h-10 rounded-lg border border-white/12 px-4 text-xs font-bold text-white/75 hover:bg-white/7 disabled:opacity-40">
+                <Button onClick={() => void sendEmail(true)} disabled={sending || !compose.to.trim()} className="mail-hover border-white/12 text-white/75 hover:bg-white/7">
                   Salvar rascunho
-                </button>
+                </Button>
               </div>
-              <button
+              <Button variant="ghost"
                 onClick={() => void sendEmail(false)}
                 disabled={sending || !compose.to.trim()}
-                className="mail-primary flex h-10 items-center gap-2 rounded-lg bg-[#0EA5E9] px-5 text-sm font-bold disabled:opacity-40"
+                className="mail-primary bg-[#0EA5E9]"
               >
                 {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
                 Enviar
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1993,22 +1994,22 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 </p>
               </div>
             </div>
-            <button onClick={() => setAiOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/7">
+            <Button variant="ghost" size="sm" iconOnly onClick={() => setAiOpen(false)} className="hover:bg-white/7">
               <X size={17} />
-            </button>
+            </Button>
           </div>
           <div className="flex gap-2 border-b border-white/10 p-3">
             {selectedMessage ? (
               <>
-                <button onClick={() => void askContextualEmailAssistant("summary")} className="mail-hover rounded-full border border-white/12 px-3 py-1.5 text-xs font-bold hover:bg-white/7">Resumir aberto</button>
-                <button onClick={() => { setAiOpen(false); void askNoraEmailSuggestion("reply"); }} className="mail-hover rounded-full border border-cyan-300/25 px-3 py-1.5 text-xs font-bold text-cyan-100 hover:bg-cyan-300/10">Sugerir resposta</button>
-                <button onClick={() => void askContextualEmailAssistant("next")} className="mail-hover rounded-full border border-white/12 px-3 py-1.5 text-xs font-bold hover:bg-white/7">Proxima acao</button>
+                <Button onClick={() => void askContextualEmailAssistant("summary")} className="mail-hover rounded-full border-white/12 py-1.5 hover:bg-white/7">Resumir aberto</Button>
+                <Button onClick={() => { setAiOpen(false); void askNoraEmailSuggestion("reply"); }} className="mail-hover rounded-full border-cyan-300/25 py-1.5 text-cyan-100 hover:bg-cyan-300/10">Sugerir resposta</Button>
+                <Button onClick={() => void askContextualEmailAssistant("next")} className="mail-hover rounded-full border-white/12 py-1.5 hover:bg-white/7">Proxima acao</Button>
               </>
             ) : (
               <>
-                <button onClick={() => void askEmailAgent("listar e-mails nao lidos")} className="mail-hover rounded-full border border-white/12 px-3 py-1.5 text-xs font-bold hover:bg-white/7">Nao lidos</button>
-                <button onClick={() => void askEmailAgent("resumir minha caixa de entrada")} className="mail-hover rounded-full border border-white/12 px-3 py-1.5 text-xs font-bold hover:bg-white/7">Resumir caixa</button>
-                <button onClick={() => { setAiOpen(false); setComposeOpen(true); }} className="mail-hover rounded-full border border-white/12 px-3 py-1.5 text-xs font-bold hover:bg-white/7">Criar e-mail</button>
+                <Button onClick={() => void askEmailAgent("listar e-mails nao lidos")} className="mail-hover rounded-full border-white/12 py-1.5 hover:bg-white/7">Nao lidos</Button>
+                <Button onClick={() => void askEmailAgent("resumir minha caixa de entrada")} className="mail-hover rounded-full border-white/12 py-1.5 hover:bg-white/7">Resumir caixa</Button>
+                <Button onClick={() => { setAiOpen(false); setComposeOpen(true); }} className="mail-hover rounded-full border-white/12 py-1.5 hover:bg-white/7">Criar e-mail</Button>
               </>
             )}
           </div>
@@ -2039,9 +2040,9 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 placeholder="Peca algo ao agente..."
                 className="min-w-0 flex-1 bg-transparent px-2 text-sm font-semibold outline-none placeholder:text-white/35"
               />
-              <button onClick={() => void askEmailAgent()} className="mail-primary flex h-9 w-9 items-center justify-center rounded-lg bg-[#0EA5E9]">
+              <Button variant="ghost" size="sm" iconOnly onClick={() => void askEmailAgent()} className="mail-primary bg-[#0EA5E9]">
                 <Send size={16} />
-              </button>
+              </Button>
             </div>
           </div>
         </aside>
@@ -2068,17 +2069,17 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 <h2 className="text-base font-black">Novo marcador</h2>
                 <p className="mt-1 text-xs font-semibold text-white/45">Organize mensagens sem sair do Norium Mail.</p>
               </div>
-              <button
-                type="button"
+              <Button variant="ghost" size="sm" iconOnly
+               
                 onClick={() => {
                   setLabelDialogOpen(false);
                   setNewLabelName("");
                 }}
-                className="mail-hover grid h-8 w-8 place-items-center rounded-lg hover:bg-white/7"
+                className="mail-hover hover:bg-white/7"
                 aria-label="Fechar"
               >
                 <X size={16} />
-              </button>
+              </Button>
             </div>
             <div className="p-5">
               <label className="grid gap-2 text-xs font-bold text-white/65">
@@ -2093,24 +2094,24 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 />
               </label>
               <div className="mt-5 flex justify-end gap-2">
-                <button
-                  type="button"
+                <Button
+                 
                   onClick={() => {
                     setLabelDialogOpen(false);
                     setNewLabelName("");
                   }}
-                  className="mail-hover h-10 rounded-lg border border-white/12 px-4 text-xs font-bold text-white/65 hover:bg-white/7"
+                  className="mail-hover border-white/12 text-white/65 hover:bg-white/7"
                 >
                   Cancelar
-                </button>
-                <button
+                </Button>
+                <Button variant="ghost"
                   type="submit"
                   disabled={!newLabelName.trim() || labelSaving}
-                  className="mail-primary flex h-10 items-center gap-2 rounded-lg bg-[#0EA5E9] px-5 text-xs font-bold text-white disabled:opacity-40"
+                  className="mail-primary bg-[#0EA5E9]"
                 >
                   {labelSaving ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
                   Criar marcador
-                </button>
+                </Button>
               </div>
             </div>
           </form>
@@ -2125,9 +2126,9 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 <h2 className="text-base font-black">Ajustes rapidos</h2>
                 <p className="text-xs font-semibold text-white/45">Personalize o Norium Mail</p>
               </div>
-              <button onClick={() => setSettingsOpen(false)} className="mail-hover flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/7">
+              <Button variant="ghost" size="sm" iconOnly onClick={() => setSettingsOpen(false)} className="mail-hover hover:bg-white/7">
                 <X size={17} />
-              </button>
+              </Button>
             </div>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
@@ -2151,7 +2152,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 <p className="text-xs font-bold uppercase tracking-wide text-white/45">Sincronizacao</p>
                 <div className="mt-3 grid gap-2">
                   <ToggleRow checked={autoRefresh} label="Atualizar automaticamente a cada 45s" onChange={setAutoRefresh} />
-                  <button onClick={() => void fetchMessages(false)} disabled={!status?.connected} className="mail-hover h-10 rounded-lg border border-white/12 text-xs font-bold disabled:opacity-40">Atualizar agora</button>
+                  <Button onClick={() => void fetchMessages(false)} disabled={!status?.connected} className="mail-hover border-white/12">Atualizar agora</Button>
                 </div>
               </section>
 
@@ -2160,8 +2161,8 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 <p className="mt-2 break-all text-sm font-bold">{status?.connected ? status.email : "Desconectada"}</p>
                 <p className="mt-1 text-xs font-semibold text-white/45">{status?.lastSync ? `Ultima sincronizacao: ${new Date(status.lastSync).toLocaleString("pt-BR")}` : "Aguardando autorizacao"}</p>
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button onClick={() => void connectGmail()} className="mail-hover h-10 rounded-lg border border-white/12 text-xs font-bold">Reconectar</button>
-                  <button onClick={() => void disconnectGmail()} disabled={!status?.connected} className="h-10 rounded-lg border border-red-500/35 text-xs font-bold text-red-300 disabled:opacity-40">Desconectar</button>
+                  <Button onClick={() => void connectGmail()} className="mail-hover border-white/12">Reconectar</Button>
+                  <Button onClick={() => void disconnectGmail()} disabled={!status?.connected} className="border-red-500/35 text-red-300">Desconectar</Button>
                 </div>
               </section>
             </div>
@@ -2184,28 +2185,28 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 <p className="truncate text-sm font-bold">{status?.name || "Perfil Norium"}</p>
                 <p className="truncate text-xs font-semibold text-white/45">{status?.email || "Gmail nao conectado"}</p>
               </div>
-              <button onClick={() => setProfileOpen(false)} className="mail-hover ml-auto flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/7">
+              <Button variant="ghost" size="sm" iconOnly onClick={() => setProfileOpen(false)} className="mail-hover ml-auto hover:bg-white/7">
                 <X size={16} />
-              </button>
+              </Button>
             </div>
 
             <div className="grid gap-2 p-3">
-              <button onClick={() => { setSettingsOpen(true); setProfileOpen(false); }} className="mail-hover flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-bold hover:bg-white/7">
+              <Button variant="ghost" onClick={() => { setSettingsOpen(true); setProfileOpen(false); }} className="mail-hover hover:bg-white/7">
                 <Settings size={16} />
                 Configuracoes
-              </button>
-              <button onClick={() => void fetchStatus()} className="mail-hover flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-bold hover:bg-white/7">
+              </Button>
+              <Button variant="ghost" onClick={() => void fetchStatus()} className="mail-hover hover:bg-white/7">
                 <RefreshCw size={16} />
                 Atualizar perfil
-              </button>
-              <button onClick={() => void connectGmail()} className="mail-hover flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-bold hover:bg-white/7">
+              </Button>
+              <Button variant="ghost" onClick={() => void connectGmail()} className="mail-hover hover:bg-white/7">
                 <Sparkles size={16} />
                 {status?.connected ? "Reconectar Gmail" : "Conectar Gmail"}
-              </button>
-              <button onClick={() => void disconnectGmail()} disabled={!status?.connected} className="flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-bold text-red-400 hover:bg-red-500/10 disabled:opacity-40">
+              </Button>
+              <Button variant="danger" onClick={() => void disconnectGmail()} disabled={!status?.connected} className="text-red-400 hover:bg-red-500/10">
                 <X size={16} />
                 Sair desta conta
-              </button>
+              </Button>
             </div>
           </aside>
         </div>
@@ -2246,9 +2247,9 @@ function AttachmentPreview({ attachments, onRemove }: { attachments: ComposeAtta
               <p className="text-xs font-semibold text-white/45">{formatBytes(attachment.size)}</p>
             </div>
           </div>
-          <button onClick={() => onRemove(attachment.id)} className="flex h-8 w-8 items-center justify-center rounded-lg text-white/55 hover:bg-white/7">
+          <Button variant="ghost" size="sm" iconOnly onClick={() => onRemove(attachment.id)} className="text-white/55 hover:bg-white/7">
             <X size={16} />
-          </button>
+          </Button>
         </div>
       ))}
     </div>

@@ -1,6 +1,7 @@
 import { ArrowRight, BrainCircuit, CalendarDays, CircleCheckBig, Mail, Sparkles } from "lucide-react";
 import type { DashboardMetrics } from "./Dashboard";
 import NoraAvatar from "../layout/NoraAvatar";
+import Button from "../shared/Button";
 
 type NoraPanelProps = {
   metrics: DashboardMetrics;
@@ -28,20 +29,20 @@ export default function NoraPanel({ metrics, onOpenNora, onNavigate }: NoraPanel
         </p>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <button
+          <Button variant="ghost"
             onClick={onOpenNora}
-            className="dashboard-primary-action rounded-2xl px-5 py-3 text-sm font-bold text-white hover:scale-105"
+            className="dashboard-primary-action rounded-2xl py-3 hover:scale-105"
           >
             Conversar
-          </button>
+          </Button>
 
-          <button
+          <Button variant="ghost"
             onClick={() => onNavigate("Central")}
-            className="dashboard-secondary-action flex items-center gap-2 rounded-2xl px-5 py-3 text-sm font-bold"
+            className="dashboard-secondary-action rounded-2xl py-3"
           >
             Abrir central
             <ArrowRight size={17} />
-          </button>
+          </Button>
         </div>
 
         <div className="mt-6 grid gap-3">

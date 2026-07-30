@@ -15,6 +15,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { ChatConversa } from "./types";
+import Button from "../shared/Button";
 
 interface SidebarProps {
   conversas: ChatConversa[];
@@ -123,15 +124,15 @@ export default function SidebarEsquerda({
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-[var(--text)]">Conversas</h2>
           <div className="flex items-center gap-1 text-[var(--text)]">
-            <button onClick={onAbrirModalContatos} title="Novo chat" className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg" aria-label="Novo chat">
+            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirModalContatos} title="Novo chat" aria-label="Novo chat">
               <PlusCircle size={18} />
-            </button>
-            <button onClick={onAbrirModalCriarGrupo} title="Criar grupo" className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg" aria-label="Criar grupo">
+            </Button>
+            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirModalCriarGrupo} title="Criar grupo" aria-label="Criar grupo">
               <Users size={18} />
-            </button>
-            <button onClick={onAbrirConfigPropria} title="Configuracoes" className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg" aria-label="Configuracoes">
+            </Button>
+            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirConfigPropria} title="Configuracoes" aria-label="Configuracoes">
               <Settings size={18} />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -213,15 +214,15 @@ export default function SidebarEsquerda({
               )}
 
               <div className="relative" data-chat-menu-root>
-                <button
+                <Button variant="ghost" size="sm" iconOnly
                   onClick={(event) => {
                     event.stopPropagation();
                     setMenuAbertoId(menuAbertoId === chat.id ? null : chat.id);
                   }}
-                  className="h-8 w-8 flex items-center justify-center hover:bg-[var(--background)] rounded-lg text-[var(--text-secondary)]"
+                  className="hover:bg-[var(--background)] text-[var(--text-secondary)]"
                 >
                   <MoreVertical size={16} />
-                </button>
+                </Button>
 
                 {menuAbertoId === chat.id && (
                   <div className="absolute right-0 top-9 w-48 bg-[#233138] border border-white/10 rounded-lg shadow-2xl z-50 py-1 text-xs font-semibold text-[#e9edef]">

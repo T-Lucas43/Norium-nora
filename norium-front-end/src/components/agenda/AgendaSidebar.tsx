@@ -1,5 +1,6 @@
 import { CalendarPlus, ChevronLeft, ChevronRight, Cloud, Globe2, RefreshCw } from "lucide-react";
 import type { AgendaStatus } from "./AgendaDashboard";
+import Button from "../shared/Button";
 
 interface SidebarProps {
   dataSelecionada: Date;
@@ -84,12 +85,12 @@ export default function AgendaSidebar({
             {meses[mesAtualIdx]} {anoAtual}
           </span>
           <div className="flex gap-1 text-[var(--text-secondary)]">
-            <button onClick={() => mudarMes(-1)} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+            <Button variant="ghost" size="sm" iconOnly onClick={() => mudarMes(-1)}>
               <ChevronLeft size={16} />
-            </button>
-            <button onClick={() => mudarMes(1)} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+            </Button>
+            <Button variant="ghost" size="sm" iconOnly onClick={() => mudarMes(1)}>
               <ChevronRight size={16} />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -149,13 +150,13 @@ export default function AgendaSidebar({
 
         <div className="flex gap-2">
           {!status.connected && (
-            <button onClick={onConnectGoogle} className="h-9 flex-1 rounded-lg bg-[var(--primary)] px-3 text-xs font-bold text-white">
+            <Button variant="primary" size="sm" onClick={onConnectGoogle} className="flex-1">
               Conectar
-            </button>
+            </Button>
           )}
-          <button onClick={onSync} className="grid h-9 w-10 place-items-center rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)]">
+          <Button size="sm" iconOnly onClick={onSync}>
             <RefreshCw size={15} />
-          </button>
+          </Button>
         </div>
 
         <p className="text-xs font-semibold text-[var(--text-secondary)]">Sincronizado: {formatLastSync(status.lastSync)}</p>

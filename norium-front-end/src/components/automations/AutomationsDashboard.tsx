@@ -58,6 +58,7 @@ import type {
   StepKind,
   TaskProject,
 } from "../../features/automations/types";
+import Button from "../shared/Button";
 
 type AutomationsDashboardProps = {
   onOpenNora?: () => void;
@@ -1159,13 +1160,13 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
         <div className="flex h-full min-h-[calc(100dvh-78px)] flex-col">
           <header className="flex shrink-0 flex-col gap-4 border-b border-[var(--border)] bg-[var(--surface)]/92 p-4 backdrop-blur-2xl xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
-              <button
+              <Button size="lg" iconOnly
                 onClick={() => setBuilderOpen(false)}
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)]"
+                className="bg-[var(--background)]"
                 title="Voltar"
                aria-label="Voltar">
                 <X size={18} />
-              </button>
+              </Button>
               <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-blue-500/18 text-cyan-100">
                 <GitBranch size={23} />
               </span>
@@ -1188,27 +1189,27 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                 Clique para inserir, arraste para posicionar
               </span>
               <Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
-              <button
+              <Button size="lg"
                 onClick={validateBuilderFlow}
-                className="inline-flex h-11 items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 text-sm font-bold text-cyan-100"
+                className="border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
               >
                 <CheckSquare size={17} />
                 Validar fluxo
-              </button>
-              <button
+              </Button>
+              <Button size="lg"
                 onClick={() => setBuilderOpen(false)}
-                className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-bold"
+                className="bg-[var(--background)]"
               >
                 Cancelar
-              </button>
-              <button
+              </Button>
+              <Button variant="primary" size="lg"
                 onClick={() => void saveBuilderAutomation()}
                 disabled={saving || !form.name.trim()}
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--primary)] px-5 text-sm font-bold text-white shadow-lg shadow-blue-950/20 disabled:opacity-50"
+                className="shadow-lg shadow-blue-950/20"
               >
                 <Save size={17} />
                 {saving ? "Salvando..." : "Salvar fluxo"}
-              </button>
+              </Button>
             </div>
           </header>
 
@@ -1259,9 +1260,9 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setBuilderZoom((current) => Math.max(0.62, current - 0.08))} className="grid h-9 w-9 place-items-center rounded-lg border border-white/12 bg-white/8">-</button>
+                  <Button size="sm" onClick={() => setBuilderZoom((current) => Math.max(0.62, current - 0.08))} className="border-white/12 bg-white/8">-</Button>
                   <span className="w-14 text-center text-xs font-bold">{Math.round(builderZoom * 100)}%</span>
-                  <button onClick={() => setBuilderZoom((current) => Math.min(1.28, current + 0.08))} className="grid h-9 w-9 place-items-center rounded-lg border border-white/12 bg-white/8">+</button>
+                  <Button size="sm" onClick={() => setBuilderZoom((current) => Math.min(1.28, current + 0.08))} className="border-white/12 bg-white/8">+</Button>
                 </div>
               </div>
 
@@ -1541,22 +1542,22 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
+            <Button variant="ghost"
+             
               onClick={() => openCreateModal()}
-              className="inline-flex h-12 items-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 px-5 text-sm font-bold text-white shadow-lg shadow-blue-950/25 transition hover:scale-[1.02]"
+              className="h-12 bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 shadow-lg shadow-blue-950/25 hover:scale-[1.02]"
             >
               <Plus size={18} />
               Nova Automação
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+             
               onClick={onOpenNora}
-              className="inline-flex h-12 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 text-sm font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+              className="h-12"
             >
               <Sparkles size={18} />
               Pedir para Nora
-            </button>
+            </Button>
           </div>
         </div>
       </motion.header>
@@ -1674,74 +1675,74 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                   </div>
 
                   <div className="mt-5 flex flex-wrap gap-2">
-                    <button
-                      type="button"
+                    <Button variant="primary"
+                     
                       disabled={saving || !automation.active}
                       onClick={(event) => {
                         event.stopPropagation();
                         void executeAutomation(automation);
                       }}
-                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--primary)] px-4 text-xs font-bold text-white transition hover:brightness-110disabled:cursor-not-allowed disabled:opacity-50"
+                      className="hover:brightness-110disabled:cursor-not-allowed"
                     >
                       <Play size={15} />
                       Executar
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                     
                       disabled={saving}
                       onClick={(event) => {
                         event.stopPropagation();
                         void simulateAutomation(automation);
                       }}
-                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/8 px-4 text-xs font-bold text-cyan-100 transition hover:bg-cyan-500/14 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="border-cyan-400/30 bg-cyan-500/8 text-cyan-100 hover:bg-cyan-500/14"
                     >
                       <FlaskConical size={15} />
                       Testar fluxo
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
+                     
                       onClick={(event) => {
                         event.stopPropagation();
                         openEditModal(automation);
                       }}
-                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold"
+                      className="bg-[var(--background)]"
                     >
                       <Settings2 size={15} />
                       Editar
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button iconOnly
+                     
                       onClick={(event) => {
                         event.stopPropagation();
                         void duplicateAutomation(automation);
                       }}
-                      className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)]"
+                      className="bg-[var(--background)]"
                       title="Duplicar"
                      aria-label="Duplicar">
                       <Copy size={15} />
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button iconOnly
+                     
                       onClick={(event) => {
                         event.stopPropagation();
                         void updateAutomation(automation.id, { favorite: !automation.favorite } as Partial<Automation>);
                       }}
-                      className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)]"
+                      className="bg-[var(--background)]"
                       title="Favorito"
                      aria-label="Favorito">
                       <Star size={15} className={automation.favorite ? "fill-amber-300 text-amber-300" : ""} />
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button iconOnly
+                     
                       onClick={(event) => {
                         event.stopPropagation();
                         setLogAutomation(automation);
                       }}
-                      className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)]"
+                      className="bg-[var(--background)]"
                       title="Logs e versoes"
                      aria-label="Logs e versoes">
                       <History size={15} />
-                    </button>
+                    </Button>
                   </div>
                 </motion.article>
               ))
@@ -1787,9 +1788,9 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setZoom((current) => Math.max(0.65, current - 0.1))} className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] bg-[var(--background)]">-</button>
+                <Button size="sm" onClick={() => setZoom((current) => Math.max(0.65, current - 0.1))} className="bg-[var(--background)]">-</Button>
                 <span className="min-w-14 text-center text-xs font-bold">{Math.round(zoom * 100)}%</span>
-                <button onClick={() => setZoom((current) => Math.min(1.25, current + 0.1))} className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] bg-[var(--background)]">+</button>
+                <Button size="sm" onClick={() => setZoom((current) => Math.min(1.25, current + 0.1))} className="bg-[var(--background)]">+</Button>
               </div>
             </header>
 
@@ -1876,9 +1877,9 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                   Use a Nora dentro dos fluxos para raciocinar sobre textos, conversas, e-mails, gastos e tarefas.
                 </p>
               </div>
-              <button onClick={onOpenNora} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--primary)] text-white">
+              <Button variant="primary" size="lg" iconOnly onClick={onOpenNora}>
                 <Sparkles size={20} />
-              </button>
+              </Button>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {noraAbilities.map((ability) => (
@@ -1956,30 +1957,30 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
             <h2 className="text-lg font-black">Ferramentas extras</h2>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <button onClick={exportAutomations} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
+              <Button size="lg" onClick={exportAutomations} className="bg-[var(--background)]">
                 <Download size={15} />
                 Exportar
-              </button>
-              <button onClick={() => importRef.current?.click()} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
+              </Button>
+              <Button size="lg" onClick={() => importRef.current?.click()} className="bg-[var(--background)]">
                 <Upload size={15} />
                 Importar
-              </button>
-              <button onClick={() => setLogAutomation(selectedAutomation)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
+              </Button>
+              <Button size="lg" onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
                 <History size={15} />
                 Logs
-              </button>
-              <button onClick={() => setLogAutomation(selectedAutomation)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
+              </Button>
+              <Button size="lg" onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
                 <GitBranch size={15} />
                 Versoes
-              </button>
-              <button onClick={() => setFilter("ia")} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
+              </Button>
+              <Button size="lg" onClick={() => setFilter("ia")} className="bg-[var(--background)]">
                 <Filter size={15} />
                 Categorias
-              </button>
-              <button onClick={onOpenNora} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
+              </Button>
+              <Button size="lg" onClick={onOpenNora} className="bg-[var(--background)]">
                 <Variable size={15} />
                 Variaveis
-              </button>
+              </Button>
             </div>
             <input
               ref={importRef}
@@ -2011,9 +2012,9 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                   <h2 className="text-lg font-black">{modal === "edit" ? "Editar automacao" : "Nova automacao"}</h2>
                   <p className="text-xs font-semibold text-[var(--text-secondary)]">Configure gatilho, ações e participação da Nora.</p>
                 </div>
-                <button onClick={() => setModal(null)} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+                <Button variant="ghost" size="sm" iconOnly onClick={() => setModal(null)}>
                   <X size={18} />
-                </button>
+                </Button>
               </header>
               <div className="grid gap-4 p-5 md:grid-cols-2">
                 <label className="space-y-2">
@@ -2060,10 +2061,10 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                 </div>
               </div>
               <footer className="flex justify-end gap-3 border-t border-[var(--border)] p-5">
-                <button onClick={() => setModal(null)} className="h-11 rounded-xl border border-[var(--border)] px-5 text-sm font-bold">Cancelar</button>
-                <button onClick={() => void submitForm()} disabled={saving || !form.name.trim()} className="h-11 rounded-xl bg-[var(--primary)] px-5 text-sm font-bold text-white disabled:opacity-50">
+                <Button size="lg" onClick={() => setModal(null)}>Cancelar</Button>
+                <Button variant="primary" size="lg" onClick={() => void submitForm()} disabled={saving || !form.name.trim()}>
                   {saving ? "Salvando..." : "Salvar automação"}
-                </button>
+                </Button>
               </footer>
             </motion.div>
           </motion.div>
@@ -2086,9 +2087,9 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                     {logAutomation.name} - versao {logAutomation.version}
                   </p>
                 </div>
-                <button onClick={() => setLogAutomation(null)} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
+                <Button variant="ghost" size="sm" iconOnly onClick={() => setLogAutomation(null)}>
                   <X size={18} />
-                </button>
+                </Button>
               </header>
               <div className="max-h-[420px] overflow-y-auto p-5">
                 <div className="mb-4 grid gap-3 sm:grid-cols-3">
@@ -2151,15 +2152,15 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                           </div>
                         )}
                         {log.status === "erro" && (
-                          <button
-                            type="button"
+                          <Button size="sm"
+                           
                             disabled={saving}
                             onClick={() => void retryAutomation(logAutomation, log.id)}
-                            className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg border border-amber-400/30 px-3 text-xs font-bold text-amber-100 hover:bg-amber-500/10 disabled:opacity-50"
+                            className="mt-4 border-amber-400/30 text-amber-100 hover:bg-amber-500/10"
                           >
                             <RotateCcw size={14} />
                             Reexecutar da falha
-                          </button>
+                          </Button>
                         )}
                       </article>
                     ))
@@ -2167,13 +2168,13 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                 </div>
               </div>
               <footer className="flex justify-between gap-3 border-t border-[var(--border)] p-5">
-                <button onClick={() => void deleteAutomation(logAutomation).then(() => setLogAutomation(null))} className="inline-flex h-11 items-center gap-2 rounded-xl border border-rose-300/30 px-4 text-sm font-bold text-rose-200">
+                <Button size="lg" onClick={() => void deleteAutomation(logAutomation).then(() => setLogAutomation(null))} className="border-rose-300/30 text-rose-200">
                   <Trash2 size={16} />
                   Excluir
-                </button>
-                <button onClick={() => setLogAutomation(null)} className="h-11 rounded-xl bg-[var(--primary)] px-5 text-sm font-bold text-white">
+                </Button>
+                <Button variant="primary" size="lg" onClick={() => setLogAutomation(null)}>
                   Fechar
-                </button>
+                </Button>
               </footer>
             </motion.div>
           </motion.div>

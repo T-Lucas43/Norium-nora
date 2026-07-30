@@ -395,12 +395,22 @@ def standard_templates() -> list[dict[str, Any]]:
                 "contentHtml": (
                     f"<h2>Proposta comercial de {html.escape(label.lower())}</h2>"
                     "<p>Documento preparado a partir do briefing validado com o cliente.</p>"
+                    "<h2>Sumário executivo</h2>"
+                    "<p>Resuma em poucas linhas o principal benefício da proposta e o contexto da negociação até aqui.</p>"
                     "<h2>Estrutura recomendada</h2>"
                     f"<p>{html.escape(scope)}</p>"
                     "<div>{{NORA_CONTENT}}</div>"
+                    "<h2>Cronograma e prazos</h2>"
+                    "<p>Detalhe os principais marcos, atividades e prazos de entrega, e até quando os valores desta proposta permanecem válidos.</p>"
+                    "<h2>Casos de sucesso e prova de conceito</h2>"
+                    "<p>Se possível, cite exemplos, depoimentos ou uma amostra do trabalho que reforcem a credibilidade da oferta.</p>"
+                    "<h2>Termos e condições gerais</h2>"
+                    "<p>Descreva confidencialidade, propriedade intelectual, política de cancelamento e demais condições comerciais relevantes.</p>"
                     "<h2>Premissas e aceite</h2>"
                     "<p>Alterações de escopo, prazos e valores devem ser formalizadas pelas partes. "
                     "A validade e as condições finais constam na proposta editada.</p>"
+                    "<h2>Informações de contato</h2>"
+                    "<p>Inclua o responsável comercial pela proposta e os canais de contato para dúvidas.</p>"
                 ),
             }
         )

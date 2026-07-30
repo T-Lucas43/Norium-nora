@@ -539,6 +539,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
             nodesDraggable={!boardLocked}
             nodesConnectable={!boardLocked}
             edgesReconnectable={!boardLocked}
+            elevateNodesOnSelect={false}
             fitView
             minZoom={0.15}
             maxZoom={2.5}
@@ -552,7 +553,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
         </section>
 
         {mobileInspectorOpen && <button type="button" aria-label="Fechar propriedades" onClick={() => setMobileInspectorOpen(false)} className="absolute inset-0 z-20 bg-blue-950/55 backdrop-blur-[2px] xl:hidden" />}
-        <aside className={`brainstorm-inspector absolute inset-y-0 right-0 z-30 w-[min(340px,calc(100vw-72px))] shrink-0 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl transition-transform xl:z-auto xl:shadow-none ${mobileInspectorOpen ? "translate-x-0 xl:static xl:block xl:w-[330px] xl:translate-x-0" : "translate-x-full xl:hidden"}`}>
+        <aside className={`brainstorm-inspector absolute inset-y-0 right-0 z-30 w-[min(340px,calc(100vw-72px))] shrink-0 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl transition-transform xl:shadow-none ${mobileInspectorOpen ? "translate-x-0 xl:relative xl:block xl:w-[330px] xl:translate-x-0" : "translate-x-full xl:hidden"}`}>
           <button type="button" onClick={() => setMobileInspectorOpen(false)} className="brainstorm-icon-button absolute right-3 top-3 xl:hidden" title="Fechar propriedades"><X size={16} /></button>
           {selectedNode ? (
             <fieldset disabled={boardLocked} className="space-y-5 disabled:opacity-60">

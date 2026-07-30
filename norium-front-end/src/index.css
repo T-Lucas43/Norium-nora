@@ -4545,6 +4545,12 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   flex: 1;
   padding: 4.2cqw 7cqw 3.5cqw;
   overflow: hidden;
+}
+
+/* Especificidade composta para vencer o font-size fixo de .commercial-rich-editor
+   (mesma especificidade, mas declarado depois no arquivo) - o tamanho da fonte
+   precisa escalar com a largura real da pagina (cqw), nao ficar fixo em 14px. */
+.commercial-a4-page-content.commercial-rich-editor {
   font-size: max(7px, 1.76cqw);
 }
 

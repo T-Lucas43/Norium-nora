@@ -42,6 +42,7 @@ from app.modules.commercial.service import (
     generate_proposal_draft,
     instantiate_obligations,
     list_commercial_data,
+    proposal_or_404,
     public_signature_data,
     send_for_signature,
     sign_contract,

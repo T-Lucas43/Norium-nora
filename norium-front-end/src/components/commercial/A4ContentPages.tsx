@@ -1,8 +1,5 @@
-import { useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Branding, Signer } from "../../features/commercial/types";
-
-const A4_CONTENT_WIDTH = 682;
-const A4_CONTENT_HEIGHT = 820;
 
 type A4ContentPagesProps = {
   title: string;
@@ -33,19 +30,61 @@ export default function A4ContentPages({
     [branding.logoAlignment, branding.logoScale, branding.logoUrl, contentHtml, signers, title],
   );
   const [pages, setPages] = useState<string[]>(() => [printableHtml]);
+  const gaugeContentRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
-    setPages(paginateRichHtml(printableHtml));
+    const gaugeContent = gaugeContentRef.current;
+    if (!gaugeContent) return;
+
+    const recompute = () => {
+      const style = getComputedStyle(gaugeContent);
+      // clientWidth/Height incluem o padding; a area util e o que sobra depois dele.
+      const innerWidth =
+        gaugeContent.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+      const innerHeight =
+        gaugeContent.clientHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom);
+      if (!(innerWidth > 0) || !(innerHeight > 0)) return;
+      setPages(
+        paginateRichHtml(printableHtml, {
+          width: innerWidth,
+          height: innerHeight,
+          fontSize: style.fontSize,
+          lineHeight: style.lineHeight,
+          fontFamily: style.fontFamily,
+        }),
+      );
+    };
+
+    recompute();
+    const observer = new ResizeObserver(recompute);
+    observer.observe(gaugeContent);
+    return () => observer.disconnect();
   }, [printableHtml]);
 
   return (
     <div
       className={
         compact
-          ? "commercial-a4-pages-grid mx-auto grid w-full max-w-[794px] gap-5"
-          : "commercial-a4-pages-grid mx-auto w-full max-w-[794px] space-y-8"
+          ? "commercial-a4-pages-grid relative mx-auto grid w-full max-w-[794px] gap-5"
+          : "commercial-a4-pages-grid relative mx-auto w-full max-w-[794px] space-y-8"
       }
     >
+      {/* Pagina gabarito, invisivel: mede o espaco real disponivel (mesmas classes/
+          largura/padding/font-size da pagina de verdade) para paginar com precisao. */}
+      <div aria-hidden className="pointer-events-none invisible absolute inset-x-0 top-0 -z-10">
+        <article className="commercial-document-page commercial-a4-preview-page flex w-full flex-col overflow-hidden bg-white shadow-2xl">
+          <header
+            className="commercial-a4-page-header border-b border-slate-200 text-xs text-slate-500"
+            dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(branding.headerHtml) }}
+          />
+          <div ref={gaugeContentRef} className="commercial-rich-editor commercial-a4-page-content" />
+          <footer
+            className="commercial-a4-page-footer mt-auto border-t border-slate-200 text-xs text-slate-500"
+            dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(branding.footerHtml) }}
+          />
+        </article>
+      </div>
+
       {pages.map((pageHtml, index) => (
         <section className="commercial-page-shell" key={`${index}-${pageHtml.length}`}>
           <div className="commercial-page-label">
@@ -79,7 +118,15 @@ export default function A4ContentPages({
   );
 }
 
-function paginateRichHtml(value: string): string[] {
+type PageMetrics = {
+  width: number;
+  height: number;
+  fontSize: string;
+  lineHeight: string;
+  fontFamily: string;
+};
+
+function paginateRichHtml(value: string, metrics: PageMetrics): string[] {
   if (typeof document === "undefined") return [value || "<p></p>"];
   const parsed = new DOMParser().parseFromString(value || "<p></p>", "text/html");
   const nodes = Array.from(parsed.body.childNodes).filter(
@@ -87,14 +134,21 @@ function paginateRichHtml(value: string): string[] {
   );
   if (!nodes.length) return ["<p></p>"];
 
+  // Caixa util da pagina real (ja sem padding), com a tipografia resolvida copiada da
+  // pagina gabarito - o host fica fora de um container query, entao unidades cqw nao
+  // resolveriam corretamente aqui.
   const host = document.createElement("div");
   host.className = "commercial-rich-editor commercial-a4-measure";
   Object.assign(host.style, {
     position: "fixed",
     left: "-100000px",
     top: "0",
-    width: `${A4_CONTENT_WIDTH}px`,
-    height: `${A4_CONTENT_HEIGHT}px`,
+    width: `${metrics.width}px`,
+    height: `${metrics.height}px`,
+    padding: "0",
+    fontSize: metrics.fontSize,
+    lineHeight: metrics.lineHeight,
+    fontFamily: metrics.fontFamily,
     overflow: "hidden",
     visibility: "hidden",
     pointerEvents: "none",
@@ -115,7 +169,7 @@ function paginateRichHtml(value: string): string[] {
     nodes.forEach((sourceNode) => {
       const node = sourceNode.cloneNode(true);
       host.appendChild(node);
-      if (host.scrollHeight <= A4_CONTENT_HEIGHT || pageNodes.length === 0) {
+      if (host.scrollHeight <= metrics.height || pageNodes.length === 0) {
         pageNodes.push(node);
         return;
       }

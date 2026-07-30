@@ -13,6 +13,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Send,
   Sparkles,
   Trash2,
   UsersRound,
@@ -32,6 +33,7 @@ import {
   instantiateContract,
   loadCommercialData,
   sendContractForSignature,
+  shareCommercialDocument,
   signContract,
   submitProposal,
   updateContract,
@@ -187,6 +189,16 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   }
 
   async function handleSubmit(proposal: CommercialProposal) {
+    const pendingCritical = proposal.suggestions.filter((item) => item.status === "pending" && item.severity === "critical");
+    if (pendingCritical.length > 0) {
+      const proceed = await showConfirm({
+        title: "Sugestões críticas da Nora ainda pendentes",
+        description: `Há ${pendingCritical.length} sugestão(ões) crítica(s) da Nora sem decisão nesta proposta. Deseja enviar para aprovação mesmo assim?`,
+        confirmLabel: "Enviar mesmo assim",
+        tone: "danger",
+      });
+      if (!proceed) return;
+    }
     const note = await showPrompt({
       title: "Enviar proposta para aprovacao",
       description: "Inclua uma observacao para quem revisara o documento ou deixe o campo vazio.",
@@ -343,7 +355,12 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
           />
         )}
         {signatureLinks.length > 0 && (
-          <SignatureLinksDialog links={signatureLinks} onClose={() => setSignatureLinks([])} />
+          <SignatureLinksDialog
+            links={signatureLinks}
+            contractId={selected.id}
+            contractTitle={selected.title}
+            onClose={() => setSignatureLinks([])}
+          />
         )}
       </>
     );
@@ -811,13 +828,44 @@ function ContractGenerationDialog({
   );
 }
 
-function SignatureLinksDialog({ links, onClose }: { links: SignatureLink[]; onClose: () => void }) {
+function SignatureLinksDialog({
+  links,
+  contractId,
+  contractTitle,
+  onClose,
+}: {
+  links: SignatureLink[];
+  contractId: string;
+  contractTitle: string;
+  onClose: () => void;
+}) {
   const [copied, setCopied] = useState("");
+  const [sendingTo, setSendingTo] = useState("");
+  const [sentTo, setSentTo] = useState<string[]>([]);
+  const [sendError, setSendError] = useState("");
 
   async function copyLink(link: SignatureLink) {
     await navigator.clipboard.writeText(link.url);
     setCopied(link.signerId);
     window.setTimeout(() => setCopied(""), 1800);
+  }
+
+  async function sendLinkByEmail(link: SignatureLink) {
+    setSendingTo(link.signerId);
+    setSendError("");
+    try {
+      await shareCommercialDocument("contract", contractId, {
+        channel: "email",
+        recipient: link.email,
+        subject: `Assinatura pendente: ${contractTitle}`,
+        message: `Olá ${link.name || ""}, segue o contrato "${contractTitle}" para sua assinatura. O link individual de assinatura está no final desta mensagem.`.trim(),
+      });
+      setSentTo((current) => [...current, link.signerId]);
+    } catch (error) {
+      setSendError(messageFromError(error, "Nao foi possivel enviar o e-mail para este assinante."));
+    } finally {
+      setSendingTo("");
+    }
   }
 
   return (
@@ -833,7 +881,16 @@ function SignatureLinksDialog({ links, onClose }: { links: SignatureLink[]; onCl
                   Expira em {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(link.expiresAt))}
                 </p>
               </div>
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  loading={sendingTo === link.signerId}
+                  disabled={Boolean(sendingTo) || sentTo.includes(link.signerId)}
+                  onClick={() => void sendLinkByEmail(link)}
+                  icon={<Send size={14} />}
+                >
+                  {sentTo.includes(link.signerId) ? "Enviado" : "Enviar e-mail"}
+                </Button>
                 <Button variant="secondary" onClick={() => void copyLink(link)} icon={<Link2 size={14} />}>
                   {copied === link.signerId ? "Copiado" : "Copiar"}
                 </Button>
@@ -844,6 +901,7 @@ function SignatureLinksDialog({ links, onClose }: { links: SignatureLink[]; onCl
             </div>
           </article>
         ))}
+        {sendError && <StatusBanner tone="error">{sendError}</StatusBanner>}
         <div className="flex justify-end pt-2"><Button onClick={onClose}>Concluir</Button></div>
       </div>
     </Dialog>

@@ -563,7 +563,8 @@ export default function CommercialEditor({
       .content{page:document;width:auto;min-height:auto;margin:0;padding:0;font-size:11pt;line-height:1.62;overflow-wrap:anywhere}.content header,.content footer{color:#475569;font-size:9pt}.content header{margin-bottom:8mm;padding-bottom:3mm;border-bottom:1px solid #cbd5e1}.content footer{margin-top:10mm;padding-top:3mm;border-top:1px solid #cbd5e1}
       .logo{text-align:${branding.logoAlignment};margin:0 0 7mm}.logo img{max-height:${Math.max(36, branding.logoScale * 0.62)}px;max-width:64mm}
       .content h1,.content h2,.content h3{color:${branding.primaryColor};break-after:avoid;page-break-after:avoid}.content p,.content li{orphans:3;widows:3}.content a{color:${branding.secondaryColor}}.content img{max-width:100%;height:auto}table{width:100%;border-collapse:collapse;break-inside:avoid}td,th{border:1px solid #cbd5e1;padding:8px}
-      .signatures{display:grid;grid-template-columns:repeat(2,1fr);gap:36px;margin-top:18mm;break-inside:avoid}.signature{break-inside:avoid}.signature div{border-top:1px solid #334155;margin-bottom:8px}.signature strong,.signature span{display:block;font-size:11px}
+      .signatures{display:grid;grid-template-columns:repeat(2,1fr);gap:36px;margin-top:18mm;break-inside:avoid;break-before:avoid;page-break-before:avoid}.signature{break-inside:avoid}.signature div{border-top:1px solid #334155;margin-bottom:8px}.signature strong,.signature span{display:block;font-size:11px}
+      .content>*:has(+ .signatures){break-after:avoid;page-break-after:avoid}
       @media print{button{display:none}}
     </style></head><body>
       <section class="page cover">

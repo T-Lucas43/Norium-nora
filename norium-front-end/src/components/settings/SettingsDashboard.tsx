@@ -181,7 +181,7 @@ export default function SettingsDashboard({
                 <Palette size={19} />
               </span>
               <div>
-                <h2 className="text-sm font-black">Aparência do sistema</h2>
+                <h2 className="text-sm font-bold">Aparência do sistema</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   O tema escolhido é aplicado imediatamente em todo o Norium.
                 </p>
@@ -221,7 +221,7 @@ export default function SettingsDashboard({
                     {canCustomizeTheme ? <Palette size={18} /> : <LockKeyhole size={18} />}
                   </span>
                   <div>
-                    <h3 className="text-sm font-black">Personalização avançada</h3>
+                    <h3 className="text-sm font-bold">Personalização avançada</h3>
                     <p className="text-xs font-semibold text-[var(--text-secondary)]">
                       Altere apenas as cores, mantendo o layout atual.
                     </p>
@@ -237,7 +237,7 @@ export default function SettingsDashboard({
                           [profile.tema]: { ...defaultThemeCustomization[profile.tema] },
                         }))
                       }
-                      className="flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-black"
+                      className="flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-bold"
                     >
                       <RotateCcw size={14} />
                       Restaurar
@@ -252,7 +252,7 @@ export default function SettingsDashboard({
                         enabled: !customization.enabled,
                       }))
                     }
-                    className={`h-9 rounded-lg px-4 text-xs font-black ${
+                    className={`h-9 rounded-lg px-4 text-xs font-bold ${
                       customizationEnabled && canCustomizeTheme
                         ? "bg-[var(--primary)] text-white"
                         : "border border-[var(--border)]"
@@ -271,7 +271,7 @@ export default function SettingsDashboard({
                 <div className={`mt-4 space-y-4 ${customizationEnabled ? "" : "pointer-events-none opacity-50"}`}>
                   {colorGroups.map((group) => (
                     <div key={group.title} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
-                      <p className="mb-3 text-[11px] font-black uppercase text-[var(--text-secondary)]">{group.title}</p>
+                      <p className="mb-3 text-xs font-bold uppercase text-[var(--text-secondary)]">{group.title}</p>
                       <div className="grid gap-3 md:grid-cols-2">
                         {group.fields.map((field) => (
                           <label key={field.key} className="flex min-w-0 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
@@ -283,9 +283,9 @@ export default function SettingsDashboard({
                             />
                             <span className="min-w-0 flex-1">
                               <strong className="block text-xs">{field.label}</strong>
-                              <small className="block truncate text-[11px] font-semibold text-[var(--text-secondary)]">{field.hint}</small>
+                              <small className="block truncate text-xs font-semibold text-[var(--text-secondary)]">{field.hint}</small>
                             </span>
-                            <code className="text-[10px] font-black text-[var(--text-secondary)]">{activePalette[field.key]}</code>
+                            <code className="text-xs font-bold text-[var(--text-secondary)]">{activePalette[field.key]}</code>
                           </label>
                         ))}
                       </div>
@@ -301,7 +301,7 @@ export default function SettingsDashboard({
               <div className="mb-5 flex items-center gap-3">
                 <span className="grid h-10 w-10 place-items-center rounded-lg bg-cyan-500/12 text-cyan-400"><Bot size={19} /></span>
                 <div>
-                  <h2 className="text-sm font-black">Nora</h2>
+                  <h2 className="text-sm font-bold">Nora</h2>
                   <p className="text-xs font-semibold text-[var(--text-secondary)]">Personalidade da sua assistente.</p>
                 </div>
               </div>
@@ -332,18 +332,18 @@ export default function SettingsDashboard({
               <div className="mb-5 flex items-center gap-3">
                 <span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><Bell size={19} /></span>
                 <div>
-                  <h2 className="text-sm font-black">Notificações</h2>
+                  <h2 className="text-sm font-bold">Notificações</h2>
                   <p className="text-xs font-semibold text-[var(--text-secondary)]">Alertas visuais e atualizações em tempo real.</p>
                 </div>
               </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <span className="text-sm font-bold">Notificações do sistema</span>
-                  <span className="rounded-full bg-emerald-500/12 px-3 py-1 text-xs font-black text-emerald-400">Ativas</span>
+                  <span className="rounded-full bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-400">Ativas</span>
                 </div>
                 <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <span className="text-sm font-bold">Atualizações em tempo real</span>
-                  <span className="rounded-full bg-emerald-500/12 px-3 py-1 text-xs font-black text-emerald-400">Ativas</span>
+                  <span className="rounded-full bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-400">Ativas</span>
                 </div>
               </div>
             </section>
@@ -353,7 +353,7 @@ export default function SettingsDashboard({
             <div className="flex items-center gap-3">
               <SlidersHorizontal size={18} className="text-[var(--primary)]" />
               <div>
-                <h2 className="text-sm font-black">Escopo global</h2>
+                <h2 className="text-sm font-bold">Escopo global</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   Estas configurações são compartilhadas por todas as telas do sistema.
                 </p>

@@ -30,7 +30,7 @@ export default function NoraPanel({ metrics, onOpenNora, onNavigate }: NoraPanel
         <div className="mt-6 flex flex-wrap gap-3">
           <button
             onClick={onOpenNora}
-            className="dashboard-primary-action rounded-2xl px-5 py-3 text-sm font-black text-white hover:scale-105"
+            className="dashboard-primary-action rounded-2xl px-5 py-3 text-sm font-bold text-white hover:scale-105"
           >
             Conversar
           </button>

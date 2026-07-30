@@ -34,10 +34,10 @@ export default function SystemNotificationToasts({
               <button onClick={onOpenNotifications} className="flex w-full items-start gap-3 p-4 text-left">
                 <NotificationVisual notification={toast.notification} size="compact" />
                 <span className="min-w-0 flex-1">
-                  <span className="mb-1 block text-[10px] font-black uppercase tracking-wide text-[var(--primary)]">
+                  <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-[var(--primary)]">
                     {visual.label}
                   </span>
-                  <span className="block truncate text-sm font-black text-[var(--text)]">
+                  <span className="block truncate text-sm font-bold text-[var(--text)]">
                     {toast.notification.title}
                   </span>
                   <span className="mt-1 line-clamp-2 block text-xs font-semibold leading-5 text-[var(--text-secondary)]">
@@ -49,7 +49,7 @@ export default function SystemNotificationToasts({
                 onClick={() => onDismiss(toast.id)}
                 className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
                 title="Dispensar notificacao"
-              >
+               aria-label="Dispensar notificacao">
                 <X size={14} />
               </button>
             </motion.article>

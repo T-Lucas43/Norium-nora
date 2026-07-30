@@ -111,7 +111,7 @@ export default function ActiveAutomations({ onNavigate }: ActiveAutomationsProps
     <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs font-black text-cyan-300">
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs font-bold text-cyan-300">
             <GitBranch size={14} />
             Automacoes ativas
           </div>
@@ -123,7 +123,7 @@ export default function ActiveAutomations({ onNavigate }: ActiveAutomationsProps
 
         <button
           onClick={() => onNavigate("Automações")}
-          className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] px-4 text-xs font-black text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+          className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] px-4 text-xs font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
         >
           Abrir automacoes
           <ArrowRight size={15} />
@@ -169,17 +169,17 @@ export default function ActiveAutomations({ onNavigate }: ActiveAutomationsProps
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2.5 py-1 text-[11px] font-black text-blue-300">
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-bold text-blue-300">
                   <PlayCircle size={12} />
                   {automation.executions || 0} exec.
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2.5 py-1 text-[11px] font-black text-cyan-300">
+                <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2.5 py-1 text-xs font-bold text-cyan-300">
                   <Clock3 size={12} />
                   {formatDateTime(automation.lastRunAt || automation.updatedAt)}
                 </span>
               </div>
 
-              <p className="mt-3 truncate text-[11px] font-bold uppercase tracking-wide text-[var(--text-secondary)]">
+              <p className="mt-3 truncate text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">
                 {automation.trigger || "Manual"} {"->"} {(automation.actions || []).slice(0, 2).join(", ") || "Nora operacional"}
               </p>
             </button>

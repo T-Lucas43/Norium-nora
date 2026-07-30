@@ -181,7 +181,7 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
         </div>
         <button
           onClick={() => void refresh()}
-          className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-black hover:bg-[var(--surface-hover)]"
+          className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold hover:bg-[var(--surface-hover)]"
         >
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
           Atualizar
@@ -206,7 +206,7 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
               <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Senha inicial" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
             </div>
             <MiniPermissionEditor permissions={form.permissions} onToggle={toggleFormPermission} />
-            <button onClick={() => void createMember()} disabled={saving === "create"} className="mt-4 h-11 w-full rounded-xl bg-blue-600 text-sm font-black text-white disabled:opacity-60">
+            <button onClick={() => void createMember()} disabled={saving === "create"} className="mt-4 h-11 w-full rounded-xl bg-blue-600 text-sm font-bold text-white disabled:opacity-60">
               {saving === "create" ? "Criando..." : "Criar usuario"}
             </button>
           </details>
@@ -222,9 +222,9 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
                     selectedUser.id === user.id ? "border-cyan-300/50 bg-cyan-400/14" : "border-[var(--border)] bg-[var(--background)]"
                   }`}
                 >
-                  <p className="truncate text-sm font-black">{user.nome}</p>
+                  <p className="truncate text-sm font-bold">{user.nome}</p>
                   <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{user.email}</p>
-                  <span className={`mt-3 inline-flex rounded-full px-2 py-1 text-[10px] font-black ${user.status === "ativo" ? "bg-emerald-400/18 text-emerald-100" : "bg-red-500/18 text-red-100"}`}>
+                  <span className={`mt-3 inline-flex rounded-full px-2 py-1 text-xs font-bold ${user.status === "ativo" ? "bg-emerald-400/18 text-emerald-100" : "bg-red-500/18 text-red-100"}`}>
                     {user.status}
                   </span>
                 </button>
@@ -245,14 +245,14 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
             <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">Selecionado</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Selecionado</p>
                 <h2 className="mt-1 text-2xl font-black">{selectedUser.nome}</h2>
                 <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{selectedUser.email}</p>
               </div>
               <button
                 onClick={() => void patchUser(selectedUser, { status: selectedUser.status === "ativo" ? "inativo" : "ativo" }, "Status atualizado.")}
                 disabled={selectedUser.id === session.user.id || saving === selectedUser.id}
-                className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-black disabled:opacity-50"
+                className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold disabled:opacity-50"
               >
                 {selectedUser.status === "ativo" ? "Bloquear acesso" : "Ativar acesso"}
               </button>
@@ -265,7 +265,7 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
             </div>
 
             <details className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
-              <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-black">
+              <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-bold">
                 <ShieldCheck size={16} className="text-[var(--primary)]" />
                 Permissoes e integracoes
               </summary>
@@ -299,7 +299,7 @@ function TeamPerformanceReport({
     <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">Relatorio da equipe</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Relatorio da equipe</p>
           <h2 className="mt-1 text-2xl font-black">Produtividade por usuario</h2>
           <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
             Tarefas por responsavel, status, vencimento e execucao.
@@ -334,7 +334,7 @@ function TeamPerformanceReport({
                   <p className="truncate font-black">{member.nome}</p>
                   <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{member.email}</p>
                 </div>
-                <span className="rounded-full border border-[var(--border)] px-2 py-1 text-[10px] font-black uppercase text-[var(--text-secondary)]">
+                <span className="rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase text-[var(--text-secondary)]">
                   {member.status}
                 </span>
               </div>
@@ -349,7 +349,7 @@ function TeamPerformanceReport({
         </div>
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">Tarefas recentes</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Tarefas recentes</p>
           <h3 className="mt-1 truncate text-lg font-black">{selected?.nome || "Usuario"}</h3>
           <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
             {(selected?.recentes || []).length === 0 && (
@@ -359,8 +359,8 @@ function TeamPerformanceReport({
             )}
             {(selected?.recentes || []).map((task) => (
               <div key={task.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                <p className="line-clamp-2 text-sm font-black">{task.title}</p>
-                <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black uppercase">
+                <p className="line-clamp-2 text-sm font-bold">{task.title}</p>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold uppercase">
                   <span className="rounded-full bg-blue-500/14 px-2 py-1 text-blue-100">{task.status}</span>
                   <span className="rounded-full bg-cyan-500/14 px-2 py-1 text-cyan-100">{task.priority}</span>
                   {task.dueDate && <span className="rounded-full bg-amber-500/14 px-2 py-1 text-amber-100">{task.dueDate}</span>}
@@ -388,7 +388,7 @@ function MiniNumber({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 py-2">
       <p className="text-base font-black">{value}</p>
-      <p className="text-[10px] font-bold text-[var(--text-secondary)]">{label}</p>
+      <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
     </div>
   );
 }
@@ -396,7 +396,7 @@ function MiniNumber({ label, value }: { label: string; value: number }) {
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
-      <p className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{label}</p>
+      <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">{label}</p>
       <p className="mt-2 text-lg font-black capitalize">{value}</p>
     </div>
   );
@@ -419,7 +419,7 @@ function MiniPermissionEditor({
         <div key={group.title} className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
           <div className="mb-3 flex items-center gap-2">
             <ShieldCheck size={16} className="text-[var(--primary)]" />
-            <h3 className="text-sm font-black">{group.title}</h3>
+            <h3 className="text-sm font-bold">{group.title}</h3>
           </div>
           <div className="space-y-2">
             {group.keys.map((key) => (

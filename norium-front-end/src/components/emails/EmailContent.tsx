@@ -45,7 +45,7 @@ export default function EmailContent({ selectedEmail, onClose }: EmailContentPro
             onClick={onClose} 
             className="p-2 hover:bg-red-500/10 text-[var(--secondary-foreground)] hover:text-red-500 rounded-lg transition flex items-center gap-1 text-xs font-semibold"
             title="Fechar e-mail"
-          >
+           aria-label="Fechar e-mail">
             <span>Fechar</span>
             <X size={16} />
           </button>
@@ -56,7 +56,7 @@ export default function EmailContent({ selectedEmail, onClose }: EmailContentPro
         <div className="flex items-start justify-between">
           <div className="space-y-1.5">
             <h1 className="text-xl font-bold text-[var(--foreground)]">{selectedEmail.subject}</h1>
-            <span className="inline-block text-[11px] font-bold bg-blue-500/10 text-blue-500 px-2.5 py-0.5 rounded-md">
+            <span className="inline-block text-xs font-bold bg-blue-500/10 text-blue-500 px-2.5 py-0.5 rounded-md">
               {selectedEmail.folder}
             </span>
           </div>
@@ -87,7 +87,7 @@ export default function EmailContent({ selectedEmail, onClose }: EmailContentPro
                 <div className="w-10 h-10 bg-red-500/10 text-red-500 rounded-lg flex items-center justify-center font-bold text-xs shrink-0">PDF</div>
                 <div className="min-w-0">
                   <p className="text-xs font-bold text-[var(--foreground)] truncate">{selectedEmail.attachmentName}</p>
-                  <p className="text-[11px] font-medium text-[var(--secondary-foreground)]">{selectedEmail.attachmentSize}</p>
+                  <p className="text-xs font-medium text-[var(--secondary-foreground)]">{selectedEmail.attachmentSize}</p>
                 </div>
               </div>
             </div>

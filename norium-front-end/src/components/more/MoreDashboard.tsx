@@ -83,7 +83,7 @@ export default function MoreDashboard({ onNavigate, onOpenNora, onLogout }: More
       <div className="flex flex-col gap-8">
         {groups.map((group) => (
           <section key={group.title}>
-            <h2 className="mb-3 text-xs font-black uppercase tracking-wider text-[var(--text-secondary)]">{group.title}</h2>
+            <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">{group.title}</h2>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {group.items.map((item) => (
                 <button
@@ -129,11 +129,11 @@ export default function MoreDashboard({ onNavigate, onOpenNora, onLogout }: More
                   <item.icon size={18} />
                 </span>
                 <span className="min-w-0">
-                  <strong className="block truncate text-sm font-black">{item.title}</strong>
+                  <strong className="block truncate text-sm font-bold">{item.title}</strong>
                   <span className="block truncate text-xs font-semibold text-[var(--text-secondary)]">{item.description}</span>
                 </span>
               </span>
-              <span className="shrink-0 text-xs font-black text-[var(--primary)]">Abrir</span>
+              <span className="shrink-0 text-xs font-bold text-[var(--primary)]">Abrir</span>
             </button>
           ))}
         </div>

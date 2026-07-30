@@ -186,7 +186,7 @@ export default function SystemNotificationsCenter({
             disabled={notifications.length === 0}
             className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-45"
             title="Limpar notificacoes"
-          >
+           aria-label="Limpar notificacoes">
             <Trash2 size={15} />
             Limpar
           </button>
@@ -228,18 +228,18 @@ export default function SystemNotificationsCenter({
 
                     <div className="min-w-0">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[11px] font-black text-[var(--text-secondary)]">
+                        <span className="rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
                           {visual.label}
                         </span>
-                        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${config.className}`}>
+                        <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${config.className}`}>
                           {config.label}
                         </span>
                         {!notification.read && (
-                          <span className="rounded-full bg-[var(--primary)]/14 px-2 py-0.5 text-[11px] font-black text-[var(--primary)]">
+                          <span className="rounded-full bg-[var(--primary)]/14 px-2 py-0.5 text-xs font-bold text-[var(--primary)]">
                             novo
                           </span>
                         )}
-                        <h3 className="min-w-0 truncate text-sm font-black text-[var(--text)]">
+                        <h3 className="min-w-0 truncate text-sm font-bold text-[var(--text)]">
                           {notification.title}
                         </h3>
                       </div>
@@ -256,7 +256,7 @@ export default function SystemNotificationsCenter({
                         <button
                           type="button"
                           onClick={() => onNavigate(notificationTarget(notification))}
-                          className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] font-black text-[var(--text-secondary)] hover:bg-[var(--background)] hover:text-[var(--text)]"
+                          className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--background)] hover:text-[var(--text)]"
                         >
                           Abrir <ChevronRight size={13} />
                         </button>

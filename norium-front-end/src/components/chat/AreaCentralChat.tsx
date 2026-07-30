@@ -158,7 +158,7 @@ function AudioMessage({ src, outgoing }: { src: string; outgoing: boolean }) {
           onClick={togglePlay}
           className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition ${outgoing ? "bg-white text-[#005c4b]" : "bg-[#00a884] text-[#111b21]"}`}
           title={playing ? "Pausar audio" : "Tocar audio"}
-        >
+         aria-label={playing ? "Pausar audio" : "Tocar audio"}>
           {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
         </button>
 
@@ -184,13 +184,13 @@ function AudioMessage({ src, outgoing }: { src: string; outgoing: boolean }) {
               aria-label="Progresso do audio"
             />
           </div>
-          <div className="mt-0.5 flex items-center justify-between text-[10px] font-bold opacity-70">
+          <div className="mt-0.5 flex items-center justify-between text-xs font-bold opacity-70">
             <span>{formatAudioTime(currentTime)}</span>
             <span>{formatAudioTime(duration)}</span>
           </div>
         </div>
 
-        <button onClick={cycleSpeed} className="h-8 min-w-10 rounded-full border border-current/20 px-2 text-[11px] font-extrabold">
+        <button onClick={cycleSpeed} className="h-8 min-w-10 rounded-full border border-current/20 px-2 text-xs font-extrabold">
           {speed}x
         </button>
       </div>
@@ -258,7 +258,7 @@ function AttachmentPreviewCard({ anexo, onRemover }: { anexo: AnexoPendente; onR
         onClick={() => onRemover(anexo.id)}
         className="absolute right-1.5 top-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/65 text-white shadow"
         title="Remover anexo"
-      >
+       aria-label="Remover anexo">
         <X size={14} />
       </button>
 
@@ -285,8 +285,8 @@ function AttachmentPreviewCard({ anexo, onRemover }: { anexo: AnexoPendente; onR
 
       {anexo.tipo !== "audio" && (
         <div className="absolute bottom-0 left-0 right-0 bg-black/65 px-2 py-1.5 text-white">
-          <p className="truncate text-[11px] font-bold">{anexo.nomeArquivo}</p>
-          <p className="text-[10px] opacity-75">{formatFileSize(anexo.tamanho)}</p>
+          <p className="truncate text-xs font-bold">{anexo.nomeArquivo}</p>
+          <p className="text-xs opacity-75">{formatFileSize(anexo.tamanho)}</p>
         </div>
       )}
     </div>
@@ -406,10 +406,10 @@ export default function AreaCentralChat({
           </button>
 
           <div className="flex items-center gap-1">
-            <button title="Pesquisar" onClick={() => setMostrarPesquisa(!mostrarPesquisa)} className={`h-9 w-9 rounded-lg flex items-center justify-center transition ${mostrarPesquisa ? "bg-[var(--primary)] text-white" : "hover:bg-[var(--surface-hover)] text-[var(--text)]"}`}>
+            <button title="Pesquisar" onClick={() => setMostrarPesquisa(!mostrarPesquisa)} className={`h-9 w-9 rounded-lg flex items-center justify-center transition ${mostrarPesquisa ? "bg-[var(--primary)] text-white" : "hover:bg-[var(--surface-hover)] text-[var(--text)]"}`} aria-label="Pesquisar">
               <Search size={17} />
             </button>
-            <button title="Traduzir" onClick={() => setTraduzirChat(!traduzirChat)} className={`h-9 w-9 rounded-lg flex items-center justify-center transition ${traduzirChat ? "bg-[var(--primary)] text-white" : "hover:bg-[var(--surface-hover)] text-[var(--text)]"}`}>
+            <button title="Traduzir" onClick={() => setTraduzirChat(!traduzirChat)} className={`h-9 w-9 rounded-lg flex items-center justify-center transition ${traduzirChat ? "bg-[var(--primary)] text-white" : "hover:bg-[var(--surface-hover)] text-[var(--text)]"}`} aria-label="Traduzir">
               <Languages size={17} />
             </button>
             <button onClick={onAbrirDadosPerfil} className="h-9 px-3 text-xs font-bold border border-[var(--border)] rounded-lg hover:bg-[var(--surface-hover)] text-[var(--text)]">
@@ -500,7 +500,7 @@ export default function AreaCentralChat({
                 )}
 
                 {msg.remetenteNome && !outgoing && (
-                  <span className="mb-1 block text-[11px] font-extrabold text-[var(--primary)]">~ {msg.remetenteNome}</span>
+                  <span className="mb-1 block text-xs font-extrabold text-[var(--primary)]">~ {msg.remetenteNome}</span>
                 )}
 
                 {msg.tipo === "texto" ? (
@@ -510,7 +510,7 @@ export default function AreaCentralChat({
                 )}
 
                 <div className="mt-1 flex items-center justify-end gap-1 opacity-70">
-                  <span className="text-[10px] font-medium">{msg.horario}</span>
+                  <span className="text-xs font-medium">{msg.horario}</span>
                   {outgoing && <MessageStatus status={msg.status} />}
                 </div>
               </div>
@@ -523,7 +523,7 @@ export default function AreaCentralChat({
       <div className="p-3 border-t border-[var(--border)] bg-[var(--surface)] relative">
         {mostrarPainelEmojis && (
           <div data-emoji-panel-root className="absolute bottom-16 left-4 bg-[var(--surface)] border border-[var(--border)] p-3 rounded-lg shadow-2xl z-50 w-72 text-xs font-bold text-[var(--text)]">
-            <p className="text-[var(--text-secondary)] mb-2 uppercase tracking-wide text-[10px]">Mais usados</p>
+            <p className="text-[var(--text-secondary)] mb-2 uppercase tracking-wide text-xs">Mais usados</p>
             <div className="grid grid-cols-6 gap-2 text-xl">
               {["😂", "👍", "😍", "🔥", "🙏", "😭", "👏", "🎉", "🚀", "❤️", "👀", "✨"].map((emoji) => (
                 <button key={emoji} onClick={() => { setResposta((prev) => prev + emoji); setMostrarPainelEmojis(false); }} className="h-8 rounded-md hover:bg-[var(--surface-hover)]">
@@ -550,10 +550,10 @@ export default function AreaCentralChat({
         )}
 
         <div className="flex items-center gap-2">
-          <button onClick={onAnexarArquivo} title="Anexar" className="h-11 w-11 border border-[var(--border)] rounded-lg flex items-center justify-center hover:bg-[var(--surface-hover)] text-[var(--text)]">
+          <button onClick={onAnexarArquivo} title="Anexar" className="h-11 w-11 border border-[var(--border)] rounded-lg flex items-center justify-center hover:bg-[var(--surface-hover)] text-[var(--text)]" aria-label="Anexar">
             <Paperclip size={19} />
           </button>
-          <button data-emoji-panel-root onClick={() => setMostrarPainelEmojis(!mostrarPainelEmojis)} title="Emoji" className={`h-11 w-11 border rounded-lg flex items-center justify-center transition ${mostrarPainelEmojis ? "bg-[var(--primary)] text-white border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"}`}>
+          <button data-emoji-panel-root onClick={() => setMostrarPainelEmojis(!mostrarPainelEmojis)} title="Emoji" className={`h-11 w-11 border rounded-lg flex items-center justify-center transition ${mostrarPainelEmojis ? "bg-[var(--primary)] text-white border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"}`} aria-label="Emoji">
             <Smile size={19} />
           </button>
           <input
@@ -565,7 +565,7 @@ export default function AreaCentralChat({
             placeholder={gravando ? `Gravando audio: ${formatarTempo(tempoGravacao)}` : "Digite uma mensagem"}
             className="h-11 min-w-0 flex-1 bg-[var(--background)] border border-[var(--border)] rounded-lg px-4 text-sm outline-none focus:border-[var(--primary)] text-[var(--text)]"
           />
-          <button onClick={onGravarAudio} disabled={enviandoAnexos} title="Audio" className={`h-11 w-11 border rounded-lg flex items-center justify-center ${gravando ? "bg-red-500 text-white animate-pulse border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"} ${enviandoAnexos ? "opacity-50" : ""}`}>
+          <button onClick={onGravarAudio} disabled={enviandoAnexos} title="Audio" className={`h-11 w-11 border rounded-lg flex items-center justify-center ${gravando ? "bg-red-500 text-white animate-pulse border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"} ${enviandoAnexos ? "opacity-50" : ""}`} aria-label="Audio">
             <Mic size={19} />
           </button>
           <button
@@ -573,7 +573,7 @@ export default function AreaCentralChat({
             disabled={enviandoAnexos || (!resposta.trim() && anexosPendentes.length === 0)}
             title="Enviar"
             className={`h-11 w-11 bg-[var(--primary)] text-white rounded-lg flex items-center justify-center shadow-sm ${enviandoAnexos || (!resposta.trim() && anexosPendentes.length === 0) ? "opacity-50" : ""}`}
-          >
+           aria-label="Enviar">
             <SendHorizontal size={18} />
           </button>
         </div>

@@ -739,7 +739,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
               {archivedWorkspaces.length > 0 && (
                 <button
                   onClick={() => setShowArchivedProjects((current) => !current)}
-                  className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-4 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                  className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-4 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
                 >
                   <Archive size={15} />
                   {showArchivedProjects ? "Ocultar arquivados" : `Arquivados (${archivedWorkspaces.length})`}
@@ -747,7 +747,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
               )}
               <button
                 onClick={() => setShowWorkspaceCreate((current) => !current)}
-                className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-500"
+                className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white hover:bg-blue-500"
               >
                 {showWorkspaceCreate ? <X size={16} /> : <FolderPlus size={16} />}
                 {showWorkspaceCreate ? "Fechar formulario" : "Novo projeto"}
@@ -772,7 +772,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                     >
                       <Briefcase size={20} />
                     </span>
-                    <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-2 py-1 text-[11px] font-black text-blue-200">
+                    <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-2 py-1 text-xs font-bold text-blue-200">
                       {projectCategoryLabels[workspace.category]}
                     </span>
                   </div>
@@ -799,7 +799,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                   <div className="mt-4 grid grid-cols-[1fr_auto_auto] gap-2">
                     <button
                       onClick={() => setActiveWorkspace(workspace)}
-                      className="h-10 rounded-lg bg-blue-600 px-3 text-xs font-black text-white transition hover:bg-blue-500"
+                      className="h-10 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white transition hover:bg-blue-500"
                     >
                       Abrir Kanban
                     </button>
@@ -808,7 +808,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                       disabled={!canManageProject(workspace)}
                       className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] transition hover:bg-[var(--background)] hover:text-blue-300"
                       title="Configuracoes do projeto"
-                    >
+                     aria-label="Configuracoes do projeto">
                       <Settings size={16} />
                     </button>
                     <button
@@ -816,14 +816,14 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                       disabled={!canManageProject(workspace)}
                       className="grid h-10 w-10 place-items-center rounded-lg border border-amber-400/25 text-amber-200 transition hover:bg-amber-500/10"
                       title="Arquivar projeto"
-                    >
+                     aria-label="Arquivar projeto">
                       <Archive size={16} />
                     </button>
                   </div>
                   <button
                     onClick={() => setPendingProjectAction({ type: "delete", workspace })}
                     disabled={!canManageProject(workspace)}
-                    className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-rose-400/25 text-xs font-black text-rose-200 transition hover:bg-rose-500/10"
+                    className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-rose-400/25 text-xs font-bold text-rose-200 transition hover:bg-rose-500/10"
                   >
                     <Trash2 size={14} />
                     Excluir projeto
@@ -843,7 +843,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
 
               {showArchivedProjects && archivedWorkspaces.length > 0 && (
                 <section className="space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-black uppercase text-[var(--text-secondary)]">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">
                     <Archive size={15} />
                     Projetos arquivados
                   </div>
@@ -852,10 +852,10 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                       <article key={workspace.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 opacity-80">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <h3 className="truncate text-sm font-black">{workspace.name}</h3>
+                            <h3 className="truncate text-sm font-bold">{workspace.name}</h3>
                             <p className="mt-1 line-clamp-2 text-xs font-semibold text-[var(--text-secondary)]">{workspace.description}</p>
                           </div>
-                          <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-2 py-1 text-[10px] font-black text-amber-200">
+                          <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-2 py-1 text-xs font-bold text-amber-200">
                             Arquivado
                           </span>
                         </div>
@@ -947,7 +947,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                 </Select>
                 {teamMembers.length > 1 && (
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-                    <p className="mb-2 text-[11px] font-black uppercase text-[var(--text-secondary)]">Compartilhar com</p>
+                    <p className="mb-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Compartilhar com</p>
                     <div className="max-h-32 space-y-2 overflow-y-auto pr-1">
                       {teamMembers.filter((member) => member.id !== userId).map((member) => (
                         <label key={member.id} className="flex items-center justify-between gap-3 text-xs font-bold">
@@ -1015,14 +1015,14 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                       }`}
                       style={{ backgroundColor: color }}
                       title={color}
-                    />
+                     aria-label={color} />
                   ))}
                 </div>
               </div>
               <button
                 onClick={() => void createWorkspace()}
                 disabled={!workspaceForm.name.trim()}
-                className="mt-3 h-11 w-full rounded-lg bg-blue-600 text-sm font-black text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-45"
+                className="mt-3 h-11 w-full rounded-lg bg-blue-600 text-sm font-bold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Criar e abrir
               </button>
@@ -1059,7 +1059,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
             setMobileSidebarOpen(false);
             setActiveWorkspace(null);
           }}
-          className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-black text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+          className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
         >
           <ArrowLeft size={15} />
           Trocar projeto
@@ -1073,16 +1073,16 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
               <Layers3 size={18} />
             </span>
             <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase text-blue-200/80">Projeto atual</p>
-              <h2 className="mt-1 truncate text-sm font-black text-blue-100">{activeWorkspace.name}</h2>
+              <p className="text-xs font-bold uppercase text-blue-200/80">Projeto atual</p>
+              <h2 className="mt-1 truncate text-sm font-bold text-blue-100">{activeWorkspace.name}</h2>
               <p className="mt-1 line-clamp-2 text-xs font-semibold text-blue-100/70">{activeWorkspace.description}</p>
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-full border border-blue-300/20 bg-blue-950/35 px-2 py-1 text-[11px] font-bold text-blue-100">
+            <span className="rounded-full border border-blue-300/20 bg-blue-950/35 px-2 py-1 text-xs font-bold text-blue-100">
               {projectCategoryLabels[activeWorkspace.category]}
             </span>
-            <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${projectStatusStyle[activeWorkspace.status]}`}>
+            <span className={`rounded-full border px-2 py-1 text-xs font-bold ${projectStatusStyle[activeWorkspace.status]}`}>
               {projectStatusLabels[activeWorkspace.status]}
             </span>
           </div>
@@ -1105,7 +1105,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
             openProjectSettings(activeWorkspace);
           }}
           disabled={!canManageProject(activeWorkspace)}
-          className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-black text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+          className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
         >
           <Settings size={15} />
           Configuracoes do projeto
@@ -1184,7 +1184,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-[11px] font-bold uppercase text-[var(--text-secondary)]">Etiquetas</h3>
+          <h3 className="text-xs font-bold uppercase text-[var(--text-secondary)]">Etiquetas</h3>
           <div className="flex flex-wrap gap-2">
             {labels.map((label) => (
               <button
@@ -1282,7 +1282,7 @@ function Metric({ label, value, alert = false }: { label: string; value: number;
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
       <p className={`text-lg font-bold ${alert && value > 0 ? "text-rose-300" : ""}`}>{value || 0}</p>
-      <p className="text-[11px] font-bold text-[var(--text-secondary)]">{label}</p>
+      <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
     </div>
   );
 }
@@ -1348,7 +1348,7 @@ function ProjectActionConfirmModal({
           <button onClick={onCancel} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-bold hover:bg-[var(--surface-hover)]">
             Cancelar
           </button>
-          <button onClick={onConfirm} className={`h-10 rounded-lg px-4 text-sm font-black text-white transition ${config.button}`}>
+          <button onClick={onConfirm} className={`h-10 rounded-lg px-4 text-sm font-bold text-white transition ${config.button}`}>
             {config.confirm}
           </button>
         </footer>
@@ -1398,7 +1398,7 @@ function KanbanColumn({
           <Icon size={16} className="text-[var(--primary)]" />
           <h2 className="text-sm font-bold">{column.title}</h2>
         </div>
-        <span className="rounded-full bg-[var(--background)] px-2 py-1 text-[11px] font-bold text-[var(--text-secondary)]">
+        <span className="rounded-full bg-[var(--background)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">
           {tasks.length}{column.limit ? `/${column.limit}` : ""}
         </span>
       </header>
@@ -1445,12 +1445,12 @@ function TaskCard({
     >
       <div className="mb-3 flex items-start justify-between gap-2">
         <h3 className="min-w-0 text-sm font-bold leading-snug">{task.title}</h3>
-        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${priorityStyle[task.priority]}`}>
+        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-bold uppercase ${priorityStyle[task.priority]}`}>
           {task.priority}
         </span>
       </div>
 
-      <span className={`mb-3 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${categoryVisual.className}`}>
+      <span className={`mb-3 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold uppercase ${categoryVisual.className}`}>
         <CategoryIcon size={11} />
         {taskCategoryOptions.find((category) => category.id === task.category)?.label || task.category}
       </span>
@@ -1458,7 +1458,7 @@ function TaskCard({
       {task.description && <p className="mb-3 line-clamp-2 text-xs font-medium text-[var(--text-secondary)]">{task.description}</p>}
 
       {task.assigneeName && (
-        <p className="mb-3 inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-1 text-[11px] font-bold text-[var(--text-secondary)]">
+        <p className="mb-3 inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">
           <Users size={12} />
           {task.assigneeName}
         </p>
@@ -1466,14 +1466,14 @@ function TaskCard({
 
       <div className="mb-3 flex flex-wrap gap-1.5">
         {taskLabels.map((label) => (
-          <span key={label.id} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-[10px] font-bold">
+          <span key={label.id} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs font-bold">
             <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: label.color }} />
             {label.name}
           </span>
         ))}
       </div>
 
-      <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-[var(--text-secondary)]">
+      <div className="flex items-center justify-between gap-2 text-xs font-bold text-[var(--text-secondary)]">
         <span className={`inline-flex items-center gap-1 ${isOverdue(task) ? "text-rose-300" : ""}`}>
           <CalendarClock size={13} />
           {dateLabel(task.dueDate)}
@@ -1520,7 +1520,7 @@ function TaskDetails({
     <aside className="flex h-full w-[420px] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--surface)]">
       <header className="flex items-center justify-between border-b border-[var(--border)] p-4">
         <div className="min-w-0">
-          <p className="text-[11px] font-bold uppercase text-[var(--text-secondary)]">Detalhes</p>
+          <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Detalhes</p>
           <h2 className="truncate text-base font-bold">{task.title}</h2>
         </div>
         <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]">
@@ -1576,9 +1576,9 @@ function TaskDetails({
           <button
             onClick={() => onAddToCalendar(task)}
             disabled={!task.dueDate || calendarLoading}
-            className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-blue-400/30 bg-blue-500/10 px-3 text-xs font-black text-blue-200 transition hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-45"
+            className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-blue-400/30 bg-blue-500/10 px-3 text-xs font-bold text-blue-200 transition hover:bg-blue-500/20 disabled:cursor-not-allowed disabled:opacity-45"
             title={!task.dueDate ? "Defina uma data de vencimento antes" : "Criar compromisso no Google Agenda"}
-          >
+           aria-label={!task.dueDate ? "Defina uma data de vencimento antes" : "Criar compromisso no Google Agenda"}>
             <CalendarPlus size={15} />
             {calendarLoading ? "Enviando para Agenda..." : "Adicionar ao Google Agenda"}
           </button>
@@ -1736,7 +1736,7 @@ function ProjectSettingsModal({
             </Select>
             {teamMembers.length > 1 && (
               <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-                <p className="mb-2 text-[11px] font-bold uppercase text-[var(--text-secondary)]">Compartilhar projeto</p>
+                <p className="mb-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Compartilhar projeto</p>
                 <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
                   {teamMembers.filter((member) => member.id !== ownerUserId).map((member) => (
                     <label key={member.id} className="flex items-center justify-between gap-3 text-xs font-bold">
@@ -1807,7 +1807,7 @@ function ProjectSettingsModal({
               />
             </div>
             <label className="block">
-              <span className="mb-1 block text-[11px] font-bold uppercase text-[var(--text-secondary)]">
+              <span className="mb-1 block text-xs font-bold uppercase text-[var(--text-secondary)]">
                 Duracao padrao no Google Agenda (min)
               </span>
               <input
@@ -1829,7 +1829,7 @@ function ProjectSettingsModal({
                   }`}
                   style={{ backgroundColor: color }}
                   title={color}
-                />
+                 aria-label={color} />
               ))}
             </div>
           </section>

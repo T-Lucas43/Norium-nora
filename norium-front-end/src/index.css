@@ -212,6 +212,23 @@ textarea::placeholder{
   scrollbar-color:rgba(255,255,255,.45) transparent;
 }
 
+/* Foco visivel global: navegacao por teclado precisa mostrar onde esta.
+   Usa :focus-visible para nao poluir o clique de mouse. */
+:where(a, button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible{
+  outline:2px solid var(--focus-ring, #38BDF8);
+  outline-offset:2px;
+  border-radius:inherit;
+}
+
+/* Em superficies claras o anel ciano perde contraste; escurece um pouco. */
+:root:not(.dark){
+  --focus-ring:#1D4ED8;
+}
+
+.dark{
+  --focus-ring:#7DD3FC;
+}
+
 svg{
   stroke-width:2.25;
   filter:drop-shadow(0 1px 2px rgba(1, 12, 36, .24));
@@ -770,7 +787,7 @@ nav button:hover{
 
 .brainstorm-field>span{
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
   font-weight:900;
   text-transform:uppercase;
 }
@@ -2622,7 +2639,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-sidebar-profile-copy small{
   margin-top:2px;
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
 }
 
 .norium-sidebar-collapse{
@@ -2709,7 +2726,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-command-search kbd{
   border:0;
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
 }
 
 .norium-command-results{
@@ -2729,7 +2746,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-command-results-label{
   padding:8px 10px;
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
   font-weight:800;
   letter-spacing:.08em;
   text-transform:uppercase;
@@ -2774,7 +2791,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   overflow:hidden;
   margin-top:2px;
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
@@ -2825,7 +2842,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   border-radius:999px;
   background:#2782ff;
   color:#fff;
-  font-size:9px;
+  font-size:11px;
   font-weight:800;
 }
 
@@ -2853,7 +2870,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   border-radius:7px;
   background:var(--surface-hover);
   color:var(--primary);
-  font-size:10px;
+  font-size:11px;
   font-weight:800;
 }
 
@@ -2930,7 +2947,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   overflow:hidden;
   margin-top:2px;
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
   font-weight:650;
   text-overflow:ellipsis;
   white-space:nowrap;
@@ -3215,7 +3232,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   border-radius:6px;
   padding:5px 8px;
   color:var(--text-secondary);
-  font-size:9px;
+  font-size:11px;
 }
 
 .norium-today-agenda,
@@ -3258,7 +3275,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 
 .norium-today-agenda-list time{
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
 }
 
 .norium-today-agenda-list button > span:last-child{
@@ -3270,7 +3287,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-today-agenda-list strong{
   overflow:hidden;
   color:var(--text);
-  font-size:10px;
+  font-size:11px;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
@@ -3279,7 +3296,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   overflow:hidden;
   margin-top:3px;
   color:var(--text-secondary);
-  font-size:9px;
+  font-size:11px;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
@@ -3293,7 +3310,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   border:1px solid var(--border);
   border-radius:7px;
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
 }
 
 .norium-dashboard-empty{
@@ -3303,7 +3320,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   justify-content:center;
   gap:8px;
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
 }
 
 .norium-task-status-ring{
@@ -3339,7 +3356,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-task-status-copy small{
   margin-top:5px;
   color:var(--text-secondary);
-  font-size:9px;
+  font-size:11px;
 }
 
 .norium-dashboard-secondary-content{
@@ -3361,7 +3378,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-dashboard-card-label{
   margin-bottom:8px;
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
   font-weight:720;
 }
 
@@ -3405,7 +3422,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   overflow:hidden;
   margin-top:3px;
   color:var(--text-secondary);
-  font-size:9px;
+  font-size:11px;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
@@ -3444,7 +3461,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 
 .norium-next-steps small{
   color:var(--text-secondary);
-  font-size:9px;
+  font-size:11px;
 }
 
 .norium-next-steps strong{
@@ -3460,7 +3477,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   overflow:hidden;
   margin-top:4px;
   color:#2782ff;
-  font-size:9px;
+  font-size:11px;
   font-style:normal;
   text-overflow:ellipsis;
   white-space:nowrap;
@@ -3524,7 +3541,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   align-items:center;
   gap:5px;
   color:#5add66;
-  font-size:9px;
+  font-size:11px;
   font-weight:650;
   letter-spacing:0;
 }
@@ -3540,7 +3557,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-nora-portrait-copy p{
   margin-top:6px;
   color:rgba(255,255,255,.62);
-  font-size:9px;
+  font-size:11px;
 }
 
 .norium-nora-portrait-card > button{
@@ -3558,7 +3575,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   background:rgba(3,8,15,.78);
   padding:0 11px;
   color:rgba(255,255,255,.78);
-  font-size:10px;
+  font-size:11px;
   backdrop-filter:blur(9px);
 }
 
@@ -3843,7 +3860,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   border-radius:5px;
   padding:3px 7px;
   color:var(--text-secondary);
-  font-size:10px;
+  font-size:11px;
 }
 
 .norium-help-layout{
@@ -4504,7 +4521,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   gap: 12px;
   margin-bottom: 9px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size:11px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -4552,6 +4569,20 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
    precisa escalar com a largura real da pagina (cqw), nao ficar fixo em 14px. */
 .commercial-a4-page-content.commercial-rich-editor {
   font-size: max(7px, 1.76cqw);
+}
+
+/* Guias de quebra de pagina na edicao: uma linha tracejada a cada altura util de A4
+   (1123px de pagina - ~200px de cabecalho/rodape/margens). Puramente visual. */
+.commercial-a4-break-guides {
+  position: relative;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent calc(var(--a4-usable-height, 920px) - 1px),
+    color-mix(in srgb, var(--primary) 38%, transparent) calc(var(--a4-usable-height, 920px) - 1px),
+    color-mix(in srgb, var(--primary) 38%, transparent) var(--a4-usable-height, 920px)
+  );
+  background-repeat: repeat-y;
 }
 
 .commercial-a4-inline-logo {

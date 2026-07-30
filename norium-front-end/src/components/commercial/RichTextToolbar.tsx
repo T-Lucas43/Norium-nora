@@ -171,9 +171,9 @@ export default function RichTextToolbar({
         type="button"
         onClick={onWriteWithNora}
         disabled={writingWithNora}
-        className="mr-1 inline-flex h-8 items-center gap-2 rounded-md border border-cyan-400/35 bg-cyan-400/10 px-3 text-xs font-black text-cyan-300 hover:bg-cyan-400/16 disabled:opacity-60"
+        className="mr-1 inline-flex h-8 items-center gap-2 rounded-md border border-cyan-400/35 bg-cyan-400/10 px-3 text-xs font-bold text-cyan-300 hover:bg-cyan-400/16 disabled:opacity-60"
         title="Descrever uma ideia para a Nora desenvolver no documento"
-      >
+       aria-label="Descrever uma ideia para a Nora desenvolver no documento">
         <Sparkles size={14} />
         {writingWithNora ? "Escrevendo..." : "Escrever com a Nora"}
       </button>
@@ -181,9 +181,9 @@ export default function RichTextToolbar({
         <button
           type="button"
           onClick={onUndoNora}
-          className="mr-1 inline-flex h-8 items-center gap-2 rounded-md border border-blue-400/30 bg-blue-500/10 px-3 text-xs font-black text-blue-300 hover:bg-blue-500/16"
+          className="mr-1 inline-flex h-8 items-center gap-2 rounded-md border border-blue-400/30 bg-blue-500/10 px-3 text-xs font-bold text-blue-300 hover:bg-blue-500/16"
           title="Restaurar o documento para antes da última sugestão aceita"
-        >
+         aria-label="Restaurar o documento para antes da última sugestão aceita">
           <Undo2 size={14} />
           Desfazer Nora
         </button>

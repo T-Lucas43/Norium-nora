@@ -137,6 +137,10 @@ function paginateRichHtml(value: string, metrics: PageMetrics): string[] {
   // Caixa util da pagina real (ja sem padding), com a tipografia resolvida copiada da
   // pagina gabarito - o host fica fora de um container query, entao unidades cqw nao
   // resolveriam corretamente aqui.
+  // A altura NAO e fixada de proposito: com height:auto o scrollHeight devolve a altura
+  // real do conteudo. Fixar a altura faria o host vazio ja reportar scrollHeight
+  // arredondado para cima (ex.: 922 contra um limite de 921,86), quebrando pagina a cada
+  // bloco. O overflow:hidden mantem as margens dos filhos contidas na medicao.
   const host = document.createElement("div");
   host.className = "commercial-rich-editor commercial-a4-measure";
   Object.assign(host.style, {
@@ -144,7 +148,6 @@ function paginateRichHtml(value: string, metrics: PageMetrics): string[] {
     left: "-100000px",
     top: "0",
     width: `${metrics.width}px`,
-    height: `${metrics.height}px`,
     padding: "0",
     fontSize: metrics.fontSize,
     lineHeight: metrics.lineHeight,

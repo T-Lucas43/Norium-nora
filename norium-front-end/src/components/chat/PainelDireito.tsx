@@ -57,20 +57,20 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
           <div className="flex flex-col items-center py-5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-center">
             <ProfileAvatar conversa={conversaAtiva} />
             <h3 className="mt-3 font-bold text-sm px-2 truncate w-full">{conversaAtiva.contato}</h3>
-            <span className={`mt-2 inline-flex h-6 items-center rounded-full px-2 text-[10px] font-extrabold uppercase ${conversaAtiva.canal === "telegram" ? "bg-sky-500/10 text-sky-600" : "bg-emerald-500/10 text-emerald-600"}`}>
+            <span className={`mt-2 inline-flex h-6 items-center rounded-full px-2 text-xs font-extrabold uppercase ${conversaAtiva.canal === "telegram" ? "bg-sky-500/10 text-sky-600" : "bg-emerald-500/10 text-emerald-600"}`}>
               {conversaAtiva.canal}
             </span>
           </div>
 
           <div className="bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] space-y-1">
-            <p className="text-[10px] text-[var(--text-secondary)] uppercase font-bold">Recado / descricao</p>
+            <p className="text-xs text-[var(--text-secondary)] uppercase font-bold">Recado / descricao</p>
             <p className="text-xs font-medium opacity-90">
               {conversaAtiva.metadados?.descricaoGrupo || conversaAtiva.metadados?.bioRecado || "Nenhuma informacao disponivel."}
             </p>
           </div>
 
           <div className="bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] space-y-2">
-            <p className="text-[10px] text-[var(--text-secondary)] uppercase font-bold flex items-center gap-1">
+            <p className="text-xs text-[var(--text-secondary)] uppercase font-bold flex items-center gap-1">
               <ImageIcon size={12} /> Arquivos e midias ({midiasGaleria.length})
             </p>
             {midiasGaleria.length > 0 ? (
@@ -86,13 +86,13 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
                 ))}
               </div>
             ) : (
-              <p className="text-[11px] text-[var(--text-secondary)]">Nenhuma midia compartilhada recentemente.</p>
+              <p className="text-xs text-[var(--text-secondary)]">Nenhuma midia compartilhada recentemente.</p>
             )}
           </div>
 
           {conversaAtiva.esGrupo && (
             <div className="bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] space-y-2">
-              <p className="text-[10px] text-[var(--text-secondary)] uppercase font-bold">Membros ({participantes.length})</p>
+              <p className="text-xs text-[var(--text-secondary)] uppercase font-bold">Membros ({participantes.length})</p>
               <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
                 {participantes.length > 0 ? (
                   participantes.map((membro) => (
@@ -102,22 +102,22 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
                         <span className="truncate">{membro.name || membro.phone}</span>
                       </div>
                       {membro.isAdmin && (
-                        <span className="h-5 inline-flex items-center gap-1 shrink-0 rounded-md border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-1.5 text-[9px] font-extrabold text-[var(--primary)]">
+                        <span className="h-5 inline-flex items-center gap-1 shrink-0 rounded-md border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-1.5 text-xs font-extrabold text-[var(--primary)]">
                           <ShieldAlert size={10} /> Adm
                         </span>
                       )}
                     </div>
                   ))
                 ) : (
-                  <p className="text-[11px] text-[var(--text-secondary)]">Nenhum integrante mapeado.</p>
+                  <p className="text-xs text-[var(--text-secondary)]">Nenhum integrante mapeado.</p>
                 )}
               </div>
             </div>
           )}
 
           <div className="bg-[var(--background)] p-3 rounded-lg border border-[var(--border)]">
-            <p className="text-[10px] text-[var(--text-secondary)] uppercase font-bold">Identificador JID</p>
-            <p className="font-mono text-[11px] break-all select-all opacity-80">{conversaAtiva.id}</p>
+            <p className="text-xs text-[var(--text-secondary)] uppercase font-bold">Identificador JID</p>
+            <p className="font-mono text-xs break-all select-all opacity-80">{conversaAtiva.id}</p>
           </div>
         </div>
       )}

@@ -47,7 +47,7 @@ export default function ProjectsGrid({ projetos }: GridProps) {
                 {getIcon(projeto.iconType, projeto.iconColor)}
               </div>
               <div className="flex items-center gap-1">
-                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${projeto.badgeColor}`}>
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${projeto.badgeColor}`}>
                   {projeto.status}
                 </span>
                 <button className="p-1 text-[var(--secondary-foreground)] hover:text-[var(--foreground)] rounded-lg"><MoreVertical size={16} /></button>
@@ -56,12 +56,12 @@ export default function ProjectsGrid({ projetos }: GridProps) {
 
             <div className="space-y-1.5">
               <h3 className="text-sm font-bold text-[var(--foreground)] group-hover:text-blue-600 transition">{projeto.title}</h3>
-              <p className="text-[11px] text-[var(--secondary-foreground)] font-bold">Cliente: <span className="text-[var(--foreground)]">{projeto.client}</span></p>
+              <p className="text-xs text-[var(--secondary-foreground)] font-bold">Cliente: <span className="text-[var(--foreground)]">{projeto.client}</span></p>
               <p className="text-xs text-[var(--secondary-foreground)] font-medium line-clamp-2 leading-relaxed">{projeto.description}</p>
             </div>
 
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11px] font-bold">
+              <div className="flex items-center justify-between text-xs font-bold">
                 <span className="text-[var(--secondary-foreground)]">Progresso</span>
                 <span className="text-[var(--foreground)]">{projeto.progress}%</span>
               </div>
@@ -73,7 +73,7 @@ export default function ProjectsGrid({ projetos }: GridProps) {
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-1 border-t border-[var(--border)] text-[11px]">
+            <div className="flex items-center justify-between pt-1 border-t border-[var(--border)] text-xs">
               <div>
                 <p className="text-[var(--secondary-foreground)] font-bold">{projeto.status === "Concluído" ? "Concluído em" : "Prazo"}</p>
                 <p className="text-[var(--foreground)] font-bold mt-0.5">{projeto.dueDate}</p>
@@ -92,7 +92,7 @@ export default function ProjectsGrid({ projetos }: GridProps) {
             <Plus size={18} />
           </div>
           <h4 className="text-xs font-bold text-[var(--foreground)] mt-2">Criar novo projeto</h4>
-          <p className="text-[11px] text-[var(--secondary-foreground)] font-medium">Comece um novo projeto do zero</p>
+          <p className="text-xs text-[var(--secondary-foreground)] font-medium">Comece um novo projeto do zero</p>
         </div>
       </div>
     </section>

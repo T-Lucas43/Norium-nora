@@ -186,7 +186,7 @@ export default function PlatformDashboard({ session, onSessionUpdate, onNavigate
               <ShieldCheck size={22} />
             </span>
             <div className="min-w-0">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-blue-400">Operacao e governanca</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-blue-400">Operacao e governanca</p>
               <h1 className="text-2xl font-black">Plataforma Norium</h1>
               <p className="text-sm text-[var(--text-secondary)]">
                 Ambientes, atendimento, documentos, dados e seguranca em um unico controle.
@@ -743,7 +743,7 @@ function KnowledgeArea({
           >
             <Plus size={16} /> Adicionar fonte
           </button>
-          <div className="my-1 flex items-center gap-3 text-[10px] font-black uppercase text-[var(--text-secondary)]">
+          <div className="my-1 flex items-center gap-3 text-xs font-bold uppercase text-[var(--text-secondary)]">
             <span className="h-px flex-1 bg-[var(--border)]" /> ou envie um PDF <span className="h-px flex-1 bg-[var(--border)]" />
           </div>
           <label className="norium-platform-file">
@@ -929,7 +929,7 @@ function KnowledgeArea({
             <option value="zapsign">ZapSign</option>
           </select>
         </div>
-        <p className="mt-2 text-[11px] leading-5 text-[var(--text-secondary)]">
+        <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
           {signatureProvider === "manual"
             ? "Voce mesmo atualiza o status conforme o documento e assinado fora do Norium."
             : `Ainda nao ha integracao automatica com ${signatureProvider === "clicksign" ? "ClickSign" : signatureProvider === "docusign" ? "DocuSign" : "ZapSign"}. O envelope fica registrado aqui, mas voce precisa atualizar o status manualmente ate a integracao ser conectada.`}
@@ -1004,9 +1004,9 @@ function SecurityArea({
               <div key={entry.id} className="rounded-lg border border-[var(--border)] bg-black/10 px-3 py-2">
                 <div className="flex items-center justify-between gap-3">
                   <span className="min-w-0 truncate text-sm font-bold">{entry.description || entry.action || "Acao registrada"}</span>
-                  <span className="shrink-0 text-[10px] font-bold uppercase text-[var(--text-secondary)]">{entry.status || ""}</span>
+                  <span className="shrink-0 text-xs font-bold uppercase text-[var(--text-secondary)]">{entry.status || ""}</span>
                 </div>
-                <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
                   {entry.actor?.name || "Sistema"} - {entry.source || "geral"}
                 </p>
               </div>
@@ -1043,7 +1043,7 @@ function SecurityArea({
                 {permissionGroups.map((group) => (
                   <Fragment key={group.title}>
                     <tr>
-                      <td colSpan={users.length + 1} className="pb-1 pt-3 text-[10px] font-black uppercase tracking-wider text-[var(--text-secondary)]">
+                      <td colSpan={users.length + 1} className="pb-1 pt-3 text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">
                         {group.title}
                       </td>
                     </tr>
@@ -1220,7 +1220,7 @@ function CompactList({ items, empty }: { items: JsonItem[]; empty: string }) {
       {items.map((item) => (
         <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-black/10 px-3 py-2">
           <span className="min-w-0 truncate text-sm font-bold">{String(item.name || item.title || item.id)}</span>
-          <span className="shrink-0 text-[10px] font-bold uppercase text-[var(--text-secondary)]">
+          <span className="shrink-0 text-xs font-bold uppercase text-[var(--text-secondary)]">
             {String(item.status || (item.active === false ? "inativo" : "ativo"))}
           </span>
         </div>
@@ -1235,7 +1235,7 @@ function EmptyState({ text }: { text: string }) {
 
 function JsonPreview({ value }: { value: Record<string, unknown> }) {
   return (
-    <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--border)] bg-black/20 p-3 text-[11px] leading-5 text-[var(--text-secondary)]">
+    <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[var(--border)] bg-black/20 p-3 text-xs leading-5 text-[var(--text-secondary)]">
       {JSON.stringify(value, null, 2)}
     </pre>
   );

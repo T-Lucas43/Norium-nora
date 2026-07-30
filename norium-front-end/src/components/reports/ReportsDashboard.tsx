@@ -384,9 +384,9 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
     <>
       <button
         onClick={() => setCustomizerOpen(true)}
-        className="fixed left-0 top-1/2 z-30 flex -translate-y-1/2 items-center gap-2 rounded-r-xl border border-l-0 border-cyan-400/25 bg-gradient-to-b from-blue-700 to-cyan-500 px-3 py-4 text-xs font-black text-white shadow-xl shadow-blue-950/30 transition hover:translate-x-1"
+        className="fixed left-0 top-1/2 z-30 flex -translate-y-1/2 items-center gap-2 rounded-r-xl border border-l-0 border-cyan-400/25 bg-gradient-to-b from-blue-700 to-cyan-500 px-3 py-4 text-xs font-bold text-white shadow-xl shadow-blue-950/30 transition hover:translate-x-1"
         title="Gerar relatorio personalizado"
-      >
+       aria-label="Gerar relatorio personalizado">
         <PanelLeftOpen size={17} />
         <span className="[writing-mode:vertical-rl]">Relatorio</span>
       </button>
@@ -414,7 +414,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
 
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
               <label className="block">
-                <span className="text-xs font-black uppercase text-[var(--text-secondary)]">Titulo do PDF</span>
+                <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Titulo do PDF</span>
                 <input
                   value={customReport.title}
                   onChange={(event) => updateCustomReport("title", event.target.value)}
@@ -423,7 +423,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
               </label>
 
               <label className="block">
-                <span className="text-xs font-black uppercase text-[var(--text-secondary)]">Tema da exportacao</span>
+                <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Tema da exportacao</span>
                 <select
                   value={reportTheme}
                   onChange={(event) => setReportTheme(event.target.value as PdfThemeName)}
@@ -436,7 +436,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
 
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
-                  <span className="text-xs font-black uppercase text-[var(--text-secondary)]">Periodo</span>
+                  <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Periodo</span>
                   <select
                     value={customReport.period}
                     onChange={(event) => updateCustomReport("period", event.target.value as Period)}
@@ -449,7 +449,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                 </label>
 
                 <label className="block">
-                  <span className="text-xs font-black uppercase text-[var(--text-secondary)]">Canal</span>
+                  <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Canal</span>
                   <select
                     value={customReport.source}
                     onChange={(event) => updateCustomReport("source", event.target.value as ReportSource)}
@@ -466,7 +466,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
               </div>
 
               <label className="block">
-                <span className="text-xs font-black uppercase text-[var(--text-secondary)]">Eventos no PDF</span>
+                <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Eventos no PDF</span>
                 <select
                   value={customReport.eventLimit}
                   onChange={(event) => updateCustomReport("eventLimit", Number(event.target.value))}
@@ -482,7 +482,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
               <section className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <ListChecks size={17} className="text-cyan-300" />
-                  <h3 className="text-sm font-black">Secoes do relatorio</h3>
+                  <h3 className="text-sm font-bold">Secoes do relatorio</h3>
                 </div>
                 <div className="space-y-2">
                   {(Object.keys(sectionLabels) as ReportSection[]).map((section) => (
@@ -503,15 +503,15 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
               </section>
 
               <section className="rounded-xl border border-cyan-400/20 bg-cyan-400/10 p-4">
-                <p className="text-xs font-black uppercase text-cyan-200/80">Previa do recorte</p>
+                <p className="text-xs font-bold uppercase text-cyan-200/80">Previa do recorte</p>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-lg bg-[var(--surface)] p-3">
-                    <span className="block text-[11px] font-bold uppercase text-[var(--text-secondary)]">Eventos</span>
+                    <span className="block text-xs font-bold uppercase text-[var(--text-secondary)]">Eventos</span>
                     <strong className="text-xl font-black">{getEventsForConfig(customReport).length}</strong>
                   </div>
                   <div className="rounded-lg bg-[var(--surface)] p-3">
-                    <span className="block text-[11px] font-bold uppercase text-[var(--text-secondary)]">Canal</span>
-                    <strong className="text-sm font-black">{customReport.source === "all" ? "Todos" : sourceMeta[customReport.source].label}</strong>
+                    <span className="block text-xs font-bold uppercase text-[var(--text-secondary)]">Canal</span>
+                    <strong className="text-sm font-bold">{customReport.source === "all" ? "Todos" : sourceMeta[customReport.source].label}</strong>
                   </div>
                 </div>
               </section>
@@ -520,7 +520,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
             <footer className="grid gap-2 border-t border-[var(--border)] p-5">
               <button
                 onClick={() => void exportCustomPdf().catch((error) => setReportActionError(error instanceof Error ? error.message : "Falha ao gerar PDF."))}
-                className="flex h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-700 to-cyan-500 text-sm font-black text-white transition hover:brightness-110"
+                className="flex h-11 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-700 to-cyan-500 text-sm font-bold text-white transition hover:brightness-110"
               >
                 <FileText size={16} />
                 Gerar PDF personalizado
@@ -528,14 +528,14 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
               <button
                 type="button"
                 onClick={printCustomReport}
-                className="flex h-11 items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-sm font-black transition hover:bg-[var(--surface-hover)]"
+                className="flex h-11 items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-sm font-bold transition hover:bg-[var(--surface-hover)]"
               >
                 <Printer size={16} />
                 Imprimir personalizado
               </button>
               <button
                 onClick={applyCustomFiltersToScreen}
-                className="h-10 rounded-lg border border-[var(--border)] text-xs font-black text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                className="h-10 rounded-lg border border-[var(--border)] text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
               >
                 Aplicar filtros na tela
               </button>
@@ -562,7 +562,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
           <button
             type="button"
             onClick={askNoraToExplain}
-            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-4 text-xs font-black text-[var(--primary)] transition hover:bg-[var(--primary)]/20"
+            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-4 text-xs font-bold text-[var(--primary)] transition hover:bg-[var(--primary)]/20"
           >
             <Sparkles size={15} />
             Pedir a Nora para explicar
@@ -570,7 +570,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
           <button
             type="button"
             onClick={() => setCustomizerOpen(true)}
-            className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-4 text-xs font-black text-cyan-200 transition hover:bg-cyan-400/20"
+            className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-4 text-xs font-bold text-cyan-200 transition hover:bg-cyan-400/20"
           >
             <SlidersHorizontal size={15} />
             Personalizar relatorio
@@ -596,7 +596,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
           </select>
           <button
             onClick={exportCsv}
-            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-black text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
           >
             <Download size={15} />
             CSV
@@ -604,21 +604,21 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
           <button
             type="button"
             onClick={printCurrentReport}
-            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-black text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+            className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
           >
             <Printer size={15} />
             Imprimir
           </button>
           <button
             onClick={() => void exportPdf().catch((error) => setReportActionError(error instanceof Error ? error.message : "Falha ao gerar PDF."))}
-            className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-black text-white transition hover:bg-blue-500"
+            className="flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white transition hover:bg-blue-500"
           >
             <FileText size={15} />
             Gerar PDF
           </button>
           <button
             onClick={() => void exportFinancePdf().catch((error) => setReportActionError(error instanceof Error ? error.message : "Falha ao gerar PDF financeiro."))}
-            className="flex h-10 items-center gap-2 rounded-lg bg-cyan-600 px-4 text-xs font-black text-white transition hover:bg-cyan-500"
+            className="flex h-10 items-center gap-2 rounded-lg bg-cyan-600 px-4 text-xs font-bold text-white transition hover:bg-cyan-500"
           >
             <CreditCard size={15} />
             PDF financeiro
@@ -677,7 +677,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                 <div className="grid h-28 w-28 place-items-center rounded-full border-[10px] border-emerald-400/25 bg-emerald-400/10 text-center">
                   <span>
                     <strong className="block text-3xl font-black text-emerald-300">{productivity.score}%</strong>
-                    <small className="text-[10px] font-black uppercase text-[var(--text-secondary)]">indice</small>
+                    <small className="text-xs font-bold uppercase text-[var(--text-secondary)]">indice</small>
                   </span>
                 </div>
               </div>
@@ -692,7 +692,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                   ["Tarefas concluidas", productivity.completedTasks],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-                    <p className="text-[11px] font-bold uppercase text-[var(--text-secondary)]">{label}</p>
+                    <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</p>
                     <strong className="mt-1 block text-xl font-black">{value}</strong>
                   </div>
                 ))}
@@ -728,8 +728,8 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                 const saved = productivity.savedBySource[source];
                 return (
                   <div key={source} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">{sourceMeta[source].label}</span>
-                    <span className="text-sm font-black">{formatSavedTime(saved)}</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">{sourceMeta[source].label}</span>
+                    <span className="text-sm font-bold">{formatSavedTime(saved)}</span>
                   </div>
                 );
               })}
@@ -788,13 +788,13 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
             </div>
             <div className="flex items-center gap-2">
               {financeLoading && (
-                <span className="rounded-full border border-cyan-400/25 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-200">
+                <span className="rounded-full border border-cyan-400/25 bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-200">
                   Carregando
                 </span>
               )}
               <button
                 onClick={exportFinancePdf}
-                className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 text-xs font-black text-cyan-100 transition hover:bg-cyan-500/20"
+                className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 text-xs font-bold text-cyan-100 transition hover:bg-cyan-500/20"
               >
                 <FileText size={15} />
                 Gerar PDF financeiro
@@ -824,7 +824,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                     <article key={card.label} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-[11px] font-bold uppercase text-[var(--text-secondary)]">{card.label}</p>
+                          <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">{card.label}</p>
                           <strong className="mt-2 block truncate text-xl font-black">{card.value}</strong>
                         </div>
                         <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${card.color}`}>
@@ -839,7 +839,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
               <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-black">Categorias de saida</h3>
+                    <h3 className="text-sm font-bold">Categorias de saida</h3>
                     <p className="text-xs font-semibold text-[var(--text-secondary)]">Maiores volumes no periodo.</p>
                   </div>
                   <BarChart3 size={18} className="text-cyan-300" />
@@ -853,8 +853,8 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                     finance.categories.map((item) => (
                       <div key={item.category}>
                         <div className="mb-1 flex items-center justify-between gap-3">
-                          <span className="truncate text-xs font-black text-[var(--text-secondary)]">{item.category}</span>
-                          <span className="shrink-0 text-xs font-black">{money(item.amount)}</span>
+                          <span className="truncate text-xs font-bold text-[var(--text-secondary)]">{item.category}</span>
+                          <span className="shrink-0 text-xs font-bold">{money(item.amount)}</span>
                         </div>
                         <div className="h-2 overflow-hidden rounded-full bg-[var(--surface)]">
                           <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${Math.max(6, (item.amount / maxFinanceCategory) * 100)}%` }} />
@@ -877,7 +877,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
               </div>
               <button
                 onClick={() => setActiveSource("all")}
-                className={`rounded-lg px-3 py-2 text-xs font-black ${
+                className={`rounded-lg px-3 py-2 text-xs font-bold ${
                   activeSource === "all" ? "bg-blue-500 text-white" : "border border-[var(--border)] text-[var(--text-secondary)]"
                 }`}
               >
@@ -905,7 +905,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                 </div>
                 <div className="flex flex-1 flex-wrap gap-x-4 gap-y-1.5">
                   {channelChartData.map((entry) => (
-                    <span key={entry.source} className="flex items-center gap-1.5 text-[11px] font-bold text-[var(--text-secondary)]">
+                    <span key={entry.source} className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-secondary)]">
                       <span className="h-2 w-2 rounded-full" style={{ background: sourceChartColor(entry.source) }} />
                       {entry.name} · {entry.value}
                     </span>
@@ -932,9 +932,9 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                         <span className={`grid h-8 w-8 place-items-center rounded-lg ${meta.tabColor}`}>
                           <Icon size={16} />
                         </span>
-                        <span className="text-sm font-black">{meta.label}</span>
+                        <span className="text-sm font-bold">{meta.label}</span>
                       </span>
-                      <span className="text-sm font-black text-[var(--text-secondary)]">{item.count}</span>
+                      <span className="text-sm font-bold text-[var(--text-secondary)]">{item.count}</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-[var(--background)]">
                       <div className={`h-full rounded-full ${meta.color}`} style={{ width }} />
@@ -958,7 +958,7 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                       <ShieldAlert size={15} className="text-[var(--text-secondary)]" />
                       {severity}
                     </span>
-                    <span className="rounded-full bg-[var(--background)] px-3 py-1 text-xs font-black text-[var(--text-secondary)]">
+                    <span className="rounded-full bg-[var(--background)] px-3 py-1 text-xs font-bold text-[var(--text-secondary)]">
                       {count}
                     </span>
                   </div>
@@ -998,23 +998,23 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
                         <Icon size={17} />
                       </span>
                       <div className="min-w-0">
-                        <h3 className="truncate text-sm font-black">{event.title}</h3>
+                        <h3 className="truncate text-sm font-bold">{event.title}</h3>
                         <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">
                           {event.description || "Evento sem descricao"}
                         </p>
-                        <p className="mt-1 text-[11px] font-bold text-cyan-300">
+                        <p className="mt-1 text-xs font-bold text-cyan-300">
                           {impact.reason} · +{impact.savedMinutes} min
                         </p>
                         {metadataEntries.length > 0 && (
                           <details className="mt-1.5">
-                            <summary className="cursor-pointer text-[11px] font-bold text-[var(--text-secondary)] hover:text-[var(--text)]">
+                            <summary className="cursor-pointer text-xs font-bold text-[var(--text-secondary)] hover:text-[var(--text)]">
                               Detalhes ({metadataEntries.length})
                             </summary>
                             <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2.5">
                               {metadataEntries.slice(0, 8).map(([key, value]) => (
                                 <div key={key} className="contents">
-                                  <dt className="text-[10px] font-black uppercase text-[var(--text-secondary)]">{key}</dt>
-                                  <dd className="min-w-0 truncate text-[11px] font-semibold text-[var(--text)]">
+                                  <dt className="text-xs font-bold uppercase text-[var(--text-secondary)]">{key}</dt>
+                                  <dd className="min-w-0 truncate text-xs font-semibold text-[var(--text)]">
                                     {typeof value === "object" ? JSON.stringify(value) : String(value)}
                                   </dd>
                                 </div>

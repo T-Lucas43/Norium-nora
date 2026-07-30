@@ -233,7 +233,7 @@ export default function NoriumApp() {
     <div className="app-shell norium-modern-shell flex overflow-hidden bg-[var(--background)] font-sans antialiased">
       <a className="norium-skip-link" href="#norium-main">Pular para o conteudo</a>
       {simulationBackup && (
-        <div className="fixed left-1/2 top-3 z-[120] flex -translate-x-1/2 items-center gap-3 rounded-lg border border-amber-300/40 bg-amber-950/95 px-4 py-2 text-xs font-black text-amber-100 shadow-2xl">
+        <div className="fixed left-1/2 top-3 z-[120] flex -translate-x-1/2 items-center gap-3 rounded-lg border border-amber-300/40 bg-amber-950/95 px-4 py-2 text-xs font-bold text-amber-100 shadow-2xl">
           Visualizando como {currentUser?.nome || currentUser?.email}
           <button className="rounded-md bg-amber-300 px-3 py-1.5 text-amber-950" onClick={exitPermissionSimulation}>
             Encerrar simulacao

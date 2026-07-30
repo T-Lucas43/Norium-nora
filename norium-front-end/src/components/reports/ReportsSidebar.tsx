@@ -20,7 +20,7 @@ export default function ReportsSidebar({ activeReport, onSelect }: SidebarProps)
   return (
     <aside className="w-60 bg-[var(--background)] border-r border-[var(--border)] p-4 flex flex-col gap-6 shrink-0 h-full overflow-y-auto">
       <div>
-        <h3 className="text-[10px] font-bold text-[var(--secondary-foreground)] uppercase tracking-wider pl-2 mb-2">Relatórios</h3>
+        <h3 className="text-xs font-bold text-[var(--secondary-foreground)] uppercase tracking-wider pl-2 mb-2">Relatórios</h3>
         <div className="space-y-1">
           {categorias.map((item) => {
             const Icon = item.icon;
@@ -44,7 +44,7 @@ export default function ReportsSidebar({ activeReport, onSelect }: SidebarProps)
       </div>
 
       <div className="pt-2 border-t border-[var(--border)]">
-        <h3 className="text-[10px] font-bold text-[var(--secondary-foreground)] uppercase tracking-wider pl-2 mb-2">Favoritos</h3>
+        <h3 className="text-xs font-bold text-[var(--secondary-foreground)] uppercase tracking-wider pl-2 mb-2">Favoritos</h3>
         <button className="w-full h-10 border border-dashed border-[var(--border)] hover:border-blue-400 text-[var(--secondary-foreground)] hover:text-blue-600 font-semibold rounded-xl flex items-center justify-center gap-1.5 transition text-xs">
           <Plus size={14} />
           <span>Criar relatório</span>

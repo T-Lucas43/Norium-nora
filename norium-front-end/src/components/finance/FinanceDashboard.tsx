@@ -610,7 +610,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 setCreatePanel("entry");
                 setActiveView("entries");
               }}
-              className="flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-xs font-black text-white transition hover:brightness-110"
+              className="flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-xs font-bold text-white transition hover:brightness-110"
             >
               <Plus size={15} />
               Novo lancamento
@@ -620,7 +620,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 setCreatePanel("scheduled");
                 setActiveView("scheduled");
               }}
-              className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 px-4 text-xs font-black text-cyan-200 transition hover:bg-cyan-500/10"
+              className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/30 px-4 text-xs font-bold text-cyan-200 transition hover:bg-cyan-500/10"
             >
               <BellRing size={15} />
               Programar gasto
@@ -629,7 +629,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               onClick={() => void loadFinance()}
               className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
               title="Atualizar financeiro"
-            >
+             aria-label="Atualizar financeiro">
               <RefreshCw size={15} />
             </button>
           </div>
@@ -639,7 +639,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
       <main className="min-h-0 flex-1 overflow-y-auto p-6">
         {(error || notice) && (
           <div className="fixed right-6 top-24 z-50 max-w-[420px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl shadow-black/30">
-            <div className={`text-sm font-black ${error ? "text-amber-200" : "text-emerald-200"}`}>
+            <div className={`text-sm font-bold ${error ? "text-amber-200" : "text-emerald-200"}`}>
               {error ? "Algo impediu o salvamento" : "Tudo certo"}
             </div>
             <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{error || notice}</p>
@@ -659,14 +659,14 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 setActiveView(view);
                 if (view === "overview" || view === "boletos") setCreatePanel(null);
               }}
-              className={`flex h-10 shrink-0 items-center gap-2 rounded-md px-4 text-xs font-black transition ${
+              className={`flex h-10 shrink-0 items-center gap-2 rounded-md px-4 text-xs font-bold transition ${
                 activeView === view
                   ? "bg-[var(--primary)] text-white shadow-lg shadow-blue-950/20"
                   : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
               }`}
             >
               {label}
-              <span className={`rounded-full px-2 py-0.5 text-[10px] ${activeView === view ? "bg-white/15" : "bg-[var(--background)]"}`}>
+              <span className={`rounded-full px-2 py-0.5 text-xs ${activeView === view ? "bg-white/15" : "bg-[var(--background)]"}`}>
                 {count}
               </span>
             </button>
@@ -719,7 +719,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 <button
                   onClick={() => void consultarBoletos()}
                   disabled={syncingBoletos}
-                  className="flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-black text-white transition hover:brightness-110disabled:opacity-50 md:col-span-2 2xl:col-span-1"
+                  className="flex h-11 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white transition hover:brightness-110disabled:opacity-50 md:col-span-2 2xl:col-span-1"
                 >
                   <FileSearch size={16} />
                   {syncingBoletos ? "Consultando..." : "Buscar boletos"}
@@ -732,24 +732,24 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                   data.boletos.map((boleto) => (
                     <div key={boleto.id} className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_auto]">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-black">{boleto.title}</p>
+                        <p className="truncate text-sm font-bold">{boleto.title}</p>
                         <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
                           {boleto.beneficiary || "Beneficiario nao informado"} · {dateLabel(boleto.dueDate)}
                         </p>
                         {(boleto.linhaDigitavel || boleto.barcode) && (
-                          <p className="mt-1 truncate text-[11px] font-semibold text-[var(--text-secondary)]">
+                          <p className="mt-1 truncate text-xs font-semibold text-[var(--text-secondary)]">
                             Linha: {boleto.linhaDigitavel || boleto.barcode}
                           </p>
                         )}
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2">
-                        <span className="text-sm font-black text-blue-200">{money(boleto.amount)}</span>
+                        <span className="text-sm font-bold text-blue-200">{money(boleto.amount)}</span>
                         {boleto.url && (
                           <a
                             href={boleto.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex h-8 items-center gap-2 rounded-lg border border-blue-400/30 px-3 text-xs font-black text-blue-200 transition hover:bg-blue-500/10"
+                            className="inline-flex h-8 items-center gap-2 rounded-lg border border-blue-400/30 px-3 text-xs font-bold text-blue-200 transition hover:bg-blue-500/10"
                           >
                             <ExternalLink size={14} />
                             Abrir boleto
@@ -790,8 +790,8 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                       <span className="min-w-0">
                         <span className="flex min-w-0 items-center gap-2">
                           {item.type === "entrada" ? <TrendingUp size={15} className="text-emerald-300" /> : <TrendingDown size={15} className="text-rose-300" />}
-                          <strong className="truncate text-sm font-black">{item.title}</strong>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${item.status === "pago" ? "bg-emerald-500/10 text-emerald-200" : "bg-amber-500/10 text-amber-200"}`}>
+                          <strong className="truncate text-sm font-bold">{item.title}</strong>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${item.status === "pago" ? "bg-emerald-500/10 text-emerald-200" : "bg-amber-500/10 text-amber-200"}`}>
                             {item.status}
                           </span>
                         </span>
@@ -799,7 +799,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                           {item.category} · {dateLabel(item.dueDate)} · {item.attachments.length} anexo(s)
                         </span>
                       </span>
-                      <span className={`text-sm font-black ${item.type === "entrada" ? "text-emerald-200" : "text-rose-200"}`}>
+                      <span className={`text-sm font-bold ${item.type === "entrada" ? "text-emerald-200" : "text-rose-200"}`}>
                         {item.type === "entrada" ? "+" : "-"} {money(item.amount)}
                       </span>
                     </button>
@@ -808,7 +808,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                         <button
                           onClick={() => void payLancamento(item)}
                           disabled={payingLancamentoId === item.id}
-                          className="flex h-8 items-center gap-1 rounded-lg bg-emerald-600 px-2 text-[11px] font-black text-white hover:bg-emerald-500 disabled:opacity-50"
+                          className="flex h-8 items-center gap-1 rounded-lg bg-emerald-600 px-2 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
                         >
                           <CheckCircle2 size={13} />
                           {payingLancamentoId === item.id ? "Registrando..." : "Marcar como pago"}
@@ -816,14 +816,14 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                       )}
                       <button
                         onClick={() => selectLancamento(item)}
-                        className="flex h-8 items-center gap-1 rounded-lg border border-blue-400/25 px-2 text-[11px] font-black text-blue-100 hover:bg-blue-500/10"
+                        className="flex h-8 items-center gap-1 rounded-lg border border-blue-400/25 px-2 text-xs font-bold text-blue-100 hover:bg-blue-500/10"
                       >
                         <Eye size={13} />
                         Visualizar
                       </button>
                       <button
                         onClick={() => startEditLancamento(item)}
-                        className="flex h-8 items-center gap-1 rounded-lg border border-cyan-400/25 px-2 text-[11px] font-black text-cyan-100 hover:bg-cyan-500/10"
+                        className="flex h-8 items-center gap-1 rounded-lg border border-cyan-400/25 px-2 text-xs font-bold text-cyan-100 hover:bg-cyan-500/10"
                       >
                         <Edit3 size={13} />
                         Editar
@@ -831,7 +831,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                       <button
                         onClick={() => openAttachmentPicker(item)}
                         disabled={uploadingAttachments}
-                        className="flex h-8 items-center gap-1 rounded-lg border border-blue-400/25 px-2 text-[11px] font-black text-blue-100 hover:bg-blue-500/10 disabled:opacity-50"
+                        className="flex h-8 items-center gap-1 rounded-lg border border-blue-400/25 px-2 text-xs font-bold text-blue-100 hover:bg-blue-500/10 disabled:opacity-50"
                       >
                         <Paperclip size={13} />
                         Anexar
@@ -841,7 +841,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                           selectLancamento(item);
                           setDeleteConfirmId(item.id);
                         }}
-                        className="flex h-8 items-center gap-1 rounded-lg border border-rose-400/25 px-2 text-[11px] font-black text-rose-100 hover:bg-rose-500/10"
+                        className="flex h-8 items-center gap-1 rounded-lg border border-rose-400/25 px-2 text-xs font-bold text-rose-100 hover:bg-rose-500/10"
                       >
                         <Trash2 size={13} />
                         Excluir
@@ -867,7 +867,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     <article key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <h3 className="truncate text-sm font-black">{item.title}</h3>
+                          <h3 className="truncate text-sm font-bold">{item.title}</h3>
                           <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
                             {item.category} · {item.frequency}
                           </p>
@@ -888,7 +888,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                         <button
                           onClick={() => void payProgramado(item)}
                           disabled={!item.active || payingProgramadoId === item.id}
-                          className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white hover:bg-emerald-500 disabled:opacity-45"
+                          className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-45"
                         >
                           <CheckCircle2 size={14} />
                           {payingProgramadoId === item.id ? "Registrando..." : "Marcar como pago"}
@@ -897,7 +897,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                           onClick={() => void deleteProgramado(item.id)}
                           className="grid h-9 w-9 place-items-center rounded-lg border border-rose-400/25 text-rose-200 hover:bg-rose-500/10"
                           title="Excluir gasto programado"
-                        >
+                         aria-label="Excluir gasto programado">
                           <Trash2 size={14} />
                         </button>
                       </div>
@@ -915,7 +915,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               <h2 className="flex items-center gap-2 text-base font-black">
                 <Plus size={18} className="text-blue-300" />
                 Novo lancamento
-                <button onClick={() => setCreatePanel(null)} className="ml-auto grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]" title="Fechar formulario">
+                <button onClick={() => setCreatePanel(null)} className="ml-auto grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]" title="Fechar formulario" aria-label="Fechar formulario">
                   <X size={15} />
                 </button>
               </h2>
@@ -944,7 +944,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 <button
                   onClick={() => void createLancamento()}
                   disabled={creatingLancamento || !lancamentoForm.title.trim() || !lancamentoForm.amount}
-                  className="h-11 w-full rounded-lg bg-[var(--primary)] text-sm font-black text-white transition hover:brightness-110disabled:opacity-45"
+                  className="h-11 w-full rounded-lg bg-[var(--primary)] text-sm font-bold text-white transition hover:brightness-110disabled:opacity-45"
                 >
                   {creatingLancamento ? "Salvando..." : "Criar lancamento"}
                 </button>
@@ -957,7 +957,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               <h2 className="flex items-center gap-2 text-base font-black">
                 <BellRing size={18} className="text-cyan-300" />
                 Programar gasto fixo
-                <button onClick={() => setCreatePanel(null)} className="ml-auto grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]" title="Fechar formulario">
+                <button onClick={() => setCreatePanel(null)} className="ml-auto grid h-8 w-8 place-items-center rounded-md hover:bg-[var(--surface-hover)]" title="Fechar formulario" aria-label="Fechar formulario">
                   <X size={15} />
                 </button>
               </h2>
@@ -980,7 +980,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 <button
                   onClick={() => void createProgramado()}
                   disabled={creatingProgramado || !programadoForm.title.trim() || !programadoForm.amount}
-                  className="h-11 w-full rounded-lg bg-cyan-600 text-sm font-black text-white transition hover:bg-cyan-500 disabled:opacity-45"
+                  className="h-11 w-full rounded-lg bg-cyan-600 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:opacity-45"
                 >
                   {creatingProgramado ? "Salvando..." : "Programar lembrete"}
                 </button>
@@ -998,7 +998,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                   <EmptyLine text="Nenhum pagamento proximo." />
                 ) : data.lembretes.map((item) => (
                   <div key={item.id} className="px-5 py-4">
-                    <p className="text-sm font-black">{item.title}</p>
+                    <p className="text-sm font-bold">{item.title}</p>
                     <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
                       {money(item.amount)} · {dateLabel(item.dueDate)} · {item.daysUntil < 0 ? "vencido" : `${item.daysUntil} dia(s)`}
                     </p>
@@ -1020,8 +1020,8 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                   <div key={item.id} className="grid gap-3 px-5 py-4">
                     <div className="min-w-0">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="truncate text-sm font-black">{item.title}</p>
-                        <span className="text-xs font-black text-blue-200">{money(item.amount)}</span>
+                        <p className="truncate text-sm font-bold">{item.title}</p>
+                        <span className="text-xs font-bold text-blue-200">{money(item.amount)}</span>
                       </div>
                       <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
                         {item.frequency} · {dateLabel(item.nextDueDate)} · avisar {item.remindDaysBefore} dia(s) antes
@@ -1031,7 +1031,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                       <button
                         onClick={() => void payProgramado(item)}
                         disabled={!item.active || payingProgramadoId === item.id}
-                        className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-400/25 px-3 text-xs font-black text-emerald-200 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-45"
+                        className="flex h-9 flex-1 items-center justify-center gap-2 rounded-lg border border-emerald-400/25 px-3 text-xs font-bold text-emerald-200 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-45"
                       >
                         <CheckCircle2 size={14} />
                         {payingProgramadoId === item.id ? "Registrando..." : "Marcar como pago"}
@@ -1040,7 +1040,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                         onClick={() => void deleteProgramado(item.id)}
                         className="grid h-9 w-9 place-items-center rounded-lg border border-rose-400/25 text-rose-200 hover:bg-rose-500/10"
                         title="Excluir gasto programado"
-                      >
+                       aria-label="Excluir gasto programado">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -1066,24 +1066,24 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => startEditLancamento(selected)}
-                  className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/25 px-3 text-xs font-black text-cyan-100 hover:bg-cyan-500/10"
+                  className="flex h-10 items-center gap-2 rounded-lg border border-cyan-400/25 px-3 text-xs font-bold text-cyan-100 hover:bg-cyan-500/10"
                 >
                   <Edit3 size={15} />
                   Editar
                 </button>
-                <button onClick={() => void patchLancamento(selected.id, { status: "pago" })} className="flex h-10 items-center gap-2 rounded-lg border border-emerald-400/25 px-3 text-xs font-black text-emerald-200 hover:bg-emerald-500/10">
+                <button onClick={() => void patchLancamento(selected.id, { status: "pago" })} className="flex h-10 items-center gap-2 rounded-lg border border-emerald-400/25 px-3 text-xs font-bold text-emerald-200 hover:bg-emerald-500/10">
                   <CheckCircle2 size={15} />
                   Marcar pago
                 </button>
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingAttachments}
-                  className="flex h-10 items-center gap-2 rounded-lg border border-blue-400/25 px-3 text-xs font-black text-blue-200 hover:bg-blue-500/10 disabled:opacity-50"
+                  className="flex h-10 items-center gap-2 rounded-lg border border-blue-400/25 px-3 text-xs font-bold text-blue-200 hover:bg-blue-500/10 disabled:opacity-50"
                 >
                   <FileUp size={15} />
                   {uploadingAttachments ? "Anexando..." : "Anexar documentos"}
                 </button>
-                <button onClick={() => setDeleteConfirmId(selected.id)} className="flex h-10 items-center gap-2 rounded-lg border border-rose-400/25 px-3 text-xs font-black text-rose-200 hover:bg-rose-500/10">
+                <button onClick={() => setDeleteConfirmId(selected.id)} className="flex h-10 items-center gap-2 rounded-lg border border-rose-400/25 px-3 text-xs font-bold text-rose-200 hover:bg-rose-500/10">
                   <Trash2 size={15} />
                   Excluir
                 </button>
@@ -1095,7 +1095,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                   }}
                   className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
                   title="Fechar visualizacao"
-                >
+                 aria-label="Fechar visualizacao">
                   <X size={16} />
                 </button>
               </div>
@@ -1117,7 +1117,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               <div className="mt-4 rounded-lg border border-rose-400/25 bg-rose-500/10 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-black text-rose-100">Excluir lancamento?</h3>
+                    <h3 className="text-sm font-bold text-rose-100">Excluir lancamento?</h3>
                     <p className="mt-1 text-xs font-semibold text-rose-100/70">
                       Esta acao remove o lancamento financeiro da base persistida.
                     </p>
@@ -1125,13 +1125,13 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                   <div className="flex gap-2">
                     <button
                       onClick={() => setDeleteConfirmId(null)}
-                      className="h-9 rounded-lg border border-[var(--border)] px-3 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                      className="h-9 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
                     >
                       Cancelar
                     </button>
                     <button
                       onClick={() => void deleteLancamento(selected.id)}
-                      className="h-9 rounded-lg bg-rose-600 px-3 text-xs font-black text-white hover:bg-rose-500"
+                      className="h-9 rounded-lg bg-rose-600 px-3 text-xs font-bold text-white hover:bg-rose-500"
                     >
                       Confirmar exclusao
                     </button>
@@ -1144,7 +1144,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
               <div className="mt-5 rounded-lg border border-cyan-400/25 bg-cyan-500/5 p-4">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-black">Editar lancamento</h3>
+                    <h3 className="text-sm font-bold">Editar lancamento</h3>
                     <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">
                       Atualize valor, categoria, vencimento, status e descricao.
                     </p>
@@ -1153,41 +1153,41 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     onClick={cancelEditLancamento}
                     className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
                     title="Cancelar edicao"
-                  >
+                   aria-label="Cancelar edicao">
                     <X size={16} />
                   </button>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="md:col-span-2">
-                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Titulo</span>
+                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Titulo</span>
                     <input value={editForm.title} onChange={(event) => setEditForm({ ...editForm, title: event.target.value })} className="field mt-1" />
                   </label>
                   <label>
-                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Tipo</span>
+                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Tipo</span>
                     <Select value={editForm.type} onChange={(value) => setEditForm({ ...editForm, type: value as EntryType })}>
                       <option value="saida">Saida</option>
                       <option value="entrada">Entrada</option>
                     </Select>
                   </label>
                   <label>
-                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Valor</span>
+                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Valor</span>
                     <input value={editForm.amount} onChange={(event) => setEditForm({ ...editForm, amount: event.target.value })} className="field mt-1" />
                   </label>
                   <label>
-                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Categoria</span>
+                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Categoria</span>
                     <input value={editForm.category} onChange={(event) => setEditForm({ ...editForm, category: event.target.value })} className="field mt-1" />
                   </label>
                   <label>
-                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Metodo</span>
+                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Metodo</span>
                     <input value={editForm.method} onChange={(event) => setEditForm({ ...editForm, method: event.target.value })} className="field mt-1" />
                   </label>
                   <label>
-                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Vencimento</span>
+                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Vencimento</span>
                     <input type="date" value={editForm.dueDate} onChange={(event) => setEditForm({ ...editForm, dueDate: event.target.value })} className="field mt-1" />
                   </label>
                   <label>
-                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Status</span>
+                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Status</span>
                     <Select value={editForm.status} onChange={(value) => setEditForm({ ...editForm, status: value as EntryStatus })}>
                       <option value="pendente">Pendente</option>
                       <option value="pago">Pago</option>
@@ -1195,7 +1195,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     </Select>
                   </label>
                   <label className="md:col-span-2">
-                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Descricao</span>
+                    <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Descricao</span>
                     <textarea
                       value={editForm.description}
                       onChange={(event) => setEditForm({ ...editForm, description: event.target.value })}
@@ -1209,14 +1209,14 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                   <button
                     onClick={() => void saveEditLancamento()}
                     disabled={savingEdit}
-                    className="flex h-10 items-center gap-2 rounded-lg bg-cyan-600 px-4 text-xs font-black text-white transition hover:bg-cyan-500 disabled:opacity-50"
+                    className="flex h-10 items-center gap-2 rounded-lg bg-cyan-600 px-4 text-xs font-bold text-white transition hover:bg-cyan-500 disabled:opacity-50"
                   >
                     <Save size={15} />
                     {savingEdit ? "Salvando..." : "Salvar alteracoes"}
                   </button>
                   <button
                     onClick={cancelEditLancamento}
-                    className="h-10 rounded-lg border border-[var(--border)] px-4 text-xs font-black text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+                    className="h-10 rounded-lg border border-[var(--border)] px-4 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
                   >
                     Cancelar
                   </button>
@@ -1228,19 +1228,19 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{selected.description || "Sem descricao."}</p>
                 <div className="mt-4 grid gap-3 text-sm md:grid-cols-4">
                   <div>
-                    <p className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Valor</p>
+                    <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Valor</p>
                     <strong className={selected.type === "entrada" ? "text-emerald-200" : "text-rose-200"}>{money(selected.amount)}</strong>
                   </div>
                   <div>
-                    <p className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Metodo</p>
+                    <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Metodo</p>
                     <strong>{selected.method || "Nao informado"}</strong>
                   </div>
                   <div>
-                    <p className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Pago em</p>
+                    <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Pago em</p>
                     <strong>{dateLabel(selected.paidAt)}</strong>
                   </div>
                   <div>
-                    <p className="text-[11px] font-black uppercase text-[var(--text-secondary)]">Origem</p>
+                    <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Origem</p>
                     <strong>{selected.source || "manual"}</strong>
                   </div>
                 </div>
@@ -1254,7 +1254,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     <FileText size={18} />
                   </span>
                   <div>
-                    <h3 className="text-sm font-black">Documentos do lancamento</h3>
+                    <h3 className="text-sm font-bold">Documentos do lancamento</h3>
                     <p className="text-xs font-semibold text-[var(--text-secondary)]">
                       Comprovantes, notas fiscais, boletos, recibos, XML, OFX, planilhas e imagens.
                     </p>
@@ -1263,7 +1263,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingAttachments}
-                  className="flex h-9 items-center gap-2 rounded-lg bg-[var(--primary)] px-3 text-xs font-black text-white transition hover:brightness-110disabled:opacity-50"
+                  className="flex h-9 items-center gap-2 rounded-lg bg-[var(--primary)] px-3 text-xs font-bold text-white transition hover:brightness-110disabled:opacity-50"
                 >
                   <Paperclip size={14} />
                   Adicionar arquivos
@@ -1284,7 +1284,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     <Paperclip size={14} className="shrink-0 text-blue-300" />
                     <span className="min-w-0">
                       <span className="block truncate">{item.name}</span>
-                      <span className="mt-0.5 block truncate text-[10px] font-semibold text-[var(--text-secondary)]">
+                      <span className="mt-0.5 block truncate text-xs font-semibold text-[var(--text-secondary)]">
                         {item.mimeType || "arquivo"} · {fileSizeLabel(item.size)}
                       </span>
                     </span>
@@ -1293,14 +1293,14 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     <button
                       type="button"
                       onClick={() => void openWithAuth(item.url)}
-                      className="flex h-8 items-center justify-center rounded-lg border border-blue-400/25 text-[11px] font-black text-blue-100 hover:bg-blue-500/10"
+                      className="flex h-8 items-center justify-center rounded-lg border border-blue-400/25 text-xs font-bold text-blue-100 hover:bg-blue-500/10"
                     >
                       Abrir
                     </button>
                     <button
                       type="button"
                       onClick={() => void downloadWithAuth(item.url, item.name)}
-                      className="flex h-8 items-center justify-center gap-1 rounded-lg bg-[var(--primary)] text-[11px] font-black text-white hover:brightness-110"
+                      className="flex h-8 items-center justify-center gap-1 rounded-lg bg-[var(--primary)] text-xs font-bold text-white hover:brightness-110"
                     >
                       <Download size={13} />
                       Baixar
@@ -1308,7 +1308,7 @@ export default function FinanceDashboard({ userId = "lucas123" }: { userId?: str
                     <button
                       onClick={() => void removeAttachment(item)}
                       disabled={removingAttachmentId === item.id}
-                      className="flex h-8 items-center justify-center gap-1 rounded-lg border border-rose-400/25 text-[11px] font-black text-rose-100 hover:bg-rose-500/10 disabled:opacity-50"
+                      className="flex h-8 items-center justify-center gap-1 rounded-lg border border-rose-400/25 text-xs font-bold text-rose-100 hover:bg-rose-500/10 disabled:opacity-50"
                     >
                       <Trash2 size={13} />
                       {removingAttachmentId === item.id ? "..." : "Remover"}

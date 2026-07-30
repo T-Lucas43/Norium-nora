@@ -117,7 +117,7 @@ function EventChip({ evento, dense = false }: { evento: Evento; dense?: boolean 
     <div className={`min-w-0 rounded-md border-l-4 px-2.5 py-2 text-left shadow-sm ${evento.colorClass}`}>
       <div className="flex min-w-0 items-center gap-1.5">
         {evento.meetLink && <Video size={13} className="shrink-0" />}
-        <span className={`${dense ? "text-[13px]" : "text-sm"} truncate font-black leading-4`}>{evento.title}</span>
+        <span className={`${dense ? "text-sm" : "text-sm"} truncate font-bold leading-4`}>{evento.title}</span>
       </div>
       {!dense && (
         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-bold opacity-85">
@@ -180,7 +180,7 @@ export default function AgendaTimeline({
           const hourEvents = timed.filter((evento) => eventHour(evento) === hour);
           return (
             <div key={hour} className="grid min-h-20 grid-cols-[72px_1fr] border-b border-[var(--border)]">
-              <div className="pr-3 pt-2 text-right text-[11px] font-bold text-[var(--text-secondary)]">{formatHour(hour)}</div>
+              <div className="pr-3 pt-2 text-right text-xs font-bold text-[var(--text-secondary)]">{formatHour(hour)}</div>
               <div className="space-y-2 border-l border-[var(--border)] p-2">
                 {hourEvents.map((evento) => <EventChip key={evento.id} evento={evento} />)}
               </div>
@@ -206,7 +206,7 @@ export default function AgendaTimeline({
                 onClick={() => setDataSelecionada(day)}
                 className={`border-l border-[var(--border)] px-2 py-3 text-center hover:bg-[var(--surface-hover)] ${key === todayKey ? "text-[var(--primary)]" : ""}`}
               >
-                <p className="text-[11px] font-bold uppercase text-[var(--text-secondary)]">{weekLabels[day.getDay()]}</p>
+                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">{weekLabels[day.getDay()]}</p>
                 <p className={`mx-auto mt-1 grid h-8 w-8 place-items-center rounded-full text-sm font-bold ${key === todayKey ? "bg-[var(--primary)] text-white" : ""}`}>
                   {day.getDate()}
                 </p>
@@ -216,7 +216,7 @@ export default function AgendaTimeline({
         </div>
         {hours.map((hour) => (
           <div key={hour} className="grid min-h-24 grid-cols-[64px_repeat(7,minmax(120px,1fr))] border-b border-[var(--border)]">
-            <div className="pr-2 pt-2 text-right text-[11px] font-bold text-[var(--text-secondary)]">{formatHour(hour)}</div>
+            <div className="pr-2 pt-2 text-right text-xs font-bold text-[var(--text-secondary)]">{formatHour(hour)}</div>
             {days.map((day) => {
               const key = formatDateKey(day);
               const hourEvents = eventsForDate(eventos, key).filter((evento) => evento.allDay || eventHour(evento) === hour);
@@ -235,7 +235,7 @@ export default function AgendaTimeline({
   const renderMonth = () => (
     <div className="grid min-h-full min-w-[920px] grid-cols-7 border-l border-t border-[var(--border)]">
       {weekLabels.map((label) => (
-        <div key={label} className="border-b border-r border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-center text-[11px] font-bold uppercase text-[var(--text-secondary)]">
+        <div key={label} className="border-b border-r border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-center text-xs font-bold uppercase text-[var(--text-secondary)]">
           {label}
         </div>
       ))}
@@ -254,7 +254,7 @@ export default function AgendaTimeline({
             </span>
             <div className="space-y-1">
               {dayEvents.slice(0, 4).map((evento) => <EventChip key={evento.id} evento={evento} dense />)}
-              {dayEvents.length > 4 && <p className="text-[11px] font-bold text-[var(--primary)]">+{dayEvents.length - 4} mais</p>}
+              {dayEvents.length > 4 && <p className="text-xs font-bold text-[var(--primary)]">+{dayEvents.length - 4} mais</p>}
             </div>
           </button>
         );
@@ -271,10 +271,10 @@ export default function AgendaTimeline({
             <button onClick={() => { setDataSelecionada(monthDate); setViewMode("Mês"); }} className="mb-3 text-sm font-bold hover:text-[var(--primary)]">
               {month}
             </button>
-            <div className="grid grid-cols-7 text-center text-[10px] font-bold text-[var(--text-secondary)]">
+            <div className="grid grid-cols-7 text-center text-xs font-bold text-[var(--text-secondary)]">
               {weekLabels.map((label) => <span key={`${month}-${label}`}>{label[0]}</span>)}
             </div>
-            <div className="mt-1 grid grid-cols-7 gap-y-1 text-center text-[11px]">
+            <div className="mt-1 grid grid-cols-7 gap-y-1 text-center text-xs">
               {monthGrid(monthDate).map((day) => {
                 const key = formatDateKey(day);
                 const count = eventsForDate(eventos, key).length;
@@ -313,7 +313,7 @@ export default function AgendaTimeline({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className={`hidden rounded-full px-2 py-1 text-[11px] font-bold md:inline-flex ${status.connected ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-300"}`}>
+          <span className={`hidden rounded-full px-2 py-1 text-xs font-bold md:inline-flex ${status.connected ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-300"}`}>
             {status.connected ? "Google em tempo real" : "Modo local"}
           </span>
           <button onClick={onRefresh} className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)]">
@@ -359,7 +359,7 @@ export default function AgendaTimeline({
         {viewMode === "Ano" && renderYear()}
       </div>
 
-      <div className="flex h-9 shrink-0 items-center justify-between border-t border-[var(--border)] bg-[var(--surface)] px-4 text-[11px] font-semibold text-[var(--text-secondary)]">
+      <div className="flex h-9 shrink-0 items-center justify-between border-t border-[var(--border)] bg-[var(--surface)] px-4 text-xs font-semibold text-[var(--text-secondary)]">
         <span>{eventos.length} eventos carregados</span>
         <span className="inline-flex items-center gap-1">
           {status.connected && <ExternalLink size={12} />}

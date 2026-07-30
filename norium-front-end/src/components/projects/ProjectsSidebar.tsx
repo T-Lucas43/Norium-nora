@@ -43,7 +43,7 @@ export default function ProjectsSidebar({ activeFilter, setActiveFilter, projeto
                 <Icon size={16} className={isActive ? "text-blue-600" : "text-[var(--secondary-foreground)]"} />
                 <span>{cat.name}</span>
               </div>
-              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${isActive ? "bg-blue-200/20" : "bg-[var(--card-background)] text-[var(--secondary-foreground)]"}`}>
+              <span className={`px-2 py-0.5 rounded-md text-xs font-bold ${isActive ? "bg-blue-200/20" : "bg-[var(--card-background)] text-[var(--secondary-foreground)]"}`}>
                 {cat.count}
               </span>
             </button>
@@ -69,19 +69,19 @@ export default function ProjectsSidebar({ activeFilter, setActiveFilter, projeto
         <div className="grid grid-cols-2 gap-2 text-center text-[var(--foreground)]">
           <div className="bg-[var(--card-background)] border border-[var(--border)] p-2 rounded-xl">
             <p className="text-lg font-bold text-[var(--foreground)] leading-none">{projetos.length}</p>
-            <p className="text-[9px] text-[var(--secondary-foreground)] font-bold mt-1">Total</p>
+            <p className="text-xs text-[var(--secondary-foreground)] font-bold mt-1">Total</p>
           </div>
           <div className="bg-blue-500/10 border border-blue-500/20 p-2 rounded-xl">
             <p className="text-lg font-bold text-blue-500 leading-none">{count("Em andamento")}</p>
-            <p className="text-[9px] text-blue-400 font-bold mt-1">Em andamento</p>
+            <p className="text-xs text-blue-400 font-bold mt-1">Em andamento</p>
           </div>
           <div className="bg-sky-500/10 border border-sky-500/20 p-2 rounded-xl">
             <p className="text-lg font-bold text-sky-500 leading-none">{count("Planejamento")}</p>
-            <p className="text-[9px] text-sky-400 font-bold mt-1">Planejamento</p>
+            <p className="text-xs text-sky-400 font-bold mt-1">Planejamento</p>
           </div>
           <div className="bg-emerald-500/10 border border-emerald-500/20 p-2 rounded-xl">
             <p className="text-lg font-bold text-emerald-500 leading-none">{count("Concluído")}</p>
-            <p className="text-[9px] text-emerald-400 font-bold mt-1">Concluídos</p>
+            <p className="text-xs text-emerald-400 font-bold mt-1">Concluídos</p>
           </div>
         </div>
       </div>

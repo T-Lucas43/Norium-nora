@@ -123,13 +123,13 @@ export default function SidebarEsquerda({
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-[var(--text)]">Conversas</h2>
           <div className="flex items-center gap-1 text-[var(--text)]">
-            <button onClick={onAbrirModalContatos} title="Novo chat" className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg">
+            <button onClick={onAbrirModalContatos} title="Novo chat" className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg" aria-label="Novo chat">
               <PlusCircle size={18} />
             </button>
-            <button onClick={onAbrirModalCriarGrupo} title="Criar grupo" className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg">
+            <button onClick={onAbrirModalCriarGrupo} title="Criar grupo" className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg" aria-label="Criar grupo">
               <Users size={18} />
             </button>
-            <button onClick={onAbrirConfigPropria} title="Configuracoes" className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg">
+            <button onClick={onAbrirConfigPropria} title="Configuracoes" className="h-9 w-9 flex items-center justify-center hover:bg-[var(--surface-hover)] rounded-lg" aria-label="Configuracoes">
               <Settings size={18} />
             </button>
           </div>
@@ -192,7 +192,7 @@ export default function SidebarEsquerda({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-sm truncate text-[var(--text)]">{chat.contato}</span>
-                  <span className={`text-[11px] shrink-0 ${unread > 0 ? "text-emerald-600 font-bold" : "text-[var(--text-secondary)]"}`}>{chat.horario}</span>
+                  <span className={`text-xs shrink-0 ${unread > 0 ? "text-emerald-600 font-bold" : "text-[var(--text-secondary)]"}`}>{chat.horario}</span>
                 </div>
 
                 <div className="mt-1 flex items-center gap-1.5 min-w-0">
@@ -201,13 +201,13 @@ export default function SidebarEsquerda({
                   <span className={`text-xs truncate ${unread > 0 ? "text-[var(--text)] font-semibold" : "text-[var(--text-secondary)]"}`}>{chat.ultimoTexto || "Sem mensagens recentes"}</span>
                 </div>
 
-                <span className={`mt-1 inline-flex h-5 items-center rounded-full px-2 text-[10px] font-bold uppercase ${canal === "telegram" ? "bg-sky-500/10 text-sky-600" : "bg-emerald-500/10 text-emerald-600"}`}>
+                <span className={`mt-1 inline-flex h-5 items-center rounded-full px-2 text-xs font-bold uppercase ${canal === "telegram" ? "bg-sky-500/10 text-sky-600" : "bg-emerald-500/10 text-emerald-600"}`}>
                   {canal}
                 </span>
               </div>
 
               {unread > 0 && (
-                <div className="absolute right-10 bottom-4 h-5 min-w-5 px-1.5 bg-emerald-500 rounded-full flex items-center justify-center text-[10px] font-extrabold text-white">
+                <div className="absolute right-10 bottom-4 h-5 min-w-5 px-1.5 bg-emerald-500 rounded-full flex items-center justify-center text-xs font-extrabold text-white">
                   {unread > 99 ? "99+" : unread}
                 </div>
               )}

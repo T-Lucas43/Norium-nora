@@ -230,7 +230,7 @@ function MiniInboxPanel({
             <Icon size={19} />
           </span>
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-black text-[var(--text)]">{config.title}</h2>
+            <h2 className="truncate text-sm font-bold text-[var(--text)]">{config.title}</h2>
             <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{config.subtitle}</p>
           </div>
         </div>
@@ -240,13 +240,13 @@ function MiniInboxPanel({
             value={size}
             onChange={(event) => onSizeChange(event.target.value as PanelSize)}
             onClick={(event) => event.stopPropagation()}
-            className="h-7 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-[11px] font-black outline-none"
+            className="h-7 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none"
           >
             <option value="compacto">P</option>
             <option value="medio">M</option>
             <option value="amplo">G</option>
           </select>
-          <span className="grid h-7 min-w-7 place-items-center rounded-full border border-[var(--border)] px-2 text-xs font-black text-[var(--text-secondary)]">
+          <span className="grid h-7 min-w-7 place-items-center rounded-full border border-[var(--border)] px-2 text-xs font-bold text-[var(--text-secondary)]">
             {events.length}
           </span>
           <button
@@ -270,7 +270,7 @@ function MiniInboxPanel({
             <span className={`mb-3 grid h-12 w-12 place-items-center rounded-lg ${config.accentClassName}`}>
               <Icon size={22} />
             </span>
-            <h3 className="text-sm font-black text-[var(--text)]">{config.emptyTitle}</h3>
+            <h3 className="text-sm font-bold text-[var(--text)]">{config.emptyTitle}</h3>
             <p className="mt-1 max-w-[260px] text-xs font-semibold leading-5 text-[var(--text-secondary)]">
               {config.emptyDescription}
             </p>
@@ -280,8 +280,8 @@ function MiniInboxPanel({
             {visibleEvents.map((event) => (
               <article key={event.id} className="px-4 py-3 transition hover:bg-[var(--surface-hover)]">
                 <div className="flex min-w-0 items-start justify-between gap-3">
-                  <h3 className="min-w-0 truncate text-sm font-black text-[var(--text)]">{event.title}</h3>
-                  <time className="shrink-0 text-[11px] font-bold text-[var(--text-secondary)]">
+                  <h3 className="min-w-0 truncate text-sm font-bold text-[var(--text)]">{event.title}</h3>
+                  <time className="shrink-0 text-xs font-bold text-[var(--text-secondary)]">
                     {formatEventTime(event.timestamp)}
                   </time>
                 </div>
@@ -409,7 +409,7 @@ export default function InboxUniversal({ eventsBySource, connected, onRefresh }:
             onClick={onRefresh}
             className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
             title="Atualizar Inbox"
-          >
+           aria-label="Atualizar Inbox">
             <RefreshCw size={17} />
           </button>
         </div>
@@ -418,7 +418,7 @@ export default function InboxUniversal({ eventsBySource, connected, onRefresh }:
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
         {hiddenPanels.length > 0 && (
           <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
-            <span className="text-xs font-black uppercase text-[var(--text-secondary)]">Adicionar mini tela</span>
+            <span className="text-xs font-bold uppercase text-[var(--text-secondary)]">Adicionar mini tela</span>
             {hiddenPanels.map((panel) => (
               <button
                 key={panel.source}

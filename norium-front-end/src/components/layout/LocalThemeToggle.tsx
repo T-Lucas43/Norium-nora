@@ -37,7 +37,7 @@ export default function LocalThemeToggle({ storageKey, label = "Tema", defaultTh
   return (
     <button
       onClick={toggleTheme}
-      className="flex h-11 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-black text-[var(--text)] shadow-sm transition hover:bg-[var(--surface-hover)]"
+      className="flex h-11 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text)] shadow-sm transition hover:bg-[var(--surface-hover)]"
       aria-label={`Alternar ${label}`}
       title={`Alternar ${label}`}
     >

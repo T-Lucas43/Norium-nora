@@ -193,7 +193,7 @@ export default function ClientsDashboard() {
             <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><UserRoundCheck size={21} /></span>
             <div><h1 className="text-2xl font-black">Clientes</h1><p className="text-sm font-semibold text-[var(--text-secondary)]">Relacionamento, etapa comercial e proximo contato em uma unica fila.</p></div>
           </div>
-          <button type="button" onClick={openCreate} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-black text-white hover:brightness-110"><Plus size={16} /> Novo cliente</button>
+          <button type="button" onClick={openCreate} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white hover:brightness-110"><Plus size={16} /> Novo cliente</button>
         </header>
 
         {error && <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-300">{error}</div>}
@@ -206,7 +206,7 @@ export default function ClientsDashboard() {
               {loading ? <LoadingState label="Carregando clientes..." /> : filtered.map((client) => (
                 <button key={client.id} type="button" onClick={() => setSelectedId(client.id)} className={`flex w-full items-start gap-3 border-b border-[var(--border)] p-4 text-left hover:bg-[var(--surface-hover)] ${selectedId === client.id ? "bg-blue-500/10" : ""}`}>
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/12 font-black text-blue-300">{client.name.slice(0, 2).toUpperCase()}</span>
-                  <span className="min-w-0 flex-1"><strong className="block truncate text-sm font-black">{client.name}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{client.company || client.email || "Sem empresa informada"}</small><span className="mt-2 inline-flex rounded-full border border-[var(--border)] px-2 py-0.5 text-[9px] font-black uppercase text-blue-300">{stageLabels[client.stage]}</span></span>
+                  <span className="min-w-0 flex-1"><strong className="block truncate text-sm font-bold">{client.name}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{client.company || client.email || "Sem empresa informada"}</small><span className="mt-2 inline-flex rounded-full border border-[var(--border)] px-2 py-0.5 text-xs font-bold uppercase text-blue-300">{stageLabels[client.stage]}</span></span>
                 </button>
               ))}
               {!loading && filtered.length === 0 && (
@@ -219,7 +219,7 @@ export default function ClientsDashboard() {
             {selected ? (
               <>
                 <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 sm:flex-row sm:items-start sm:justify-between">
-                  <div><p className="text-[10px] font-black uppercase text-blue-400">{stageLabels[selected.stage]}</p><h2 className="mt-1 text-2xl font-black">{selected.name}</h2><p className="mt-1 font-semibold text-[var(--text-secondary)]">{selected.company || "Cliente individual"} {selected.segment && `• ${selected.segment}`}</p></div>
+                  <div><p className="text-xs font-bold uppercase text-blue-400">{stageLabels[selected.stage]}</p><h2 className="mt-1 text-2xl font-black">{selected.name}</h2><p className="mt-1 font-semibold text-[var(--text-secondary)]">{selected.company || "Cliente individual"} {selected.segment && `• ${selected.segment}`}</p></div>
                   <div className="flex gap-2"><button type="button" onClick={() => openEdit(selected)} className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)]" title="Editar cliente" aria-label="Editar cliente"><Pencil size={16} /></button><button type="button" onClick={() => void removeClient(selected)} className="grid h-10 w-10 place-items-center rounded-lg border border-rose-500/25 text-rose-300 hover:bg-rose-500/10" title="Excluir cliente" aria-label="Excluir cliente"><Trash2 size={16} /></button></div>
                 </div>
                 <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -228,12 +228,12 @@ export default function ClientsDashboard() {
                   <InfoCard icon={Building2} label="Responsavel" value={selected.ownerName || "Nao definido"} />
                 </div>
                 <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_320px]">
-                  <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-5"><h3 className="text-sm font-black">Contexto e observacoes</h3><p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--text-secondary)]">{selected.notes || "Nenhuma observacao registrada."}</p></article>
-                  <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-5"><h3 className="text-sm font-black">Proximo passo</h3><p className="mt-3 text-sm font-semibold text-[var(--text-secondary)]">{selected.nextActionAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(selected.nextActionAt)) : "Sem acompanhamento agendado."}</p><div className="mt-4 flex flex-wrap gap-2">{selected.tags.map((tag) => <span key={tag} className="rounded-full bg-cyan-500/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-300">{tag}</span>)}</div></article>
+                  <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-5"><h3 className="text-sm font-bold">Contexto e observacoes</h3><p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--text-secondary)]">{selected.notes || "Nenhuma observacao registrada."}</p></article>
+                  <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-5"><h3 className="text-sm font-bold">Proximo passo</h3><p className="mt-3 text-sm font-semibold text-[var(--text-secondary)]">{selected.nextActionAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(selected.nextActionAt)) : "Sem acompanhamento agendado."}</p><div className="mt-4 flex flex-wrap gap-2">{selected.tags.map((tag) => <span key={tag} className="rounded-full bg-cyan-500/10 px-2 py-1 text-xs font-bold uppercase text-cyan-300">{tag}</span>)}</div></article>
                 </div>
                 <section className="mt-5 border-t border-[var(--border)] pt-5">
                   <div className="flex items-center justify-between gap-3">
-                    <div><h3 className="flex items-center gap-2 text-sm font-black"><History className="text-blue-400" size={17} /> Histórico completo do cliente</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Contatos, tarefas, compromissos, financeiro, anexos e ações da Nora em uma timeline.</p></div>
+                    <div><h3 className="flex items-center gap-2 text-sm font-bold"><History className="text-blue-400" size={17} /> Histórico completo do cliente</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Contatos, tarefas, compromissos, financeiro, anexos e ações da Nora em uma timeline.</p></div>
                     {loading360 && <LoaderCircle className="animate-spin text-blue-400" size={18} />}
                   </div>
                   {client360 && (
@@ -260,8 +260,8 @@ export default function ClientsDashboard() {
                             }}
                           >
                             <span className="h-2 w-2 rounded-full bg-blue-500" />
-                            <span className="min-w-0"><strong className="block truncate text-xs">{item.title || item.type}</strong><small className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-[10px] font-semibold text-[var(--text-secondary)]">{item.description || "Sem descrição adicional."}</small></span>
-                            <time className="text-[10px] font-bold text-[var(--text-secondary)]">{item.timestamp ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(item.timestamp)) : ""}</time>
+                            <span className="min-w-0"><strong className="block truncate text-xs">{item.title || item.type}</strong><small className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-[var(--text-secondary)]">{item.description || "Sem descrição adicional."}</small></span>
+                            <time className="text-xs font-bold text-[var(--text-secondary)]">{item.timestamp ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(item.timestamp)) : ""}</time>
                           </button>
                         ))}
                         {!client360.timeline.length && <p className="py-10 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhuma interação relacionada a este cliente ainda.</p>}
@@ -290,24 +290,24 @@ export default function ClientsDashboard() {
         <Field label="Telefone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
         <Field label="Segmento" value={form.segment} onChange={(value) => setForm({ ...form, segment: value })} />
         <Field label="Responsavel" value={form.ownerName} onChange={(value) => setForm({ ...form, ownerName: value })} />
-        <label className="text-xs font-black uppercase text-[var(--text-secondary)]">Etapa<select value={form.stage} onChange={(event) => setForm({ ...form, stage: event.target.value as ClientStage })} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 normal-case text-[var(--text)]"><option value="new">Novo</option><option value="contacted">Contatado</option><option value="proposal">Proposta</option><option value="won">Convertido</option><option value="lost">Perdido</option></select></label>
-        <label className="text-xs font-black uppercase text-[var(--text-secondary)]">Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as ClientStatus })} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 normal-case text-[var(--text)]"><option value="lead">Lead</option><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
+        <label className="text-xs font-bold uppercase text-[var(--text-secondary)]">Etapa<select value={form.stage} onChange={(event) => setForm({ ...form, stage: event.target.value as ClientStage })} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 normal-case text-[var(--text)]"><option value="new">Novo</option><option value="contacted">Contatado</option><option value="proposal">Proposta</option><option value="won">Convertido</option><option value="lost">Perdido</option></select></label>
+        <label className="text-xs font-bold uppercase text-[var(--text-secondary)]">Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as ClientStatus })} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 normal-case text-[var(--text)]"><option value="lead">Lead</option><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
         <Field label="Proximo contato" value={form.nextActionAt} onChange={(value) => setForm({ ...form, nextActionAt: value })} type="datetime-local" />
         <Field label="Tags separadas por virgula" value={form.tags} onChange={(value) => setForm({ ...form, tags: value })} />
-        <label className="sm:col-span-2 text-xs font-black uppercase text-[var(--text-secondary)]">Observacoes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 normal-case text-[var(--text)] outline-none focus:border-blue-500" /></label>
-      </div><footer className="flex justify-end gap-2 border-t border-[var(--border)] p-5"><button type="button" onClick={() => setEditorOpen(false)} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-black">Cancelar</button><button type="button" disabled={saving || !form.name.trim()} onClick={() => void saveClient()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-black text-white disabled:opacity-50">{saving && <LoaderCircle className="animate-spin" size={15} />} Salvar cliente</button></footer></div></div>}
+        <label className="sm:col-span-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Observacoes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 normal-case text-[var(--text)] outline-none focus:border-blue-500" /></label>
+      </div><footer className="flex justify-end gap-2 border-t border-[var(--border)] p-5"><button type="button" onClick={() => setEditorOpen(false)} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-bold">Cancelar</button><button type="button" disabled={saving || !form.name.trim()} onClick={() => void saveClient()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-bold text-white disabled:opacity-50">{saving && <LoaderCircle className="animate-spin" size={15} />} Salvar cliente</button></footer></div></div>}
     </main>
   );
 }
 
 function InfoCard({ icon: Icon, label, value }: { icon: typeof Mail; label: string; value: string }) {
-  return <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><Icon className="text-blue-400" size={17} /><p className="mt-3 text-[10px] font-black uppercase text-[var(--text-secondary)]">{label}</p><p className="mt-1 truncate text-sm font-black">{value}</p></article>;
+  return <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><Icon className="text-blue-400" size={17} /><p className="mt-3 text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</p><p className="mt-1 truncate text-sm font-bold">{value}</p></article>;
 }
 
 function SummaryChip({ icon: Icon, label, value }: { icon: typeof Mail; label: string; value: number }) {
-  return <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><Icon className="text-blue-400" size={15} /><strong className="mt-2 block text-lg font-black">{value}</strong><small className="text-[10px] font-bold text-[var(--text-secondary)]">{label}</small></article>;
+  return <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><Icon className="text-blue-400" size={15} /><strong className="mt-2 block text-lg font-black">{value}</strong><small className="text-xs font-bold text-[var(--text-secondary)]">{label}</small></article>;
 }
 
 function Field({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label className="text-xs font-black uppercase text-[var(--text-secondary)]">{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 normal-case text-[var(--text)] outline-none focus:border-blue-500" /></label>;
+  return <label className="text-xs font-bold uppercase text-[var(--text-secondary)]">{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 normal-case text-[var(--text)] outline-none focus:border-blue-500" /></label>;
 }

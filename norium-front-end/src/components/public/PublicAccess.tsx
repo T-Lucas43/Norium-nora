@@ -207,7 +207,7 @@ export default function PublicAccess({ route }: { route: PublicRoute }) {
         {!loading && payload && "portal" in payload && (
           <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
             <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[var(--glass-shadow)]">
-              <p className="text-xs font-black uppercase text-cyan-400">Portal do cliente</p>
+              <p className="text-xs font-bold uppercase text-cyan-400">Portal do cliente</p>
               <h1 className="mt-3 text-3xl font-black">{payload.portal.clientName || "Bem-vindo ao Norium"}</h1>
               <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
                 Acompanhe solicitacoes, envie documentos e registre uma nova demanda em um unico lugar.
@@ -222,7 +222,7 @@ export default function PublicAccess({ route }: { route: PublicRoute }) {
                   <article key={request.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-soft)] p-4">
                     <div className="flex items-start justify-between gap-3">
                       <h2 className="font-black">{request.title}</h2>
-                      <span className="rounded-full border border-[var(--border)] px-2 py-1 text-[10px] font-black uppercase">
+                      <span className="rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase">
                         {request.status || "aberta"}
                       </span>
                     </div>
@@ -288,7 +288,7 @@ export default function PublicAccess({ route }: { route: PublicRoute }) {
                 {payload.contract.branding?.logoUrl && (
                   <img src={payload.contract.branding.logoUrl} alt="Logo da empresa" className="mb-4 max-h-14 max-w-48 object-contain" />
                 )}
-                <p className="text-xs font-black uppercase text-cyan-400">Documento para assinatura</p>
+                <p className="text-xs font-bold uppercase text-cyan-400">Documento para assinatura</p>
                 <h1 className="mt-2 text-2xl font-black">{payload.contract.title}</h1>
                 <p className="mt-2 text-sm text-[var(--text-secondary)]">
                   Cliente: {payload.contract.client?.company || payload.contract.client?.name || "Nao informado"}

@@ -149,7 +149,7 @@ export default function Sidebar({
                 onClick={() => navigate(item.title)}
                 title={compact ? item.title : undefined}
                 aria-current={active ? "page" : undefined}
-              >
+               aria-label={compact ? item.title : undefined}>
                 <span className="norium-sidebar-item-icon">
                   <Icon size={18} />
                 </span>
@@ -165,7 +165,7 @@ export default function Sidebar({
             className={`norium-sidebar-item ${activeTab === "Configuracoes" || activeTab === "Configurações" ? "is-active" : ""}`}
             onClick={() => navigate("Configurações")}
             title={compact ? "Configurações" : undefined}
-          >
+           aria-label={compact ? "Configurações" : undefined}>
             <span className="norium-sidebar-item-icon">
               <Settings size={18} />
             </span>
@@ -177,7 +177,7 @@ export default function Sidebar({
             onClick={() => navigate("Ajuda")}
             title={compact ? "Ajuda" : undefined}
             aria-current={activeTab === "Ajuda" ? "page" : undefined}
-          >
+           aria-label={compact ? "Ajuda" : undefined}>
             <span className="norium-sidebar-item-icon">
               <CircleHelp size={18} />
             </span>
@@ -190,7 +190,7 @@ export default function Sidebar({
           className="norium-sidebar-profile"
           onClick={() => navigate("Perfil")}
           title={compact ? profileName : undefined}
-        >
+         aria-label={compact ? profileName : undefined}>
           <span className="norium-sidebar-profile-avatar">
             {profile?.fotoUrl ? (
               <img src={profile.fotoUrl} alt="" />

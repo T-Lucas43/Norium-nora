@@ -366,7 +366,7 @@ export default function WorkHubDashboard({
       <div className="mx-auto max-w-[1600px]">
         <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[10px] font-black uppercase text-blue-400">Operação unificada</p>
+            <p className="text-xs font-bold uppercase text-blue-400">Operação unificada</p>
             <h1 className="mt-1 text-2xl font-black">Centro de pendências</h1>
             <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
               Tudo que exige atenção, com contexto, responsável e próximo passo.
@@ -376,7 +376,7 @@ export default function WorkHubDashboard({
             <button type="button" onClick={() => void toggleFocus()} className={`workhub-button ${data?.focus.item.enabled ? "is-active" : ""}`}>
               <Focus size={16} /> {data?.focus.item.enabled ? "Encerrar foco" : "Modo foco"}
             </button>
-            <button type="button" onClick={() => void load()} className="workhub-icon-button" title="Atualizar">
+            <button type="button" onClick={() => void load()} className="workhub-icon-button" title="Atualizar" aria-label="Atualizar">
               <RefreshCw className={loading ? "animate-spin" : ""} size={17} />
             </button>
           </div>
@@ -525,7 +525,7 @@ export default function WorkHubDashboard({
                   tone: "warning",
                 });
                 if (confirmed) void mutate(`restore:${backup.id}`, () => apiRequest(`/api/operacao/backups/${backup.id}/restaurar`, { method: "POST", body: JSON.stringify({ confirmation: "RESTAURAR" }) }), "Backup restaurado.");
-              }}><ArchiveRestore size={16} /></button></article>)}
+              }} aria-label="Restaurar backup"><ArchiveRestore size={16} /></button></article>)}
               {!data.backups.items.length && <p>Nenhum backup manual criado.</p>}
             </div>
           </section>

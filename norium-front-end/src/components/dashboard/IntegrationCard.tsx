@@ -50,12 +50,12 @@ export default function IntegrationCard({
         </div>
 
         {connected ? (
-          <div className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-500">
+          <div className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-500">
             <CheckCircle2 size={12} />
             Conectado
           </div>
         ) : (
-          <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-[10px] font-semibold text-amber-500">
+          <div className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-xs font-semibold text-amber-500">
             <PlugZap size={12} />
             Disponível
           </div>

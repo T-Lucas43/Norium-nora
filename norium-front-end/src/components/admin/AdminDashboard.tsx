@@ -199,7 +199,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
           <div className="flex min-w-0 items-center gap-4">
             <BrandLogo className="h-11 w-[124px] shrink-0 text-[var(--text)]" />
             <div className="min-w-0">
-              <p className="truncate text-sm font-black uppercase tracking-wide text-[var(--text-secondary)]">Norium Admin</p>
+              <p className="truncate text-sm font-bold uppercase tracking-wide text-[var(--text-secondary)]">Norium Admin</p>
               <h1 className="truncate text-xl font-black">Gerenciamento do sistema</h1>
             </div>
           </div>
@@ -210,12 +210,12 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
               onClick={() => void refresh()}
               className="grid h-11 w-11 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)] transition hover:bg-[var(--surface-hover)]"
               title="Atualizar"
-            >
+             aria-label="Atualizar">
               <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
             </button>
             <button
               onClick={onUseSystem}
-              className="hidden h-11 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-black transition hover:bg-[var(--surface-hover)] sm:flex"
+              className="hidden h-11 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-bold transition hover:bg-[var(--surface-hover)] sm:flex"
             >
               <LayoutDashboard size={17} /> Usar sistema
             </button>
@@ -276,14 +276,14 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-black">{user.nome}</p>
+                      <p className="truncate text-sm font-bold">{user.nome}</p>
                       <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{user.email}</p>
                     </div>
-                    <span className={`rounded-full px-2 py-1 text-[10px] font-black ${user.status === "ativo" ? "bg-emerald-400/18 text-emerald-100" : "bg-red-500/18 text-red-100"}`}>
+                    <span className={`rounded-full px-2 py-1 text-xs font-bold ${user.status === "ativo" ? "bg-emerald-400/18 text-emerald-100" : "bg-red-500/18 text-red-100"}`}>
                       {user.status}
                     </span>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase">
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold uppercase">
                     <span className="rounded-full bg-blue-500/16 px-2 py-1 text-blue-100">{user.plan}</span>
                     <span className="rounded-full bg-white/10 px-2 py-1">{user.role}</span>
                     {user.systemAdmin && <span className="rounded-full bg-cyan-400/18 px-2 py-1 text-cyan-100">admin</span>}
@@ -327,10 +327,10 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
               <PermissionEditor permissions={createForm.permissions} onToggle={toggleCreatePermission} />
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <button onClick={() => void createUser()} disabled={saving === "create"} className="h-11 rounded-xl bg-blue-600 px-5 text-sm font-black text-white disabled:opacity-60">
+                <button onClick={() => void createUser()} disabled={saving === "create"} className="h-11 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white disabled:opacity-60">
                   {saving === "create" ? "Criando..." : "Criar usuário"}
                 </button>
-                <button onClick={() => setCreateOpen(false)} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-5 text-sm font-black">
+                <button onClick={() => setCreateOpen(false)} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-5 text-sm font-bold">
                   Cancelar
                 </button>
               </div>
@@ -340,7 +340,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
             <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">Usuario selecionado</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Usuario selecionado</p>
                 <h2 className="mt-1 text-2xl font-black">{selectedUser.nome}</h2>
                 <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{selectedUser.email}</p>
               </div>
@@ -348,7 +348,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
                 <select
                   value={selectedUser.plan}
                   onChange={(event) => void patchUser(selectedUser.id, { plan: event.target.value }, "Plano atualizado.")}
-                  className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-black outline-none"
+                  className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none"
                 >
                   {plans.map((plan) => (
                     <option key={plan.code} value={plan.code}>{plan.name}</option>
@@ -356,13 +356,13 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
                 </select>
                 <button
                   onClick={() => void patchUser(selectedUser.id, { status: selectedUser.status === "ativo" ? "inativo" : "ativo" }, "Status atualizado.")}
-                  className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-black"
+                  className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold"
                 >
                   {selectedUser.status === "ativo" ? "Bloquear" : "Ativar"}
                 </button>
                 <button
                   onClick={() => void deactivateUser(selectedUser.id)}
-                  className="h-10 rounded-xl border border-red-400/30 bg-red-500/12 px-4 text-xs font-black text-red-100"
+                  className="h-10 rounded-xl border border-red-400/30 bg-red-500/12 px-4 text-xs font-bold text-red-100"
                 >
                   Desativar
                 </button>
@@ -381,7 +381,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
                   <ShieldCheck size={18} />
                 </span>
                 <span>
-                  <span className="block text-sm font-black">Admin exclusivo do dono</span>
+                  <span className="block text-sm font-bold">Admin exclusivo do dono</span>
                   <span className="mt-1 block text-xs font-semibold leading-5 text-[var(--text-secondary)]">
                     O modo Admin do sistema fica bloqueado para qualquer usuário diferente do proprietário.
                     Usuários menores podem receber módulos e integrações, mas não recebem acesso administrativo global.
@@ -398,7 +398,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
               <article key={plan.code} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="text-lg font-black">{plan.name}</h3>
-                  <span className="rounded-full bg-blue-500/16 px-3 py-1 text-xs font-black text-blue-100">
+                  <span className="rounded-full bg-blue-500/16 px-3 py-1 text-xs font-bold text-blue-100">
                     {overview?.planCounts?.[plan.code] || 0} usuários
                   </span>
                 </div>
@@ -424,7 +424,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
 function InfoTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
-      <p className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{label}</p>
+      <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">{label}</p>
       <p className="mt-2 text-lg font-black capitalize">{value}</p>
     </div>
   );
@@ -445,7 +445,7 @@ function PermissionEditor({
         <div key={group.title} className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
           <div className="mb-3 flex items-center gap-2">
             <SlidersHorizontal size={16} className="text-[var(--primary)]" />
-            <h3 className="text-sm font-black">{group.title}</h3>
+            <h3 className="text-sm font-bold">{group.title}</h3>
           </div>
           <div className="space-y-2">
             {group.keys.map((key) => (

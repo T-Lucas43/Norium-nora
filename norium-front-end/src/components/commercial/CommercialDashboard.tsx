@@ -420,7 +420,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                         <span className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.client?.name || "Cliente nao informado"} {item.brainstormId ? "- vinculado ao Brainstorm" : ""}</small></span>
                         <span className="text-xs font-bold">{formatMoney(item.amount, item.currency)}</span>
                         <span><StatusChip status={item.status} /></span>
-                        <time className="text-[10px] font-bold text-[var(--text-secondary)]">{formatDate(item.updatedAt)}</time>
+                        <time className="text-xs font-bold text-[var(--text-secondary)]">{formatDate(item.updatedAt)}</time>
                       </button>
                       {isProposal(item) && !item.contractId && (
                         <button
@@ -626,8 +626,8 @@ function CreateProposalDialog({
         <div className="grid min-h-0 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <div><p className="text-[10px] font-black uppercase tracking-wider text-cyan-400">Prévia do documento</p><h3 className="mt-1 text-lg font-black">{draft.title}</h3></div>
-              <span className="rounded-full border border-[var(--border)] px-3 py-1 text-[10px] font-black">{selectedTemplate?.name || "Estrutura da Nora"}</span>
+              <div><p className="text-xs font-bold uppercase tracking-wider text-cyan-400">Prévia do documento</p><h3 className="mt-1 text-lg font-black">{draft.title}</h3></div>
+              <span className="rounded-full border border-[var(--border)] px-3 py-1 text-xs font-bold">{selectedTemplate?.name || "Estrutura da Nora"}</span>
             </div>
             <article className="commercial-rich-editor max-h-[58dvh] overflow-y-auto rounded-lg bg-white p-6 text-slate-900 shadow-inner" dangerouslySetInnerHTML={{ __html: draft.contentHtml }} />
           </section>
@@ -668,7 +668,7 @@ function CreateProposalDialog({
             <section className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black">{selectedTemplate.name}</p>
+                  <p className="text-xs font-bold">{selectedTemplate.name}</p>
                   <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{selectedTemplate.description}</p>
                 </div>
                 <Button size="sm" variant="secondary" onClick={() => setTemplatePreviewOpen((current) => !current)}>
@@ -686,7 +686,7 @@ function CreateProposalDialog({
 }
 
 function ReviewBlock({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
-  return <section className={`rounded-lg border p-3 ${accent ? "border-cyan-400/30 bg-cyan-500/10" : "border-[var(--border)] bg-[var(--background)]"}`}><p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-secondary)]">{label}</p><p className="mt-2 whitespace-pre-line text-xs font-semibold leading-5">{value}</p></section>;
+  return <section className={`rounded-lg border p-3 ${accent ? "border-cyan-400/30 bg-cyan-500/10" : "border-[var(--border)] bg-[var(--background)]"}`}><p className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">{label}</p><p className="mt-2 whitespace-pre-line text-xs font-semibold leading-5">{value}</p></section>;
 }
 
 type CreateInput = Parameters<typeof createProposal>[0];
@@ -812,10 +812,10 @@ function ContractGenerationDialog({
         {selectedTemplate && (
           <section className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div><p className="text-sm font-black">{selectedTemplate.name}</p><p className="mt-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{selectedTemplate.description}</p></div>
+              <div><p className="text-sm font-bold">{selectedTemplate.name}</p><p className="mt-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{selectedTemplate.description}</p></div>
               <Button size="sm" variant="secondary" onClick={() => setPreviewOpen((current) => !current)}>{previewOpen ? "Ocultar prévia" : "Visualizar modelo"}</Button>
             </div>
-            <p className="mt-3 text-[11px] font-bold text-amber-300">Minuta operacional editavel. Revise as clausulas com assessoria juridica antes do uso real.</p>
+            <p className="mt-3 text-xs font-bold text-amber-300">Minuta operacional editavel. Revise as clausulas com assessoria juridica antes do uso real.</p>
             {previewOpen && <div className="mt-4"><TemplateA4Preview template={selectedTemplate} compact /></div>}
           </section>
         )}
@@ -875,9 +875,9 @@ function SignatureLinksDialog({
           <article key={link.signerId} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="truncate text-sm font-black">{link.name}</p>
+                <p className="truncate text-sm font-bold">{link.name}</p>
                 <p className="mt-1 truncate text-xs font-semibold text-[var(--text-secondary)]">{link.email}</p>
-                <p className="mt-2 text-[10px] font-bold uppercase text-cyan-300">
+                <p className="mt-2 text-xs font-bold uppercase text-cyan-300">
                   Expira em {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(link.expiresAt))}
                 </p>
               </div>
@@ -932,7 +932,7 @@ function Dialog({ title, subtitle, onClose, children, wide = false }: { title: s
 }
 
 function FormField({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase text-[var(--text-secondary)]">{label}</span>{children}</label>;
+  return <label className="block"><span className="mb-1.5 block text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</span>{children}</label>;
 }
 
 function Metric({ label, value, icon: Icon }: { label: string; value: number; icon: typeof FileSignature }) {
@@ -940,11 +940,11 @@ function Metric({ label, value, icon: Icon }: { label: string; value: number; ic
 }
 
 function ViewTab({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className={`flex h-10 items-center gap-2 whitespace-nowrap border-b-2 px-4 text-xs font-black ${active ? "border-blue-500 text-blue-400" : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text)]"}`}>{label}<span className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-[9px]">{count}</span></button>;
+  return <button type="button" onClick={onClick} className={`flex h-10 items-center gap-2 whitespace-nowrap border-b-2 px-4 text-xs font-bold ${active ? "border-blue-500 text-blue-400" : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text)]"}`}>{label}<span className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-xs">{count}</span></button>;
 }
 
 function StatusChip({ status }: { status: string }) {
-  return <span className="inline-flex rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-[9px] font-black uppercase text-blue-300">{statusLabels[status] || status}</span>;
+  return <span className="inline-flex rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-xs font-bold uppercase text-blue-300">{statusLabels[status] || status}</span>;
 }
 
 function LibraryView({
@@ -996,13 +996,13 @@ function TemplateA4Preview({ template, compact = false }: { template: Commercial
   return (
     <div className={compact ? "max-h-[56dvh] space-y-5 overflow-auto pr-1" : "space-y-7"}>
       <section className="mx-auto w-full max-w-[794px]">
-        <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-[var(--text-secondary)]">Página 1 · Capa A4</p>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">Página 1 · Capa A4</p>
         <article className="commercial-template-a4 flex aspect-[210/297] flex-col overflow-hidden bg-white p-8 text-slate-900 shadow-xl">
           <div className="h-2 w-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" />
-          <p className="mt-auto text-[10px] font-black uppercase tracking-[0.18em] text-blue-600">{kind}</p>
+          <p className="mt-auto text-xs font-bold uppercase tracking-[0.18em] text-blue-600">{kind}</p>
           <h3 className="mt-3 text-2xl font-black leading-tight">{template.name}</h3>
-          <div className="mt-7 border-l-4 border-cyan-500 py-2 pl-4"><strong className="block text-sm">Cliente / Empresa</strong><span className="mt-1 block text-[10px] text-slate-500">Dados preenchidos ao gerar o documento</span></div>
-          <div className="mt-auto grid grid-cols-2 gap-4 border-t border-slate-200 pt-5 text-[10px]"><span>Emissão automática</span><span className="text-right">Identidade da empresa</span></div>
+          <div className="mt-7 border-l-4 border-cyan-500 py-2 pl-4"><strong className="block text-sm">Cliente / Empresa</strong><span className="mt-1 block text-xs text-slate-500">Dados preenchidos ao gerar o documento</span></div>
+          <div className="mt-auto grid grid-cols-2 gap-4 border-t border-slate-200 pt-5 text-xs"><span>Emissão automática</span><span className="text-right">Identidade da empresa</span></div>
         </article>
       </section>
       <A4ContentPages

@@ -20,7 +20,7 @@ export default function EmptyState({ icon: Icon = Inbox, title, description, act
       )}
     >
       <Icon size={28} className="text-[var(--text-secondary)]" />
-      <p className="text-sm font-black text-[var(--text)]">{title}</p>
+      <p className="text-sm font-bold text-[var(--text)]">{title}</p>
       {description && <p className="max-w-sm text-xs font-semibold text-[var(--text-secondary)]">{description}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>

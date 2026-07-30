@@ -107,7 +107,7 @@ export default function FloatingNoraButton({ open, onClick }: FloatingNoraButton
       className={`fixed z-[60] flex h-[58px] w-[158px] items-center justify-center gap-2 rounded-full border border-cyan-300/25 bg-gradient-to-r from-blue-800 via-sky-700 to-cyan-600 px-3 font-black text-white shadow-2xl shadow-blue-950/35 transition hover:scale-105 active:scale-95 ${open ? "ring-4 ring-cyan-300/20" : ""}`}
       style={{ left: position.x, top: position.y, touchAction: "none" }}
       title="Mover ou abrir Nora"
-    >
+     aria-label="Mover ou abrir Nora">
       <GripHorizontal size={16} className="opacity-75" />
       <NoraAvatar className="h-9 w-9 shrink-0" />
       Nora

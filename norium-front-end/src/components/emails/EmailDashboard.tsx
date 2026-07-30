@@ -1037,13 +1037,13 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
         <div className="rounded-xl border border-cyan-300/20 bg-slate-950/25 p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-black uppercase tracking-wide text-cyan-200">Sugestao da Nora</p>
-              <p className="text-[11px] font-semibold text-white/50">Revise antes de colocar no e-mail.</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-cyan-200">Sugestao da Nora</p>
+              <p className="text-xs font-semibold text-white/50">Revise antes de colocar no e-mail.</p>
             </div>
             <button
               type="button"
               onClick={discardNoraSuggestion}
-              className="rounded-lg border border-white/10 px-2 py-1 text-[10px] font-black text-white/55 hover:bg-white/7"
+              className="rounded-lg border border-white/10 px-2 py-1 text-xs font-bold text-white/55 hover:bg-white/7"
             >
               Descartar
             </button>
@@ -1069,7 +1069,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               <button
                 type="button"
                 onClick={acceptNoraSuggestion}
-                className="mail-primary rounded-lg bg-[#0EA5E9] px-3 py-2 text-xs font-black text-white"
+                className="mail-primary rounded-lg bg-[#0EA5E9] px-3 py-2 text-xs font-bold text-white"
               >
                 Aceitar sugestao
               </button>
@@ -1077,7 +1077,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 type="button"
                 onClick={() => void askNoraEmailSuggestion(target, "Refaca a resposta com outra abordagem, mantendo o sentido e sendo mais precisa.")}
                 disabled={noraSuggesting !== null}
-                className="mail-hover rounded-lg border border-white/12 px-3 py-2 text-xs font-black text-white/75 hover:bg-white/7 disabled:opacity-45"
+                className="mail-hover rounded-lg border border-white/12 px-3 py-2 text-xs font-bold text-white/75 hover:bg-white/7 disabled:opacity-45"
               >
                 Refazer
               </button>
@@ -1085,7 +1085,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 type="button"
                 onClick={() => void askNoraEmailSuggestion(target, noraSuggestionInstruction)}
                 disabled={noraSuggesting !== null || !noraSuggestionInstruction.trim()}
-                className="mail-hover rounded-lg border border-cyan-400/25 px-3 py-2 text-xs font-black text-cyan-200 hover:bg-cyan-400/10 disabled:opacity-45"
+                className="mail-hover rounded-lg border border-cyan-400/25 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-400/10 disabled:opacity-45"
               >
                 Aplicar ajuste
               </button>
@@ -1154,7 +1154,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
           {message.unread && <span className="mr-3 inline-block h-2 w-2 rounded-full bg-[#38BDF8]" />}
           <span className={cx(message.unread ? "font-extrabold text-white" : "font-semibold text-white/80")}>{message.subject}</span>
           {groupByCategory && (
-            <span className={cx("ml-2 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black uppercase", categoryMeta.tone)}>
+            <span className={cx("ml-2 inline-flex rounded-full border px-2 py-0.5 text-xs font-black uppercase", categoryMeta.tone)}>
               {categoryMeta.label}
             </span>
           )}
@@ -1186,7 +1186,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
       <aside className="mail-sidebar flex h-full w-[260px] shrink-0 flex-col border-r border-white/10 bg-[#18181B]">
         <div className="flex h-[76px] items-center justify-between border-b border-white/10 px-5">
           <BrandLogo className="h-12 w-[118px]" />
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em] text-cyan-50 shadow-[0_12px_30px_rgba(8,47,73,0.2)]">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-cyan-50 shadow-[0_12px_30px_rgba(8,47,73,0.2)]">
             <Mail size={12} />
             Mail
           </span>
@@ -1295,7 +1295,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                   >
                     <span className="min-w-0 truncate">{label.name}</span>
                     {Boolean(label.messagesUnread) && (
-                      <span className="rounded-full bg-[#0EA5E9]/45 px-2 py-0.5 text-[11px]">{label.messagesUnread}</span>
+                      <span className="rounded-full bg-[#0EA5E9]/45 px-2 py-0.5 text-xs">{label.messagesUnread}</span>
                     )}
                   </button>
                 ))}
@@ -1344,7 +1344,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 className="min-w-0 flex-1 bg-transparent text-sm font-medium text-white outline-none placeholder:text-white/45"
               />
               {searchDraft && (
-                <button type="button" onClick={clearAdvancedSearch} className="text-white/45 hover:text-white" title="Limpar pesquisa">
+                <button type="button" onClick={clearAdvancedSearch} className="text-white/45 hover:text-white" title="Limpar pesquisa" aria-label="Limpar pesquisa">
                   <X size={16} />
                 </button>
               )}
@@ -1354,7 +1354,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 className={cx("text-white/55 hover:text-white", filtersOpen && "text-cyan-300")}
                 title="Filtros avancados"
                 aria-expanded={filtersOpen}
-              >
+               aria-label="Filtros avancados">
                 <SlidersHorizontal size={17} />
               </button>
               {filtersOpen && createPortal(
@@ -1373,28 +1373,28 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 >
                   <div className="mb-4 flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-black">Pesquisa avancada</p>
-                      <p className="text-[11px] font-semibold text-white/45">Combine campos para localizar mensagens no Gmail.</p>
+                      <p className="text-sm font-bold">Pesquisa avancada</p>
+                      <p className="text-xs font-semibold text-white/45">Combine campos para localizar mensagens no Gmail.</p>
                     </div>
                     <button type="button" onClick={() => setFiltersOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/7"><X size={16} /></button>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="grid gap-1 text-[11px] font-black text-white/60">De
+                    <label className="grid gap-1 text-xs font-bold text-white/60">De
                       <input value={advancedFilters.from} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, from: event.target.value }))} placeholder="remetente@email.com" className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
                     </label>
-                    <label className="grid gap-1 text-[11px] font-black text-white/60">Para
+                    <label className="grid gap-1 text-xs font-bold text-white/60">Para
                       <input value={advancedFilters.to} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, to: event.target.value }))} placeholder="destinatario@email.com" className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
                     </label>
-                    <label className="grid gap-1 text-[11px] font-black text-white/60 sm:col-span-2">Assunto
+                    <label className="grid gap-1 text-xs font-bold text-white/60 sm:col-span-2">Assunto
                       <input value={advancedFilters.subject} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, subject: event.target.value }))} placeholder="Palavras no assunto" className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
                     </label>
-                    <label className="grid gap-1 text-[11px] font-black text-white/60">Contem as palavras
+                    <label className="grid gap-1 text-xs font-bold text-white/60">Contem as palavras
                       <input value={advancedFilters.hasWords} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, hasWords: event.target.value }))} className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
                     </label>
-                    <label className="grid gap-1 text-[11px] font-black text-white/60">Nao contem
+                    <label className="grid gap-1 text-xs font-bold text-white/60">Nao contem
                       <input value={advancedFilters.excludes} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, excludes: event.target.value }))} className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
                     </label>
-                    <label className="grid gap-1 text-[11px] font-black text-white/60">Periodo
+                    <label className="grid gap-1 text-xs font-bold text-white/60">Periodo
                       <select value={advancedFilters.newerThan} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, newerThan: event.target.value as AdvancedMailFilters["newerThan"] }))} className="h-10 rounded-lg border border-white/12 bg-[#101014] px-3 text-xs text-white outline-none">
                         <option value="">Qualquer periodo</option><option value="1d">Ultimas 24 horas</option><option value="7d">Ultimos 7 dias</option><option value="30d">Ultimos 30 dias</option><option value="365d">Ultimo ano</option>
                       </select>
@@ -1404,8 +1404,8 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                     </label>
                   </div>
                   <div className="mt-4 flex justify-end gap-2">
-                    <button type="button" onClick={clearAdvancedSearch} className="h-9 rounded-lg border border-white/12 px-4 text-xs font-black text-white/65 hover:bg-white/7">Limpar</button>
-                    <button type="submit" className="mail-primary h-9 rounded-lg bg-[#0EA5E9] px-5 text-xs font-black text-white">Pesquisar</button>
+                    <button type="button" onClick={clearAdvancedSearch} className="h-9 rounded-lg border border-white/12 px-4 text-xs font-bold text-white/65 hover:bg-white/7">Limpar</button>
+                    <button type="submit" className="mail-primary h-9 rounded-lg bg-[#0EA5E9] px-5 text-xs font-bold text-white">Pesquisar</button>
                   </div>
                 </form>
                 </div>,
@@ -1433,13 +1433,13 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 Nora para E-mails
               </button>
             )}
-            <button onClick={() => setShowPreview((value) => !value)} title="Alternar previa" className="mail-hover flex h-10 w-10 items-center justify-center rounded-full border border-white/12 hover:bg-white/7">
+            <button onClick={() => setShowPreview((value) => !value)} title="Alternar previa" className="mail-hover flex h-10 w-10 items-center justify-center rounded-full border border-white/12 hover:bg-white/7" aria-label="Alternar previa">
               <Eye size={17} />
             </button>
-            <button onClick={() => setSettingsOpen(true)} title="Configuracoes do Mail" className="mail-hover flex h-10 w-10 items-center justify-center rounded-full border border-white/12 hover:bg-white/7">
+            <button onClick={() => setSettingsOpen(true)} title="Configuracoes do Mail" className="mail-hover flex h-10 w-10 items-center justify-center rounded-full border border-white/12 hover:bg-white/7" aria-label="Configuracoes do Mail">
               <Settings size={17} />
             </button>
-            <button onClick={() => setProfileOpen((value) => !value)} title="Perfil" className="mail-hover flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/12 bg-[#4A3B8F] text-sm font-bold">
+            <button onClick={() => setProfileOpen((value) => !value)} title="Perfil" className="mail-hover flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/12 bg-[#4A3B8F] text-sm font-bold" aria-label="Perfil">
               {status?.picture ? (
                 <img src={status.picture} alt="Foto do perfil" className="h-full w-full object-cover" />
               ) : (
@@ -1508,7 +1508,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                     onClick={() => void fetchMessages(false, null)}
                     title="Voltar ao inicio"
                     className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7 disabled:opacity-30"
-                  >
+                   aria-label="Voltar ao inicio">
                     <ChevronLeft size={16} />
                   </button>
                   <button
@@ -1621,7 +1621,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                                 <Tags size={14} />
                                 {meta.label}
                               </span>
-                              <span className="text-xs font-black text-white/55">{items.length} e-mail(s)</span>
+                              <span className="text-xs font-bold text-white/55">{items.length} e-mail(s)</span>
                             </div>
                             {items.map((message) => renderMessageRow(message))}
                           </section>
@@ -1653,19 +1653,19 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               >
                 <div className="mail-surface flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
                   <div className="flex items-center gap-1 text-white/70">
-                    <button onClick={() => setSelectedMessage(null)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title="Voltar para a lista">
+                    <button onClick={() => setSelectedMessage(null)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title="Voltar para a lista" aria-label="Voltar para a lista">
                       <ChevronLeft size={17} />
                     </button>
-                    <button onClick={() => void runMessageAction(selectedMessage.id, "archive", true)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title="Arquivar">
+                    <button onClick={() => void runMessageAction(selectedMessage.id, "archive", true)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title="Arquivar" aria-label="Arquivar">
                       <Archive size={17} />
                     </button>
-                    <button onClick={() => void runMessageAction(selectedMessage.id, "trash", true)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title="Mover para a lixeira">
+                    <button onClick={() => void runMessageAction(selectedMessage.id, "trash", true)} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title="Mover para a lixeira" aria-label="Mover para a lixeira">
                       <Trash2 size={17} />
                     </button>
-                    <button onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.unread ? "read" : "unread")} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title={selectedMessage.unread ? "Marcar como lido" : "Marcar como nao lido"}>
+                    <button onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.unread ? "read" : "unread")} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title={selectedMessage.unread ? "Marcar como lido" : "Marcar como nao lido"} aria-label={selectedMessage.unread ? "Marcar como lido" : "Marcar como nao lido"}>
                       {selectedMessage.unread ? <MailOpen size={17} /> : <MailCheck size={17} />}
                     </button>
-                    <button onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.starred ? "unstar" : "star")} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title={selectedMessage.starred ? "Remover estrela" : "Adicionar estrela"}>
+                    <button onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.starred ? "unstar" : "star")} className="flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7" title={selectedMessage.starred ? "Remover estrela" : "Adicionar estrela"} aria-label={selectedMessage.starred ? "Remover estrela" : "Adicionar estrela"}>
                       <Star size={17} fill={selectedMessage.starred ? "currentColor" : "none"} />
                     </button>
                     <button
@@ -1676,7 +1676,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                       )}
                       title={messageMenuOpen ? "Recolher acoes" : "Mais acoes"}
                       aria-expanded={messageMenuOpen}
-                    >
+                     aria-label={messageMenuOpen ? "Recolher acoes" : "Mais acoes"}>
                       <MoreVertical size={17} />
                     </button>
                   </div>
@@ -1744,7 +1744,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                       <h2 className="text-xl font-bold leading-7">{selectedMessage.subject}</h2>
                       <div className="mail-card mt-4 flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-[#121217] p-4">
                         <div className="flex min-w-0 items-center gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#246BFD] text-sm font-black">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#246BFD] text-sm font-bold">
                             {initials(selectedMessage.fromName)}
                           </div>
                           <div className="min-w-0">
@@ -1759,20 +1759,20 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                       <div className="mail-card mt-3 rounded-lg border border-white/10 bg-[#121217] p-4">
                         <div className="mb-3 flex flex-wrap items-center gap-2">
                           {selectedCategory && (
-                            <span className={cx("inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase", selectedCategory.tone)}>
+                            <span className={cx("inline-flex rounded-full border px-2.5 py-1 text-xs font-black uppercase", selectedCategory.tone)}>
                               {selectedCategory.label}
                             </span>
                           )}
-                          <span className={cx("inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase", selectedMessage.unread ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-white/5 text-white/55")}>
+                          <span className={cx("inline-flex rounded-full border px-2.5 py-1 text-xs font-black uppercase", selectedMessage.unread ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-white/5 text-white/55")}>
                             {selectedMessage.unread ? "Nao lido" : "Lido"}
                           </span>
                           {selectedMessage.important && (
-                            <span className="inline-flex rounded-full border border-amber-300/25 bg-amber-300/10 px-2.5 py-1 text-[10px] font-black uppercase text-amber-100">
+                            <span className="inline-flex rounded-full border border-amber-300/25 bg-amber-300/10 px-2.5 py-1 text-xs font-bold uppercase text-amber-100">
                               Importante
                             </span>
                           )}
                           {selectedMessage.starred && (
-                            <span className="inline-flex rounded-full border border-sky-300/25 bg-sky-300/10 px-2.5 py-1 text-[10px] font-black uppercase text-sky-100">
+                            <span className="inline-flex rounded-full border border-sky-300/25 bg-sky-300/10 px-2.5 py-1 text-xs font-bold uppercase text-sky-100">
                               Com estrela
                             </span>
                           )}
@@ -1806,11 +1806,11 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                         </div>
 
                         <div className="mt-3 border-t border-white/10 pt-3">
-                          <p className="mb-2 text-[10px] font-black uppercase tracking-wide text-white/40">Marcadores</p>
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-white/40">Marcadores</p>
                           {selectedLabels.length ? (
                             <div className="flex flex-wrap gap-2">
                               {selectedLabels.map((label) => (
-                                <span key={label} className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-[11px] font-bold text-white/70">
+                                <span key={label} className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-bold text-white/70">
                                   {label}
                                 </span>
                               ))}
@@ -1833,7 +1833,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
 
                       {Boolean(selectedMessage.attachments?.length) && (
                         <div className="mt-5">
-                          <p className="mb-2 text-xs font-black uppercase tracking-wide text-white/45">Anexos</p>
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-white/45">Anexos</p>
                           <div className="grid gap-2">
                             {selectedMessage.attachments?.map((attachment) => (
                               <button
@@ -1882,7 +1882,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                               <button
                                 onClick={() => void askNoraEmailSuggestion("reply")}
                                 disabled={noraSuggesting !== null}
-                                className="mail-hover flex h-9 items-center gap-2 rounded-lg border border-cyan-400/25 px-3 text-xs font-black text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-45"
+                                className="mail-hover flex h-9 items-center gap-2 rounded-lg border border-cyan-400/25 px-3 text-xs font-bold text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-45"
                               >
                                 {noraSuggesting === "reply" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
                                 Gerar sugestao
@@ -1913,7 +1913,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
         <div className="fixed inset-0 z-50 flex items-end justify-end bg-black/45 p-6">
           <div className="mail-modal flex h-[680px] w-[680px] max-w-[calc(100vw-48px)] flex-col overflow-hidden rounded-lg border border-white/12 bg-[#18181B] shadow-2xl">
             <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
-              <h2 className="text-sm font-black">Nova mensagem</h2>
+              <h2 className="text-sm font-bold">Nova mensagem</h2>
               <button
                 onClick={() => {
                   setComposeOpen(false);
@@ -1956,7 +1956,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                   <button
                     onClick={() => void askNoraEmailSuggestion("compose")}
                     disabled={noraSuggesting !== null}
-                    className="mail-hover flex h-10 items-center gap-2 rounded-lg border border-cyan-400/25 px-4 text-xs font-black text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-40"
+                    className="mail-hover flex h-10 items-center gap-2 rounded-lg border border-cyan-400/25 px-4 text-xs font-bold text-cyan-300 hover:bg-cyan-400/10 disabled:opacity-40"
                   >
                     {noraSuggesting === "compose" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
                     Gerar sugestao
@@ -1987,7 +1987,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 <Bot size={18} />
               </div>
               <div>
-                <h3 className="text-sm font-black">Nora para E-mails</h3>
+                <h3 className="text-sm font-bold">Nora para E-mails</h3>
                 <p className="max-w-[240px] truncate text-xs font-semibold text-white/45">
                   {selectedMessage ? `Contexto: ${selectedMessage.subject}` : "Caixa de entrada e novos envios"}
                 </p>
@@ -2081,7 +2081,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               </button>
             </div>
             <div className="p-5">
-              <label className="grid gap-2 text-xs font-black text-white/65">
+              <label className="grid gap-2 text-xs font-bold text-white/65">
                 Nome do marcador
                 <input
                   autoFocus
@@ -2099,14 +2099,14 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                     setLabelDialogOpen(false);
                     setNewLabelName("");
                   }}
-                  className="mail-hover h-10 rounded-lg border border-white/12 px-4 text-xs font-black text-white/65 hover:bg-white/7"
+                  className="mail-hover h-10 rounded-lg border border-white/12 px-4 text-xs font-bold text-white/65 hover:bg-white/7"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={!newLabelName.trim() || labelSaving}
-                  className="mail-primary flex h-10 items-center gap-2 rounded-lg bg-[#0EA5E9] px-5 text-xs font-black text-white disabled:opacity-40"
+                  className="mail-primary flex h-10 items-center gap-2 rounded-lg bg-[#0EA5E9] px-5 text-xs font-bold text-white disabled:opacity-40"
                 >
                   {labelSaving ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
                   Criar marcador
@@ -2132,7 +2132,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
               <section className="mail-card rounded-lg border border-white/10 bg-[#121217] p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-white/45">Densidade</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-white/45">Densidade</p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => setCompactMode(false)} className={cx("h-10 rounded-lg border text-xs font-black", !compactMode ? "border-cyan-300/45 bg-cyan-300/12 text-cyan-100" : "border-white/10 text-white/60 hover:bg-white/7")}>Padrao</button>
                   <button type="button" onClick={() => setCompactMode(true)} className={cx("h-10 rounded-lg border text-xs font-black", compactMode ? "border-cyan-300/45 bg-cyan-300/12 text-cyan-100" : "border-white/10 text-white/60 hover:bg-white/7")}>Compacta</button>
@@ -2140,7 +2140,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               </section>
 
               <section className="mail-card rounded-lg border border-white/10 bg-[#121217] p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-white/45">Caixa de entrada</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-white/45">Caixa de entrada</p>
                 <div className="mt-3 grid gap-2">
                   <ToggleRow checked={groupByCategory} label="Agrupar por categorias" onChange={setGroupByCategory} />
                   <ToggleRow checked={showPreview} label="Mostrar texto de previa" onChange={setShowPreview} />
@@ -2148,7 +2148,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               </section>
 
               <section className="mail-card rounded-lg border border-white/10 bg-[#121217] p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-white/45">Sincronizacao</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-white/45">Sincronizacao</p>
                 <div className="mt-3 grid gap-2">
                   <ToggleRow checked={autoRefresh} label="Atualizar automaticamente a cada 45s" onChange={setAutoRefresh} />
                   <button onClick={() => void fetchMessages(false)} disabled={!status?.connected} className="mail-hover h-10 rounded-lg border border-white/12 text-xs font-bold disabled:opacity-40">Atualizar agora</button>
@@ -2156,7 +2156,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               </section>
 
               <section className="mail-card rounded-lg border border-white/10 bg-[#121217] p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-white/45">Conta Gmail</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-white/45">Conta Gmail</p>
                 <p className="mt-2 break-all text-sm font-bold">{status?.connected ? status.email : "Desconectada"}</p>
                 <p className="mt-1 text-xs font-semibold text-white/45">{status?.lastSync ? `Ultima sincronizacao: ${new Date(status.lastSync).toLocaleString("pt-BR")}` : "Aguardando autorizacao"}</p>
                 <div className="mt-4 grid grid-cols-2 gap-2">
@@ -2181,7 +2181,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                 )}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-black">{status?.name || "Perfil Norium"}</p>
+                <p className="truncate text-sm font-bold">{status?.name || "Perfil Norium"}</p>
                 <p className="truncate text-xs font-semibold text-white/45">{status?.email || "Gmail nao conectado"}</p>
               </div>
               <button onClick={() => setProfileOpen(false)} className="mail-hover ml-auto flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/7">

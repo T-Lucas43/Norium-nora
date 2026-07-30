@@ -793,7 +793,7 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
                   <div className="h-8 w-8 rounded-full bg-neutral-700 flex items-center justify-center text-neutral-300"><User size={14}/></div>
                   <div className="flex flex-col min-w-0">
                     <span className="font-bold text-sm truncate">{c.name || c.pushname || "Sem Nome"}</span>
-                    <span className="text-[10px] opacity-50 font-mono">{c.phone}</span>
+                    <span className="text-xs opacity-50 font-mono">{c.phone}</span>
                   </div>
                 </div>
               ))}
@@ -851,17 +851,17 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
             
             <div className="p-5 space-y-4 flex-1">
               <div className="space-y-1.5">
-                <label className="opacity-60 block text-[10px] uppercase tracking-wider">Endereço da API Backend (URL)</label>
+                <label className="opacity-60 block text-xs uppercase tracking-wider">Endereço da API Backend (URL)</label>
                 <input type="text" readOnly value={BACKEND_URL} className="w-full h-10 border border-[var(--border)] bg-[var(--background)] px-3 rounded-xl outline-none font-semibold text-xs text-[var(--text)] opacity-70"/>
               </div>
 
               <div className="space-y-1.5">
-                <label className="opacity-60 block text-[10px] uppercase tracking-wider">ID Global do Usuário (Session ID)</label>
+                <label className="opacity-60 block text-xs uppercase tracking-wider">ID Global do Usuário (Session ID)</label>
                 <input type="text" readOnly value={userId} className="w-full h-10 border border-[var(--border)] bg-[var(--background)] px-3 rounded-xl outline-none font-semibold text-xs text-[var(--text)] opacity-70"/>
               </div>
 
               <div className="bg-[var(--background)] border border-[var(--border)] p-3 rounded-xl space-y-1.5">
-                <p className="text-emerald-500 font-bold text-[11px] uppercase tracking-wide">Status do Gateway</p>
+                <p className="text-emerald-500 font-bold text-xs uppercase tracking-wide">Status do Gateway</p>
                 <div className="flex justify-between font-medium text-xs opacity-80">
                   <span>Servidor Backend:</span>
                   <span className="text-emerald-400 font-bold">Online (127.0.0.1)</span>

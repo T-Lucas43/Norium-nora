@@ -116,8 +116,8 @@ export default function CommercialInspector({
             type="button"
             onClick={() => setTab(id)}
             title={label}
-            className={`flex h-14 flex-col items-center justify-center gap-1 text-[10px] font-black ${tab === id ? "bg-blue-500/10 text-blue-400" : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"}`}
-          >
+            className={`flex h-14 flex-col items-center justify-center gap-1 text-xs font-bold ${tab === id ? "bg-blue-500/10 text-blue-400" : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"}`}
+           aria-label={label}>
             <Icon size={15} />
             <span className="hidden 2xl:block">{label}</span>
           </button>
@@ -166,7 +166,7 @@ export default function CommercialInspector({
               <section key={signer.id || `${signer.email}-${index}`} className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                 <div className="flex items-center justify-between gap-2">
                   <strong className="text-xs">Assinante {index + 1}</strong>
-                  <span className={`rounded-full px-2 py-1 text-[9px] font-black uppercase ${signer.status === "signed" ? "bg-emerald-500/15 text-emerald-400" : "bg-blue-500/10 text-blue-400"}`}>{signer.status}</span>
+                  <span className={`rounded-full px-2 py-1 text-xs font-bold uppercase ${signer.status === "signed" ? "bg-emerald-500/15 text-emerald-400" : "bg-blue-500/10 text-blue-400"}`}>{signer.status}</span>
                 </div>
                 <input value={signer.name} disabled={readOnly || signer.status === "signed"} onChange={(event) => updateSigner(index, { name: event.target.value })} placeholder="Nome completo" className="commercial-field" />
                 <input value={signer.email} disabled={readOnly || signer.status === "signed"} onChange={(event) => updateSigner(index, { email: event.target.value })} placeholder="E-mail" type="email" className="commercial-field" />
@@ -223,8 +223,8 @@ export default function CommercialInspector({
             {revisions.map((revision) => (
               <section key={revision.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                 <div className="flex items-start justify-between gap-2">
-                  <span><strong className="block text-xs">Versao {revision.version}</strong><small className="text-[10px] font-semibold text-[var(--text-secondary)]">{revision.savedBy}</small></span>
-                  <time className="text-[9px] font-bold text-[var(--text-secondary)]">{new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(revision.savedAt))}</time>
+                  <span><strong className="block text-xs">Versao {revision.version}</strong><small className="text-xs font-semibold text-[var(--text-secondary)]">{revision.savedBy}</small></span>
+                  <time className="text-xs font-bold text-[var(--text-secondary)]">{new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(revision.savedAt))}</time>
                 </div>
                 {!readOnly && <Button size="sm" variant="ghost" className="mt-3" onClick={() => onRestoreRevision(revision)} icon={<RotateCcw size={13} />}>Restaurar esta versao</Button>}
               </section>
@@ -238,20 +238,20 @@ export default function CommercialInspector({
 }
 
 function InspectorHeading({ title, description }: { title: string; description: string }) {
-  return <div><h3 className="text-sm font-black">{title}</h3><p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{description}</p></div>;
+  return <div><h3 className="text-sm font-bold">{title}</h3><p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{description}</p></div>;
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="block"><span className="mb-1.5 block text-[10px] font-black uppercase text-[var(--text-secondary)]">{label}</span>{children}</label>;
+  return <label className="block"><span className="mb-1.5 block text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</span>{children}</label>;
 }
 
 function ColorField({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (value: string) => void }) {
   return (
     <label className="min-w-0">
-      <span className="mb-1.5 block truncate text-[9px] font-black uppercase text-[var(--text-secondary)]">{label}</span>
+      <span className="mb-1.5 block truncate text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</span>
       <span className="flex h-9 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--background)] px-2">
         <input type="color" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="h-5 w-6 border-0 bg-transparent p-0" />
-        <span className="truncate text-[9px] font-bold">{value}</span>
+        <span className="truncate text-xs font-bold">{value}</span>
       </span>
     </label>
   );

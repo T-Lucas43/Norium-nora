@@ -93,7 +93,7 @@ export default function AgendaSidebar({
           </div>
         </div>
 
-        <div className="grid grid-cols-7 text-center text-[11px] font-bold text-[var(--text-secondary)]">
+        <div className="grid grid-cols-7 text-center text-xs font-bold text-[var(--text-secondary)]">
           {weekDays.map((day, index) => (
             <span key={`${day}-${index}`}>{day}</span>
           ))}
@@ -125,7 +125,7 @@ export default function AgendaSidebar({
       </div>
 
       <div className="space-y-2">
-        <h3 className="text-[11px] font-bold uppercase text-[var(--text-secondary)]">Meus calendários</h3>
+        <h3 className="text-xs font-bold uppercase text-[var(--text-secondary)]">Meus calendários</h3>
         <label className="flex items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold">
           <input type="checkbox" defaultChecked className="h-4 w-4 accent-[var(--primary)]" />
           Google Agenda
@@ -142,7 +142,7 @@ export default function AgendaSidebar({
             <Cloud size={16} />
             Google Agenda
           </span>
-          <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${status.connected ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-300"}`}>
+          <span className={`rounded-full px-2 py-1 text-xs font-bold ${status.connected ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-300"}`}>
             {status.connected ? "Conectado" : "Local"}
           </span>
         </div>

@@ -308,7 +308,7 @@ export default function Header({
           className={`norium-topbar-icon ${activeTab === "Agenda" ? "is-active" : ""}`}
           onClick={() => setActiveTab("Agenda")}
           title="Abrir Agenda"
-        >
+         aria-label="Abrir Agenda">
           <CalendarDays size={19} />
         </button>
 
@@ -317,7 +317,7 @@ export default function Header({
           className="norium-topbar-icon"
           onClick={onOpenNotifications}
           title="Notificações do sistema"
-        >
+         aria-label="Notificações do sistema">
           <Bell size={19} />
           {unreadNotifications > 0 && (
             <span className="norium-topbar-badge">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>
@@ -325,7 +325,7 @@ export default function Header({
         </button>
 
         {canUseTeamChat && (
-          <button type="button" className="norium-topbar-icon" onClick={onOpenTeamChat} title="Chat da equipe">
+          <button type="button" className="norium-topbar-icon" onClick={onOpenTeamChat} title="Chat da equipe" aria-label="Chat da equipe">
             <MessageSquare size={19} />
             {teamChatUnread > 0 && (
               <span className="norium-topbar-badge">{teamChatUnread > 9 ? "9+" : teamChatUnread}</span>
@@ -334,7 +334,7 @@ export default function Header({
         )}
 
         {canUseNora && (
-          <button type="button" className="norium-topbar-nora" onClick={() => onOpenNora()} title="Conversar com a Nora">
+          <button type="button" className="norium-topbar-nora" onClick={() => onOpenNora()} title="Conversar com a Nora" aria-label="Conversar com a Nora">
             <NoraAvatar className="h-8 w-8" />
             <span>Nora</span>
           </button>

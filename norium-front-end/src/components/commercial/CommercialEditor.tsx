@@ -13,7 +13,6 @@ import {
   Minimize2,
   PanelRightClose,
   PanelRightOpen,
-  PencilLine,
   Send,
   Share2,
   Sparkles,
@@ -109,9 +108,6 @@ export default function CommercialEditor({
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const [shareMenuPosition, setShareMenuPosition] = useState({ left: 12, top: 72 });
   const [noraUndoStack, setNoraUndoStack] = useState<string[]>([]);
-  const [documentView, setDocumentView] = useState<"edit" | "pages">(
-    ["signed", "active", "completed", "cancelled"].includes(sourceDocument.status) ? "pages" : "edit",
-  );
 
   const readOnly = !isProposal(sourceDocument) && ["signed", "active", "completed", "cancelled"].includes(sourceDocument.status);
   const advancedPlan = ["equipe", "enterprise"].includes(session.user.plan);
@@ -157,19 +153,18 @@ export default function CommercialEditor({
 
   useEffect(() => {
     setNoraUndoStack([]);
-    setDocumentView(["signed", "active", "completed", "cancelled"].includes(sourceDocument.status) ? "pages" : "edit");
   }, [sourceDocument.id]);
 
   useEffect(() => {
     if (
-      documentView === "edit"
+      !readOnly
       && editorRef.current
       && document.activeElement !== editorRef.current
       && editorRef.current.innerHTML !== contentHtml
     ) {
       editorRef.current.innerHTML = contentHtml;
     }
-  }, [contentHtml, documentView]);
+  }, [contentHtml, readOnly]);
 
   useEffect(() => {
     if (readOnly || !savedSnapshotRef.current || draftSnapshot === savedSnapshotRef.current) return;
@@ -591,7 +586,7 @@ export default function CommercialEditor({
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400">{proposal ? <FileSignature size={18} /> : <FileCheck2 size={18} />}</span>
           <div className="min-w-0">
             <input value={title} disabled={readOnly} onChange={(event) => setTitle(event.target.value)} className="block w-full min-w-0 bg-transparent text-base font-black outline-none" aria-label="Titulo do documento" />
-            <div className="mt-0.5 flex items-center gap-2 text-[10px] font-bold text-[var(--text-secondary)]">
+            <div className="mt-0.5 flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)]">
               <StatusPill status={sourceDocument.status} />
               <span>v{sourceDocument.version}</span>
               <SaveIndicator state={saveState} error={saveError} />
@@ -599,12 +594,12 @@ export default function CommercialEditor({
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {participants.length > 0 && <span className="hidden items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-2 text-[10px] font-black sm:flex"><UsersRound size={13} className="text-emerald-400" /> {participants.length} online</span>}
+          {participants.length > 0 && <span className="hidden items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-2 text-xs font-bold sm:flex"><UsersRound size={13} className="text-emerald-400" /> {participants.length} online</span>}
           {proposal && <Button size="sm" variant={noraOpen ? "primary" : "secondary"} onClick={() => setNoraOpen((current) => !current)} icon={<Sparkles size={14} />}>Nora</Button>}
           <Button size="sm" variant="secondary" onClick={() => setInspectorOpen((current) => !current)} icon={inspectorOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}>Propriedades</Button>
           <div className="flex h-9 items-center rounded-lg border border-[var(--border)] bg-[var(--background)]">
             <button type="button" onClick={() => setZoom((current) => Math.max(50, current - 10))} className="grid h-full w-8 place-items-center hover:bg-[var(--surface-hover)]" aria-label="Diminuir zoom"><Minus size={14} /></button>
-            <span className="w-12 text-center text-[10px] font-black">{zoom}%</span>
+            <span className="w-12 text-center text-xs font-bold">{zoom}%</span>
             <button type="button" onClick={() => setZoom((current) => Math.min(150, current + 10))} className="grid h-full w-8 place-items-center hover:bg-[var(--surface-hover)]" aria-label="Aumentar zoom"><Plus size={14} /></button>
           </div>
           <Button size="sm" variant="secondary" onClick={printDocument} icon={<Download size={14} />}>Exportar PDF</Button>
@@ -658,7 +653,7 @@ export default function CommercialEditor({
         </div>
 
         <section className="flex min-w-0 flex-col overflow-hidden border-x border-[var(--border)]">
-          {!readOnly && documentView === "edit" && (
+          {!readOnly && (
             <RichTextToolbar
               editorRef={editorRef}
               onChange={syncHtmlFromEditor}
@@ -669,26 +664,13 @@ export default function CommercialEditor({
             />
           )}
           <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
-            <div className="flex h-9 items-center rounded-lg border border-[var(--border)] bg-[var(--background)] p-1">
-              <button
-                type="button"
-                onClick={() => setDocumentView("edit")}
-                className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-black ${documentView === "edit" ? "bg-[var(--surface-hover)] text-[var(--text)]" : "text-[var(--text-secondary)]"}`}
-              >
-                <PencilLine size={12} /> Editar
-              </button>
-              <button
-                type="button"
-                onClick={() => setDocumentView("pages")}
-                className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-black ${documentView === "pages" ? "bg-blue-500/15 text-blue-400" : "text-[var(--text-secondary)]"}`}
-              >
-                <Eye size={12} /> Visualizar A4
-              </button>
-            </div>
-            <label className="flex min-w-[170px] flex-1 items-center gap-2 text-[10px] font-black uppercase text-[var(--text-secondary)]">Resumo <input value={scopeSummary} disabled={readOnly} onChange={(event) => setScopeSummary(event.target.value)} placeholder="Resumo executivo do escopo" className="commercial-field normal-case" /></label>
-            <label className="flex items-center gap-2 text-[10px] font-black uppercase text-[var(--text-secondary)]">Valor <input value={amount} disabled={readOnly} onChange={(event) => setAmount(Number(event.target.value))} type="number" min="0" className="commercial-field w-32 normal-case" /></label>
+            <span className="flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
+              <Eye size={12} /> {readOnly ? "Documento A4 (somente leitura)" : "Documento A4 editável"}
+            </span>
+            <label className="flex min-w-[170px] flex-1 items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Resumo <input value={scopeSummary} disabled={readOnly} onChange={(event) => setScopeSummary(event.target.value)} placeholder="Resumo executivo do escopo" className="commercial-field normal-case" /></label>
+            <label className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Valor <input value={amount} disabled={readOnly} onChange={(event) => setAmount(Number(event.target.value))} type="number" min="0" className="commercial-field w-32 normal-case" /></label>
             <select value={currency} disabled={readOnly} onChange={(event) => setCurrency(event.target.value)} className="commercial-field w-20"><option>BRL</option><option>USD</option><option>EUR</option></select>
-            {proposal && <label className="flex items-center gap-2 text-[10px] font-black uppercase text-[var(--text-secondary)]">Validade <input value={validUntil || ""} disabled={readOnly} onChange={(event) => setValidUntil(event.target.value || null)} type="date" className="commercial-field normal-case" /></label>}
+            {proposal && <label className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Validade <input value={validUntil || ""} disabled={readOnly} onChange={(event) => setValidUntil(event.target.value || null)} type="date" className="commercial-field normal-case" /></label>}
           </div>
           <div className="min-h-0 flex-1 overflow-auto bg-[color-mix(in_srgb,var(--background)_88%,#64748b)] p-4 sm:p-8">
             <div
@@ -715,7 +697,7 @@ export default function CommercialEditor({
                       </div>
                     )}
                     <div className="mt-auto max-w-2xl pb-12">
-                      <p className="text-xs font-black uppercase tracking-[0.22em]" style={{ color: branding.secondaryColor }}>{proposal ? "Proposta comercial" : "Contrato comercial"}</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.22em]" style={{ color: branding.secondaryColor }}>{proposal ? "Proposta comercial" : "Contrato comercial"}</p>
                       <h1 className="mt-5 text-4xl font-bold leading-tight" style={{ color: branding.primaryColor }}>{title}</h1>
                       <div className="mt-10 border-l-4 py-3 pl-5" style={{ borderColor: branding.secondaryColor }}>
                         <p className="text-xl font-bold">{sourceDocument.client.company || sourceDocument.client.name || "Cliente"}</p>
@@ -725,16 +707,26 @@ export default function CommercialEditor({
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-8 border-t border-slate-200 pt-8 text-sm">
-                      <div><span className="block text-[10px] font-black uppercase tracking-wider text-slate-500">Emissão</span><strong className="mt-2 block">{formatDocumentDate(sourceDocument.updatedAt)}</strong></div>
-                      <div><span className="block text-[10px] font-black uppercase tracking-wider text-slate-500">Investimento</span><strong className="mt-2 block">{formatMoney(amount, currency)}</strong></div>
+                      <div><span className="block text-xs font-bold uppercase tracking-wider text-slate-500">Emissão</span><strong className="mt-2 block">{formatDocumentDate(sourceDocument.updatedAt)}</strong></div>
+                      <div><span className="block text-xs font-bold uppercase tracking-wider text-slate-500">Investimento</span><strong className="mt-2 block">{formatMoney(amount, currency)}</strong></div>
                     </div>
                   </div>
                 </article>
               </section>
 
-              {documentView === "edit" ? (
+              {readOnly ? (
+                <A4ContentPages
+                  title={title}
+                  contentHtml={contentHtml}
+                  branding={branding}
+                  signers={signers}
+                />
+              ) : (
                 <section className="commercial-page-shell">
-                  <div className="commercial-page-label"><span>Edição contínua</span><strong>Use “Visualizar A4” para conferir as páginas</strong></div>
+                  <div className="commercial-page-label">
+                    <span>Página 2 em diante</span>
+                    <strong>As linhas tracejadas marcam a quebra de página A4</strong>
+                  </div>
                   <article
                     className="commercial-document-page commercial-document-edit-page flex min-h-[1123px] w-full flex-col bg-white shadow-2xl"
                     style={{
@@ -745,11 +737,11 @@ export default function CommercialEditor({
                   >
                     <header className="min-h-12 border-b border-slate-200 px-14 py-7 text-xs text-slate-500" dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(branding.headerHtml) }} />
                     {branding.logoUrl && <div className={`px-14 pt-8 text-${branding.logoAlignment}`} style={{ textAlign: branding.logoAlignment }}><img src={branding.logoUrl} alt="Logo" className="inline-block max-w-full object-contain" style={{ maxHeight: `${Math.max(36, branding.logoScale * 0.62)}px` }} /></div>}
-                    <div className="px-14 pt-9">
+                    <div className="commercial-a4-break-guides px-14 pt-9">
                       <h1 className="mb-8 text-3xl font-bold" style={{ color: branding.primaryColor }}>{title}</h1>
                       <div
                         ref={editorRef}
-                        contentEditable={!readOnly}
+                        contentEditable
                         suppressContentEditableWarning
                         onInput={syncHtmlFromEditor}
                         className="commercial-rich-editor min-h-[660px] outline-none"
@@ -757,7 +749,7 @@ export default function CommercialEditor({
                       {signers.length > 0 && (
                         <section className="mt-16 grid grid-cols-2 gap-x-10 gap-y-12 pb-8">
                           {signers.map((signer) => (
-                            <div key={signer.id} className="border-t border-slate-500 pt-2 text-[11px] text-slate-700">
+                            <div key={signer.id} className="border-t border-slate-500 pt-2 text-xs text-slate-700">
                               <strong className="block">{signer.name || "Assinante"}</strong>
                               <span>{roleLabel(signer.role)} - ordem {signer.order}</span>
                               {signer.status === "signed" && <span className="mt-1 block font-bold text-emerald-700">Assinado em {formatDate(signer.signedAt)}</span>}
@@ -769,13 +761,6 @@ export default function CommercialEditor({
                     <footer className="mt-auto min-h-12 border-t border-slate-200 px-14 py-7 text-xs text-slate-500" dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(branding.footerHtml) }} />
                   </article>
                 </section>
-              ) : (
-                <A4ContentPages
-                  title={title}
-                  contentHtml={contentHtml}
-                  branding={branding}
-                  signers={signers}
-                />
               )}
             </div>
           </div>
@@ -840,7 +825,7 @@ function WorkflowBar({
   const proposal = isProposal(document);
   return (
     <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--background)] px-4 py-2">
-      <div className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-secondary)]"><Clock3 size={13} /> Atualizado em {formatDate(document.updatedAt)}</div>
+      <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)]"><Clock3 size={13} /> Atualizado em {formatDate(document.updatedAt)}</div>
       <div className="flex flex-wrap gap-2">
         {proposal && ["draft", "changes_requested", "rejected"].includes(document.status) && <Button size="sm" loading={busy} onClick={onSubmit} icon={<Send size={13} />}>Enviar para aprovacao</Button>}
         {proposal && document.status === "in_review" && <>

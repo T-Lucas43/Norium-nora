@@ -87,7 +87,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                 disabled={loading}
                 className="group rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 text-left shadow-xl shadow-blue-950/16 transition hover:-translate-y-1 hover:border-cyan-300/45 hover:bg-[var(--surface-hover)] disabled:opacity-60"
               >
-                <span className="text-sm font-black text-[var(--primary)]">{plan.price}/mês</span>
+                <span className="text-sm font-bold text-[var(--primary)]">{plan.price}/mês</span>
                 <span className="mt-3 block text-2xl font-black">{plan.name}</span>
                 <span className="mt-2 block min-h-12 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{plan.description}</span>
                 <span className="mt-5 grid gap-2">
@@ -95,7 +95,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                     <span key={feature} className="text-xs font-bold text-[var(--text-secondary)]">- {feature}</span>
                   ))}
                 </span>
-                <span className="mt-6 inline-flex items-center gap-2 text-sm font-black text-[var(--primary)]">
+                <span className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
                   Escolher {plan.name} <ArrowRight size={16} className="transition group-hover:translate-x-1" />
                 </span>
               </button>
@@ -117,7 +117,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               <div className="relative z-10 flex h-full flex-col justify-between">
                 <BrandLogo className="h-14 w-[148px] text-white" />
                 <div>
-                  <span className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/16 px-4 py-2 text-sm font-black">
+                  <span className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/16 px-4 py-2 text-sm font-bold">
                     <ShieldCheck size={16} /> Acesso principal reconhecido
                   </span>
                   <h1 className="max-w-xl text-4xl font-black leading-tight">Escolha como deseja entrar no Norium.</h1>
@@ -140,7 +140,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                 <span className="mt-2 block text-sm font-semibold leading-6 text-[var(--text-secondary)]">
                   Abrir Dashboard, Gmail, Agenda, Chat, Tarefas, Gastos, Relatórios e Nora.
                 </span>
-                <span className="mt-5 inline-flex items-center gap-2 text-sm font-black text-[var(--primary)]">
+                <span className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
                   Entrar no painel <ArrowRight size={16} className="transition group-hover:translate-x-1" />
                 </span>
               </button>
@@ -156,7 +156,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                 <span className="mt-2 block text-sm font-semibold leading-6 text-[var(--text-secondary)]">
                   Administrar usuários, planos, permissões, módulos e liberações por integração.
                 </span>
-                <span className="mt-5 inline-flex items-center gap-2 text-sm font-black text-[var(--primary)]">
+                <span className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
                   Abrir admin <ArrowRight size={16} className="transition group-hover:translate-x-1" />
                 </span>
               </button>
@@ -174,7 +174,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           <div className="norium-auth-grid absolute inset-0" />
           <div className="relative z-10">
             <BrandLogo className="h-16 w-[168px] text-white" />
-            <span className="mt-10 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-4 py-2 text-sm font-black">
+            <span className="mt-10 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-4 py-2 text-sm font-bold">
               <Sparkles size={16} /> Operação unificada
             </span>
             <h1 className="mt-6 max-w-2xl text-5xl font-black leading-tight text-white drop-shadow-sm">
@@ -186,7 +186,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             <div className="mt-8 grid gap-3 sm:grid-cols-3">
               {["Permissoes", "Modo equipe", "Admin"].map((item) => (
                 <div key={item} className="rounded-lg border border-white/16 bg-white/12 p-4 text-white backdrop-blur-xl">
-                  <p className="text-sm font-black">{item}</p>
+                  <p className="text-sm font-bold">{item}</p>
                   <p className="mt-1 text-xs font-semibold text-white/68">Controle granular</p>
                 </div>
               ))}
@@ -209,7 +209,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 
           <div className="grid gap-3">
             {mode === "register" && (
-              <label className="grid gap-2 text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">
+              <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">
                 Nome
                 <input
                   value={nome}
@@ -219,7 +219,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                 />
               </label>
             )}
-            <label className="grid gap-2 text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">
+            <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">
               E-mail
               <input
                 type="email"
@@ -229,7 +229,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                 placeholder="voce@email.com"
               />
             </label>
-            <label className="grid gap-2 text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">
+            <label className="grid gap-2 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">
               Senha
               <input
                 type="password"
@@ -253,7 +253,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           <button
             onClick={() => void submit()}
             disabled={loading}
-            className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 px-5 text-sm font-black text-white shadow-lg shadow-blue-950/25 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 px-5 text-sm font-bold text-white shadow-lg shadow-blue-950/25 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? "Validando..." : mode === "login" ? "Entrar no Norium" : "Criar conta"}
             <ArrowRight size={17} />
@@ -264,7 +264,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               setMode(mode === "login" ? "register" : "login");
               setError("");
             }}
-            className="mt-4 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm font-black text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+            className="mt-4 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
           >
             {mode === "login" ? "Criar novo cadastro" : "Já tenho acesso"}
           </button>

@@ -228,14 +228,14 @@ function NoraMessageContent({ message }: { message: TeamMessage }) {
   return (
     <div className="space-y-2 leading-5">
       <div className="rounded-xl border border-white/10 bg-white/10 p-3">
-        <p className="text-[10px] font-black uppercase tracking-wide opacity-75">{parsed.eyebrow}</p>
-        <p className="mt-1 text-sm font-black">{parsed.title}</p>
+        <p className="text-xs font-bold uppercase tracking-wide opacity-75">{parsed.eyebrow}</p>
+        <p className="mt-1 text-sm font-bold">{parsed.title}</p>
         {parsed.subtitle && <p className="mt-1 text-xs font-bold opacity-80">{parsed.subtitle}</p>}
       </div>
 
       {parsed.changes.length > 0 && (
         <div className="rounded-xl border border-white/10 bg-black/10 p-3">
-          <p className="text-[10px] font-black uppercase tracking-wide opacity-70">Alteracoes</p>
+          <p className="text-xs font-bold uppercase tracking-wide opacity-70">Alteracoes</p>
           <ul className="mt-2 space-y-1.5">
             {parsed.changes.map((change) => (
               <li key={change} className="flex gap-2 text-xs font-semibold">
@@ -251,7 +251,7 @@ function NoraMessageContent({ message }: { message: TeamMessage }) {
         <div className="grid grid-cols-2 gap-1.5">
           {parsed.details.map((detail) => (
             <div key={`${detail.label}-${detail.value}`} className="rounded-lg border border-white/10 bg-white/[0.08] px-2 py-1.5">
-              <p className="text-[10px] font-black uppercase opacity-60">{detail.label}</p>
+              <p className="text-xs font-bold uppercase opacity-60">{detail.label}</p>
               <p className="truncate text-xs font-bold" title={detail.value}>
                 {detail.value}
               </p>
@@ -267,7 +267,7 @@ function MessageAvatar({ name, avatar }: { name: string; avatar?: string }) {
   const [failed, setFailed] = useState(false);
   if (avatar === "nora") return <NoraAvatar className="h-9 w-9 shrink-0" />;
   return (
-    <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] text-xs font-black text-[var(--text)]">
+    <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] text-xs font-bold text-[var(--text)]">
       {avatar && !failed ? (
         <img src={avatar} alt={name} className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : (
@@ -334,7 +334,7 @@ function TeamAttachmentCard({ attachment, onPreview, token }: { attachment: Atta
             <Icon size={16} />
             <span className="min-w-0 flex-1">
               <span className="block truncate">{attachment.name}</span>
-              <span className="block text-[10px] opacity-70">{formatBytes(attachment.size)}</span>
+              <span className="block text-xs opacity-70">{formatBytes(attachment.size)}</span>
             </span>
           </div>
         )}
@@ -359,7 +359,7 @@ function AttachmentPreviewModal({ attachment, onClose, token }: { attachment: At
       <div className="max-h-[88dvh] w-full max-w-3xl overflow-hidden rounded-2xl border border-white/20 bg-[var(--surface)] shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-black text-[var(--text)]">{attachment.name}</p>
+            <p className="truncate text-sm font-bold text-[var(--text)]">{attachment.name}</p>
             <p className="text-xs font-semibold text-[var(--text-secondary)]">{attachment.mimeType} · {formatBytes(attachment.size)}</p>
           </div>
           <button onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl hover:bg-[var(--surface-hover)]">
@@ -400,7 +400,7 @@ function PendingFilePreview({ file, onRemove }: { file: File; onRemove: () => vo
           <FileText size={16} />
           <span className="min-w-0">
             <span className="block truncate">{file.name}</span>
-            <span className="text-[10px] opacity-70">clique para remover</span>
+            <span className="text-xs opacity-70">clique para remover</span>
           </span>
         </span>
       )}
@@ -576,7 +576,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
                 <Users size={17} />
               </span>
               <span className="min-w-0">
-                <p className="truncate text-sm font-black">Chat da equipe</p>
+                <p className="truncate text-sm font-bold">Chat da equipe</p>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">{onlineUserIds.length} online agora</p>
               </span>
             </div>
@@ -586,7 +586,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
           </header>
 
           <div className="grid grid-cols-2 gap-2 border-b border-[var(--border)] p-3">
-            <button onClick={() => setScope("team")} className={`h-10 rounded-xl text-xs font-black transition ${scope === "team" ? "team-chat-primary-control" : "team-chat-secondary-control"}`}>
+            <button onClick={() => setScope("team")} className={`h-10 rounded-xl text-xs font-bold transition ${scope === "team" ? "team-chat-primary-control" : "team-chat-secondary-control"}`}>
               <Users size={15} className="mr-2 inline" /> Time todo
             </button>
             <select
@@ -636,7 +636,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
                 <div key={message.id} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                   {!mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} />}
                   <div className={`team-chat-message ${isNora ? "max-w-[86%]" : "max-w-[78%]"} rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "team-chat-message-mine" : "team-chat-message-other"}`}>
-                    <div className={`mb-1 flex items-center justify-between gap-3 text-[11px] font-bold ${mine ? "team-chat-message-meta-mine" : "team-chat-message-meta-other"}`}>
+                    <div className={`mb-1 flex items-center justify-between gap-3 text-xs font-bold ${mine ? "team-chat-message-meta-mine" : "team-chat-message-meta-other"}`}>
                       <span className="min-w-0 truncate">{message.senderName}</span>
                       <span className="shrink-0 text-right">{formatMessageDateTime(message.createdAt)}</span>
                     </div>
@@ -678,12 +678,12 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
                 >
                   <NoraAvatar className="h-9 w-9 shrink-0" />
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-black">Nora</span>
+                    <span className="block text-sm font-bold">Nora</span>
                     <span className="block truncate text-xs font-semibold text-[var(--text-secondary)]">
                       Mencionar para responder com o contexto da conversa
                     </span>
                   </span>
-                  <span className="team-chat-mention-handle rounded-lg px-2 py-1 text-xs font-black">@nora</span>
+                  <span className="team-chat-mention-handle rounded-lg px-2 py-1 text-xs font-bold">@nora</span>
                 </button>
               </motion.div>
             )}

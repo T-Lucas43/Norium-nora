@@ -173,7 +173,7 @@ export default function ProfileSettings({
                 <button
                   type="button"
                   onClick={() => photoInputRef.current?.click()}
-                  className="flex-1 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-black text-white"
+                  className="flex-1 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-bold text-white"
                 >
                   Alterar foto
                 </button>
@@ -181,7 +181,7 @@ export default function ProfileSettings({
                   <button
                     type="button"
                     onClick={() => setProfile((current) => ({ ...current, fotoUrl: "" }))}
-                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-black"
+                    className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold"
                   >
                     Remover
                   </button>

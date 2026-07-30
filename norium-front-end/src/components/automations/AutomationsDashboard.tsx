@@ -461,7 +461,7 @@ function StatCard({ title, value, icon: Icon, detail }: { title: string; value: 
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--text-secondary)]">{title}</p>
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">{title}</p>
           <strong className="mt-3 block text-3xl font-black text-[var(--text)]">{value}</strong>
           <span className="mt-1 block text-xs font-semibold text-[var(--text-secondary)]">{detail}</span>
         </div>
@@ -1163,14 +1163,14 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                 onClick={() => setBuilderOpen(false)}
                 className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)]"
                 title="Voltar"
-              >
+               aria-label="Voltar">
                 <X size={18} />
               </button>
               <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-blue-500/18 text-cyan-100">
                 <GitBranch size={23} />
               </span>
               <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--text-secondary)]">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--text-secondary)]">
                   Construtor visual
                 </p>
                 <input
@@ -1183,28 +1183,28 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-black text-[var(--text-secondary)]">
+              <span className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
                 <MousePointer2 size={14} />
                 Clique para inserir, arraste para posicionar
               </span>
               <Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
               <button
                 onClick={validateBuilderFlow}
-                className="inline-flex h-11 items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 text-sm font-black text-cyan-100"
+                className="inline-flex h-11 items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 text-sm font-bold text-cyan-100"
               >
                 <CheckSquare size={17} />
                 Validar fluxo
               </button>
               <button
                 onClick={() => setBuilderOpen(false)}
-                className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-black"
+                className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-bold"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => void saveBuilderAutomation()}
                 disabled={saving || !form.name.trim()}
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--primary)] px-5 text-sm font-black text-white shadow-lg shadow-blue-950/20 disabled:opacity-50"
+                className="inline-flex h-11 items-center gap-2 rounded-xl bg-[var(--primary)] px-5 text-sm font-bold text-white shadow-lg shadow-blue-950/20 disabled:opacity-50"
               >
                 <Save size={17} />
                 {saving ? "Salvando..." : "Salvar fluxo"}
@@ -1215,7 +1215,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
           <section className="automation-builder-grid grid min-h-0 flex-1 grid-cols-[290px_minmax(0,1fr)_320px] overflow-hidden max-xl:grid-cols-1">
             <aside className="min-h-0 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)]/82 p-4 backdrop-blur-2xl max-xl:max-h-[320px] max-xl:border-b max-xl:border-r-0">
               <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
-                <p className="text-sm font-black">Componentes</p>
+                <p className="text-sm font-bold">Componentes</p>
                 <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
                   Insira gatilhos, ações e blocos da Nora no fluxo.
                 </p>
@@ -1223,7 +1223,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               <div className="space-y-4">
                 {componentLibrary.map((group) => (
                   <section key={group.group}>
-                    <h2 className="mb-2 text-xs font-black uppercase tracking-[0.16em] text-[var(--text-secondary)]">{group.group}</h2>
+                    <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{group.group}</h2>
                     <div className="space-y-2">
                       {group.items.map((item) => (
                         <button
@@ -1236,7 +1236,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                             <IconByName name={item.icon} size={18} />
                           </span>
                           <span className="min-w-0">
-                            <strong className="block truncate text-sm font-black">{item.title}</strong>
+                            <strong className="block truncate text-sm font-bold">{item.title}</strong>
                             <span className="mt-0.5 line-clamp-2 block text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</span>
                           </span>
                         </button>
@@ -1250,17 +1250,17 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
             <div className="relative min-h-[620px] min-w-0 overflow-auto bg-[#101316]">
               <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-[#17191c]/92 px-4 py-3 text-white backdrop-blur-xl">
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/8 px-3 py-1.5 text-xs font-black">
+                  <span className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/8 px-3 py-1.5 text-xs font-bold">
                     <Layers size={14} />
                     Editor
                   </span>
-                  <span className="rounded-lg border border-emerald-400/25 bg-emerald-400/12 px-3 py-1.5 text-xs font-black text-emerald-200">
+                  <span className="rounded-lg border border-emerald-400/25 bg-emerald-400/12 px-3 py-1.5 text-xs font-bold text-emerald-200">
                     {builderFlow.nodes.length} bloco(s)
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => setBuilderZoom((current) => Math.max(0.62, current - 0.08))} className="grid h-9 w-9 place-items-center rounded-lg border border-white/12 bg-white/8">-</button>
-                  <span className="w-14 text-center text-xs font-black">{Math.round(builderZoom * 100)}%</span>
+                  <span className="w-14 text-center text-xs font-bold">{Math.round(builderZoom * 100)}%</span>
                   <button onClick={() => setBuilderZoom((current) => Math.min(1.28, current + 0.08))} className="grid h-9 w-9 place-items-center rounded-lg border border-white/12 bg-white/8">+</button>
                 </div>
               </div>
@@ -1311,9 +1311,9 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                         <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${nodeItem.kind === "nora" ? "bg-cyan-400/18 text-cyan-100" : nodeItem.kind === "trigger" ? "bg-emerald-400/18 text-emerald-100" : "bg-blue-400/18 text-blue-100"}`}>
                           <IconByName name={nodeItem.icon} size={20} />
                         </span>
-                        <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] font-black uppercase text-white/60">{nodeItem.kind}</span>
+                        <span className="rounded-full border border-white/10 px-2 py-1 text-xs font-bold uppercase text-white/60">{nodeItem.kind}</span>
                       </div>
-                      <h3 className="mt-3 text-sm font-black">{nodeItem.title}</h3>
+                      <h3 className="mt-3 text-sm font-bold">{nodeItem.title}</h3>
                       <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-white/62">{nodeItem.description}</p>
                     </motion.div>
                   ))}
@@ -1323,18 +1323,18 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
 
             <aside className="min-h-0 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)]/86 p-4 backdrop-blur-2xl max-xl:border-l-0 max-xl:border-t">
               <section className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <h2 className="text-sm font-black">Configuração do fluxo</h2>
+                <h2 className="text-sm font-bold">Configuração do fluxo</h2>
                 <div className="mt-4 space-y-3">
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">Descrição</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">Descrição</span>
                     <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
                   </label>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">Categoria</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">Categoria</span>
                     <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
                   </label>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">Projeto para tarefas</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">Projeto para tarefas</span>
                     <select
                       value={form.taskProjectId}
                       onChange={(event) => {
@@ -1355,7 +1355,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                     </select>
                   </label>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">Categoria da tarefa</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">Categoria da tarefa</span>
                     <select
                       value={form.taskCategory}
                       onChange={(event) => setForm({ ...form, taskCategory: event.target.value })}
@@ -1369,7 +1369,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                     </select>
                   </label>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">Categoria de e-mail</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">Categoria de e-mail</span>
                     <select
                       value={form.emailCategory}
                       onChange={(event) => setForm({ ...form, emailCategory: event.target.value })}
@@ -1383,7 +1383,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                     </select>
                   </label>
                   <label className="block space-y-1.5">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">Agendamento</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">Agendamento</span>
                     <select value={form.schedule} onChange={(event) => setForm({ ...form, schedule: event.target.value })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none">
                       <option value="">Manual</option>
                       <option value="A cada hora">A cada hora</option>
@@ -1395,7 +1395,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                   </label>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <label className="block space-y-1.5">
-                      <span className="text-xs font-black text-[var(--text-secondary)]">Tentativas após falha</span>
+                      <span className="text-xs font-bold text-[var(--text-secondary)]">Tentativas após falha</span>
                       <select value={form.retryPolicy} onChange={(event) => setForm({ ...form, retryPolicy: event.target.value as AutomationFormState["retryPolicy"] })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none">
                         <option value="none">Não repetir</option>
                         <option value="once">Repetir uma vez</option>
@@ -1403,7 +1403,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                       </select>
                     </label>
                     <label className="block space-y-1.5">
-                      <span className="text-xs font-black text-[var(--text-secondary)]">Se ainda falhar</span>
+                      <span className="text-xs font-bold text-[var(--text-secondary)]">Se ainda falhar</span>
                       <select value={form.failureAction} onChange={(event) => setForm({ ...form, failureAction: event.target.value as AutomationFormState["failureAction"] })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none">
                         <option value="notify">Notificar responsável</option>
                         <option value="pause">Pausar automação</option>
@@ -1412,15 +1412,15 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                     </label>
                   </div>
                   <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                    <label className="flex items-center justify-between gap-3 text-xs font-black">
+                    <label className="flex items-center justify-between gap-3 text-xs font-bold">
                       <span>Exigir aprovação para ações sensíveis</span>
                       <input type="checkbox" checked={form.approvalRequired} onChange={(event) => setForm({ ...form, approvalRequired: event.target.checked })} />
                     </label>
-                    <label className="flex items-center justify-between gap-3 text-xs font-black">
+                    <label className="flex items-center justify-between gap-3 text-xs font-bold">
                       <span>Notificar quando concluir</span>
                       <input type="checkbox" checked={form.notifyOnSuccess} onChange={(event) => setForm({ ...form, notifyOnSuccess: event.target.checked })} />
                     </label>
-                    <label className="flex items-center justify-between gap-3 text-xs font-black">
+                    <label className="flex items-center justify-between gap-3 text-xs font-bold">
                       <span>Notificar quando falhar</span>
                       <input type="checkbox" checked={form.notifyOnFailure} onChange={(event) => setForm({ ...form, notifyOnFailure: event.target.checked })} />
                     </label>
@@ -1429,7 +1429,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               </section>
 
               <section className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <h2 className="text-sm font-black">Bloco selecionado</h2>
+                <h2 className="text-sm font-bold">Bloco selecionado</h2>
                 {selectedBuilderNode ? (
                   <div className="mt-4 space-y-3">
                     <div className="flex items-center gap-3">
@@ -1437,12 +1437,12 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                         <IconByName name={selectedBuilderNode.icon} size={20} />
                       </span>
                       <div className="min-w-0">
-                        <strong className="block truncate text-sm font-black">{selectedBuilderNode.title}</strong>
+                        <strong className="block truncate text-sm font-bold">{selectedBuilderNode.title}</strong>
                         <span className="text-xs font-semibold text-[var(--text-secondary)]">{selectedBuilderNode.kind}</span>
                       </div>
                     </div>
                     <label className="block space-y-1.5">
-                      <span className="text-xs font-black text-[var(--text-secondary)]">Nome do bloco</span>
+                      <span className="text-xs font-bold text-[var(--text-secondary)]">Nome do bloco</span>
                       <input
                         value={selectedBuilderNode.title}
                         onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { title: event.target.value })}
@@ -1450,7 +1450,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                       />
                     </label>
                     <label className="block space-y-1.5">
-                      <span className="text-xs font-black text-[var(--text-secondary)]">Instrução do bloco</span>
+                      <span className="text-xs font-bold text-[var(--text-secondary)]">Instrução do bloco</span>
                       <textarea
                         value={selectedBuilderNode.description}
                         onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { description: event.target.value })}
@@ -1459,7 +1459,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                       />
                     </label>
                     <label className="block space-y-1.5">
-                      <span className="text-xs font-black text-[var(--text-secondary)]">Condição opcional</span>
+                      <span className="text-xs font-bold text-[var(--text-secondary)]">Condição opcional</span>
                       <input
                         value={selectedBuilderNode.config?.condition || ""}
                         onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), condition: event.target.value } })}
@@ -1469,7 +1469,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                     </label>
                     <button
                       onClick={() => removeBuilderNode(selectedBuilderNode.id)}
-                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-rose-300/30 text-xs font-black text-rose-200"
+                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-rose-300/30 text-xs font-bold text-rose-200"
                     >
                       <Trash2 size={15} />
                       Remover bloco
@@ -1482,7 +1482,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
 
               {builderValidation.length > 0 && (
                 <section className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-4">
-                  <h2 className="text-sm font-black text-amber-100">Itens para revisar</h2>
+                  <h2 className="text-sm font-bold text-amber-100">Itens para revisar</h2>
                   <ul className="mt-2 space-y-1 text-xs font-semibold text-amber-100/85">
                     {builderValidation.map((issue) => <li key={issue}>• {issue}</li>)}
                   </ul>
@@ -1496,11 +1496,11 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               )}
 
               <section className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <h2 className="text-sm font-black">Ações do fluxo</h2>
+                <h2 className="text-sm font-bold">Ações do fluxo</h2>
                 <div className="mt-3 space-y-2">
                   {actionsFromFlow(builderFlow).length ? (
                     actionsFromFlow(builderFlow).map((action) => (
-                      <span key={action} className="block rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-black">
+                      <span key={action} className="block rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold">
                         {action}
                       </span>
                     ))
@@ -1529,7 +1529,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               <GitBranch size={26} />
             </span>
             <div className="min-w-0">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-1 text-xs font-black text-[var(--text)]">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-1 text-xs font-bold text-[var(--text)]">
                 <Sparkles size={14} />
                 Nora pronta para automatizar
               </span>
@@ -1544,7 +1544,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
             <button
               type="button"
               onClick={() => openCreateModal()}
-              className="inline-flex h-12 items-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 px-5 text-sm font-black text-white shadow-lg shadow-blue-950/25 transition hover:scale-[1.02]"
+              className="inline-flex h-12 items-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 px-5 text-sm font-bold text-white shadow-lg shadow-blue-950/25 transition hover:scale-[1.02]"
             >
               <Plus size={18} />
               Nova Automação
@@ -1552,7 +1552,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
             <button
               type="button"
               onClick={onOpenNora}
-              className="inline-flex h-12 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 text-sm font-black text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
+              className="inline-flex h-12 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 text-sm font-bold text-[var(--text)] transition hover:bg-[var(--surface-hover)]"
             >
               <Sparkles size={18} />
               Pedir para Nora
@@ -1584,7 +1584,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               <button
                 key={item.key}
                 onClick={() => setFilter(item.key)}
-                className={`h-10 shrink-0 rounded-full border px-4 text-xs font-black transition ${
+                className={`h-10 shrink-0 rounded-full border px-4 text-xs font-bold transition ${
                   filter === item.key
                     ? "border-blue-300/50 bg-blue-500/24 text-[var(--text)]"
                     : "border-[var(--border)] bg-[var(--background)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
@@ -1603,7 +1603,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className={`rounded-lg border px-4 py-3 text-sm font-black ${
+            className={`rounded-lg border px-4 py-3 text-sm font-bold ${
               error
                 ? "border-rose-400/35 bg-rose-500/12 text-rose-100"
                 : "border-emerald-300/35 bg-emerald-500/12 text-emerald-100"
@@ -1651,11 +1651,11 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${automation.active ? "bg-emerald-400/14 text-emerald-200" : "bg-slate-400/14 text-[var(--text-secondary)]"}`}>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${automation.active ? "bg-emerald-400/14 text-emerald-200" : "bg-slate-400/14 text-[var(--text-secondary)]"}`}>
                       {automation.active ? "Ativa" : "Desativada"}
                     </span>
-                    <span className="rounded-full bg-blue-500/12 px-2.5 py-1 text-[11px] font-black text-cyan-100">{automation.category}</span>
-                    {automation.aiEnabled && <span className="rounded-full bg-cyan-400/14 px-2.5 py-1 text-[11px] font-black text-cyan-100">Nora IA</span>}
+                    <span className="rounded-full bg-blue-500/12 px-2.5 py-1 text-xs font-bold text-cyan-100">{automation.category}</span>
+                    {automation.aiEnabled && <span className="rounded-full bg-cyan-400/14 px-2.5 py-1 text-xs font-bold text-cyan-100">Nora IA</span>}
                   </div>
 
                   <div className="mt-4 grid gap-3 text-xs font-semibold text-[var(--text-secondary)] sm:grid-cols-3">
@@ -1681,7 +1681,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                         event.stopPropagation();
                         void executeAutomation(automation);
                       }}
-                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--primary)] px-4 text-xs font-black text-white transition hover:brightness-110disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--primary)] px-4 text-xs font-bold text-white transition hover:brightness-110disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Play size={15} />
                       Executar
@@ -1693,7 +1693,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                         event.stopPropagation();
                         void simulateAutomation(automation);
                       }}
-                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/8 px-4 text-xs font-black text-cyan-100 transition hover:bg-cyan-500/14 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/8 px-4 text-xs font-bold text-cyan-100 transition hover:bg-cyan-500/14 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <FlaskConical size={15} />
                       Testar fluxo
@@ -1704,7 +1704,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                         event.stopPropagation();
                         openEditModal(automation);
                       }}
-                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-black"
+                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-xs font-bold"
                     >
                       <Settings2 size={15} />
                       Editar
@@ -1717,7 +1717,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                       }}
                       className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)]"
                       title="Duplicar"
-                    >
+                     aria-label="Duplicar">
                       <Copy size={15} />
                     </button>
                     <button
@@ -1728,7 +1728,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                       }}
                       className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)]"
                       title="Favorito"
-                    >
+                     aria-label="Favorito">
                       <Star size={15} className={automation.favorite ? "fill-amber-300 text-amber-300" : ""} />
                     </button>
                     <button
@@ -1739,7 +1739,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                       }}
                       className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)]"
                       title="Logs e versoes"
-                    >
+                     aria-label="Logs e versoes">
                       <History size={15} />
                     </button>
                   </div>
@@ -1768,7 +1768,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                     <IconByName name={template.icon} size={19} />
                   </span>
                   <span className="min-w-0">
-                    <strong className="block text-sm font-black">{template.title}</strong>
+                    <strong className="block text-sm font-bold">{template.title}</strong>
                     <span className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{template.description}</span>
                   </span>
                 </button>
@@ -1788,7 +1788,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setZoom((current) => Math.max(0.65, current - 0.1))} className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] bg-[var(--background)]">-</button>
-                <span className="min-w-14 text-center text-xs font-black">{Math.round(zoom * 100)}%</span>
+                <span className="min-w-14 text-center text-xs font-bold">{Math.round(zoom * 100)}%</span>
                 <button onClick={() => setZoom((current) => Math.min(1.25, current + 0.1))} className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--border)] bg-[var(--background)]">+</button>
               </div>
             </header>
@@ -1841,9 +1841,9 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                     <span className="mb-3 grid h-10 w-10 place-items-center rounded-lg bg-blue-500/16 text-cyan-100">
                       <IconByName name={nodeItem.icon} size={19} />
                     </span>
-                    <h3 className="text-sm font-black">{nodeItem.title}</h3>
+                    <h3 className="text-sm font-bold">{nodeItem.title}</h3>
                     <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{nodeItem.description}</p>
-                    <span className="mt-3 inline-flex rounded-full border border-[var(--border)] px-2 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+                    <span className="mt-3 inline-flex rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
                       {nodeItem.kind}
                     </span>
                   </motion.div>
@@ -1867,7 +1867,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
           <section className="rounded-lg border border-cyan-200/24 bg-[var(--dashboard-nora-bg)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-1 text-xs font-black">
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-1 text-xs font-bold">
                   <Sparkles size={14} />
                   Bloco especial
                 </span>
@@ -1882,7 +1882,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {noraAbilities.map((ability) => (
-                <span key={ability} className="rounded-full border border-white/18 bg-white/12 px-3 py-1 text-xs font-black">
+                <span key={ability} className="rounded-full border border-white/18 bg-white/12 px-3 py-1 text-xs font-bold">
                   {ability}
                 </span>
               ))}
@@ -1925,7 +1925,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                       <td className="px-5 py-3 font-black">{item.automationName}</td>
                       <td className="px-5 py-3 text-[var(--text-secondary)]">{formatDateTime(item.timestamp)}</td>
                       <td className="px-5 py-3">
-                        <span className="rounded-full bg-emerald-400/14 px-2 py-1 text-xs font-black text-emerald-200">{item.status}</span>
+                        <span className="rounded-full bg-emerald-400/14 px-2 py-1 text-xs font-bold text-emerald-200">{item.status}</span>
                       </td>
                       <td className="px-5 py-3 text-[var(--text-secondary)]">{formatDuration(item.durationMs)}</td>
                       <td className="max-w-[300px] px-5 py-3 text-[var(--text-secondary)]">
@@ -1947,7 +1947,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               {data.integrations.map((integration) => (
                 <div key={integration.name} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-3">
                   <span className="font-black">{integration.name}</span>
-                  <span className="rounded-full bg-emerald-400/14 px-2 py-1 text-[11px] font-black text-emerald-200">Conectado</span>
+                  <span className="rounded-full bg-emerald-400/14 px-2 py-1 text-xs font-bold text-emerald-200">Conectado</span>
                 </div>
               ))}
             </div>
@@ -1956,27 +1956,27 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
             <h2 className="text-lg font-black">Ferramentas extras</h2>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <button onClick={exportAutomations} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-black">
+              <button onClick={exportAutomations} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
                 <Download size={15} />
                 Exportar
               </button>
-              <button onClick={() => importRef.current?.click()} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-black">
+              <button onClick={() => importRef.current?.click()} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
                 <Upload size={15} />
                 Importar
               </button>
-              <button onClick={() => setLogAutomation(selectedAutomation)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-black">
+              <button onClick={() => setLogAutomation(selectedAutomation)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
                 <History size={15} />
                 Logs
               </button>
-              <button onClick={() => setLogAutomation(selectedAutomation)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-black">
+              <button onClick={() => setLogAutomation(selectedAutomation)} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
                 <GitBranch size={15} />
                 Versoes
               </button>
-              <button onClick={() => setFilter("ia")} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-black">
+              <button onClick={() => setFilter("ia")} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
                 <Filter size={15} />
                 Categorias
               </button>
-              <button onClick={onOpenNora} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-black">
+              <button onClick={onOpenNora} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold">
                 <Variable size={15} />
                 Variaveis
               </button>
@@ -2017,11 +2017,11 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               </header>
               <div className="grid gap-4 p-5 md:grid-cols-2">
                 <label className="space-y-2">
-                  <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--text-secondary)]">Nome</span>
+                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Nome</span>
                   <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none" />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--text-secondary)]">Gatilho</span>
+                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Gatilho</span>
                   <select value={form.trigger} onChange={(event) => setForm({ ...form, trigger: event.target.value })} className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none">
                     {triggers.map((trigger) => (
                       <option key={trigger}>{trigger}</option>
@@ -2029,39 +2029,39 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                   </select>
                 </label>
                 <label className="space-y-2 md:col-span-2">
-                  <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--text-secondary)]">Descrição</span>
+                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Descrição</span>
                   <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm font-semibold outline-none" />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--text-secondary)]">Categoria</span>
+                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Categoria</span>
                   <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none" />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--text-secondary)]">Agendamento</span>
+                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Agendamento</span>
                   <input value={form.schedule} onChange={(event) => setForm({ ...form, schedule: event.target.value })} placeholder="Manual, diario, semanal..." className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none" />
                 </label>
                 <label className="space-y-2 md:col-span-2">
-                  <span className="text-xs font-black uppercase tracking-[0.12em] text-[var(--text-secondary)]">Ações</span>
+                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Ações</span>
                   <input value={form.actions} onChange={(event) => setForm({ ...form, actions: event.target.value })} placeholder={actions.slice(0, 4).join(", ")} className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none" />
                 </label>
                 <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
                   <span>
-                    <strong className="block text-sm font-black">Ativa</strong>
+                    <strong className="block text-sm font-bold">Ativa</strong>
                     <span className="text-xs font-semibold text-[var(--text-secondary)]">Permite execução manual e agendada.</span>
                   </span>
                   <Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
                 </div>
                 <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
                   <span>
-                    <strong className="block text-sm font-black">Nora IA</strong>
+                    <strong className="block text-sm font-bold">Nora IA</strong>
                     <span className="text-xs font-semibold text-[var(--text-secondary)]">Inclui raciocinio, resumo ou classificacao.</span>
                   </span>
                   <Toggle checked={form.aiEnabled} onChange={(next) => setForm({ ...form, aiEnabled: next })} />
                 </div>
               </div>
               <footer className="flex justify-end gap-3 border-t border-[var(--border)] p-5">
-                <button onClick={() => setModal(null)} className="h-11 rounded-xl border border-[var(--border)] px-5 text-sm font-black">Cancelar</button>
-                <button onClick={() => void submitForm()} disabled={saving || !form.name.trim()} className="h-11 rounded-xl bg-[var(--primary)] px-5 text-sm font-black text-white disabled:opacity-50">
+                <button onClick={() => setModal(null)} className="h-11 rounded-xl border border-[var(--border)] px-5 text-sm font-bold">Cancelar</button>
+                <button onClick={() => void submitForm()} disabled={saving || !form.name.trim()} className="h-11 rounded-xl bg-[var(--primary)] px-5 text-sm font-bold text-white disabled:opacity-50">
                   {saving ? "Salvando..." : "Salvar automação"}
                 </button>
               </footer>
@@ -2093,15 +2093,15 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
               <div className="max-h-[420px] overflow-y-auto p-5">
                 <div className="mb-4 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">Versao</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">Versao</span>
                     <strong className="block text-2xl font-black">{logAutomation.version}</strong>
                   </div>
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">Execuções</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">Execuções</span>
                     <strong className="block text-2xl font-black">{logAutomation.executions}</strong>
                   </div>
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
-                    <span className="text-xs font-black text-[var(--text-secondary)]">Tempo salvo</span>
+                    <span className="text-xs font-bold text-[var(--text-secondary)]">Tempo salvo</span>
                     <strong className="block text-2xl font-black">{formatSavedTime(logAutomation.savedMinutes)}</strong>
                   </div>
                 </div>
@@ -2115,12 +2115,12 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                       <article key={log.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
                         <div className="flex items-center justify-between gap-3">
                           <strong className="font-black">{formatDateTime(log.timestamp)}</strong>
-                          <span className={`rounded-full px-2 py-1 text-xs font-black ${executionStatusClass(log.status)}`}>
+                          <span className={`rounded-full px-2 py-1 text-xs font-bold ${executionStatusClass(log.status)}`}>
                             {log.status}
                           </span>
                         </div>
                         <p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">{log.result}</p>
-                        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-[var(--text-secondary)]">
+                        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-[var(--text-secondary)]">
                           <span>{formatDuration(log.durationMs)}</span>
                           <span>Tentativa {log.attempt || 1}</span>
                           <span>{log.sideEffects === false ? "Sem efeitos reais" : "Execucao real"}</span>
@@ -2132,18 +2132,18 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                                 key={`${log.id}-${step.id}`}
                                 className="grid gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 sm:grid-cols-[28px_minmax(0,1fr)_auto]"
                               >
-                                <span className="grid h-7 w-7 place-items-center rounded-lg bg-blue-500/10 text-[11px] font-black text-blue-200">
+                                <span className="grid h-7 w-7 place-items-center rounded-lg bg-blue-500/10 text-xs font-bold text-blue-200">
                                   {index + 1}
                                 </span>
                                 <span className="min-w-0">
-                                  <strong className="block truncate text-xs font-black">{step.title}</strong>
+                                  <strong className="block truncate text-xs font-bold">{step.title}</strong>
                                   {(step.preview || step.error) && (
-                                    <span className={`mt-0.5 block text-[11px] font-semibold ${step.error ? "text-rose-200" : "text-[var(--text-secondary)]"}`}>
+                                    <span className={`mt-0.5 block text-xs font-semibold ${step.error ? "text-rose-200" : "text-[var(--text-secondary)]"}`}>
                                       {step.error || step.preview}
                                     </span>
                                   )}
                                 </span>
-                                <span className={`self-start rounded-full px-2 py-1 text-[10px] font-black ${executionStatusClass(step.status)}`}>
+                                <span className={`self-start rounded-full px-2 py-1 text-xs font-bold ${executionStatusClass(step.status)}`}>
                                   {step.status}
                                 </span>
                               </div>
@@ -2155,7 +2155,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                             type="button"
                             disabled={saving}
                             onClick={() => void retryAutomation(logAutomation, log.id)}
-                            className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg border border-amber-400/30 px-3 text-xs font-black text-amber-100 hover:bg-amber-500/10 disabled:opacity-50"
+                            className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg border border-amber-400/30 px-3 text-xs font-bold text-amber-100 hover:bg-amber-500/10 disabled:opacity-50"
                           >
                             <RotateCcw size={14} />
                             Reexecutar da falha
@@ -2167,11 +2167,11 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
                 </div>
               </div>
               <footer className="flex justify-between gap-3 border-t border-[var(--border)] p-5">
-                <button onClick={() => void deleteAutomation(logAutomation).then(() => setLogAutomation(null))} className="inline-flex h-11 items-center gap-2 rounded-xl border border-rose-300/30 px-4 text-sm font-black text-rose-200">
+                <button onClick={() => void deleteAutomation(logAutomation).then(() => setLogAutomation(null))} className="inline-flex h-11 items-center gap-2 rounded-xl border border-rose-300/30 px-4 text-sm font-bold text-rose-200">
                   <Trash2 size={16} />
                   Excluir
                 </button>
-                <button onClick={() => setLogAutomation(null)} className="h-11 rounded-xl bg-[var(--primary)] px-5 text-sm font-black text-white">
+                <button onClick={() => setLogAutomation(null)} className="h-11 rounded-xl bg-[var(--primary)] px-5 text-sm font-bold text-white">
                   Fechar
                 </button>
               </footer>

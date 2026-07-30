@@ -573,16 +573,16 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
           <div className="flex items-start gap-4">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><ShieldCheck size={24} /></span>
             <div>
-              <p className="text-xs font-black uppercase tracking-wider text-blue-400">Governanca em tempo real</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-blue-400">Governanca em tempo real</p>
               <h1 className="mt-1 text-2xl font-black">Controle operacional</h1>
               <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Seu dia, aprovacoes, integracoes, auditoria e comprovantes em uma unica visao.</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => void loadOverview(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-4 text-sm font-black transition hover:bg-[var(--surface-hover)]">
+            <button type="button" onClick={() => void loadOverview(true)} className="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] px-4 text-sm font-bold transition hover:bg-[var(--surface-hover)]">
               <RefreshCw className={refreshing ? "animate-spin" : ""} size={16} /> Atualizar
             </button>
-            <button type="button" onClick={openNewApproval} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-black text-white transition hover:bg-blue-500">
+            <button type="button" onClick={openNewApproval} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-500">
               <Plus size={17} /> Nova aprovacao
             </button>
           </div>
@@ -609,10 +609,10 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
             <div className="flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/15 text-blue-300"><BrainCircuit size={20} /></span>
               <div>
-                <p className="text-[10px] font-black uppercase text-blue-300">Briefing da Nora</p>
+                <p className="text-xs font-bold uppercase text-blue-300">Briefing da Nora</p>
                 <h2 className="mt-1 font-black">{overview?.briefing?.greeting || "Resumo"}. {overview?.briefing?.title || "Seu painel esta atualizado"}</h2>
                 <p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{overview?.briefing?.description || "Os dados operacionais estao sendo consolidados."}</p>
-                <p className="mt-3 text-[10px] font-bold uppercase text-[var(--text-secondary)]">Atualizado em {formatDate(overview?.briefing?.generatedAt || overview?.generatedAt)}</p>
+                <p className="mt-3 text-xs font-bold uppercase text-[var(--text-secondary)]">Atualizado em {formatDate(overview?.briefing?.generatedAt || overview?.generatedAt)}</p>
               </div>
             </div>
           </article>
@@ -624,7 +624,7 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
               ) : (overview?.alerts || []).map((alert) => (
                 <button key={alert.id} type="button" onClick={() => onNavigate?.(alert.tab)} className="flex min-w-0 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left hover:bg-[var(--surface-hover)]">
                   <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${alert.severity === "error" ? "bg-rose-400" : alert.severity === "warning" ? "bg-amber-400" : "bg-blue-400"}`} />
-                  <span className="min-w-0 flex-1"><strong className="block truncate text-xs font-black">{alert.title}</strong><small className="mt-1 line-clamp-2 font-semibold leading-5 text-[var(--text-secondary)]">{alert.description}</small></span>
+                  <span className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{alert.title}</strong><small className="mt-1 line-clamp-2 font-semibold leading-5 text-[var(--text-secondary)]">{alert.description}</small></span>
                   <ChevronRight className="mt-1 shrink-0 text-[var(--text-secondary)]" size={14} />
                 </button>
               ))}
@@ -635,17 +635,17 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
         <section className="grid gap-4 xl:grid-cols-3">
           <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
-              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><FileStack size={17} /></span><span><strong className="block text-sm font-black">Modelos reutilizaveis</strong><small className="font-semibold text-[var(--text-secondary)]">{overview?.templates?.length || 0} modelo(s)</small></span></span>
+              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><FileStack size={17} /></span><span><strong className="block text-sm font-bold">Modelos reutilizaveis</strong><small className="font-semibold text-[var(--text-secondary)]">{overview?.templates?.length || 0} modelo(s)</small></span></span>
               <ChevronRight className="transition group-open:rotate-90" size={16} />
             </summary>
             <div className="space-y-3 border-t border-[var(--border)] p-4">
               <div className="grid grid-cols-[1fr_120px_auto] gap-2">
                 <input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Nome do modelo" className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
                 <select value={templateKind} onChange={(event) => setTemplateKind(event.target.value as OperationTemplate["kind"])} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="email">E-mail</option><option value="task">Tarefa</option><option value="calendar">Agenda</option><option value="finance">Financeiro</option><option value="automation">Automacao</option><option value="message">Mensagem</option></select>
-                <button type="button" onClick={() => void createTemplate()} disabled={!templateName.trim()} className="grid h-9 w-9 place-items-center rounded-lg bg-blue-600 text-white disabled:opacity-40" title="Criar modelo"><Plus size={15} /></button>
+                <button type="button" onClick={() => void createTemplate()} disabled={!templateName.trim()} className="grid h-9 w-9 place-items-center rounded-lg bg-blue-600 text-white disabled:opacity-40" title="Criar modelo" aria-label="Criar modelo"><Plus size={15} /></button>
               </div>
               <div className="max-h-40 space-y-2 overflow-y-auto">
-                {(overview?.templates || []).map((template) => <article key={template.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-black">{template.name}</strong><small className="font-bold uppercase text-blue-300">{template.kind}</small></div><button type="button" onClick={() => void deleteTemplate(template.id)} className="grid h-7 w-7 place-items-center rounded-md text-rose-300 hover:bg-rose-500/10" title="Excluir modelo"><Trash2 size={13} /></button></article>)}
+                {(overview?.templates || []).map((template) => <article key={template.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{template.name}</strong><small className="font-bold uppercase text-blue-300">{template.kind}</small></div><button type="button" onClick={() => void deleteTemplate(template.id)} className="grid h-7 w-7 place-items-center rounded-md text-rose-300 hover:bg-rose-500/10" title="Excluir modelo" aria-label="Excluir modelo"><Trash2 size={13} /></button></article>)}
                 {(overview?.templates || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Crie respostas, tarefas e rotinas padronizadas.</p>}
               </div>
             </div>
@@ -653,25 +653,25 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
 
           <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
-              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><Send size={17} /></span><span><strong className="block text-sm font-black">Aguardando resposta</strong><small className="font-semibold text-[var(--text-secondary)]">{(overview?.followUps || []).filter((item) => item.status === "open").length} aberto(s)</small></span></span>
+              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><Send size={17} /></span><span><strong className="block text-sm font-bold">Aguardando resposta</strong><small className="font-semibold text-[var(--text-secondary)]">{(overview?.followUps || []).filter((item) => item.status === "open").length} aberto(s)</small></span></span>
               <ChevronRight className="transition group-open:rotate-90" size={16} />
             </summary>
             <div className="space-y-3 border-t border-[var(--border)] p-4">
               <input value={followUpTitle} onChange={(event) => setFollowUpTitle(event.target.value)} placeholder="O que precisa de retorno?" className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
-              <div className="grid grid-cols-[1fr_auto] gap-2"><input type="datetime-local" value={followUpDueAt} onChange={(event) => setFollowUpDueAt(event.target.value)} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold" /><button type="button" onClick={() => void createFollowUp()} disabled={!followUpTitle.trim()} className="h-9 rounded-lg bg-cyan-600 px-3 text-xs font-black text-white disabled:opacity-40">Adicionar</button></div>
-              <div className="max-h-32 space-y-2 overflow-y-auto">{(overview?.followUps || []).filter((item) => item.status === "open").map((item) => <article key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-black">{item.title}</strong><small className="font-semibold text-[var(--text-secondary)]">{item.dueAt ? formatDate(item.dueAt) : "Sem prazo"}</small></div><button type="button" onClick={() => void updateFollowUp(item.id, "done")} className="grid h-7 w-7 place-items-center rounded-md text-emerald-300 hover:bg-emerald-500/10" title="Marcar como concluido"><Check size={14} /></button></article>)}</div>
+              <div className="grid grid-cols-[1fr_auto] gap-2"><input type="datetime-local" value={followUpDueAt} onChange={(event) => setFollowUpDueAt(event.target.value)} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold" /><button type="button" onClick={() => void createFollowUp()} disabled={!followUpTitle.trim()} className="h-9 rounded-lg bg-cyan-600 px-3 text-xs font-bold text-white disabled:opacity-40">Adicionar</button></div>
+              <div className="max-h-32 space-y-2 overflow-y-auto">{(overview?.followUps || []).filter((item) => item.status === "open").map((item) => <article key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{item.title}</strong><small className="font-semibold text-[var(--text-secondary)]">{item.dueAt ? formatDate(item.dueAt) : "Sem prazo"}</small></div><button type="button" onClick={() => void updateFollowUp(item.id, "done")} className="grid h-7 w-7 place-items-center rounded-md text-emerald-300 hover:bg-emerald-500/10" title="Marcar como concluido" aria-label="Marcar como concluido"><Check size={14} /></button></article>)}</div>
             </div>
           </details>
 
           <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
             <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
-              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-violet-500/12 text-violet-300"><SlidersHorizontal size={17} /></span><span><strong className="block text-sm font-black">Autonomia e dados</strong><small className="font-semibold text-[var(--text-secondary)]">Controle por usuario</small></span></span>
+              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-violet-500/12 text-violet-300"><SlidersHorizontal size={17} /></span><span><strong className="block text-sm font-bold">Autonomia e dados</strong><small className="font-semibold text-[var(--text-secondary)]">Controle por usuario</small></span></span>
               <ChevronRight className="transition group-open:rotate-90" size={16} />
             </summary>
             <div className="space-y-3 border-t border-[var(--border)] p-4">
-              <label className="block text-[10px] font-black uppercase text-[var(--text-secondary)]">Nivel de autonomia<select value={overview?.settings?.autonomy || "balanced"} onChange={(event) => void updateAutonomy(event.target.value as OperationSettings["autonomy"])} className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold normal-case text-[var(--text)]"><option value="confirm_all">Confirmar todas as acoes</option><option value="balanced">Equilibrado</option><option value="autonomous">Autonomo em baixo risco</option></select></label>
+              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">Nivel de autonomia<select value={overview?.settings?.autonomy || "balanced"} onChange={(event) => void updateAutonomy(event.target.value as OperationSettings["autonomy"])} className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold normal-case text-[var(--text)]"><option value="confirm_all">Confirmar todas as acoes</option><option value="balanced">Equilibrado</option><option value="autonomous">Autonomo em baixo risco</option></select></label>
               <p className="text-xs font-semibold leading-5 text-[var(--text-secondary)]">Envios, exclusoes e alteracoes sensiveis continuam protegidos pela Central de aprovacoes.</p>
-              <button type="button" onClick={() => void downloadBackup()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-xs font-black hover:bg-[var(--surface-hover)]"><DatabaseBackup size={15} /> Baixar backup do meu espaco</button>
+              <button type="button" onClick={() => void downloadBackup()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-xs font-bold hover:bg-[var(--surface-hover)]"><DatabaseBackup size={15} /> Baixar backup do meu espaco</button>
             </div>
           </details>
         </section>
@@ -701,14 +701,14 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
                 ) : pendingApprovals.map((approval) => (
                   <article key={approval.id} className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm font-black">{approval.title}</strong><span className="rounded-full bg-amber-500/12 px-2 py-1 text-[10px] font-black uppercase text-amber-300">pendente</span></div>
+                      <div className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm font-bold">{approval.title}</strong><span className="rounded-full bg-amber-500/12 px-2 py-1 text-xs font-bold uppercase text-amber-300">pendente</span></div>
                       <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{approval.description || `Acao: ${approval.action}`}</p>
-                      <p className="mt-2 text-[11px] font-bold text-[var(--text-secondary)]">{approval.requestedBy?.name || "Operador"} · {formatDate(approval.createdAt)}</p>
+                      <p className="mt-2 text-xs font-bold text-[var(--text-secondary)]">{approval.requestedBy?.name || "Operador"} · {formatDate(approval.createdAt)}</p>
                     </div>
                     <div className="flex shrink-0 gap-2">
-                      <button type="button" disabled={decisionId === approval.id} onClick={() => openApprovalEditor(approval)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-black hover:bg-[var(--surface-hover)] disabled:opacity-50"><Pencil size={14} /> Editar</button>
-                      <button type="button" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "rejected")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-500/25 px-3 text-xs font-black text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"><XCircle size={15} /> Rejeitar</button>
-                      <button type="button" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "approved")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white hover:bg-emerald-500 disabled:opacity-50">{decisionId === approval.id ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />} Aprovar</button>
+                      <button type="button" disabled={decisionId === approval.id} onClick={() => openApprovalEditor(approval)} className="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border)] px-3 text-xs font-bold hover:bg-[var(--surface-hover)] disabled:opacity-50"><Pencil size={14} /> Editar</button>
+                      <button type="button" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "rejected")} className="inline-flex h-9 items-center gap-2 rounded-lg border border-rose-500/25 px-3 text-xs font-bold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"><XCircle size={15} /> Rejeitar</button>
+                      <button type="button" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "approved")} className="inline-flex h-9 items-center gap-2 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white hover:bg-emerald-500 disabled:opacity-50">{decisionId === approval.id ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />} Aprovar</button>
                     </div>
                   </article>
                 ))}
@@ -718,7 +718,7 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
             <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <div className="flex flex-col gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="font-black">Rastreabilidade</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Veja o que foi executado e por quem.</p></div>
-                <div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[var(--border)] p-1"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>{timelineMode === "audit" && <button type="button" onClick={() => void exportAudit()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-xs font-black hover:bg-[var(--surface-hover)]"><Download size={14} /> Exportar CSV</button>}</div>
+                <div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[var(--border)] p-1"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>{timelineMode === "audit" && <button type="button" onClick={() => void exportAudit()} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-xs font-bold hover:bg-[var(--surface-hover)]"><Download size={14} /> Exportar CSV</button>}</div>
               </div>
               <div className="max-h-[390px] divide-y divide-[var(--border)] overflow-y-auto">
                 {timeline.length === 0 ? (
@@ -727,22 +727,22 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
                   <article key={entry.id} className="flex items-start gap-3 px-5 py-4">
                     <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg ${entry.status === "failed" || entry.status === "error" ? "bg-rose-500/12 text-rose-300" : "bg-emerald-500/12 text-emerald-300"}`}>{entry.status === "failed" || entry.status === "error" ? <XCircle size={17} /> : <FileCheck2 size={17} />}</span>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-4"><strong className="truncate text-sm font-black">{entry.title || entry.action}</strong><time className="shrink-0 text-[11px] font-bold text-[var(--text-secondary)]">{formatDate(entry.timestamp)}</time></div>
+                      <div className="flex items-start justify-between gap-4"><strong className="truncate text-sm font-bold">{entry.title || entry.action}</strong><time className="shrink-0 text-xs font-bold text-[var(--text-secondary)]">{formatDate(entry.timestamp)}</time></div>
                       <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{entry.description}</p>
                       <div className="mt-2 flex flex-wrap items-center gap-3">
-                        <span className="inline-flex text-[10px] font-black uppercase text-blue-400">{entry.actor?.name || "Norium"}</span>
-                        {entry.entityId && <span className="truncate text-[10px] font-bold text-[var(--text-secondary)]">Registro: {entry.entityId}</span>}
+                        <span className="inline-flex text-xs font-bold uppercase text-blue-400">{entry.actor?.name || "Norium"}</span>
+                        {entry.entityId && <span className="truncate text-xs font-bold text-[var(--text-secondary)]">Registro: {entry.entityId}</span>}
                         {timelineMode === "receipts" && entryTarget(entry) && onNavigate && (
-                          <button type="button" onClick={() => onNavigate(entryTarget(entry) as string)} className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-cyan-300 hover:text-cyan-200">
+                          <button type="button" onClick={() => onNavigate(entryTarget(entry) as string)} className="inline-flex items-center gap-1 text-xs font-bold uppercase text-cyan-300 hover:text-cyan-200">
                             Abrir resultado <ExternalLink size={12} />
                           </button>
                         )}
                         {timelineMode === "receipts" && entry.undoAction && !entry.metadata?.undoneAt && (
-                          <button type="button" disabled={undoingReceiptId === entry.id} onClick={() => void undoOperation(entry.id)} className="inline-flex items-center gap-1 text-[10px] font-black uppercase text-amber-300 hover:text-amber-200 disabled:opacity-50">
+                          <button type="button" disabled={undoingReceiptId === entry.id} onClick={() => void undoOperation(entry.id)} className="inline-flex items-center gap-1 text-xs font-bold uppercase text-amber-300 hover:text-amber-200 disabled:opacity-50">
                             {undoingReceiptId === entry.id ? <LoaderCircle className="animate-spin" size={12} /> : <Undo2 size={12} />} Desfazer
                           </button>
                         )}
-                        {timelineMode === "receipts" && Boolean(entry.metadata?.undoneAt) && <span className="text-[10px] font-black uppercase text-amber-300">Operacao desfeita</span>}
+                        {timelineMode === "receipts" && Boolean(entry.metadata?.undoneAt) && <span className="text-xs font-bold uppercase text-amber-300">Operacao desfeita</span>}
                       </div>
                     </div>
                   </article>
@@ -759,19 +759,19 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
                   <article key={integration.id} className="flex items-start gap-3 px-4 py-4">
                     <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${integration.status === "online" ? "bg-emerald-500/12 text-emerald-300" : "bg-amber-500/12 text-amber-300"}`}>{integration.status === "online" ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-3"><strong className="truncate text-sm font-black">{integration.name}</strong><span className={`text-[10px] font-black uppercase ${integration.status === "online" ? "text-emerald-300" : "text-amber-300"}`}>{integration.status === "online" ? "online" : "atencao"}</span></div>
+                      <div className="flex items-center justify-between gap-3"><strong className="truncate text-sm font-bold">{integration.name}</strong><span className={`text-xs font-bold uppercase ${integration.status === "online" ? "text-emerald-300" : "text-amber-300"}`}>{integration.status === "online" ? "online" : "atencao"}</span></div>
                       <p className="mt-1 truncate text-xs font-semibold text-[var(--text-secondary)]">{integration.detail}</p>
-                      <p className="mt-1 text-[10px] font-bold text-[var(--text-secondary)]">Ultima sincronizacao: {formatDate(integration.lastSync)}</p>
+                      <p className="mt-1 text-xs font-bold text-[var(--text-secondary)]">Ultima sincronizacao: {formatDate(integration.lastSync)}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        {(integration.permissions || []).map((permission) => <span key={permission} className="rounded-full border border-[var(--border)] px-2 py-1 text-[9px] font-black uppercase text-[var(--text-secondary)]">{permission}</span>)}
-                        {integration.failures > 0 && <span className="rounded-full bg-rose-500/12 px-2 py-1 text-[9px] font-black uppercase text-rose-300">{integration.failures} falha(s)</span>}
+                        {(integration.permissions || []).map((permission) => <span key={permission} className="rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase text-[var(--text-secondary)]">{permission}</span>)}
+                        {integration.failures > 0 && <span className="rounded-full bg-rose-500/12 px-2 py-1 text-xs font-bold uppercase text-rose-300">{integration.failures} falha(s)</span>}
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <button type="button" disabled={checkingIntegrationId === integration.id} onClick={() => void testIntegration(integration.id)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 text-[10px] font-black uppercase hover:bg-[var(--surface-hover)] disabled:opacity-50">
+                        <button type="button" disabled={checkingIntegrationId === integration.id} onClick={() => void testIntegration(integration.id)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 text-xs font-bold uppercase hover:bg-[var(--surface-hover)] disabled:opacity-50">
                           {checkingIntegrationId === integration.id ? <LoaderCircle className="animate-spin" size={13} /> : <RefreshCw size={13} />} Testar
                         </button>
                         {!integration.connected && onNavigate && (
-                          <button type="button" onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" || integration.id === "telegram" ? "Chat" : "Mais")} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 text-[10px] font-black uppercase text-white hover:bg-blue-500">
+                          <button type="button" onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" || integration.id === "telegram" ? "Chat" : "Mais")} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 text-xs font-bold uppercase text-white hover:bg-blue-500">
                             Reconectar <ChevronRight size={13} />
                           </button>
                         )}
@@ -795,7 +795,7 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
 
             <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 hover:bg-[var(--surface-hover)]">
-                <span className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><BrainCircuit size={17} /></span><span className="min-w-0"><strong className="block truncate text-sm font-black">Memoria controlada da Nora</strong><small className="block truncate font-semibold text-[var(--text-secondary)]">{overview?.memory?.length || 0} preferencia(s) salva(s)</small></span></span>
+                <span className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><BrainCircuit size={17} /></span><span className="min-w-0"><strong className="block truncate text-sm font-bold">Memoria controlada da Nora</strong><small className="block truncate font-semibold text-[var(--text-secondary)]">{overview?.memory?.length || 0} preferencia(s) salva(s)</small></span></span>
                 <ChevronRight className="shrink-0 transition group-open:rotate-90" size={16} />
               </summary>
               <div className="space-y-3 border-t border-[var(--border)] p-4">
@@ -805,16 +805,16 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
                   <select value={memoryScope} onChange={(event) => setMemoryScope(event.target.value as "personal" | "team")} className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none">
                     <option value="personal">Somente para mim</option><option value="team">Compartilhar com a equipe</option>
                   </select>
-                  <button type="button" disabled={savingMemory} onClick={() => void saveMemory()} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-black text-white hover:bg-blue-500 disabled:opacity-50">{savingMemory ? <LoaderCircle className="animate-spin" size={14} /> : <Plus size={14} />} Salvar</button>
+                  <button type="button" disabled={savingMemory} onClick={() => void saveMemory()} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50">{savingMemory ? <LoaderCircle className="animate-spin" size={14} /> : <Plus size={14} />} Salvar</button>
                 </div>
                 <div className="max-h-52 space-y-2 overflow-y-auto">
                   {(overview?.memory || []).map((memory) => (
                     <article key={memory.id} className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-                      <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-1.5"><strong className="truncate text-xs font-black">{memory.key}</strong><span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase text-blue-300">{memory.scope === "team" ? "equipe" : "pessoal"}</span></div><p className="mt-1 line-clamp-3 text-[11px] font-semibold leading-4 text-[var(--text-secondary)]">{memory.value}</p></div>
+                      <div className="min-w-0 flex-1"><div className="flex flex-wrap gap-1.5"><strong className="truncate text-xs font-bold">{memory.key}</strong><span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-xs font-bold uppercase text-blue-300">{memory.scope === "team" ? "equipe" : "pessoal"}</span></div><p className="mt-1 line-clamp-3 text-xs font-semibold leading-4 text-[var(--text-secondary)]">{memory.value}</p></div>
                       <button type="button" disabled={deletingMemoryId === memory.id} onClick={() => void deleteMemory(memory.id)} className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-rose-300 hover:bg-rose-500/10 disabled:opacity-50" aria-label={`Remover ${memory.key}`}>{deletingMemoryId === memory.id ? <LoaderCircle className="animate-spin" size={14} /> : <Trash2 size={14} />}</button>
                     </article>
                   ))}
-                  {(overview?.memory || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-[11px] font-semibold text-[var(--text-secondary)]">Nenhuma preferencia salva. A Nora tambem aprende quando voce diz "lembre que...".</p>}
+                  {(overview?.memory || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhuma preferencia salva. A Nora tambem aprende quando voce diz "lembre que...".</p>}
                 </div>
               </div>
             </details>
@@ -822,7 +822,7 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
             <section className="rounded-lg border border-blue-500/25 bg-blue-500/8 p-5">
               <div className="flex items-center gap-3 text-blue-300"><ShieldCheck size={21} /><h2 className="font-black">Politica de seguranca</h2></div>
               <p className="mt-3 text-sm font-semibold leading-6 text-[var(--text-secondary)]">Operacoes sensiveis podem passar por aprovacao e cada decisao gera um registro rastreavel por usuario.</p>
-              <button type="button" onClick={openNewApproval} className="mt-4 inline-flex items-center gap-2 text-xs font-black text-blue-300 hover:text-blue-200">Solicitar revisao <ChevronRight size={15} /></button>
+              <button type="button" onClick={openNewApproval} className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-blue-300 hover:text-blue-200">Solicitar revisao <ChevronRight size={15} /></button>
             </section>
           </aside>
         </div>
@@ -836,12 +836,12 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
               <button type="button" onClick={closeApprovalDialog} className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]" aria-label="Fechar"><X size={18} /></button>
             </header>
             <div className="space-y-4 p-5">
-              <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">O que precisa ser aprovado?<input value={approvalTitle} onChange={(event) => setApprovalTitle(event.target.value)} maxLength={180} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Ex.: autorizar envio para toda a base" /></label>
-              <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Contexto<textarea value={approvalDescription} onChange={(event) => setApprovalDescription(event.target.value)} maxLength={1200} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-semibold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Explique o impacto e o motivo da solicitacao." /></label>
+              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">O que precisa ser aprovado?<input value={approvalTitle} onChange={(event) => setApprovalTitle(event.target.value)} maxLength={180} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Ex.: autorizar envio para toda a base" /></label>
+              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">Contexto<textarea value={approvalDescription} onChange={(event) => setApprovalDescription(event.target.value)} maxLength={1200} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-semibold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Explique o impacto e o motivo da solicitacao." /></label>
             </div>
             <footer className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-              <button type="button" onClick={closeApprovalDialog} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-black hover:bg-[var(--surface-hover)]">Cancelar</button>
-              <button type="button" disabled={savingApproval} onClick={() => void saveApproval()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-black text-white hover:bg-blue-500 disabled:opacity-50">{savingApproval ? <LoaderCircle className="animate-spin" size={16} /> : <ClipboardCheck size={16} />} {editingApproval ? "Salvar alteracoes" : "Solicitar aprovacao"}</button>
+              <button type="button" onClick={closeApprovalDialog} className="h-10 rounded-lg border border-[var(--border)] px-4 text-sm font-bold hover:bg-[var(--surface-hover)]">Cancelar</button>
+              <button type="button" disabled={savingApproval} onClick={() => void saveApproval()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-500 disabled:opacity-50">{savingApproval ? <LoaderCircle className="animate-spin" size={16} /> : <ClipboardCheck size={16} />} {editingApproval ? "Salvar alteracoes" : "Solicitar aprovacao"}</button>
             </footer>
           </div>
         </div>
@@ -856,23 +856,23 @@ function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; labe
 }
 
 function SectionHeader({ title, description, icon: Icon, action }: { title: string; description: string; icon: LucideIcon; action?: string }) {
-  return <header className="flex items-center justify-between gap-4 border-b border-[var(--border)] px-5 py-4"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><Icon size={17} /></span><div className="min-w-0"><h2 className="truncate font-black">{title}</h2><p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>{action && <span className="shrink-0 rounded-full bg-amber-500/12 px-3 py-1 text-[10px] font-black uppercase text-amber-300">{action}</span>}</header>;
+  return <header className="flex items-center justify-between gap-4 border-b border-[var(--border)] px-5 py-4"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><Icon size={17} /></span><div className="min-w-0"><h2 className="truncate font-black">{title}</h2><p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>{action && <span className="shrink-0 rounded-full bg-amber-500/12 px-3 py-1 text-xs font-bold uppercase text-amber-300">{action}</span>}</header>;
 }
 
 function DayColumn({ title, empty, icon: Icon, children }: { title: string; empty: string; icon: LucideIcon; children: ReactNode }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
-  return <section className="min-h-60 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><h3 className="flex items-center gap-2 text-sm font-black"><Icon className="text-blue-400" size={16} /> {title}</h3><div className="mt-3 space-y-2">{hasChildren ? children : <p className="rounded-lg border border-dashed border-[var(--border)] p-4 text-center text-xs font-semibold text-[var(--text-secondary)]">{empty}</p>}</div></section>;
+  return <section className="min-h-60 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><h3 className="flex items-center gap-2 text-sm font-bold"><Icon className="text-blue-400" size={16} /> {title}</h3><div className="mt-3 space-y-2">{hasChildren ? children : <p className="rounded-lg border border-dashed border-[var(--border)] p-4 text-center text-xs font-semibold text-[var(--text-secondary)]">{empty}</p>}</div></section>;
 }
 
 function CompactRow({ title, detail, accent, onClick }: { title: string; detail: string; accent: "rose" | "blue" | "violet" | "emerald"; onClick?: () => void }) {
   const dots = { rose: "bg-rose-400", blue: "bg-blue-400", violet: "bg-violet-400", emerald: "bg-emerald-400" };
-  return <button type="button" onClick={onClick} className="flex w-full items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-3 text-left hover:bg-[var(--surface-hover)]"><span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dots[accent]}`} /><span className="min-w-0 flex-1"><strong className="block truncate text-xs font-black">{title}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{detail}</small></span><ChevronRight className="mt-1 shrink-0 text-[var(--text-secondary)]" size={14} /></button>;
+  return <button type="button" onClick={onClick} className="flex w-full items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-3 text-left hover:bg-[var(--surface-hover)]"><span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dots[accent]}`} /><span className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{title}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{detail}</small></span><ChevronRight className="mt-1 shrink-0 text-[var(--text-secondary)]" size={14} /></button>;
 }
 
 function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return <button type="button" onClick={onClick} className={`rounded-md px-3 py-2 text-xs font-black transition ${active ? "bg-blue-600 text-white" : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"}`}>{children}</button>;
+  return <button type="button" onClick={onClick} className={`rounded-md px-3 py-2 text-xs font-bold transition ${active ? "bg-blue-600 text-white" : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"}`}>{children}</button>;
 }
 
 function EmptyState({ icon: Icon, title, description }: { icon: LucideIcon; title: string; description: string }) {
-  return <div className="grid min-h-44 place-items-center p-6 text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-emerald-500/10 text-emerald-300"><Icon size={22} /></span><strong className="mt-3 block text-sm font-black">{title}</strong><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>;
+  return <div className="grid min-h-44 place-items-center p-6 text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-emerald-500/10 text-emerald-300"><Icon size={22} /></span><strong className="mt-3 block text-sm font-bold">{title}</strong><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>;
 }

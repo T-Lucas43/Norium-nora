@@ -546,7 +546,7 @@ function EmailContent({ text, emailMessages = [], onOpenEmail }: { text: string;
     <div>
       <NoraCommentary lines={commentary} />
       <div className="nora-gmail-layout overflow-hidden rounded-xl border border-current/10">
-        <div className="flex items-center gap-3 border-b border-current/10 px-3 py-2 text-[11px] font-black uppercase opacity-75">
+        <div className="flex items-center gap-3 border-b border-current/10 px-3 py-2 text-xs font-bold uppercase opacity-75">
           <span className="h-3 w-3 rounded border border-current/30" />
           <span className="h-3 w-3 rounded-full border border-current/30" />
           <span>Caixa de entrada</span>
@@ -567,12 +567,12 @@ function EmailContent({ text, emailMessages = [], onOpenEmail }: { text: string;
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex items-start justify-between gap-2">
                         <strong className="break-words font-black">{message.fromName || message.fromEmail || "Gmail"}</strong>
-                        {message.dateLabel && <span className="shrink-0 text-[10px] font-black opacity-55">{message.dateLabel}</span>}
+                        {message.dateLabel && <span className="shrink-0 text-xs font-bold opacity-55">{message.dateLabel}</span>}
                       </div>
                       <p className="break-words font-black leading-5">{message.subject || "(sem assunto)"}</p>
                       {message.snippet && <p className="mt-1 break-words leading-5 opacity-75">{message.snippet}</p>}
                       {emailMessages.length > 0 && (
-                        <span className="mt-2 inline-flex rounded-full border border-current/15 px-2 py-1 text-[10px] font-black uppercase opacity-70">
+                        <span className="mt-2 inline-flex rounded-full border border-current/15 px-2 py-1 text-xs font-bold uppercase opacity-70">
                           Abrir na tela de e-mails
                         </span>
                       )}
@@ -608,7 +608,7 @@ function TaskContent({ text }: { text: string }) {
       <div className="grid gap-2">
         {details.slice(0, 8).map((detail) => (
           <div key={`${detail.label}-${detail.value}`} className="rounded-xl border border-current/10 bg-black/10 px-3 py-2">
-            <p className="text-[10px] font-black uppercase opacity-65">{detail.label}</p>
+            <p className="text-xs font-bold uppercase opacity-65">{detail.label}</p>
             <p className="mt-1 text-xs font-bold">{detail.value}</p>
           </div>
         ))}
@@ -638,14 +638,14 @@ function AgendaContent({ text, events = [], onAgendaPrompt }: { text: string; ev
                     {date && <p className="mt-1 font-semibold opacity-75">{date}</p>}
                     {event.local && <p className="mt-1 break-words font-semibold opacity-75">{event.local}</p>}
                   </div>
-                  <span className="shrink-0 rounded-full border border-current/15 px-2 py-1 text-[10px] font-black uppercase opacity-70">
+                  <span className="shrink-0 rounded-full border border-current/15 px-2 py-1 text-xs font-bold uppercase opacity-70">
                     Evento
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => onAgendaPrompt?.(`editar evento ${title}${date ? ` em ${date}` : ""}`)}
-                  className="mt-3 rounded-full border border-current/15 px-3 py-1.5 text-[10px] font-black uppercase opacity-90 transition hover:bg-current/[0.08]"
+                  className="mt-3 rounded-full border border-current/15 px-3 py-1.5 text-xs font-bold uppercase opacity-90 transition hover:bg-current/[0.08]"
                 >
                   Editar evento
                 </button>
@@ -664,7 +664,7 @@ function AgendaContent({ text, events = [], onAgendaPrompt }: { text: string; ev
       <div className="space-y-2">
         {lines.map((line, index) => (
           <div key={`${line}-${index}`} className="relative rounded-xl border border-current/10 bg-black/10 px-3 py-2 pl-9 text-xs font-semibold">
-            <span className="absolute left-3 top-3 grid h-4 w-4 place-items-center rounded-full bg-current/15 text-[9px] font-black">{index + 1}</span>
+            <span className="absolute left-3 top-3 grid h-4 w-4 place-items-center rounded-full bg-current/15 text-xs font-bold">{index + 1}</span>
             {line}
           </div>
         ))}
@@ -749,9 +749,9 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
         <button
           type="button"
           onClick={copyMessage}
-          className="nora-message-copy mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-bold text-white/65 transition hover:bg-white/10 hover:text-white"
+          className="nora-message-copy mt-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-bold text-white/65 transition hover:bg-white/10 hover:text-white"
           title="Copiar mensagem"
-        >
+         aria-label="Copiar mensagem">
           <Copy size={12} /> {copied ? "Copiada" : "Copiar"}
         </button>
       </motion.div>
@@ -774,9 +774,9 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
       </span>
       <div className="min-w-0 flex-1">
         <div className="nora-assistant-meta mb-2 flex min-h-5 items-center justify-between gap-3">
-          <strong className="text-xs font-black text-[var(--text)]">Nora</strong>
+          <strong className="text-xs font-bold text-[var(--text)]">Nora</strong>
           {msg.status && (
-            <span className="rounded-full border border-current/15 px-2 py-0.5 text-[9px] font-black uppercase text-[var(--text-secondary)]">
+            <span className="rounded-full border border-current/15 px-2 py-0.5 text-xs font-bold uppercase text-[var(--text-secondary)]">
               {msg.status}
             </span>
           )}
@@ -795,9 +795,9 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
           <button
             type="button"
             onClick={copyMessage}
-            className="nora-message-copy inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            className="nora-message-copy inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
             title="Copiar mensagem"
-          >
+           aria-label="Copiar mensagem">
             <Copy size={12} /> {copied ? "Copiada" : "Copiar"}
           </button>
         </span>
@@ -1749,7 +1749,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
                 <div className="min-w-0">
                   <h2 className="flex items-center gap-2 text-base font-bold text-white">
-                    Nora <span className="nora-online-dot" /> <span className="text-[10px] font-bold text-emerald-400">Online</span>
+                    Nora <span className="nora-online-dot" /> <span className="text-xs font-bold text-emerald-400">Online</span>
                   </h2>
                   <p className="truncate text-xs font-semibold text-white/75">
                     {conversaId ? `Contexto ativo: ${conversaId}` : "Sem conversa ativa"}
@@ -1774,7 +1774,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                   onClick={() => setExpanded((value) => !value)}
                   className="flex h-9 w-9 items-center justify-center rounded-lg text-white hover:bg-white/10"
                   title={expanded ? "Voltar para lateral" : "Expandir Nora"}
-                >
+                 aria-label={expanded ? "Voltar para lateral" : "Expandir Nora"}>
                   {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                 </button>
                 <button aria-label="Fechar Nora" title="Fechar Nora" onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-lg text-white hover:bg-white/10">
@@ -1799,7 +1799,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 <button
                   type="button"
                   onClick={() => setVoiceRepliesEnabled((value) => !value)}
-                  className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-black transition ${
+                  className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition ${
                     voiceRepliesEnabled
                       ? "border-cyan-300/40 bg-cyan-400/15 text-[var(--text)]"
                       : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
@@ -1814,7 +1814,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 <button
                   type="button"
                   onClick={() => setVoiceGreetingEnabled((value) => !value)}
-                  className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-black transition ${
+                  className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-bold transition ${
                     voiceGreetingEnabled
                       ? "border-cyan-300/40 bg-cyan-400/15 text-[var(--text)]"
                       : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
@@ -1849,7 +1849,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
               {agentDraft && (
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-xs font-semibold text-[var(--text)] shadow-sm">
-                  <p className="mb-2 text-[var(--text-secondary)] uppercase tracking-wide text-[10px]">Rascunho aprovado pelo operador?</p>
+                  <p className="mb-2 text-[var(--text-secondary)] uppercase tracking-wide text-xs">Rascunho aprovado pelo operador?</p>
                   <div className="flex gap-2">
                     <button onClick={() => void navigator.clipboard.writeText(agentDraft)} className="h-9 flex-1 rounded-lg border border-[var(--border)] hover:bg-[var(--surface-hover)] flex items-center justify-center gap-2">
                       <Copy size={14} /> Copiar
@@ -1892,9 +1892,9 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                   type="button"
                   onClick={() => void unlockVoice()}
                   disabled={voiceAccess === "requesting"}
-                  className="mb-2 inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 text-[10px] font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-wait disabled:opacity-70"
+                  className="mb-2 inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-wait disabled:opacity-70"
                   title={voiceStatusLabel}
-                >
+                 aria-label={voiceStatusLabel}>
                   {voiceAccess === "requesting" ? <Loader2 size={12} className="animate-spin" /> : <Lock size={12} />}
                   {voiceAccess === "requesting" ? "Solicitando microfone..." : "Ativar microfone"}
                 </button>
@@ -1908,13 +1908,13 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               {listening && (
                 <div className="nora-listening-status mb-2 flex items-center gap-3 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2">
                   <span className="nora-listening-pulse" aria-hidden="true" />
-                  <span className="min-w-0 text-xs font-black text-cyan-100">
+                  <span className="min-w-0 text-xs font-bold text-cyan-100">
                     {voicePreview ? `Ouvindo: ${voicePreview}` : "Ouvindo... fale normalmente em portugues."}
                   </span>
                 </div>
               )}
               {transcribing && (
-                <div className="mb-2 flex items-center gap-3 rounded-lg border border-blue-400/30 bg-blue-400/10 px-3 py-2 text-xs font-black text-blue-100">
+                <div className="mb-2 flex items-center gap-3 rounded-lg border border-blue-400/30 bg-blue-400/10 px-3 py-2 text-xs font-bold text-blue-100">
                   <Loader2 size={14} className="shrink-0 animate-spin" />
                   Transcrevendo sua mensagem com seguranca...
                 </div>
@@ -1944,7 +1944,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                       : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
                   }`}
                   title={voiceIsLocked ? "Desbloquear voz" : listening ? "Parar voz" : "Falar com a Nora"}
-                >
+                 aria-label={voiceIsLocked ? "Desbloquear voz" : listening ? "Parar voz" : "Falar com a Nora"}>
                   {voiceIsLocked ? <Lock size={18} /> : listening ? <MicOff size={18} /> : <Mic size={18} />}
                 </button>
                 <input

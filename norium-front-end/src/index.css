@@ -2645,10 +2645,10 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-sidebar-collapse{
   position:absolute;
   top:88px;
-  right:-12px;
+  right:-16px;
   display:grid;
-  width:24px;
-  height:24px;
+  width:32px;
+  height:32px;
   place-items:center;
   border:1px solid var(--border);
   border-radius:50%;
@@ -3595,7 +3595,10 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 @media (max-width:900px){
-  .norium-sidebar{
+  /* aside.norium-sidebar (e nao so .norium-sidebar) para vencer com folga a regra
+     base de desktop: sem isso a barra ficava fixa e aberta sobre o conteudo no
+     celular, ocupando dois tercos da tela. */
+  aside.norium-sidebar{
     position:fixed;
     top:0;
     bottom:0;
@@ -3606,11 +3609,12 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
     box-shadow:30px 0 70px rgba(0,0,0,.44);
   }
 
-  .norium-sidebar.is-collapsed{
+  aside.norium-sidebar.is-collapsed{
     width:min(286px, calc(100vw - 54px));
+    flex-basis:auto;
   }
 
-  .norium-sidebar.is-mobile-open{
+  aside.norium-sidebar.is-mobile-open{
     transform:translateX(0);
   }
 

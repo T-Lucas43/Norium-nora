@@ -13,6 +13,7 @@ export type GuidedModule =
   | "Gastos"
   | "Automacoes"
   | "Relatorios"
+  | "Propostas"
   | "Perfil"
   | "Configuracoes"
   | "Equipe"
@@ -132,6 +133,12 @@ const guides: Record<GuidedModule, ModuleGuide> = {
       { label: "Analisar metricas", prompt: "Analise as metricas de produtividade e financeiro do periodo atual e destaque os pontos mais importantes." },
       { label: "Gerar insights", prompt: "Gere insights acionaveis a partir do relatorio operacional atual." },
     ],
+  },
+  Propostas: {
+    title: "Propostas e contratos",
+    description: "Crie documentos comerciais, revise com a Nora, obtenha aprovacoes e converta propostas em contratos.",
+    topics: ["Vincule cliente e brainstorm de origem", "Edite com salvamento automatico e historico", "Depois da aprovacao, gere o contrato e transforme obrigacoes em tarefas"],
+    prompt: "Explique a tela de Propostas e contratos e me ajude a preparar um documento comercial completo, perguntando os dados que estiverem faltando antes de executar qualquer acao.",
   },
   Perfil: {
     title: "Perfil do operador",

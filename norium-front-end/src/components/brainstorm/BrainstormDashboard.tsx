@@ -27,6 +27,7 @@ import {
   Check,
   Clock3,
   Copy,
+  FileSignature,
   Frame,
   LayoutGrid,
   Lightbulb,
@@ -53,6 +54,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AuthSession, NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authToken, wsBaseUrl } from "../../utils/api";
+import { showConfirm } from "../shared/AppDialogProvider";
 
 
 type IdeaVariant = "sticky" | "text" | "shape" | "frame";
@@ -588,7 +590,13 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   );
 }
 
-export default function BrainstormDashboard({ session }: { session: AuthSession }) {
+export default function BrainstormDashboard({
+  session,
+  onNavigate,
+}: {
+  session: AuthSession;
+  onNavigate: (tab: string) => void;
+}) {
   const [sessions, setSessions] = useState<BrainstormSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [members, setMembers] = useState<NoriumUser[]>([session.user]);
@@ -636,7 +644,13 @@ export default function BrainstormDashboard({ session }: { session: AuthSession 
   }
 
   async function deleteSession(item: BrainstormSession) {
-    if (!window.confirm(`Excluir a sessão “${item.title}”? Essa ação não pode ser desfeita.`)) return false;
+    const confirmed = await showConfirm({
+      title: "Excluir brainstorm?",
+      description: `A sessao "${item.title}" e todos os seus itens serao removidos. Esta acao nao pode ser desfeita.`,
+      confirmLabel: "Excluir sessao",
+      tone: "danger",
+    });
+    if (!confirmed) return false;
     try {
       await jsonRequest(`/api/brainstorm/sessions/${item.id}`, { method: "DELETE" });
       setSessions((current) => current.filter((sessionItem) => sessionItem.id !== item.id));
@@ -645,6 +659,12 @@ export default function BrainstormDashboard({ session }: { session: AuthSession 
       setError(requestError instanceof Error ? requestError.message : "Falha ao excluir sessão.");
       return false;
     }
+  }
+
+  function createProposalFromSession(item: BrainstormSession) {
+    window.localStorage.setItem("norium:commercial-brainstorm-id", item.id);
+    window.dispatchEvent(new CustomEvent("norium:commercial-create", { detail: { brainstormId: item.id } }));
+    onNavigate("Propostas");
   }
 
   function openSessionProperties(item: BrainstormSession) {
@@ -772,7 +792,12 @@ export default function BrainstormDashboard({ session }: { session: AuthSession 
               <div className="flex items-start justify-between gap-3"><span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/15 text-cyan-300"><Boxes size={21} /></span><span className={`rounded-full border px-2 py-1 text-[10px] font-black uppercase ${item.status === "ativo" ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300" : "border-white/15 text-[var(--text-secondary)]"}`}>{item.status}</span></div>
               <h2 className="mt-4 break-words text-lg font-black">{item.title}</h2><p className="mt-2 line-clamp-3 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{item.objective || "Sessão livre para organizar novas ideias."}</p>
               <div className="mt-auto grid grid-cols-2 gap-2 pt-5 text-xs font-bold text-[var(--text-secondary)]"><span className="inline-flex items-center gap-2"><UsersRound size={14} /> {item.responsibleName}</span><span className="inline-flex items-center justify-end gap-2"><StickyNote size={14} /> {item.nodeCount || 0} itens</span><span className="col-span-2 inline-flex items-center gap-2"><Clock3 size={14} /> Atualizado em {formatDate(item.updatedAt)}</span></div>
-              <div className="mt-4 flex gap-2"><button onClick={() => setSelectedSessionId(item.id)} className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] text-xs font-black text-white hover:brightness-110"><MousePointer2 size={15} /> Abrir quadro</button><button onClick={() => openSessionProperties(item)} className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] text-cyan-200 hover:bg-cyan-400/10" title="Editar propriedades"><Settings2 size={16} /></button><button onClick={() => void deleteSession(item)} className="grid h-10 w-10 place-items-center rounded-lg border border-red-400/20 text-red-300 hover:bg-red-500/10" title="Excluir sessão"><Trash2 size={16} /></button></div>
+              <div className="mt-4 grid grid-cols-[minmax(0,1fr)_40px_40px] gap-2">
+                <button onClick={() => setSelectedSessionId(item.id)} className="flex h-10 min-w-0 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-3 text-xs font-black text-white hover:brightness-110"><MousePointer2 size={15} /> Abrir quadro</button>
+                <button onClick={() => openSessionProperties(item)} className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--border)] text-cyan-200 hover:bg-cyan-400/10" title="Editar propriedades"><Settings2 size={16} /></button>
+                <button onClick={() => void deleteSession(item)} className="grid h-10 w-10 place-items-center rounded-lg border border-red-400/20 text-red-300 hover:bg-red-500/10" title="Excluir sessao"><Trash2 size={16} /></button>
+                <button onClick={() => createProposalFromSession(item)} className="col-span-3 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-cyan-400/25 bg-cyan-400/10 px-3 text-xs font-black text-cyan-200 hover:bg-cyan-400/15"><FileSignature size={15} /> Criar proposta deste brainstorm</button>
+              </div>
             </article>
           ))}
           {!loading && sessions.length === 0 && <div className="col-span-full grid min-h-72 place-items-center rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] p-8 text-center"><div><Lightbulb size={36} className="mx-auto text-cyan-300" /><h2 className="mt-4 text-lg font-black">A primeira ideia começa aqui</h2><p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">Crie uma sessão, escolha um responsável e convide a equipe para o quadro.</p></div></div>}

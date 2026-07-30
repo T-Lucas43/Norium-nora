@@ -31,6 +31,34 @@ class SkillResolution:
 
 SKILLS: tuple[NoraSkill, ...] = (
     NoraSkill(
+        id="comercial",
+        name="Propostas e contratos",
+        description="Cria, revisa, lista, exclui e converte propostas em contratos e prepara links de assinatura.",
+        examples=(
+            "quero criar uma proposta",
+            "gere um contrato a partir da proposta do cliente Acme",
+            "envie o contrato para assinatura",
+        ),
+        strong_patterns=(
+            r"\bpropostas?\s+(?:comerciais?)?\b",
+            r"\bcontratos?\b",
+            r"\b(?:gerar|criar|fazer|montar|preparar)\s+(?:uma\s+)?proposta\b",
+            r"\b(?:gerar|criar|converter)\s+(?:um\s+)?contrato\b",
+            r"\b(?:link|enviar)\s+(?:para\s+)?assinatura\b",
+        ),
+        supporting_terms=(
+            "cliente",
+            "escopo",
+            "valor",
+            "validade",
+            "entregaveis",
+            "assinantes",
+            "aprovacao",
+            "minuta",
+        ),
+        conflict_patterns=(r"\bproposta\s+de\s+(?:tarefa|automacao)\b",),
+    ),
+    NoraSkill(
         id="equipe",
         name="Equipe",
         description="Envia mensagens no chat interno e comunica atualizacoes ao time.",
@@ -229,6 +257,10 @@ def _score_skill(skill: NoraSkill, text: str) -> tuple[float, tuple[str, ...]]:
         score += 5.0
     if skill.id == "brainstorm" and re.search(r"\b(?:criar|crie|abrir|abra|resumir|organizar|agrupar)\b", text) and re.search(r"\b(?:brain\s*storm|ideias|mapa\s+mental|quadro)\b", text):
         score += 7.0
+    if skill.id == "comercial" and re.search(r"\b(?:proposta|contrato)\b", text):
+        score += 10.0
+    if skill.id == "comercial" and re.search(r"\b(?:assinatura|assinante|minuta|escopo\s+comercial)\b", text):
+        score += 6.0
 
     signals = tuple([f"forte:{item}" for item in strong] + [f"apoio:{item}" for item in supporting])
     return max(score, 0.0), signals
@@ -314,10 +346,11 @@ def semantic_routing_prompt(message: str, resolution: SkillResolution, context: 
         "Voce e o roteador de skills da Nora. Escolha a skill que representa a ACAO principal pedida pelo usuario. "
         "Diferencie o canal de destino do assunto: 'avise a equipe sobre tarefas' usa equipe; "
         "'quando chegar e-mail crie tarefa' usa automacoes; 'caixa de entrada' usa email, nunca financeiro. "
+        "'quero criar uma proposta' e 'gerar contrato' usam comercial, nunca brainstorm ou tarefas. "
         "Se a mensagem nao pedir nenhuma acao das skills especificas e for so conversa, pergunta geral ou "
         "curiosidade, use chat -- nao chute uma skill especifica so porque ela existe na lista. "
         "Responda SOMENTE JSON valido: "
-        '{"intent":"equipe|automacoes|brainstorm|operacoes|email|financeiro|tarefas|agenda|chat","confidence":0.0,"reason":"curto"}.\n\n'
+        '{"intent":"comercial|equipe|automacoes|brainstorm|operacoes|email|financeiro|tarefas|agenda|chat","confidence":0.0,"reason":"curto"}.\n\n'
         f"Skills disponiveis:\n{catalog}\n\n"
         f"Ranking deterministico: {alternatives}\n"
         f"Contexto recente: {context[-1200:] if context else 'nenhum'}\n"

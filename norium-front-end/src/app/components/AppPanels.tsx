@@ -14,6 +14,7 @@ const AutomationsDashboard = lazy(() => import("../../components/automations/Aut
 const BrainstormDashboard = lazy(() => import("../../components/brainstorm/BrainstormDashboard"));
 const ChatCentral = lazy(() => import("../../components/chat/ChatCentral"));
 const ClientsDashboard = lazy(() => import("../../components/clients/ClientsDashboard"));
+const CommercialDashboard = lazy(() => import("../../components/commercial/CommercialDashboard"));
 const Dashboard = lazy(() => import("../../components/dashboard/Dashboard"));
 const EmailDashboard = lazy(() => import("../../components/emails/EmailDashboard"));
 const FinanceDashboard = lazy(() => import("../../components/finance/FinanceDashboard"));
@@ -193,6 +194,12 @@ export default function AppPanels({
           />
         </section>
       )}
+      {isPanelMounted("Propostas") && (
+        <section className={activePanelClass("Propostas")}>
+          {coach("Propostas")}
+          <CommercialDashboard session={authSession} onOpenNora={onOpenNora} />
+        </section>
+      )}
       {isPanelMounted("Perfil") && (
         <section className={activePanelClass("Perfil")}>
           {coach("Perfil")}
@@ -235,7 +242,7 @@ export default function AppPanels({
       {isPanelMounted("Brainstorm") && (
         <section className={activePanelClass("Brainstorm")}>
           {coach("Brainstorm")}
-          <BrainstormDashboard session={authSession} />
+          <BrainstormDashboard session={authSession} onNavigate={onNavigate} />
         </section>
       )}
       {isPanelMounted("Ajuda") && (

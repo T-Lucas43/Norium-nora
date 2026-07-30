@@ -28,12 +28,13 @@ type NoriumDeepLink = {
 };
 
 export default function NoriumApp() {
-  const publicMatch = window.location.hash.match(/^#\/(portal|formulario)\/([^/?#]+)/i);
+  const publicMatch = window.location.hash.match(/^#\/(portal|formulario|assinatura)\/([^/?#]+)/i);
   const publicRoute = publicMatch
-    ? {
-        kind: publicMatch[1].toLowerCase() === "portal" ? "portal" as const : "form" as const,
-        token: decodeURIComponent(publicMatch[2]),
-      }
+    ? publicMatch[1].toLowerCase() === "portal"
+      ? { kind: "portal" as const, token: decodeURIComponent(publicMatch[2]) }
+      : publicMatch[1].toLowerCase() === "assinatura"
+        ? { kind: "signature" as const, token: decodeURIComponent(publicMatch[2]) }
+        : { kind: "form" as const, token: decodeURIComponent(publicMatch[2]) }
     : null;
   const [activeTab, setActiveTab] = useState(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(

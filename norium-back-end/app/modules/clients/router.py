@@ -31,6 +31,7 @@ def tenant_id(user: dict[str, Any]) -> str:
 class ClientCreate(StrictModel):
     name: str = Field(min_length=2, max_length=160)
     company: str = Field(default="", max_length=160)
+    document: str = Field(default="", max_length=40)
     email: str = Field(default="", max_length=220)
     phone: str = Field(default="", max_length=40)
     segment: str = Field(default="", max_length=100)
@@ -46,6 +47,7 @@ class ClientCreate(StrictModel):
 class ClientUpdate(StrictModel):
     name: str | None = Field(default=None, min_length=2, max_length=160)
     company: str | None = Field(default=None, max_length=160)
+    document: str | None = Field(default=None, max_length=40)
     email: str | None = Field(default=None, max_length=220)
     phone: str | None = Field(default=None, max_length=40)
     segment: str | None = Field(default=None, max_length=100)

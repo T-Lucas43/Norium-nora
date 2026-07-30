@@ -3,12 +3,15 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { installNoriumFetchAuth } from './utils/api'
+import AppDialogProvider from './components/shared/AppDialogProvider.tsx'
 
 installNoriumFetchAuth()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <AppDialogProvider>
+      <App />
+    </AppDialogProvider>
   </StrictMode>,
 )
 

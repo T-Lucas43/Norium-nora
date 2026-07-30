@@ -7,6 +7,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Copy,
+  FileSignature,
   FolderKanban,
   Loader2,
   Lock,
@@ -28,6 +29,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { authToken } from "../../core/api/config";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
 import { apiBaseUrl } from "../../utils/api";
 import NoraAvatar from "./NoraAvatar";
@@ -106,7 +108,7 @@ type Msg = {
 };
 
 type VoiceAccessStatus = "locked" | "requesting" | "unlocked" | "denied" | "unsupported";
-type NoraAgentKind = "geral" | "whatsapp" | "email" | "agenda" | "tarefas" | "financeiro" | "automacoes" | "operacoes" | "equipe" | "mensagens" | "erro";
+type NoraAgentKind = "geral" | "whatsapp" | "email" | "agenda" | "tarefas" | "financeiro" | "comercial" | "automacoes" | "operacoes" | "equipe" | "mensagens" | "erro";
 
 type NoraEmailAttachment = {
   attachmentId?: string;
@@ -373,6 +375,10 @@ const agentPresentation = {
   financeiro: {
     icon: Wallet,
     className: "nora-agent-card nora-agent-finance",
+  },
+  comercial: {
+    icon: FileSignature,
+    className: "nora-agent-card nora-agent-commercial",
   },
   automacoes: {
     icon: WandSparkles,
@@ -867,6 +873,9 @@ async function askEmailAgent(message: string, sessionId: string | null, userId: 
 async function askNaturalNoraStream(
   messages: Msg[],
   finalText: string,
+  agendaSessionId: string | null,
+  emailSessionId: string | null,
+  commercialSessionId: string | null,
   userId: string,
   screenContext: string,
   onDelta: (fullText: string) => void,
@@ -878,11 +887,17 @@ async function askNaturalNoraStream(
 
   const res = await fetch(`${BACKEND_URL}/api/nora/natural/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+    },
     body: JSON.stringify({
       user_id: userId,
       message: finalText,
       messages: payloadMessages,
+      agenda_session_id: agendaSessionId,
+      email_session_id: emailSessionId,
+      commercial_session_id: commercialSessionId,
       screen_context: screenContext || undefined,
     }),
   });
@@ -928,6 +943,7 @@ async function askNaturalNora(
   finalText: string,
   agendaSessionId: string | null,
   emailSessionId: string | null,
+  commercialSessionId: string | null,
   userId: string,
   screenContext: string,
 ) {
@@ -938,21 +954,26 @@ async function askNaturalNora(
 
   const res = await fetch(`${BACKEND_URL}/api/nora/natural`, {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+    },
     body: JSON.stringify({
       user_id: userId,
       message: finalText,
       messages: payloadMessages,
       agenda_session_id: agendaSessionId,
       email_session_id: emailSessionId,
+      commercial_session_id: commercialSessionId,
       screen_context: screenContext || undefined,
     }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.detail || "Erro no entendimento natural da Nora.");
   return data as {
-    intent: "financeiro" | "tarefas" | "email" | "agenda" | "automacoes" | "operacoes" | "equipe" | "chat";
-    session_kind: "email" | "agenda" | null;
+    intent: "financeiro" | "tarefas" | "email" | "agenda" | "comercial" | "automacoes" | "operacoes" | "equipe" | "chat";
+    session_kind: "email" | "agenda" | "commercial" | null;
     session_id: string | null;
     status: string;
     response: string;
@@ -990,6 +1011,11 @@ function isFinanceIntent(text: string) {
 function isAutomationIntent(text: string) {
   const normalized = normalizeIntentText(text);
   return /automacao|automacoes|automatizar|workflow|fluxo|gatilho|executar automacao|rodar automacao/.test(normalized);
+}
+
+function isCommercialIntent(text: string) {
+  const normalized = normalizeIntentText(text);
+  return /proposta|propostas|contrato|contratos|assinatura|assinante|escopo comercial|orcamento comercial|documento comercial/.test(normalized);
 }
 
 function isTeamIntent(text: string) {
@@ -1043,6 +1069,8 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   const [agendaAgentActive, setAgendaAgentActive] = useState(false);
   const [emailSessionId, setEmailSessionId] = useState<string | null>(null);
   const [emailAgentActive, setEmailAgentActive] = useState(false);
+  const [commercialSessionId, setCommercialSessionId] = useState<string | null>(null);
+  const [commercialAgentActive, setCommercialAgentActive] = useState(false);
   const [listening, setListening] = useState(false);
   const [voicePreview, setVoicePreview] = useState("");
   const [transcribing, setTranscribing] = useState(false);
@@ -1079,6 +1107,8 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     setAgendaAgentActive(false);
     setEmailSessionId(null);
     setEmailAgentActive(false);
+    setCommercialSessionId(null);
+    setCommercialAgentActive(false);
   }, [conversaId]);
 
   useEffect(() => {
@@ -1169,6 +1199,14 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       if (["criado", "atualizado"].includes(status)) window.dispatchEvent(new Event("calendar:changed"));
     }
 
+    if (intent === "comercial") {
+      setCommercialSessionId(result.session_id);
+      setCommercialAgentActive(Boolean(result.session_id && ["precisa_dados", "confirmar"].includes(status)));
+      if (["criada", "excluida", "analisada", "contrato_criado", "enviado_assinatura"].includes(status)) {
+        window.dispatchEvent(new Event("commercial:changed"));
+      }
+    }
+
     if (intent === "automacoes" && ["criada", "executada", "ativada", "desativada"].includes(status)) {
       window.dispatchEvent(new Event("automations:changed"));
     }
@@ -1183,6 +1221,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     if (intent === "agenda") return "agenda";
     if (intent === "tarefas") return "tarefas";
     if (intent === "financeiro") return "financeiro";
+    if (intent === "comercial") return "comercial";
     if (intent === "automacoes") return "automacoes";
     if (intent === "operacoes") return "operacoes";
     if (intent === "equipe") return "equipe";
@@ -1211,27 +1250,34 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       let responseAgendaEvents: NoraAgendaEvent[] | undefined;
       let handledInline = false;
       const sessionInterrupted = interruptsActiveAgentSession(finalText);
-      const explicitEmailSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isAgendaIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
-      const explicitAgendaSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isEmailIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
+      const explicitEmailSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isAgendaIntent(finalText) || isCommercialIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
+      const explicitAgendaSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isEmailIntent(finalText) || isCommercialIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
+      const explicitCommercialSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isEmailIntent(finalText) || isAgendaIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
       const continueEmailSession = emailAgentActive && !explicitEmailSwitch;
       const continueAgendaSession = agendaAgentActive && !explicitAgendaSwitch;
+      const continueCommercialSession = commercialAgentActive && !explicitCommercialSwitch;
       const effectiveEmailSessionId = sessionInterrupted ? null : emailSessionId;
       const effectiveAgendaSessionId = sessionInterrupted ? null : agendaSessionId;
+      const effectiveCommercialSessionId = sessionInterrupted ? null : commercialSessionId;
       if (sessionInterrupted) {
         setEmailSessionId(null);
         setEmailAgentActive(false);
         setAgendaSessionId(null);
         setAgendaAgentActive(false);
+        setCommercialSessionId(null);
+        setCommercialAgentActive(false);
       }
       const shouldUseWhatsAppContext =
         conversaId &&
         (sendDirect || isWhatsAppConversationIntent(finalText)) &&
         !emailAgentActive &&
         !agendaAgentActive &&
+        !commercialAgentActive &&
         !isTaskIntent(finalText) &&
         !isFinanceIntent(finalText) &&
         !isEmailIntent(finalText) &&
         !isAgendaIntent(finalText) &&
+        !isCommercialIntent(finalText) &&
         !isAutomationIntent(finalText) &&
         !isTeamIntent(finalText);
 
@@ -1265,7 +1311,15 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             : result.text;
       } else {
         let streamStarted = false;
-        const streamResult = await askNaturalNoraStream(messages, finalText, userId, screenContext, (partial) => {
+        const streamResult = await askNaturalNoraStream(
+          messages,
+          finalText,
+          effectiveAgendaSessionId,
+          effectiveEmailSessionId,
+          continueCommercialSession ? effectiveCommercialSessionId : null,
+          userId,
+          screenContext,
+          (partial) => {
           setMessages((prev) => {
             if (!streamStarted) {
               streamStarted = true;
@@ -1286,7 +1340,15 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           if (streamStarted) {
             setMessages((prev) => prev.slice(0, -1));
           }
-          const result = await askNaturalNora(messages, finalText, effectiveAgendaSessionId, effectiveEmailSessionId, userId, screenContext);
+          const result = await askNaturalNora(
+            messages,
+            finalText,
+            effectiveAgendaSessionId,
+            effectiveEmailSessionId,
+            continueCommercialSession ? effectiveCommercialSessionId : null,
+            userId,
+            screenContext,
+          );
           applyNaturalAgentEffects(result);
           responseAgent = naturalIntentToAgent(result.intent);
           responseStatus = result.status;

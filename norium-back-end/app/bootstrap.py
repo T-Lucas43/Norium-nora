@@ -26,6 +26,7 @@ from app.modules.brainstorm.router import router as brainstorm_router
 from app.modules.calendar.router import integracoes_google_router, router as agenda_router
 from app.modules.chat.router import router as chat_router
 from app.modules.clients.router import router as clients_router
+from app.modules.commercial.router import router as commercial_router
 from app.modules.finance.router import router as financeiro_router
 from app.modules.inbox.router import router as inbox_router
 from app.modules.mail.router import router as gmail_router
@@ -168,6 +169,7 @@ def create_app() -> FastAPI:
     app.include_router(workhub_router)
     app.include_router(clients_router)
     app.include_router(workhub_clients_router)
+    app.include_router(commercial_router)
     app.include_router(perfil_router)
     app.include_router(tarefas_router)
     app.include_router(financeiro_router)

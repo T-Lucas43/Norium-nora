@@ -41,6 +41,7 @@ from app.services.nora_skills import (
     skill_catalog_payload,
 )
 from app.modules.operations.schemas import ApprovalCreate, NoraMemoryCreate
+from app.modules.commercial.nora_agent import cancel_commercial_session, handle_commercial_agent
 from app.modules.operations.service import (
     create_approval,
     get_operation_settings,
@@ -81,6 +82,7 @@ class NoraNaturalPayload(StrictModel):
     user_id: str = "lucas123"
     agenda_session_id: str | None = None
     email_session_id: str | None = None
+    commercial_session_id: str | None = None
     screen_context: str | None = Field(default=None, max_length=500)
 
 
@@ -531,7 +533,7 @@ async def classificar_intencao_com_nora(
         confidence = max(0.0, min(float(data.get("confidence") or 0.0), 1.0))
     except (TypeError, ValueError):
         confidence = 0.0
-    valid = {"financeiro", "tarefas", "email", "agenda", "automacoes", "brainstorm", "operacoes", "equipe", "chat"}
+    valid = {"comercial", "financeiro", "tarefas", "email", "agenda", "automacoes", "brainstorm", "operacoes", "equipe", "chat"}
     return (intent, confidence) if intent in valid else (resolution.skill_id, resolution.confidence)
 
 
@@ -749,8 +751,10 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
         if interrompe_sessao_ativa(texto):
             agenda_agent.cancel_session(payload.agenda_session_id)
             email_agent.cancel_session(payload.email_session_id)
+            cancel_commercial_session(payload.commercial_session_id)
             payload.agenda_session_id = None
             payload.email_session_id = None
+            payload.commercial_session_id = None
 
         memory_request = memory_preference_request(texto)
         if memory_request is not None:
@@ -845,6 +849,10 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             result = agenda_agent.handle(message=texto, session_id=payload.agenda_session_id, user_id=resolved_user_id)
             return resposta_agente("agenda", result, "agenda")
 
+        if payload.commercial_session_id and resolution.skill_id in {"comercial", "chat"}:
+            result = await handle_commercial_agent(user, texto, payload.commercial_session_id)
+            return resposta_agente("comercial", result, "commercial", resolution)
+
         intent = resolution.skill_id
         recent_context = "\n".join(
             f"{message.role}: {message.content}" for message in payload.messages[-4:]
@@ -877,6 +885,10 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
         if intent == "tarefas":
             result = await handle_task_agent(resolved_user_id, texto)
             return resposta_agente("tarefas", result, resolution=resolution)
+
+        if intent == "comercial":
+            result = await handle_commercial_agent(user, texto, payload.commercial_session_id)
+            return resposta_agente("comercial", result, "commercial", resolution)
 
         if intent == "email":
             email_message = await message_with_memory(user, texto, {"communication", "client", "process"})
@@ -987,7 +999,9 @@ async def conversar_com_nora_natural_stream(
     """
     texto = payload.message.strip()
 
-    has_active_session = bool(payload.email_session_id or payload.agenda_session_id)
+    has_active_session = bool(
+        payload.email_session_id or payload.agenda_session_id or payload.commercial_session_id
+    )
     needs_structured_flow = (
         has_active_session
         or memory_preference_request(texto) is not None

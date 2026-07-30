@@ -8,6 +8,7 @@ export type PermissionKey =
   | "gastos"
   | "automacoes"
   | "relatorios"
+  | "propostas"
   | "nora"
   | "perfil"
   | "equipe"
@@ -68,6 +69,7 @@ export const permissionLabels: Record<PermissionKey, string> = {
   gastos: "Financeiro",
   automacoes: "Automações",
   relatorios: "Relatorios",
+  propostas: "Propostas e contratos",
   nora: "Nora",
   perfil: "Perfil",
   equipe: "Modo equipe",
@@ -79,7 +81,7 @@ export const permissionLabels: Record<PermissionKey, string> = {
 };
 
 export const permissionGroups: Array<{ title: string; keys: PermissionKey[] }> = [
-  { title: "Telas", keys: ["dashboard", "central", "emails", "agenda", "chat", "tarefas", "gastos", "automacoes", "relatorios", "perfil"] },
+  { title: "Telas", keys: ["dashboard", "central", "emails", "agenda", "chat", "tarefas", "gastos", "automacoes", "relatorios", "propostas", "perfil"] },
   { title: "IA e equipe", keys: ["nora", "equipe", "admin"] },
   { title: "Integracoes", keys: ["integracao_gmail", "integracao_whatsapp", "integracao_agenda", "integracao_financeiro"] },
 ];
@@ -94,6 +96,7 @@ export const defaultMemberPermissions: PermissionMap = {
   gastos: false,
   automacoes: false,
   relatorios: false,
+  propostas: false,
   nora: false,
   perfil: true,
   equipe: false,
@@ -114,6 +117,7 @@ export const ownerPermissions: PermissionMap = {
   gastos: true,
   automacoes: true,
   relatorios: true,
+  propostas: true,
   nora: true,
   perfil: true,
   equipe: true,

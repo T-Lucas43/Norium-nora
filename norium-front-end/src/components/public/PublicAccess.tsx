@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle2, FileText, Send, ShieldCheck } from "lucide-react";
+import { ArrowRight, CheckCircle2, FileSignature, FileText, Send, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 
@@ -7,7 +7,8 @@ import BrandLogo from "../layout/BrandLogo";
 
 type PublicRoute =
   | { kind: "portal"; token: string }
-  | { kind: "form"; token: string };
+  | { kind: "form"; token: string }
+  | { kind: "signature"; token: string };
 
 type PortalData = {
   portal: {
@@ -42,20 +43,57 @@ type FormData = {
   };
 };
 
+type SignatureData = {
+  contract: {
+    id: string;
+    title: string;
+    contentHtml: string;
+    status: string;
+    branding?: {
+      logoUrl?: string;
+      primaryColor?: string;
+      secondaryColor?: string;
+      textColor?: string;
+    };
+    client?: { name?: string; company?: string };
+    signers: Array<{
+      id: string;
+      name: string;
+      role: string;
+      order: number;
+      status: string;
+      signedAt?: string | null;
+    }>;
+  };
+  signer: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    order: number;
+    status: string;
+  };
+  expiresAt: string;
+};
+
 export function publicRouteFromHash(hash = window.location.hash): PublicRoute | null {
-  const match = hash.match(/^#\/(portal|formulario)\/([^/?#]+)/i);
+  const match = hash.match(/^#\/(portal|formulario|assinatura)\/([^/?#]+)/i);
   if (!match) return null;
+  const kind = match[1].toLowerCase();
   return {
-    kind: match[1].toLowerCase() === "portal" ? "portal" : "form",
+    kind: kind === "portal" ? "portal" : kind === "assinatura" ? "signature" : "form",
     token: decodeURIComponent(match[2]),
   };
 }
 
 export default function PublicAccess({ route }: { route: PublicRoute }) {
-  const [payload, setPayload] = useState<PortalData | FormData | null>(null);
+  const [payload, setPayload] = useState<PortalData | FormData | SignatureData | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [signatureName, setSignatureName] = useState("");
+  const [signatureEmail, setSignatureEmail] = useState("");
+  const [signatureConsent, setSignatureConsent] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
@@ -63,15 +101,22 @@ export default function PublicAccess({ route }: { route: PublicRoute }) {
 
   const endpoint = route.kind === "portal"
     ? `/api/plataforma/portal/publico/${encodeURIComponent(route.token)}`
-    : `/api/plataforma/formularios/publico/${encodeURIComponent(route.token)}`;
+    : route.kind === "signature"
+      ? `/api/comercial/public/signature/${encodeURIComponent(route.token)}`
+      : `/api/plataforma/formularios/publico/${encodeURIComponent(route.token)}`;
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError("");
-    apiRequest<PortalData | FormData>(endpoint, { token: null })
+    apiRequest<PortalData | FormData | SignatureData>(endpoint, { token: null })
       .then((data) => {
-        if (active) setPayload(data);
+        if (!active) return;
+        setPayload(data);
+        if ("signer" in data) {
+          setSignatureName(data.signer.name || "");
+          setSignatureEmail(data.signer.email || "");
+        }
       })
       .catch((requestError) => {
         if (active) setError(requestError instanceof Error ? requestError.message : "Este acesso nao esta disponivel.");
@@ -113,7 +158,7 @@ export default function PublicAccess({ route }: { route: PublicRoute }) {
         setMessage("Solicitacao enviada com seguranca.");
         const refreshed = await apiRequest<PortalData>(endpoint, { token: null });
         setPayload(refreshed);
-      } else {
+      } else if (route.kind === "form") {
         const result = await apiRequest<{ message?: string }>(
           `/api/plataforma/formularios/publico/${encodeURIComponent(route.token)}/respostas`,
           {
@@ -124,6 +169,20 @@ export default function PublicAccess({ route }: { route: PublicRoute }) {
         );
         setValues({});
         setMessage(result.message || "Recebemos suas informacoes.");
+      } else {
+        await apiRequest(`/api/comercial/public/signature/${encodeURIComponent(route.token)}`, {
+          method: "POST",
+          token: null,
+          body: JSON.stringify({
+            name: signatureName,
+            email: signatureEmail,
+            consent: signatureConsent,
+            signatureDataUrl: "",
+          }),
+        });
+        setMessage("Assinatura registrada. Uma copia da trilha de auditoria permanece vinculada ao contrato.");
+        const refreshed = await apiRequest<SignatureData>(endpoint, { token: null });
+        setPayload(refreshed);
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Nao foi possivel enviar.");
@@ -217,6 +276,61 @@ export default function PublicAccess({ route }: { route: PublicRoute }) {
               </button>
             </form>
           </section>
+        )}
+
+        {!loading && payload && "signer" in payload && (
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+            <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--glass-shadow)]">
+              <header
+                className="border-b border-[var(--border)] p-6"
+                style={{ borderTop: `4px solid ${payload.contract.branding?.secondaryColor || "#3B82F6"}` }}
+              >
+                {payload.contract.branding?.logoUrl && (
+                  <img src={payload.contract.branding.logoUrl} alt="Logo da empresa" className="mb-4 max-h-14 max-w-48 object-contain" />
+                )}
+                <p className="text-xs font-black uppercase text-cyan-400">Documento para assinatura</p>
+                <h1 className="mt-2 text-2xl font-black">{payload.contract.title}</h1>
+                <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                  Cliente: {payload.contract.client?.company || payload.contract.client?.name || "Nao informado"}
+                </p>
+              </header>
+              <article className="commercial-document p-6 sm:p-10" dangerouslySetInnerHTML={{ __html: payload.contract.contentHtml }} />
+            </section>
+
+            <aside className="h-fit rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 shadow-[var(--glass-shadow)] lg:sticky lg:top-6">
+              <FileSignature size={28} className="text-cyan-400" />
+              <h2 className="mt-4 text-xl font-black">Assinatura eletronica</h2>
+              <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                Revise o documento, confirme sua identidade e registre o aceite.
+              </p>
+              {payload.signer.status === "signed" ? (
+                <SuccessMessage text="Este assinante ja concluiu o aceite." />
+              ) : (
+                <form className="mt-6 space-y-4" onSubmit={submit}>
+                  <label className="norium-platform-label">
+                    Nome completo
+                    <input className="norium-platform-input" required value={signatureName} onChange={(event) => setSignatureName(event.target.value)} />
+                  </label>
+                  <label className="norium-platform-label">
+                    E-mail
+                    <input className="norium-platform-input" type="email" required value={signatureEmail} onChange={(event) => setSignatureEmail(event.target.value)} />
+                  </label>
+                  <label className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-soft)] p-4 text-sm leading-6">
+                    <input className="mt-1" type="checkbox" required checked={signatureConsent} onChange={(event) => setSignatureConsent(event.target.checked)} />
+                    Li o documento e concordo em registrar eletronicamente meu aceite.
+                  </label>
+                  {message && <SuccessMessage text={message} />}
+                  {error && <ErrorMessage text={error} />}
+                  <button className="norium-platform-button w-full justify-center" disabled={submitting || !signatureConsent}>
+                    {submitting ? "Registrando..." : "Assinar documento"} <ArrowRight size={16} />
+                  </button>
+                </form>
+              )}
+              <p className="mt-5 text-xs leading-5 text-[var(--text-secondary)]">
+                Link valido ate {new Intl.DateTimeFormat("pt-BR", { dateStyle: "long", timeStyle: "short" }).format(new Date(payload.expiresAt))}.
+              </p>
+            </aside>
+          </div>
         )}
       </div>
     </main>

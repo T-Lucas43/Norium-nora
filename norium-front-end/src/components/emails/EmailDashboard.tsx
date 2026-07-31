@@ -44,13 +44,10 @@ import type { LucideIcon } from "lucide-react";
 import { downloadWithAuth } from "../../utils/download";
 import { mailApiRequest as apiJson } from "../../features/mail/api";
 import type {
-  AgentMessage,
   ComposeAttachment,
-  ComposeState,
   GmailMessage,
   MailQuickFilter,
   MessageListResponse,
-  NoraEmailSuggestion,
 } from "../../features/mail/types";
 import { quickFilters } from "../../features/mail/types";
 import type { AdvancedMailFilters } from "../../features/mail/queryBuilder";
@@ -59,26 +56,22 @@ import {
   buildGmailSearchQuery,
   emptyAdvancedFilters,
 } from "../../features/mail/queryBuilder";
-import {
-  clearMailboxCacheForUser,
-} from "../../features/mail/mailboxCache";
 import type { EmailCategoryKey } from "../../features/mail/formatters";
 import {
   accountInitials,
   classifyEmailCategory,
-  cleanEmailSourceText,
   emailCategoryMeta,
   formatBytes,
   friendlyGmailLabel,
   initials,
   isImage,
-  looksLikeBadEmailSuggestion,
   normalizeText,
 } from "../../features/mail/formatters";
 import { useGmailConnection } from "../../features/mail/hooks/useGmailConnection";
 import { useMailbox } from "../../features/mail/hooks/useMailbox";
 import { useMessageDetail } from "../../features/mail/hooks/useMessageDetail";
 import { useCompose } from "../../features/mail/hooks/useCompose";
+import { useNoraMail } from "../../features/mail/hooks/useNoraMail";
 import Button from "../shared/Button";
 export type { Email } from "../../features/mail/types";
 
@@ -101,35 +94,6 @@ function PortalWhen({ active, children }: { active: boolean; children: ReactNode
   return children;
 }
 
-function fallbackEmailSuggestion(target: "compose" | "reply", message: GmailMessage | null, compose: ComposeState) {
-  if (target === "reply" && message) {
-    const senderName = message.fromName || "tudo bem";
-    const firstName = senderName.split(/\s+/)[0]?.replace(/[^\p{L}\p{N}]/gu, "") || "tudo bem";
-    return [
-      `Ola, ${firstName}.`,
-      "",
-      "Obrigado pelo envio. Vou verificar os pontos mencionados e retorno com uma posicao objetiva assim que concluir a analise.",
-      "",
-      "Se houver alguma prioridade ou prazo especifico, pode me sinalizar por aqui.",
-      "",
-      "Atenciosamente,",
-      "Tarcisio",
-    ].join("\n");
-  }
-
-  return [
-    "Ola,",
-    "",
-    compose.body?.trim() || "Estou entrando em contato para alinhar os proximos passos e confirmar as informacoes necessarias.",
-    "",
-    "Fico no aguardo do seu retorno.",
-    "",
-    "Atenciosamente,",
-    "Tarcisio",
-  ].join("\n");
-}
-
-
 type EmailDashboardProps = {
   userId?: string;
   canUseNora?: boolean;
@@ -143,14 +107,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState("");
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiInput, setAiInput] = useState("resumir minha caixa de entrada");
-  const [aiMessages, setAiMessages] = useState<AgentMessage[]>([]);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [noraSuggesting, setNoraSuggesting] = useState<"compose" | "reply" | null>(null);
-  const [noraSuggestion, setNoraSuggestion] = useState<NoraEmailSuggestion | null>(null);
-  const [noraSuggestionInstruction, setNoraSuggestionInstruction] = useState("");
-  const [emailAgentSessionId, setEmailAgentSessionId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedMailFilters>(emptyAdvancedFilters);
@@ -279,6 +235,37 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     },
   });
 
+  const {
+    aiOpen,
+    setAiOpen,
+    aiInput,
+    setAiInput,
+    aiMessages,
+    aiLoading,
+    noraSuggesting,
+    noraSuggestion,
+    setNoraSuggestion,
+    noraSuggestionInstruction,
+    setNoraSuggestionInstruction,
+    askEmailAgent,
+    askContextualAssistant: askContextualEmailAssistant,
+    askSuggestion: askNoraEmailSuggestion,
+    acceptSuggestion: acceptNoraSuggestion,
+    discardSuggestion: discardNoraSuggestion,
+  } = useNoraMail({
+    userId,
+    canUseNora,
+    selectedMessage,
+    compose,
+    replyText,
+    onError: setError,
+    onMailSent: () => void fetchMessages(false),
+    onApplySuggestion: (target, text) => {
+      if (target === "reply") setReplyText(text);
+      else setCompose((prev) => ({ ...prev, body: text }));
+    },
+  });
+
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
   const userLabels = labels.filter((label) => label.type === "user").slice(0, 14);
   const inboxUnread = labelById.get("INBOX")?.messagesUnread || 0;
@@ -390,37 +377,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     };
   }, [messageFullscreen]);
 
-  async function askEmailAgent(text?: string) {
-    const finalText = (text || aiInput).trim();
-    if (!finalText) return;
-    setAiOpen(true);
-    setAiInput("");
-    setAiLoading(true);
-    setAiMessages((prev) => [...prev, { role: "user", text: finalText }]);
-    try {
-      const data = await apiJson<{ session_id: string | null; status: string; response: string }>(
-        "/api/emails/gmail/agente/mensagem",
-        {
-          method: "POST",
-          body: JSON.stringify({ user_id: userId, session_id: emailAgentSessionId, message: finalText }),
-        },
-      );
-      setEmailAgentSessionId(data.session_id);
-      setAiMessages((prev) => [...prev, { role: "ai", text: data.response }]);
-      if (data.status === "enviado") {
-        clearMailboxCacheForUser(userId);
-        void fetchMessages(false);
-      }
-    } catch (err) {
-      setAiMessages((prev) => [
-        ...prev,
-        { role: "ai", text: err instanceof Error ? err.message : "Agente de e-mail indisponivel." },
-      ]);
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
   function applyAdvancedSearch() {
     const query = buildGmailSearchQuery(searchDraft, advancedFilters);
     setSearchQuery(query);
@@ -465,131 +421,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     } finally {
       setLabelSaving(false);
     }
-  }
-
-  async function askContextualEmailAssistant(action: "summary" | "next") {
-    if (!selectedMessage) return;
-    const source = cleanEmailSourceText(selectedMessage.bodyText || selectedMessage.snippet || selectedMessage.bodyHtml);
-    const userText = action === "summary" ? "Resumir o e-mail aberto" : "Sugerir a proxima acao para o e-mail aberto";
-    setAiOpen(true);
-    setAiLoading(true);
-    setAiMessages((prev) => [...prev, { role: "user", text: userText }]);
-    try {
-      const prompt = [
-        action === "summary"
-          ? "Resuma o e-mail recebido de forma objetiva. Destaque pedido, prazo, valor e proxima acao somente quando existirem."
-          : "Analise o e-mail recebido e recomende a proxima acao mais segura e objetiva. Nao invente dados.",
-        `Remetente: ${selectedMessage.fromName} <${selectedMessage.fromEmail}>`,
-        `Assunto: ${selectedMessage.subject || "(sem assunto)"}`,
-        `Conteudo: ${source || selectedMessage.snippet || "(sem conteudo disponivel)"}`,
-      ].join("\n");
-      const data = await apiJson<{ response: string }>("/api/nora/chat", {
-        method: "POST",
-        body: JSON.stringify({
-          messages: [
-            { role: "system", content: "Voce e a Nora no Norium Mail. Responda em portugues do Brasil, com precisao e sem inventar fatos." },
-            { role: "user", content: prompt },
-          ],
-        }),
-      });
-      setAiMessages((prev) => [...prev, { role: "ai", text: data.response?.trim() || "Nao encontrei conteudo suficiente para analisar." }]);
-    } catch (err) {
-      setAiMessages((prev) => [...prev, { role: "ai", text: err instanceof Error ? err.message : "A Nora nao conseguiu analisar este e-mail." }]);
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
-  async function askNoraEmailSuggestion(target: "compose" | "reply", instruction = "") {
-    if (!canUseNora) {
-      setError("A Nora nao esta liberada para esta conta.");
-      return;
-    }
-    setNoraSuggesting(target);
-    setError("");
-    try {
-      const currentSuggestion = noraSuggestion?.target === target ? noraSuggestion.text : "";
-      const operatorDirection = instruction.trim();
-      const sourceText =
-        target === "reply" && selectedMessage
-          ? cleanEmailSourceText(selectedMessage.bodyText || selectedMessage.snippet || selectedMessage.bodyHtml)
-          : "";
-      const prompt =
-        target === "reply" && selectedMessage
-          ? [
-              "Tarefa: escreva SOMENTE o corpo final de uma resposta de e-mail.",
-              "Voce esta escrevendo COMO Tarcisio, que RECEBEU o e-mail abaixo e vai responder ao remetente.",
-              "Nunca escreva como se Tarcisio tivesse enviado o e-mail recebido.",
-              "Nao diga que enviou, anexou, comprou, participou ou realizou algo se isso estiver apenas no e-mail recebido.",
-              "Nao mencione historico de conversa, WhatsApp, falta de contexto, IA, Todoist ou analise externa.",
-              "Use apenas os dados abaixo. Se o conteudo for promocional ou informativo, responda de forma curta, educada e neutra.",
-              "Se o operador der uma orientacao, transforme essa orientacao em uma resposta completa e profissional.",
-              "Nao explique o que voce fez. Nao use markdown.",
-              "",
-              `E-mail recebido de: ${selectedMessage.fromName} <${selectedMessage.fromEmail}>`,
-              `Assunto recebido: ${selectedMessage.subject || "(sem assunto)"}`,
-              `Conteudo recebido: ${sourceText || selectedMessage.snippet || "(sem corpo detalhado)"}`,
-              `Texto que o operador ja escreveu no campo de resposta: ${replyText || "(vazio)"}`,
-              `Rascunho anterior da Nora, se houver: ${currentSuggestion || "(nenhum)"}`,
-              `Pedido de ajuste do operador: ${operatorDirection || "(nenhum)"}`,
-            ].join("\n")
-          : [
-              "Tarefa: escreva SOMENTE o corpo final de um e-mail profissional.",
-              "Nao mencione historico de conversa, WhatsApp, falta de contexto, IA ou analise externa.",
-              "Se faltarem dados, crie uma mensagem curta, neutra e segura. Nao invente promessas, anexos ou informacoes.",
-              "Se o operador der uma orientacao, transforme essa orientacao em uma mensagem completa.",
-              "Nao explique o que voce fez. Nao use markdown.",
-              "",
-              `Destinatario: ${compose.to || "(nao informado)"}`,
-              `Assunto: ${compose.subject || "(sem assunto)"}`,
-              `Texto que o operador ja escreveu: ${compose.body || "(vazio)"}`,
-              `Rascunho anterior da Nora, se houver: ${currentSuggestion || "(nenhum)"}`,
-              `Pedido de ajuste do operador: ${operatorDirection || "(nenhum)"}`,
-            ].join("\n");
-
-      const data = await apiJson<{ response: string }>("/api/nora/chat", {
-        method: "POST",
-        body: JSON.stringify({
-          messages: [
-            {
-              role: "system",
-              content:
-                "Voce esta no modulo Norium Mail. Sua unica funcao aqui e redigir e-mails. Em respostas, escreva sempre como o operador que recebeu o e-mail, nunca como o remetente original. Responda apenas com o texto do e-mail, sem comentarios.",
-            },
-            { role: "user", content: prompt },
-          ],
-        }),
-      });
-
-      const suggestion = data.response?.trim();
-      if (!suggestion) throw new Error("A Nora nao retornou sugestao.");
-      const finalSuggestion = looksLikeBadEmailSuggestion(suggestion)
-        ? fallbackEmailSuggestion(target, selectedMessage, compose)
-        : suggestion;
-
-      setNoraSuggestion({ target, text: finalSuggestion });
-      setNoraSuggestionInstruction("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui pedir uma sugestao para a Nora.");
-    } finally {
-      setNoraSuggesting(null);
-    }
-  }
-
-  function acceptNoraSuggestion() {
-    if (!noraSuggestion) return;
-    if (noraSuggestion.target === "reply") {
-      setReplyText(noraSuggestion.text);
-    } else {
-      setCompose((prev) => ({ ...prev, body: noraSuggestion.text }));
-    }
-    setNoraSuggestion(null);
-    setNoraSuggestionInstruction("");
-  }
-
-  function discardNoraSuggestion() {
-    setNoraSuggestion(null);
-    setNoraSuggestionInstruction("");
   }
 
   function renderNoraSuggestionPanel(target: "compose" | "reply") {

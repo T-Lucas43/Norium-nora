@@ -73,6 +73,8 @@ import { useMessageDetail } from "../../features/mail/hooks/useMessageDetail";
 import { useCompose } from "../../features/mail/hooks/useCompose";
 import { useNoraMail } from "../../features/mail/hooks/useNoraMail";
 import Button from "../shared/Button";
+import LabelDialog from "./modals/LabelDialog";
+import ProfilePopover from "./modals/ProfilePopover";
 export type { Email } from "../../features/mail/types";
 
 
@@ -1441,73 +1443,16 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
       )}
 
       {labelDialogOpen && (
-        <div
-          className="fixed inset-0 z-[90] grid place-items-center bg-black/65 p-4 backdrop-blur-[2px]"
-          onClick={() => {
+        <LabelDialog
+          name={newLabelName}
+          saving={labelSaving}
+          onNameChange={setNewLabelName}
+          onSubmit={() => void createLabel()}
+          onClose={() => {
             setLabelDialogOpen(false);
             setNewLabelName("");
           }}
-        >
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void createLabel();
-            }}
-            onClick={(event) => event.stopPropagation()}
-            className="mail-modal w-full max-w-md overflow-hidden rounded-lg border border-white/12 bg-[#0C0E10] shadow-[0_24px_80px_rgba(0,0,0,0.72)]"
-          >
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-              <div>
-                <h2 className="text-base font-black">Novo marcador</h2>
-                <p className="mt-1 text-xs font-semibold text-white/45">Organize mensagens sem sair do Norium Mail.</p>
-              </div>
-              <Button variant="ghost" size="sm" iconOnly
-               
-                onClick={() => {
-                  setLabelDialogOpen(false);
-                  setNewLabelName("");
-                }}
-                className="mail-hover hover:bg-white/7"
-                aria-label="Fechar"
-              >
-                <X size={16} />
-              </Button>
-            </div>
-            <div className="p-5">
-              <label className="grid gap-2 text-xs font-bold text-white/65">
-                Nome do marcador
-                <input
-                  autoFocus
-                  value={newLabelName}
-                  onChange={(event) => setNewLabelName(event.target.value)}
-                  placeholder="Ex.: Clientes prioritarios"
-                  maxLength={100}
-                  className="mail-input h-11 rounded-lg border border-white/12 bg-black/25 px-3 text-sm text-white outline-none focus:border-cyan-400/60"
-                />
-              </label>
-              <div className="mt-5 flex justify-end gap-2">
-                <Button
-                 
-                  onClick={() => {
-                    setLabelDialogOpen(false);
-                    setNewLabelName("");
-                  }}
-                  className="mail-hover border-white/12 text-white/65 hover:bg-white/7"
-                >
-                  Cancelar
-                </Button>
-                <Button variant="ghost"
-                  type="submit"
-                  disabled={!newLabelName.trim() || labelSaving}
-                  className="mail-primary bg-[#0EA5E9]"
-                >
-                  {labelSaving ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-                  Criar marcador
-                </Button>
-              </div>
-            </div>
-          </form>
-        </div>
+        />
       )}
 
       {settingsOpen && (
@@ -1563,45 +1508,14 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
       )}
 
       {profileOpen && (
-        <div className="fixed right-6 top-24 z-50 w-[340px] max-w-[calc(100vw-48px)]">
-          <aside className="mail-modal overflow-hidden rounded-lg border border-white/12 bg-[#18181B] shadow-2xl">
-            <div className="flex items-center gap-3 border-b border-white/10 p-4">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#4A3B8F] text-base font-black">
-                {status?.picture ? (
-                  <img src={status.picture} alt="Foto do perfil" className="h-full w-full object-cover" />
-                ) : (
-                  <span>{accountInitials(status)}</span>
-                )}
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold">{status?.name || "Perfil Norium"}</p>
-                <p className="truncate text-xs font-semibold text-white/45">{status?.email || "Gmail nao conectado"}</p>
-              </div>
-              <Button variant="ghost" size="sm" iconOnly onClick={() => setProfileOpen(false)} className="mail-hover ml-auto hover:bg-white/7">
-                <X size={16} />
-              </Button>
-            </div>
-
-            <div className="grid gap-2 p-3">
-              <Button variant="ghost" onClick={() => { setSettingsOpen(true); setProfileOpen(false); }} className="mail-hover hover:bg-white/7">
-                <Settings size={16} />
-                Configuracoes
-              </Button>
-              <Button variant="ghost" onClick={() => void fetchStatus()} className="mail-hover hover:bg-white/7">
-                <RefreshCw size={16} />
-                Atualizar perfil
-              </Button>
-              <Button variant="ghost" onClick={() => void connectGmail()} className="mail-hover hover:bg-white/7">
-                <Sparkles size={16} />
-                {status?.connected ? "Reconectar Gmail" : "Conectar Gmail"}
-              </Button>
-              <Button variant="danger" onClick={() => void disconnectGmail()} disabled={!status?.connected} className="text-red-400 hover:bg-red-500/10">
-                <X size={16} />
-                Sair desta conta
-              </Button>
-            </div>
-          </aside>
-        </div>
+        <ProfilePopover
+          status={status}
+          onClose={() => setProfileOpen(false)}
+          onOpenSettings={() => { setSettingsOpen(true); setProfileOpen(false); }}
+          onRefresh={() => void fetchStatus()}
+          onConnect={() => void connectGmail()}
+          onDisconnect={() => void disconnectGmail()}
+        />
       )}
     </div>
   );

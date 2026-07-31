@@ -3,14 +3,10 @@ import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   Archive,
-  Bot,
-  Check,
   ChevronLeft,
-  ChevronRight,
   Clock3,
   Download,
   FileText,
-  Filter,
   Image,
   Inbox,
   Loader2,
@@ -27,7 +23,6 @@ import {
   ShieldAlert,
   Sparkles,
   Star,
-  Tags,
   Trash2,
   X,
 } from "lucide-react";
@@ -39,10 +34,8 @@ import type {
   MailQuickFilter,
   MessageListResponse,
 } from "../../features/mail/types";
-import { quickFilters } from "../../features/mail/types";
 import type { AdvancedMailFilters } from "../../features/mail/queryBuilder";
 import {
-  GMAIL_PAGE_SIZE,
   buildGmailSearchQuery,
   emptyAdvancedFilters,
 } from "../../features/mail/queryBuilder";
@@ -65,6 +58,7 @@ import Button from "../shared/Button";
 import LabelDialog from "./modals/LabelDialog";
 import AttachmentPreview from "./AttachmentPreview";
 import MailSidebar from "./MailSidebar";
+import MailMessageList from "./MailMessageList";
 import MailToolbar from "./MailToolbar";
 import ComposeModal from "./modals/ComposeModal";
 import NoraMailDrawer from "./modals/NoraMailDrawer";
@@ -487,7 +481,11 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
   }
 
   const visibleRange = messages.length ? `1-${messages.length}` : "0";
-  const allSelected = messages.length > 0 && messages.every((message) => selectedIds.has(message.id));
+  const mailboxTitle = activeFilter === "unread"
+    ? "Nao lidos"
+    : activeFolder.startsWith("label:")
+      ? labelById.get(activeFolder.split(":", 2)[1])?.name || "Marcador"
+      : systemFolders.find((folder) => folder.key === activeFolder)?.label || "Caixa De Entrada";
   const selectedCategory = selectedMessage ? emailCategoryMeta[classifyEmailCategory(selectedMessage)] : null;
   const selectedLabels = selectedMessage
     ? (selectedMessage.labels || [])
@@ -497,71 +495,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
         .slice(0, 10)
     : [];
 
-  function renderMessageRow(message: GmailMessage) {
-    const category = classifyEmailCategory(message);
-    const categoryMeta = emailCategoryMeta[category];
-    return (
-      <button
-        key={message.id}
-        onClick={() => void openMessage(message)}
-        className={cx(
-          "mail-row grid w-full grid-cols-[42px_28px_minmax(160px,0.32fr)_1fr_96px] items-center gap-2 border-b border-white/9 px-4 text-left transition hover:bg-white/5",
-          compactMode ? "min-h-[42px]" : "min-h-[54px]",
-          selectedMessage?.id === message.id && "mail-active bg-white/7",
-          message.unread && "bg-white/[0.035]",
-        )}
-      >
-        <span
-          onClick={(event) => {
-            event.stopPropagation();
-            setSelectedIds((prev) => {
-              const next = new Set(prev);
-              if (next.has(message.id)) next.delete(message.id);
-              else next.add(message.id);
-              return next;
-            });
-          }}
-          className={cx(
-            "flex h-5 w-5 items-center justify-center rounded border border-white/15",
-            selectedIds.has(message.id) && "border-[#0EA5E9] bg-[#0EA5E9]",
-          )}
-        >
-          {selectedIds.has(message.id) && <Check size={13} />}
-        </span>
-        <span
-          onClick={(event) => {
-            event.stopPropagation();
-            void runMessageAction(message.id, message.starred ? "unstar" : "star");
-          }}
-          className="text-white/45 hover:text-[#BAE6FD]"
-        >
-          <Star size={17} fill={message.starred ? "currentColor" : "none"} className={message.starred ? "text-[#BAE6FD]" : ""} />
-        </span>
-        <span className={cx("truncate text-sm", message.unread ? "font-extrabold text-white" : "font-semibold text-white/65")}>
-          {message.fromName}
-        </span>
-        <span className="min-w-0 truncate text-sm">
-          {message.unread && <span className="mr-3 inline-block h-2 w-2 rounded-full bg-[#38BDF8]" />}
-          <span className={cx(message.unread ? "font-extrabold text-white" : "font-semibold text-white/80")}>{message.subject}</span>
-          {groupByCategory && (
-            <span className={cx("ml-2 inline-flex rounded-full border px-2 py-0.5 text-xs font-black uppercase", categoryMeta.tone)}>
-              {categoryMeta.label}
-            </span>
-          )}
-          {showPreview && (
-            <>
-              <span className="mx-2 text-white/25">-</span>
-              <span className="text-white/45">{message.snippet}</span>
-            </>
-          )}
-        </span>
-        <span className="flex items-center justify-end gap-2 text-xs font-semibold text-white/55">
-          {message.hasAttachment && <Paperclip size={14} />}
-          {message.dateLabel}
-        </span>
-      </button>
-    );
-  }
 
   return (
     <div className={`norium-mail ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} flex h-full min-h-0 w-full overflow-hidden bg-[#111113] text-white`}>
@@ -641,165 +574,46 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
           </main>
         ) : (
           <main className="flex min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex h-[104px] shrink-0 items-center justify-between px-4">
-                <div>
-                  <h1 className="text-xl font-bold">
-                    {activeFilter === "unread"
-                      ? "Nao lidos"
-                      : activeFolder.startsWith("label:")
-                        ? labelById.get(activeFolder.split(":", 2)[1])?.name || "Marcador"
-                        : systemFolders.find((folder) => folder.key === activeFolder)?.label || "Caixa De Entrada"}
-                  </h1>
-                  <p className="mt-1 text-xs font-semibold text-white/45">
-                    {inboxUnread} nao lidos · {autoRefresh ? "sincronizacao em tempo real a cada 45s" : "atualizacao manual"}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 text-xs font-bold text-white/60">
-                  <Button variant="ghost" size="sm" iconOnly onClick={() => void fetchMessages(false)} className="hover:bg-white/7">
-                    {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                  </Button>
-                  <span>
-                    {visibleRange} / {resultSize || messages.length}
-                  </span>
-                  <Button variant="ghost" size="sm" iconOnly
-                   
-                    disabled={messages.length <= GMAIL_PAGE_SIZE}
-                    onClick={() => void fetchMessages(false, null)}
-                    title="Voltar ao inicio"
-                    className="hover:bg-white/7"
-                   aria-label="Voltar ao inicio">
-                    <ChevronLeft size={16} />
-                  </Button>
-                  <Button variant="ghost" size="sm" iconOnly
-                    disabled={!nextPageToken}
-                    onClick={() => void fetchMessages(true, nextPageToken)}
-                    className="hover:bg-white/7"
-                  >
-                    <ChevronRight size={16} />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex h-14 shrink-0 items-center justify-between border-y border-white/10 px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setSelectedIds(allSelected ? new Set() : new Set(messages.map((message) => message.id)));
-                    }}
-                    className={cx(
-                      "flex h-5 w-5 items-center justify-center rounded border border-white/18",
-                      allSelected && "bg-[#0EA5E9] border-[#0EA5E9]",
-                    )}
-                  >
-                    {allSelected && <Check size={13} />}
-                  </button>
-
-                  {quickFilters.map((filter) => (
-                    <button
-                      key={filter.key}
-                      onClick={() => setActiveFilter(filter.key)}
-                      className={cx(
-                        "mail-hover rounded-full border border-white/12 px-3 py-1.5 text-xs font-bold transition",
-                        activeFilter === filter.key ? "mail-active bg-white text-black" : "text-white hover:bg-white/7",
-                      )}
-                    >
-                      {filter.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {selectedIds.size > 0 && (
-                    <>
-                      <Button onClick={() => void runBulkAction("archive")} className="mail-hover border-white/12 py-2 hover:bg-white/7">
-                        Arquivar
-                      </Button>
-                      <Button onClick={() => void runBulkAction("trash")} className="mail-hover border-white/12 py-2 hover:bg-white/7">
-                        Lixeira
-                      </Button>
-                    </>
-                  )}
-                  <button
-                    onClick={() => {
-                      const next = !groupByCategory;
-                      setGroupByCategory(next);
-                      if (next && canUseNora) void askEmailAgent("agrupar e-mails por categoria");
-                    }}
-                    className={cx(
-                      "mail-hover flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-bold",
-                      groupByCategory
-                        ? "border-cyan-300/35 bg-cyan-300/12 text-cyan-100"
-                        : "border-white/12 text-white/70 hover:bg-white/7",
-                    )}
-                  >
-                    <Tags size={14} />
-                    Agrupar categorias
-                  </button>
-                  <Button size="sm" onClick={() => setFiltersOpen(true)} className="mail-hover border-white/12 text-white/70 hover:bg-white/7">
-                    <Filter size={14} />
-                    Filtros
-                  </Button>
-                </div>
-              </div>
-
-              {canUseNora && (
-                <div className="mail-banner flex h-12 shrink-0 items-center bg-[#075985] px-4 text-sm font-bold">
-                  <div className="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-white text-black">
-                    <Bot size={18} />
-                  </div>
-                  <span className="min-w-0 flex-1 truncate">
-                    A Nora agora esta na sua caixa de entrada. Elabore, resuma e responda de forma mais inteligente.
-                  </span>
-                  <Button variant="ghost" onClick={() => void askEmailAgent("resumir minha caixa de entrada")} className="mail-primary bg-[#0EA5E9] py-2">
-                    Experimente
-                  </Button>
-                </div>
-              )}
-
-              {error && (
-                <div className="border-b border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200">
-                  {error}
-                </div>
-              )}
-
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {loading && !messages.length ? (
-                  <div className="flex h-full items-center justify-center text-sm font-bold text-white/50">
-                    <Loader2 size={18} className="mr-2 animate-spin" />
-                    Sincronizando Gmail...
-                  </div>
-                ) : messages.length ? (
-                  groupByCategory ? (
-                    <div className="divide-y divide-white/8">
-                      {groupedMessages.map(([category, items]) => {
-                        const meta = emailCategoryMeta[category];
-                        return (
-                          <section key={category}>
-                            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/8 bg-[#08256f]/95 px-4 py-2 backdrop-blur-xl">
-                              <span className={cx("inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black", meta.tone)}>
-                                <Tags size={14} />
-                                {meta.label}
-                              </span>
-                              <span className="text-xs font-bold text-white/55">{items.length} e-mail(s)</span>
-                            </div>
-                            {items.map((message) => renderMessageRow(message))}
-                          </section>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    messages.map((message) => renderMessageRow(message))
-                  )
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center text-center text-white/45">
-                    <MailOpen size={34} className="mb-3" />
-                    <p className="text-sm font-bold">Nenhum e-mail encontrado nesse filtro.</p>
-                  </div>
-                )}
-              </div>
-            </div>
+            <MailMessageList
+              title={mailboxTitle}
+              unreadCount={inboxUnread}
+              autoRefresh={autoRefresh}
+              loading={loading}
+              error={error}
+              canUseNora={canUseNora}
+              messages={messages}
+              groupedMessages={groupedMessages}
+              selectedIds={selectedIds}
+              selectedMessageId={selectedMessage?.id}
+              visibleRange={visibleRange}
+              resultSize={resultSize}
+              nextPageToken={nextPageToken}
+              activeFilter={activeFilter}
+              compactMode={compactMode}
+              showPreview={showPreview}
+              groupByCategory={groupByCategory}
+              onRefresh={() => void fetchMessages(false)}
+              onFirstPage={() => void fetchMessages(false, null)}
+              onNextPage={() => void fetchMessages(true, nextPageToken)}
+              onFilterChange={setActiveFilter}
+              onToggleSelectAll={() => setSelectedIds((prev) => (prev.size === messages.length ? new Set() : new Set(messages.map((m) => m.id))))}
+              onToggleSelectOne={(id) => setSelectedIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })}
+              onToggleStar={(message) => void runMessageAction(message.id, message.starred ? "unstar" : "star")}
+              onOpenMessage={(message) => void openMessage(message)}
+              onBulkAction={(action) => void runBulkAction(action)}
+              onToggleGroupByCategory={() => {
+                const next = !groupByCategory;
+                setGroupByCategory(next);
+                if (next && canUseNora) void askEmailAgent("agrupar e-mails por categoria");
+              }}
+              onOpenFilters={() => setFiltersOpen(true)}
+              onAskNora={() => void askEmailAgent("resumir minha caixa de entrada")}
+            />
 
             {selectedMessage && (
               <PortalWhen active={messageFullscreen}>

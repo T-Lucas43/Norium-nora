@@ -79,6 +79,7 @@ import {
 } from "../../features/mail/formatters";
 import { useGmailConnection } from "../../features/mail/hooks/useGmailConnection";
 import { useMailbox } from "../../features/mail/hooks/useMailbox";
+import { useMessageDetail } from "../../features/mail/hooks/useMessageDetail";
 import Button from "../shared/Button";
 export type { Email } from "../../features/mail/types";
 
@@ -148,11 +149,8 @@ type EmailDashboardProps = {
 export default function EmailDashboard({ userId = "lucas123", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
   const [activeFolder, setActiveFolder] = useState("inbox");
   const [activeFilter, setActiveFilter] = useState<MailQuickFilter>("all");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [selectedMessage, setSelectedMessage] = useState<GmailMessage | null>(null);
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [detailLoading, setDetailLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
@@ -249,6 +247,28 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     onMailboxChanged: handleMailboxChanged,
   });
 
+  const {
+    selectedMessage,
+    setSelectedMessage,
+    selectedIds,
+    setSelectedIds,
+    detailLoading,
+    openMessage,
+    openMessageById,
+    runMessageAction,
+    runBulkAction,
+  } = useMessageDetail({
+    userId,
+    messages,
+    setMessages,
+    currentMailboxKey,
+    cacheRef: mailboxCacheRef,
+    onError: setError,
+    onRefreshMessages: () => void fetchMessages(false),
+    onRefreshLabels: handleRefreshLabels,
+    onActionStart: () => setMessageMenuOpen(false),
+  });
+
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
   const userLabels = labels.filter((label) => label.type === "user").slice(0, 14);
   const inboxUnread = labelById.get("INBOX")?.messagesUnread || 0;
@@ -330,59 +350,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     return () => window.removeEventListener("emails:compose", openCompose);
   }, []);
 
-  const openMessage = useCallback(async (message: GmailMessage) => {
-    setSelectedMessage(message);
-    setDetailLoading(true);
-    setError("");
-    try {
-      const data = await apiJson<{ message: GmailMessage }>(`/api/emails/gmail/messages/${message.id}?user_id=${userId}`);
-      setSelectedMessage(data.message);
-      if (message.unread) {
-        setMessages((prev) => prev.map((item) => (item.id === message.id ? { ...item, unread: false } : item)));
-        const snapshot = mailboxCacheRef.current.get(currentMailboxKey);
-        if (snapshot) {
-          mailboxCacheRef.current.set(currentMailboxKey, {
-            ...snapshot,
-            messages: snapshot.messages.map((item) => (item.id === message.id ? { ...item, unread: false } : item)),
-          });
-        }
-        void apiJson(`/api/emails/gmail/messages/${message.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ user_id: userId, action: "read" }),
-        }).catch(() => undefined);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui abrir este e-mail.");
-    } finally {
-      setDetailLoading(false);
-    }
-  }, [userId]);
-
-  const openMessageById = useCallback(async (messageId: string) => {
-    const existing = messages.find((message) => message.id === messageId);
-    if (existing) {
-      await openMessage(existing);
-      return;
-    }
-
-    setDetailLoading(true);
-    setError("");
-    try {
-      const data = await apiJson<{ message: GmailMessage }>(`/api/emails/gmail/messages/${messageId}?user_id=${userId}`);
-      setSelectedMessage(data.message);
-      if (data.message?.unread) {
-        void apiJson(`/api/emails/gmail/messages/${messageId}`, {
-          method: "PATCH",
-          body: JSON.stringify({ user_id: userId, action: "read" }),
-        }).catch(() => undefined);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui abrir este e-mail.");
-    } finally {
-      setDetailLoading(false);
-    }
-  }, [messages, openMessage, userId]);
-
   useEffect(() => {
     if (!selectedEmailId) return;
     void openMessageById(selectedEmailId).finally(() => onSelectedEmailHandled?.());
@@ -412,43 +379,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [messageFullscreen]);
-
-  async function runMessageAction(messageId: string, action: string, closeAfter = false) {
-    setError("");
-    setMessageMenuOpen(false);
-    try {
-      await apiJson(`/api/emails/gmail/messages/${messageId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ user_id: userId, action }),
-      });
-      clearMailboxCacheForUser(userId);
-
-      if (["archive", "trash", "spam"].includes(action) || closeAfter) {
-        setMessages((prev) => prev.filter((message) => message.id !== messageId));
-        if (selectedMessage?.id === messageId) setSelectedMessage(null);
-      } else if (action === "star" || action === "unstar") {
-        const starred = action === "star";
-        setMessages((prev) => prev.map((message) => (message.id === messageId ? { ...message, starred } : message)));
-        setSelectedMessage((prev) => (prev?.id === messageId ? { ...prev, starred } : prev));
-      } else if (action === "important" || action === "unimportant") {
-        const important = action === "important";
-        setMessages((prev) => prev.map((message) => (message.id === messageId ? { ...message, important } : message)));
-        setSelectedMessage((prev) => (prev?.id === messageId ? { ...prev, important } : prev));
-      } else {
-        void fetchMessages(false);
-      }
-      void fetchLabels().catch(() => undefined);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Acao nao concluida.");
-    }
-  }
-
-  async function runBulkAction(action: string) {
-    const ids = Array.from(selectedIds);
-    if (!ids.length) return;
-    await Promise.all(ids.map((id) => runMessageAction(id, action, true)));
-    setSelectedIds(new Set());
-  }
 
   async function addFiles(files: FileList | null, target: "compose" | "reply") {
     if (!files?.length) return;

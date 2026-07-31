@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Clock3,
   Download,
-  Eye,
   FileText,
   Filter,
   Image,
@@ -19,17 +18,13 @@ import {
   MailCheck,
   MailOpen,
   Maximize2,
-  Menu,
   Minimize2,
   MoreVertical,
   Paperclip,
   RefreshCw,
   Reply,
-  Search,
   Send,
-  Settings,
   ShieldAlert,
-  SlidersHorizontal,
   Sparkles,
   Star,
   Tags,
@@ -53,7 +48,6 @@ import {
 } from "../../features/mail/queryBuilder";
 import type { EmailCategoryKey } from "../../features/mail/formatters";
 import {
-  accountInitials,
   classifyEmailCategory,
   emailCategoryMeta,
   formatBytes,
@@ -71,6 +65,7 @@ import Button from "../shared/Button";
 import LabelDialog from "./modals/LabelDialog";
 import AttachmentPreview from "./AttachmentPreview";
 import MailSidebar from "./MailSidebar";
+import MailToolbar from "./MailToolbar";
 import ComposeModal from "./modals/ComposeModal";
 import NoraMailDrawer from "./modals/NoraMailDrawer";
 import MailSettingsDrawer from "./modals/MailSettingsDrawer";
@@ -593,132 +588,27 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
       />
 
       <section className="mail-main flex min-w-0 flex-1 flex-col bg-[#151518]">
-        <header className="mail-surface flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-4">
-          <div className="flex min-w-0 items-center gap-4">
-            <button
-              type="button"
-              className="mobile-sidebar-toggle"
-              aria-label="Abrir menu do e-mail"
-              onClick={() => setMobileSidebarOpen(true)}
-            >
-              <Menu size={18} />
-            </button>
-            <div className="mail-input relative flex h-11 w-[405px] max-w-[42vw] items-center gap-3 rounded-lg border border-white/12 bg-[#1C1C20] px-4">
-              <Search size={18} className="text-white/55" />
-              <input
-                value={searchDraft}
-                onChange={(event) => setSearchDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") applyAdvancedSearch();
-                }}
-                placeholder="Pesquisar email"
-                className="min-w-0 flex-1 bg-transparent text-sm font-medium text-white outline-none placeholder:text-white/45"
-              />
-              {searchDraft && (
-                <button type="button" onClick={clearAdvancedSearch} className="text-white/45 hover:text-white" title="Limpar pesquisa" aria-label="Limpar pesquisa">
-                  <X size={16} />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setFiltersOpen((value) => !value)}
-                className={cx("text-white/55 hover:text-white", filtersOpen && "text-cyan-300")}
-                title="Filtros avancados"
-                aria-expanded={filtersOpen}
-               aria-label="Filtros avancados">
-                <SlidersHorizontal size={17} />
-              </button>
-              {filtersOpen && createPortal(
-                <div
-                  className="mail-advanced-search-backdrop fixed inset-0 z-[240] flex items-start justify-center bg-black/55 px-4 pt-[88px] backdrop-blur-[2px]"
-                  onMouseDown={(event) => {
-                    if (event.currentTarget === event.target) setFiltersOpen(false);
-                  }}
-                >
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    applyAdvancedSearch();
-                  }}
-                  className="mail-modal mail-advanced-search-panel isolate max-h-[calc(100dvh-112px)] w-[520px] max-w-full overflow-y-auto rounded-xl border border-white/12 bg-[#0C0E10] p-5 text-white shadow-[0_28px_100px_rgba(0,0,0,0.78)]"
-                >
-                  <div className="mb-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-bold">Pesquisa avancada</p>
-                      <p className="text-xs font-semibold text-white/45">Combine campos para localizar mensagens no Gmail.</p>
-                    </div>
-                    <Button variant="ghost" size="sm" iconOnly onClick={() => setFiltersOpen(false)} className="hover:bg-white/7"><X size={16} /></Button>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="grid gap-1 text-xs font-bold text-white/60">De
-                      <input value={advancedFilters.from} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, from: event.target.value }))} placeholder="remetente@email.com" className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-white/60">Para
-                      <input value={advancedFilters.to} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, to: event.target.value }))} placeholder="destinatario@email.com" className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-white/60 sm:col-span-2">Assunto
-                      <input value={advancedFilters.subject} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, subject: event.target.value }))} placeholder="Palavras no assunto" className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-white/60">Contem as palavras
-                      <input value={advancedFilters.hasWords} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, hasWords: event.target.value }))} className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-white/60">Nao contem
-                      <input value={advancedFilters.excludes} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, excludes: event.target.value }))} className="h-10 rounded-lg border border-white/12 bg-black/20 px-3 text-xs text-white outline-none focus:border-cyan-400/60" />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-white/60">Periodo
-                      <select value={advancedFilters.newerThan} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, newerThan: event.target.value as AdvancedMailFilters["newerThan"] }))} className="h-10 rounded-lg border border-white/12 bg-[#101014] px-3 text-xs text-white outline-none">
-                        <option value="">Qualquer periodo</option><option value="1d">Ultimas 24 horas</option><option value="7d">Ultimos 7 dias</option><option value="30d">Ultimos 30 dias</option><option value="365d">Ultimo ano</option>
-                      </select>
-                    </label>
-                    <label className="flex h-10 items-center gap-2 self-end rounded-lg border border-white/12 px-3 text-xs font-bold text-white/70">
-                      <input type="checkbox" checked={advancedFilters.hasAttachment} onChange={(event) => setAdvancedFilters((prev) => ({ ...prev, hasAttachment: event.target.checked }))} className="accent-cyan-400" /> Com anexo
-                    </label>
-                  </div>
-                  <div className="mt-4 flex justify-end gap-2">
-                    <Button size="sm" onClick={clearAdvancedSearch} className="border-white/12 text-white/65 hover:bg-white/7">Limpar</Button>
-                    <Button variant="ghost" size="sm" type="submit" className="mail-primary bg-[#0EA5E9]">Pesquisar</Button>
-                  </div>
-                </form>
-                </div>,
-                document.body,
-              )}
-            </div>
-
-            {status?.connected && (
-              <div className="hidden min-w-0 text-xs font-semibold text-white/50 xl:block">
-                Conectado como <span className="text-white/80">{status.email}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {canUseNora && (
-              <Button
-                onClick={() => {
-                  setAiOpen(true);
-                  if (!aiMessages.length) void askEmailAgent("resumir minha caixa de entrada");
-                }}
-                className="rounded-full border-[#38BDF8] hover:bg-[#38BDF8]/12"
-              >
-                <Bot size={15} />
-                Nora para E-mails
-              </Button>
-            )}
-            <Button iconOnly onClick={() => setShowPreview((value) => !value)} title="Alternar previa" className="mail-hover rounded-full border-white/12 hover:bg-white/7" aria-label="Alternar previa">
-              <Eye size={17} />
-            </Button>
-            <Button iconOnly onClick={() => setSettingsOpen(true)} title="Configuracoes do Mail" className="mail-hover rounded-full border-white/12 hover:bg-white/7" aria-label="Configuracoes do Mail">
-              <Settings size={17} />
-            </Button>
-            <Button onClick={() => setProfileOpen((value) => !value)} title="Perfil" className="mail-hover overflow-hidden rounded-full border-white/12 bg-[#4A3B8F]" aria-label="Perfil">
-              {status?.picture ? (
-                <img src={status.picture} alt="Foto do perfil" className="h-full w-full object-cover" />
-              ) : (
-                <span>{accountInitials(status)}</span>
-              )}
-            </Button>
-          </div>
-        </header>
+        <MailToolbar
+          status={status}
+          canUseNora={canUseNora}
+          searchDraft={searchDraft}
+          filtersOpen={filtersOpen}
+          advancedFilters={advancedFilters}
+          onSearchDraftChange={setSearchDraft}
+          onApplySearch={applyAdvancedSearch}
+          onClearSearch={clearAdvancedSearch}
+          onToggleFilters={() => setFiltersOpen((value) => !value)}
+          onCloseFilters={() => setFiltersOpen(false)}
+          onAdvancedFiltersChange={setAdvancedFilters}
+          onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+          onOpenNora={() => {
+            setAiOpen(true);
+            if (!aiMessages.length) void askEmailAgent("resumir minha caixa de entrada");
+          }}
+          onTogglePreview={() => setShowPreview((value) => !value)}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onToggleProfile={() => setProfileOpen((value) => !value)}
+        />
 
         {!status?.connected ? (
           <main className="flex flex-1 items-center justify-center p-8">

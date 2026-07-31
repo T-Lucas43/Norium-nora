@@ -49,7 +49,6 @@ import type {
   ComposeState,
   GmailMessage,
   MailQuickFilter,
-  MailboxSnapshot,
   MessageListResponse,
   NoraEmailSuggestion,
 } from "../../features/mail/types";
@@ -58,13 +57,10 @@ import type { AdvancedMailFilters } from "../../features/mail/queryBuilder";
 import {
   GMAIL_PAGE_SIZE,
   buildGmailSearchQuery,
-  buildMessagesPath,
   emptyAdvancedFilters,
 } from "../../features/mail/queryBuilder";
 import {
   clearMailboxCacheForUser,
-  mailboxCacheKey,
-  mailboxSessionCache,
 } from "../../features/mail/mailboxCache";
 import type { EmailCategoryKey } from "../../features/mail/formatters";
 import {
@@ -82,6 +78,7 @@ import {
   splitRecipients,
 } from "../../features/mail/formatters";
 import { useGmailConnection } from "../../features/mail/hooks/useGmailConnection";
+import { useMailbox } from "../../features/mail/hooks/useMailbox";
 import Button from "../shared/Button";
 export type { Email } from "../../features/mail/types";
 
@@ -151,14 +148,10 @@ type EmailDashboardProps = {
 export default function EmailDashboard({ userId = "lucas123", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
   const [activeFolder, setActiveFolder] = useState("inbox");
   const [activeFilter, setActiveFilter] = useState<MailQuickFilter>("all");
-  const [messages, setMessages] = useState<GmailMessage[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedMessage, setSelectedMessage] = useState<GmailMessage | null>(null);
-  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
-  const [resultSize, setResultSize] = useState(0);
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -199,17 +192,11 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
   const [messageFullscreen, setMessageFullscreen] = useState(false);
   const aiScrollRef = useRef<HTMLDivElement>(null);
   const messageScrollRef = useRef<HTMLDivElement>(null);
-  const mailboxCacheRef = useRef<Map<string, MailboxSnapshot>>(mailboxSessionCache);
-  const mailboxRequestsInFlightRef = useRef<Set<string>>(new Set());
-  const currentMailboxKey = mailboxCacheKey(userId, activeFolder, activeFilter, searchQuery);
-  const activeMailboxKeyRef = useRef(currentMailboxKey);
   const preferencesLoadedRef = useRef(false);
 
-  activeMailboxKeyRef.current = currentMailboxKey;
 
   const handleDisconnected = useCallback(() => {
     setMessages([]);
-    mailboxRequestsInFlightRef.current.clear();
     setSelectedIds(new Set());
     setSelectedMessage(null);
     setProfileOpen(false);
@@ -225,6 +212,42 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     connect: connectGmail,
     disconnect: disconnectGmail,
   } = useGmailConnection({ userId, onError: setError, onDisconnected: handleDisconnected });
+
+  const handleMailboxChanged = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectedMessage(null);
+  }, []);
+
+  const handleStatusPayload = useCallback((data: MessageListResponse) => {
+    setStatus((prev) => ({ ...(prev || data), ...data }));
+  }, [setStatus]);
+
+  const handleRefreshLabels = useCallback(() => {
+    void fetchLabels().catch(() => undefined);
+  }, [fetchLabels]);
+
+  const {
+    messages,
+    setMessages,
+    nextPageToken,
+    resultSize,
+    loading,
+    fetchMessages,
+    prefetchMailbox,
+    currentMailboxKey,
+    cacheRef: mailboxCacheRef,
+  } = useMailbox({
+    userId,
+    folder: activeFolder,
+    filter: activeFilter,
+    searchQuery,
+    connected: Boolean(status?.connected),
+    autoRefresh,
+    onError: setError,
+    onStatusPayload: handleStatusPayload,
+    onRefreshLabels: handleRefreshLabels,
+    onMailboxChanged: handleMailboxChanged,
+  });
 
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
   const userLabels = labels.filter((label) => label.type === "user").slice(0, 14);
@@ -269,87 +292,10 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
   }, [autoRefresh, compactMode, groupByCategory, showPreview]);
 
   useEffect(() => {
-    mailboxRequestsInFlightRef.current.clear();
-    setMessages([]);
     setSelectedMessage(null);
     setSelectedIds(new Set());
   }, [userId]);
 
-
-  const fetchMessages = useCallback(
-    async (append = false, pageToken?: string | null, silent = false) => {
-      const requestKey = mailboxCacheKey(userId, activeFolder, activeFilter, searchQuery);
-      const requestId = `${requestKey}::${pageToken || "first"}`;
-      if (mailboxRequestsInFlightRef.current.has(requestId)) return;
-      mailboxRequestsInFlightRef.current.add(requestId);
-
-      const cached = mailboxCacheRef.current.get(requestKey);
-      const shouldShowLoader = !silent && !append && !cached;
-      if (shouldShowLoader) setLoading(true);
-      if (activeMailboxKeyRef.current === requestKey) setError("");
-      try {
-        const data = await apiJson<MessageListResponse>(buildMessagesPath({
-          userId,
-          folder: activeFolder,
-          filter: activeFilter,
-          query: searchQuery,
-          pageToken,
-        }));
-        const incomingMessages = data.messages || [];
-        const previousMessages = append ? mailboxCacheRef.current.get(requestKey)?.messages || [] : [];
-        const nextMessages = append
-          ? Array.from(new Map([...previousMessages, ...incomingMessages].map((message) => [message.id, message])).values())
-          : incomingMessages;
-        const snapshot: MailboxSnapshot = {
-          messages: nextMessages,
-          nextPageToken: data.nextPageToken || null,
-          resultSize: data.resultSizeEstimate || 0,
-          cachedAt: Date.now(),
-        };
-        mailboxCacheRef.current.set(requestKey, snapshot);
-
-        if (activeMailboxKeyRef.current === requestKey) {
-          setMessages(snapshot.messages);
-          setNextPageToken(snapshot.nextPageToken);
-          setResultSize(snapshot.resultSize);
-        }
-        setStatus((prev) => ({ ...(prev || data), ...data }));
-      } catch (err) {
-        if (activeMailboxKeyRef.current === requestKey) {
-          setError(err instanceof Error ? err.message : "Nao foi possivel carregar os e-mails.");
-        }
-      } finally {
-        mailboxRequestsInFlightRef.current.delete(requestId);
-        if (shouldShowLoader && activeMailboxKeyRef.current === requestKey) setLoading(false);
-      }
-    },
-    [activeFilter, activeFolder, searchQuery, userId],
-  );
-
-  const prefetchMailbox = useCallback(async (folder: string) => {
-    const requestKey = mailboxCacheKey(userId, folder, "all", "");
-    const requestId = `${requestKey}::first`;
-    if (mailboxCacheRef.current.has(requestKey) || mailboxRequestsInFlightRef.current.has(requestId)) return;
-    mailboxRequestsInFlightRef.current.add(requestId);
-    try {
-      const data = await apiJson<MessageListResponse>(buildMessagesPath({
-        userId,
-        folder,
-        filter: "all",
-        query: "",
-      }));
-      mailboxCacheRef.current.set(requestKey, {
-        messages: data.messages || [],
-        nextPageToken: data.nextPageToken || null,
-        resultSize: data.resultSizeEstimate || 0,
-        cachedAt: Date.now(),
-      });
-    } catch {
-      // O pre-carregamento e oportunista; a navegacao normal continua exibindo erros quando necessario.
-    } finally {
-      mailboxRequestsInFlightRef.current.delete(requestId);
-    }
-  }, [userId]);
 
   useEffect(() => {
     void fetchStatus().catch((err) => setError(err instanceof Error ? err.message : "Falha ao checar Gmail."));
@@ -359,57 +305,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     if (!status?.connected) return;
     void fetchLabels().catch(() => undefined);
   }, [fetchLabels, status?.connected]);
-
-  useEffect(() => {
-    if (!status?.connected) return;
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        for (const folder of ["sent", "drafts", "scheduled", "starred", "important", "spam", "trash"]) {
-          if (cancelled) return;
-          await prefetchMailbox(folder);
-        }
-      })();
-    }, 700);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [prefetchMailbox, status?.connected]);
-
-  useEffect(() => {
-    if (!status?.connected) return;
-    setSelectedIds(new Set());
-    setSelectedMessage(null);
-    const cached = mailboxCacheRef.current.get(currentMailboxKey);
-    if (cached) {
-      setMessages(cached.messages);
-      setNextPageToken(cached.nextPageToken);
-      setResultSize(cached.resultSize);
-      setLoading(false);
-    } else {
-      setMessages([]);
-      setNextPageToken(null);
-      setResultSize(0);
-    }
-    void fetchMessages(false, null, Boolean(cached));
-    if (!autoRefresh) return undefined;
-    const timer = window.setInterval(() => {
-      void fetchMessages(false, null, true);
-      void fetchLabels().catch(() => undefined);
-    }, 45000);
-    return () => window.clearInterval(timer);
-  }, [activeFolder, activeFilter, autoRefresh, currentMailboxKey, fetchLabels, fetchMessages, status?.connected]);
-
-  useEffect(() => {
-    if (!status?.connected) return;
-    const refresh = () => {
-      void fetchMessages(false, null, true);
-      void fetchLabels().catch(() => undefined);
-    };
-    window.addEventListener("emails:changed", refresh);
-    return () => window.removeEventListener("emails:changed", refresh);
-  }, [fetchLabels, fetchMessages, status?.connected]);
 
   useEffect(() => {
     setReplyText("");
@@ -444,9 +339,9 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
       setSelectedMessage(data.message);
       if (message.unread) {
         setMessages((prev) => prev.map((item) => (item.id === message.id ? { ...item, unread: false } : item)));
-        const snapshot = mailboxCacheRef.current.get(activeMailboxKeyRef.current);
+        const snapshot = mailboxCacheRef.current.get(currentMailboxKey);
         if (snapshot) {
-          mailboxCacheRef.current.set(activeMailboxKeyRef.current, {
+          mailboxCacheRef.current.set(currentMailboxKey, {
             ...snapshot,
             messages: snapshot.messages.map((item) => (item.id === message.id ? { ...item, unread: false } : item)),
           });

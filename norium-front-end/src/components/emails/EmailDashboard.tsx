@@ -1,28 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { createPortal } from "react-dom";
 import {
-  Archive,
-  ChevronLeft,
   Clock3,
-  Download,
   FileText,
-  Image,
   Inbox,
-  Loader2,
   Mail,
-  MailCheck,
-  MailOpen,
-  Maximize2,
-  Minimize2,
-  MoreVertical,
   RefreshCw,
   Send,
   ShieldAlert,
   Sparkles,
-  Star,
   Trash2,
-  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { downloadWithAuth } from "../../utils/download";
@@ -40,12 +26,6 @@ import {
 import type { EmailCategoryKey } from "../../features/mail/formatters";
 import {
   classifyEmailCategory,
-  emailCategoryMeta,
-  formatBytes,
-  friendlyGmailLabel,
-  initials,
-  isImage,
-  normalizeText,
 } from "../../features/mail/formatters";
 import { useGmailConnection } from "../../features/mail/hooks/useGmailConnection";
 import { useMailbox } from "../../features/mail/hooks/useMailbox";
@@ -55,6 +35,7 @@ import { useNoraMail } from "../../features/mail/hooks/useNoraMail";
 import Button from "../shared/Button";
 import LabelDialog from "./modals/LabelDialog";
 import MailSidebar from "./MailSidebar";
+import MailMessageDetail from "./MailMessageDetail";
 import MailMessageList from "./MailMessageList";
 import MailReplyBox from "./MailReplyBox";
 import NoraSuggestionPanel from "./NoraSuggestionPanel";
@@ -75,14 +56,7 @@ const systemFolders: Array<{ key: string; label: string; icon: LucideIcon; count
   { key: "trash", label: "Lixo", icon: Trash2, countLabel: "TRASH" },
 ];
 
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
 
-function PortalWhen({ active, children }: { active: boolean; children: ReactNode }) {
-  if (active && typeof document !== "undefined") return createPortal(children, document.body);
-  return children;
-}
 
 type EmailDashboardProps = {
   userId?: string;
@@ -435,14 +409,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     : activeFolder.startsWith("label:")
       ? labelById.get(activeFolder.split(":", 2)[1])?.name || "Marcador"
       : systemFolders.find((folder) => folder.key === activeFolder)?.label || "Caixa De Entrada";
-  const selectedCategory = selectedMessage ? emailCategoryMeta[classifyEmailCategory(selectedMessage)] : null;
-  const selectedLabels = selectedMessage
-    ? (selectedMessage.labels || [])
-        .map((label) => friendlyGmailLabel(labelById.get(label)?.name || label))
-        .filter((label) => !["Caixa de entrada", "Nao lido", "Com estrela", "Importante"].includes(label))
-        .filter((label) => !selectedCategory || normalizeText(label) !== normalizeText(selectedCategory.label))
-        .slice(0, 10)
-    : [];
 
 
   return (
@@ -565,241 +531,37 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
             />
 
             {selectedMessage && (
-              <PortalWhen active={messageFullscreen}>
-              <aside
-                className={cx(
-                  "mail-sidebar flex flex-col overflow-hidden bg-[#18181B]",
-                  messageFullscreen
-                    ? "fixed inset-0 z-[100] h-[100dvh] max-h-[100dvh] w-screen min-h-0"
-                    : "h-full w-[520px] shrink-0 border-l border-white/10",
+              <MailMessageDetail
+                message={selectedMessage}
+                labelById={labelById}
+                loading={detailLoading}
+                fullscreen={messageFullscreen}
+                menuOpen={messageMenuOpen}
+                scrollRef={messageScrollRef}
+                replyBox={(
+                  <MailReplyBox
+                    text={replyText}
+                    attachments={replyAttachments}
+                    sending={sending}
+                    canUseNora={canUseNora}
+                    noraSuggesting={noraSuggesting}
+                    suggestionPanel={renderNoraSuggestionPanel("reply")}
+                    onTextChange={setReplyText}
+                    onAddFiles={(files) => void addFiles(files, "reply")}
+                    onRemoveAttachment={(id) => setReplyAttachments((prev) => prev.filter((a) => a.id !== id))}
+                    onAskNora={() => void askNoraEmailSuggestion("reply")}
+                    onSend={() => void sendReply()}
+                  />
                 )}
-                aria-label={messageFullscreen ? "E-mail aberto em tela cheia" : "Leitura do e-mail"}
-              >
-                <div className="mail-surface flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-4">
-                  <div className="flex items-center gap-1 text-white/70">
-                    <Button variant="ghost" size="sm" iconOnly onClick={() => setSelectedMessage(null)} className="hover:bg-white/7" title="Voltar para a lista" aria-label="Voltar para a lista">
-                      <ChevronLeft size={17} />
-                    </Button>
-                    <Button variant="ghost" size="sm" iconOnly onClick={() => void runMessageAction(selectedMessage.id, "archive", true)} className="hover:bg-white/7" title="Arquivar" aria-label="Arquivar">
-                      <Archive size={17} />
-                    </Button>
-                    <Button variant="ghost" size="sm" iconOnly onClick={() => void runMessageAction(selectedMessage.id, "trash", true)} className="hover:bg-white/7" title="Mover para a lixeira" aria-label="Mover para a lixeira">
-                      <Trash2 size={17} />
-                    </Button>
-                    <Button variant="ghost" size="sm" iconOnly onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.unread ? "read" : "unread")} className="hover:bg-white/7" title={selectedMessage.unread ? "Marcar como lido" : "Marcar como nao lido"} aria-label={selectedMessage.unread ? "Marcar como lido" : "Marcar como nao lido"}>
-                      {selectedMessage.unread ? <MailOpen size={17} /> : <MailCheck size={17} />}
-                    </Button>
-                    <Button variant="ghost" size="sm" iconOnly onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.starred ? "unstar" : "star")} className="hover:bg-white/7" title={selectedMessage.starred ? "Remover estrela" : "Adicionar estrela"} aria-label={selectedMessage.starred ? "Remover estrela" : "Adicionar estrela"}>
-                      <Star size={17} fill={selectedMessage.starred ? "currentColor" : "none"} />
-                    </Button>
-                    <button
-                      onClick={() => setMessageMenuOpen((value) => !value)}
-                      className={cx(
-                        "flex h-9 w-9 items-center justify-center rounded-lg hover:bg-white/7",
-                        messageMenuOpen && "bg-white/10 text-white",
-                      )}
-                      title={messageMenuOpen ? "Recolher acoes" : "Mais acoes"}
-                      aria-expanded={messageMenuOpen}
-                     aria-label={messageMenuOpen ? "Recolher acoes" : "Mais acoes"}>
-                      <MoreVertical size={17} />
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" iconOnly
-                     
-                      onClick={() => setMessageFullscreen((value) => !value)}
-                      className="text-white/70 hover:bg-white/7 hover:text-white"
-                      title={messageFullscreen ? "Sair da tela cheia" : "Abrir em tela cheia"}
-                      aria-label={messageFullscreen ? "Sair da tela cheia" : "Abrir e-mail em tela cheia"}
-                    >
-                      {messageFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-                    </Button>
-                    <Button variant="ghost" size="sm" iconOnly
-                     
-                      onClick={() => setSelectedMessage(null)}
-                      className="text-white/60 hover:bg-white/7 hover:text-white"
-                      title="Fechar e-mail"
-                      aria-label="Fechar e-mail"
-                    >
-                      <X size={18} />
-                    </Button>
-                  </div>
-                </div>
-
-                {messageMenuOpen && (
-                  <div className="mail-surface flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-4 py-2.5 text-xs font-bold text-white/75">
-                    <Button size="sm"
-                      onClick={() => void runMessageAction(selectedMessage.id, selectedMessage.important ? "unimportant" : "important")}
-                      className="mail-hover min-w-[150px] flex-1 whitespace-nowrap border-white/12 hover:bg-white/7"
-                    >
-                      <Star size={15} fill={selectedMessage.important ? "currentColor" : "none"} />
-                      {selectedMessage.important ? "Remover importante" : "Marcar importante"}
-                    </Button>
-                    <Button size="sm"
-                      onClick={() => void runMessageAction(selectedMessage.id, "spam", true)}
-                      className="mail-hover min-w-[110px] flex-1 whitespace-nowrap border-white/12 hover:bg-white/7"
-                    >
-                      <ShieldAlert size={15} />
-                      Spam
-                    </Button>
-                    {!messageFullscreen && (
-                      <Button size="sm"
-                        onClick={() => {
-                          setMessageFullscreen(true);
-                          setMessageMenuOpen(false);
-                        }}
-                        className="mail-hover min-w-[120px] flex-1 whitespace-nowrap border-white/12 hover:bg-white/7"
-                      >
-                        <Maximize2 size={15} />
-                        Tela cheia
-                      </Button>
-                    )}
-                  </div>
-                )}
-
-                <div ref={messageScrollRef} tabIndex={0} aria-label="Conteúdo rolável do e-mail" className="mail-reader-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 pb-24 select-text outline-none">
-                  {detailLoading ? (
-                    <div className="flex h-64 items-center justify-center text-sm font-bold text-white/50">
-                      <Loader2 size={18} className="mr-2 animate-spin" />
-                      Abrindo e-mail...
-                    </div>
-                  ) : (
-                    <>
-                      <h2 className="text-xl font-bold leading-7">{selectedMessage.subject}</h2>
-                      <div className="mail-card mt-4 flex items-start justify-between gap-3 rounded-lg border border-white/10 bg-[#121217] p-4">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#246BFD] text-sm font-bold">
-                            {initials(selectedMessage.fromName)}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-bold">{selectedMessage.fromName}</p>
-                            <p className="truncate text-xs font-semibold text-white/45">{selectedMessage.fromEmail}</p>
-                            {selectedMessage.to && <p className="truncate text-xs font-semibold text-white/35">para {selectedMessage.to}</p>}
-                          </div>
-                        </div>
-                        <span className="shrink-0 text-xs font-semibold text-white/45">{selectedMessage.dateFull}</span>
-                      </div>
-
-                      <div className="mail-card mt-3 rounded-lg border border-white/10 bg-[#121217] p-4">
-                        <div className="mb-3 flex flex-wrap items-center gap-2">
-                          {selectedCategory && (
-                            <span className={cx("inline-flex rounded-full border px-2.5 py-1 text-xs font-black uppercase", selectedCategory.tone)}>
-                              {selectedCategory.label}
-                            </span>
-                          )}
-                          <span className={cx("inline-flex rounded-full border px-2.5 py-1 text-xs font-black uppercase", selectedMessage.unread ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100" : "border-white/10 bg-white/5 text-white/55")}>
-                            {selectedMessage.unread ? "Nao lido" : "Lido"}
-                          </span>
-                          {selectedMessage.important && (
-                            <span className="inline-flex rounded-full border border-amber-300/25 bg-amber-300/10 px-2.5 py-1 text-xs font-bold uppercase text-amber-100">
-                              Importante
-                            </span>
-                          )}
-                          {selectedMessage.starred && (
-                            <span className="inline-flex rounded-full border border-sky-300/25 bg-sky-300/10 px-2.5 py-1 text-xs font-bold uppercase text-sky-100">
-                              Com estrela
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="grid gap-2 text-xs md:grid-cols-2">
-                          <div className="rounded-lg border border-white/8 bg-white/[0.035] p-3">
-                            <p className="font-black uppercase text-white/40">Para</p>
-                            <p className="mt-1 break-words font-semibold text-white/80">{selectedMessage.to || "Nao informado"}</p>
-                          </div>
-                          <div className="rounded-lg border border-white/8 bg-white/[0.035] p-3">
-                            <p className="font-black uppercase text-white/40">Recebido em</p>
-                            <p className="mt-1 font-semibold text-white/80">{selectedMessage.dateFull || selectedMessage.dateLabel || "Sem data"}</p>
-                          </div>
-                          {selectedMessage.cc && (
-                            <div className="rounded-lg border border-white/8 bg-white/[0.035] p-3">
-                              <p className="font-black uppercase text-white/40">Cc</p>
-                              <p className="mt-1 break-words font-semibold text-white/80">{selectedMessage.cc}</p>
-                            </div>
-                          )}
-                          {selectedMessage.replyToEmail && (
-                            <div className="rounded-lg border border-white/8 bg-white/[0.035] p-3">
-                              <p className="font-black uppercase text-white/40">Responder para</p>
-                              <p className="mt-1 break-words font-semibold text-white/80">{selectedMessage.replyToEmail}</p>
-                            </div>
-                          )}
-                          <div className="rounded-lg border border-white/8 bg-white/[0.035] p-3">
-                            <p className="font-black uppercase text-white/40">Anexos</p>
-                            <p className="mt-1 font-semibold text-white/80">{selectedMessage.attachments?.length || 0} anexo(s)</p>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 border-t border-white/10 pt-3">
-                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-white/40">Marcadores</p>
-                          {selectedLabels.length ? (
-                            <div className="flex flex-wrap gap-2">
-                              {selectedLabels.map((label) => (
-                                <span key={label} className="rounded-full border border-white/10 bg-white/[0.055] px-2.5 py-1 text-xs font-bold text-white/70">
-                                  {label}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-xs font-semibold text-white/45">Nenhum marcador adicional.</p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="mail-message-body mt-5 rounded-lg border border-white/10 bg-white p-4 text-black">
-                        {selectedMessage.bodyHtml ? (
-                          <iframe title="Conteudo do e-mail" sandbox="" srcDoc={selectedMessage.bodyHtml} className={cx("h-[420px] w-full bg-white", messageFullscreen && "pointer-events-none")} />
-                        ) : (
-                          <div className="whitespace-pre-wrap text-sm leading-6 text-zinc-900">
-                            {selectedMessage.bodyText || selectedMessage.snippet || "Sem conteudo disponivel."}
-                          </div>
-                        )}
-                      </div>
-
-                      {Boolean(selectedMessage.attachments?.length) && (
-                        <div className="mt-5">
-                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-white/45">Anexos</p>
-                          <div className="grid gap-2">
-                            {selectedMessage.attachments?.map((attachment) => (
-                              <button
-                                key={attachment.attachmentId}
-                                type="button"
-                                onClick={() => void downloadWithAuth(attachment.downloadUrl, attachment.fileName)}
-                                className="mail-card mail-hover flex w-full items-center justify-between rounded-lg border border-white/10 bg-[#121217] p-3 text-left hover:bg-white/7"
-                              >
-                                <span className="flex min-w-0 items-center gap-3">
-                                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/8">
-                                    {isImage(attachment.mimeType) ? <Image size={18} /> : <FileText size={18} />}
-                                  </span>
-                                  <span className="min-w-0">
-                                    <span className="block truncate text-sm font-bold">{attachment.fileName}</span>
-                                    <span className="text-xs font-semibold text-white/45">{formatBytes(attachment.size)}</span>
-                                  </span>
-                                </span>
-                                <Download size={17} className="text-white/55" />
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <MailReplyBox
-                        text={replyText}
-                        attachments={replyAttachments}
-                        sending={sending}
-                        canUseNora={canUseNora}
-                        noraSuggesting={noraSuggesting}
-                        suggestionPanel={renderNoraSuggestionPanel("reply")}
-                        onTextChange={setReplyText}
-                        onAddFiles={(files) => void addFiles(files, "reply")}
-                        onRemoveAttachment={(id) => setReplyAttachments((prev) => prev.filter((a) => a.id !== id))}
-                        onAskNora={() => void askNoraEmailSuggestion("reply")}
-                        onSend={() => void sendReply()}
-                      />
-                    </>
-                  )}
-                </div>
-              </aside>
-              </PortalWhen>
+                onClose={() => setSelectedMessage(null)}
+                onToggleFullscreen={() => {
+                  setMessageFullscreen((value) => !value);
+                  setMessageMenuOpen(false);
+                }}
+                onToggleMenu={() => setMessageMenuOpen((value) => !value)}
+                onAction={(action, closeAfter) => void runMessageAction(selectedMessage.id, action, closeAfter)}
+                onDownloadAttachment={(url, fileName) => void downloadWithAuth(url, fileName)}
+              />
             )}
           </main>
         )}

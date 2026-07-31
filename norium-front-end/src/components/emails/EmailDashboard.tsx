@@ -16,9 +16,7 @@ import {
   Maximize2,
   Minimize2,
   MoreVertical,
-  Paperclip,
   RefreshCw,
-  Reply,
   Send,
   ShieldAlert,
   Sparkles,
@@ -56,9 +54,9 @@ import { useCompose } from "../../features/mail/hooks/useCompose";
 import { useNoraMail } from "../../features/mail/hooks/useNoraMail";
 import Button from "../shared/Button";
 import LabelDialog from "./modals/LabelDialog";
-import AttachmentPreview from "./AttachmentPreview";
 import MailSidebar from "./MailSidebar";
 import MailMessageList from "./MailMessageList";
+import MailReplyBox from "./MailReplyBox";
 import MailToolbar from "./MailToolbar";
 import ComposeModal from "./modals/ComposeModal";
 import NoraMailDrawer from "./modals/NoraMailDrawer";
@@ -833,47 +831,19 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
                         </div>
                       )}
 
-                      <div className="mail-card mt-5 rounded-lg border border-white/10 bg-[#121217]">
-                        <textarea
-                          value={replyText}
-                          onChange={(event) => setReplyText(event.target.value)}
-                          placeholder="Escreva sua resposta..."
-                          className="h-28 w-full resize-none bg-transparent p-4 text-sm font-medium text-white outline-none placeholder:text-white/35"
-                        />
-                        {replyAttachments.length > 0 && (
-                          <AttachmentPreview
-                            attachments={replyAttachments}
-                            onRemove={(id) => setReplyAttachments((prev) => prev.filter((attachment) => attachment.id !== id))}
-                          />
-                        )}
-                        {renderNoraSuggestionPanel("reply")}
-                        <div className="flex items-center justify-between border-t border-white/10 p-3">
-                          <div className="flex items-center gap-2">
-                            <label className="flex h-9 w-9 items-center justify-center rounded-lg text-white/65 hover:bg-white/7">
-                              <Paperclip size={17} />
-                              <input type="file" multiple className="hidden" onChange={(event) => void addFiles(event.target.files, "reply")} />
-                            </label>
-                            {canUseNora && (
-                              <Button size="sm"
-                                onClick={() => void askNoraEmailSuggestion("reply")}
-                                disabled={noraSuggesting !== null}
-                                className="mail-hover border-cyan-400/25 text-cyan-300 hover:bg-cyan-400/10"
-                              >
-                                {noraSuggesting === "reply" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                                Gerar sugestao
-                              </Button>
-                            )}
-                          </div>
-                          <Button variant="ghost" size="sm"
-                            disabled={sending || !replyText.trim()}
-                            onClick={() => void sendReply()}
-                            className="mail-primary bg-[#0EA5E9]"
-                          >
-                            {sending ? <Loader2 size={15} className="animate-spin" /> : <Reply size={15} />}
-                            Responder
-                          </Button>
-                        </div>
-                      </div>
+                      <MailReplyBox
+                        text={replyText}
+                        attachments={replyAttachments}
+                        sending={sending}
+                        canUseNora={canUseNora}
+                        noraSuggesting={noraSuggesting}
+                        suggestionPanel={renderNoraSuggestionPanel("reply")}
+                        onTextChange={setReplyText}
+                        onAddFiles={(files) => void addFiles(files, "reply")}
+                        onRemoveAttachment={(id) => setReplyAttachments((prev) => prev.filter((a) => a.id !== id))}
+                        onAskNora={() => void askNoraEmailSuggestion("reply")}
+                        onSend={() => void sendReply()}
+                      />
                     </>
                   )}
                 </div>

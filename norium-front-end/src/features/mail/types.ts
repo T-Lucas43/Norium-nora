@@ -102,3 +102,19 @@ export type AgentMessage = {
   role: "user" | "ai";
   text: string;
 };
+
+export const quickFilters = [
+  { key: "all", label: "Todo o correio" },
+  { key: "unread", label: "Nao lidos" },
+  { key: "read", label: "Ler" },
+  { key: "starred", label: "Com estrela" },
+] as const;
+
+export type MailQuickFilter = (typeof quickFilters)[number]["key"];
+
+export type MailboxSnapshot = {
+  messages: GmailMessage[];
+  nextPageToken: string | null;
+  resultSize: number;
+  cachedAt: number;
+};

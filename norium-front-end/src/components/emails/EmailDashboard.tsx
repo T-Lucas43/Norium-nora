@@ -50,13 +50,41 @@ import type {
   GmailLabel,
   GmailMessage,
   GmailStatus,
+  MailQuickFilter,
+  MailboxSnapshot,
   MessageListResponse,
   NoraEmailSuggestion,
 } from "../../features/mail/types";
+import { quickFilters } from "../../features/mail/types";
+import type { AdvancedMailFilters } from "../../features/mail/queryBuilder";
+import {
+  GMAIL_PAGE_SIZE,
+  buildGmailSearchQuery,
+  buildMessagesPath,
+  emptyAdvancedFilters,
+} from "../../features/mail/queryBuilder";
+import {
+  clearMailboxCacheForUser,
+  mailboxCacheKey,
+  mailboxSessionCache,
+} from "../../features/mail/mailboxCache";
+import type { EmailCategoryKey } from "../../features/mail/formatters";
+import {
+  accountInitials,
+  classifyEmailCategory,
+  cleanEmailSourceText,
+  emailCategoryMeta,
+  formatBytes,
+  friendlyGmailLabel,
+  initials,
+  isImage,
+  looksLikeBadEmailSuggestion,
+  normalizeText,
+  readFileAsDataUrl,
+  splitRecipients,
+} from "../../features/mail/formatters";
 import Button from "../shared/Button";
 export type { Email } from "../../features/mail/types";
-
-const GMAIL_PAGE_SIZE = 14;
 
 const emptyCompose: ComposeState = {
   to: "",
@@ -76,111 +104,6 @@ const systemFolders: Array<{ key: string; label: string; icon: LucideIcon; count
   { key: "trash", label: "Lixo", icon: Trash2, countLabel: "TRASH" },
 ];
 
-const quickFilters = [
-  { key: "all", label: "Todo o correio" },
-  { key: "unread", label: "Nao lidos" },
-  { key: "read", label: "Ler" },
-  { key: "starred", label: "Com estrela" },
-] as const;
-
-type MailQuickFilter = (typeof quickFilters)[number]["key"];
-
-type MailboxSnapshot = {
-  messages: GmailMessage[];
-  nextPageToken: string | null;
-  resultSize: number;
-  cachedAt: number;
-};
-
-const mailboxSessionCache = new Map<string, MailboxSnapshot>();
-
-function resolveMailboxFolder(folder: string, filter: MailQuickFilter) {
-  return filter === "unread" || filter === "starred" ? filter : folder;
-}
-
-function mailboxCacheKey(userId: string, folder: string, filter: MailQuickFilter, query: string) {
-  return `${userId}::${resolveMailboxFolder(folder, filter)}::${filter}::${query.trim()}`;
-}
-
-function clearMailboxCacheForUser(userId: string) {
-  const prefix = `${userId}::`;
-  for (const key of mailboxSessionCache.keys()) {
-    if (key.startsWith(prefix)) mailboxSessionCache.delete(key);
-  }
-}
-
-function buildMessagesPath({
-  userId,
-  folder,
-  filter,
-  query,
-  pageToken,
-}: {
-  userId: string;
-  folder: string;
-  filter: MailQuickFilter;
-  query: string;
-  pageToken?: string | null;
-}) {
-  const qParts: string[] = [];
-  if (query.trim()) qParts.push(query.trim());
-  if (filter === "read") qParts.push("is:read");
-  const params = new URLSearchParams({
-    user_id: userId,
-    folder: resolveMailboxFolder(folder, filter),
-    max_results: String(GMAIL_PAGE_SIZE),
-  });
-  if (qParts.length) params.set("q", qParts.join(" "));
-  if (pageToken) params.set("page_token", pageToken);
-  return `/api/emails/gmail/messages?${params.toString()}`;
-}
-
-type AdvancedMailFilters = {
-  from: string;
-  to: string;
-  subject: string;
-  hasWords: string;
-  excludes: string;
-  newerThan: "" | "1d" | "7d" | "30d" | "365d";
-  hasAttachment: boolean;
-};
-
-const emptyAdvancedFilters: AdvancedMailFilters = {
-  from: "",
-  to: "",
-  subject: "",
-  hasWords: "",
-  excludes: "",
-  newerThan: "",
-  hasAttachment: false,
-};
-
-function buildGmailSearchQuery(base: string, filters: AdvancedMailFilters) {
-  const parts = [base.trim()];
-  if (filters.from.trim()) parts.push(`from:${filters.from.trim()}`);
-  if (filters.to.trim()) parts.push(`to:${filters.to.trim()}`);
-  if (filters.subject.trim()) parts.push(`subject:(${filters.subject.trim()})`);
-  if (filters.hasWords.trim()) parts.push(filters.hasWords.trim());
-  if (filters.excludes.trim()) {
-    parts.push(...filters.excludes.trim().split(/\s+/).filter(Boolean).map((word) => `-${word}`));
-  }
-  if (filters.newerThan) parts.push(`newer_than:${filters.newerThan}`);
-  if (filters.hasAttachment) parts.push("has:attachment");
-  return parts.filter(Boolean).join(" ");
-}
-
-const emailCategoryMeta = {
-  principal: { label: "Principal", tone: "bg-sky-400/12 text-sky-100 border-sky-300/25" },
-  financeiro: { label: "Financeiro", tone: "bg-emerald-400/12 text-emerald-100 border-emerald-300/25" },
-  trabalho: { label: "Trabalho", tone: "bg-blue-400/12 text-blue-100 border-blue-300/25" },
-  promocoes: { label: "Promocoes", tone: "bg-pink-400/12 text-pink-100 border-pink-300/25" },
-  social: { label: "Social", tone: "bg-violet-400/12 text-violet-100 border-violet-300/25" },
-  atualizacoes: { label: "Atualizacoes", tone: "bg-cyan-400/12 text-cyan-100 border-cyan-300/25" },
-  suporte: { label: "Suporte", tone: "bg-amber-400/12 text-amber-100 border-amber-300/25" },
-} as const;
-
-type EmailCategoryKey = keyof typeof emailCategoryMeta;
-
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
@@ -188,91 +111,6 @@ function cx(...classes: Array<string | false | null | undefined>) {
 function PortalWhen({ active, children }: { active: boolean; children: ReactNode }) {
   if (active && typeof document !== "undefined") return createPortal(children, document.body);
   return children;
-}
-
-function splitRecipients(value: string) {
-  return value
-    .split(/[;,]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function formatBytes(value: number) {
-  if (!value) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
-  return `${(value / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`;
-}
-
-function initials(name: string) {
-  const parts = name.replace(/<.*?>/g, "").trim().split(/\s+/).filter(Boolean);
-  return (parts[0]?.[0] || "N") + (parts[1]?.[0] || "");
-}
-
-function accountInitials(status: GmailStatus | null) {
-  return initials(status?.name || status?.email || "Conta Norium").slice(0, 2).toUpperCase();
-}
-
-function normalizeText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
-
-function classifyEmailCategory(message: GmailMessage): EmailCategoryKey {
-  const labels = new Set((message.labels || []).map((label) => label.toUpperCase()));
-  const text = normalizeText(`${message.fromName} ${message.fromEmail} ${message.subject} ${message.snippet}`);
-  if (labels.has("CATEGORY_PROMOTIONS") || /promocao|promocoes|oferta|desconto|cupom|black friday/.test(text)) return "promocoes";
-  if (labels.has("CATEGORY_SOCIAL") || /linkedin|facebook|instagram|rede social/.test(text)) return "social";
-  if (/boleto|fatura|recibo|pagamento|pix|nubank|banco|cartao|nota fiscal/.test(text)) return "financeiro";
-  if (labels.has("CATEGORY_UPDATES") || /atualizacao|notificacao|confirmacao|alerta|codigo|acesso/.test(text)) return "atualizacoes";
-  if (/cliente|proposta|contrato|reuniao|orcamento|trabalho|comercial|projeto/.test(text)) return "trabalho";
-  if (/suporte|ticket|erro|chamado|atendimento|protocolo/.test(text)) return "suporte";
-  return "principal";
-}
-
-function friendlyGmailLabel(label: string) {
-  const systemLabels: Record<string, string> = {
-    CATEGORY_PERSONAL: "Principal",
-    CATEGORY_PROMOTIONS: "Promocoes",
-    CATEGORY_SOCIAL: "Social",
-    CATEGORY_UPDATES: "Atualizacoes",
-    CATEGORY_FORUMS: "Foruns",
-    INBOX: "Caixa de entrada",
-    UNREAD: "Nao lido",
-    STARRED: "Com estrela",
-    IMPORTANT: "Importante",
-    SENT: "Enviado",
-    DRAFT: "Rascunho",
-    SPAM: "Spam",
-    TRASH: "Lixo",
-  };
-  const key = label.toUpperCase();
-  return systemLabels[key] || label.replace(/^CATEGORY_/i, "Categoria ").replace(/^Label_/i, "Marcador ");
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Nao consegui ler o arquivo."));
-    reader.readAsDataURL(file);
-  });
-}
-
-function isImage(mimeType: string) {
-  return mimeType.startsWith("image/");
-}
-
-function cleanEmailSourceText(value?: string) {
-  return (value || "")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 5000);
 }
 
 function fallbackEmailSuggestion(target: "compose" | "reply", message: GmailMessage | null, compose: ComposeState) {
@@ -303,18 +141,6 @@ function fallbackEmailSuggestion(target: "compose" | "reply", message: GmailMess
   ].join("\n");
 }
 
-function looksLikeBadEmailSuggestion(value: string) {
-  const normalized = value.toLowerCase();
-  return (
-    normalized.includes("historico") ||
-    normalized.includes("histórico") ||
-    normalized.includes("vazio") ||
-    normalized.includes("mais contexto") ||
-    normalized.includes("preciso de contexto") ||
-    normalized.includes("nao consigo") ||
-    normalized.includes("não consigo")
-  );
-}
 
 type EmailDashboardProps = {
   userId?: string;

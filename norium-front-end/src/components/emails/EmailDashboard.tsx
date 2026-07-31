@@ -44,7 +44,6 @@ import type { LucideIcon } from "lucide-react";
 import { downloadWithAuth } from "../../utils/download";
 import { mailApiRequest as apiJson } from "../../features/mail/api";
 import type {
-  ComposeAttachment,
   GmailMessage,
   MailQuickFilter,
   MessageListResponse,
@@ -74,6 +73,9 @@ import { useCompose } from "../../features/mail/hooks/useCompose";
 import { useNoraMail } from "../../features/mail/hooks/useNoraMail";
 import Button from "../shared/Button";
 import LabelDialog from "./modals/LabelDialog";
+import AttachmentPreview from "./AttachmentPreview";
+import ComposeModal from "./modals/ComposeModal";
+import MailSettingsDrawer from "./modals/MailSettingsDrawer";
 import ProfilePopover from "./modals/ProfilePopover";
 export type { Email } from "../../features/mail/types";
 
@@ -1305,73 +1307,24 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
       </section>
 
       {composeOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-end bg-black/45 p-6">
-          <div className="mail-modal flex h-[680px] w-[680px] max-w-[calc(100vw-48px)] flex-col overflow-hidden rounded-lg border border-white/12 bg-[#18181B] shadow-2xl">
-            <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
-              <h2 className="text-sm font-bold">Nova mensagem</h2>
-              <Button variant="ghost" size="sm" iconOnly
-                onClick={() => {
-                  setComposeOpen(false);
-                  setNoraSuggestion((current) => (current?.target === "compose" ? null : current));
-                  setNoraSuggestionInstruction("");
-                }}
-                className="hover:bg-white/7"
-              >
-                <X size={17} />
-              </Button>
-            </div>
-            <div className="grid gap-0 border-b border-white/10">
-              <input value={compose.to} onChange={(event) => setCompose((prev) => ({ ...prev, to: event.target.value }))} placeholder="Para" className="h-11 border-b border-white/8 bg-transparent px-4 text-sm outline-none placeholder:text-white/35" />
-              <div className="grid grid-cols-2 border-b border-white/8">
-                <input value={compose.cc} onChange={(event) => setCompose((prev) => ({ ...prev, cc: event.target.value }))} placeholder="Cc" className="h-11 border-r border-white/8 bg-transparent px-4 text-sm outline-none placeholder:text-white/35" />
-                <input value={compose.bcc} onChange={(event) => setCompose((prev) => ({ ...prev, bcc: event.target.value }))} placeholder="Cco" className="h-11 bg-transparent px-4 text-sm outline-none placeholder:text-white/35" />
-              </div>
-              <input value={compose.subject} onChange={(event) => setCompose((prev) => ({ ...prev, subject: event.target.value }))} placeholder="Assunto" className="h-11 bg-transparent px-4 text-sm outline-none placeholder:text-white/35" />
-            </div>
-            <textarea
-              value={compose.body}
-              onChange={(event) => setCompose((prev) => ({ ...prev, body: event.target.value }))}
-              placeholder="Digite sua mensagem"
-              className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 outline-none placeholder:text-white/35"
-            />
-            {compose.attachments.length > 0 && (
-              <AttachmentPreview
-                attachments={compose.attachments}
-                onRemove={(id) => setCompose((prev) => ({ ...prev, attachments: prev.attachments.filter((attachment) => attachment.id !== id) }))}
-              />
-            )}
-            {renderNoraSuggestionPanel("compose")}
-            <div className="flex items-center justify-between border-t border-white/10 p-3">
-              <div className="flex items-center gap-2">
-                <label className="mail-hover flex h-10 w-10 items-center justify-center rounded-lg border border-white/12 text-white/75 hover:bg-white/7">
-                  <Paperclip size={18} />
-                  <input type="file" multiple className="hidden" onChange={(event) => void addFiles(event.target.files, "compose")} />
-                </label>
-                {canUseNora && (
-                  <Button
-                    onClick={() => void askNoraEmailSuggestion("compose")}
-                    disabled={noraSuggesting !== null}
-                    className="mail-hover border-cyan-400/25 text-cyan-300 hover:bg-cyan-400/10"
-                  >
-                    {noraSuggesting === "compose" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                    Gerar sugestao
-                  </Button>
-                )}
-                <Button onClick={() => void sendEmail(true)} disabled={sending || !compose.to.trim()} className="mail-hover border-white/12 text-white/75 hover:bg-white/7">
-                  Salvar rascunho
-                </Button>
-              </div>
-              <Button variant="ghost"
-                onClick={() => void sendEmail(false)}
-                disabled={sending || !compose.to.trim()}
-                className="mail-primary bg-[#0EA5E9]"
-              >
-                {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                Enviar
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ComposeModal
+          compose={compose}
+          sending={sending}
+          canUseNora={canUseNora}
+          noraSuggesting={noraSuggesting}
+          suggestionPanel={renderNoraSuggestionPanel("compose")}
+          onChange={setCompose}
+          onAddFiles={(files) => void addFiles(files, "compose")}
+          onRemoveAttachment={(id) => setCompose((prev) => ({ ...prev, attachments: prev.attachments.filter((a) => a.id !== id) }))}
+          onAskNora={() => void askNoraEmailSuggestion("compose")}
+          onSaveDraft={() => void sendEmail(true)}
+          onSend={() => void sendEmail(false)}
+          onClose={() => {
+            setComposeOpen(false);
+            setNoraSuggestion((current) => (current?.target === "compose" ? null : current));
+            setNoraSuggestionInstruction("");
+          }}
+        />
       )}
 
       {canUseNora && aiOpen && (
@@ -1456,55 +1409,20 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
       )}
 
       {settingsOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setSettingsOpen(false)}>
-          <aside className="mail-modal absolute inset-y-0 right-0 flex w-[430px] max-w-[92vw] flex-col border-l border-white/12 bg-[#18181B] shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-5">
-              <div>
-                <h2 className="text-base font-black">Ajustes rapidos</h2>
-                <p className="text-xs font-semibold text-white/45">Personalize o Norium Mail</p>
-              </div>
-              <Button variant="ghost" size="sm" iconOnly onClick={() => setSettingsOpen(false)} className="mail-hover hover:bg-white/7">
-                <X size={17} />
-              </Button>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-              <section className="mail-card rounded-lg border border-white/10 bg-[#121217] p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-white/45">Densidade</p>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => setCompactMode(false)} className={cx("h-10 rounded-lg border text-xs font-black", !compactMode ? "border-cyan-300/45 bg-cyan-300/12 text-cyan-100" : "border-white/10 text-white/60 hover:bg-white/7")}>Padrao</button>
-                  <button type="button" onClick={() => setCompactMode(true)} className={cx("h-10 rounded-lg border text-xs font-black", compactMode ? "border-cyan-300/45 bg-cyan-300/12 text-cyan-100" : "border-white/10 text-white/60 hover:bg-white/7")}>Compacta</button>
-                </div>
-              </section>
-
-              <section className="mail-card rounded-lg border border-white/10 bg-[#121217] p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-white/45">Caixa de entrada</p>
-                <div className="mt-3 grid gap-2">
-                  <ToggleRow checked={groupByCategory} label="Agrupar por categorias" onChange={setGroupByCategory} />
-                  <ToggleRow checked={showPreview} label="Mostrar texto de previa" onChange={setShowPreview} />
-                </div>
-              </section>
-
-              <section className="mail-card rounded-lg border border-white/10 bg-[#121217] p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-white/45">Sincronizacao</p>
-                <div className="mt-3 grid gap-2">
-                  <ToggleRow checked={autoRefresh} label="Atualizar automaticamente a cada 45s" onChange={setAutoRefresh} />
-                  <Button onClick={() => void fetchMessages(false)} disabled={!status?.connected} className="mail-hover border-white/12">Atualizar agora</Button>
-                </div>
-              </section>
-
-              <section className="mail-card rounded-lg border border-white/10 bg-[#121217] p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-white/45">Conta Gmail</p>
-                <p className="mt-2 break-all text-sm font-bold">{status?.connected ? status.email : "Desconectada"}</p>
-                <p className="mt-1 text-xs font-semibold text-white/45">{status?.lastSync ? `Ultima sincronizacao: ${new Date(status.lastSync).toLocaleString("pt-BR")}` : "Aguardando autorizacao"}</p>
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <Button onClick={() => void connectGmail()} className="mail-hover border-white/12">Reconectar</Button>
-                  <Button onClick={() => void disconnectGmail()} disabled={!status?.connected} className="border-red-500/35 text-red-300">Desconectar</Button>
-                </div>
-              </section>
-            </div>
-          </aside>
-        </div>
+        <MailSettingsDrawer
+          preferences={{ compactMode, groupByCategory, showPreview, autoRefresh }}
+          status={status}
+          onPreferenceChange={(key, value) => {
+            if (key === "compactMode") setCompactMode(value as boolean);
+            else if (key === "groupByCategory") setGroupByCategory(value as boolean);
+            else if (key === "showPreview") setShowPreview(value as boolean);
+            else setAutoRefresh(value as boolean);
+          }}
+          onRefreshNow={() => void fetchMessages(false)}
+          onConnect={() => void connectGmail()}
+          onDisconnect={() => void disconnectGmail()}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
 
       {profileOpen && (
@@ -1521,43 +1439,4 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
   );
 }
 
-function ToggleRow({ checked, label, onChange }: { checked: boolean; label: string; onChange: (value: boolean) => void }) {
-  return (
-    <label className="flex min-h-11 items-center justify-between gap-3 border-b border-white/8 py-2 text-sm font-bold last:border-b-0">
-      <span>{label}</span>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 accent-[var(--mail-primary)]"
-      />
-    </label>
-  );
-}
 
-function AttachmentPreview({ attachments, onRemove }: { attachments: ComposeAttachment[]; onRemove: (id: string) => void }) {
-  return (
-    <div className="grid max-h-44 gap-2 overflow-y-auto border-t border-white/10 p-3">
-      {attachments.map((attachment) => (
-        <div key={attachment.id} className="mail-card flex items-center justify-between rounded-lg border border-white/10 bg-[#101014] p-2">
-          <div className="flex min-w-0 items-center gap-3">
-            {isImage(attachment.mimeType) ? (
-              <img src={attachment.dataUrl} alt={attachment.fileName} className="h-12 w-12 rounded-md object-cover" />
-            ) : (
-              <div className="flex h-12 w-12 items-center justify-center rounded-md bg-white/8">
-                <FileText size={18} />
-              </div>
-            )}
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold">{attachment.fileName}</p>
-              <p className="text-xs font-semibold text-white/45">{formatBytes(attachment.size)}</p>
-            </div>
-          </div>
-          <Button variant="ghost" size="sm" iconOnly onClick={() => onRemove(attachment.id)} className="text-white/55 hover:bg-white/7">
-            <X size={16} />
-          </Button>
-        </div>
-      ))}
-    </div>
-  );
-}

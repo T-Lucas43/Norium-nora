@@ -74,23 +74,14 @@ import {
   isImage,
   looksLikeBadEmailSuggestion,
   normalizeText,
-  readFileAsDataUrl,
-  splitRecipients,
 } from "../../features/mail/formatters";
 import { useGmailConnection } from "../../features/mail/hooks/useGmailConnection";
 import { useMailbox } from "../../features/mail/hooks/useMailbox";
 import { useMessageDetail } from "../../features/mail/hooks/useMessageDetail";
+import { useCompose } from "../../features/mail/hooks/useCompose";
 import Button from "../shared/Button";
 export type { Email } from "../../features/mail/types";
 
-const emptyCompose: ComposeState = {
-  to: "",
-  cc: "",
-  bcc: "",
-  subject: "",
-  body: "",
-  attachments: [],
-};
 
 const systemFolders: Array<{ key: string; label: string; icon: LucideIcon; countLabel?: string }> = [
   { key: "inbox", label: "Caixa de entrada", icon: Inbox, countLabel: "INBOX" },
@@ -151,12 +142,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
   const [activeFilter, setActiveFilter] = useState<MailQuickFilter>("all");
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [compose, setCompose] = useState<ComposeState>(emptyCompose);
-  const [replyText, setReplyText] = useState("");
-  const [replyAttachments, setReplyAttachments] = useState<ComposeAttachment[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInput, setAiInput] = useState("resumir minha caixa de entrada");
   const [aiMessages, setAiMessages] = useState<AgentMessage[]>([]);
@@ -269,6 +255,30 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     onActionStart: () => setMessageMenuOpen(false),
   });
 
+  const {
+    composeOpen,
+    setComposeOpen,
+    compose,
+    setCompose,
+    replyText,
+    setReplyText,
+    replyAttachments,
+    setReplyAttachments,
+    sending,
+    addFiles,
+    sendEmail,
+    sendReply,
+  } = useCompose({
+    userId,
+    selectedMessage,
+    onError: setError,
+    onSent: (folder) => selectMailbox(folder),
+    onClearSuggestion: (target) => {
+      setNoraSuggestion((current) => (current?.target === target ? null : current));
+      setNoraSuggestionInstruction("");
+    },
+  });
+
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
   const userLabels = labels.filter((label) => label.type === "user").slice(0, 14);
   const inboxUnread = labelById.get("INBOX")?.messagesUnread || 0;
@@ -379,80 +389,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [messageFullscreen]);
-
-  async function addFiles(files: FileList | null, target: "compose" | "reply") {
-    if (!files?.length) return;
-    const loaded = await Promise.all(
-      Array.from(files).map(async (file) => ({
-        id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
-        fileName: file.name,
-        mimeType: file.type || "application/octet-stream",
-        size: file.size,
-        dataUrl: await readFileAsDataUrl(file),
-      })),
-    );
-    if (target === "compose") {
-      setCompose((prev) => ({ ...prev, attachments: [...prev.attachments, ...loaded] }));
-    } else {
-      setReplyAttachments((prev) => [...prev, ...loaded]);
-    }
-  }
-
-  async function sendEmail(saveAsDraft = false) {
-    setSending(true);
-    setError("");
-    try {
-      const payload = {
-        user_id: userId,
-        to: splitRecipients(compose.to),
-        cc: splitRecipients(compose.cc),
-        bcc: splitRecipients(compose.bcc),
-        subject: compose.subject,
-        body: compose.body,
-        attachments: compose.attachments.map(({ fileName, mimeType, dataUrl }) => ({ fileName, mimeType, dataUrl })),
-      };
-      await apiJson(saveAsDraft ? "/api/emails/gmail/drafts" : "/api/emails/gmail/send", {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-      clearMailboxCacheForUser(userId);
-      setCompose(emptyCompose);
-      setNoraSuggestion((current) => (current?.target === "compose" ? null : current));
-      setNoraSuggestionInstruction("");
-      setComposeOpen(false);
-      selectMailbox(saveAsDraft ? "drafts" : "sent");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao enviar e-mail.");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function sendReply() {
-    if (!selectedMessage || !replyText.trim()) return;
-    setSending(true);
-    setError("");
-    try {
-      await apiJson(`/api/emails/gmail/messages/${selectedMessage.id}/reply`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_id: userId,
-          body: replyText,
-          attachments: replyAttachments.map(({ fileName, mimeType, dataUrl }) => ({ fileName, mimeType, dataUrl })),
-        }),
-      });
-      clearMailboxCacheForUser(userId);
-      setReplyText("");
-      setReplyAttachments([]);
-      setNoraSuggestion((current) => (current?.target === "reply" ? null : current));
-      setNoraSuggestionInstruction("");
-      selectMailbox("sent");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao responder e-mail.");
-    } finally {
-      setSending(false);
-    }
-  }
 
   async function askEmailAgent(text?: string) {
     const finalText = (text || aiInput).trim();

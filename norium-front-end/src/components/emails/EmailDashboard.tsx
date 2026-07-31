@@ -47,9 +47,7 @@ import type {
   AgentMessage,
   ComposeAttachment,
   ComposeState,
-  GmailLabel,
   GmailMessage,
-  GmailStatus,
   MailQuickFilter,
   MailboxSnapshot,
   MessageListResponse,
@@ -83,6 +81,7 @@ import {
   readFileAsDataUrl,
   splitRecipients,
 } from "../../features/mail/formatters";
+import { useGmailConnection } from "../../features/mail/hooks/useGmailConnection";
 import Button from "../shared/Button";
 export type { Email } from "../../features/mail/types";
 
@@ -150,8 +149,6 @@ type EmailDashboardProps = {
 };
 
 export default function EmailDashboard({ userId = "lucas123", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
-  const [status, setStatus] = useState<GmailStatus | null>(null);
-  const [labels, setLabels] = useState<GmailLabel[]>([]);
   const [activeFolder, setActiveFolder] = useState("inbox");
   const [activeFilter, setActiveFilter] = useState<MailQuickFilter>("all");
   const [messages, setMessages] = useState<GmailMessage[]>([]);
@@ -210,6 +207,25 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
 
   activeMailboxKeyRef.current = currentMailboxKey;
 
+  const handleDisconnected = useCallback(() => {
+    setMessages([]);
+    mailboxRequestsInFlightRef.current.clear();
+    setSelectedIds(new Set());
+    setSelectedMessage(null);
+    setProfileOpen(false);
+    setSettingsOpen(false);
+  }, []);
+
+  const {
+    status,
+    setStatus,
+    labels,
+    fetchStatus,
+    fetchLabels,
+    connect: connectGmail,
+    disconnect: disconnectGmail,
+  } = useGmailConnection({ userId, onError: setError, onDisconnected: handleDisconnected });
+
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
   const userLabels = labels.filter((label) => label.type === "user").slice(0, 14);
   const inboxUnread = labelById.get("INBOX")?.messagesUnread || 0;
@@ -259,17 +275,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     setSelectedIds(new Set());
   }, [userId]);
 
-  const fetchStatus = useCallback(async () => {
-    const data = await apiJson<GmailStatus>(`/api/emails/gmail/status?user_id=${userId}`);
-    setStatus(data);
-    return data;
-  }, [userId]);
-
-  const fetchLabels = useCallback(async () => {
-    const data = await apiJson<GmailStatus & { labels: GmailLabel[] }>(`/api/emails/gmail/labels?user_id=${userId}`);
-    setLabels(data.labels || []);
-    setStatus((prev) => ({ ...(prev || data), ...data }));
-  }, [userId]);
 
   const fetchMessages = useCallback(
     async (append = false, pageToken?: string | null, silent = false) => {
@@ -429,37 +434,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     window.addEventListener("emails:compose", openCompose);
     return () => window.removeEventListener("emails:compose", openCompose);
   }, []);
-
-  async function connectGmail() {
-    setError("");
-    try {
-      const data = await apiJson<{ auth_url: string }>(`/api/emails/gmail/auth-url?user_id=${userId}`);
-      window.open(data.auth_url, "gmail_oauth", "width=980,height=760");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui abrir o login do Gmail.");
-    }
-  }
-
-  async function disconnectGmail() {
-    setError("");
-    try {
-      await apiJson("/api/emails/gmail/disconnect", {
-        method: "POST",
-        body: JSON.stringify({ user_id: userId }),
-      });
-      setMessages([]);
-      clearMailboxCacheForUser(userId);
-      mailboxRequestsInFlightRef.current.clear();
-      setLabels([]);
-      setSelectedIds(new Set());
-      setSelectedMessage(null);
-      setProfileOpen(false);
-      setSettingsOpen(false);
-      void fetchStatus();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao consegui desconectar o Gmail.");
-    }
-  }
 
   const openMessage = useCallback(async (message: GmailMessage) => {
     setSelectedMessage(message);

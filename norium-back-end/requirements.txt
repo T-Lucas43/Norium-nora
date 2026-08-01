@@ -10,3 +10,4 @@ websockets
 edge-tts
 openai
 pypdf==5.9.0
+reportlab==4.4.3

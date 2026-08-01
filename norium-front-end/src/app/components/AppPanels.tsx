@@ -58,6 +58,7 @@ type AppPanelsProps = {
   onNavigate: (tab: string) => void;
   onOpenDeepLink: (link: { tab: string; entityType: string; entityId: string; metadata?: Record<string, unknown> }) => void;
   onOpenNora: (prompt?: string) => void;
+  onOpenTeamChat: () => void;
   onProfileSaved: (profile: PerfilOperador) => void;
   onRefreshEvents: () => void;
   onSessionUpdate: (session: AuthSession) => void;
@@ -82,6 +83,7 @@ export default function AppPanels({
   onNavigate,
   onOpenDeepLink,
   onOpenNora,
+  onOpenTeamChat,
   onProfileSaved,
   onRefreshEvents,
   onSessionUpdate,
@@ -195,7 +197,7 @@ export default function AppPanels({
         </section>
       )}
       {isPanelMounted("Propostas") && (
-        <section className={activePanelClass("Propostas")}>
+        <section className={activeTab === "Propostas" ? "flex h-full min-h-0 flex-col" : "hidden"}>
           {coach("Propostas")}
           <CommercialDashboard session={authSession} onOpenNora={onOpenNora} />
         </section>
@@ -224,7 +226,7 @@ export default function AppPanels({
       {isPanelMounted("Equipe") && (
         <section className={activePanelClass("Equipe")}>
           {coach("Equipe")}
-          <TeamDashboard session={authSession} onSessionUpdate={onSessionUpdate} />
+          <TeamDashboard session={authSession} onSessionUpdate={onSessionUpdate} onOpenTeamChat={onOpenTeamChat} />
         </section>
       )}
       {isPanelMounted("Clientes") && (

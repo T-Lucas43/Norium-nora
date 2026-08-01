@@ -4518,29 +4518,10 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   margin-top: 34px;
 }
 
-.commercial-page-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 9px;
-  color: var(--text-secondary);
-  font-size:11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.commercial-page-label strong {
-  color: var(--text);
-}
-
 .commercial-document-page {
   aspect-ratio: 210 / 297;
-}
-
-.commercial-document-edit-page {
-  aspect-ratio: auto;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 2px;
 }
 
 .commercial-a4-pages-grid > .commercial-page-shell + .commercial-page-shell {
@@ -4575,18 +4556,18 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   font-size: max(7px, 1.76cqw);
 }
 
-/* Guias de quebra de pagina na edicao: uma linha tracejada a cada altura util de A4
-   (1123px de pagina - ~200px de cabecalho/rodape/margens). Puramente visual. */
-.commercial-a4-break-guides {
-  position: relative;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent calc(var(--a4-usable-height, 920px) - 1px),
-    color-mix(in srgb, var(--primary) 38%, transparent) calc(var(--a4-usable-height, 920px) - 1px),
-    color-mix(in srgb, var(--primary) 38%, transparent) var(--a4-usable-height, 920px)
-  );
-  background-repeat: repeat-y;
+[data-commercial-page-content][contenteditable="true"] {
+  outline: none;
+  caret-color: var(--document-secondary, #2563eb);
+}
+
+[data-commercial-page-content][contenteditable="true"]:focus {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--document-secondary, #2563eb) 22%, transparent);
+}
+
+[data-document-decoration] {
+  cursor: default;
+  user-select: none;
 }
 
 .commercial-a4-inline-logo {
@@ -4653,6 +4634,8 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   color: var(--document-primary, #1e293b);
   font-weight: 750;
   line-height: 1.25;
+  break-after: avoid;
+  page-break-after: avoid;
 }
 
 .commercial-rich-editor h1 { font-size: 2em; }
@@ -4678,6 +4661,8 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   width: 100%;
   margin: 1em 0;
   border-collapse: collapse;
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 .commercial-rich-editor th,
 .commercial-rich-editor td {
@@ -4687,7 +4672,48 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 .commercial-rich-editor th { background: #f1f5f9; }
 
+.commercial-rich-editor p,
+.commercial-rich-editor li,
+.commercial-rich-editor blockquote {
+  orphans: 3;
+  widows: 3;
+}
+
+.commercial-editor-side-toolbar .commercial-rich-toolbar > button,
+.commercial-editor-side-toolbar .commercial-rich-toolbar > label {
+  flex-shrink: 0;
+}
+
 @media (max-width: 1100px) {
+  .commercial-editor-with-side-toolbar {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .commercial-editor-side-toolbar {
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .commercial-editor-with-side-toolbar > div:first-child {
+    grid-row: 2;
+  }
+
+  .commercial-editor-side-toolbar .commercial-rich-toolbar {
+    max-height: 128px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    border-left: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .commercial-editor-side-toolbar .commercial-rich-toolbar > button,
+  .commercial-editor-side-toolbar .commercial-rich-toolbar > select,
+  .commercial-editor-side-toolbar .commercial-rich-toolbar > label {
+    width: auto;
+  }
+
   .commercial-editor-grid {
     display: block !important;
     position: relative;
@@ -4741,7 +4767,4 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
     padding-inline: 0;
   }
 
-  .commercial-page-label {
-    padding-inline: 2px;
-  }
 }

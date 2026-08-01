@@ -1,4 +1,4 @@
-import { apiRequest } from "../../core/api/client";
+import { apiBlobRequest, apiRequest } from "../../core/api/client";
 import type {
   Branding,
   BrandProfile,
@@ -99,7 +99,7 @@ export function decideProposal(id: string, decision: "approve" | "request-change
 export function analyzeProposal(
   id: string,
   context: string,
-  focus: Array<"scope" | "risk" | "tone" | "commercial" | "legal">,
+  focus: Array<"scope" | "risk" | "tone" | "commercial" | "legal" | "grammar">,
 ) {
   return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}/nora-analysis`, {
     method: "POST",
@@ -140,6 +140,11 @@ export function shareCommercialDocument(
       timeoutMs: 60_000,
     },
   );
+}
+
+export function exportCommercialDocumentPdf(documentType: "proposal" | "contract", id: string) {
+  const collection = documentType === "proposal" ? "proposals" : "contracts";
+  return apiBlobRequest(`/api/comercial/${collection}/${id}/pdf`, { timeoutMs: 60_000 });
 }
 
 export function decideSuggestion(id: string, suggestionId: string, decision: "accepted" | "rejected") {

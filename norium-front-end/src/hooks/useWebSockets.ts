@@ -298,6 +298,19 @@ export function useWebSockets(activeTab: string, enabled = true, userId = "lucas
             const eventUserId = payload.event.metadata?.userId;
             if (eventUserId && eventUserId !== userId) return;
             setEvents((current) => mergeEvent(current, payload.event as OmnichannelEvent));
+            if (payload.event.source === "equipe" && payload.event.metadata?.action === "team_message_created") {
+              pushSystemNotification({
+                title: payload.event.title || "Nova mensagem da equipe",
+                description: payload.event.description || "Uma nova mensagem chegou ao chat interno.",
+                severity: "info",
+                metadata: {
+                  source: "equipe",
+                  eventId: payload.event.id,
+                  messageId: payload.event.metadata?.messageId,
+                  senderId: payload.event.metadata?.senderId,
+                },
+              });
+            }
             return;
           }
 

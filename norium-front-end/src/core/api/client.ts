@@ -120,3 +120,40 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
   throw new ApiError("Nao foi possivel concluir a requisicao.", 0);
 }
+
+/** Usa a mesma autenticacao e identificacao de workspace para respostas binarias. */
+export async function apiBlobRequest(path: string, options: ApiRequestOptions = {}): Promise<Blob> {
+  const { token = authToken(), timeoutMs = 60_000, headers: customHeaders, signal, ...init } = options;
+  const headers = new Headers(customHeaders);
+  if (!headers.has("Accept")) headers.set("Accept", "application/pdf");
+  if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+  const workspaceId = window.localStorage.getItem("norium-workspace-id");
+  if (workspaceId && workspaceId !== "primary" && !headers.has("X-Norium-Workspace")) {
+    headers.set("X-Norium-Workspace", workspaceId);
+  }
+
+  const timeoutController = new AbortController();
+  const timeoutId = window.setTimeout(() => timeoutController.abort(), timeoutMs);
+  const abortFromCaller = () => timeoutController.abort();
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  try {
+    const response = await fetch(requestUrl(path), { ...init, headers, signal: timeoutController.signal });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new ApiError(errorMessage(payload, "Falha ao gerar o arquivo no Norium."), response.status, payload);
+    }
+    return await response.blob();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (signal?.aborted) throw new ApiError("Operacao cancelada.", 499);
+    if (timeoutController.signal.aborted) throw new ApiError("A geracao do arquivo demorou mais que o esperado.", 408);
+    throw new ApiError(
+      `Nao foi possivel conectar ao backend do Norium em ${apiBaseUrl()}.`,
+      0,
+      error instanceof Error ? { cause: error.message } : null,
+    );
+  } finally {
+    window.clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
+}

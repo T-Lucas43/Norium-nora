@@ -51,6 +51,39 @@ def _assert_schema_backward_compatible(
     test_case.assertEqual(baseline, current, path)
 
 
+def _assert_operation_backward_compatible(
+    test_case: unittest.TestCase,
+    baseline: dict[str, Any],
+    current: dict[str, Any],
+    path: str,
+) -> None:
+    """Aceita apenas parametros opcionais novos em operacoes existentes."""
+    baseline_operation = copy.deepcopy(baseline)
+    current_operation = copy.deepcopy(current)
+    baseline_parameters = baseline_operation.pop("parameters", [])
+    current_parameters = current_operation.pop("parameters", [])
+
+    test_case.assertEqual(baseline_operation, current_operation, path)
+
+    current_by_identity = {
+        (parameter.get("name"), parameter.get("in")): parameter
+        for parameter in current_parameters
+    }
+    baseline_identities = set()
+    for parameter in baseline_parameters:
+        identity = (parameter.get("name"), parameter.get("in"))
+        baseline_identities.add(identity)
+        test_case.assertIn(identity, current_by_identity, f"Parametro removido: {path}.{identity}")
+        test_case.assertEqual(parameter, current_by_identity[identity], f"Parametro alterado: {path}.{identity}")
+
+    for identity, parameter in current_by_identity.items():
+        if identity not in baseline_identities:
+            test_case.assertFalse(
+                parameter.get("required", False),
+                f"Novo parametro obrigatorio quebra compatibilidade: {path}.{identity}",
+            )
+
+
 class OpenApiContractTest(unittest.TestCase):
     """Impede mudanças acidentais em rotas, parâmetros e estruturas JSON."""
 
@@ -66,7 +99,12 @@ class OpenApiContractTest(unittest.TestCase):
             self.assertIn(path, current_contract["paths"], f"Rota removida: {path}")
             for method, operation in operations.items():
                 self.assertIn(method, current_contract["paths"][path], f"Metodo removido: {method.upper()} {path}")
-                self.assertEqual(operation, current_contract["paths"][path][method])
+                _assert_operation_backward_compatible(
+                    self,
+                    operation,
+                    current_contract["paths"][path][method],
+                    f"{method.upper()} {path}",
+                )
 
         for name, schema in baseline_contract["schemas"].items():
             self.assertIn(name, current_contract["schemas"], f"Schema removido: {name}")

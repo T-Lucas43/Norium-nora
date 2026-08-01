@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import os
 import asyncio
+import base64
+import io
 from collections import defaultdict
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 
 from app.modules.auth.router import current_user, user_from_token
 from app.modules.commercial.repository import read_store
@@ -59,6 +62,7 @@ from app.modules.team.router import append_team_message_for_user
 from app.routers.inbox_router import record_event
 from app.services.gmail_service import GmailConfigError, GmailService
 from app.modules.commercial.service import plain_text
+from app.modules.commercial.pdf_export import build_commercial_pdf
 
 
 router = APIRouter(prefix="/api/comercial", tags=["Propostas e Contratos"])
@@ -157,6 +161,12 @@ async def share_document(
         ]
         if part
     )
+    pdf_bytes, pdf_name = build_commercial_pdf(document, document_type)
+    pdf_attachment = {
+        "fileName": pdf_name,
+        "mimeType": "application/pdf",
+        "dataUrl": f"data:application/pdf;base64,{base64.b64encode(pdf_bytes).decode('ascii')}",
+    }
 
     if payload.channel == "email":
         recipient = payload.recipient.strip() or str(client.get("email") or "").strip()
@@ -186,6 +196,7 @@ async def share_document(
                 to=[recipient],
                 subject=payload.subject.strip() or title,
                 body=document_copy,
+                attachments=[pdf_attachment],
             )
         except GmailConfigError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -227,6 +238,7 @@ async def share_document(
             "documentId": document_id,
             "deepLink": {"tab": "Propostas", "entityType": document_type, "entityId": document_id},
         },
+        attachments=[pdf_attachment],
     )
     await audit(
         user,
@@ -274,6 +286,19 @@ async def get_proposal(proposal_id: str, user: dict[str, Any] = Depends(current_
     if proposal is None:
         raise HTTPException(status_code=404, detail="Proposta nao encontrada.")
     return {"proposal": proposal}
+
+
+@router.get("/proposals/{proposal_id}/pdf")
+async def export_proposal_pdf(proposal_id: str, user: dict[str, Any] = Depends(current_user)) -> StreamingResponse:
+    store = read_store(collaboration_tenant_id(user))
+    _, proposal = proposal_or_404(store, proposal_id)
+    pdf_bytes, filename = build_commercial_pdf(proposal, "proposal")
+    await audit(user, "proposal_pdf_exported", f'PDF da proposta "{proposal["title"]}" gerado.', "proposal", proposal_id, "success")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.delete("/proposals/{proposal_id}")
@@ -393,6 +418,19 @@ async def get_contract(contract_id: str, user: dict[str, Any] = Depends(current_
     store = read_store(collaboration_tenant_id(user))
     _, contract = contract_or_404(store, contract_id)
     return {"contract": contract}
+
+
+@router.get("/contracts/{contract_id}/pdf")
+async def export_contract_pdf(contract_id: str, user: dict[str, Any] = Depends(current_user)) -> StreamingResponse:
+    store = read_store(collaboration_tenant_id(user))
+    _, contract = contract_or_404(store, contract_id)
+    pdf_bytes, filename = build_commercial_pdf(contract, "contract")
+    await audit(user, "contract_pdf_exported", f'PDF do contrato "{contract["title"]}" gerado.', "contract", contract_id, "success")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.patch("/contracts/{contract_id}")

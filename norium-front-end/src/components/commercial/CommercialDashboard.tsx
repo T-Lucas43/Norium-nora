@@ -87,6 +87,48 @@ const statusLabels: Record<string, string> = {
   cancelled: "Cancelado",
 };
 
+type ProposalTemplateGuidance = {
+  summary: string;
+  objective: string;
+  scope: string;
+  team: string;
+  deliverables: string;
+  deadline: string;
+  exclusions: string;
+  prompt: string;
+};
+
+function templateGuidance(template?: CommercialTemplate): ProposalTemplateGuidance {
+  const key = `${template?.category || ""} ${template?.name || ""}`.toLocaleLowerCase("pt-BR");
+  const base: ProposalTemplateGuidance = {
+    summary: "Estrutura comercial completa, adaptada ao objetivo informado e aos dados do cliente.",
+    objective: "Qual resultado de negócio o cliente quer alcançar?",
+    scope: "O que será executado, quais frentes estão incluídas e qual resultado será entregue?",
+    team: "Pessoas, papéis, responsabilidades e aprovações necessárias.",
+    deliverables: "Um entregável por linha, com formato e critério de aceite.",
+    deadline: "Prazo total, etapas, marcos de validação e dependências.",
+    exclusions: "Limites, dependências do cliente e itens não contemplados.",
+    prompt: "Estruture a proposta com contexto, objetivo mensurável, escopo detalhado, entregáveis verificáveis, responsabilidades, cronograma, premissas, exclusões, investimento e próximos passos.",
+  };
+
+  if (key.includes("marketing") || key.includes("campanha")) {
+    return { ...base, summary: "Modelo de marketing orientado a canais, público, metas, calendário e indicadores.", objective: "Qual meta de marketing, público e indicador principal devem ser alcançados?", scope: "Canais, campanhas, peças, conteúdo, mídia, segmentação e rotina de otimização.", team: "Estratégia, criação, mídia, conteúdo, atendimento e aprovadores do cliente.", deliverables: "Plano de campanha, calendário, peças, relatórios e indicadores por período.", deadline: "Período da campanha, fases, datas de publicação e ciclos de otimização.", exclusions: "Verba de mídia, produção externa, ferramentas e aprovações fora do prazo.", prompt: "Adapte o documento a uma proposta de marketing, incluindo público, canais, calendário editorial, métricas, rotina de otimização, responsabilidades e limites da verba de mídia." };
+  }
+  if (key.includes("consult")) {
+    return { ...base, summary: "Modelo de consultoria com diagnóstico, método, workshops, recomendações e plano de ação.", objective: "Qual problema será diagnosticado e qual decisão o cliente precisa tomar?", scope: "Diagnóstico, entrevistas, análise, workshops, recomendações e acompanhamento.", team: "Consultores, especialistas, patrocinador, participantes e responsáveis pelas decisões.", deliverables: "Diagnóstico, matriz de achados, recomendações, plano de ação e apresentação executiva.", deadline: "Fases de diagnóstico, validação, entrega executiva e acompanhamento.", exclusions: "Implantação operacional, dados não fornecidos e atividades fora do método contratado.", prompt: "Adapte o documento a uma proposta de consultoria com método, diagnóstico, hipóteses, workshops, entregáveis executivos, critérios de sucesso e responsabilidades do cliente." };
+  }
+  if (key.includes("manuten") || key.includes("suporte")) {
+    return { ...base, summary: "Modelo de manutenção e suporte com cobertura, SLA, canais, limites e recorrência.", objective: "Quais ativos precisam de suporte e qual disponibilidade deve ser garantida?", scope: "Ambientes cobertos, manutenção preventiva, corretiva, monitoramento e atendimento.", team: "Responsáveis técnicos, ponto focal do cliente, escalonamento e aprovadores.", deliverables: "Relatórios, correções, rotinas preventivas, evidências e registro de chamados.", deadline: "Vigência, janela de atendimento, SLA, recorrência e calendário preventivo.", exclusions: "Projetos evolutivos, peças, licenças, terceiros e atendimentos fora da cobertura.", prompt: "Adapte o documento a manutenção e suporte, detalhando cobertura, SLA, severidades, canais, recorrência, escalonamento, limites e obrigações das partes." };
+  }
+  if (key.includes("design") || key.includes("marca") || key.includes("identidade")) {
+    return { ...base, summary: "Modelo criativo com etapas de pesquisa, conceito, produção, revisões e arquivos finais.", objective: "Que percepção, experiência ou resultado a solução visual deve produzir?", scope: "Pesquisa, referências, conceito, prototipação, aplicações e rodadas de revisão.", team: "Direção criativa, design, conteúdo, responsáveis pela marca e aprovadores.", deliverables: "Conceitos, protótipos, aplicações, arquivos editáveis e guia de uso.", deadline: "Pesquisa, conceito, apresentação, revisões, aprovação e entrega final.", exclusions: "Produção física, banco de imagens, licenças e revisões além do contratado.", prompt: "Adapte o documento a um projeto de design, detalhando pesquisa, conceito, aplicações, formatos, rodadas de revisão, direitos de uso e critérios de aprovação." };
+  }
+  if (key.includes("desenvol") || key.includes("software") || key.includes("tecnolog")) {
+    return { ...base, summary: "Modelo de desenvolvimento com requisitos, arquitetura, etapas, validação e implantação.", objective: "Qual problema do usuário ou do negócio a solução tecnológica deve resolver?", scope: "Módulos, jornadas, integrações, requisitos não funcionais e ambientes contemplados.", team: "Produto, UX/UI, desenvolvimento, qualidade, infraestrutura e aprovadores.", deliverables: "Protótipos, código, integrações, testes, documentação e publicação.", deadline: "Descoberta, design, desenvolvimento, homologação, implantação e estabilização.", exclusions: "Licenças, serviços de terceiros, conteúdo, migração não prevista e novas funcionalidades.", prompt: "Adapte o documento a desenvolvimento de software, detalhando módulos, requisitos, integrações, arquitetura, segurança, testes, homologação, implantação, suporte e controle de mudanças." };
+  }
+  return base;
+}
+
 export default function CommercialDashboard({ session, onOpenNora }: CommercialDashboardProps) {
   const [data, setData] = useState<CommercialData | null>(null);
   const [clients, setClients] = useState<ClientOption[]>([]);
@@ -133,6 +175,18 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = window.setTimeout(() => setNotice(""), 4500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    if (!error) return undefined;
+    const timer = window.setTimeout(() => setError(""), 9000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
 
   useEffect(() => {
     const openFromBrainstorm = () => setCreateOpen(true);
@@ -262,7 +316,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     }, "Contrato gerado com os dados e o historico da proposta.");
   }
 
-  async function handleAnalyze(proposal: CommercialProposal, context: string, focus: Array<"scope" | "risk" | "tone" | "commercial" | "legal">) {
+  async function handleAnalyze(proposal: CommercialProposal, context: string, focus: Array<"scope" | "risk" | "tone" | "commercial" | "legal" | "grammar">) {
     await runAction(async () => {
       const response = await analyzeProposal(proposal.id, context, focus);
       replaceDocument(response.proposal);
@@ -541,6 +595,7 @@ function CreateProposalDialog({
   const [templatePreviewOpen, setTemplatePreviewOpen] = useState(false);
   const proposalTemplates = templates.filter((item) => item.documentType !== "contract");
   const selectedTemplate = templates.find((item) => item.id === templateId);
+  const guidance = templateGuidance(selectedTemplate);
   const selectedBrand = brands.find((item) => item.id === brandId);
   const client = clients.find((item) => item.id === clientId);
 
@@ -570,7 +625,12 @@ function CreateProposalDialog({
         deadline: deadline.trim(),
         deliverablesNotes: deliverablesNotes.trim(),
         exclusions: exclusions.trim(),
-        notes: notes.trim(),
+        notes: [
+          notes.trim(),
+          selectedTemplate
+            ? `Modelo selecionado: ${selectedTemplate.name}. Categoria: ${selectedTemplate.category || "geral"}. ${guidance.prompt}`
+            : guidance.prompt,
+        ].filter(Boolean).join("\n\n"),
         amount,
         currency: "BRL",
         tone,
@@ -649,12 +709,12 @@ function CreateProposalDialog({
           </div>
           <FormField label="Título (opcional)"><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="A Nora também pode sugerir o título" className="commercial-field" /></FormField>
           <div className="grid gap-4 md:grid-cols-2">
-            <FormField label="Objetivo da proposta"><textarea value={objective} onChange={(event) => setObjective(event.target.value)} placeholder="O que o cliente quer alcançar?" className="commercial-field min-h-28 resize-y" /></FormField>
-            <FormField label="Escopo inicial"><textarea value={scopeNotes} onChange={(event) => setScopeNotes(event.target.value)} placeholder="O que será feito, em linguagem simples." className="commercial-field min-h-28 resize-y" /></FormField>
-            <FormField label="Equipe e responsabilidades"><textarea value={team} onChange={(event) => setTeam(event.target.value)} placeholder="Pessoas, papéis e responsabilidades." className="commercial-field min-h-24 resize-y" /></FormField>
-            <FormField label="Entregáveis"><textarea value={deliverablesNotes} onChange={(event) => setDeliverablesNotes(event.target.value)} placeholder={"Um entregável por linha\nEx.: Protótipo navegável"} className="commercial-field min-h-24 resize-y" /></FormField>
-            <FormField label="Prazo e etapas"><textarea value={deadline} onChange={(event) => setDeadline(event.target.value)} placeholder="Ex.: 30 dias, em três etapas." className="commercial-field min-h-20 resize-y" /></FormField>
-            <FormField label="Fora do escopo"><textarea value={exclusions} onChange={(event) => setExclusions(event.target.value)} placeholder="Limites, dependências e exclusões." className="commercial-field min-h-20 resize-y" /></FormField>
+            <FormField label="Objetivo da proposta"><textarea value={objective} onChange={(event) => setObjective(event.target.value)} placeholder={guidance.objective} className="commercial-field min-h-28 resize-y" /></FormField>
+            <FormField label="Escopo inicial"><textarea value={scopeNotes} onChange={(event) => setScopeNotes(event.target.value)} placeholder={guidance.scope} className="commercial-field min-h-28 resize-y" /></FormField>
+            <FormField label="Equipe e responsabilidades"><textarea value={team} onChange={(event) => setTeam(event.target.value)} placeholder={guidance.team} className="commercial-field min-h-24 resize-y" /></FormField>
+            <FormField label="Entregáveis"><textarea value={deliverablesNotes} onChange={(event) => setDeliverablesNotes(event.target.value)} placeholder={guidance.deliverables} className="commercial-field min-h-24 resize-y" /></FormField>
+            <FormField label="Prazo e etapas"><textarea value={deadline} onChange={(event) => setDeadline(event.target.value)} placeholder={guidance.deadline} className="commercial-field min-h-20 resize-y" /></FormField>
+            <FormField label="Fora do escopo"><textarea value={exclusions} onChange={(event) => setExclusions(event.target.value)} placeholder={guidance.exclusions} className="commercial-field min-h-20 resize-y" /></FormField>
           </div>
           <FormField label="Contexto adicional para a Nora"><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Preferências do cliente, margem, riscos ou condições especiais." className="commercial-field min-h-20 resize-y" /></FormField>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -664,6 +724,10 @@ function CreateProposalDialog({
             <FormField label="Marca"><select value={brandId} onChange={(event) => setBrandId(event.target.value)} className="commercial-field"><option value="">Identidade padrão</option>{brands.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></FormField>
           </div>
           <FormField label="Modelo por categoria"><select value={templateId} onChange={(event) => { setTemplateId(event.target.value); setTemplatePreviewOpen(false); }} className="commercial-field"><option value="">Estrutura inteligente da Nora</option>{proposalTemplates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></FormField>
+          <div className="rounded-lg border border-cyan-400/20 bg-cyan-500/8 px-4 py-3">
+            <p className="text-xs font-black uppercase tracking-wide text-cyan-300">Como este modelo orienta a proposta</p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{guidance.summary}</p>
+          </div>
           {selectedTemplate && (
             <section className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">

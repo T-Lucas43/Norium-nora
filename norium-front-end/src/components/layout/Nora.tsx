@@ -1866,19 +1866,20 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 <div className="mt-4">
                   <p className="text-xs font-bold mb-3 text-[var(--text-secondary)] uppercase tracking-wide">Sugestoes rapidas</p>
 
-                  <div className="grid gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     {suggestions.map((suggestion) => {
                       const Icon = suggestion.icon;
                       return (
                         <Button
                           key={suggestion.title}
+                          variant="secondary"
                           onClick={() => handleSuggestion(suggestion.action, suggestion.title)}
-                          className="p-3"
+                          className="min-h-28 w-full flex-col items-start justify-between gap-3 p-3 text-left"
                         >
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-r from-blue-800 to-cyan-500 text-white">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-r from-blue-800 to-cyan-500 text-white">
                             <Icon size={16} />
                           </div>
-                          <span>{suggestion.title}</span>
+                          <span className="w-full text-xs leading-4">{suggestion.title}</span>
                         </Button>
                       );
                     })}

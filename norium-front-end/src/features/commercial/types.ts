@@ -100,7 +100,7 @@ export type NoraAnalysis = {
   riskLevel: "low" | "medium" | "high";
   tone: string;
   context: string;
-  focus: Array<"scope" | "risk" | "tone" | "commercial" | "legal">;
+  focus: Array<"scope" | "risk" | "tone" | "commercial" | "legal" | "grammar">;
   analyzedAt: string;
 };
 

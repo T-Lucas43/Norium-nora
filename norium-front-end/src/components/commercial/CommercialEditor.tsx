@@ -13,6 +13,7 @@ import {
   Minimize2,
   PanelRightClose,
   PanelRightOpen,
+  Save,
   Send,
   Share2,
   Sparkles,
@@ -33,7 +34,7 @@ import type {
 } from "../../features/commercial/types";
 import { isProposal } from "../../features/commercial/types";
 import type { DocumentUpdateInput } from "../../features/commercial/api";
-import { shareCommercialDocument, writeWithNora } from "../../features/commercial/api";
+import { exportCommercialDocumentPdf, shareCommercialDocument, writeWithNora } from "../../features/commercial/api";
 import Button from "../shared/Button";
 import { showAlert, showConfirm, showPrompt } from "../shared/AppDialogProvider";
 import A4ContentPages from "./A4ContentPages";
@@ -41,7 +42,7 @@ import CommercialInspector from "./CommercialInspector";
 import NoraReviewPanel from "./NoraReviewPanel";
 import RichTextToolbar from "./RichTextToolbar";
 
-type Focus = "scope" | "risk" | "tone" | "commercial" | "legal";
+type Focus = "scope" | "risk" | "tone" | "commercial" | "legal" | "grammar";
 type SaveState = "saved" | "dirty" | "saving" | "error";
 
 type CommercialEditorProps = {
@@ -84,9 +85,9 @@ export default function CommercialEditor({
   onDeleteProposal,
 }: CommercialEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const sourceDocumentIdRef = useRef(sourceDocument.id);
   const shareButtonRef = useRef<HTMLDivElement>(null);
   const savedSnapshotRef = useRef("");
-  const autosaveTimerRef = useRef<number | null>(null);
   const [title, setTitle] = useState(sourceDocument.title);
   const [contentHtml, setContentHtml] = useState(sourceDocument.contentHtml);
   const [scopeSummary, setScopeSummary] = useState(sourceDocument.scopeSummary);
@@ -108,6 +109,9 @@ export default function CommercialEditor({
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const [shareMenuPosition, setShareMenuPosition] = useState({ left: 12, top: 72 });
   const [noraUndoStack, setNoraUndoStack] = useState<string[]>([]);
+  const [toolbarDock, setToolbarDock] = useState<"top" | "right">(() => (
+    window.localStorage.getItem("norium-commercial-toolbar") === "right" ? "right" : "top"
+  ));
 
   const readOnly = !isProposal(sourceDocument) && ["signed", "active", "completed", "cancelled"].includes(sourceDocument.status);
   const advancedPlan = ["equipe", "enterprise"].includes(session.user.plan);
@@ -120,8 +124,14 @@ export default function CommercialEditor({
   );
 
   useEffect(() => {
+    const changedDocument = sourceDocumentIdRef.current !== sourceDocument.id;
+    const editingDocument = Boolean(editorRef.current?.contains(document.activeElement));
     setTitle(sourceDocument.title);
-    setContentHtml(sourceDocument.contentHtml);
+    // Atualizacoes vindas de acoes explicitas nao devem substituir o DOM do
+    // contentEditable enquanto o usuario ainda esta escrevendo.
+    if (changedDocument || !editingDocument) {
+      setContentHtml(sourceDocument.contentHtml);
+    }
     setScopeSummary(sourceDocument.scopeSummary);
     setAmount(sourceDocument.amount);
     setCurrency(sourceDocument.currency);
@@ -129,13 +139,6 @@ export default function CommercialEditor({
     setBranding(sourceDocument.branding);
     setSigners(sourceDocument.signers);
     setDeliverables(sourceDocument.deliverables);
-    if (
-      editorRef.current
-      && document.activeElement !== editorRef.current
-      && editorRef.current.innerHTML !== sourceDocument.contentHtml
-    ) {
-      editorRef.current.innerHTML = sourceDocument.contentHtml;
-    }
     const snapshot = JSON.stringify({
       title: sourceDocument.title,
       contentHtml: sourceDocument.contentHtml,
@@ -148,6 +151,7 @@ export default function CommercialEditor({
       deliverables: sourceDocument.deliverables,
     });
     savedSnapshotRef.current = snapshot;
+    sourceDocumentIdRef.current = sourceDocument.id;
     setSaveState("saved");
   }, [sourceDocument.id, sourceDocument.version]);
 
@@ -156,73 +160,11 @@ export default function CommercialEditor({
   }, [sourceDocument.id]);
 
   useEffect(() => {
-    if (
-      !readOnly
-      && editorRef.current
-      && document.activeElement !== editorRef.current
-      && editorRef.current.innerHTML !== contentHtml
-    ) {
-      editorRef.current.innerHTML = contentHtml;
-    }
-  }, [contentHtml, readOnly]);
-
-  useEffect(() => {
-    if (readOnly || !savedSnapshotRef.current || draftSnapshot === savedSnapshotRef.current) return;
-    setSaveState("dirty");
-    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = window.setTimeout(async () => {
-      setSaveState("saving");
-      setSaveError("");
-      try {
-        const saved = await onSave(sourceDocument, {
-          expectedVersion: sourceDocument.version,
-          title,
-          contentHtml,
-          scopeSummary,
-          amount,
-          currency,
-          validUntil,
-          branding,
-          signers: signers.map(({ name, email, role, order, required }) => ({ name, email, role, order, required })),
-          deliverables,
-        });
-        savedSnapshotRef.current = JSON.stringify({
-          title: saved.title,
-          contentHtml: saved.contentHtml,
-          scopeSummary: saved.scopeSummary,
-          amount: saved.amount,
-          currency: saved.currency,
-          validUntil: isProposal(saved) ? saved.validUntil : null,
-          branding: saved.branding,
-          signers: saved.signers,
-          deliverables: saved.deliverables,
-        });
-        setSaveState("saved");
-        onDocumentChange(saved);
-      } catch (error) {
-        setSaveState("error");
-        setSaveError(error instanceof Error ? error.message : "Falha ao salvar o documento.");
-      }
-    }, 900);
-    return () => {
-      if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current);
-    };
-  }, [
-    amount,
-    branding,
-    contentHtml,
-    currency,
-    deliverables,
-    draftSnapshot,
-    onDocumentChange,
-    onSave,
-    readOnly,
-    scopeSummary,
-    signers,
-    sourceDocument,
-    title,
-    validUntil,
-  ]);
+    if (readOnly || !savedSnapshotRef.current) return;
+    const nextState = draftSnapshot === savedSnapshotRef.current ? "saved" : "dirty";
+    setSaveState((current) => current === "saving" ? current : nextState);
+    if (nextState === "dirty") setSaveError("");
+  }, [draftSnapshot, readOnly]);
 
   useEffect(() => {
     const token = authToken();
@@ -255,7 +197,12 @@ export default function CommercialEditor({
   }, [onDocumentChange, session.user.id, sourceDocument.id]);
 
   function syncHtmlFromEditor() {
-    setContentHtml(editorRef.current?.innerHTML || "<p></p>");
+    setContentHtml(readPagedEditorHtml(editorRef.current));
+  }
+
+  function changeToolbarDock(value: "top" | "right") {
+    setToolbarDock(value);
+    window.localStorage.setItem("norium-commercial-toolbar", value);
   }
 
   function toggleShareMenu() {
@@ -308,14 +255,22 @@ export default function CommercialEditor({
           mode: selectedText ? "rewrite" : "insert",
         },
       );
-      editorRef.current.focus();
+      const selectedOwner = activeRange?.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+        ? activeRange.commonAncestorContainer as Element
+        : activeRange?.commonAncestorContainer.parentElement;
+      const targetPage = selectedOwner?.closest<HTMLElement>('[data-commercial-page-content][contenteditable="true"]')
+        || editorRef.current.querySelector<HTMLElement>('[data-commercial-page-content][contenteditable="true"]');
+      targetPage?.focus({ preventScroll: true });
       if (selectionInsideEditor && activeRange) {
         const currentSelection = window.getSelection();
         currentSelection?.removeAllRanges();
         currentSelection?.addRange(activeRange);
       } else {
+        const lastPage = editorRef.current.querySelector<HTMLElement>("[data-commercial-page-content]:last-of-type")
+          || editorRef.current.querySelector<HTMLElement>("[data-commercial-page-content]")
+          || editorRef.current;
         const endRange = document.createRange();
-        endRange.selectNodeContents(editorRef.current);
+        endRange.selectNodeContents(lastPage);
         endRange.collapse(false);
         const currentSelection = window.getSelection();
         currentSelection?.removeAllRanges();
@@ -393,7 +348,7 @@ export default function CommercialEditor({
     setShareMenuOpen(false);
     const message = await showPrompt({
       title: "Compartilhar com a equipe",
-      description: "A mensagem aparecerá no chat interno com um vínculo para este documento.",
+      description: "A mensagem aparecerá no chat interno com o PDF anexado e um vínculo para abrir este documento no Norium.",
       defaultValue: `Compartilho ${proposal ? "a proposta" : "o contrato"} "${sourceDocument.title}" para acompanhamento da equipe.`,
       confirmLabel: "Enviar ao time",
       multiline: true,
@@ -438,12 +393,33 @@ export default function CommercialEditor({
     };
   }
 
+  async function saveDocument() {
+    if (readOnly || saveState === "saving" || draftSnapshot === savedSnapshotRef.current) return;
+    setSaveState("saving");
+    setSaveError("");
+    try {
+      const saved = await onSave(sourceDocument, currentUpdateInput(sourceDocument.version));
+      savedSnapshotRef.current = JSON.stringify({
+        title: saved.title,
+        contentHtml: saved.contentHtml,
+        scopeSummary: saved.scopeSummary,
+        amount: saved.amount,
+        currency: saved.currency,
+        validUntil: isProposal(saved) ? saved.validUntil : null,
+        branding: saved.branding,
+        signers: saved.signers,
+        deliverables: saved.deliverables,
+      });
+      setSaveState("saved");
+      onDocumentChange(saved);
+    } catch (error) {
+      setSaveState("error");
+      setSaveError(error instanceof Error ? error.message : "Falha ao salvar o documento.");
+    }
+  }
+
   async function decideNoraSuggestion(suggestionId: string, decision: "accepted" | "rejected") {
     if (!proposal) return;
-    if (autosaveTimerRef.current) {
-      window.clearTimeout(autosaveTimerRef.current);
-      autosaveTimerRef.current = null;
-    }
 
     let currentProposal = proposal;
     if (!readOnly && draftSnapshot !== savedSnapshotRef.current) {
@@ -473,7 +449,7 @@ export default function CommercialEditor({
       }
     }
 
-    const previousContent = editorRef.current?.innerHTML || contentHtml;
+    const previousContent = readPagedEditorHtml(editorRef.current, contentHtml);
     await onSuggestion(currentProposal, suggestionId, decision);
     if (decision === "accepted") {
       setNoraUndoStack((current) => [...current.slice(-9), previousContent]);
@@ -483,10 +459,6 @@ export default function CommercialEditor({
   async function undoLastNoraSuggestion() {
     const previousContent = noraUndoStack[noraUndoStack.length - 1];
     if (!proposal || readOnly || !previousContent) return;
-    if (autosaveTimerRef.current) {
-      window.clearTimeout(autosaveTimerRef.current);
-      autosaveTimerRef.current = null;
-    }
     setSaveState("saving");
     setSaveError("");
     try {
@@ -495,7 +467,6 @@ export default function CommercialEditor({
         contentHtml: previousContent,
       });
       setContentHtml(previousContent);
-      if (editorRef.current) editorRef.current.innerHTML = previousContent;
       savedSnapshotRef.current = JSON.stringify({
         title: saved.title,
         contentHtml: saved.contentHtml,
@@ -525,12 +496,46 @@ export default function CommercialEditor({
     if (!confirmed) return;
     setTitle(revision.title);
     setContentHtml(revision.contentHtml);
-    if (editorRef.current) editorRef.current.innerHTML = revision.contentHtml;
     setBranding(revision.branding);
   }
 
-  function printDocument() {
-    const printWindow = window.open("", "_blank", "noopener,noreferrer");
+  async function exportPdf() {
+    const previewWindow = window.open("", "_blank");
+    if (previewWindow) {
+      previewWindow.opener = null;
+      previewWindow.document.write("<!doctype html><title>Gerando PDF...</title><style>body{margin:0;display:grid;place-items:center;min-height:100vh;background:#080b0e;color:#e5edf7;font:600 15px Arial}span{padding:18px 22px;border:1px solid #263241;border-radius:10px;background:#0c1117}</style><span>Gerando PDF seguro no Norium...</span>");
+      previewWindow.document.close();
+    }
+    try {
+      const blob = await exportCommercialDocumentPdf(proposal ? "proposal" : "contract", sourceDocument.id);
+      const url = URL.createObjectURL(blob);
+      if (previewWindow) {
+        previewWindow.location.replace(url);
+      } else {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${safeFileName(title)}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (error) {
+      if (previewWindow) {
+        printDocument(previewWindow);
+      }
+      await showAlert({
+        title: previewWindow ? "Pre-visualizacao local aberta" : "Nao foi possivel exportar o PDF",
+        description: previewWindow
+          ? "O backend nao respondeu, entao o Norium abriu a versao local para imprimir ou salvar como PDF."
+          : error instanceof Error ? error.message : "Tente novamente em instantes.",
+        tone: "warning",
+      });
+    }
+  }
+
+  function printDocument(existingWindow?: Window | null) {
+    const printWindow = existingWindow || window.open("", "_blank");
     if (!printWindow) {
       void showAlert({
         title: "Janela de impressão bloqueada",
@@ -540,7 +545,10 @@ export default function CommercialEditor({
     }
     const safeHeader = sanitizePreviewHtml(branding.headerHtml);
     const safeFooter = sanitizePreviewHtml(branding.footerHtml);
-    const safeContent = sanitizePreviewHtml(contentHtml);
+    const safeContent = sanitizePreviewHtml(contentHtml).replace(
+      /<h([1-3])[^>]*>\s*Assinaturas\s*<\/h\1>/gi,
+      "",
+    );
     const documentKind = proposal ? "Proposta comercial" : "Contrato comercial";
     const clientName = sourceDocument.client.company || sourceDocument.client.name || "Cliente";
     const clientDetails = [sourceDocument.client.document, sourceDocument.client.email].filter(Boolean).map(escapeHtml).join(" · ");
@@ -558,8 +566,7 @@ export default function CommercialEditor({
       .content{page:document;width:auto;min-height:auto;margin:0;padding:0;font-size:11pt;line-height:1.62;overflow-wrap:anywhere}.content header,.content footer{color:#475569;font-size:9pt}.content header{margin-bottom:8mm;padding-bottom:3mm;border-bottom:1px solid #cbd5e1}.content footer{margin-top:10mm;padding-top:3mm;border-top:1px solid #cbd5e1}
       .logo{text-align:${branding.logoAlignment};margin:0 0 7mm}.logo img{max-height:${Math.max(36, branding.logoScale * 0.62)}px;max-width:64mm}
       .content h1,.content h2,.content h3{color:${branding.primaryColor};break-after:avoid;page-break-after:avoid}.content p,.content li{orphans:3;widows:3}.content a{color:${branding.secondaryColor}}.content img{max-width:100%;height:auto}table{width:100%;border-collapse:collapse;break-inside:avoid}td,th{border:1px solid #cbd5e1;padding:8px}
-      .signatures{display:grid;grid-template-columns:repeat(2,1fr);gap:36px;margin-top:18mm;break-inside:avoid;break-before:avoid;page-break-before:avoid}.signature{break-inside:avoid}.signature div{border-top:1px solid #334155;margin-bottom:8px}.signature strong,.signature span{display:block;font-size:11px}
-      .content>*:has(+ .signatures){break-after:avoid;page-break-after:avoid}
+      .signature-wrap{margin-top:10mm;break-inside:avoid;page-break-inside:avoid}.signature-wrap h2{margin:0 0 7mm;break-after:avoid;page-break-after:avoid}.signatures{display:grid;grid-template-columns:repeat(2,1fr);gap:36px;break-inside:avoid;page-break-inside:avoid}.signature{break-inside:avoid;page-break-inside:avoid}.signature div{border-top:1px solid #334155;margin-bottom:8px}.signature strong,.signature span{display:block;font-size:11px}
       @media print{button{display:none}}
     </style></head><body>
       <section class="page cover">
@@ -572,14 +579,29 @@ export default function CommercialEditor({
           <div><small>Investimento</small><strong>${escapeHtml(formatMoney(amount, currency))}</strong></div>
         </div>
       </section>
-      <main class="page content"><header>${safeHeader}</header>${logoMarkup}<h1>${escapeHtml(title)}</h1>${safeContent}<div class="signatures">${signerBlocks}</div><footer>${safeFooter}</footer></main>
+      <main class="page content"><header>${safeHeader}</header>${logoMarkup}<h1>${escapeHtml(title)}</h1>${safeContent}${signerBlocks ? `<section class="signature-wrap"><h2>Assinaturas</h2><div class="signatures">${signerBlocks}</div></section>` : ""}<footer>${safeFooter}</footer></main>
       <script>window.onload=()=>window.print()</script>
     </body></html>`);
     printWindow.document.close();
   }
 
+  function renderEditorToolbar(orientation: "top" | "right") {
+    return (
+      <RichTextToolbar
+        editorRef={editorRef}
+        onChange={syncHtmlFromEditor}
+        onWriteWithNora={() => void writeDocumentWithNora()}
+        onUndoNora={() => void undoLastNoraSuggestion()}
+        canUndoNora={noraUndoStack.length > 0}
+        writingWithNora={writingWithNora}
+        orientation={orientation}
+        onOrientationChange={changeToolbarDock}
+      />
+    );
+  }
+
   return (
-    <main className={`${fullScreen ? "fixed inset-0 z-[110]" : "min-h-[calc(100dvh-74px)]"} flex flex-col overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
+    <main className={`${fullScreen ? "fixed inset-0 z-[110]" : "min-h-0 flex-1"} flex flex-col overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
       <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
           <Button size="sm" iconOnly onClick={onBack} aria-label="Voltar para documentos"><ArrowLeft size={17} /></Button>
@@ -602,7 +624,18 @@ export default function CommercialEditor({
             <span className="w-12 text-center text-xs font-bold">{zoom}%</span>
             <button type="button" onClick={() => setZoom((current) => Math.min(150, current + 10))} className="grid h-full w-8 place-items-center hover:bg-[var(--surface-hover)]" aria-label="Aumentar zoom"><Plus size={14} /></button>
           </div>
-          <Button size="sm" variant="secondary" onClick={printDocument} icon={<Download size={14} />}>Exportar PDF</Button>
+          {!readOnly && (
+            <Button
+              size="sm"
+              onClick={() => void saveDocument()}
+              loading={saveState === "saving"}
+              disabled={saveState !== "dirty" && saveState !== "error"}
+              icon={<Save size={14} />}
+            >
+              Salvar
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" onClick={() => void exportPdf()} icon={<Download size={14} />}>Exportar PDF</Button>
           <div ref={shareButtonRef}>
             <Button
               size="sm"
@@ -637,7 +670,7 @@ export default function CommercialEditor({
           gridTemplateColumns: `${inspectorOpen ? "minmax(230px, 280px)" : "0px"} minmax(0, 1fr) ${noraOpen && proposal ? "minmax(300px, 370px)" : "0px"}`,
         }}
       >
-        <div className={`commercial-editor-inspector min-h-0 overflow-hidden transition-all ${inspectorOpen ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+        <div className={`commercial-editor-inspector h-full min-h-0 overflow-hidden transition-all ${inspectorOpen ? "opacity-100" : "pointer-events-none opacity-0"}`}>
           <CommercialInspector
             branding={branding}
             signers={signers}
@@ -653,16 +686,7 @@ export default function CommercialEditor({
         </div>
 
         <section className="flex min-w-0 flex-col overflow-hidden border-x border-[var(--border)]">
-          {!readOnly && (
-            <RichTextToolbar
-              editorRef={editorRef}
-              onChange={syncHtmlFromEditor}
-              onWriteWithNora={() => void writeDocumentWithNora()}
-              onUndoNora={() => void undoLastNoraSuggestion()}
-              canUndoNora={noraUndoStack.length > 0}
-              writingWithNora={writingWithNora}
-            />
-          )}
+          {!readOnly && toolbarDock === "top" && renderEditorToolbar("top")}
           <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
             <span className="flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
               <Eye size={12} /> {readOnly ? "Documento A4 (somente leitura)" : "Documento A4 editável"}
@@ -672,7 +696,8 @@ export default function CommercialEditor({
             <select value={currency} disabled={readOnly} onChange={(event) => setCurrency(event.target.value)} className="commercial-field w-20"><option>BRL</option><option>USD</option><option>EUR</option></select>
             {proposal && <label className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Validade <input value={validUntil || ""} disabled={readOnly} onChange={(event) => setValidUntil(event.target.value || null)} type="date" className="commercial-field normal-case" /></label>}
           </div>
-          <div className="min-h-0 flex-1 overflow-auto bg-[color-mix(in_srgb,var(--background)_88%,#64748b)] p-4 sm:p-8">
+          <div className={`grid min-h-0 flex-1 ${!readOnly && toolbarDock === "right" ? "commercial-editor-with-side-toolbar grid-cols-[minmax(0,1fr)_240px]" : "grid-cols-1"}`}>
+          <div className="min-h-0 overflow-auto bg-[color-mix(in_srgb,var(--background)_88%,#64748b)] p-4 sm:p-8">
             <div
               className="commercial-document-stack mx-auto w-full max-w-[794px]"
               style={{
@@ -680,7 +705,6 @@ export default function CommercialEditor({
               } as CSSProperties}
             >
               <section className="commercial-page-shell">
-                <div className="commercial-page-label"><span>Página 1</span><strong>Capa A4</strong></div>
                 <article
                   className="commercial-document-page commercial-document-cover relative flex min-h-[1123px] w-full flex-col overflow-hidden bg-white shadow-2xl"
                   style={{
@@ -722,51 +746,28 @@ export default function CommercialEditor({
                   signers={signers}
                 />
               ) : (
-                <section className="commercial-page-shell">
-                  <div className="commercial-page-label">
-                    <span>Página 2 em diante</span>
-                    <strong>As linhas tracejadas marcam a quebra de página A4</strong>
-                  </div>
-                  <article
-                    className="commercial-document-page commercial-document-edit-page flex min-h-[1123px] w-full flex-col bg-white shadow-2xl"
-                    style={{
-                      color: branding.textColor,
-                      "--document-primary": branding.primaryColor,
-                      "--document-secondary": branding.secondaryColor,
-                    } as CSSProperties}
-                  >
-                    <header className="min-h-12 border-b border-slate-200 px-14 py-7 text-xs text-slate-500" dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(branding.headerHtml) }} />
-                    {branding.logoUrl && <div className={`px-14 pt-8 text-${branding.logoAlignment}`} style={{ textAlign: branding.logoAlignment }}><img src={branding.logoUrl} alt="Logo" className="inline-block max-w-full object-contain" style={{ maxHeight: `${Math.max(36, branding.logoScale * 0.62)}px` }} /></div>}
-                    <div className="commercial-a4-break-guides px-14 pt-9">
-                      <h1 className="mb-8 text-3xl font-bold" style={{ color: branding.primaryColor }}>{title}</h1>
-                      <div
-                        ref={editorRef}
-                        contentEditable
-                        suppressContentEditableWarning
-                        onInput={syncHtmlFromEditor}
-                        className="commercial-rich-editor min-h-[660px] outline-none"
-                      />
-                      {signers.length > 0 && (
-                        <section className="mt-16 grid grid-cols-2 gap-x-10 gap-y-12 pb-8">
-                          {signers.map((signer) => (
-                            <div key={signer.id} className="border-t border-slate-500 pt-2 text-xs text-slate-700">
-                              <strong className="block">{signer.name || "Assinante"}</strong>
-                              <span>{roleLabel(signer.role)} - ordem {signer.order}</span>
-                              {signer.status === "signed" && <span className="mt-1 block font-bold text-emerald-700">Assinado em {formatDate(signer.signedAt)}</span>}
-                            </div>
-                          ))}
-                        </section>
-                      )}
-                    </div>
-                    <footer className="mt-auto min-h-12 border-t border-slate-200 px-14 py-7 text-xs text-slate-500" dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(branding.footerHtml) }} />
-                  </article>
-                </section>
+                <A4ContentPages
+                  title={title}
+                  contentHtml={contentHtml}
+                  branding={branding}
+                  signers={signers}
+                  editable
+                  editorRef={editorRef}
+                  onChange={setContentHtml}
+                  paginationKey={`${sourceDocument.id}:${sourceDocument.version}`}
+                />
               )}
             </div>
           </div>
+          {!readOnly && toolbarDock === "right" && (
+            <aside className="commercial-editor-side-toolbar min-h-0 overflow-hidden">
+              {renderEditorToolbar("right")}
+            </aside>
+          )}
+          </div>
         </section>
 
-        <div className={`commercial-editor-nora min-h-0 overflow-hidden transition-all ${noraOpen && proposal ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+        <div className={`commercial-editor-nora h-full min-h-0 overflow-hidden transition-all ${noraOpen && proposal ? "opacity-100" : "pointer-events-none opacity-0"}`}>
           {proposal && (
             <NoraReviewPanel
               proposal={proposal}
@@ -842,7 +843,7 @@ function WorkflowBar({
 }
 
 function SaveIndicator({ state, error }: { state: SaveState; error: string }) {
-  const copy = state === "saving" ? "Salvando..." : state === "dirty" ? "Alteracoes pendentes" : state === "error" ? error : "Salvo automaticamente";
+  const copy = state === "saving" ? "Salvando..." : state === "dirty" ? "Alterações não salvas" : state === "error" ? error : "Salvo";
   return <span className={state === "error" ? "max-w-64 truncate text-rose-400" : state === "saved" ? "text-emerald-400" : "text-amber-400"}>{copy}</span>;
 }
 
@@ -887,8 +888,24 @@ function formatMoney(value: number, currency: string) {
   }).format(value || 0);
 }
 
+function safeFileName(value: string) {
+  return value.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 100) || "documento-comercial";
+}
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] || character);
+}
+
+function readPagedEditorHtml(root: HTMLDivElement | null, fallback = "<p></p>") {
+  if (!root) return fallback;
+  const pages = Array.from(root.querySelectorAll<HTMLElement>("[data-commercial-page-content]"));
+  if (!pages.length) return fallback;
+  const html = pages.map((page) => {
+    const clone = page.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("[data-document-decoration]").forEach((node) => node.remove());
+    return clone.innerHTML;
+  }).join("");
+  return html.trim() ? html : fallback;
 }
 
 function sanitizePreviewHtml(value: string) {

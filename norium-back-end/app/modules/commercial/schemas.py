@@ -123,9 +123,9 @@ class ProposalApprovalDecision(StrictModel):
 
 class NoraAnalysisRequest(StrictModel):
     context: str = Field(default="", max_length=4000)
-    focus: list[Literal["scope", "risk", "tone", "commercial", "legal"]] = Field(
-        default_factory=lambda: ["scope", "risk", "tone"],
-        max_length=5,
+    focus: list[Literal["scope", "risk", "tone", "commercial", "legal", "grammar"]] = Field(
+        default_factory=lambda: ["scope", "risk", "tone", "grammar"],
+        max_length=6,
     )
 
 

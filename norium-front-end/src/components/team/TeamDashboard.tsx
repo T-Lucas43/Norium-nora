@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BarChart3, CheckCircle2, Clock3, ListChecks, Lock, PlayCircle, RefreshCw, ShieldCheck, UserPlus, UsersRound, type LucideIcon } from "lucide-react";
+import { AlertTriangle, BarChart3, CheckCircle2, Clock3, ListChecks, Lock, MessageCircle, PlayCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound, type LucideIcon } from "lucide-react";
 import type { AuthSession, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
@@ -8,6 +8,7 @@ import Button from "../shared/Button";
 interface TeamDashboardProps {
   session: AuthSession;
   onSessionUpdate: (session: AuthSession) => void;
+  onOpenTeamChat: () => void;
 }
 
 interface TeamTaskReportMember {
@@ -53,7 +54,8 @@ function mergePermissions(value?: Partial<PermissionMap>) {
   return { ...defaultMemberPermissions, ...(value || {}) };
 }
 
-export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboardProps) {
+export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat }: TeamDashboardProps) {
+  const [view, setView] = useState<"overview" | "access">("overview");
   const [users, setUsers] = useState<NoriumUser[]>([]);
   const [selectedUserId, setSelectedUserId] = useState(session.user.id);
   const [form, setForm] = useState(initialForm);
@@ -177,18 +179,34 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
           </span>
           <div>
             <h1 className="text-2xl font-black">Equipe</h1>
-            <p className="text-sm font-semibold text-[var(--text-secondary)]">Crie usuarios menores e defina acessos por tela e integracao.</p>
+            <p className="text-sm font-semibold text-[var(--text-secondary)]">Acompanhe metas, produtividade e colaboração; gerencie acessos em uma área separada.</p>
           </div>
         </div>
-        <Button
-          onClick={() => void refresh()}
-          className="bg-[var(--background)]"
-        >
-          <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-          Atualizar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={onOpenTeamChat} icon={<MessageCircle size={16} />}>Abrir chat</Button>
+          <Button onClick={() => void refresh()} className="bg-[var(--background)]">
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            Atualizar
+          </Button>
+        </div>
       </header>
 
+      <nav className="flex gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-3">
+        <Button variant={view === "overview" ? "primary" : "ghost"} onClick={() => setView("overview")} icon={<BarChart3 size={15} />}>Visão da equipe</Button>
+        <Button variant={view === "access" ? "primary" : "ghost"} onClick={() => setView("access")} icon={<Settings2 size={15} />}>Membros e acessos</Button>
+      </nav>
+
+      {view === "overview" ? (
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+          {(notice || error) && (
+            <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${error ? "border-red-400/30 bg-red-500/12 text-red-100" : "border-emerald-300/30 bg-emerald-400/12 text-emerald-100"}`}>
+              {error || notice}
+            </div>
+          )}
+          <TeamGoals storageKey={`norium:team-goals:${session.user.teamOwnerId || session.user.id}`} />
+          <TeamPerformanceReport report={report} selectedUserId={selectedUser.id} onSelect={setSelectedUserId} />
+        </div>
+      ) : (
       <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 xl:grid-cols-[360px_1fr]">
         <aside className="space-y-5">
           <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
@@ -241,8 +259,6 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
             </div>
           )}
 
-          <TeamPerformanceReport report={report} selectedUserId={selectedUser.id} onSelect={setSelectedUserId} />
-
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
             <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -279,6 +295,75 @@ export default function TeamDashboard({ session, onSessionUpdate }: TeamDashboar
             </details>
           </div>
         </main>
+      </div>
+      )}
+    </section>
+  );
+}
+
+type TeamGoal = {
+  id: string;
+  title: string;
+  target: number;
+  current: number;
+};
+
+function TeamGoals({ storageKey }: { storageKey: string }) {
+  const [goals, setGoals] = useState<TeamGoal[]>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem(storageKey) || "[]") as TeamGoal[];
+    } catch {
+      return [];
+    }
+  });
+  const [title, setTitle] = useState("");
+  const [target, setTarget] = useState(10);
+
+  useEffect(() => {
+    window.localStorage.setItem(storageKey, JSON.stringify(goals));
+  }, [goals, storageKey]);
+
+  function addGoal() {
+    if (!title.trim() || target < 1) return;
+    setGoals((current) => [...current, { id: crypto.randomUUID(), title: title.trim(), target, current: 0 }]);
+    setTitle("");
+    setTarget(10);
+  }
+
+  return (
+    <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Metas da equipe</p>
+          <h2 className="mt-1 text-2xl font-black">Objetivos acompanhados</h2>
+          <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Crie metas claras e atualize o progresso sem misturar permissões de acesso.</p>
+        </div>
+        <span className="grid h-12 w-12 place-items-center rounded-xl bg-blue-500/14 text-blue-300"><Target size={22} /></span>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-[minmax(0,1fr)_130px_auto]">
+        <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ex.: concluir propostas da semana" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
+        <input type="number" min="1" value={target} onChange={(event) => setTarget(Math.max(1, Number(event.target.value)))} aria-label="Meta" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
+        <Button onClick={addGoal} disabled={!title.trim()} icon={<Plus size={15} />}>Adicionar meta</Button>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        {goals.map((goal) => {
+          const progress = Math.min(100, Math.round((goal.current / Math.max(goal.target, 1)) * 100));
+          return (
+            <article key={goal.id} className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0"><p className="truncate font-black">{goal.title}</p><p className="mt-1 text-xs font-bold text-[var(--text-secondary)]">{goal.current} de {goal.target} concluídos</p></div>
+                <Button iconOnly size="sm" variant="ghost" onClick={() => setGoals((current) => current.filter((item) => item.id !== goal.id))} aria-label={`Excluir meta ${goal.title}`}><Trash2 size={14} /></Button>
+              </div>
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-[var(--surface)]"><div className="h-full rounded-full bg-blue-500" style={{ width: `${progress}%` }} /></div>
+              <div className="mt-3 flex items-center gap-2">
+                <Button size="sm" variant="secondary" disabled={goal.current <= 0} onClick={() => setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, current: Math.max(0, item.current - 1) } : item))}>-1</Button>
+                <Button size="sm" variant="secondary" disabled={goal.current >= goal.target} onClick={() => setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, current: Math.min(item.target, item.current + 1) } : item))}>+1 progresso</Button>
+                <span className="ml-auto text-xs font-black text-blue-300">{progress}%</span>
+              </div>
+            </article>
+          );
+        })}
+        {!goals.length && <p className="rounded-xl border border-dashed border-[var(--border)] p-5 text-sm font-semibold text-[var(--text-secondary)]">Nenhuma meta criada. Use o campo acima para registrar o primeiro objetivo do time.</p>}
       </div>
     </section>
   );

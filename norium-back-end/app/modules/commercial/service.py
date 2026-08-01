@@ -1258,7 +1258,65 @@ async def decide_proposal(
     return updated
 
 
-def fallback_analysis(content: str, context: str) -> dict[str, Any]:
+def grammar_suggestions(content: str) -> list[dict[str, Any]]:
+    text = plain_text(content)
+    suggestions: list[dict[str, Any]] = []
+    rules: list[tuple[re.Pattern[str], Any, str]] = [
+        (
+            re.compile(r"\b[Nn]ao\s+([a-zA-Z]+)-se\b|\b[Nn]ão\s+([a-zA-ZÀ-ÿ]+)-se\b"),
+            lambda match: (
+                "Nao se " if match.group(0).startswith("Nao") else
+                "Não se " if match.group(0).startswith("Não") else
+                "nao se " if match.group(0).startswith("nao") else
+                "não se "
+            ) + str(match.group(1) or match.group(2) or ""),
+            "A palavra negativa atrai o pronome: use proclise em vez de enclise.",
+        ),
+        (
+            re.compile(r"\bpara mim (fazer|realizar|analisar|enviar|revisar|aprovar)\b", re.I),
+            lambda match: re.sub(r"para mim", "para eu", match.group(0), flags=re.I),
+            "Antes de verbo no infinitivo com sujeito expresso, prefira 'para eu'.",
+        ),
+        (
+            re.compile(r"\b([A-Za-zÀ-ÿ]{3,})\s+\1\b", re.I),
+            lambda match: match.group(1),
+            "Remova a palavra repetida.",
+        ),
+        (
+            re.compile(r"\s+([,.;:!?])"),
+            lambda match: match.group(1),
+            "Remova o espaco antes do sinal de pontuacao.",
+        ),
+        (
+            re.compile(
+                r"(?<=[A-Za-zÀ-ÿ])([.!?;:])(?=(?:[A-ZÀ-Ý]|detalhe\b|execu[cç][aã]o\b|solicita[cç][aã]o\b|cada\b|ap[oó]s\b|esta\b|essa\b|isso\b|n[aã]o\b))",
+                re.I,
+            ),
+            lambda match: f"{match.group(1)} ",
+            "Insira um espaco entre o sinal de pontuacao e o inicio da frase seguinte.",
+        ),
+    ]
+    seen: set[tuple[str, str]] = set()
+    for pattern, replacement_factory, reason in rules:
+        for match in pattern.finditer(text):
+            original = match.group(0)
+            replacement = str(replacement_factory(match))
+            key = (original, replacement)
+            if original == replacement or key in seen:
+                continue
+            seen.add(key)
+            suggestions.append({
+                "original": original,
+                "replacement": replacement,
+                "reason": reason,
+                "severity": "warning",
+            })
+            if len(suggestions) >= 12:
+                return suggestions
+    return suggestions
+
+
+def fallback_analysis(content: str, context: str, focus: list[str] | None = None) -> dict[str, Any]:
     suggestions: list[dict[str, Any]] = []
     text = plain_text(content)
     if len(text) < 120:
@@ -1282,6 +1340,8 @@ def fallback_analysis(content: str, context: str) -> dict[str, Any]:
             "reason": "Defina quantas revisoes estao inclusas e como mudancas de escopo serao tratadas.",
             "severity": "warning",
         })
+    if "grammar" in (focus or []):
+        suggestions.extend(grammar_suggestions(content))
     return {
         "summary": "A Nora concluiu uma verificacao estrutural do documento.",
         "riskLevel": "high" if any(item["severity"] == "critical" for item in suggestions) else "medium",
@@ -1290,14 +1350,14 @@ def fallback_analysis(content: str, context: str) -> dict[str, Any]:
     }
 
 
-def parse_nora_json(response: str, content: str, context: str) -> dict[str, Any]:
+def parse_nora_json(response: str, content: str, context: str, focus: list[str]) -> dict[str, Any]:
     match = re.search(r"\{.*\}", response or "", re.S)
     if not match:
-        return fallback_analysis(content, context)
+        return fallback_analysis(content, context, focus)
     try:
         payload = json.loads(match.group(0))
     except json.JSONDecodeError:
-        return fallback_analysis(content, context)
+        return fallback_analysis(content, context, focus)
     suggestions = payload.get("suggestions") if isinstance(payload.get("suggestions"), list) else []
     cleaned = []
     for item in suggestions[:20]:
@@ -1309,6 +1369,12 @@ def parse_nora_json(response: str, content: str, context: str) -> dict[str, Any]
             "reason": str(item.get("reason") or "Ajuste sugerido pela Nora.")[:1200],
             "severity": str(item.get("severity") or "info") if str(item.get("severity")) in {"info", "warning", "critical"} else "info",
         })
+    if "grammar" in focus:
+        known = {(item["original"], item["replacement"]) for item in cleaned}
+        cleaned.extend(
+            item for item in grammar_suggestions(content)
+            if (item["original"], item["replacement"]) not in known
+        )
     return {
         "summary": str(payload.get("summary") or "Analise concluida.")[:2000],
         "riskLevel": str(payload.get("riskLevel") or "medium")[:20],
@@ -1326,19 +1392,29 @@ async def analyze_with_nora(
     store = read_store(tenant_id)
     _, proposal = proposal_or_404(store, proposal_id)
     document_text = plain_text(str(proposal.get("contentHtml") or ""))[:24_000]
+    focus_instructions = {
+        "scope": "escopo, entregaveis, limites e criterios de aceite",
+        "risk": "riscos, ambiguidades e dependencias operacionais",
+        "tone": "clareza, adequacao e consistencia do tom de voz",
+        "commercial": "coerencia comercial, valor percebido e proxima acao",
+        "legal": "pontos contratuais que exigem revisao humana, sem emitir parecer juridico",
+        "grammar": "ortografia, acentuacao, concordancia, regencia, colocacao pronominal e pontuacao em portugues do Brasil",
+    }
+    requested_checks = "; ".join(focus_instructions[item] for item in payload.focus if item in focus_instructions)
     prompt = (
         "Voce e a analista comercial e de escopo do Norium. Analise apenas o documento fornecido, sem inventar clausulas ou fatos. "
         "Retorne JSON puro com summary, riskLevel (low|medium|high), tone e suggestions. "
         "Cada suggestion deve conter original (trecho literal exato do texto ou vazio), replacement, reason e severity (info|warning|critical). "
-        f"Focos: {', '.join(payload.focus)}. Contexto do usuario: {payload.context or 'nao informado'}. "
+        "Para correcoes de portugues, original deve ser uma copia literal exata do trecho incorreto e replacement deve conter o trecho integral corrigido. "
+        f"Verificacoes obrigatorias: {requested_checks}. Contexto do usuario: {payload.context or 'nao informado'}. "
         f"Cliente: {json.dumps(proposal.get('client') or {}, ensure_ascii=False)}. "
         f"Valor: {proposal.get('amount')} {proposal.get('currency')}. Documento: {document_text}"
     )
     try:
         response = await _nora.perguntar_nora([{"role": "user", "content": prompt}])
-        analysis = parse_nora_json(response, str(proposal.get("contentHtml") or ""), payload.context)
+        analysis = parse_nora_json(response, str(proposal.get("contentHtml") or ""), payload.context, list(payload.focus))
     except Exception:
-        analysis = fallback_analysis(str(proposal.get("contentHtml") or ""), payload.context)
+        analysis = fallback_analysis(str(proposal.get("contentHtml") or ""), payload.context, list(payload.focus))
     suggestions = [
         {
             "id": f"suggestion_{uuid.uuid4().hex}",

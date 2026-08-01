@@ -108,7 +108,7 @@ export default function CommercialInspector({
   }
 
   return (
-    <aside className="flex min-h-0 flex-col border-l border-[var(--border)] bg-[var(--surface)]">
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)]">
       <div className="grid grid-cols-4 border-b border-[var(--border)]">
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
@@ -124,7 +124,7 @@ export default function CommercialInspector({
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 [scrollbar-gutter:stable]">
         {tab === "brand" && (
           <div className="space-y-5">
             <InspectorHeading title="Identidade visual" description={advancedPlan ? "Perfis de marca da empresa." : "Perfil de marca pessoal."} />

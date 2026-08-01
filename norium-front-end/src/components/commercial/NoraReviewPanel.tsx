@@ -3,7 +3,7 @@ import { AlertTriangle, Check, Scale, Sparkles, X } from "lucide-react";
 import type { CommercialProposal, NoraSuggestion } from "../../features/commercial/types";
 import Button from "../shared/Button";
 
-type Focus = "scope" | "risk" | "tone" | "commercial" | "legal";
+type Focus = "scope" | "risk" | "tone" | "commercial" | "legal" | "grammar";
 
 type NoraReviewPanelProps = {
   proposal: CommercialProposal;
@@ -16,27 +16,28 @@ const focuses: Array<{ id: Focus; label: string }> = [
   { id: "scope", label: "Escopo" },
   { id: "risk", label: "Riscos" },
   { id: "tone", label: "Tom" },
+  { id: "grammar", label: "Português" },
   { id: "commercial", label: "Comercial" },
   { id: "legal", label: "Contratual" },
 ];
 
 export default function NoraReviewPanel({ proposal, busy, onAnalyze, onDecision }: NoraReviewPanelProps) {
   const [context, setContext] = useState(proposal.noraAnalysis?.context || "");
-  const [focus, setFocus] = useState<Focus[]>(proposal.noraAnalysis?.focus || ["scope", "risk", "tone"]);
+  const [focus, setFocus] = useState<Focus[]>(proposal.noraAnalysis?.focus || ["scope", "risk", "tone", "grammar"]);
 
   function toggleFocus(value: Focus) {
     setFocus((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
   }
 
   return (
-    <aside className="flex min-h-0 flex-col border-l border-[var(--border)] bg-[var(--surface)] text-[var(--text)]">
+    <aside className="flex h-full min-h-0 flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)] text-[var(--text)]">
       <header className="border-b border-[var(--border)] p-4">
         <div className="flex items-center gap-3">
           <span className="grid h-10 w-10 place-items-center rounded-lg bg-[color-mix(in_srgb,var(--primary)_14%,transparent)] text-[var(--primary)]"><Sparkles size={19} /></span>
           <div><h3 className="text-sm font-bold">Revisao da Nora</h3><p className="text-xs font-semibold text-[var(--text-secondary)]">Analise contextual, sem alterar sem aprovacao.</p></div>
         </div>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 [scrollbar-gutter:stable]">
         <label className="block">
           <span className="mb-2 block text-xs font-bold uppercase text-[var(--text-secondary)]">Contexto de analise</span>
           <textarea

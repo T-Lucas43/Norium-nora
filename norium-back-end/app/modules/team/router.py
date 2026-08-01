@@ -200,8 +200,13 @@ async def append_team_message_for_user(
     sender_name: str = "Nora",
     sender_avatar: str = "nora",
     metadata: dict[str, Any] | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     team_id = await team_id_for_user_id(user_id)
+    stored_attachments = [
+        save_attachment(AttachmentPayload.model_validate(item))
+        for item in (attachments or [])
+    ]
     message = {
         "id": f"team_msg_{uuid.uuid4().hex}",
         "threadId": "team",
@@ -211,7 +216,7 @@ async def append_team_message_for_user(
         "senderAvatar": sender_avatar,
         "recipientId": None,
         "text": text.strip(),
-        "attachments": [],
+        "attachments": stored_attachments,
         "metadata": metadata or {},
         "createdAt": now_iso(),
     }
@@ -224,7 +229,7 @@ async def append_team_message_for_user(
     await record_team_event(
         team_id,
         f"{sender_name} enviou mensagem ao time",
-        short_text(message["text"]),
+        f'{short_text(message["text"])}. Anexos: {len(stored_attachments)}.',
         {
             "action": "team_message_created",
             "messageId": message["id"],

@@ -26,6 +26,7 @@ import {
   RotateCcw,
   Search,
   Settings,
+  Sparkles,
   Tag,
   Trash2,
   Users,
@@ -555,6 +556,26 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
       await loadTasks();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não consegui criar a tarefa.");
+    }
+  }
+
+  async function detailTaskDescription() {
+    if (!activeWorkspace || !form.title.trim()) return;
+    setError("");
+    try {
+      const response = await tasksApiRequest<{ description: string; comment: string }>("/nora/detalhar-descricao", {
+        method: "POST",
+        body: JSON.stringify({
+          title: form.title.trim(),
+          description: form.description.trim(),
+          category: form.category,
+          projectName: activeWorkspace.name,
+        }),
+      });
+      setForm((current) => ({ ...current, description: response.description }));
+      setNotice(response.comment || "A Nora detalhou a descrição da tarefa.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "A Nora não conseguiu detalhar a tarefa.");
     }
   }
 
@@ -1271,6 +1292,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           teamMembers={teamMembers}
           setForm={setForm}
           toggleLabel={toggleFormLabel}
+          onDetailWithNora={detailTaskDescription}
           onClose={() => setShowCreate(false)}
           onSubmit={() => void createNewTask()}
         />
@@ -1855,6 +1877,7 @@ function CreateTaskModal({
   teamMembers,
   setForm,
   toggleLabel,
+  onDetailWithNora,
   onClose,
   onSubmit,
 }: {
@@ -1863,9 +1886,21 @@ function CreateTaskModal({
   teamMembers: NoriumUser[];
   setForm: (form: TaskForm) => void;
   toggleLabel: (labelId: string) => void;
+  onDetailWithNora: () => Promise<void>;
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const [noraBusy, setNoraBusy] = useState(false);
+
+  async function handleDetailWithNora() {
+    setNoraBusy(true);
+    try {
+      await onDetailWithNora();
+    } finally {
+      setNoraBusy(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
       <div className="w-full max-w-xl rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
@@ -1889,6 +1924,18 @@ function CreateTaskModal({
             rows={4}
             className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-semibold outline-none"
           />
+          <div className="flex justify-end">
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={noraBusy}
+              disabled={!form.title.trim()}
+              onClick={() => void handleDetailWithNora()}
+              icon={<Sparkles size={14} />}
+            >
+              Detalhar com a Nora
+            </Button>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <Select value={form.priority} onChange={(value) => setForm({ ...form, priority: value as TaskPriority })}>
               <option value="baixa">Baixa</option>

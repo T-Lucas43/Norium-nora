@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 import uuid
@@ -20,6 +21,7 @@ from app.routers.inbox_router import record_event
 from app.routers.team_chat_router import append_team_message_for_user
 from app.modules.operations.schemas import ReceiptCreate
 from app.modules.operations.service import record_receipt
+from app.services.nora import NoraIAService
 from app.services.task_store import (
     add_attachment,
     add_comment,
@@ -37,6 +39,7 @@ from app.services.task_store import (
 )
 
 router = APIRouter(prefix="/api/tarefas", tags=["Tarefas"])
+_nora = NoraIAService()
 
 
 class CriarTarefaPayload(StrictModel):
@@ -94,6 +97,13 @@ AnexoPayload.model_rebuild(force=True)
 class TaskAgentPayload(StrictModel):
     user_id: str = "lucas123"
     message: str = Field(min_length=1)
+
+
+class TaskDescriptionNoraPayload(StrictModel):
+    title: str = Field(default="", max_length=220)
+    description: str = Field(default="", max_length=6000)
+    category: str = Field(default="geral", max_length=100)
+    projectName: str = Field(default="", max_length=180)
 
 
 class ProjetoPayload(StrictModel):
@@ -530,6 +540,59 @@ async def apagar_projeto(project_id: str, user_id: str = "lucas123", user: dict[
         )
         return {"status": "sucesso"}
     raise HTTPException(status_code=404, detail="Projeto nao encontrado ou sem permissao para excluir.")
+
+
+@router.post("/nora/detalhar-descricao")
+async def detalhar_descricao_com_nora(
+    payload: TaskDescriptionNoraPayload,
+    user: dict[str, Any] = Depends(current_user),
+):
+    title = payload.title.strip() or "Nova tarefa"
+    current_description = payload.description.strip()
+    project_name = payload.projectName.strip() or "projeto atual"
+    fallback = (
+        f"Objetivo: concluir {title} no {project_name}.\n\n"
+        f"Contexto: {current_description or 'Organizar a execução da tarefa com informações suficientes para o responsável iniciar o trabalho.'}\n\n"
+        "Resultado esperado:\n"
+        "- Entrega concluída e validada pelo responsável do projeto.\n"
+        "- Evidências, arquivos ou links relevantes anexados ao card.\n\n"
+        "Critérios de conclusão:\n"
+        "- O resultado foi revisado.\n"
+        "- As pendências e decisões foram registradas nos comentários."
+    )
+    prompt = f"""
+Você está escrevendo a descrição de uma tarefa do Norium.
+Título: {title}
+Projeto: {project_name}
+Categoria: {payload.category or 'geral'}
+Descrição atual: {current_description or 'não informada'}
+
+Expanda a ideia sem inventar datas, pessoas, valores ou requisitos. Escreva em português do Brasil, de forma objetiva e acionável.
+Retorne somente JSON válido no formato:
+{{"description":"texto completo com objetivo, contexto, resultado esperado e critérios de conclusão","comment":"comentário curto e útil da Nora"}}
+""".strip()
+
+    raw = await _nora.perguntar_nora(
+        [{"role": "user", "content": prompt}],
+        screen_context="Tarefas > criação de card",
+    )
+    try:
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.IGNORECASE | re.DOTALL)
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        parsed = json.loads(cleaned[start : end + 1]) if start >= 0 and end > start else {}
+        description = str(parsed.get("description") or "").strip()
+        comment = str(parsed.get("comment") or "").strip()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        description = ""
+        comment = ""
+
+    return {
+        "description": description or fallback,
+        "comment": comment or "Organizei a descrição em objetivo, resultado esperado e critérios de conclusão. Revise os detalhes antes de criar a tarefa.",
+        "generatedBy": "nora" if description else "fallback",
+        "userId": tenant_id(user),
+    }
 
 
 @router.post("")

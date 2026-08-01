@@ -393,7 +393,7 @@ async def handle_commercial_agent(
             str(proposal["id"]),
             NoraAnalysisRequest(
                 context="Análise solicitada pelo chat da Nora.",
-                focus=["scope", "risk", "tone", "commercial", "legal"],
+                focus=["scope", "risk", "tone", "commercial", "legal", "grammar"],
             ),
         )
         return _response(

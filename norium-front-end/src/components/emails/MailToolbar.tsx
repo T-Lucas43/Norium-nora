@@ -127,13 +127,14 @@ export default function MailToolbar({
           <Settings size={17} />
         </Button>
         <Button
+          iconOnly
           onClick={onToggleProfile}
           title="Perfil"
-          className="mail-hover overflow-hidden rounded-full border-white/12 bg-[#4A3B8F]"
+          className="mail-hover !h-9 !w-9 !min-w-9 shrink-0 overflow-hidden rounded-full border-white/12 bg-[#4A3B8F] !p-0"
           aria-label="Perfil"
         >
           {status?.picture ? (
-            <img src={status.picture} alt="Foto do perfil" className="h-full w-full object-cover" />
+            <img src={status.picture} alt="Foto do perfil" className="block aspect-square h-9 w-9 max-w-none object-cover" />
           ) : (
             <span>{accountInitials(status)}</span>
           )}

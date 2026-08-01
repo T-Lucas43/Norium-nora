@@ -336,6 +336,10 @@ export default function NoriumApp() {
             onNavigate={setActiveTab}
             onOpenDeepLink={openDeepLink}
             onOpenNora={openNora}
+            onOpenTeamChat={() => {
+              setTeamChatOpen(true);
+              setTeamChatUnread(0);
+            }}
             onProfileSaved={saveLocalProfile}
             onRefreshEvents={() => void refreshEvents()}
             onSessionUpdate={updateSession}

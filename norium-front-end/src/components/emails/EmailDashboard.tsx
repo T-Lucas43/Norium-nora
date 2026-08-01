@@ -31,6 +31,7 @@ import { useGmailConnection } from "../../features/mail/hooks/useGmailConnection
 import { useMailbox } from "../../features/mail/hooks/useMailbox";
 import { useMessageDetail } from "../../features/mail/hooks/useMessageDetail";
 import { useCompose } from "../../features/mail/hooks/useCompose";
+import { useMailPreferences } from "../../features/mail/hooks/useMailPreferences";
 import { useNoraMail } from "../../features/mail/hooks/useNoraMail";
 import Button from "../shared/Button";
 import LabelDialog from "./modals/LabelDialog";
@@ -88,15 +89,12 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [filtersOpen]);
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [showPreview, setShowPreview] = useState(true);
-  const [compactMode, setCompactMode] = useState(false);
-  const [groupByCategory, setGroupByCategory] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [messageFullscreen, setMessageFullscreen] = useState(false);
+  const { preferences, setPreference } = useMailPreferences();
+  const { autoRefresh, showPreview, compactMode, groupByCategory } = preferences;
   const aiScrollRef = useRef<HTMLDivElement>(null);
   const messageScrollRef = useRef<HTMLDivElement>(null);
-  const preferencesLoadedRef = useRef(false);
 
 
   const handleDisconnected = useCallback(() => {
@@ -241,36 +239,6 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
     });
     return Array.from(groups.entries()).sort((a, b) => b[1].length - a[1].length);
   }, [messages]);
-
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(window.localStorage.getItem("norium-mail-preferences") || "{}") as Partial<{
-        autoRefresh: boolean;
-        showPreview: boolean;
-        compactMode: boolean;
-        groupByCategory: boolean;
-      }>;
-      if (typeof stored.autoRefresh === "boolean") setAutoRefresh(stored.autoRefresh);
-      if (typeof stored.showPreview === "boolean") setShowPreview(stored.showPreview);
-      if (typeof stored.compactMode === "boolean") setCompactMode(stored.compactMode);
-      if (typeof stored.groupByCategory === "boolean") setGroupByCategory(stored.groupByCategory);
-    } catch {
-      // Preferencias invalidas nao devem impedir o carregamento do Gmail.
-    }
-    window.requestAnimationFrame(() => {
-      preferencesLoadedRef.current = true;
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!preferencesLoadedRef.current) return;
-    window.localStorage.setItem("norium-mail-preferences", JSON.stringify({
-      autoRefresh,
-      showPreview,
-      compactMode,
-      groupByCategory,
-    }));
-  }, [autoRefresh, compactMode, groupByCategory, showPreview]);
 
   useEffect(() => {
     setSelectedMessage(null);
@@ -453,7 +421,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
             setAiOpen(true);
             if (!aiMessages.length) void askEmailAgent("resumir minha caixa de entrada");
           }}
-          onTogglePreview={() => setShowPreview((value) => !value)}
+          onTogglePreview={() => setPreference("showPreview", !showPreview)}
           onOpenSettings={() => setSettingsOpen(true)}
           onToggleProfile={() => setProfileOpen((value) => !value)}
         />
@@ -523,7 +491,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
               onBulkAction={(action) => void runBulkAction(action)}
               onToggleGroupByCategory={() => {
                 const next = !groupByCategory;
-                setGroupByCategory(next);
+                setPreference("groupByCategory", next);
                 if (next && canUseNora) void askEmailAgent("agrupar e-mails por categoria");
               }}
               onOpenFilters={() => setFiltersOpen(true)}
@@ -622,14 +590,9 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
 
       {settingsOpen && (
         <MailSettingsDrawer
-          preferences={{ compactMode, groupByCategory, showPreview, autoRefresh }}
+          preferences={preferences}
           status={status}
-          onPreferenceChange={(key, value) => {
-            if (key === "compactMode") setCompactMode(value as boolean);
-            else if (key === "groupByCategory") setGroupByCategory(value as boolean);
-            else if (key === "showPreview") setShowPreview(value as boolean);
-            else setAutoRefresh(value as boolean);
-          }}
+          onPreferenceChange={setPreference}
           onRefreshNow={() => void fetchMessages(false)}
           onConnect={() => void connectGmail()}
           onDisconnect={() => void disconnectGmail()}

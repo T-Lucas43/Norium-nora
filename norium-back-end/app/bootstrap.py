@@ -21,6 +21,7 @@ from app.infrastructure.reliability.idempotency import (
     complete_request,
 )
 from app.modules.auth.router import router as auth_router
+from app.modules.admin_finance.router import router as admin_finance_router
 from app.modules.automations.router import router as automacoes_router
 from app.modules.brainstorm.router import router as brainstorm_router
 from app.modules.calendar.router import integracoes_google_router, router as agenda_router
@@ -161,6 +162,7 @@ def create_app() -> FastAPI:
     # A ordem é mantida para preservar a documentação e a resolução das rotas.
     app.include_router(nora_router)
     app.include_router(auth_router)
+    app.include_router(admin_finance_router)
     app.include_router(agenda_router)
     app.include_router(integracoes_google_router)
     app.include_router(gmail_router)

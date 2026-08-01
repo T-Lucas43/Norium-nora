@@ -9,6 +9,7 @@ import {
   SlidersHorizontal,
   UserPlus,
   UsersRound,
+  WalletCards,
 } from "lucide-react";
 import type { AuthSession, NoriumUser, PermissionKey, PermissionMap, PlanInfo, UserPlan } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
@@ -17,6 +18,7 @@ import LocalThemeToggle from "../layout/LocalThemeToggle";
 import BrandLogo from "../layout/BrandLogo";
 import { showConfirm } from "../shared/AppDialogProvider";
 import Button from "../shared/Button";
+import AdminFinanceDashboard from "./finance/AdminFinanceDashboard";
 
 interface AdminDashboardProps {
   session: AuthSession;
@@ -56,6 +58,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
   const [saving, setSaving] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [activeArea, setActiveArea] = useState<"users" | "finance">("users");
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) || users[0] || session.user,
@@ -206,6 +209,10 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
           </div>
 
           <div className="flex items-center gap-2">
+            <div className="hidden items-center gap-1 rounded-xl border border-[var(--border)] bg-[var(--background)] p-1 md:flex">
+              <button onClick={() => setActiveArea("users")} className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black ${activeArea === "users" ? "bg-blue-600 text-white" : "text-[var(--text-secondary)]"}`}><UsersRound size={15}/> Usuários</button>
+              <button onClick={() => setActiveArea("finance")} className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black ${activeArea === "finance" ? "bg-blue-600 text-white" : "text-[var(--text-secondary)]"}`}><WalletCards size={15}/> Financeiro</button>
+            </div>
             <LocalThemeToggle storageKey="norium-admin-theme" label="tema do admin" />
             <Button size="lg" iconOnly
               onClick={() => void refresh()}
@@ -224,6 +231,12 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
         </div>
       </header>
 
+      <div className="flex shrink-0 gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2 md:hidden">
+        <Button className={activeArea === "users" ? "bg-blue-600 text-white" : ""} onClick={() => setActiveArea("users")}><UsersRound size={15}/> Usuários</Button>
+        <Button className={activeArea === "finance" ? "bg-blue-600 text-white" : ""} onClick={() => setActiveArea("finance")}><WalletCards size={15}/> Financeiro</Button>
+      </div>
+
+      {activeArea === "finance" ? <AdminFinanceDashboard session={session}/> : (
       <div className="mx-auto grid min-h-0 w-full max-w-7xl flex-1 content-start gap-5 overflow-y-auto p-5 xl:grid-cols-[360px_1fr]">
         <section className="space-y-5">
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
@@ -418,6 +431,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
           </div>
         </section>
       </div>
+      )}
     </main>
   );
 }

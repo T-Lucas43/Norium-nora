@@ -1321,15 +1321,24 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           userId,
           screenContext,
           (partial) => {
-          setMessages((prev) => {
             if (!streamStarted) {
               streamStarted = true;
-              return [...prev, { role: "ai", text: partial, agent: "geral", status: "chat" }];
+              setMessages((prev) => [
+                ...prev,
+                { role: "ai", text: partial, agent: "geral", status: "chat" },
+              ]);
+              return;
             }
-            const next = [...prev];
-            next[next.length - 1] = { ...next[next.length - 1], text: partial };
-            return next;
-          });
+            setMessages((prev) => {
+              const lastMessage = prev.at(-1);
+              if (lastMessage?.role !== "ai" || lastMessage.status !== "chat") {
+                return [...prev, { role: "ai", text: partial, agent: "geral", status: "chat" }];
+              }
+              return [
+                ...prev.slice(0, -1),
+                { ...lastMessage, text: partial },
+              ];
+            });
         }).catch(() => ({ redirect: true as const }));
 
         if (!streamResult.redirect) {
@@ -1339,7 +1348,12 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           handledInline = true;
         } else {
           if (streamStarted) {
-            setMessages((prev) => prev.slice(0, -1));
+            setMessages((prev) => {
+              const lastMessage = prev.at(-1);
+              return lastMessage?.role === "ai" && lastMessage.status === "chat"
+                ? prev.slice(0, -1)
+                : prev;
+            });
           }
           const result = await askNaturalNora(
             messages,

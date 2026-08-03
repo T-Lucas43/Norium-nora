@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import copy
-import os
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable
 
-from app.core.tenant import get_system_db_path, is_production, read_json_file, write_json_file
+from app.core.tenant import get_system_db_path, read_json_file, write_json_file
 
 
 DB_PATH = get_system_db_path("admin_finance")
@@ -84,60 +83,46 @@ def default_store() -> dict[str, Any]:
             "timezone": "America/Sao_Paulo", "defaultTaxPercentage": 0,
             "defaultPaymentFeePercentage": 0, "revenueRecognition": "cash",
             "defaultPaymentMethod": "pix", "closingDay": 1, "fiscalYearStartMonth": 1,
-            "jorroProviderEnabled": False, "jorroMonthlyBudgetCents": 100000,
+            "jorroProviderEnabled": False, "jorroMonthlyBudgetCents": 0,
             "alertThresholds": [50, 75, 90, 100],
         },
     }
-    if not is_production() and os.getenv("NORIUM_ADMIN_FINANCE_DEMO", "1").strip().lower() not in {"0", "false", "no"}:
-        _seed_development_data(store)
     return store
 
 
-def _seed_development_data(store: dict[str, Any]) -> None:
-    today = date.today()
-    plan_ids = ["plan_individual", "plan_equipe", "plan_enterprise"]
-    customers = [("Acme Studio", "acme@example.com"), ("Orbita Consultoria", "orbita@example.com"), ("Vetor Labs", "vetor@example.com")]
-    for index, ((name, email), plan_id) in enumerate(zip(customers, plan_ids, strict=True), start=1):
-        subscription_id = f"demo_sub_{index}"
-        store["subscriptions"].append({
-            "id": subscription_id, "customerId": f"demo_customer_{index}", "customerName": name,
-            "customerEmail": email, "planId": plan_id, "status": "active", "billingCycle": "monthly",
-            "startedAt": (today - timedelta(days=120 - index * 10)).isoformat(),
-            "currentPeriodStart": today.replace(day=1).isoformat(),
-            "currentPeriodEnd": (today.replace(day=28) + timedelta(days=4)).replace(day=1).isoformat(),
-            "trialEndsAt": None, "canceledAt": None, "nextBillingAt": (today + timedelta(days=10 + index)).isoformat(),
-            "discountCents": 0, "discountPercentage": 0, "taxPercentage": 0,
-            "paymentFeePercentage": 3.49, "notes": "Registro demonstrativo de desenvolvimento.",
-        })
-        gross = [12900, 29900, 89900][index - 1]
-        store["payments"].append({
-            "id": f"demo_payment_{index}", "subscriptionId": subscription_id,
-            "customerId": f"demo_customer_{index}", "customerName": name, "planId": plan_id,
-            "status": "paid", "grossCents": gross, "discountCents": 0, "refundCents": 0,
-            "taxCents": 0, "feeCents": round(gross * 0.0349), "dueAt": today.isoformat(),
-            "paidAt": today.isoformat(), "provider": "demo", "paymentMethod": "pix",
-            "externalId": f"demo-{index}", "notes": "Pagamento demonstrativo.",
-        })
-    store["expenses"].extend([
-        {
-            "id": "demo_expense_jorro", "title": "Consumo Jorro", "description": "Custo mensal demonstrativo.",
-            "amountCents": 42500, "categoryId": "cat_jorro", "subcategoryId": None,
-            "supplierId": None, "costCenterId": "cc_admin", "providerId": "provider_jorro",
-            "status": "paid", "expenseType": "recurring", "dueAt": today.isoformat(), "paidAt": today.isoformat(),
-            "recurrence": "monthly", "recurrenceEndsAt": None, "installmentNumber": 1, "installmentCount": 1,
-            "paymentMethod": "credit_card", "jorro": True, "tags": ["demo"], "attachments": [],
-            "notes": "Registro demonstrativo de desenvolvimento.",
-        },
-        {
-            "id": "demo_expense_marketing", "title": "Campanha institucional", "description": "Midia de aquisicao.",
-            "amountCents": 18000, "categoryId": "cat_marketing", "subcategoryId": None,
-            "supplierId": None, "costCenterId": "cc_admin", "providerId": None,
-            "status": "paid", "expenseType": "variable", "dueAt": today.isoformat(), "paidAt": today.isoformat(),
-            "recurrence": "none", "recurrenceEndsAt": None, "installmentNumber": 1, "installmentCount": 1,
-            "paymentMethod": "pix", "jorro": False, "tags": ["demo"], "attachments": [],
-            "notes": "Registro demonstrativo de desenvolvimento.",
-        },
-    ])
+def _remove_legacy_demo_records(store: dict[str, Any]) -> bool:
+    """Remove somente registros identificados explicitamente como demonstrativos."""
+    changed = False
+    for collection in ("subscriptions", "payments", "expenses"):
+        records = store.get(collection)
+        if not isinstance(records, list):
+            continue
+
+        def is_demo(record: Any) -> bool:
+            if not isinstance(record, dict):
+                return False
+            record_id = str(record.get("id") or "")
+            tags = record.get("tags")
+            return (
+                record_id.startswith("demo_")
+                or str(record.get("provider") or "").lower() == "demo"
+                or (isinstance(tags, list) and "demo" in tags)
+            )
+
+        filtered = [record for record in records if not is_demo(record)]
+        if len(filtered) != len(records):
+            store[collection] = filtered
+            changed = True
+
+    settings = store.get("settings")
+    if (
+        isinstance(settings, dict)
+        and not settings.get("jorroProviderEnabled", False)
+        and settings.get("jorroMonthlyBudgetCents") == 100000
+    ):
+        settings["jorroMonthlyBudgetCents"] = 0
+        changed = True
+    return changed
 
 
 def ensure_store(payload: Any) -> dict[str, Any]:
@@ -164,7 +149,11 @@ class AdminFinanceRepository:
         if payload is None:
             payload = default_store()
             write_json_file(DB_PATH, payload)
-        return ensure_store(payload)
+        store = ensure_store(payload)
+        if _remove_legacy_demo_records(store):
+            store["updatedAt"] = now_iso()
+            write_json_file(DB_PATH, store)
+        return store
 
     async def mutate(self, callback: Callable[[dict[str, Any]], Any]) -> Any:
         async with self._lock:

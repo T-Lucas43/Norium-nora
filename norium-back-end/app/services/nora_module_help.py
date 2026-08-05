@@ -250,6 +250,37 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         ),
     ),
     ModuleHelp(
+        module="propostas",
+        aliases=(
+            "tela de propostas",
+            "propostas e contratos",
+            "propostas",
+            "proposta comercial",
+            "contratos",
+            "assinatura digital",
+        ),
+        response=(
+            "Propostas e contratos leva um documento comercial do rascunho até a assinatura, "
+            "com revisão da Nora e aprovação humana antes de qualquer envio.\n\n"
+            "Fluxo completo:\n"
+            "1. Crie a proposta a partir de um cliente cadastrado; a origem pode ser uma sessão "
+            "de brainstorm encerrada.\n"
+            "2. Escreva o escopo no editor A4, com marca, cabeçalho, rodapé e assinantes "
+            "(contratante, contratado e testemunhas).\n"
+            "3. Peça a análise da Nora: ela aponta riscos de escopo, prazo, margem e cláusulas. "
+            "Aceite ou rejeite cada sugestão — nada entra no documento sem sua decisão.\n"
+            "4. Envie para aprovação. Em conta Equipe o pedido entra na fila do Controle; "
+            "no modo Solo a aprovação é imediata.\n"
+            "5. Depois de aprovada, gere o contrato e envie para assinatura. Só nesse momento "
+            "o sistema cria o link seguro de cada assinante e dispara o e-mail.\n"
+            "6. O cliente abre o link, confirma o código enviado por e-mail e assina. "
+            "Ficam registrados data e hora em UTC, IP e o hash SHA-256 do documento.\n"
+            "7. Com todas as assinaturas, o escopo vira tarefas e prazos automaticamente.\n\n"
+            "Nenhum e-mail ou link de assinatura sai sem passar pela aprovação humana. "
+            "A trilha de auditoria de cada etapa fica na Governança."
+        ),
+    ),
+    ModuleHelp(
         module="ajuda",
         aliases=("ajuda e guia pratico", "guia pratico", "quero ajuda", "ajuda"),
         response=(

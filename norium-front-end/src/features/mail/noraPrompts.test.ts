@@ -18,11 +18,15 @@ describe("fallbackEmailSuggestion", () => {
     expect(fallbackEmailSuggestion("reply", sujo, compose)).toContain("Ola, Ana.");
   });
 
-  // Comportamento atual, preservado na extracao: sem remetente o texto cai para
-  // "tudo bem", mas so o primeiro termo sobrevive ao split, gerando "Ola, tudo.".
-  // A saudacao fica estranha - vale corrigir, mas em mudanca de comportamento propria.
-  it("sem remetente gera a saudacao de fallback (hoje: 'Ola, tudo.')", () => {
-    expect(fallbackEmailSuggestion("reply", { ...message, fromName: "" } as GmailMessage, compose)).toContain("Ola, tudo.");
+  it("sem remetente usa saudacao neutra, sem nome cortado", () => {
+    const texto = fallbackEmailSuggestion("reply", { ...message, fromName: "" } as GmailMessage, compose);
+    expect(texto.startsWith("Ola,\n")).toBe(true);
+    expect(texto).not.toContain("Ola, tudo.");
+  });
+
+  it("nome so com pontuacao tambem cai na saudacao neutra", () => {
+    const texto = fallbackEmailSuggestion("reply", { ...message, fromName: "!!!" } as GmailMessage, compose);
+    expect(texto.startsWith("Ola,\n")).toBe(true);
   });
 
   it("na redacao aproveita o texto ja escrito pelo operador", () => {

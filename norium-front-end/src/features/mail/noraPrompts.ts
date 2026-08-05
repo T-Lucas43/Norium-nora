@@ -15,10 +15,12 @@ export const NORA_ANALYST_SYSTEM =
 /** Texto usado quando o modelo devolve uma resposta evasiva em vez de um e-mail. */
 export function fallbackEmailSuggestion(target: NoraTarget, message: GmailMessage | null, compose: ComposeState) {
   if (target === "reply" && message) {
-    const senderName = message.fromName || "tudo bem";
-    const firstName = senderName.split(/\s+/)[0]?.replace(/[^\p{L}\p{N}]/gu, "") || "tudo bem";
+    // O fallback fica fora do split: antes, "tudo bem" era cortado no espaco e
+    // a saudacao saia como "Ola, tudo.". Sem nome do remetente usamos a mesma
+    // saudacao neutra do modo redacao.
+    const firstName = (message.fromName || "").split(/\s+/)[0]?.replace(/[^\p{L}\p{N}]/gu, "") || "";
     return [
-      `Ola, ${firstName}.`,
+      firstName ? `Ola, ${firstName}.` : "Ola,",
       "",
       "Obrigado pelo envio. Vou verificar os pontos mencionados e retorno com uma posicao objetiva assim que concluir a analise.",
       "",

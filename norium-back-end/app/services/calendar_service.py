@@ -15,7 +15,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
-from app.core.tenant import read_profile_db, write_profile_db
+from app.core.tenant import get_data_root, read_profile_db, write_profile_db
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
@@ -29,7 +29,7 @@ LEGACY_TOKENS_PATH = BASE_DIR / "mock_database.json"
 LOCAL_EVENTS_PATH = BASE_DIR / "agenda_local_events.json"
 SYNC_STATE_PATH = BASE_DIR / "agenda_sync_state.json"
 OAUTH_STATE_PATH = BASE_DIR / "google_oauth_state.json"
-ACCOUNT_DIR = BASE_DIR / "oauth_accounts" / "calendar"
+ACCOUNT_DIR = get_data_root() / "oauth_accounts" / "calendar"
 ACCOUNT_DIR.mkdir(parents=True, exist_ok=True)
 
 

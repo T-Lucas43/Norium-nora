@@ -11,6 +11,7 @@ from app.core.request_context import current_workspace_id
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_DATA_ROOT = Path("/app/data")
+VERCEL_DATA_ROOT = Path("/tmp/norium")
 LOCAL_DATA_ROOT = BACKEND_ROOT / "data"
 
 
@@ -18,9 +19,19 @@ def is_production() -> bool:
     return os.getenv("ENVIRONMENT", "").strip().lower() in {"production", "prod", "railway"}
 
 
+def is_vercel() -> bool:
+    return os.getenv("VERCEL", "").strip() == "1"
+
+
 def get_data_root() -> Path:
     configured = os.getenv("NORIUM_DATA_DIR")
-    root = Path(configured) if configured else (PRODUCTION_DATA_ROOT if is_production() else LOCAL_DATA_ROOT)
+    if configured:
+        root = Path(configured)
+    elif is_vercel():
+        # Vercel Functions only allow runtime writes in the ephemeral /tmp directory.
+        root = VERCEL_DATA_ROOT
+    else:
+        root = PRODUCTION_DATA_ROOT if is_production() else LOCAL_DATA_ROOT
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -66,6 +77,10 @@ def public_api_base_url() -> str:
     configured = os.getenv("BACKEND_PUBLIC_URL") or os.getenv("API_PUBLIC_URL")
     if configured and configured.strip():
         return configured.strip().rstrip("/")
+    vercel_domain = os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or os.getenv("VERCEL_URL")
+    if vercel_domain and vercel_domain.strip():
+        normalized = vercel_domain.strip().rstrip("/")
+        return normalized if "://" in normalized else f"https://{normalized}"
     if is_production():
         return ""
     return "http://127.0.0.1:8000"

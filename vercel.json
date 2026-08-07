@@ -1,0 +1,49 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "norium_frontend": {
+      "root": "norium-front-end",
+      "framework": "vite",
+      "buildCommand": "npm run build",
+      "outputDirectory": "dist",
+      "rewrites": [
+        {
+          "source": "/(.*)",
+          "destination": "/index.html"
+        }
+      ]
+    },
+    "norium_backend": {
+      "root": "norium-back-end",
+      "framework": "fastapi",
+      "runtime": "python3.12",
+      "entrypoint": "main.py",
+      "functions": {
+        "main.py": {
+          "memory": 1024,
+          "maxDuration": 300
+        }
+      }
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": {
+        "service": "norium_backend"
+      }
+    },
+    {
+      "source": "/health",
+      "destination": {
+        "service": "norium_backend"
+      }
+    },
+    {
+      "source": "/:path*",
+      "destination": {
+        "service": "norium_frontend"
+      }
+    }
+  ]
+}

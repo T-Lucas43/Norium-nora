@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 
@@ -52,7 +53,12 @@ LOCAL_FRONTEND_ORIGINS = (
 
 def cors_origins() -> list[str]:
     configured = [item.strip() for item in settings.FRONTEND_URL.split(",") if item.strip()]
-    return list(dict.fromkeys((*LOCAL_FRONTEND_ORIGINS, *configured)))
+    vercel_origins: list[str] = []
+    for variable in ("VERCEL_PROJECT_PRODUCTION_URL", "VERCEL_BRANCH_URL", "VERCEL_URL"):
+        domain = os.getenv(variable, "").strip().rstrip("/")
+        if domain:
+            vercel_origins.append(domain if "://" in domain else f"https://{domain}")
+    return list(dict.fromkeys((*LOCAL_FRONTEND_ORIGINS, *configured, *vercel_origins)))
 
 
 def create_app() -> FastAPI:

@@ -2,14 +2,28 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
+from app.infrastructure.http.spa import (
+    accepts_html,
+    app_spa_root,
+    spa_index_response,
+)
 from app.infrastructure.observability.diagnostics import diagnostics_snapshot
 from app.infrastructure.reliability.idempotency import reliability_snapshot
 from app.modules.auth.router import current_user
 
 
 router = APIRouter(tags=["Sistema"])
+
+
+@router.get("/")
+async def root(request: Request):
+    if accepts_html(request):
+        response = spa_index_response(app_spa_root(request.app))
+        if response is not None:
+            return response
+    return {"status": "Online", "engine": "Norium Chat API"}
 
 
 @router.get("/health")

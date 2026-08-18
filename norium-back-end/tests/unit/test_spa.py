@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.infrastructure.http.spa import configure_spa
+from app.modules.system.router import router as system_router
 
 
 class SpaHostingTests(unittest.TestCase):
@@ -25,6 +26,7 @@ class SpaHostingTests(unittest.TestCase):
         async def ping() -> dict[str, bool]:
             return {"ok": True}
 
+        app.include_router(system_router)
         self.assertTrue(configure_spa(app, self.static_root))
         self.client = TestClient(app)
 
@@ -41,6 +43,17 @@ class SpaHostingTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Norium", response.text)
         self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_returns_index_at_root_for_browser_navigation(self) -> None:
+        response = self.client.get("/", headers={"Accept": "text/html"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Norium", response.text)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+
+    def test_preserves_root_status_for_api_clients(self) -> None:
+        response = self.client.get("/", headers={"Accept": "application/json"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "Online", "engine": "Norium Chat API"})
 
     def test_does_not_mask_missing_api_routes(self) -> None:
         response = self.client.get("/api/missing", headers={"Accept": "text/html"})

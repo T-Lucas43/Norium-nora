@@ -144,11 +144,6 @@ def is_allowed_telegram_sender(chat: Dict[str, Any], sender: Dict[str, Any]) -> 
     )
 
 
-@router.get("/")
-async def read_root():
-    return {"status": "Online", "engine": "Norium Chat API"}
-
-
 @router.get("/api/chat/foto-perfil")
 async def obter_foto_perfil(phone: str = Query(..., description="ID ou numero do contato/grupo")):
     return {"photoUrl": await fetch_profile_picture(phone)}

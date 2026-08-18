@@ -20,12 +20,32 @@ def spa_root() -> Path:
     return Path(configured) if configured else DEFAULT_SPA_ROOT
 
 
+def app_spa_root(app: FastAPI) -> Path:
+    configured = getattr(app.state, "norium_spa_root", None)
+    return Path(configured) if configured else spa_root()
+
+
+def accepts_html(request: Request) -> bool:
+    return "text/html" in request.headers.get("accept", "").lower()
+
+
+def spa_index_response(root: Path | None = None) -> FileResponse | None:
+    index_path = (root or spa_root()).resolve() / "index.html"
+    if not index_path.is_file():
+        return None
+
+    response = FileResponse(index_path)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def configure_spa(app: FastAPI, root: Path | None = None) -> bool:
     """Registra o fallback da SPA somente quando existe um build valido."""
     static_root = (root or spa_root()).resolve()
     index_path = static_root / "index.html"
     if not index_path.is_file():
         return False
+    app.state.norium_spa_root = static_root
 
     @app.get("/{requested_path:path}", include_in_schema=False)
     async def serve_spa(requested_path: str, request: Request) -> FileResponse:
@@ -47,12 +67,12 @@ def configure_spa(app: FastAPI, root: Path | None = None) -> bool:
                 response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             return response
 
-        accepts_html = "text/html" in request.headers.get("accept", "").lower()
-        if not accepts_html:
+        if not accepts_html(request):
             raise HTTPException(status_code=404, detail="Recurso nao encontrado.")
 
-        response = FileResponse(index_path)
-        response.headers["Cache-Control"] = "no-store"
+        response = spa_index_response(static_root)
+        if response is None:
+            raise HTTPException(status_code=404, detail="Frontend nao encontrado.")
         return response
 
     return True

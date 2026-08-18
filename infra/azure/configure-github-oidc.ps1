@@ -39,6 +39,8 @@ $account = (Invoke-AzureCli account show --output json | Out-String) | ConvertFr
 if (-not $account) { throw "Azure CLI nao autenticada." }
 $deployment = (Invoke-AzureCli deployment group show --resource-group $ResourceGroup --name norium-dev --output json | Out-String) | ConvertFrom-Json
 if (-not $deployment) { throw "Deployment norium-dev nao encontrado." }
+$repositoryMetadata = (& $gh api "repos/$Repository" | Out-String) | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or -not $repositoryMetadata) { throw "Repositorio GitHub nao encontrado." }
 
 $displayName = "github-norium-nora-azure-dev"
 $applications = @((Invoke-AzureCli ad app list --display-name $displayName --output json | Out-String) | ConvertFrom-Json)
@@ -66,17 +68,24 @@ if ($assignments.Count -eq 0) {
 
 $credentialName = "github-main"
 $credentials = @((Invoke-AzureCli ad app federated-credential list --id $clientId --output json | Out-String) | ConvertFrom-Json)
-if (-not ($credentials | Where-Object { $_.name -eq $credentialName })) {
+$credential = $credentials | Where-Object { $_.name -eq $credentialName } | Select-Object -First 1
+$credentialSubject = "repo:$($repositoryMetadata.owner.login)@$($repositoryMetadata.owner.id)/$($repositoryMetadata.name)@$($repositoryMetadata.id):ref:refs/heads/$Branch"
+if (-not $credential -or $credential.subject -ne $credentialSubject) {
     $credentialPath = Join-Path ([System.IO.Path]::GetTempPath()) ("norium-federated-" + [guid]::NewGuid().ToString("N") + ".json")
     try {
         @{
             name = $credentialName
             issuer = "https://token.actions.githubusercontent.com"
-            subject = "repo:${Repository}:ref:refs/heads/${Branch}"
+            subject = $credentialSubject
             description = "GitHub Actions deploy do Norium para Azure Container Apps"
             audiences = @("api://AzureADTokenExchange")
         } | ConvertTo-Json | Set-Content -LiteralPath $credentialPath -Encoding utf8
-        Invoke-AzureCli ad app federated-credential create --id $clientId --parameters $credentialPath --output none | Out-Null
+        if ($credential) {
+            Invoke-AzureCli ad app federated-credential update --id $clientId --federated-credential-id $credential.id --parameters $credentialPath --output none | Out-Null
+        }
+        else {
+            Invoke-AzureCli ad app federated-credential create --id $clientId --parameters $credentialPath --output none | Out-Null
+        }
     }
     finally {
         if (Test-Path -LiteralPath $credentialPath) { Remove-Item -LiteralPath $credentialPath -Force }

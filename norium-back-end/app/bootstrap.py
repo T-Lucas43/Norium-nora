@@ -16,6 +16,7 @@ from app.core.request_context import reset_request_context, set_request_context
 from app.core.security import TokenValidationError, auth_secret, decode_signed_token
 from app.core.settings import settings
 from app.infrastructure.observability.diagnostics import record_request
+from app.infrastructure.http.spa import configure_spa
 from app.infrastructure.reliability.idempotency import (
     begin_request,
     body_digest,
@@ -187,4 +188,5 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(system_router)
     app.include_router(platform_router)
+    configure_spa(app)
     return app

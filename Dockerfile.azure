@@ -1,0 +1,41 @@
+FROM node:24-alpine AS frontend-build
+
+WORKDIR /build/frontend
+COPY norium-front-end/package.json norium-front-end/package-lock.json ./
+RUN npm ci
+COPY norium-front-end/ ./
+RUN npm run build
+
+FROM python:3.14-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV ENVIRONMENT=production
+ENV NORIUM_DATA_DIR=/app/data
+ENV NORIUM_SPA_DIR=/app/static
+ENV PORT=8000
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 norium \
+    && useradd --uid 10001 --gid norium --no-create-home --shell /usr/sbin/nologin norium
+
+COPY norium-back-end/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY norium-back-end/app ./app
+COPY norium-back-end/main.py ./main.py
+COPY --from=frontend-build /build/frontend/dist ./static
+
+RUN mkdir -p /app/data && chown -R norium:norium /app
+USER norium
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
+
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers"]

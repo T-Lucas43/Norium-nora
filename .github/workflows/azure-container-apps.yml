@@ -1,0 +1,113 @@
+name: Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: t-lucas43/norium-nora
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: norium-back-end/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: norium-back-end
+        run: pip install -r requirements.txt
+
+      - name: Validate backend
+        working-directory: norium-back-end
+        run: |
+          python -m compileall app main.py
+          python -m unittest discover -s tests
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: norium-front-end/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: norium-front-end
+        run: npm ci
+
+      - name: Validate frontend
+        working-directory: norium-front-end
+        run: |
+          npm run lint
+          npm test
+          npm run build
+
+  publish-image:
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.reference }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate with GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Define immutable image reference
+        id: image
+        shell: bash
+        run: echo "reference=${REGISTRY}/${IMAGE_NAME}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.azure
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ steps.image.outputs.reference }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: publish-image
+    if: ${{ vars.AZURE_CONTAINER_APP_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate with Azure using OpenID Connect
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy immutable image
+        shell: bash
+        run: >-
+          az containerapp update
+          --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+          --name "${{ vars.AZURE_CONTAINER_APP_NAME }}"
+          --image "${{ needs.publish-image.outputs.image }}"
+          --output none
+
+      - name: Verify health endpoint
+        shell: bash
+        run: curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health"

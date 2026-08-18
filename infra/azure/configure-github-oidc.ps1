@@ -8,34 +8,65 @@ param(
 $ErrorActionPreference = "Stop"
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $portableGitHubCli = Join-Path $repositoryRoot "tmp\github-cli\bin\gh.exe"
+$portableAzureCliPython = Join-Path $repositoryRoot "tmp\azure-cli-portable\Microsoft SDKs\Azure\CLI2\python.exe"
 $gh = if (Get-Command gh -ErrorAction SilentlyContinue) { "gh" } elseif (Test-Path -LiteralPath $portableGitHubCli) { $portableGitHubCli } else { throw "GitHub CLI nao encontrada." }
 
-$account = az account show --output json | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or -not $account) { throw "Azure CLI nao autenticada." }
-$deployment = az deployment group show --resource-group $ResourceGroup --name norium-dev --output json | ConvertFrom-Json
-if ($LASTEXITCODE -ne 0 -or -not $deployment) { throw "Deployment norium-dev nao encontrado." }
+function Invoke-AzureCli {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+
+    $output = if (Test-Path -LiteralPath $portableAzureCliPython) {
+        & $portableAzureCliPython -IBm azure.cli @Arguments
+    }
+    else {
+        & az @Arguments
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Azure CLI falhou: az $($Arguments -join ' ')"
+    }
+    return $output
+}
+
+function Set-GitHubVariable {
+    param([string]$Name, [string]$Value)
+
+    & $gh variable set $Name --repo $Repository --body $Value
+    if ($LASTEXITCODE -ne 0) {
+        throw "Nao foi possivel configurar a variavel $Name no GitHub."
+    }
+}
+
+$account = (Invoke-AzureCli account show --output json | Out-String) | ConvertFrom-Json
+if (-not $account) { throw "Azure CLI nao autenticada." }
+$deployment = (Invoke-AzureCli deployment group show --resource-group $ResourceGroup --name norium-dev --output json | Out-String) | ConvertFrom-Json
+if (-not $deployment) { throw "Deployment norium-dev nao encontrado." }
 
 $displayName = "github-norium-nora-azure-dev"
-$clientId = (az ad app list --display-name $displayName --query "[0].appId" --output tsv | Out-String).Trim()
+$applications = @((Invoke-AzureCli ad app list --display-name $displayName --output json | Out-String) | ConvertFrom-Json)
+$clientId = [string]$applications[0].appId
 if (-not $clientId) {
-    $clientId = (az ad app create --display-name $displayName --query appId --output tsv | Out-String).Trim()
+    $application = (Invoke-AzureCli ad app create --display-name $displayName --output json | Out-String) | ConvertFrom-Json
+    $clientId = [string]$application.appId
 }
 
-$servicePrincipalId = (az ad sp show --id $clientId --query id --output tsv 2>$null | Out-String).Trim()
-if (-not $servicePrincipalId) {
-    $servicePrincipalId = (az ad sp create --id $clientId --query id --output tsv | Out-String).Trim()
+$servicePrincipals = @((Invoke-AzureCli ad sp list --filter "appId eq '$clientId'" --output json | Out-String) | ConvertFrom-Json)
+if ($servicePrincipals.Count -eq 0) {
+    $servicePrincipal = (Invoke-AzureCli ad sp create --id $clientId --output json | Out-String) | ConvertFrom-Json
 }
+else {
+    $servicePrincipal = $servicePrincipals[0]
+}
+$servicePrincipalId = [string]$servicePrincipal.id
+if (-not $servicePrincipalId) { throw "Service principal do GitHub nao foi criada." }
 
 $scope = "/subscriptions/$($account.id)/resourceGroups/$ResourceGroup"
-$assignmentExists = (az role assignment list --assignee-object-id $servicePrincipalId --scope $scope --role Contributor --query "length(@)" --output tsv | Out-String).Trim()
-if ($assignmentExists -eq "0") {
-    az role assignment create --assignee-object-id $servicePrincipalId --assignee-principal-type ServicePrincipal --role Contributor --scope $scope --output none
-    if ($LASTEXITCODE -ne 0) { throw "Nao foi possivel atribuir a funcao Contributor no grupo de desenvolvimento." }
+$assignments = @((Invoke-AzureCli role assignment list --assignee-object-id $servicePrincipalId --scope $scope --role Contributor --output json | Out-String) | ConvertFrom-Json)
+if ($assignments.Count -eq 0) {
+    Invoke-AzureCli role assignment create --assignee-object-id $servicePrincipalId --assignee-principal-type ServicePrincipal --role Contributor --scope $scope --output none | Out-Null
 }
 
 $credentialName = "github-main"
-$credentialExists = (az ad app federated-credential list --id $clientId --query "[?name=='$credentialName'] | length(@)" --output tsv | Out-String).Trim()
-if ($credentialExists -eq "0") {
+$credentials = @((Invoke-AzureCli ad app federated-credential list --id $clientId --output json | Out-String) | ConvertFrom-Json)
+if (-not ($credentials | Where-Object { $_.name -eq $credentialName })) {
     $credentialPath = Join-Path ([System.IO.Path]::GetTempPath()) ("norium-federated-" + [guid]::NewGuid().ToString("N") + ".json")
     try {
         @{
@@ -45,8 +76,7 @@ if ($credentialExists -eq "0") {
             description = "GitHub Actions deploy do Norium para Azure Container Apps"
             audiences = @("api://AzureADTokenExchange")
         } | ConvertTo-Json | Set-Content -LiteralPath $credentialPath -Encoding utf8
-        az ad app federated-credential create --id $clientId --parameters $credentialPath --output none
-        if ($LASTEXITCODE -ne 0) { throw "Nao foi possivel criar a credencial federada." }
+        Invoke-AzureCli ad app federated-credential create --id $clientId --parameters $credentialPath --output none | Out-Null
     }
     finally {
         if (Test-Path -LiteralPath $credentialPath) { Remove-Item -LiteralPath $credentialPath -Force }
@@ -55,12 +85,11 @@ if ($credentialExists -eq "0") {
 
 $containerAppName = [string]$deployment.properties.outputs.containerAppName.value
 $publicUrl = [string]$deployment.properties.outputs.publicUrl.value
-& $gh variable set AZURE_CLIENT_ID --repo $Repository --body $clientId
-& $gh variable set AZURE_TENANT_ID --repo $Repository --body ([string]$account.tenantId)
-& $gh variable set AZURE_SUBSCRIPTION_ID --repo $Repository --body ([string]$account.id)
-& $gh variable set AZURE_RESOURCE_GROUP --repo $Repository --body $ResourceGroup
-& $gh variable set AZURE_CONTAINER_APP_NAME --repo $Repository --body $containerAppName
-& $gh variable set AZURE_PUBLIC_URL --repo $Repository --body $publicUrl
-if ($LASTEXITCODE -ne 0) { throw "Nao foi possivel configurar as variaveis no GitHub." }
+Set-GitHubVariable -Name AZURE_CLIENT_ID -Value $clientId
+Set-GitHubVariable -Name AZURE_TENANT_ID -Value ([string]$account.tenantId)
+Set-GitHubVariable -Name AZURE_SUBSCRIPTION_ID -Value ([string]$account.id)
+Set-GitHubVariable -Name AZURE_RESOURCE_GROUP -Value $ResourceGroup
+Set-GitHubVariable -Name AZURE_CONTAINER_APP_NAME -Value $containerAppName
+Set-GitHubVariable -Name AZURE_PUBLIC_URL -Value $publicUrl
 
 Write-Host "GitHub Actions configurado com OpenID Connect para $publicUrl"

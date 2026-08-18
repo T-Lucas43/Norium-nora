@@ -14,6 +14,17 @@ import httpx
 import websockets
 
 
+async def wait_for_message_type(socket: websockets.ClientConnection, expected: str, timeout: float = 15) -> dict:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise RuntimeError(f"WebSocket nao enviou a mensagem {expected} no prazo esperado.")
+        message = json.loads(await asyncio.wait_for(socket.recv(), timeout=remaining))
+        if message.get("type") == expected:
+            return message
+
+
 def signed_token(secret: str, user_id: str, email: str) -> str:
     payload = {
         "sub": user_id,
@@ -44,14 +55,9 @@ async def validate(base_url: str, secret: str, user_id: str, email: str) -> None
     token = signed_token(secret, user_id, email)
     websocket_url = f"{websocket_base}/api/team-chat/ws?token={quote(token)}"
     async with websockets.connect(websocket_url, open_timeout=30, close_timeout=10) as socket:
-        connected = json.loads(await asyncio.wait_for(socket.recv(), timeout=15))
-        if connected.get("type") != "CONNECTED":
-            raise RuntimeError(f"WebSocket nao confirmou a conexao: {connected.get('type')}")
+        await wait_for_message_type(socket, "CONNECTED")
         await socket.send("PING")
-        while True:
-            response = json.loads(await asyncio.wait_for(socket.recv(), timeout=15))
-            if response.get("type") == "ACK":
-                break
+        await wait_for_message_type(socket, "ACK")
 
 
 def main() -> None:

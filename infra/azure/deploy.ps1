@@ -221,7 +221,6 @@ try {
             Invoke-AzureCli storage file upload-batch `
                 --destination $fileShareName `
                 --source $dataStagingPath `
-                --overwrite true `
                 --output none | Out-Null
         }
         finally {

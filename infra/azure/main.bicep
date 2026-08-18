@@ -92,9 +92,6 @@ resource managedEnvironment 'Microsoft.App/managedEnvironments@2025-01-01' = {
   location: location
   tags: commonTags
   properties: {
-    appLogsConfiguration: {
-      destination: 'none'
-    }
     workloadProfiles: [
       {
         name: 'Consumption'

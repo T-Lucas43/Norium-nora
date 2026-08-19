@@ -1075,7 +1075,13 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
-      <aside className="flex h-full w-72 shrink-0 flex-col gap-4 border-r border-[var(--border)] bg-[var(--surface)] p-4">
+      <aside className="task-sidebar flex h-full w-72 shrink-0 flex-col gap-4 border-r border-[var(--border)] bg-[var(--surface)] p-4">
+        <div className="module-sidebar-mobile-header">
+          <span><Layers3 size={18} /> Projeto</span>
+          <button type="button" onClick={() => setMobileSidebarOpen(false)} aria-label="Fechar filtros do projeto">
+            <X size={19} />
+          </button>
+        </div>
         <Button
           onClick={() => {
             setMobileSidebarOpen(false);

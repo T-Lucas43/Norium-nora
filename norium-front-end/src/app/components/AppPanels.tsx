@@ -89,7 +89,7 @@ export default function AppPanels({
   onSessionUpdate,
 }: AppPanelsProps) {
   const currentUser = authSession.user;
-  const activePanelClass = (...tabs: string[]) => (tabs.includes(activeTab) ? "contents" : "hidden");
+  const activePanelClass = (...tabs: string[]) => (tabs.includes(activeTab) ? "app-panel" : "hidden");
   const isPanelMounted = (...tabs: string[]) => tabs.some((tab) => mountedTabs.has(tab) || tabs.includes(activeTab));
   const coach = (module: GuidedModule, compact = false) => (
     <ModuleCoach module={module} onAskNora={onOpenNora} compact={compact} />
@@ -118,7 +118,7 @@ export default function AppPanels({
       {isPanelMounted("Controle") && (
         <section className={activePanelClass("Controle")}>
           {coach("Controle")}
-          <OperationsDashboard onNavigate={onNavigate} />
+          <OperationsDashboard onNavigate={onNavigate} userId={currentUser.id} />
         </section>
       )}
       {isPanelMounted("Pendencias") && (
@@ -181,7 +181,7 @@ export default function AppPanels({
       {isPanelMounted("Automacoes", "Automações") && (
         <section className={activePanelClass("Automacoes", "Automações")}>
           {coach("Automacoes")}
-          <AutomationsDashboard onOpenNora={onOpenNora} />
+          <AutomationsDashboard onOpenNora={onOpenNora} userId={currentUser.id} />
         </section>
       )}
       {isPanelMounted("Relatorios", "Relatórios") && (
@@ -197,7 +197,7 @@ export default function AppPanels({
         </section>
       )}
       {isPanelMounted("Propostas") && (
-        <section className={activeTab === "Propostas" ? "flex h-full min-h-0 flex-col" : "hidden"}>
+        <section className={activeTab === "Propostas" ? "app-panel" : "hidden"}>
           {coach("Propostas")}
           <CommercialDashboard session={authSession} onOpenNora={onOpenNora} />
         </section>

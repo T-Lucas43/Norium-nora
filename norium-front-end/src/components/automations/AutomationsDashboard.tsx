@@ -62,6 +62,7 @@ import Button from "../shared/Button";
 
 type AutomationsDashboardProps = {
   onOpenNora?: () => void;
+  userId: string;
 };
 
 const filters: Array<{ key: FilterKey; label: string }> = [
@@ -435,9 +436,13 @@ function defaultLocalAutomations(): Automation[] {
   return templates.map(({ form }) => automationFromForm(form, flowFromFormState(form), null));
 }
 
-function readLocalAutomations(): AutomationResponse {
+function localAutomationsKey(userId: string) {
+  return `${LOCAL_AUTOMATIONS_KEY}:${userId}`;
+}
+
+function readLocalAutomations(userId: string): AutomationResponse {
   try {
-    const parsed = JSON.parse(localStorage.getItem(LOCAL_AUTOMATIONS_KEY) || "{}") as Partial<AutomationResponse>;
+    const parsed = JSON.parse(localStorage.getItem(localAutomationsKey(userId)) || "{}") as Partial<AutomationResponse>;
     if (parsed.automations?.length) return normalizeAutomationResponse(parsed);
   } catch {
     // Fallback abaixo.
@@ -446,8 +451,8 @@ function readLocalAutomations(): AutomationResponse {
   return normalizeAutomationResponse({ automations, history: [] });
 }
 
-function writeLocalAutomations(response: AutomationResponse) {
-  localStorage.setItem(LOCAL_AUTOMATIONS_KEY, JSON.stringify(response));
+function writeLocalAutomations(userId: string, response: AutomationResponse) {
+  localStorage.setItem(localAutomationsKey(userId), JSON.stringify(response));
 }
 
 async function apiJson<T>(path = "", init?: RequestInit): Promise<T> {
@@ -493,7 +498,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (next: bool
   );
 }
 
-export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboardProps) {
+export default function AutomationsDashboard({ onOpenNora, userId }: AutomationsDashboardProps) {
   const [data, setData] = useState<AutomationResponse>(emptyResponse);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("todas");
@@ -548,7 +553,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
   useEffect(() => {
     void loadAutomations();
     void loadTaskProjects();
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     if (!builderOpen) return;
@@ -639,7 +644,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
       setData(normalized);
       setSelectedId((current) => current || response.automations[0]?.id || null);
     } catch (err) {
-      const fallback = readLocalAutomations();
+      const fallback = readLocalAutomations(userId);
       setLocalMode(true);
       setData(fallback);
       setSelectedId((current) => current || fallback.automations[0]?.id || null);
@@ -675,7 +680,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
         ),
       });
       setData(next);
-      writeLocalAutomations(next);
+      writeLocalAutomations(userId, next);
       return;
     }
     const response = await apiJson<AutomationResponse>(`/${id}`, {
@@ -726,7 +731,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
         );
         const next = normalizeAutomationResponse({ ...data, automations: nextAutomations, history: [historyItem, ...data.history] });
         setData(next);
-        writeLocalAutomations(next);
+        writeLocalAutomations(userId, next);
         setSelectedId(automation.id);
         setStatusMessage(`${automation.name} executada com sucesso.`);
         return;
@@ -786,7 +791,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
           history: [historyItem, ...data.history].slice(0, 250),
         });
         setData(next);
-        writeLocalAutomations(next);
+        writeLocalAutomations(userId, next);
         setLogAutomation(next.automations.find((item) => item.id === automation.id) || null);
         setStatusMessage("Simulacao concluida sem efeitos reais.");
         return;
@@ -843,7 +848,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
       };
       const next = normalizeAutomationResponse({ ...data, automations: [clone, ...data.automations] });
       setData(next);
-      writeLocalAutomations(next);
+      writeLocalAutomations(userId, next);
       setStatusMessage("Automação duplicada.");
       return;
     }
@@ -866,7 +871,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
         automations: data.automations.filter((item) => item.id !== automation.id),
       });
       setData(next);
-      writeLocalAutomations(next);
+      writeLocalAutomations(userId, next);
       setSelectedId(next.automations[0]?.id || null);
       setStatusMessage("Automação excluída.");
       return;
@@ -1073,7 +1078,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
           : [automation, ...data.automations];
         const next = normalizeAutomationResponse({ ...data, automations: nextAutomations });
         setData(next);
-        writeLocalAutomations(next);
+        writeLocalAutomations(userId, next);
         setSelectedId(automation.id);
         setBuilderOpen(false);
         setStatusMessage(existing ? "Automação atualizada." : "Automação criada.");
@@ -1096,7 +1101,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
         : [automation, ...data.automations];
       const next = normalizeAutomationResponse({ ...data, automations: nextAutomations });
       setData(next);
-      writeLocalAutomations(next);
+      writeLocalAutomations(userId, next);
       setSelectedId(automation.id);
       setBuilderOpen(false);
       setStatusMessage("Backend indisponível. Automação salva em modo local.");
@@ -1138,7 +1143,7 @@ export default function AutomationsDashboard({ onOpenNora }: AutomationsDashboar
       });
       const next = normalizeAutomationResponse({ ...data, automations: [...safeAutomations, ...data.automations] });
       setData(next);
-      writeLocalAutomations(next);
+      writeLocalAutomations(userId, next);
       setStatusMessage(`${safeAutomations.length} automação(ões) importada(s).`);
       return;
     }

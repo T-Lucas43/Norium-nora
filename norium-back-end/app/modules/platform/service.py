@@ -29,7 +29,7 @@ def normalize_text(value: Any) -> str:
 
 
 def account_id(user: dict[str, Any]) -> str:
-    return str(user.get("teamOwnerId") or user.get("createdBy") or user.get("id") or "lucas123")
+    return str(user.get("teamOwnerId") or user.get("id") or "lucas123")
 
 
 def tenant_id(user: dict[str, Any]) -> str:

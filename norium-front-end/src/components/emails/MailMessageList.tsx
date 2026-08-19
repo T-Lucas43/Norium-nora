@@ -202,6 +202,21 @@ export default function MailMessageList({
         </div>
       )}
 
+      {!groupByCategory && groupedMessages.length > 0 && (
+        <div className="mail-mobile-categories" aria-label="Categorias do e-mail">
+          {groupedMessages.slice(0, 3).map(([category, items]) => {
+            const meta = emailCategoryMeta[category];
+            return (
+              <button key={category} type="button" onClick={onToggleGroupByCategory}>
+                <span className={meta.tone}><Tags size={15} /></span>
+                <span><strong>{meta.label}</strong><small>{items.length} e-mail(s)</small></span>
+                <b>+{items.length}</b>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {error && (
         <div className="border-b border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200">{error}</div>
       )}
@@ -219,7 +234,7 @@ export default function MailMessageList({
                 const meta = emailCategoryMeta[category];
                 return (
                   <section key={category}>
-                    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/8 bg-[#08256f]/95 px-4 py-2 backdrop-blur-xl">
+                    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/8 bg-[var(--surface)] px-4 py-2 backdrop-blur-xl">
                       <span className={cn("inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black", meta.tone)}>
                         <Tags size={14} />
                         {meta.label}

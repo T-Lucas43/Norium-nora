@@ -1,4 +1,4 @@
-import { CalendarPlus, ChevronLeft, ChevronRight, Cloud, Globe2, RefreshCw } from "lucide-react";
+import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, Cloud, Globe2, RefreshCw, X } from "lucide-react";
 import type { AgendaStatus } from "./AgendaDashboard";
 import Button from "../shared/Button";
 
@@ -9,6 +9,7 @@ interface SidebarProps {
   onConnectGoogle: () => void;
   onNovoEvento: (date?: Date) => void;
   onSync: () => void;
+  onClose: () => void;
 }
 
 const meses = [
@@ -56,10 +57,12 @@ export default function AgendaSidebar({
   onConnectGoogle,
   onNovoEvento,
   onSync,
+  onClose,
 }: SidebarProps) {
   const anoAtual = dataSelecionada.getFullYear();
   const mesAtualIdx = dataSelecionada.getMonth();
   const hoje = new Date();
+  const anos = Array.from({ length: 21 }, (_, index) => hoje.getFullYear() - 10 + index);
 
   const mudarMes = (direcao: number) => {
     setDataSelecionada(new Date(anoAtual, mesAtualIdx + direcao, 1));
@@ -70,7 +73,13 @@ export default function AgendaSidebar({
   };
 
   return (
-    <aside className="flex h-full w-72 shrink-0 flex-col gap-5 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] p-4">
+    <aside className="agenda-sidebar flex h-full w-72 shrink-0 flex-col gap-5 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] p-4">
+      <div className="module-sidebar-mobile-header">
+        <span><CalendarDays size={18} /> Agenda</span>
+        <button type="button" onClick={onClose} aria-label="Fechar menu da agenda">
+          <X size={19} />
+        </button>
+      </div>
       <button
         onClick={() => onNovoEvento(dataSelecionada)}
         className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary)] text-sm font-bold text-white shadow-sm hover:opacity-95"
@@ -80,10 +89,25 @@ export default function AgendaSidebar({
       </button>
 
       <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <span className="text-sm font-bold">
-            {meses[mesAtualIdx]} {anoAtual}
-          </span>
+        <div className="agenda-month-picker flex items-center justify-between gap-2 px-1">
+          <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_82px] gap-2">
+            <select
+              aria-label="Escolher mês"
+              value={mesAtualIdx}
+              onChange={(event) => setDataSelecionada(new Date(anoAtual, Number(event.target.value), 1))}
+              className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none"
+            >
+              {meses.map((mes, index) => <option key={mes} value={index}>{mes}</option>)}
+            </select>
+            <select
+              aria-label="Escolher ano"
+              value={anoAtual}
+              onChange={(event) => setDataSelecionada(new Date(Number(event.target.value), mesAtualIdx, 1))}
+              className="h-9 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none"
+            >
+              {anos.map((ano) => <option key={ano} value={ano}>{ano}</option>)}
+            </select>
+          </div>
           <div className="flex gap-1 text-[var(--text-secondary)]">
             <Button variant="ghost" size="sm" iconOnly onClick={() => mudarMes(-1)}>
               <ChevronLeft size={16} />

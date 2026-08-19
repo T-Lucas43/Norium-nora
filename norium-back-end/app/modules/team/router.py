@@ -54,37 +54,56 @@ class PresenceManager:
     def __init__(self) -> None:
         self.connections: dict[str, list[WebSocket]] = {}
         self.user_team: dict[str, str] = {}
+        self.socket_user: dict[WebSocket, str] = {}
 
     async def connect(self, team_id: str, user_id: str, websocket: WebSocket) -> None:
         await websocket.accept()
         self.connections.setdefault(team_id, []).append(websocket)
         self.user_team[user_id] = team_id
+        self.socket_user[websocket] = user_id
         await self.broadcast(team_id, {"type": "PRESENCE", "onlineUserIds": self.online_users(team_id)})
 
     def disconnect(self, websocket: WebSocket, user_id: str) -> None:
-        team_id = self.user_team.get(user_id)
+        connected_user_id = self.socket_user.pop(websocket, user_id)
+        team_id = self.user_team.get(connected_user_id)
         if team_id:
             connections = self.connections.get(team_id, [])
             if websocket in connections:
                 connections.remove(websocket)
             if not connections:
                 self.connections.pop(team_id, None)
-        self.user_team.pop(user_id, None)
+        remaining_for_user = any(value == connected_user_id for value in self.socket_user.values())
+        if not remaining_for_user:
+            self.user_team.pop(connected_user_id, None)
 
     def online_users(self, team_id: str) -> list[str]:
         return sorted(user_id for user_id, active_team in self.user_team.items() if active_team == team_id)
 
     async def broadcast(self, team_id: str, payload: dict[str, Any]) -> None:
         disconnected: list[WebSocket] = []
+        store = await read_user_store()
+        users_by_id = {
+            str(item.get("id") or ""): item
+            for item in store.get("users", [])
+            if isinstance(item, dict)
+        }
         for websocket in list(self.connections.get(team_id, [])):
+            connected_user_id = self.socket_user.get(websocket, "")
+            connected_user = users_by_id.get(connected_user_id)
+            current_team_id = team_id_for(connected_user) if connected_user else ""
+            if not connected_user or connected_user.get("status") != "ativo" or current_team_id != team_id:
+                try:
+                    await websocket.close(code=4403)
+                except Exception:
+                    pass
+                disconnected.append(websocket)
+                continue
             try:
                 await websocket.send_json(payload)
             except Exception:
                 disconnected.append(websocket)
         for websocket in disconnected:
-            for connections in self.connections.values():
-                if websocket in connections:
-                    connections.remove(websocket)
+            self.disconnect(websocket, self.socket_user.get(websocket, ""))
 
 
 manager = PresenceManager()

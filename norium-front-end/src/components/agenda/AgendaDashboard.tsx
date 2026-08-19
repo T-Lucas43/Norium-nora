@@ -271,6 +271,7 @@ export default function AgendaDashboard({ userId = "lucas123" }: { userId?: stri
         onConnectGoogle={() => void conectarGoogle()}
         onNovoEvento={abrirCriacao}
         onSync={() => void carregarEventos()}
+        onClose={() => setMobileSidebarOpen(false)}
       />
 
       <AgendaTimeline

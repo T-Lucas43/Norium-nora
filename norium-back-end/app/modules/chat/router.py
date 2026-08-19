@@ -23,7 +23,7 @@ from app.shared.schemas import StrictModel
 
 load_dotenv()
 
-from app.routers.auth_router import current_user
+from app.routers.auth_router import current_user, find_user, read_user_store
 from app.core.tenant import get_data_root, public_api_url
 from app.routers.inbox_router import record_event
 from app.services.conversation_store import (
@@ -257,7 +257,13 @@ async def webhook_whatsapp(data: Dict[str, Any] = Body(...)):
         message_payload = extract_message_payload(data)
         message_id = str(data.get("zaid") or data.get("messageId") or data.get("id") or f"msg_{current_ts}")
 
-        webhook_user_id = str(data.get("userId") or data.get("user_id") or "lucas123")
+        webhook_user_id = str(data.get("userId") or data.get("user_id") or "").strip()
+        if not webhook_user_id:
+            return {"status": "ignored", "detail": "Webhook sem usuario de destino; evento nao foi atribuido."}
+        user_store = await read_user_store()
+        webhook_user = find_user(user_store, webhook_user_id)
+        if not webhook_user or webhook_user.get("status") != "ativo":
+            return {"status": "ignored", "detail": "Usuario de destino inexistente ou inativo."}
         db = await load_conversations(webhook_user_id)
         conversa = db.get(phone) or new_conversation(
             phone,

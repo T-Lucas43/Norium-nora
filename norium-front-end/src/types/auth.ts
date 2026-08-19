@@ -50,6 +50,16 @@ export interface AuthSession {
   availableModes: AppMode[];
 }
 
+export interface NoriumTeam {
+  id: string;
+  ownerUserId: string;
+  ownerName: string;
+  name: string;
+  memberCount: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface PlanInfo {
   code: UserPlan;
   name: string;

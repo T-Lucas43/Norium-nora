@@ -182,6 +182,7 @@ class CreateUserPayload(StrictModel):
     role: Role = "member"
     plan: PlanCode = "individual"
     permissions: dict[str, bool] = Field(default_factory=dict)
+    teamOwnerId: str | None = Field(default=None, max_length=160)
 
     @field_validator("email")
     @classmethod
@@ -197,6 +198,11 @@ class UpdateUserPayload(StrictModel):
     plan: PlanCode | None = None
     permissions: dict[str, bool] | None = None
     systemAdmin: bool | None = None
+    teamOwnerId: str | None = Field(default=None, max_length=160)
+
+
+class TeamProfilePayload(StrictModel):
+    name: str = Field(min_length=2, max_length=140)
 
 
 class SelectPlanPayload(StrictModel):
@@ -302,7 +308,63 @@ def default_store() -> dict[str, Any]:
         "permissions": OWNER_PERMISSIONS,
         "requiresPlanSelection": False,
     }
-    return {"users": [owner], "plans": PLAN_CATALOG}
+    return {
+        "users": [owner],
+        "plans": PLAN_CATALOG,
+        "teams": [
+            {
+                "id": OWNER_USER_ID,
+                "ownerUserId": OWNER_USER_ID,
+                "name": "Equipe Norium",
+                "createdAt": created,
+                "updatedAt": created,
+            }
+        ],
+    }
+
+
+def ensure_team_profiles(store: dict[str, Any]) -> dict[str, Any]:
+    teams = store.get("teams")
+    if not isinstance(teams, list):
+        teams = []
+        store["teams"] = teams
+
+    known_ids = {str(item.get("id") or "") for item in teams if isinstance(item, dict)}
+    for owner in store.get("users", []):
+        if not isinstance(owner, dict) or owner.get("role") != "owner":
+            continue
+        owner_id = str(owner.get("id") or "").strip()
+        if not owner_id or owner_id in known_ids:
+            continue
+        created = str(owner.get("createdAt") or now_iso())
+        teams.append(
+            {
+                "id": owner_id,
+                "ownerUserId": owner_id,
+                "name": f"Equipe de {str(owner.get('nome') or 'Norium').strip()}",
+                "createdAt": created,
+                "updatedAt": created,
+            }
+        )
+        known_ids.add(owner_id)
+
+    # Registros antigos usavam apenas ``createdBy`` para inferir a equipe.
+    # Materializamos o vinculo uma unica vez para que toda autorizacao passe a
+    # depender exclusivamente de ``teamOwnerId`` e uma troca de equipe revogue
+    # imediatamente o acesso do criador anterior.
+    users_by_id = {
+        str(item.get("id") or ""): item
+        for item in store.get("users", [])
+        if isinstance(item, dict)
+    }
+    for member in store.get("users", []):
+        if not isinstance(member, dict) or member.get("role") == "owner" or member.get("teamOwnerId"):
+            continue
+        creator_id = str(member.get("createdBy") or "").strip()
+        creator = users_by_id.get(creator_id)
+        if creator and creator.get("role") == "owner":
+            member["teamOwnerId"] = creator_id
+    return store
 
 
 def ensure_seed_user(store: dict[str, Any]) -> dict[str, Any]:
@@ -312,7 +374,7 @@ def ensure_seed_user(store: dict[str, Any]) -> dict[str, Any]:
     owner = next((user for user in users if stored_email(user) == OWNER_EMAIL), None)
     if owner is None:
         users.insert(0, default_store()["users"][0])
-        return store
+        owner = users[0]
 
     owner["id"] = owner.get("id") or OWNER_USER_ID
     owner["nome"] = owner.get("nome") or "Tarcisio Lucas"
@@ -327,14 +389,18 @@ def ensure_seed_user(store: dict[str, Any]) -> dict[str, Any]:
         owner["passwordHash"] = hash_password(bootstrap_password)
     if "plans" not in store:
         store["plans"] = PLAN_CATALOG
-    return store
+    return ensure_team_profiles(store)
 
 
 async def read_user_store() -> dict[str, Any]:
     def load() -> dict[str, Any]:
         if not USERS_DB_PATH.exists():
             legacy_users = BASE_DIR / "usuarios_db.json"
-            if legacy_users.exists():
+            # Um diretorio explicitamente configurado representa um ambiente
+            # isolado (producao, homologacao ou QA). Nunca o contamine com o
+            # banco legado empacotado no codigo-fonte.
+            allow_legacy_import = not os.getenv("NORIUM_DATA_DIR", "").strip()
+            if allow_legacy_import and legacy_users.exists():
                 payload = read_json_file(legacy_users, {})
                 if isinstance(payload, dict):
                     store = ensure_seed_user(payload)
@@ -378,6 +444,47 @@ def find_user_by_email(store: dict[str, Any], email: str) -> dict[str, Any] | No
     return next((user for user in store.get("users", []) if stored_email(user) == normalized), None)
 
 
+def find_team(store: dict[str, Any], team_id: str) -> dict[str, Any] | None:
+    return next(
+        (team for team in store.get("teams", []) if isinstance(team, dict) and str(team.get("id")) == team_id),
+        None,
+    )
+
+
+def team_id_for_user(user: dict[str, Any]) -> str:
+    return str(user.get("teamOwnerId") or user.get("id") or "").strip()
+
+
+def sanitize_team(store: dict[str, Any], team: dict[str, Any]) -> dict[str, Any]:
+    team_id = str(team.get("id") or "")
+    members = [
+        item for item in store.get("users", [])
+        if str(item.get("id") or "") == team_id or str(item.get("teamOwnerId") or "") == team_id
+    ]
+    owner = find_user(store, str(team.get("ownerUserId") or team_id))
+    return {
+        "id": team_id,
+        "ownerUserId": str(team.get("ownerUserId") or team_id),
+        "ownerName": str((owner or {}).get("nome") or ""),
+        "name": str(team.get("name") or "Equipe Norium"),
+        "memberCount": len(members),
+        "createdAt": team.get("createdAt"),
+        "updatedAt": team.get("updatedAt"),
+    }
+
+
+def validate_team_owner(store: dict[str, Any], team_owner_id: str | None) -> str | None:
+    normalized = str(team_owner_id or "").strip()
+    if not normalized:
+        return None
+    owner = find_user(store, normalized)
+    if not owner or owner.get("role") != "owner" or owner.get("status") != "ativo":
+        raise HTTPException(status_code=422, detail="A equipe selecionada nao possui um usuario principal ativo.")
+    if not find_team(store, normalized):
+        ensure_team_profiles(store)
+    return normalized
+
+
 async def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> dict[str, Any]:
     if not credentials:
         raise HTTPException(status_code=401, detail="Login necessario.")
@@ -400,14 +507,14 @@ def visible_users_for(current: dict[str, Any], users: list[dict[str, Any]]) -> l
     return [
         sanitize_user(user)
         for user in users
-        if user.get("id") == current_id or user.get("teamOwnerId") == current_id or user.get("createdBy") == current_id
+        if user.get("id") == current_id or user.get("teamOwnerId") == current_id
     ]
 
 
 def assert_can_touch_user(current: dict[str, Any], target: dict[str, Any]) -> None:
     if can_manage_system(current):
         return
-    if target.get("teamOwnerId") == current.get("id") or target.get("createdBy") == current.get("id"):
+    if target.get("teamOwnerId") == current.get("id"):
         return
     if target.get("id") == current.get("id"):
         return
@@ -506,6 +613,42 @@ async def plans(_: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     return {"plans": PLAN_CATALOG}
 
 
+@router.get("/teams")
+async def list_teams(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    store = await read_user_store()
+    if can_manage_system(user):
+        teams = store.get("teams", [])
+    else:
+        current_team_id = team_id_for_user(user)
+        teams = [team for team in store.get("teams", []) if str(team.get("id") or "") == current_team_id]
+    return {"teams": [sanitize_team(store, team) for team in teams if isinstance(team, dict)]}
+
+
+@router.get("/team-profile")
+async def get_team_profile(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    store = await read_user_store()
+    team = find_team(store, team_id_for_user(user))
+    if not team:
+        raise HTTPException(status_code=404, detail="Equipe nao encontrada.")
+    return {"team": sanitize_team(store, team)}
+
+
+@router.patch("/team-profile")
+async def update_team_profile(payload: TeamProfilePayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    team_id = team_id_for_user(user)
+    if not can_manage_system(user) and str(user.get("id") or "") != team_id:
+        raise HTTPException(status_code=403, detail="Somente o usuario principal pode alterar o nome da equipe.")
+    async with auth_lock:
+        store = await read_user_store()
+        team = find_team(store, team_id)
+        if not team:
+            raise HTTPException(status_code=404, detail="Equipe nao encontrada.")
+        team["name"] = payload.name.strip()
+        team["updatedAt"] = now_iso()
+        await write_user_store(store)
+    return {"team": sanitize_team(store, team)}
+
+
 @router.get("/users")
 async def list_users(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     if not can_manage_team(user):
@@ -529,6 +672,7 @@ async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends
         if not can_manage_system(user):
             allowed_permissions["admin"] = False
             allowed_permissions["equipe"] = False
+        selected_team_owner_id = validate_team_owner(store, payload.teamOwnerId) if can_manage_system(user) else user["id"]
         new_user = {
             "id": f"usr_{secrets.token_hex(8)}",
             "nome": payload.nome.strip(),
@@ -538,7 +682,7 @@ async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends
             "plan": payload.plan if can_manage_system(user) else "individual",
             "status": "ativo",
             "systemAdmin": False,
-            "teamOwnerId": user["id"],
+            "teamOwnerId": selected_team_owner_id,
             "createdBy": user["id"],
             "createdAt": created,
             "updatedAt": created,
@@ -587,6 +731,11 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
             if target.get("email") == OWNER_EMAIL:
                 next_permissions = OWNER_PERMISSIONS
             target["permissions"] = next_permissions
+        if "teamOwnerId" in payload.model_fields_set and can_manage_system(user):
+            selected_team_owner_id = validate_team_owner(store, payload.teamOwnerId)
+            if selected_team_owner_id == target.get("id"):
+                selected_team_owner_id = None
+            target["teamOwnerId"] = selected_team_owner_id
         target["updatedAt"] = now_iso()
         await write_user_store(store)
     return {"user": sanitize_user(target)}

@@ -1,6 +1,6 @@
 import { Check, Paperclip, Star } from "lucide-react";
 import { cn } from "../../utils/cn";
-import { classifyEmailCategory, emailCategoryMeta } from "../../features/mail/formatters";
+import { classifyEmailCategory, emailCategoryMeta, initials } from "../../features/mail/formatters";
 import type { GmailMessage } from "../../features/mail/types";
 
 type MailMessageRowProps = {
@@ -47,6 +47,7 @@ export default function MailMessageRow({
           onToggleCheck();
         }}
         className={cn(
+          "mail-row-check",
           "flex h-5 w-5 items-center justify-center rounded border border-white/15",
           checked && "border-[#0EA5E9] bg-[#0EA5E9]",
         )}
@@ -59,7 +60,7 @@ export default function MailMessageRow({
           event.stopPropagation();
           onToggleStar();
         }}
-        className="text-white/45 hover:text-[#BAE6FD]"
+        className="mail-row-star text-white/45 hover:text-[#BAE6FD]"
       >
         <Star
           size={17}
@@ -68,11 +69,11 @@ export default function MailMessageRow({
         />
       </span>
 
-      <span className={cn("truncate text-sm", message.unread ? "font-extrabold text-white" : "font-semibold text-white/65")}>
+      <span className={cn("mail-row-sender truncate text-sm", message.unread ? "font-extrabold text-white" : "font-semibold text-white/65")}>
         {message.fromName}
       </span>
 
-      <span className="min-w-0 truncate text-sm">
+      <span className="mail-row-subject min-w-0 truncate text-sm">
         {message.unread && <span className="mr-3 inline-block h-2 w-2 rounded-full bg-[#38BDF8]" />}
         <span className={cn(message.unread ? "font-extrabold text-white" : "font-semibold text-white/80")}>
           {message.subject}
@@ -90,9 +91,13 @@ export default function MailMessageRow({
         )}
       </span>
 
-      <span className="flex items-center justify-end gap-2 text-xs font-semibold text-white/55">
+      <span className="mail-row-date flex items-center justify-end gap-2 text-xs font-semibold text-white/55">
         {message.hasAttachment && <Paperclip size={14} />}
         {message.dateLabel}
+      </span>
+
+      <span className="mail-row-mobile-avatar" aria-hidden="true">
+        {initials(message.fromName || message.fromEmail).slice(0, 2).toUpperCase()}
       </span>
     </button>
   );

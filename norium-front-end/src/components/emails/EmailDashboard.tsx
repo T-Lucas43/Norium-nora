@@ -401,6 +401,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
         onCreateLabel={() => setLabelDialogOpen(true)}
         onRefreshLabels={() => void fetchLabels()}
         onOpenSettings={() => setSettingsOpen(true)}
+        onClose={() => setMobileSidebarOpen(false)}
       />
 
       <section className="mail-main flex min-w-0 flex-1 flex-col bg-[#151518]">

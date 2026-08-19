@@ -110,7 +110,7 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
-def event_user_id(event: dict[str, Any], fallback: str = "lucas123") -> str:
+def event_user_id(event: dict[str, Any], fallback: str = "") -> str:
     metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
     return str(metadata.get("userId") or fallback).strip() or fallback
 
@@ -181,6 +181,8 @@ async def persist_event(event: OmnichannelEvent, user_id: str | None = None) -> 
     async with events_lock:
         event_payload = event.model_dump()
         resolved_user_id = user_id or event_user_id(event_payload)
+        if not resolved_user_id:
+            raise ValueError("Todo evento precisa de um userId autenticado e explicito.")
         event_payload.setdefault("metadata", {})["userId"] = resolved_user_id
         events = await read_events(resolved_user_id)
         without_duplicate = [item for item in events if item.get("id") != event.id]
@@ -208,6 +210,8 @@ async def record_event(
         metadata=metadata or {},
     )
     resolved_user_id = event_user_id(event.model_dump())
+    if not resolved_user_id:
+        raise ValueError("record_event exige metadata.userId para impedir mistura entre usuarios.")
     event_payload = await persist_event(event, resolved_user_id)
     await manager.broadcast(resolved_user_id, {"type": "NEW_EVENT", "event": event_payload})
     return event_payload

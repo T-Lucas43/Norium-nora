@@ -19,6 +19,7 @@ const Nora = lazy(() => import("../components/layout/Nora"));
 const PublicAccess = lazy(() => import("../components/public/PublicAccess"));
 const TeamChatDrawer = lazy(() => import("../components/team-chat/TeamChatDrawer"));
 const SESSION_TABS = ["Dashboard", "Central", "E-mails", "Agenda", "Chat", "Tarefas"];
+const SIMULATION_BACKUP_STORAGE = "norium-simulation-backup";
 
 type NoriumDeepLink = {
   tab: string;
@@ -73,12 +74,11 @@ export default function NoriumApp() {
     activeTab,
     Boolean(authSession),
     authSession?.user.id || "lucas123",
-    authSession?.user.teamOwnerId || authSession?.user.id || "lucas123",
     teamChatOpen,
   );
 
   const currentUser = authSession?.user ?? null;
-  const simulationBackup = localStorage.getItem("norium-simulation-backup");
+  const simulationBackup = sessionStorage.getItem(SIMULATION_BACKUP_STORAGE) || localStorage.getItem(SIMULATION_BACKUP_STORAGE);
   const telegramEnabledForUser =
     currentUser?.id === "lucas123" || currentUser?.email?.toLowerCase() === "tarcisiolucas43@gmail.com";
 
@@ -96,6 +96,8 @@ export default function NoriumApp() {
   );
 
   const handleAuthenticated = useCallback((session: AuthSession, mode: AppMode) => {
+    sessionStorage.removeItem(SIMULATION_BACKUP_STORAGE);
+    localStorage.removeItem(SIMULATION_BACKUP_STORAGE);
     updateSession(session);
     const nextMode = mode === "admin" && session.availableModes.includes("admin") ? "admin" : "app";
     setAppMode(nextMode);
@@ -106,6 +108,8 @@ export default function NoriumApp() {
   }, [profile?.tema, profile?.tema_personalizado, setAppMode, updateSession]);
 
   const handleLogout = useCallback(() => {
+    sessionStorage.removeItem(SIMULATION_BACKUP_STORAGE);
+    localStorage.removeItem(SIMULATION_BACKUP_STORAGE);
     clearSession();
     setIsNoraOpen(false);
     setTeamChatOpen(false);
@@ -113,16 +117,18 @@ export default function NoriumApp() {
   }, [clearSession]);
 
   const exitPermissionSimulation = useCallback(() => {
-    const backup = localStorage.getItem("norium-simulation-backup");
+    const backup = sessionStorage.getItem(SIMULATION_BACKUP_STORAGE) || localStorage.getItem(SIMULATION_BACKUP_STORAGE);
     if (!backup) return;
     try {
       const restored = JSON.parse(backup) as AuthSession;
       updateSession(restored);
-      localStorage.removeItem("norium-simulation-backup");
+      sessionStorage.removeItem(SIMULATION_BACKUP_STORAGE);
+      localStorage.removeItem(SIMULATION_BACKUP_STORAGE);
       window.location.hash = "#/app";
       window.location.reload();
     } catch {
-      localStorage.removeItem("norium-simulation-backup");
+      sessionStorage.removeItem(SIMULATION_BACKUP_STORAGE);
+      localStorage.removeItem(SIMULATION_BACKUP_STORAGE);
       handleLogout();
     }
   }, [handleLogout, updateSession]);
@@ -251,6 +257,7 @@ export default function NoriumApp() {
       {canAccessPermission("nora") && (
         <Suspense fallback={null}>
           <Nora
+            key={`nora-${currentUser?.id || "anonymous"}`}
             open={isNoraOpen}
             onClose={() => setIsNoraOpen(false)}
             conversaId={activeChatConversationId ?? undefined}
@@ -270,6 +277,7 @@ export default function NoriumApp() {
       {canAccessPermission("chat") && teamChatOpen && (
         <Suspense fallback={null}>
           <TeamChatDrawer
+            key={`team-chat-${currentUser?.id || "anonymous"}`}
             open={teamChatOpen}
             onClose={() => setTeamChatOpen(false)}
             session={authSession}
@@ -327,6 +335,7 @@ export default function NoriumApp() {
 
         <main id="norium-main" className="app-main w-full flex-1 overflow-y-auto">
           <AppPanels
+            key={`panels-${authSession.user.id}`}
             activeTab={activeTab}
             authSession={authSession}
             canUseNora={canAccessPermission("nora")}

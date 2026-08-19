@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BarChart3, CheckCircle2, Clock3, ListChecks, Lock, MessageCircle, PlayCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound, type LucideIcon } from "lucide-react";
-import type { AuthSession, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
+import { AlertTriangle, BarChart3, Building2, Check, CheckCircle2, Clock3, ListChecks, Lock, MessageCircle, PlayCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound, type LucideIcon } from "lucide-react";
+import type { AuthSession, NoriumTeam, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import Button from "../shared/Button";
@@ -64,6 +64,8 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [report, setReport] = useState<TeamTaskReport | null>(null);
+  const [team, setTeam] = useState<NoriumTeam | null>(null);
+  const [teamName, setTeamName] = useState("");
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) || users[0] || session.user,
@@ -74,10 +76,15 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
     setLoading(true);
     setError("");
     try {
-      const data = await authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token);
-      const reportData = await authJson<TeamTaskReport>("/api/tarefas/relatorio-equipe", session.token);
+      const [data, reportData, teamData] = await Promise.all([
+        authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token),
+        authJson<TeamTaskReport>("/api/tarefas/relatorio-equipe", session.token),
+        authJson<{ team: NoriumTeam }>("/api/auth/team-profile", session.token),
+      ]);
       setUsers(data.users);
       setReport(reportData);
+      setTeam(teamData.team);
+      setTeamName(teamData.team.name);
       if (!data.users.some((user) => user.id === selectedUserId)) {
         setSelectedUserId(data.users[0]?.id || session.user.id);
       }
@@ -87,6 +94,27 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
       setLoading(false);
     }
   }, [selectedUserId, session.token, session.user.id]);
+
+  async function saveTeamName() {
+    const normalized = teamName.trim();
+    if (!normalized || normalized === team?.name) return;
+    setSaving("team-name");
+    setNotice("");
+    setError("");
+    try {
+      const result = await authJson<{ team: NoriumTeam }>("/api/auth/team-profile", session.token, {
+        method: "PATCH",
+        body: JSON.stringify({ name: normalized }),
+      });
+      setTeam(result.team);
+      setTeamName(result.team.name);
+      setNotice("Nome da empresa/equipe atualizado.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao atualizar o nome da equipe.");
+    } finally {
+      setSaving("");
+    }
+  }
 
   useEffect(() => {
     void refresh();
@@ -178,7 +206,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
             <UsersRound size={22} />
           </span>
           <div>
-            <h1 className="text-2xl font-black">Equipe</h1>
+            <h1 className="text-2xl font-black">{team?.name || "Equipe"}</h1>
             <p className="text-sm font-semibold text-[var(--text-secondary)]">Acompanhe metas, produtividade e colaboração; gerencie acessos em uma área separada.</p>
           </div>
         </div>
@@ -203,6 +231,25 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
               {error || notice}
             </div>
           )}
+          <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]"><Building2 size={15} /> Empresa ou equipe</p>
+                <h2 className="mt-1 text-xl font-black">Identidade da colaboração</h2>
+                <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Esse nome aparece para todos os usuários vinculados à equipe.</p>
+              </div>
+              {team && session.user.id === team.ownerUserId ? (
+                <div className="flex w-full max-w-xl gap-2">
+                  <input value={teamName} onChange={(event) => setTeamName(event.target.value)} maxLength={140} placeholder="Nome da empresa ou equipe" className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
+                  <Button variant="primary" onClick={() => void saveTeamName()} disabled={!teamName.trim() || teamName.trim() === team.name || saving === "team-name"} icon={<Check size={15} />}>
+                    {saving === "team-name" ? "Salvando" : "Salvar"}
+                  </Button>
+                </div>
+              ) : (
+                <strong className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">{team?.name || "Equipe"}</strong>
+              )}
+            </div>
+          </section>
           <TeamGoals storageKey={`norium:team-goals:${session.user.teamOwnerId || session.user.id}`} />
           <TeamPerformanceReport report={report} selectedUserId={selectedUser.id} onSelect={setSelectedUserId} />
         </div>

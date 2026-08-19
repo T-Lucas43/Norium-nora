@@ -212,7 +212,7 @@ async def simulate_permissions(member_id: str, user: dict[str, Any] = Depends(cu
     target = find_user(store, member_id)
     if not target:
         raise HTTPException(status_code=404, detail="Usuario nao encontrado.")
-    if not can_manage_system(user) and target.get("teamOwnerId") != user.get("id") and target.get("createdBy") != user.get("id"):
+    if not can_manage_system(user) and target.get("teamOwnerId") != user.get("id"):
         raise HTTPException(status_code=403, detail="O usuario nao pertence a sua equipe.")
     return {
         "token": create_token(target),

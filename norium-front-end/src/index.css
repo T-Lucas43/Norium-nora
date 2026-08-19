@@ -4860,6 +4860,27 @@ body,
   box-shadow:0 0 0 2px var(--background), 0 4px 12px rgba(239,68,68,.35);
 }
 
+.app-panel{
+  display:flex;
+  width:100%;
+  min-width:0;
+  min-height:100%;
+  flex-direction:column;
+}
+
+.app-panel > :last-child{
+  min-width:0;
+  min-height:0;
+  flex:1 1 auto;
+}
+
+.module-sidebar-mobile-header,
+.mail-sidebar-mobile-close,
+.mail-row-mobile-avatar,
+.mail-mobile-categories{
+  display:none;
+}
+
 /* Nora centralizada quando expandida; no desktop o estado inicial continua
    sendo o painel lateral escolhido pelo usuario. */
 
@@ -4984,7 +5005,25 @@ body,
   .app-main{
     width:100%;
     min-height:0;
+    overflow-y:auto!important;
     overscroll-behavior-y:contain;
+  }
+
+  .app-panel{
+    min-height:100%;
+    height:auto;
+    overflow:visible;
+  }
+
+  .app-panel > :last-child{
+    min-height:calc(100dvh - 64px);
+    height:auto!important;
+    flex:0 0 auto;
+  }
+
+  .app-panel > .norium-module-coach-compact{
+    min-height:44px;
+    flex:0 0 auto;
   }
 
   .app-main > :is(div,main,section),
@@ -5034,14 +5073,15 @@ body,
     display:flex!important;
     width:100%!important;
     max-width:100%!important;
-    height:100%!important;
+    height:auto!important;
+    min-height:calc(100dvh - 64px)!important;
     min-width:0!important;
     flex:1 1 100%!important;
     border-left:0!important;
   }
 
   .norium-mail .mail-toolbar{
-    min-height:64px;
+    min-height:58px;
     height:auto;
     gap:8px;
   }
@@ -5057,9 +5097,9 @@ body,
 
   .norium-mail .mail-list-heading{
     height:auto;
-    min-height:84px;
-    gap:10px;
-    padding-block:12px;
+    min-height:66px;
+    gap:8px;
+    padding-block:9px;
   }
 
   .norium-mail .mail-list-filters{
@@ -5081,6 +5121,233 @@ body,
     min-height:52px;
     gap:8px;
     padding-block:8px;
+  }
+
+  /* No telefone existe uma unica rolagem: guia contextual, cabecalho do
+     modulo e conteudo acompanham a pagina inteira. */
+  .norium-mail,
+  .norium-agenda,
+  .norium-tasks{
+    height:auto!important;
+    min-height:calc(100dvh - 64px)!important;
+    align-items:stretch;
+    overflow:visible!important;
+  }
+
+  .norium-mail .mail-main,
+  .norium-mail .mail-main > main,
+  .norium-mail .mail-message-list,
+  .agenda-timeline,
+  .norium-tasks > main{
+    height:auto!important;
+    min-height:0!important;
+    overflow:visible!important;
+  }
+
+  .norium-mail .mail-main > main,
+  .norium-mail .mail-message-list,
+  .agenda-timeline,
+  .norium-tasks > main{
+    flex:0 0 auto!important;
+  }
+
+  .norium-mail .mail-message-list > div:last-child,
+  .agenda-scroll,
+  .norium-tasks > main > div[class*="overflow-x-auto"],
+  .norium-tasks [class*="min-w-[1060px]"] > section > div[class*="overflow-y-auto"]{
+    height:auto!important;
+    max-height:none!important;
+    overflow:visible!important;
+    flex:0 0 auto!important;
+  }
+
+  .module-sidebar-mobile-header{
+    display:flex;
+    min-height:44px;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    border-bottom:1px solid var(--border);
+    margin:-4px -4px 0;
+    padding:0 4px 10px;
+  }
+
+  .module-sidebar-mobile-header > span{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-size:14px;
+    font-weight:800;
+  }
+
+  .module-sidebar-mobile-header button,
+  .mail-sidebar-mobile-close{
+    display:grid;
+    width:38px;
+    height:38px;
+    flex:0 0 38px;
+    place-items:center;
+    border:1px solid var(--border);
+    border-radius:9px;
+    background:var(--background);
+    color:var(--text);
+  }
+
+  .norium-agenda > aside,
+  .norium-chat > aside:first-of-type,
+  .norium-tasks > aside:first-of-type,
+  .norium-mail > aside:first-of-type{
+    border-color:var(--border)!important;
+    border-radius:14px!important;
+    background:color-mix(in srgb, var(--surface) 98%, transparent)!important;
+    color:var(--text)!important;
+  }
+
+  .dark .norium-agenda > aside,
+  .dark .norium-chat > aside:first-of-type,
+  .dark .norium-tasks > aside:first-of-type,
+  .dark .norium-mail > aside:first-of-type{
+    background:rgba(12,14,16,.985)!important;
+  }
+
+  .mobile-sidebar-toggle{
+    border-color:var(--border)!important;
+    border-radius:10px!important;
+    background:var(--surface)!important;
+    color:var(--text)!important;
+    box-shadow:0 8px 24px rgba(0,0,0,.24)!important;
+  }
+
+  .agenda-month-picker select{
+    color:var(--text);
+    color-scheme:dark;
+  }
+
+  /* Linha de e-mail propria para celular, inspirada na densidade do Gmail. */
+  .norium-mail .mail-row{
+    display:grid!important;
+    min-height:82px!important;
+    grid-template-columns:42px minmax(0,1fr) 48px!important;
+    grid-template-rows:auto auto!important;
+    column-gap:10px!important;
+    row-gap:2px!important;
+    padding:10px 12px!important;
+  }
+
+  .norium-mail .mail-row-check{
+    display:none!important;
+  }
+
+  .norium-mail .mail-row-star{
+    display:grid!important;
+    width:30px;
+    height:30px;
+    grid-column:3;
+    grid-row:2;
+    place-items:center;
+    justify-self:end;
+  }
+
+  .mail-row-mobile-avatar{
+    display:grid;
+    width:40px;
+    height:40px;
+    place-items:center;
+    border:1px solid color-mix(in srgb, var(--primary) 38%, var(--border));
+    border-radius:50%;
+    background:color-mix(in srgb, var(--primary) 16%, var(--surface));
+    color:var(--text);
+    font-size:12px;
+    font-weight:900;
+    grid-column:1;
+    grid-row:1 / span 2;
+    align-self:start;
+  }
+
+  .norium-mail .mail-row-sender{
+    display:block!important;
+    min-width:0;
+    grid-column:2;
+    grid-row:1;
+    color:var(--mail-text);
+    font-size:14px;
+  }
+
+  .norium-mail .mail-row-subject{
+    display:block!important;
+    min-width:0;
+    grid-column:2;
+    grid-row:2;
+    color:var(--mail-text);
+    font-size:12px;
+  }
+
+  .norium-mail .mail-row-date{
+    display:flex;
+    grid-column:3;
+    grid-row:1;
+    align-self:start;
+    justify-self:end;
+    color:var(--mail-muted);
+    white-space:nowrap;
+    font-size:10px;
+    font-weight:700;
+  }
+
+  .mail-mobile-categories{
+    display:grid;
+    gap:2px;
+    border-bottom:1px solid var(--mail-border);
+    padding:4px 8px;
+  }
+
+  .mail-mobile-categories > button{
+    display:grid;
+    min-width:0;
+    grid-template-columns:36px minmax(0,1fr) auto;
+    align-items:center;
+    gap:10px;
+    border-radius:9px;
+    padding:8px;
+    text-align:left;
+  }
+
+  .mail-mobile-categories > button:hover{
+    background:var(--mail-hover);
+  }
+
+  .mail-mobile-categories > button > span:first-child{
+    display:grid;
+    width:34px;
+    height:34px;
+    place-items:center;
+    border:1px solid currentColor;
+    border-radius:50%;
+  }
+
+  .mail-mobile-categories > button > span:nth-child(2){
+    display:flex;
+    min-width:0;
+    flex-direction:column;
+  }
+
+  .mail-mobile-categories strong{
+    font-size:12px;
+  }
+
+  .mail-mobile-categories small{
+    color:var(--mail-muted);
+    font-size:10px;
+    font-weight:650;
+  }
+
+  .mail-mobile-categories b{
+    color:var(--primary);
+    font-size:11px;
+  }
+
+  .norium-mail .mail-sidebar-header > .mail-sidebar-mobile-close{
+    display:grid;
   }
 
   /* Agenda: mes responsivo e semana em lista vertical, sem grade lateral. */
@@ -5340,6 +5607,65 @@ body,
   .workhub-team-table > div{
     min-width:0!important;
     grid-template-columns:minmax(110px,1.5fr) repeat(5,minmax(48px,1fr))!important;
+  }
+}
+
+/* A lista do Gmail conserva remetente, assunto e data na mesma linha visual
+   inclusive nos aparelhos estreitos; estas regras precisam vencer o bloco
+   responsivo legado acima. */
+@media (max-width:640px){
+  .norium-mail .mail-row{
+    grid-template-columns:42px minmax(0,1fr) 48px!important;
+    grid-template-rows:auto auto!important;
+    column-gap:10px!important;
+    row-gap:2px!important;
+  }
+
+  .norium-mail .mail-list-heading{
+    align-items:center!important;
+    flex-direction:row!important;
+  }
+
+  .norium-mail .mail-list-pagination{
+    width:auto!important;
+    justify-content:flex-end;
+  }
+}
+
+/* Regras finais do fluxo mobile. Mantidas no fim para neutralizar estilos
+   legados de altura total e rolagens internas dos modulos. */
+@media (max-width:900px){
+  .app-panel > :last-child:not(.norium-chat):not(.brainstorm-board-editor),
+  .app-panel > :last-child:not(.norium-chat):not(.brainstorm-board-editor) > :is(main,div)[class*="overflow-y-auto"]{
+    height:auto!important;
+    max-height:none!important;
+    overflow-y:visible!important;
+  }
+
+  .norium-mail .mail-message-list > div:last-child,
+  .norium-agenda .agenda-scroll,
+  .norium-tasks > main > div[class*="overflow-x-auto"],
+  .norium-tasks [class*="min-w-[1060px]"] > section > div[class*="overflow-y-auto"]{
+    height:auto!important;
+    max-height:none!important;
+    overflow:visible!important;
+  }
+}
+
+@media (max-width:640px){
+  .norium-mail .mail-row{
+    grid-template-columns:42px minmax(0,1fr) 48px!important;
+    gap:10px!important;
+  }
+
+  .norium-mail .mail-list-heading{
+    align-items:center;
+    flex-direction:row;
+  }
+
+  .norium-mail .mail-list-pagination{
+    width:auto;
+    justify-content:flex-end;
   }
 }
 

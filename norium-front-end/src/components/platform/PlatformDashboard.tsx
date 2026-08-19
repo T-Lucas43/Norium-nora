@@ -1147,7 +1147,7 @@ function SecurityArea({
                 className="norium-platform-action justify-between"
                 onClick={async () => {
                   const simulated = await apiRequest<AuthSession>(`/api/plataforma/permissoes/simular/${member.id}`, { method: "POST" });
-                  localStorage.setItem("norium-simulation-backup", JSON.stringify(session));
+                  sessionStorage.setItem("norium-simulation-backup", JSON.stringify(session));
                   onSessionUpdate(simulated);
                   window.location.reload();
                 }}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BadgeCheck,
+  Building2,
   CheckCircle2,
   Crown,
   LayoutDashboard,
@@ -11,7 +12,7 @@ import {
   UsersRound,
   WalletCards,
 } from "lucide-react";
-import type { AuthSession, NoriumUser, PermissionKey, PermissionMap, PlanInfo, UserPlan } from "../../types/auth";
+import type { AuthSession, NoriumTeam, NoriumUser, PermissionKey, PermissionMap, PlanInfo, UserPlan } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import LocalThemeToggle from "../layout/LocalThemeToggle";
@@ -41,6 +42,7 @@ const emptyCreateForm = {
   password: "",
   plan: "individual" as UserPlan,
   permissions: defaultMemberPermissions,
+  teamOwnerId: "",
 };
 
 function mergePermissions(value?: Partial<PermissionMap>) {
@@ -50,6 +52,7 @@ function mergePermissions(value?: Partial<PermissionMap>) {
 export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }: AdminDashboardProps) {
   const [users, setUsers] = useState<NoriumUser[]>([]);
   const [plans, setPlans] = useState<PlanInfo[]>([]);
+  const [teams, setTeams] = useState<NoriumTeam[]>([]);
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [selectedUserId, setSelectedUserId] = useState(session.user.id);
   const [createOpen, setCreateOpen] = useState(false);
@@ -69,14 +72,16 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
     setLoading(true);
     setError("");
     try {
-      const [overviewResult, usersResult, plansResult] = await Promise.allSettled([
+      const [overviewResult, usersResult, plansResult, teamsResult] = await Promise.allSettled([
         authJson<AdminOverview>("/api/auth/admin/overview", session.token),
         authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token),
         authJson<{ plans: PlanInfo[] }>("/api/auth/plans", session.token),
+        authJson<{ teams: NoriumTeam[] }>("/api/auth/teams", session.token),
       ]);
 
       if (overviewResult.status === "fulfilled") setOverview(overviewResult.value);
       if (plansResult.status === "fulfilled") setPlans(plansResult.value.plans);
+      if (teamsResult.status === "fulfilled") setTeams(teamsResult.value.teams);
       if (usersResult.status === "fulfilled") {
         const loadedUsers = usersResult.value.users;
         setUsers(loadedUsers);
@@ -85,7 +90,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
         }
       }
 
-      const failure = [overviewResult, usersResult, plansResult].find((result) => result.status === "rejected");
+      const failure = [overviewResult, usersResult, plansResult, teamsResult].find((result) => result.status === "rejected");
       if (failure?.status === "rejected") {
         throw failure.reason;
       }
@@ -336,6 +341,13 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
                     <option key={plan.code} value={plan.code}>{plan.name}</option>
                   ))}
                 </select>
+                <label className="grid gap-1 md:col-span-2">
+                  <span className="text-xs font-bold text-[var(--text-secondary)]">Vincular à empresa/equipe</span>
+                  <select value={createForm.teamOwnerId} onChange={(event) => setCreateForm({ ...createForm, teamOwnerId: event.target.value })} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none">
+                    <option value="">Sem equipe</option>
+                    {teams.map((team) => <option key={team.id} value={team.id}>{team.name} · principal: {team.ownerName}</option>)}
+                  </select>
+                </label>
               </div>
 
               <PermissionEditor permissions={createForm.permissions} onToggle={toggleCreatePermission} />
@@ -383,11 +395,28 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
               </div>
             </div>
 
-            <div className="mb-5 grid gap-3 md:grid-cols-3">
+            <div className="mb-5 grid gap-3 md:grid-cols-4">
               <InfoTile label="Perfil" value={selectedUser.role === "owner" ? "Principal" : "Usuario menor"} />
               <InfoTile label="Plano" value={selectedUser.plan} />
               <InfoTile label="Sistema admin" value={selectedUser.systemAdmin ? "Sim" : "Nao"} />
+              <InfoTile label="Equipe" value={teams.find((team) => team.id === (selectedUser.teamOwnerId || selectedUser.id))?.name || "Sem equipe"} />
             </div>
+
+            <label className="mb-5 grid gap-2 rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
+              <span className="flex items-center gap-2 text-sm font-black"><Building2 size={17} className="text-[var(--primary)]" /> Vínculo com empresa/equipe</span>
+              <span className="text-xs font-semibold text-[var(--text-secondary)]">Escolha a equipe cujos recursos colaborativos este usuário poderá acessar.</span>
+              <select
+                value={selectedUser.teamOwnerId || ""}
+                onChange={(event) => void patchUser(selectedUser.id, { teamOwnerId: event.target.value || null }, "Vínculo de equipe atualizado.")}
+                disabled={saving === selectedUser.id}
+                className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none disabled:opacity-60"
+              >
+                <option value="">{selectedUser.role === "owner" ? "Equipe própria" : "Sem equipe"}</option>
+                {teams.filter((team) => team.id !== selectedUser.id).map((team) => (
+                  <option key={team.id} value={team.id}>{team.name} · principal: {team.ownerName} · {team.memberCount} membro(s)</option>
+                ))}
+              </select>
+            </label>
 
             <div className="mb-5 rounded-2xl border border-cyan-300/25 bg-cyan-400/10 p-4">
               <div className="flex items-start gap-3">

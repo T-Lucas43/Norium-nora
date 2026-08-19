@@ -177,6 +177,10 @@ type TimelineMode = "receipts" | "audit";
 const API_URL = `${apiBaseUrl()}/api/operacao`;
 const CACHE_KEY = "norium-operations-overview";
 
+function cacheKey(userId: string) {
+  return `${CACHE_KEY}:${userId}`;
+}
+
 function headers(): HeadersInit {
   const token = authToken();
   return {
@@ -185,9 +189,9 @@ function headers(): HeadersInit {
   };
 }
 
-function cachedOverview(): OperationsOverview | null {
+function cachedOverview(userId: string): OperationsOverview | null {
   try {
-    const payload = sessionStorage.getItem(CACHE_KEY);
+    const payload = sessionStorage.getItem(cacheKey(userId));
     return payload ? (JSON.parse(payload) as OperationsOverview) : null;
   } catch {
     return null;
@@ -229,10 +233,11 @@ function entryTarget(entry: OperationEntry): string | null {
 
 type OperationsDashboardProps = {
   onNavigate?: (tab: string) => void;
+  userId: string;
 };
 
-export default function OperationsDashboard({ onNavigate }: OperationsDashboardProps) {
-  const [overview, setOverview] = useState<OperationsOverview | null>(cachedOverview);
+export default function OperationsDashboard({ onNavigate, userId }: OperationsDashboardProps) {
+  const [overview, setOverview] = useState<OperationsOverview | null>(() => cachedOverview(userId));
   const [loading, setLoading] = useState(!overview);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -264,7 +269,7 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
       if (!response.ok) throw new Error((await response.text()) || "Falha ao carregar o controle operacional.");
       const payload = (await response.json()) as OperationsOverview;
       setOverview(payload);
-      sessionStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+      sessionStorage.setItem(cacheKey(userId), JSON.stringify(payload));
       setError("");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Controle operacional indisponivel.");
@@ -272,10 +277,10 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
-    void loadOverview(Boolean(sessionStorage.getItem(CACHE_KEY)));
+    void loadOverview(Boolean(sessionStorage.getItem(cacheKey(userId))));
     const timer = window.setInterval(() => void loadOverview(true), 30_000);
     const onVisibility = () => {
       if (document.visibilityState === "visible") void loadOverview(true);
@@ -285,7 +290,7 @@ export default function OperationsDashboard({ onNavigate }: OperationsDashboardP
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [loadOverview]);
+  }, [loadOverview, userId]);
 
   const pendingApprovals = useMemo(
     () => (overview?.approvals || []).filter((approval) => approval.status === "pending"),

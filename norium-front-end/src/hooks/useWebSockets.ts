@@ -91,6 +91,10 @@ function buildSystemNotification(
   };
 }
 
+function eventBelongsToUser(event: OmnichannelEvent, userId: string) {
+  return String(event.metadata?.userId || "") === userId;
+}
+
 function notificationForEvent(event: OmnichannelEvent): {
   title: string;
   description: string;
@@ -128,9 +132,9 @@ export function useWebSockets(
   activeTab: string,
   enabled = true,
   userId = "lucas123",
-  teamId = userId,
   teamChatOpen = false,
 ) {
+  const [stateUserId, setStateUserId] = useState(userId);
   const [events, setEvents] = useState<OmnichannelEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [systemNotifications, setSystemNotifications] = useState<SystemNotification[]>([]);
@@ -147,8 +151,15 @@ export function useWebSockets(
   const integrationSyncInFlightRef = useRef(false);
   const teamChatOpenRef = useRef(teamChatOpen);
   const seenTeamMessageIdsRef = useRef<Set<string>>(new Set());
+  const currentUserIdRef = useRef(userId);
+  currentUserIdRef.current = userId;
+  const isolatedForCurrentUser = stateUserId === userId;
 
-  const eventsBySource = useMemo(() => groupEventsBySource(events), [events]);
+  const visibleEvents = useMemo(
+    () => (isolatedForCurrentUser ? events : []),
+    [events, isolatedForCurrentUser],
+  );
+  const eventsBySource = useMemo(() => groupEventsBySource(visibleEvents), [visibleEvents]);
 
   useEffect(() => {
     setEvents([]);
@@ -157,6 +168,10 @@ export function useWebSockets(
     setSystemToasts([]);
     setTeamChatUnreadCount(0);
     seenTeamMessageIdsRef.current.clear();
+    hasOpenedRef.current = false;
+    lastConnectionStateRef.current = null;
+    integrationSyncInFlightRef.current = false;
+    setStateUserId(userId);
   }, [userId]);
 
   useEffect(() => {
@@ -202,6 +217,7 @@ export function useWebSockets(
 
   const notifyTeamMessage = useCallback(
     (message: { id?: string; senderId?: string; senderName?: string; text?: string }) => {
+      if (currentUserIdRef.current !== userId) return;
       const messageId = String(message.id || "");
       if (messageId && seenTeamMessageIdsRef.current.has(messageId)) return;
       if (messageId) {
@@ -230,13 +246,16 @@ export function useWebSockets(
   );
 
   const refreshEvents = useCallback(async () => {
+    const requestedUserId = userId;
     try {
       const params = new URLSearchParams({ user_id: userId });
       const response = await fetch(`${API_URL}?${params.toString()}`, { headers: requestHeaders() });
       if (!response.ok) throw new Error("Falha ao carregar a Central de Atividades.");
       const data = (await response.json()) as OmnichannelEvent[];
-      setEvents(sortEvents(data));
+      if (currentUserIdRef.current !== requestedUserId) return;
+      setEvents(sortEvents(data.filter((event) => eventBelongsToUser(event, requestedUserId))));
     } catch {
+      if (currentUserIdRef.current !== requestedUserId) return;
       pushSystemNotification({
         title: "Central de Atividades indisponivel",
         description: "Nao foi possivel carregar os eventos das integracoes agora.",
@@ -384,17 +403,21 @@ export function useWebSockets(
       socketRef.current = socket;
 
       socket.onopen = () => {
+        if (currentUserIdRef.current !== userId) {
+          socket.close();
+          return;
+        }
         reportConnectionState("online");
         socket.send(JSON.stringify({ type: "PING" }));
       };
 
       socket.onmessage = (message) => {
+        if (currentUserIdRef.current !== userId) return;
         try {
           const payload = JSON.parse(String(message.data)) as SocketMessage;
 
           if (payload.type === "NEW_EVENT" && payload.event) {
-            const eventUserId = payload.event.metadata?.userId;
-            if (eventUserId && eventUserId !== userId && eventUserId !== teamId) return;
+            if (!eventBelongsToUser(payload.event, userId)) return;
             setEvents((current) => mergeEvent(current, payload.event as OmnichannelEvent));
             const isTeamMessage = payload.event.source === "equipe" && payload.event.metadata?.action === "team_message_created";
             if (isTeamMessage) {
@@ -423,13 +446,13 @@ export function useWebSockets(
       };
 
       socket.onclose = () => {
-        if (cancelled) return;
+        if (cancelled || currentUserIdRef.current !== userId) return;
         reportConnectionState("offline");
         scheduleReconnect();
       };
 
       socket.onerror = () => {
-        if (cancelled) return;
+        if (cancelled || currentUserIdRef.current !== userId) return;
         reportConnectionState("offline");
         socket.close();
       };
@@ -446,7 +469,7 @@ export function useWebSockets(
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [enabled, handleSocketSystemMessage, notifyTeamMessage, pushSystemNotification, reportConnectionState, teamId, userId]);
+  }, [enabled, handleSocketSystemMessage, notifyTeamMessage, pushSystemNotification, reportConnectionState, userId]);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -461,6 +484,7 @@ export function useWebSockets(
       teamSocketRef.current = socket;
 
       socket.onmessage = (event) => {
+        if (currentUserIdRef.current !== userId) return;
         try {
           const payload = JSON.parse(String(event.data || "{}")) as TeamSocketMessage;
           if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) notifyTeamMessage(payload.message);
@@ -469,7 +493,7 @@ export function useWebSockets(
         }
       };
       socket.onclose = () => {
-        if (cancelled || reconnectTimer !== null) return;
+        if (cancelled || currentUserIdRef.current !== userId || reconnectTimer !== null) return;
         reconnectTimer = window.setTimeout(() => {
           reconnectTimer = null;
           connectTeamSocket();
@@ -488,13 +512,13 @@ export function useWebSockets(
   }, [enabled, notifyTeamMessage, userId]);
 
   return {
-    connected,
-    events,
+    connected: isolatedForCurrentUser ? connected : false,
+    events: visibleEvents,
     eventsBySource,
-    systemNotifications,
-    systemUnreadCount,
-    systemToasts,
-    teamChatUnreadCount,
+    systemNotifications: isolatedForCurrentUser ? systemNotifications : [],
+    systemUnreadCount: isolatedForCurrentUser ? systemUnreadCount : 0,
+    systemToasts: isolatedForCurrentUser ? systemToasts : [],
+    teamChatUnreadCount: isolatedForCurrentUser ? teamChatUnreadCount : 0,
     refreshEvents,
     clearSystemUnread,
     clearSystemNotifications,

@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Folder, Mail, MailCheck, PenLine, Plus, Settings, Star, Tags } from "lucide-react";
+import { Folder, Mail, MailCheck, PenLine, Plus, Settings, Star, Tags, X } from "lucide-react";
 import BrandLogo from "../layout/BrandLogo";
 import Button from "../shared/Button";
 import { cn } from "../../utils/cn";
@@ -20,6 +20,7 @@ type MailSidebarProps = {
   onCreateLabel: () => void;
   onRefreshLabels: () => void;
   onOpenSettings: () => void;
+  onClose?: () => void;
 };
 
 /** Coluna de pastas, marcadores e atalhos do Norium Mail. */
@@ -35,6 +36,7 @@ export default function MailSidebar({
   onCreateLabel,
   onRefreshLabels,
   onOpenSettings,
+  onClose = () => undefined,
 }: MailSidebarProps) {
   /** Pastas virtuais so ficam ativas quando nenhum filtro rapido esta aplicado. */
   const isActive = (folder: string) => activeFolder === folder && activeFilter === "all";
@@ -45,12 +47,15 @@ export default function MailSidebar({
 
   return (
     <aside className="mail-sidebar flex h-full w-[260px] shrink-0 flex-col border-r border-white/10 bg-[#18181B]">
-      <div className="flex h-[76px] items-center justify-between border-b border-white/10 px-5">
+      <div className="mail-sidebar-header flex h-[76px] items-center justify-between border-b border-white/10 px-5">
         <BrandLogo className="h-12 w-[118px]" />
         <span className="inline-flex items-center gap-1.5 rounded-full border border-cyan-200/20 bg-cyan-300/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-cyan-50 shadow-[0_12px_30px_rgba(8,47,73,0.2)]">
           <Mail size={12} />
           Mail
         </span>
+        <button type="button" className="mail-sidebar-mobile-close" onClick={onClose} aria-label="Fechar menu do e-mail">
+          <X size={19} />
+        </button>
       </div>
 
       <div className="p-4">

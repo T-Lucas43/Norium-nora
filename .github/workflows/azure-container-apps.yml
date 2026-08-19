@@ -121,6 +121,7 @@ jobs:
           --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
           --name "${{ vars.AZURE_CONTAINER_APP_NAME }}"
           --image "${{ needs.publish-image.outputs.image }}"
+          --set-env-vars ENVIRONMENT=production
           --output none
 
       - name: Verify health endpoint

@@ -45,7 +45,6 @@ export default function NoriumApp() {
   const [noraContextRequest, setNoraContextRequest] = useState<{ id: number; prompt: string } | null>(null);
   const [activeChatConversationId, setActiveChatConversationId] = useState<string | null>(null);
   const [teamChatOpen, setTeamChatOpen] = useState(false);
-  const [teamChatUnread, setTeamChatUnread] = useState(0);
   const [emailToOpenId, setEmailToOpenId] = useState<string | null>(null);
   const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set(["Dashboard"]));
   const {
@@ -63,11 +62,20 @@ export default function NoriumApp() {
     systemNotifications,
     systemUnreadCount,
     systemToasts,
+    teamChatUnreadCount,
     refreshEvents,
     clearSystemUnread,
     clearSystemNotifications,
+    clearTeamChatUnread,
+    addTeamChatUnread,
     dismissSystemToast,
-  } = useWebSockets(activeTab, Boolean(authSession), authSession?.user.id || "lucas123");
+  } = useWebSockets(
+    activeTab,
+    Boolean(authSession),
+    authSession?.user.id || "lucas123",
+    authSession?.user.teamOwnerId || authSession?.user.id || "lucas123",
+    teamChatOpen,
+  );
 
   const currentUser = authSession?.user ?? null;
   const simulationBackup = localStorage.getItem("norium-simulation-backup");
@@ -265,7 +273,7 @@ export default function NoriumApp() {
             open={teamChatOpen}
             onClose={() => setTeamChatOpen(false)}
             session={authSession}
-            onUnread={(count) => setTeamChatUnread((current) => (teamChatOpen ? 0 : current + count))}
+            onUnread={(count) => addTeamChatUnread(count)}
           />
         </Suspense>
       )}
@@ -295,7 +303,7 @@ export default function NoriumApp() {
           onOpenNora={openNora}
           onOpenTeamChat={() => {
             setTeamChatOpen(true);
-            setTeamChatUnread(0);
+            clearTeamChatUnread();
           }}
           onOpenNotifications={openNotifications}
           onOpenProfile={() => setActiveTab("Perfil")}
@@ -314,7 +322,7 @@ export default function NoriumApp() {
           allowedTabs={allowedTabs}
           canUseNora={canAccessPermission("nora")}
           canUseTeamChat={canAccessPermission("chat")}
-          teamChatUnread={teamChatUnread}
+          teamChatUnread={teamChatUnreadCount}
         />
 
         <main id="norium-main" className="app-main w-full flex-1 overflow-y-auto">
@@ -338,7 +346,7 @@ export default function NoriumApp() {
             onOpenNora={openNora}
             onOpenTeamChat={() => {
               setTeamChatOpen(true);
-              setTeamChatUnread(0);
+              clearTeamChatUnread();
             }}
             onProfileSaved={saveLocalProfile}
             onRefreshEvents={() => void refreshEvents()}

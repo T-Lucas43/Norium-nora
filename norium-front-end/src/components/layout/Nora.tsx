@@ -1060,6 +1060,7 @@ function interruptsActiveAgentSession(text: string) {
 
 export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "lucas123", activeTab, onOpenEmail, contextualRequest }: NoraProps) {
   const screenContext = buildScreenContext(activeTab, eventsBySource);
+  const welcomeName = (profile?.nome || "Tarcisio").trim().split(/\s+/)[0] || "Tarcisio";
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1787,7 +1788,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 </button>
                 <Button variant="ghost" size="sm" iconOnly
                   onClick={() => setExpanded((value) => !value)}
-                  className="hover:bg-white/10"
+                  className="nora-expand-toggle hover:bg-white/10"
                   title={expanded ? "Voltar para lateral" : "Expandir Nora"}
                  aria-label={expanded ? "Voltar para lateral" : "Expandir Nora"}>
                   {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
@@ -1845,7 +1846,15 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             </div>
             )}
 
-            <div ref={scrollRef} className="nora-drawer-conversation flex-1 space-y-5 overflow-y-auto px-4 py-5">
+            <div ref={scrollRef} className={`nora-drawer-conversation flex-1 space-y-5 overflow-y-auto px-4 py-5 ${messages.length === 0 ? "is-empty" : ""}`}>
+              {messages.length === 0 && !loading && (
+                <div className="nora-empty-state">
+                  <NoraAvatar className="nora-empty-avatar" />
+                  <h3>Ola, {welcomeName}</h3>
+                  <p>Como posso ajudar?</p>
+                </div>
+              )}
+
               {messages.map((msg, index) => (
                 <NoraMessageBubble
                   key={`${msg.role}-${index}`}
@@ -1877,10 +1886,10 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               )}
 
               {showSuggestions && (
-                <div className="mt-4">
-                  <p className="text-xs font-bold mb-3 text-[var(--text-secondary)] uppercase tracking-wide">Sugestoes rapidas</p>
+                <div className="nora-quick-suggestions mt-4">
+                  <p className="nora-suggestions-label text-xs font-bold mb-3 text-[var(--text-secondary)] uppercase tracking-wide">Sugestoes rapidas</p>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="nora-suggestions-grid flex flex-wrap justify-center gap-2">
                     {suggestions.map((suggestion) => {
                       const Icon = suggestion.icon;
                       return (
@@ -1888,12 +1897,12 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                           key={suggestion.title}
                           variant="secondary"
                           onClick={() => handleSuggestion(suggestion.action, suggestion.title)}
-                          className="min-h-28 w-full flex-col items-start justify-between gap-3 p-3 text-left"
+                          className="nora-quick-suggestion min-h-11 w-auto flex-row items-center justify-start gap-2 px-3 py-2 text-left"
                         >
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-r from-blue-800 to-cyan-500 text-white">
-                            <Icon size={16} />
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-r from-blue-800 to-cyan-500 text-white">
+                            <Icon size={14} />
                           </div>
-                          <span className="w-full text-xs leading-4">{suggestion.title}</span>
+                          <span className="text-xs leading-4">{suggestion.title}</span>
                         </Button>
                       );
                     })}

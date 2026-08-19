@@ -2,10 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Menu, X } from "lucide-react";
 import AgendaSidebar from "./AgendaSidebar";
 import AgendaTimeline from "./AgendaTimeline";
-import { apiBaseUrl } from "../../utils/api";
+import { apiRequest } from "../../core/api/client";
 import Button from "../shared/Button";
-
-const BACKEND_URL = apiBaseUrl();
 
 export type ViewMode = "Dia" | "Semana" | "Mês" | "Ano";
 
@@ -38,6 +36,10 @@ export interface Evento {
   source: "google" | "local";
   colorClass: string;
 }
+
+type AgendaEventsPayload = Partial<AgendaStatus> & {
+  eventos?: unknown[];
+};
 
 interface EventForm {
   titulo: string;
@@ -174,9 +176,10 @@ export default function AgendaDashboard({ userId = "lucas123" }: { userId?: stri
         time_min: range.start.toISOString(),
         time_max: range.end.toISOString(),
       });
-      const res = await fetch(`${BACKEND_URL}/api/agenda/eventos?${params.toString()}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || "Não foi possível carregar sua agenda.");
+      const data = await apiRequest<AgendaEventsPayload>(`/api/agenda/eventos?${params.toString()}`, {
+        cache: "no-store",
+        timeoutMs: 45_000,
+      });
       setStatus({ ...defaultStatus, ...data });
       setEventos((data.eventos || []).map(normalizeEvent));
     } catch (err) {
@@ -193,13 +196,19 @@ export default function AgendaDashboard({ userId = "lucas123" }: { userId?: stri
   }, [carregarEventos]);
 
   async function conectarGoogle() {
-    const res = await fetch(`${BACKEND_URL}/api/agenda/auth-url?user_id=${userId}`);
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data?.detail || "Não consegui iniciar a conexão com o Google.");
-      return;
+    const useSameWindow = window.matchMedia("(max-width: 900px)").matches;
+    const popup = useSameWindow
+      ? null
+      : window.open("about:blank", "norium-google-agenda", "width=560,height=760");
+    try {
+      setError("");
+      const data = await apiRequest<{ auth_url: string }>(`/api/agenda/auth-url?user_id=${encodeURIComponent(userId)}`);
+      if (popup) popup.location.href = data.auth_url;
+      else window.location.assign(data.auth_url);
+    } catch (err) {
+      popup?.close();
+      setError(err instanceof Error ? err.message : "Não consegui iniciar a conexão com o Google.");
     }
-    window.open(data.auth_url, "_blank", "noopener,noreferrer,width=520,height=720");
   }
 
   function abrirCriacao(date = dataSelecionada) {
@@ -215,9 +224,9 @@ export default function AgendaDashboard({ userId = "lucas123" }: { userId?: stri
       .map((item) => item.trim())
       .filter(Boolean);
 
-    const res = await fetch(`${BACKEND_URL}/api/agenda/eventos`, {
+    try {
+      await apiRequest("/api/agenda/eventos", {
       method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({
         user_id: userId,
         titulo: form.titulo,
@@ -228,14 +237,13 @@ export default function AgendaDashboard({ userId = "lucas123" }: { userId?: stri
         participantes,
         criar_meet: form.criar_meet,
       }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data?.detail || "Não consegui criar o evento.");
-      return;
+      timeoutMs: 45_000,
+      });
+      setShowCreate(false);
+      await carregarEventos();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não consegui criar o evento.");
     }
-    setShowCreate(false);
-    await carregarEventos();
   }
 
   return (

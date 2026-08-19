@@ -4829,3 +4829,589 @@ textarea.finance-field {
   }
 
 }
+
+/* Varredura responsiva final: cada modulo ocupa a area inteira disponivel e
+   nenhum painel estrutural aumenta a largura da pagina no mobile. */
+html,
+body,
+#root,
+.app-shell,
+.norium-workspace,
+.app-main{
+  width:100%;
+  max-width:100%;
+}
+
+.app-shell,
+.norium-workspace,
+.app-main{
+  min-width:0;
+  overflow-x:hidden;
+}
+
+.app-main img,
+.app-main video,
+.app-main iframe{
+  max-width:100%;
+}
+
+.norium-topbar-badge{
+  background:#ef4444;
+  box-shadow:0 0 0 2px var(--background), 0 4px 12px rgba(239,68,68,.35);
+}
+
+/* Nora em formato de conversa central, igual em desktop e mobile. */
+.nora-drawer,
+.nora-drawer-side,
+.nora-drawer-expanded{
+  inset:12px!important;
+  width:auto!important;
+  max-width:none!important;
+  height:auto!important;
+  border-radius:10px!important;
+}
+
+.nora-expand-toggle{
+  display:none!important;
+}
+
+.nora-drawer-conversation{
+  padding-inline:max(24px, calc((100vw - 980px) / 2))!important;
+}
+
+.nora-drawer-conversation.is-empty{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+
+.nora-empty-state{
+  display:flex;
+  flex:1 1 auto;
+  min-height:240px;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  margin:auto;
+  text-align:center;
+}
+
+.nora-empty-avatar{
+  width:68px;
+  height:68px;
+  margin-bottom:20px;
+  border-radius:18px;
+  box-shadow:0 16px 42px color-mix(in srgb, var(--primary) 24%, transparent);
+}
+
+.nora-empty-state h3{
+  color:var(--text);
+  font-size:clamp(1.45rem, 3vw, 2rem);
+  font-weight:800;
+}
+
+.nora-empty-state p{
+  margin-top:7px;
+  color:var(--text-secondary);
+  font-size:1rem;
+  font-weight:650;
+}
+
+.nora-quick-suggestions{
+  width:100%;
+  max-width:980px;
+  margin-right:auto;
+  margin-left:auto;
+}
+
+.nora-quick-suggestion{
+  max-width:100%;
+  border-radius:999px!important;
+  white-space:normal;
+}
+
+.nora-composer > *{
+  width:min(100%, 940px);
+  margin-right:auto;
+  margin-left:auto;
+}
+
+@media (max-width:900px){
+  .norium-workspace{
+    width:100vw;
+    max-width:100vw;
+  }
+
+  .norium-topbar{
+    position:relative;
+    flex:0 0 auto;
+    width:100%;
+    max-width:100vw;
+  }
+
+  .norium-topbar-search-group{
+    flex:1 1 auto;
+  }
+
+  .norium-command-search{
+    width:100%;
+    max-width:420px;
+  }
+
+  .app-main{
+    width:100%;
+    min-height:0;
+    overscroll-behavior-y:contain;
+  }
+
+  .app-main > :is(div,main,section),
+  .app-main > :is(div,main,section) > :is(div,main,section){
+    max-width:100%;
+  }
+
+  .nora-drawer,
+  .nora-drawer-side,
+  .nora-drawer-expanded{
+    inset:0!important;
+    width:100vw!important;
+    max-width:100vw!important;
+    height:100dvh!important;
+    border:0!important;
+    border-radius:0!important;
+  }
+
+  .nora-drawer-conversation{
+    padding:14px!important;
+  }
+
+  .nora-empty-state{
+    min-height:210px;
+  }
+
+  .nora-suggestions-label{
+    text-align:center;
+  }
+
+  .nora-suggestions-grid > :nth-child(n+7){
+    display:none;
+  }
+
+  .nora-composer{
+    padding-bottom:max(10px, env(safe-area-inset-bottom))!important;
+  }
+
+  /* E-mail: lista e leitura nunca aparecem lado a lado no telefone. */
+  .norium-mail.mail-message-open .mail-message-list{
+    display:none!important;
+  }
+
+  .norium-mail .mail-message-detail{
+    position:relative!important;
+    inset:auto!important;
+    display:flex!important;
+    width:100%!important;
+    max-width:100%!important;
+    height:100%!important;
+    min-width:0!important;
+    flex:1 1 100%!important;
+    border-left:0!important;
+  }
+
+  .norium-mail .mail-toolbar{
+    min-height:64px;
+    height:auto;
+    gap:8px;
+  }
+
+  .norium-mail .mail-toolbar-search-group{
+    flex:1 1 auto;
+    gap:8px;
+  }
+
+  .norium-mail .mail-toolbar-actions{
+    flex:0 0 auto;
+  }
+
+  .norium-mail .mail-list-heading{
+    height:auto;
+    min-height:84px;
+    gap:10px;
+    padding-block:12px;
+  }
+
+  .norium-mail .mail-list-filters{
+    height:auto;
+    min-height:56px;
+    align-items:flex-start;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+
+  .norium-mail .mail-list-quick-filters,
+  .norium-mail .mail-list-actions{
+    max-width:100%;
+    flex-wrap:wrap;
+  }
+
+  .norium-mail .mail-banner{
+    height:auto!important;
+    min-height:52px;
+    gap:8px;
+    padding-block:8px;
+  }
+
+  /* Agenda: mes responsivo e semana em lista vertical, sem grade lateral. */
+  .agenda-timeline-toolbar{
+    align-items:stretch!important;
+    flex-direction:column;
+  }
+
+  .agenda-date-navigation,
+  .agenda-view-actions{
+    width:100%;
+  }
+
+  .agenda-date-navigation h1{
+    min-width:0;
+    flex:1;
+    font-size:1rem!important;
+  }
+
+  .agenda-view-actions{
+    flex-wrap:wrap;
+  }
+
+  .agenda-view-switcher{
+    display:grid!important;
+    width:100%;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+  }
+
+  .agenda-view-switcher button{
+    min-width:0;
+    padding-inline:6px!important;
+  }
+
+  .agenda-scroll{
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+  }
+
+  .agenda-day-view,
+  .agenda-month-view,
+  .agenda-year-view{
+    width:100%;
+    min-width:0!important;
+  }
+
+  .agenda-week-view{
+    display:none;
+  }
+
+  .agenda-week-mobile{
+    display:block!important;
+  }
+
+  .agenda-month-view > div{
+    min-width:0;
+    overflow:hidden;
+    padding:6px 2px!important;
+    font-size:10px!important;
+  }
+
+  .agenda-month-view > button{
+    min-width:0;
+    min-height:92px!important;
+    overflow:hidden;
+    padding:4px!important;
+  }
+
+  .agenda-month-view > button > span{
+    width:24px!important;
+    height:24px!important;
+    margin-bottom:3px!important;
+  }
+
+  .agenda-month-view > button > div{
+    max-width:100%;
+    overflow:hidden;
+  }
+
+  .agenda-month-view > button a > div,
+  .agenda-month-view > button > div > div{
+    max-width:100%;
+    overflow:hidden;
+    border-left-width:2px!important;
+    padding:2px!important;
+    font-size:9px!important;
+  }
+
+  .agenda-year-view{
+    grid-template-columns:1fr 1fr!important;
+    padding:10px!important;
+  }
+
+  .norium-agenda > aside{
+    top:76px!important;
+  }
+
+  .norium-agenda [class*="grid-cols-3"]{
+    grid-template-columns:1fr!important;
+  }
+
+  /* Kanban empilhado: colunas viram secoes verticais e a pagina nao desliza lateralmente. */
+  .norium-tasks [class*="overflow-x-auto"]{
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+  }
+
+  .norium-tasks [class*="min-w-[1060px]"]{
+    width:100%!important;
+    min-width:0!important;
+    height:auto!important;
+    grid-template-columns:1fr!important;
+  }
+
+  /* Paineis e centros de atividade passam a uma coluna completa. */
+  .system-notifications-header{
+    align-items:flex-start!important;
+    flex-direction:column;
+    gap:12px;
+    padding:14px!important;
+  }
+
+  .system-notifications-actions{
+    width:100%;
+    flex-wrap:wrap;
+  }
+
+  .system-notifications-header > div:first-child{
+    width:100%;
+    min-width:0;
+  }
+
+  .system-notifications-header h1,
+  .system-notifications-header p{
+    overflow:visible!important;
+    overflow-wrap:anywhere;
+    text-overflow:clip!important;
+    white-space:normal!important;
+  }
+
+  .system-notification-row{
+    grid-template-columns:42px minmax(0,1fr)!important;
+    gap:10px!important;
+  }
+
+  .system-notification-row > :first-child{
+    display:none;
+  }
+
+  .system-notification-row > :last-child{
+    grid-column:2;
+    align-items:flex-start!important;
+  }
+
+  .system-notification-toasts{
+    top:76px!important;
+    right:10px!important;
+    left:10px!important;
+    width:auto!important;
+    max-width:none!important;
+  }
+
+  .system-notification-toasts article{
+    border-color:color-mix(in srgb, var(--primary) 36%, var(--border));
+  }
+
+  .norium-dashboard,
+  .norium-help-dashboard,
+  .norium-modern-shell main[class*="p-5"],
+  .norium-modern-shell main[class*="p-6"]{
+    padding:12px!important;
+  }
+
+  .norium-dashboard-hero-actions,
+  .norium-reports-actions,
+  .norium-modern-shell nav{
+    max-width:100%;
+  }
+
+  /* Abas, filtros e anexos quebram linha em vez de criar uma segunda
+     largura navegavel dentro do aplicativo. */
+  .app-main nav[class*="overflow-x-auto"],
+  .app-main div[class*="flex"][class*="overflow-x-auto"],
+  .workhub-tabs{
+    flex-wrap:wrap!important;
+    overflow-x:hidden!important;
+  }
+
+  .app-main nav[class*="overflow-x-auto"] > *,
+  .app-main div[class*="flex"][class*="overflow-x-auto"] > *,
+  .workhub-tabs > *{
+    max-width:100%;
+    white-space:normal!important;
+  }
+
+  .norium-platform-tab,
+  .workhub-tabs button{
+    flex:1 1 150px;
+  }
+
+  .norium-module-coach{
+    display:flex!important;
+    align-items:stretch!important;
+    flex-direction:column;
+    gap:9px!important;
+    padding:10px!important;
+  }
+
+  .norium-module-coach__intro,
+  .norium-module-coach > div{
+    width:100%;
+  }
+
+  .norium-module-coach__intro strong,
+  .norium-module-coach__intro small{
+    overflow-wrap:anywhere;
+    white-space:normal!important;
+  }
+
+  .norium-module-coach__details{
+    order:3;
+  }
+
+  .norium-module-coach > div:last-child{
+    order:2;
+  }
+
+  .norium-module-coach__details summary{
+    width:max-content;
+    max-width:100%;
+  }
+
+  /* Tabelas administrativas continuam completas, mas se ajustam a largura
+     disponivel e permitem que textos longos quebrem dentro da celula. */
+  .app-main div[class*="overflow-x-auto"]:has(> table),
+  .app-main div[class*="overflow-auto"]:has(> table){
+    max-width:100%;
+    overflow-x:hidden!important;
+  }
+
+  .app-main div:has(> table) > table{
+    width:100%!important;
+    min-width:0!important;
+    table-layout:fixed;
+  }
+
+  .app-main table :is(th,td){
+    min-width:0;
+    overflow-wrap:anywhere;
+    white-space:normal!important;
+  }
+
+  .workhub-team-table{
+    overflow-x:hidden!important;
+  }
+
+  .workhub-team-table > div{
+    min-width:0!important;
+    grid-template-columns:minmax(110px,1.5fr) repeat(5,minmax(48px,1fr))!important;
+  }
+}
+
+@media (max-width:640px){
+  .norium-topbar-icon,
+  .norium-topbar-menu,
+  .norium-topbar-profile{
+    width:40px;
+    height:40px;
+    flex-basis:40px;
+  }
+
+  .norium-command-search{
+    height:40px;
+    padding-inline:10px;
+  }
+
+  .norium-command-search input::placeholder{
+    font-size:12px;
+  }
+
+  .nora-empty-avatar{
+    width:58px;
+    height:58px;
+  }
+
+  .nora-suggestions-grid > :nth-child(n+5){
+    display:none;
+  }
+
+  .nora-quick-suggestion{
+    flex:1 1 calc(50% - 4px);
+    border-radius:12px!important;
+  }
+
+  .norium-mail .mail-toolbar{
+    padding-inline:10px!important;
+  }
+
+  .norium-mail .mail-toolbar-actions > button:not(:last-child){
+    display:none!important;
+  }
+
+  .norium-mail .mail-list-heading{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+
+  .norium-mail .mail-list-pagination{
+    width:100%;
+    justify-content:flex-end;
+  }
+
+  .norium-mail .mail-list-actions > button:first-of-type,
+  .norium-mail .mail-list-actions > button:nth-of-type(2){
+    max-width:calc(50vw - 24px);
+  }
+
+  .norium-mail .mail-banner > div{
+    display:none;
+  }
+
+  .norium-mail .mail-banner > span{
+    white-space:normal;
+  }
+
+  .agenda-month-view > button{
+    min-height:78px!important;
+  }
+
+  .agenda-year-view{
+    grid-template-columns:1fr!important;
+  }
+
+  .system-notifications-actions label{
+    flex:1 1 150px;
+  }
+
+  .system-notifications-actions > span{
+    flex:1 1 auto;
+    text-align:center;
+  }
+
+  .app-main table{
+    font-size:10px!important;
+  }
+
+  .app-main table :is(th,td){
+    padding:7px 4px!important;
+  }
+
+  .workhub-team-table > div{
+    grid-template-columns:minmax(100px,1.4fr) repeat(5,minmax(36px,1fr))!important;
+    gap:4px!important;
+    padding:9px 5px!important;
+    font-size:9px!important;
+  }
+}

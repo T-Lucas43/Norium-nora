@@ -91,8 +91,8 @@ export default function MailMessageList({
   );
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex h-[104px] shrink-0 items-center justify-between px-4">
+    <div className="mail-message-list flex min-w-0 flex-1 flex-col">
+      <div className="mail-list-heading flex h-[104px] shrink-0 items-center justify-between px-4">
         <div>
           <h1 className="text-xl font-bold">{title}</h1>
           <p className="mt-1 text-xs font-semibold text-white/45">
@@ -100,7 +100,7 @@ export default function MailMessageList({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs font-bold text-white/60">
+        <div className="mail-list-pagination flex items-center gap-2 text-xs font-bold text-white/60">
           <Button variant="ghost" size="sm" iconOnly onClick={onRefresh} className="hover:bg-white/7" aria-label="Atualizar lista">
             {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
           </Button>
@@ -133,8 +133,8 @@ export default function MailMessageList({
         </div>
       </div>
 
-      <div className="flex h-14 shrink-0 items-center justify-between border-y border-white/10 px-4 py-3">
-        <div className="flex items-center gap-2">
+      <div className="mail-list-filters flex h-14 shrink-0 items-center justify-between border-y border-white/10 px-4 py-3">
+        <div className="mail-list-quick-filters flex items-center gap-2">
           <button
             onClick={onToggleSelectAll}
             aria-label="Selecionar todos"
@@ -160,7 +160,7 @@ export default function MailMessageList({
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="mail-list-actions flex items-center gap-2">
           {selectedIds.size > 0 && (
             <>
               <Button onClick={() => onBulkAction("archive")} className="mail-hover border-white/12 py-2 hover:bg-white/7">

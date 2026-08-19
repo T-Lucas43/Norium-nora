@@ -132,10 +132,17 @@ def oauth_failure_html(exc: Exception) -> HTMLResponse:
 def oauth_success_html() -> str:
     return """
     <html>
-      <body style="font-family:system-ui;background:#0B1220;color:white;padding:32px">
+      <body style="font-family:system-ui;background:#0B1220;color:white;padding:32px;text-align:center">
         <h1>Google Agenda conectado</h1>
-        <p>Voce ja pode voltar para o Norium. A agenda sera sincronizada automaticamente.</p>
-        <script>setTimeout(() => window.close(), 1200)</script>
+        <p>Conexao concluida. A agenda sera sincronizada automaticamente.</p>
+        <a href="/#/app" style="display:inline-block;margin-top:16px;border-radius:10px;background:#1268e8;padding:12px 18px;color:white;text-decoration:none;font-weight:700">Voltar ao Norium</a>
+        <script>
+          if (window.opener) {
+            setTimeout(() => window.close(), 1200);
+          } else {
+            setTimeout(() => window.location.replace('/#/app'), 1400);
+          }
+        </script>
       </body>
     </html>
     """

@@ -380,7 +380,7 @@ export default function EmailDashboard({ userId = "lucas123", canUseNora = true,
 
 
   return (
-    <div className={`norium-mail ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} flex h-full min-h-0 w-full overflow-hidden bg-[#111113] text-white`}>
+    <div className={`norium-mail ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} ${selectedMessage ? "mail-message-open" : ""} flex h-full min-h-0 w-full overflow-hidden bg-[#111113] text-white`}>
       {mobileSidebarOpen && (
         <button
           type="button"

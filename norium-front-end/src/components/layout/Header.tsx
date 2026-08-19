@@ -328,7 +328,7 @@ export default function Header({
           <button type="button" className="norium-topbar-icon" onClick={onOpenTeamChat} title="Chat da equipe" aria-label="Chat da equipe">
             <MessageSquare size={19} />
             {teamChatUnread > 0 && (
-              <span className="norium-topbar-badge">{teamChatUnread > 9 ? "9+" : teamChatUnread}</span>
+              <span className="norium-topbar-badge">{teamChatUnread > 99 ? "99+" : teamChatUnread}</span>
             )}
           </button>
         )}

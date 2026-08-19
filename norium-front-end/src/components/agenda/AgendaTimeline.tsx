@@ -170,7 +170,7 @@ export default function AgendaTimeline({
     const allDay = dayEvents.filter((evento) => evento.allDay);
     const timed = dayEvents.filter((evento) => !evento.allDay);
     return (
-      <div className="min-w-[760px]">
+      <div className="agenda-day-view min-w-[760px]">
         <div className="grid grid-cols-[72px_1fr] border-b border-[var(--border)]">
           <div className="p-3 text-right text-xs font-bold text-[var(--text-secondary)]">Dia todo</div>
           <div className="flex min-h-14 flex-wrap gap-2 border-l border-[var(--border)] p-2">
@@ -196,45 +196,72 @@ export default function AgendaTimeline({
     const start = startOfWeek(dataSelecionada);
     const days = Array.from({ length: 7 }, (_, index) => addDays(start, index));
     return (
-      <div className="min-w-[980px]">
-        <div className="grid grid-cols-[64px_repeat(7,minmax(120px,1fr))] border-b border-[var(--border)]">
-          <div />
+      <>
+        <div className="agenda-week-view min-w-[980px]">
+          <div className="grid grid-cols-[64px_repeat(7,minmax(120px,1fr))] border-b border-[var(--border)]">
+            <div />
+            {days.map((day) => {
+              const key = formatDateKey(day);
+              return (
+                <button
+                  key={key}
+                  onClick={() => setDataSelecionada(day)}
+                  className={`border-l border-[var(--border)] px-2 py-3 text-center hover:bg-[var(--surface-hover)] ${key === todayKey ? "text-[var(--primary)]" : ""}`}
+                >
+                  <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">{weekLabels[day.getDay()]}</p>
+                  <p className={`mx-auto mt-1 grid h-8 w-8 place-items-center rounded-full text-sm font-bold ${key === todayKey ? "bg-[var(--primary)] text-white" : ""}`}>
+                    {day.getDate()}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+          {hours.map((hour) => (
+            <div key={hour} className="grid min-h-24 grid-cols-[64px_repeat(7,minmax(120px,1fr))] border-b border-[var(--border)]">
+              <div className="pr-2 pt-2 text-right text-xs font-bold text-[var(--text-secondary)]">{formatHour(hour)}</div>
+              {days.map((day) => {
+                const key = formatDateKey(day);
+                const hourEvents = eventsForDate(eventos, key).filter((evento) => evento.allDay || eventHour(evento) === hour);
+                return (
+                  <div key={`${key}-${hour}`} className="space-y-1 border-l border-[var(--border)] p-1.5">
+                    {hourEvents.slice(0, 3).map((evento) => <EventChip key={evento.id} evento={evento} dense />)}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div className="agenda-week-mobile hidden space-y-2 p-3">
           {days.map((day) => {
             const key = formatDateKey(day);
+            const dayEvents = eventsForDate(eventos, key);
             return (
               <button
-                key={key}
-                onClick={() => setDataSelecionada(day)}
-                className={`border-l border-[var(--border)] px-2 py-3 text-center hover:bg-[var(--surface-hover)] ${key === todayKey ? "text-[var(--primary)]" : ""}`}
+                key={`mobile-${key}`}
+                type="button"
+                onClick={() => { setDataSelecionada(day); setViewMode("Dia"); }}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-left"
               >
-                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">{weekLabels[day.getDay()]}</p>
-                <p className={`mx-auto mt-1 grid h-8 w-8 place-items-center rounded-full text-sm font-bold ${key === todayKey ? "bg-[var(--primary)] text-white" : ""}`}>
-                  {day.getDate()}
-                </p>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <strong className="text-sm capitalize">{day.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</strong>
+                  <span className="text-xs font-bold text-[var(--text-secondary)]">{dayEvents.length} evento(s)</span>
+                </div>
+                <div className="space-y-2">
+                  {dayEvents.length
+                    ? dayEvents.map((evento) => <EventChip key={evento.id} evento={evento} />)
+                    : <span className="text-xs font-semibold text-[var(--text-secondary)]">Sem compromissos.</span>}
+                </div>
               </button>
             );
           })}
         </div>
-        {hours.map((hour) => (
-          <div key={hour} className="grid min-h-24 grid-cols-[64px_repeat(7,minmax(120px,1fr))] border-b border-[var(--border)]">
-            <div className="pr-2 pt-2 text-right text-xs font-bold text-[var(--text-secondary)]">{formatHour(hour)}</div>
-            {days.map((day) => {
-              const key = formatDateKey(day);
-              const hourEvents = eventsForDate(eventos, key).filter((evento) => evento.allDay || eventHour(evento) === hour);
-              return (
-                <div key={`${key}-${hour}`} className="space-y-1 border-l border-[var(--border)] p-1.5">
-                  {hourEvents.slice(0, 3).map((evento) => <EventChip key={evento.id} evento={evento} dense />)}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+      </>
     );
   };
 
   const renderMonth = () => (
-    <div className="grid min-h-full min-w-[920px] grid-cols-7 border-l border-t border-[var(--border)]">
+    <div className="agenda-month-view grid min-h-full min-w-[920px] grid-cols-7 border-l border-t border-[var(--border)]">
       {weekLabels.map((label) => (
         <div key={label} className="border-b border-r border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-center text-xs font-bold uppercase text-[var(--text-secondary)]">
           {label}
@@ -264,7 +291,7 @@ export default function AgendaTimeline({
   );
 
   const renderYear = () => (
-    <div className="grid min-w-[980px] grid-cols-3 gap-4 p-1 xl:grid-cols-4">
+    <div className="agenda-year-view grid min-w-[980px] grid-cols-3 gap-4 p-1 xl:grid-cols-4">
       {monthNames.map((month, monthIndex) => {
         const monthDate = new Date(dataSelecionada.getFullYear(), monthIndex, 1);
         return (
@@ -298,9 +325,9 @@ export default function AgendaTimeline({
   );
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col bg-[var(--background)]">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
+    <section className="agenda-timeline flex h-full min-w-0 flex-1 flex-col bg-[var(--background)]">
+      <div className="agenda-timeline-toolbar flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+        <div className="agenda-date-navigation flex min-w-0 items-center gap-2">
           <Button variant="ghost" size="sm" iconOnly onClick={() => setDataSelecionada(navigate(dataSelecionada, viewMode, -1))}>
             <ChevronLeft size={18} />
           </Button>
@@ -313,7 +340,7 @@ export default function AgendaTimeline({
           <h1 className="truncate px-2 text-lg font-bold capitalize">{headerTitle(viewMode, dataSelecionada)}</h1>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="agenda-view-actions flex items-center gap-2">
           <span className={`hidden rounded-full px-2 py-1 text-xs font-bold md:inline-flex ${status.connected ? "bg-emerald-500/10 text-emerald-400" : "bg-amber-500/10 text-amber-300"}`}>
             {status.connected ? "Google em tempo real" : "Modo local"}
           </span>
@@ -323,7 +350,7 @@ export default function AgendaTimeline({
           <Button variant="primary" size="sm" iconOnly onClick={() => onCreateEvent(dataSelecionada)}>
             <CalendarPlus size={17} />
           </Button>
-          <div className="flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-1">
+          <div className="agenda-view-switcher flex rounded-lg border border-[var(--border)] bg-[var(--background)] p-1">
             {views.map((mode) => (
               <button
                 key={mode}
@@ -343,7 +370,7 @@ export default function AgendaTimeline({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto">
+      <div className="agenda-scroll flex-1 overflow-auto">
         {eventos.length === 0 && !loading && (
           <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3 text-sm font-semibold text-[var(--text-secondary)]">
             <span>Nenhum evento neste período.</span>

@@ -62,7 +62,7 @@ export default function MailMessageDetail({
     <PortalWhen active={fullscreen}>
       <aside
         className={cn(
-          "mail-sidebar flex flex-col overflow-hidden bg-[#18181B]",
+          "mail-message-detail flex flex-col overflow-hidden bg-[#18181B]",
           fullscreen
             ? "fixed inset-0 z-[100] h-[100dvh] max-h-[100dvh] w-screen min-h-0"
             : "h-full w-[520px] shrink-0 border-l border-white/10",

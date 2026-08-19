@@ -45,8 +45,8 @@ export default function MailToolbar({
   onToggleProfile,
 }: MailToolbarProps) {
   return (
-    <header className="mail-surface flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-4">
-      <div className="flex min-w-0 items-center gap-4">
+    <header className="mail-toolbar mail-surface flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-4">
+      <div className="mail-toolbar-search-group flex min-w-0 items-center gap-4">
         <button type="button" className="mobile-sidebar-toggle" aria-label="Abrir menu do e-mail" onClick={onOpenMobileSidebar}>
           <Menu size={18} />
         </button>
@@ -101,7 +101,7 @@ export default function MailToolbar({
         )}
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="mail-toolbar-actions flex items-center gap-2">
         {canUseNora && (
           <Button onClick={onOpenNora} className="rounded-full border-[#38BDF8] hover:bg-[#38BDF8]/12">
             <Bot size={15} />

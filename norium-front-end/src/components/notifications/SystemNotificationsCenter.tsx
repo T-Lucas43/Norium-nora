@@ -149,8 +149,8 @@ export default function SystemNotificationsCenter({
   const densityStyle = densityConfig[density];
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
-      <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+    <section className="system-notifications-center flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
+      <header className="system-notifications-header flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--primary)]">
             <Bell size={21} />
@@ -163,7 +163,7 @@ export default function SystemNotificationsCenter({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="system-notifications-actions flex shrink-0 items-center gap-3">
           <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
             Tamanho
             <select
@@ -220,7 +220,7 @@ export default function SystemNotificationsCenter({
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={() => moveNotification(notification.id)}
                     onDragEnd={() => setDraggedId(null)}
-                    className={`grid cursor-grab grid-cols-[20px_48px_1fr_auto] gap-4 transition hover:bg-[var(--surface-hover)] active:cursor-grabbing ${densityStyle.row}`}
+                    className={`system-notification-row grid cursor-grab grid-cols-[20px_48px_1fr_auto] gap-4 transition hover:bg-[var(--surface-hover)] active:cursor-grabbing ${densityStyle.row}`}
                   >
                     <span className="mt-3 text-[var(--text-secondary)]">
                       <GripVertical size={15} />

@@ -10,6 +10,7 @@ import { apiBaseUrl, authToken, wsBaseUrl } from "../utils/api";
 
 const API_URL = `${apiBaseUrl()}/api/omnichannel/inbox`;
 const WS_URL = `${wsBaseUrl()}/api/omnichannel/ws`;
+const TEAM_WS_URL = `${wsBaseUrl()}/api/team-chat/ws`;
 const CALENDAR_SYNC_URL = `${apiBaseUrl()}/api/agenda/sync`;
 const GMAIL_SYNC_URL = `${apiBaseUrl()}/api/emails/gmail/sync-central`;
 const NOTIFICATIONS_TAB = "Notificações";
@@ -21,6 +22,16 @@ type SocketMessage = {
   title?: string;
   description?: string;
   severity?: SystemNotificationSeverity;
+};
+
+type TeamSocketMessage = {
+  type?: string;
+  message?: {
+    id?: string;
+    senderId?: string;
+    senderName?: string;
+    text?: string;
+  };
 };
 
 function sortEvents(events: OmnichannelEvent[]) {
@@ -80,19 +91,62 @@ function buildSystemNotification(
   };
 }
 
-export function useWebSockets(activeTab: string, enabled = true, userId = "lucas123") {
+function notificationForEvent(event: OmnichannelEvent): {
+  title: string;
+  description: string;
+  severity: SystemNotificationSeverity;
+  metadata: Record<string, unknown>;
+} {
+  const action = String(event.metadata?.action || "").toLocaleLowerCase("pt-BR");
+  const normalized = `${action} ${event.title}`.toLocaleLowerCase("pt-BR");
+  let title = event.title || "Nova atividade no Norium";
+  let severity: SystemNotificationSeverity = "info";
+
+  if (event.source === "equipe" && action === "team_message_created") title = "Nova mensagem no chat da equipe";
+  else if (event.source === "kanban" && event.metadata?.assigneeId) title = "Tarefa atribuida ou atualizada";
+  else if (event.source === "gmail") title = "Nova atividade de e-mail";
+  else if (event.source === "calendar") title = "Atualizacao na agenda";
+
+  if (normalized.includes("approval_requested") || normalized.includes("aprovacao pendente")) {
+    title = "Nova aprovacao pendente";
+    severity = "warning";
+  } else if (normalized.includes("error") || normalized.includes("falh") || normalized.includes("interromp")) {
+    severity = "error";
+  } else if (normalized.includes("conclu") || normalized.includes("resolvid") || normalized.includes("aprovad")) {
+    severity = "success";
+  }
+
+  return {
+    title,
+    description: event.description || "Uma nova atividade requer sua atencao.",
+    severity,
+    metadata: { ...event.metadata, source: event.source, eventId: event.id, action },
+  };
+}
+
+export function useWebSockets(
+  activeTab: string,
+  enabled = true,
+  userId = "lucas123",
+  teamId = userId,
+  teamChatOpen = false,
+) {
   const [events, setEvents] = useState<OmnichannelEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [systemNotifications, setSystemNotifications] = useState<SystemNotification[]>([]);
   const [systemUnreadCount, setSystemUnreadCount] = useState(0);
   const [systemToasts, setSystemToasts] = useState<SystemNotificationToast[]>([]);
+  const [teamChatUnreadCount, setTeamChatUnreadCount] = useState(0);
 
   const activeTabRef = useRef(activeTab);
   const socketRef = useRef<WebSocket | null>(null);
+  const teamSocketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const hasOpenedRef = useRef(false);
   const lastConnectionStateRef = useRef<"online" | "offline" | null>(null);
   const integrationSyncInFlightRef = useRef(false);
+  const teamChatOpenRef = useRef(teamChatOpen);
+  const seenTeamMessageIdsRef = useRef<Set<string>>(new Set());
 
   const eventsBySource = useMemo(() => groupEventsBySource(events), [events]);
 
@@ -101,11 +155,18 @@ export function useWebSockets(activeTab: string, enabled = true, userId = "lucas
     setSystemNotifications([]);
     setSystemUnreadCount(0);
     setSystemToasts([]);
+    setTeamChatUnreadCount(0);
+    seenTeamMessageIdsRef.current.clear();
   }, [userId]);
 
   useEffect(() => {
     activeTabRef.current = activeTab;
   }, [activeTab]);
+
+  useEffect(() => {
+    teamChatOpenRef.current = teamChatOpen;
+    if (teamChatOpen) setTeamChatUnreadCount(0);
+  }, [teamChatOpen]);
 
   const dismissSystemToast = useCallback((toastId: string) => {
     setSystemToasts((current) => current.filter((toast) => toast.id !== toastId));
@@ -133,10 +194,39 @@ export function useWebSockets(activeTab: string, enabled = true, userId = "lucas
           createdAt: Date.now(),
         };
         setSystemToasts((current) => [toast, ...current].slice(0, 4));
-        window.setTimeout(() => dismissSystemToast(toast.id), 5200);
+        window.setTimeout(() => dismissSystemToast(toast.id), 9000);
       }
     },
     [dismissSystemToast],
+  );
+
+  const notifyTeamMessage = useCallback(
+    (message: { id?: string; senderId?: string; senderName?: string; text?: string }) => {
+      const messageId = String(message.id || "");
+      if (messageId && seenTeamMessageIdsRef.current.has(messageId)) return;
+      if (messageId) {
+        seenTeamMessageIdsRef.current.add(messageId);
+        if (seenTeamMessageIdsRef.current.size > 400) {
+          const oldest = seenTeamMessageIdsRef.current.values().next().value;
+          if (oldest) seenTeamMessageIdsRef.current.delete(oldest);
+        }
+      }
+      if (message.senderId === userId || teamChatOpenRef.current) return;
+
+      setTeamChatUnreadCount((current) => current + 1);
+      pushSystemNotification({
+        title: "Nova mensagem no chat da equipe",
+        description: `${message.senderName || "Equipe"}: ${message.text || "Uma nova mensagem foi enviada."}`,
+        severity: "info",
+        metadata: {
+          source: "equipe",
+          action: "team_message_created",
+          messageId,
+          senderId: message.senderId,
+        },
+      });
+    },
+    [pushSystemNotification, userId],
   );
 
   const refreshEvents = useCallback(async () => {
@@ -192,6 +282,14 @@ export function useWebSockets(activeTab: string, enabled = true, userId = "lucas
     setSystemUnreadCount(0);
     setSystemNotifications([]);
     setSystemToasts([]);
+  }, []);
+
+  const clearTeamChatUnread = useCallback(() => {
+    setTeamChatUnreadCount(0);
+  }, []);
+
+  const addTeamChatUnread = useCallback((count = 1) => {
+    setTeamChatUnreadCount((current) => current + Math.max(0, count));
   }, []);
 
   const handleSocketSystemMessage = useCallback(
@@ -296,20 +394,18 @@ export function useWebSockets(activeTab: string, enabled = true, userId = "lucas
 
           if (payload.type === "NEW_EVENT" && payload.event) {
             const eventUserId = payload.event.metadata?.userId;
-            if (eventUserId && eventUserId !== userId) return;
+            if (eventUserId && eventUserId !== userId && eventUserId !== teamId) return;
             setEvents((current) => mergeEvent(current, payload.event as OmnichannelEvent));
-            if (payload.event.source === "equipe" && payload.event.metadata?.action === "team_message_created") {
-              pushSystemNotification({
-                title: payload.event.title || "Nova mensagem da equipe",
-                description: payload.event.description || "Uma nova mensagem chegou ao chat interno.",
-                severity: "info",
-                metadata: {
-                  source: "equipe",
-                  eventId: payload.event.id,
-                  messageId: payload.event.metadata?.messageId,
-                  senderId: payload.event.metadata?.senderId,
-                },
+            const isTeamMessage = payload.event.source === "equipe" && payload.event.metadata?.action === "team_message_created";
+            if (isTeamMessage) {
+              notifyTeamMessage({
+                id: String(payload.event.metadata?.messageId || payload.event.id),
+                senderId: String(payload.event.metadata?.senderId || ""),
+                senderName: String(payload.event.metadata?.senderName || "Equipe"),
+                text: payload.event.description,
               });
+            } else {
+              pushSystemNotification(notificationForEvent(payload.event));
             }
             return;
           }
@@ -350,7 +446,46 @@ export function useWebSockets(activeTab: string, enabled = true, userId = "lucas
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [enabled, handleSocketSystemMessage, pushSystemNotification, reportConnectionState, userId]);
+  }, [enabled, handleSocketSystemMessage, notifyTeamMessage, pushSystemNotification, reportConnectionState, teamId, userId]);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let cancelled = false;
+    let reconnectTimer: number | null = null;
+
+    function connectTeamSocket() {
+      if (cancelled) return;
+      const token = authToken();
+      if (!token) return;
+      const socket = new WebSocket(`${TEAM_WS_URL}?token=${encodeURIComponent(token)}`);
+      teamSocketRef.current = socket;
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(String(event.data || "{}")) as TeamSocketMessage;
+          if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) notifyTeamMessage(payload.message);
+        } catch {
+          // Pacotes de presenca ou incompatíveis nao bloqueiam o contador do chat.
+        }
+      };
+      socket.onclose = () => {
+        if (cancelled || reconnectTimer !== null) return;
+        reconnectTimer = window.setTimeout(() => {
+          reconnectTimer = null;
+          connectTeamSocket();
+        }, 1800);
+      };
+      socket.onerror = () => socket.close();
+    }
+
+    connectTeamSocket();
+    return () => {
+      cancelled = true;
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      teamSocketRef.current?.close();
+      teamSocketRef.current = null;
+    };
+  }, [enabled, notifyTeamMessage, userId]);
 
   return {
     connected,
@@ -359,9 +494,12 @@ export function useWebSockets(activeTab: string, enabled = true, userId = "lucas
     systemNotifications,
     systemUnreadCount,
     systemToasts,
+    teamChatUnreadCount,
     refreshEvents,
     clearSystemUnread,
     clearSystemNotifications,
+    clearTeamChatUnread,
+    addTeamChatUnread,
     dismissSystemToast,
   };
 }

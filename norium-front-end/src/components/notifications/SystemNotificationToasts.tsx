@@ -17,7 +17,7 @@ export default function SystemNotificationToasts({
   onOpenNotifications,
 }: SystemNotificationToastsProps) {
   return (
-    <div className="pointer-events-none fixed right-5 top-24 z-[70] flex w-[360px] max-w-[calc(100vw-32px)] flex-col gap-3">
+    <div className="system-notification-toasts pointer-events-none fixed right-5 top-24 z-[140] flex w-[360px] max-w-[calc(100vw-32px)] flex-col gap-3">
       <AnimatePresence initial={false}>
         {toasts.map((toast) => {
           const visual = notificationVisual(toast.notification);

@@ -694,6 +694,7 @@ export default function ChatCentral({ userId = "lucas123", telegramEnabled = tru
         onAbrirConfigPropria={() => setModalConfigAberto(true)}
         onAbrirModalContatos={abrirAgendaContatos}
         onAbrirModalCriarGrupo={abrirModalGrupo}
+        onClose={() => setMobileSidebarOpen(false)}
       />
       
       <AreaCentralChat 

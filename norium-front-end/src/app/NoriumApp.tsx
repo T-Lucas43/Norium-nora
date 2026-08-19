@@ -145,6 +145,8 @@ export default function NoriumApp() {
 
   useEffect(() => {
     if (TAB_PERMISSIONS[activeTab] !== undefined) localStorage.setItem(ACTIVE_TAB_STORAGE, activeTab);
+    const main = document.getElementById("norium-main");
+    main?.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [activeTab]);
 
   useEffect(() => {

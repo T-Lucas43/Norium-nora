@@ -13,6 +13,7 @@ import {
   User,
   Users,
   VolumeX,
+  X,
 } from "lucide-react";
 import type { ChatConversa } from "./types";
 import Button from "../shared/Button";
@@ -29,6 +30,7 @@ interface SidebarProps {
   onAbrirConfigPropria: () => void;
   onAbrirModalContatos: () => void;
   onAbrirModalCriarGrupo: () => void;
+  onClose?: () => void;
 }
 
 function getInitials(name: string) {
@@ -76,6 +78,7 @@ export default function SidebarEsquerda({
   onAbrirConfigPropria,
   onAbrirModalContatos,
   onAbrirModalCriarGrupo,
+  onClose,
 }: SidebarProps) {
   const [canalAtivo, setCanalAtivo] = useState<"todos" | "whatsapp" | "telegram">("todos");
   const [filtroTipo, setFiltroTipo] = useState<"todos" | "nao-lidas" | "grupos" | "arquivados">("todos");
@@ -120,6 +123,12 @@ export default function SidebarEsquerda({
 
   return (
     <aside className="w-[400px] min-w-[340px] border-r border-[var(--border)] flex flex-col h-full bg-[var(--surface)] select-none">
+      <div className="module-sidebar-mobile-header">
+        <span><MessageSquare size={18} /> Conversas</span>
+        <button type="button" onClick={onClose} aria-label="Fechar lista de conversas">
+          <X size={19} />
+        </button>
+      </div>
       <div className="px-4 py-3 border-b border-[var(--border)] space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-[var(--text)]">Conversas</h2>

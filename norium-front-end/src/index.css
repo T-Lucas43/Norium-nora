@@ -5193,6 +5193,11 @@ body,
     color:var(--text);
   }
 
+  .norium-chat > aside:first-of-type > .module-sidebar-mobile-header{
+    margin:0;
+    padding:10px 12px;
+  }
+
   .norium-agenda > aside,
   .norium-chat > aside:first-of-type,
   .norium-tasks > aside:first-of-type,
@@ -5385,6 +5390,31 @@ body,
   .agenda-scroll{
     overflow-x:hidden!important;
     overflow-y:auto!important;
+  }
+
+  .norium-agenda > .agenda-timeline,
+  .norium-agenda .agenda-timeline-toolbar,
+  .norium-agenda .agenda-scroll,
+  .norium-agenda .agenda-week-mobile{
+    width:100%!important;
+    max-width:100%!important;
+  }
+
+  .norium-agenda > .agenda-timeline{
+    flex:0 0 100%!important;
+  }
+
+  .norium-agenda .agenda-timeline-toolbar,
+  .norium-tasks > main > header{
+    padding-left:68px!important;
+  }
+
+  .norium-chat > section > div:first-child{
+    padding-left:68px!important;
+  }
+
+  .norium-chat .module-sidebar-mobile-header + div h2{
+    display:none;
   }
 
   .agenda-day-view,

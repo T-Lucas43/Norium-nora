@@ -52,11 +52,73 @@ class OmnichannelIsolationTests(unittest.IsolatedAsyncioTestCase):
                     title="Somente do usuario A",
                     metadata={"userId": "usuario-b"},
                 )
-                stored = await inbox_router.persist_event(event, "usuario-a")
+                stored, changed = await inbox_router.persist_event(event, "usuario-a")
 
                 self.assertEqual("usuario-a", stored["metadata"]["userId"])
+                self.assertTrue(changed)
                 self.assertEqual(1, len(await inbox_router.read_events("usuario-a")))
                 self.assertEqual([], await inbox_router.read_events("usuario-b"))
+
+    async def test_duplicate_event_is_not_rebroadcast_or_rewritten(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            def isolated_path(user_id: str) -> Path:
+                path = root / user_id / "events.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                return path
+
+            broadcast = AsyncMock()
+            with (
+                patch.object(inbox_router, "event_db_path", side_effect=isolated_path),
+                patch.object(inbox_router.manager, "broadcast", broadcast),
+            ):
+                event_payload = {
+                    "source": "gmail",
+                    "title": "E-mail recebido",
+                    "description": "Mensagem unica",
+                    "metadata": {"userId": "usuario-a", "folder": "inbox"},
+                    "event_id": "gmail_usuario-a_inbox_1",
+                    "timestamp": "2026-08-19T12:00:00+00:00",
+                }
+                await inbox_router.record_event(**event_payload)
+                await inbox_router.record_event(**event_payload)
+
+                stored_events = await inbox_router.read_events("usuario-a")
+
+            broadcast.assert_awaited_once()
+            self.assertEqual(1, len(stored_events))
+
+    async def test_legacy_event_without_user_id_is_never_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "events.json"
+            path.write_text(
+                '[{"id":"legacy","source":"gmail","title":"Outro usuario","metadata":{}}]',
+                encoding="utf-8",
+            )
+            with patch.object(inbox_router, "event_db_path", return_value=path):
+                self.assertEqual([], await inbox_router.read_events("usuario-a"))
+
+    async def test_notification_state_is_initialized_and_isolated_per_user(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            def isolated_state_path(user_id: str) -> Path:
+                return root / user_id / "notification-state.json"
+
+            with patch.object(inbox_router, "notification_state_path", side_effect=isolated_state_path):
+                state_a = await inbox_router.read_notification_state("usuario-a")
+                state_b = await inbox_router.read_notification_state("usuario-b")
+                state_a["readBefore"] = "2026-08-19T12:00:00+00:00"
+                await inbox_router.write_notification_state("usuario-a", state_a)
+
+                stored_a = await inbox_router.read_notification_state("usuario-a")
+                stored_b = await inbox_router.read_notification_state("usuario-b")
+
+            self.assertEqual("usuario-a", stored_a["userId"])
+            self.assertEqual("usuario-b", stored_b["userId"])
+            self.assertEqual("2026-08-19T12:00:00+00:00", stored_a["readBefore"])
+            self.assertNotEqual(stored_a["readBefore"], stored_b["readBefore"])
 
     async def test_internal_event_without_explicit_user_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "metadata.userId"):

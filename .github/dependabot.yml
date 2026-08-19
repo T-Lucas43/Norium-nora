@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /norium-back-end
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      python-security-and-runtime:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /norium-front-end
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-security-and-runtime:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

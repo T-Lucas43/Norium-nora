@@ -119,6 +119,54 @@ def event_db_path(user_id: str) -> Path:
     return Path(get_user_db_path(user_id, "eventos"))
 
 
+def notification_state_path(user_id: str) -> Path:
+    return Path(get_user_db_path(user_id, "notificacoes_estado"))
+
+
+async def read_notification_state(user_id: str) -> dict[str, str | None]:
+    def load() -> dict[str, str | None]:
+        path = notification_state_path(user_id)
+        if not path.exists():
+            initialized_at = utc_now_iso()
+            initial_state = {
+                "userId": user_id,
+                "readBefore": initialized_at,
+                "clearedBefore": initialized_at,
+            }
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(initial_state, ensure_ascii=False, indent=2), encoding="utf-8")
+            return initial_state
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"userId": user_id, "readBefore": None, "clearedBefore": None}
+        if not isinstance(payload, dict) or str(payload.get("userId") or "") != user_id:
+            return {"userId": user_id, "readBefore": None, "clearedBefore": None}
+        return {
+            "userId": user_id,
+            "readBefore": str(payload.get("readBefore") or "") or None,
+            "clearedBefore": str(payload.get("clearedBefore") or "") or None,
+        }
+
+    return await asyncio.to_thread(load)
+
+
+async def write_notification_state(user_id: str, state: dict[str, str | None]) -> dict[str, str | None]:
+    payload = {
+        "userId": user_id,
+        "readBefore": state.get("readBefore"),
+        "clearedBefore": state.get("clearedBefore"),
+    }
+
+    def save() -> None:
+        path = notification_state_path(user_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    await asyncio.to_thread(save)
+    return payload
+
+
 async def read_events(user_id: str) -> list[dict[str, Any]]:
     def load() -> list[dict[str, Any]]:
         path = event_db_path(user_id)
@@ -144,7 +192,11 @@ async def read_events(user_id: str) -> list[dict[str, Any]]:
 
         if not isinstance(payload, list):
             return []
-        return [item for item in payload if isinstance(item, dict)]
+        return [
+            item
+            for item in payload
+            if isinstance(item, dict) and event_visible_for_user(item, user_id)
+        ]
 
     return await asyncio.to_thread(load)
 
@@ -172,12 +224,10 @@ def sort_key(event: dict[str, Any]) -> datetime:
 def event_visible_for_user(event: dict[str, Any], user_id: str) -> bool:
     metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
     event_user_id = str(metadata.get("userId") or "").strip()
-    if event_user_id:
-        return event_user_id == user_id
-    return user_id == "lucas123"
+    return bool(event_user_id) and event_user_id == user_id
 
 
-async def persist_event(event: OmnichannelEvent, user_id: str | None = None) -> dict[str, Any]:
+async def persist_event(event: OmnichannelEvent, user_id: str | None = None) -> tuple[dict[str, Any], bool]:
     async with events_lock:
         event_payload = event.model_dump()
         resolved_user_id = user_id or event_user_id(event_payload)
@@ -185,11 +235,15 @@ async def persist_event(event: OmnichannelEvent, user_id: str | None = None) -> 
             raise ValueError("Todo evento precisa de um userId autenticado e explicito.")
         event_payload.setdefault("metadata", {})["userId"] = resolved_user_id
         events = await read_events(resolved_user_id)
+        previous = next((item for item in events if item.get("id") == event.id), None)
+        changed = previous != event_payload
+        if not changed:
+            return event_payload, False
         without_duplicate = [item for item in events if item.get("id") != event.id]
         without_duplicate.append(event_payload)
         without_duplicate.sort(key=sort_key, reverse=True)
         await write_events(resolved_user_id, without_duplicate[:1000])
-        return event_payload
+        return event_payload, True
 
 
 async def record_event(
@@ -200,6 +254,7 @@ async def record_event(
     metadata: dict[str, Any] | None = None,
     event_id: str | None = None,
     timestamp: str | None = None,
+    broadcast: bool = True,
 ) -> dict[str, Any]:
     event = OmnichannelEvent(
         id=event_id or f"evt_{uuid.uuid4().hex}",
@@ -212,8 +267,9 @@ async def record_event(
     resolved_user_id = event_user_id(event.model_dump())
     if not resolved_user_id:
         raise ValueError("record_event exige metadata.userId para impedir mistura entre usuarios.")
-    event_payload = await persist_event(event, resolved_user_id)
-    await manager.broadcast(resolved_user_id, {"type": "NEW_EVENT", "event": event_payload})
+    event_payload, changed = await persist_event(event, resolved_user_id)
+    if changed and broadcast:
+        await manager.broadcast(resolved_user_id, {"type": "NEW_EVENT", "event": event_payload})
     return event_payload
 
 
@@ -225,11 +281,37 @@ async def get_universal_inbox(user: dict[str, Any] = Depends(current_user)) -> l
     return events
 
 
+@router.get("/notifications/state")
+async def get_notification_state(user: dict[str, Any] = Depends(current_user)) -> dict[str, str | None]:
+    return await read_notification_state(str(user.get("id") or "lucas123"))
+
+
+@router.post("/notifications/read-all")
+async def mark_all_notifications_read(user: dict[str, Any] = Depends(current_user)) -> dict[str, str | None]:
+    user_id = str(user.get("id") or "lucas123")
+    async with events_lock:
+        state = await read_notification_state(user_id)
+        state["readBefore"] = utc_now_iso()
+        return await write_notification_state(user_id, state)
+
+
+@router.delete("/notifications")
+async def clear_notifications(user: dict[str, Any] = Depends(current_user)) -> dict[str, str | None]:
+    user_id = str(user.get("id") or "lucas123")
+    async with events_lock:
+        state = await read_notification_state(user_id)
+        cleared_at = utc_now_iso()
+        state["readBefore"] = cleared_at
+        state["clearedBefore"] = cleared_at
+        return await write_notification_state(user_id, state)
+
+
 @router.post("/registrar-evento")
 async def register_omnichannel_event(event: OmnichannelEvent, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     user_id = str(user.get("id") or "lucas123")
-    event_payload = await persist_event(event, user_id)
-    await manager.broadcast(user_id, {"type": "NEW_EVENT", "event": event_payload})
+    event_payload, changed = await persist_event(event, user_id)
+    if changed:
+        await manager.broadcast(user_id, {"type": "NEW_EVENT", "event": event_payload})
     return event_payload
 
 
@@ -259,8 +341,9 @@ async def omnichannel_websocket(websocket: WebSocket, token: str | None = Query(
             if payload.get("type") == "REGISTER_EVENT" and isinstance(payload.get("event"), dict):
                 envelope = SocketEnvelope.model_validate(payload)
                 if envelope.event:
-                    event_payload = await persist_event(envelope.event, user_id)
-                    await manager.broadcast(user_id, {"type": "NEW_EVENT", "event": event_payload})
+                    event_payload, changed = await persist_event(envelope.event, user_id)
+                    if changed:
+                        await manager.broadcast(user_id, {"type": "NEW_EVENT", "event": event_payload})
                 continue
 
             await websocket.send_json({"type": "ACK", "timestamp": utc_now_iso()})

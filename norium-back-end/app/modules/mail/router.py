@@ -130,6 +130,7 @@ async def record_gmail_messages_for_central(messages: list[dict[str, Any]], fold
             },
             event_id=f"gmail_{user_id}_{folder}_{message_id}",
             timestamp=gmail_event_timestamp(message),
+            broadcast=not sent,
         )
         count += 1
     return count
@@ -267,7 +268,8 @@ async def send_gmail_message(payload: SendEmailPayload, user: dict[str, Any] = D
             source="gmail",
             title="E-mail enviado",
             description=payload.subject or "Mensagem sem assunto",
-            metadata={"userId": resolved_user_id, "to": payload.to, "message": result.get("message", {})},
+            metadata={"userId": resolved_user_id, "folder": "sent", "to": payload.to, "message": result.get("message", {})},
+            broadcast=False,
         )
         sent_message = result.get("message", {}) if isinstance(result, dict) else {}
         await record_receipt(
@@ -310,7 +312,8 @@ async def create_gmail_draft(payload: DraftEmailPayload, user: dict[str, Any] = 
             source="gmail",
             title="Rascunho de e-mail criado",
             description=payload.subject or "Rascunho sem assunto",
-            metadata={"userId": resolved_user_id, "to": payload.to, "draft": result.get("draft", {})},
+            metadata={"userId": resolved_user_id, "folder": "drafts", "to": payload.to, "draft": result.get("draft", {})},
+            broadcast=False,
         )
         return result
     except GmailConfigError as exc:
@@ -338,7 +341,8 @@ async def reply_gmail_message(message_id: str, payload: ReplyEmailPayload, user:
             source="gmail",
             title="Resposta enviada no Gmail",
             description=payload.body[:220],
-            metadata={"userId": resolved_user_id, "messageId": message_id, "message": result.get("message", {})},
+            metadata={"userId": resolved_user_id, "folder": "sent", "messageId": message_id, "message": result.get("message", {})},
+            broadcast=False,
         )
         sent_message = result.get("message", {}) if isinstance(result, dict) else {}
         await record_receipt(

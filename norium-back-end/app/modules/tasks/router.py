@@ -746,8 +746,8 @@ async def anexar_arquivo(task_id: str, payload: AnexoPayload, user: dict[str, An
 
 
 @router.get("/anexos/{file_name}")
-async def baixar_anexo(file_name: str, _: dict[str, Any] = Depends(current_user)):
-    path = attachment_path(file_name)
+async def baixar_anexo(file_name: str, user: dict[str, Any] = Depends(current_user)):
+    path = attachment_path(tenant_id(user), file_name)
     if not path:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
     return FileResponse(path, filename=Path(path).name)

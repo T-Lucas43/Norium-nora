@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { AnexoPendente, ChatConversa, MsgConteudo } from "./types";
 import Button from "../shared/Button";
+import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
 interface AreaCentralProps {
   conversaAtiva: ChatConversa | undefined;
@@ -52,7 +53,7 @@ function initials(name: string) {
 
 function HeaderAvatar({ conversa }: { conversa: ChatConversa }) {
   const [failed, setFailed] = useState(false);
-  const photoUrl = conversa.metadados?.photoUrl || conversa.photoUrl;
+  const photoUrl = useAuthenticatedMedia(conversa.metadados?.photoUrl || conversa.photoUrl);
 
   return (
     <div className="h-10 w-10 rounded-full bg-[var(--background)] border border-[var(--border)] flex items-center justify-center overflow-hidden shrink-0 text-[var(--text-secondary)]">
@@ -203,26 +204,27 @@ function MessageMedia({ msg, outgoing }: { msg: MsgConteudo; outgoing: boolean }
   const mime = msg.arquivoMime || "";
   const fileName = msg.nomeArquivo || "Arquivo";
   const looksVideo = mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(fileName);
+  const mediaUrl = useAuthenticatedMedia(msg.arquivoUrl);
 
   if (!msg.arquivoUrl) {
     return <p className="text-sm font-medium">{msg.texto || "Midia sem URL disponivel"}</p>;
   }
 
   if (msg.tipo === "audio") {
-    return <AudioMessage src={msg.arquivoUrl} outgoing={outgoing} />;
+    return mediaUrl ? <AudioMessage src={mediaUrl} outgoing={outgoing} /> : null;
   }
 
   if (msg.tipo === "sticker") {
     return (
       <div className="h-36 w-36 bg-transparent">
-        <img src={msg.arquivoUrl} alt="Figurinha" className="h-full w-full object-contain" />
+        {mediaUrl ? <img src={mediaUrl} alt="Figurinha" className="h-full w-full object-contain" /> : null}
       </div>
     );
   }
 
   if (msg.tipo === "documento") {
     return (
-      <a href={msg.arquivoUrl} target="_blank" rel="noreferrer" className={`flex max-w-[320px] items-center gap-3 rounded-lg p-3 ${outgoing ? "bg-white/15" : "bg-[var(--background)]"}`}>
+      <a href={mediaUrl || undefined} download={fileName} className={`flex max-w-[320px] items-center gap-3 rounded-lg p-3 ${outgoing ? "bg-white/15" : "bg-[var(--background)]"}`}>
         <FileText size={24} />
         <span className="min-w-0 flex-1 truncate text-xs font-bold">{fileName}</span>
       </a>
@@ -232,7 +234,7 @@ function MessageMedia({ msg, outgoing }: { msg: MsgConteudo; outgoing: boolean }
   if (looksVideo) {
     return (
       <div className="max-w-[420px] overflow-hidden rounded-lg">
-        <video src={msg.arquivoUrl} controls className="max-h-[320px] w-full bg-black" />
+        {mediaUrl ? <video src={mediaUrl} controls className="max-h-[320px] w-full bg-black" /> : null}
         {msg.texto && msg.texto !== "[Video]" && <p className="mt-2 text-sm font-medium">{msg.texto}</p>}
       </div>
     );
@@ -240,7 +242,7 @@ function MessageMedia({ msg, outgoing }: { msg: MsgConteudo; outgoing: boolean }
 
   return (
     <div className="max-w-[420px] overflow-hidden rounded-lg">
-      <img src={msg.arquivoUrl} alt={msg.texto || "Imagem"} className="max-h-[320px] w-full object-contain bg-black/5" />
+      {mediaUrl ? <img src={mediaUrl} alt={msg.texto || "Imagem"} className="max-h-[320px] w-full object-contain bg-black/5" /> : null}
       {msg.texto && msg.texto !== "[Imagem]" && <p className="mt-2 text-sm font-medium">{msg.texto}</p>}
     </div>
   );

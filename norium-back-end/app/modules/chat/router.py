@@ -7,11 +7,12 @@ import base64
 import mimetypes
 import os
 import re
+import secrets
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 from dotenv import load_dotenv
@@ -46,10 +47,7 @@ router = APIRouter()
 whatsapp_service = WhatsAppService()
 telegram_service = TelegramService()
 
-status_conexoes: Dict[str, Dict[str, Any]] = {
-    "whatsapp": {"conectado": False, "qrcode": None},
-    "telegram": {"conectado": False, "qrcode": None, "disponivel": False},
-}
+status_conexoes: Dict[str, Dict[str, Dict[str, Any]]] = {}
 TELEGRAM_OWNER_EMAIL = os.getenv("TELEGRAM_OWNER_EMAIL", "tarcisiolucas43@gmail.com").strip().lower()
 TELEGRAM_OWNER_USER_ID = os.getenv("TELEGRAM_OWNER_USER_ID", "lucas123").strip()
 TELEGRAM_ALLOWED_USER_IDS = {
@@ -60,6 +58,13 @@ TELEGRAM_ALLOWED_USER_IDS = {
 TELEGRAM_ALLOWED_CHAT_IDS = {
     item.strip()
     for item in os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "").split(",")
+    if item.strip()
+}
+WHATSAPP_OWNER_USER_ID = os.getenv("WHATSAPP_OWNER_USER_ID", "lucas123").strip() or "lucas123"
+WHATSAPP_WEBHOOK_SECRET = os.getenv("WHATSAPP_WEBHOOK_SECRET", "").strip()
+WHATSAPP_MEDIA_HOSTS = {
+    item.strip().lower()
+    for item in os.getenv("WHATSAPP_MEDIA_HOSTS", "").split(",")
     if item.strip()
 }
 profile_photo_attempt_cache: Dict[str, int] = {}
@@ -107,6 +112,27 @@ def tenant_id(user: dict[str, Any]) -> str:
     return str(user.get("id") or "lucas123")
 
 
+def connection_status(user_id: str) -> Dict[str, Dict[str, Any]]:
+    return status_conexoes.setdefault(
+        user_id,
+        {
+            "whatsapp": {"conectado": False, "qrcode": None},
+            "telegram": {"conectado": False, "qrcode": None, "disponivel": False},
+        },
+    )
+
+
+def assert_whatsapp_owner(user: dict[str, Any]) -> None:
+    if tenant_id(user) != WHATSAPP_OWNER_USER_ID:
+        raise HTTPException(status_code=403, detail="WhatsApp vinculado a outra conta do Norium.")
+
+
+def user_upload_dir(user_id: str) -> Path:
+    path = UPLOAD_DIR / re.sub(r"[^a-zA-Z0-9._-]", "_", user_id)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def is_telegram_owner_user(user: dict[str, Any]) -> bool:
     user_id = str(user.get("id") or "")
     email = str(user.get("email") or "").strip().lower()
@@ -145,20 +171,43 @@ def is_allowed_telegram_sender(chat: Dict[str, Any], sender: Dict[str, Any]) -> 
 
 
 @router.get("/api/chat/foto-perfil")
-async def obter_foto_perfil(phone: str = Query(..., description="ID ou numero do contato/grupo")):
+async def obter_foto_perfil(
+    phone: str = Query(..., description="ID ou numero do contato/grupo"),
+    user: dict[str, Any] = Depends(current_user),
+):
+    if tenant_id(user) != WHATSAPP_OWNER_USER_ID:
+        raise HTTPException(status_code=403, detail="Midia do WhatsApp nao pertence a este usuario.")
     return {"photoUrl": await fetch_profile_picture(phone)}
 
 
 @router.get("/api/chat/media-proxy")
-async def media_proxy(url: str = Query(..., description="URL original do arquivo vinda da Z-API")):
+async def media_proxy(
+    url: str = Query(..., description="URL original do arquivo vinda da Z-API"),
+    user: dict[str, Any] = Depends(current_user),
+):
+    if tenant_id(user) != WHATSAPP_OWNER_USER_ID:
+        raise HTTPException(status_code=403, detail="Midia do WhatsApp nao pertence a este usuario.")
+    parsed = urlparse(url)
+    base = urlparse(whatsapp_service.base_url)
+    allowed_hosts = {base.hostname or "", *WHATSAPP_MEDIA_HOSTS}
+    if parsed.scheme != "https" or not parsed.hostname or parsed.hostname.lower() not in allowed_hosts:
+        raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=False) as client:
             headers = {"client-token": whatsapp_service.headers.get("client-token", "")}
             res_media = await client.get(url, headers=headers, timeout=25.0)
             if res_media.status_code != 200:
                 raise HTTPException(status_code=404, detail="Midia indisponivel na Z-API.")
+            if len(res_media.content) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
             content_type = res_media.headers.get("Content-Type", "application/octet-stream")
-            return Response(content=res_media.content, media_type=content_type)
+            if content_type.split(";", 1)[0].lower() in {"text/html", "image/svg+xml"}:
+                raise HTTPException(status_code=415, detail="Tipo de midia nao permitido.")
+            return Response(
+                content=res_media.content,
+                media_type=content_type,
+                headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"},
+            )
     except HTTPException:
         raise
     except Exception as exc:
@@ -169,7 +218,9 @@ async def media_proxy(url: str = Query(..., description="URL original do arquivo
 async def telegram_file_proxy(
     file_id: str = Query(..., description="file_id retornado pelo Telegram"),
     filename: str = Query(default="arquivo"),
+    user: dict[str, Any] = Depends(current_user),
 ):
+    assert_telegram_owner(user)
     try:
         content, mime_type = await telegram_service.download_file(file_id)
         safe_name = Path(filename).name or "arquivo"
@@ -185,9 +236,9 @@ async def telegram_file_proxy(
 
 
 @router.get("/api/chat/uploads/{file_name}")
-async def obter_upload_local(file_name: str):
+async def obter_upload_local(file_name: str, user: dict[str, Any] = Depends(current_user)):
     safe_name = Path(file_name).name
-    file_path = UPLOAD_DIR / safe_name
+    file_path = user_upload_dir(tenant_id(user)) / safe_name
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Arquivo local nao encontrado.")
     return FileResponse(file_path)
@@ -196,52 +247,65 @@ async def obter_upload_local(file_name: str):
 @router.get("/api/chat/status-canais")
 async def obter_status_canais(user_id: str, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
+    user_status = connection_status(resolved_user_id)
     try:
-        resultado = await whatsapp_service.inicializar_instancia(resolved_user_id)
-        if resultado["status"] == "conectado":
-            status_conexoes["whatsapp"]["conectado"] = True
-            status_conexoes["whatsapp"]["qrcode"] = None
+        if resolved_user_id != WHATSAPP_OWNER_USER_ID:
+            user_status["whatsapp"] = {"conectado": False, "qrcode": None, "disponivel": False, "restrito": True}
         else:
-            status_conexoes["whatsapp"]["conectado"] = False
-            status_conexoes["whatsapp"]["qrcode"] = resultado.get("qrcode")
+            resultado = await whatsapp_service.inicializar_instancia(resolved_user_id)
+            user_status["whatsapp"]["conectado"] = resultado["status"] == "conectado"
+            user_status["whatsapp"]["qrcode"] = None if resultado["status"] == "conectado" else resultado.get("qrcode")
     except Exception as exc:
         print(f"Erro ao sincronizar status WhatsApp: {exc}")
     if is_telegram_owner_user(user):
-        status_conexoes["telegram"] = await telegram_service.status(resolved_user_id)
+        user_status["telegram"] = await telegram_service.status(resolved_user_id)
     else:
-        status_conexoes["telegram"] = telegram_unavailable_status()
-    return status_conexoes
+        user_status["telegram"] = telegram_unavailable_status()
+    return user_status
 
 
 @router.post("/api/chat/inicializar-login")
 async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
+    user_status = connection_status(resolved_user_id)
     if payload.canal == "telegram":
         assert_telegram_owner(user)
         try:
             resultado = await telegram_service.configure_webhook(resolved_user_id)
-            status_conexoes["telegram"] = await telegram_service.status(resolved_user_id)
+            user_status["telegram"] = await telegram_service.status(resolved_user_id)
             return {
                 "qrcode": None,
                 "canal": "telegram",
                 **resultado,
-                **{key: value for key, value in status_conexoes["telegram"].items() if key not in {"qrcode"}},
+                **{key: value for key, value in user_status["telegram"].items() if key not in {"qrcode"}},
             }
         except TelegramConfigError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if resolved_user_id != WHATSAPP_OWNER_USER_ID:
+        raise HTTPException(status_code=403, detail="WhatsApp vinculado a outra conta do Norium.")
     resultado = await whatsapp_service.inicializar_instancia(resolved_user_id)
     if resultado["status"] == "conectado":
-        status_conexoes["whatsapp"]["conectado"] = True
+        user_status["whatsapp"]["conectado"] = True
         return {"status": "conectado", "qrcode": None}
     if resultado["status"] == "aguardando_qrcode":
-        status_conexoes["whatsapp"]["conectado"] = False
+        user_status["whatsapp"]["conectado"] = False
         return {"status": "aguardando_qrcode", "qrcode": resultado["qrcode"]}
     raise HTTPException(status_code=400, detail="Erro ao gerar QR Code.")
 
 
 @router.post("/api/whatsapp/webhook")
-async def webhook_whatsapp(data: Dict[str, Any] = Body(...)):
+async def webhook_whatsapp(
+    data: Dict[str, Any] = Body(...),
+    x_whatsapp_webhook_secret: str | None = Header(default=None),
+    client_token: str | None = Header(default=None, alias="client-token"),
+):
+    supplied_secret = x_whatsapp_webhook_secret or client_token or ""
+    if WHATSAPP_WEBHOOK_SECRET and not secrets.compare_digest(supplied_secret, WHATSAPP_WEBHOOK_SECRET):
+        raise HTTPException(status_code=403, detail="Webhook WhatsApp nao autorizado.")
+    received_instance = str(data.get("instanceId") or data.get("instance_id") or "").strip()
+    if received_instance and whatsapp_service.instance_id and received_instance != whatsapp_service.instance_id:
+        raise HTTPException(status_code=403, detail="Instancia WhatsApp nao autorizada.")
     phone = data.get("phone") or data.get("chatId") or data.get("from")
     if not phone:
         return {"status": "ignored"}
@@ -254,16 +318,17 @@ async def webhook_whatsapp(data: Dict[str, Any] = Body(...)):
         is_from_me = bool(data.get("fromMe", False))
         hora_formatada, current_ts = current_clock()
 
-        message_payload = extract_message_payload(data)
         message_id = str(data.get("zaid") or data.get("messageId") or data.get("id") or f"msg_{current_ts}")
 
-        webhook_user_id = str(data.get("userId") or data.get("user_id") or "").strip()
-        if not webhook_user_id:
-            return {"status": "ignored", "detail": "Webhook sem usuario de destino; evento nao foi atribuido."}
+        requested_user_id = str(data.get("userId") or data.get("user_id") or "").strip()
+        if requested_user_id and requested_user_id != WHATSAPP_OWNER_USER_ID:
+            raise HTTPException(status_code=403, detail="Webhook tentou atribuir dados a outro usuario.")
+        webhook_user_id = WHATSAPP_OWNER_USER_ID
         user_store = await read_user_store()
         webhook_user = find_user(user_store, webhook_user_id)
         if not webhook_user or webhook_user.get("status") != "ativo":
             return {"status": "ignored", "detail": "Usuario de destino inexistente ou inativo."}
+        message_payload = extract_message_payload(data)
         db = await load_conversations(webhook_user_id)
         conversa = db.get(phone) or new_conversation(
             phone,
@@ -330,6 +395,8 @@ async def webhook_whatsapp(data: Dict[str, Any] = Body(...)):
                 "userId": webhook_user_id,
             },
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         print(f"Erro no webhook WhatsApp: {exc}")
     return {"status": "success"}
@@ -345,6 +412,8 @@ async def webhook_telegram(
         raise HTTPException(status_code=403, detail="Webhook Telegram restrito a conta principal.")
 
     expected_secret = telegram_service.webhook_secret
+    if not expected_secret and os.getenv("ENVIRONMENT", "development").strip().lower() == "production":
+        raise HTTPException(status_code=503, detail="Webhook Telegram sem segredo configurado.")
     if expected_secret and x_telegram_bot_api_secret_token != expected_secret:
         raise HTTPException(status_code=403, detail="Webhook Telegram nao autorizado.")
 
@@ -390,6 +459,14 @@ async def obter_conversas(
         }
 
     changed = False
+
+    if resolved_user_id != WHATSAPP_OWNER_USER_ID:
+        lista_local = list(db.values())
+        lista_local.sort(
+            key=lambda item: (bool(item.get("fixada")), int(item.get("timestampUltimaMsg") or 0)),
+            reverse=True,
+        )
+        return lista_local
 
     try:
         async with httpx.AsyncClient() as client:
@@ -504,6 +581,9 @@ async def obter_contatos_disponiveis(user_id: str = "lucas123", user: dict[str, 
         except Exception:
             contatos_telegram = []
 
+    if resolved_user_id != WHATSAPP_OWNER_USER_ID:
+        return contatos_telegram
+
     try:
         async with httpx.AsyncClient() as client:
             res = await client.get(f"{whatsapp_service.base_url}/contacts", headers=whatsapp_service.headers, timeout=10.0)
@@ -558,6 +638,7 @@ async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] =
         )
         return {"status": "enviado_real", "canal": "telegram"}
 
+    assert_whatsapp_owner(user)
     sucesso = await whatsapp_service.enviar_mensagem_texto(payload.conversa_id, payload.texto)
     if not sucesso:
         raise HTTPException(status_code=502, detail="Z-API recusou o envio.")
@@ -587,7 +668,7 @@ async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] =
 async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     file_bytes, mime_type = decode_data_url(payload.data_url, payload.mime_type)
-    local_url, safe_file_name = save_upload_file(payload.nome_arquivo, mime_type, file_bytes)
+    local_url, safe_file_name = save_upload_file(resolved_user_id, payload.nome_arquivo, mime_type, file_bytes)
     media_kind = classify_media(mime_type, safe_file_name)
     extension = file_extension(safe_file_name, mime_type)
     legenda = (payload.legenda or "").strip() or None
@@ -661,6 +742,7 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
             "nomeArquivo": safe_file_name,
         }
 
+    assert_whatsapp_owner(user)
     if media_kind == "audio":
         sucesso = await whatsapp_service.enviar_audio(payload.conversa_id, payload.data_url)
         tipo = "audio"
@@ -979,9 +1061,9 @@ def safe_upload_name(original_name: str, mime_type: str) -> str:
     return f"{timestamp}_{uuid.uuid4().hex[:8]}_{stem[:48]}.{extension}"
 
 
-def save_upload_file(original_name: str, mime_type: str, file_bytes: bytes) -> tuple[str, str]:
+def save_upload_file(user_id: str, original_name: str, mime_type: str, file_bytes: bytes) -> tuple[str, str]:
     safe_name = safe_upload_name(original_name, mime_type)
-    file_path = UPLOAD_DIR / safe_name
+    file_path = user_upload_dir(user_id) / safe_name
     file_path.write_bytes(file_bytes)
     return public_api_url(f"/api/chat/uploads/{quote(safe_name)}"), safe_name
 

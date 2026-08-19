@@ -92,10 +92,13 @@ describe("MailMessageDetail", () => {
     expect(screen.getByRole("button", { name: /sair da tela cheia/i })).toBeInTheDocument();
   });
 
-  it("usa iframe com sandbox vazio para o HTML do remetente", () => {
+  it("isola scripts e recursos remotos no HTML do remetente", () => {
     setup({ message: { ...base, bodyHtml: "<p>oi</p>" } as GmailMessage });
     const frame = screen.getByTitle("Conteudo do e-mail");
-    expect(frame).toHaveAttribute("sandbox", "");
+    expect(frame).toHaveAttribute("sandbox", "allow-same-origin");
+    expect(frame).toHaveAttribute("scrolling", "no");
+    expect(frame.getAttribute("srcdoc")).toContain("Content-Security-Policy");
+    expect(frame.getAttribute("srcdoc")).toContain("overflow-x: hidden");
   });
 
   it("cai para o texto puro quando nao ha HTML", () => {

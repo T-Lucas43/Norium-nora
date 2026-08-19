@@ -216,6 +216,11 @@ def save_boletos(user_id: str, boletos: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def add_attachment(user_id: str, lancamento_id: str, *, file_name: str, mime_type: str, data_url: str) -> dict[str, Any] | None:
+    db = _read_db()
+    workspace = load_workspace(user_id)
+    target = next((item for item in workspace.setdefault("lancamentos", []) if item.get("id") == lancamento_id), None)
+    if not target:
+        return None
     file_bytes, detected_mime = decode_data_url(data_url, mime_type)
     safe_name = safe_upload_name(file_name, detected_mime)
     file_path = FINANCE_UPLOAD_DIR / safe_name
@@ -230,8 +235,6 @@ def add_attachment(user_id: str, lancamento_id: str, *, file_name: str, mime_typ
         "createdAt": now_iso(),
     }
 
-    db = _read_db()
-    workspace = load_workspace(user_id)
     for item in workspace.setdefault("lancamentos", []):
         if item.get("id") != lancamento_id:
             continue
@@ -278,8 +281,17 @@ def remove_attachment(user_id: str, lancamento_id: str, attachment_id: str) -> d
     return None
 
 
-def attachment_path(file_name: str) -> Path | None:
+def attachment_path(user_id: str, file_name: str) -> Path | None:
     safe_name = Path(file_name).name
+    workspace = load_workspace(user_id)
+    authorized = any(
+        Path(str(attachment.get("storedName") or "")).name == safe_name
+        for lancamento in workspace.get("lancamentos", [])
+        for attachment in lancamento.get("attachments", [])
+        if isinstance(attachment, dict)
+    )
+    if not authorized:
+        return None
     path = FINANCE_UPLOAD_DIR / safe_name
     if not path.exists() or not path.is_file():
         return None

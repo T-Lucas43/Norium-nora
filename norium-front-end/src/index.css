@@ -5794,3 +5794,163 @@ body,
     font-size:9px!important;
   }
 }
+
+/* Correcao final dos fluxos em producao: e-mail usa uma coluna rolavel no
+   telefone; somente o quadro de tarefas conserva rolagem horizontal. */
+.dark .norium-modern-shell .norium-mail .mail-message-detail{
+  background:#050607!important;
+}
+
+.norium-mail .mail-message-detail,
+.norium-mail .mail-reader-scroll,
+.norium-mail .mail-message-body,
+.norium-mail .mail-message-frame{
+  max-width:100%;
+  overflow-x:hidden;
+}
+
+.norium-mail .mail-message-body{
+  padding:0!important;
+}
+
+@media (max-width:900px){
+  .norium-mail.mail-message-open .mail-main > main{
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+  }
+
+  .norium-mail .mail-message-detail{
+    min-height:0!important;
+    overflow:visible!important;
+    background:var(--mail-bg)!important;
+  }
+
+  .norium-mail .mail-message-detail > .mail-surface:first-child{
+    position:sticky;
+    top:64px;
+    z-index:22;
+  }
+
+  .norium-mail .mail-reader-scroll{
+    display:block!important;
+    min-height:0!important;
+    flex:none!important;
+    overflow:visible!important;
+    padding:14px!important;
+    padding-bottom:max(32px, env(safe-area-inset-bottom))!important;
+    overscroll-behavior:auto;
+    scrollbar-gutter:auto;
+  }
+
+  .norium-mail .mail-message-frame{
+    width:100%!important;
+    min-width:0!important;
+  }
+
+  .norium-mail .mail-card,
+  .norium-mail .mail-message-body,
+  .norium-mail .mail-card *{
+    min-width:0;
+    overflow-wrap:anywhere;
+  }
+
+  .norium-mail .mail-card > div[class*="justify-between"],
+  .norium-mail .mail-card > div:last-child{
+    max-width:100%;
+  }
+
+  .norium-mail .mail-card textarea{
+    width:100%;
+  }
+
+  .norium-mail .mail-card > div[class*="items-center"][class*="justify-between"]{
+    align-items:stretch;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+
+  .norium-mail .mail-card > div[class*="items-center"][class*="justify-between"] > *{
+    max-width:100%;
+  }
+
+  .norium-tasks > main > div[class*="overflow-x-auto"]{
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overflow-y:visible!important;
+    overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  .norium-tasks [class*="min-w-[1060px]"]{
+    min-width:720px!important;
+  }
+
+  .norium-modern-shell .app-main .norium-tasks .tasks-kanban-scroll.tasks-kanban-scroll{
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    touch-action:pan-x;
+    overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  .norium-tasks .tasks-kanban-grid{
+    min-width:1060px!important;
+    grid-template-columns:repeat(4,minmax(240px,1fr))!important;
+  }
+}
+
+@media (max-width:640px){
+  .norium-mail .mail-list-heading{
+    align-items:center!important;
+    flex-direction:row!important;
+  }
+
+  .norium-mail .mail-list-pagination{
+    width:auto!important;
+    flex:0 0 auto;
+  }
+
+  .norium-mail .mail-row{
+    width:100%!important;
+    max-width:100%!important;
+    overflow:hidden!important;
+  }
+
+  .norium-mail .mail-row-subject,
+  .norium-mail .mail-row-sender{
+    width:100%;
+    max-width:100%;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .norium-mail .mail-message-detail > .mail-surface:first-child{
+    top:82px;
+    padding-inline:8px!important;
+  }
+
+  .norium-mail .mail-message-detail > .mail-surface:first-child button{
+    width:34px;
+    height:34px;
+    min-width:34px;
+  }
+
+  .norium-mail .mail-reader-scroll{
+    padding:12px!important;
+  }
+
+  .norium-mail .mail-reader-scroll > h2{
+    font-size:1.05rem;
+    line-height:1.4;
+    overflow-wrap:anywhere;
+  }
+
+  .norium-mail .mail-reader-scroll .mail-card{
+    padding:12px!important;
+  }
+}

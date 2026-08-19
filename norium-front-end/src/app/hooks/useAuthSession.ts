@@ -12,17 +12,24 @@ export function useAuthSession() {
 
   const updateSession = useCallback((nextSession: AuthSession) => {
     setAuthSession(nextSession);
-    localStorage.setItem(AUTH_TOKEN_STORAGE, nextSession.token);
+    sessionStorage.setItem(AUTH_TOKEN_STORAGE, nextSession.token);
+    localStorage.removeItem(AUTH_TOKEN_STORAGE);
   }, []);
 
   const clearSession = useCallback(() => {
+    sessionStorage.removeItem(AUTH_TOKEN_STORAGE);
     localStorage.removeItem(AUTH_TOKEN_STORAGE);
     setAuthSession(null);
     setAppMode("app");
   }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem(AUTH_TOKEN_STORAGE);
+    const legacyToken = localStorage.getItem(AUTH_TOKEN_STORAGE);
+    const token = sessionStorage.getItem(AUTH_TOKEN_STORAGE) || legacyToken;
+    if (legacyToken) {
+      sessionStorage.setItem(AUTH_TOKEN_STORAGE, legacyToken);
+      localStorage.removeItem(AUTH_TOKEN_STORAGE);
+    }
     if (!token) {
       setAuthLoading(false);
       return;

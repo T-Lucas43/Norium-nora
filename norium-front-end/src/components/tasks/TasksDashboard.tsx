@@ -1253,8 +1253,8 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           </div>
         )}
 
-        <div className="flex-1 overflow-x-auto overflow-y-hidden p-4">
-          <div className="grid h-full min-w-[1060px] grid-cols-4 gap-4">
+        <div className="tasks-kanban-scroll flex-1 overflow-x-auto overflow-y-hidden p-4">
+          <div className="tasks-kanban-grid grid h-full min-w-[1060px] grid-cols-4 gap-4">
             {columns.map((column) => (
               <KanbanColumn
                 key={column.id}

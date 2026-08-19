@@ -25,7 +25,7 @@ var environmentStorageName = 'noriumdata'
 var publicUrl = 'https://${appName}.${managedEnvironment.properties.defaultDomain}'
 var commonTags = {
   application: 'norium'
-  environment: 'development'
+  environment: 'production'
   managedBy: 'bicep'
   costProfile: 'free-consumption'
 }

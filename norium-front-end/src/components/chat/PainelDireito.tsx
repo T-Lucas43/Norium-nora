@@ -2,6 +2,7 @@ import { Image as ImageIcon, MessageSquareText, ShieldAlert, Sparkles, User, Use
 import { useState } from "react";
 import type { ChatConversa } from "./types";
 import Button from "../shared/Button";
+import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
 interface PainelDireitoProps {
   modo: "nora" | "perfil" | "config-propria";
@@ -21,7 +22,7 @@ function initials(name: string) {
 
 function ProfileAvatar({ conversa }: { conversa: ChatConversa }) {
   const [failed, setFailed] = useState(false);
-  const photoUrl = conversa.metadados?.photoUrl || conversa.photoUrl;
+  const photoUrl = useAuthenticatedMedia(conversa.metadados?.photoUrl || conversa.photoUrl);
 
   return (
     <div className="h-20 w-20 rounded-full bg-[var(--surface)] border border-[var(--border)] overflow-hidden flex items-center justify-center font-bold text-lg text-[var(--text-secondary)]">
@@ -34,6 +35,11 @@ function ProfileAvatar({ conversa }: { conversa: ChatConversa }) {
       )}
     </div>
   );
+}
+
+function PrivateMediaThumbnail({ source }: { source?: string }) {
+  const mediaUrl = useAuthenticatedMedia(source);
+  return mediaUrl ? <img src={mediaUrl} alt="Midia" className="h-full w-full object-cover" /> : <ImageIcon size={16} className="mx-auto opacity-50" />;
 }
 
 export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora }: PainelDireitoProps) {
@@ -77,12 +83,8 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
             {midiasGaleria.length > 0 ? (
               <div className="grid grid-cols-4 gap-1.5 max-h-32 overflow-y-auto">
                 {midiasGaleria.map((midia) => (
-                  <Button key={midia.id} aria-label="Abrir midia em nova aba" className="h-12 overflow-hidden" onClick={() => midia.arquivoUrl && window.open(midia.arquivoUrl, "_blank")}>
-                    {midia.arquivoUrl ? (
-                      <img src={midia.arquivoUrl} alt="Midia" className="w-full h-full object-cover" />
-                    ) : (
-                      <ImageIcon size={16} className="mx-auto opacity-50" />
-                    )}
+                  <Button key={midia.id} aria-label="Visualizar midia" className="h-12 overflow-hidden">
+                    <PrivateMediaThumbnail source={midia.arquivoUrl} />
                   </Button>
                 ))}
               </div>

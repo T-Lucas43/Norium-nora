@@ -43,5 +43,5 @@ export function wsBaseUrl() {
 }
 
 export function authToken() {
-  return window.localStorage.getItem(AUTH_TOKEN_STORAGE);
+  return window.sessionStorage.getItem(AUTH_TOKEN_STORAGE);
 }

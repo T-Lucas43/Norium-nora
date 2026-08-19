@@ -12,6 +12,12 @@ from main import app
 BASELINE_PATH = Path(__file__).with_name("openapi-baseline.json")
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "options", "head"}
 IGNORED_OPERATION_FIELDS = {"description", "operationId", "summary", "tags"}
+INTENTIONAL_SECURITY_STRENGTHENING = {
+    "GET /api/chat/foto-perfil",
+    "GET /api/chat/media-proxy",
+    "GET /api/chat/telegram-file",
+    "GET /api/chat/uploads/{file_name}",
+}
 
 
 def _public_contract(specification: dict[str, Any]) -> dict[str, Any]:
@@ -60,6 +66,12 @@ def _assert_operation_backward_compatible(
     """Aceita apenas parametros opcionais novos em operacoes existentes."""
     baseline_operation = copy.deepcopy(baseline)
     current_operation = copy.deepcopy(current)
+    if (
+        path in INTENTIONAL_SECURITY_STRENGTHENING
+        and "security" not in baseline_operation
+        and current_operation.get("security") == [{"HTTPBearer": []}]
+    ):
+        current_operation.pop("security")
     baseline_parameters = baseline_operation.pop("parameters", [])
     current_parameters = current_operation.pop("parameters", [])
 

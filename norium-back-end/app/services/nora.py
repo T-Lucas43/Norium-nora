@@ -9,6 +9,7 @@ import httpx
 from dotenv import load_dotenv
 
 from app.services.nora_system_prompt import NORA_SYSTEM_PROMPT
+from app.core.ai_guardrails import minimize_for_ai
 
 
 load_dotenv()
@@ -49,7 +50,7 @@ class NoraIAService:
     def _build_payload_messages(self, mensagens: list[dict[str, str]], screen_context: str | None) -> list[dict[str, str]]:
         system_content = self.system_prompt
         if screen_context:
-            system_content = f"{system_content}\n\nContexto atual do usuario na interface: {screen_context}"
+            system_content = f"{system_content}\n\nContexto atual do usuario na interface: {minimize_for_ai(screen_context, max_chars=4_000)}"
 
         payload_messages: list[dict[str, str]] = [{"role": "system", "content": system_content}]
         for message in mensagens:
@@ -57,7 +58,7 @@ class NoraIAService:
             payload_messages.append(
                 {
                     "role": role if role in {"user", "assistant", "system"} else "user",
-                    "content": str(message.get("content", "")),
+                    "content": minimize_for_ai(str(message.get("content", ""))),
                 }
             )
         return payload_messages
@@ -90,8 +91,8 @@ class NoraIAService:
                     if response.status_code not in {400, 404}:
                         break
                 return self._provider_error(last_status)
-            except Exception as exc:
-                return f"A Nora não conseguiu acessar o servidor de IA: {str(exc)}. Nenhuma ação foi executada."
+            except Exception:
+                return "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."
 
     async def perguntar_nora_stream(
         self, mensagens: list[dict[str, str]], screen_context: str | None = None
@@ -141,5 +142,5 @@ class NoraIAService:
                                 yield delta
                         return
                 yield self._provider_error(last_status)
-        except Exception as exc:
-            yield f"A Nora não conseguiu acessar o servidor de IA: {str(exc)}. Nenhuma ação foi executada."
+        except Exception:
+            yield "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."

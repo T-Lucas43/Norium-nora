@@ -1,3 +1,4 @@
+import { useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -18,6 +19,56 @@ const MAX_ROTULOS = 10;
 function PortalWhen({ active, children }: { active: boolean; children: ReactNode }) {
   if (active && typeof document !== "undefined") return createPortal(children, document.body);
   return children;
+}
+
+function responsiveEmailDocument(rawHtml: string) {
+  const protections = `
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'" />
+    <style>
+      :root { color-scheme: light; }
+      html, body { width: 100% !important; max-width: 100% !important; margin: 0 !important; overflow-x: hidden !important; }
+      body { box-sizing: border-box; padding: 12px; color: #111827; background: #fff; font-family: Arial, Helvetica, sans-serif; line-height: 1.5; overflow-wrap: anywhere; }
+      *, *::before, *::after { box-sizing: border-box !important; max-width: 100% !important; }
+      img, video, svg, canvas { height: auto !important; max-width: 100% !important; }
+      table { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; }
+      td, th, pre, code, a { white-space: normal !important; overflow-wrap: anywhere !important; word-break: break-word !important; }
+      form, input, button, textarea, select { display: none !important; }
+    </style>`;
+  if (/<head(?:\s[^>]*)?>/i.test(rawHtml)) {
+    return rawHtml.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}${protections}`);
+  }
+  return `<!doctype html><html><head>${protections}</head><body>${rawHtml}</body></html>`;
+}
+
+function ResponsiveEmailFrame({ html }: { html: string }) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [height, setHeight] = useState(420);
+  const documentHtml = useMemo(() => responsiveEmailDocument(html), [html]);
+
+  function resizeToContent() {
+    const frameDocument = frameRef.current?.contentDocument;
+    if (!frameDocument) return;
+    const measured = Math.max(
+      frameDocument.body?.scrollHeight || 0,
+      frameDocument.documentElement?.scrollHeight || 0,
+      180,
+    );
+    setHeight(Math.min(measured + 4, 20_000));
+  }
+
+  return (
+    <iframe
+      ref={frameRef}
+      title="Conteudo do e-mail"
+      sandbox="allow-same-origin"
+      srcDoc={documentHtml}
+      scrolling="no"
+      onLoad={resizeToContent}
+      style={{ height }}
+      className="mail-message-frame block w-full min-w-0 border-0 bg-white"
+    />
+  );
 }
 
 type MailMessageDetailProps = {
@@ -62,7 +113,7 @@ export default function MailMessageDetail({
     <PortalWhen active={fullscreen}>
       <aside
         className={cn(
-          "mail-message-detail flex flex-col overflow-hidden bg-[#18181B]",
+          "mail-message-detail flex min-w-0 max-w-full flex-col overflow-hidden bg-[#18181B]",
           fullscreen
             ? "fixed inset-0 z-[100] h-[100dvh] max-h-[100dvh] w-screen min-h-0"
             : "h-full w-[520px] shrink-0 border-l border-white/10",
@@ -246,13 +297,7 @@ export default function MailMessageDetail({
 
               <div className="mail-message-body mt-5 rounded-lg border border-white/10 bg-white p-4 text-black">
                 {message.bodyHtml ? (
-                  // sandbox vazio: o HTML do remetente nao executa script nem navega
-                  <iframe
-                    title="Conteudo do e-mail"
-                    sandbox=""
-                    srcDoc={message.bodyHtml}
-                    className={cn("h-[420px] w-full bg-white", fullscreen && "pointer-events-none")}
-                  />
+                  <ResponsiveEmailFrame html={message.bodyHtml} />
                 ) : (
                   <div className="whitespace-pre-wrap text-sm leading-6 text-zinc-900">
                     {message.bodyText || message.snippet || "Sem conteudo disponivel."}

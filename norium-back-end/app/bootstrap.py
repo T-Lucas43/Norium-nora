@@ -59,7 +59,8 @@ def cors_origins() -> list[str]:
         domain = os.getenv(variable, "").strip().rstrip("/")
         if domain:
             vercel_origins.append(domain if "://" in domain else f"https://{domain}")
-    return list(dict.fromkeys((*LOCAL_FRONTEND_ORIGINS, *configured, *vercel_origins)))
+    local_origins = () if settings.ENVIRONMENT.lower() == "production" else LOCAL_FRONTEND_ORIGINS
+    return list(dict.fromkeys((*local_origins, *configured, *vercel_origins)))
 
 
 def create_app() -> FastAPI:
@@ -67,9 +68,9 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins(),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID", "X-Norium-Workspace"],
     )
 
     @app.middleware("http")
@@ -161,6 +162,22 @@ def create_app() -> FastAPI:
             duration_ms = (time.perf_counter() - started) * 1000
             response.headers["X-Request-ID"] = request_id
             response.headers["Server-Timing"] = f"app;dur={duration_ms:.2f}"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            response.headers["Permissions-Policy"] = "camera=(), geolocation=(), payment=(), usb=()"
+            response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
+                "script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob: https:; font-src 'self' data:; "
+                "media-src 'self' data: blob: https:; frame-src 'self' data: blob:; "
+                "connect-src 'self' https: wss:"
+            )
+            if request.url.path.startswith("/api/"):
+                response.headers["Cache-Control"] = "no-store"
+            if settings.ENVIRONMENT.lower() == "production":
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             record_request(request.url.path, method, response.status_code, duration_ms, request_id)
             return response
         finally:

@@ -11,7 +11,10 @@ from app.core.request_context import current_workspace_id
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_DATA_ROOT = Path("/app/data")
-VERCEL_DATA_ROOT = Path("/tmp/norium")
+# O runtime serverless da Vercel disponibiliza somente /tmp para escrita. O
+# subdiretorio e fixo, nao recebe entrada do usuario e continua segregado pelo
+# identificador normalizado de cada conta.
+VERCEL_DATA_ROOT = Path("/tmp/norium")  # nosec B108
 LOCAL_DATA_ROOT = BACKEND_ROOT / "data"
 
 

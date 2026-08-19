@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import Field, field_validator
 
@@ -28,6 +28,7 @@ from app.core.security import (
     password_needs_rehash,
     verify_password,
 )
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.tenant import get_system_db_path, read_json_file, write_json_file
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -43,6 +44,8 @@ OWNER_BOOTSTRAP_PASSWORD = os.getenv("NORIUM_OWNER_PASSWORD", "").strip()
 router = APIRouter(prefix="/api/auth", tags=["Usuarios"])
 auth_lock = asyncio.Lock()
 bearer_scheme = HTTPBearer(auto_error=False)
+login_limiter = SlidingWindowRateLimiter(limit=8, window_seconds=15 * 60)
+register_limiter = SlidingWindowRateLimiter(limit=4, window_seconds=60 * 60)
 
 Role = Literal["owner", "member"]
 PlanCode = Literal["free", "individual", "equipe", "enterprise"]
@@ -174,6 +177,13 @@ class RegisterPayload(StrictModel):
     def normalize_email_field(cls, value: str) -> str:
         return normalize_email(value)
 
+    @field_validator("password")
+    @classmethod
+    def secure_password(cls, value: str) -> str:
+        if len(value) < 10:
+            raise ValueError("A senha deve ter pelo menos 10 caracteres.")
+        return value
+
 
 class CreateUserPayload(StrictModel):
     nome: str = Field(min_length=2, max_length=140)
@@ -189,6 +199,13 @@ class CreateUserPayload(StrictModel):
     def normalize_email_field(cls, value: str) -> str:
         return normalize_email(value)
 
+    @field_validator("password")
+    @classmethod
+    def secure_password(cls, value: str) -> str:
+        if len(value) < 10:
+            raise ValueError("A senha deve ter pelo menos 10 caracteres.")
+        return value
+
 
 class UpdateUserPayload(StrictModel):
     nome: str | None = Field(default=None, min_length=2, max_length=140)
@@ -199,6 +216,13 @@ class UpdateUserPayload(StrictModel):
     permissions: dict[str, bool] | None = None
     systemAdmin: bool | None = None
     teamOwnerId: str | None = Field(default=None, max_length=160)
+
+    @field_validator("password")
+    @classmethod
+    def secure_password(cls, value: str | None) -> str | None:
+        if value is not None and len(value) < 10:
+            raise ValueError("A senha deve ter pelo menos 10 caracteres.")
+        return value
 
 
 class TeamProfilePayload(StrictModel):
@@ -522,7 +546,9 @@ def assert_can_touch_user(current: dict[str, Any], target: dict[str, Any]) -> No
 
 
 @router.post("/login")
-async def login(payload: LoginPayload) -> dict[str, Any]:
+async def login(payload: LoginPayload, request: Request) -> dict[str, Any]:
+    client_host = request.client.host if request.client else "unknown"
+    await login_limiter.check(f"{client_host}:{payload.email}")
     async with auth_lock:
         store = await read_user_store()
         user = find_user_by_email(store, payload.email)
@@ -542,7 +568,9 @@ async def login(payload: LoginPayload) -> dict[str, Any]:
 
 
 @router.post("/register")
-async def register(payload: RegisterPayload) -> dict[str, Any]:
+async def register(payload: RegisterPayload, request: Request) -> dict[str, Any]:
+    client_host = request.client.host if request.client else "unknown"
+    await register_limiter.check(client_host)
     async with auth_lock:
         store = await read_user_store()
         if find_user_by_email(store, payload.email):

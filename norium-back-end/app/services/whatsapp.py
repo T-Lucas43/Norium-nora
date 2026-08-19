@@ -50,7 +50,7 @@ class WhatsAppService:
                     "message": texto
                 }
                 res = await client.post(f"{self.base_url}/send-text", json=payload, headers=self.headers, timeout=10.0)
-                print(f"📡 Resposta Oficial Envio Z-API: Status {res.status_code} | Payload: {res.text}")
+                print(f"Resposta Z-API send-text: status {res.status_code}")
                 return res.status_code in [200, 201]
             except Exception as e:
                 print(f"❌ Erro ao disparar mensagem: {e}")
@@ -84,7 +84,7 @@ class WhatsAppService:
         async with httpx.AsyncClient() as client:
             try:
                 res = await client.post(f"{self.base_url}{endpoint}", json=payload, headers=self.headers, timeout=timeout)
-                print(f"Z-API {endpoint}: Status {res.status_code} | Payload: {res.text[:500]}")
+                print(f"Z-API {endpoint}: status {res.status_code}")
                 return res.status_code in [200, 201]
             except Exception as e:
                 print(f"Erro no endpoint {endpoint}: {e}")

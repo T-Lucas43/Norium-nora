@@ -391,6 +391,11 @@ def add_comment(user_id: str, task_id: str, author: str, text: str) -> dict[str,
 
 
 def add_attachment(user_id: str, task_id: str, *, file_name: str, mime_type: str, data_url: str) -> dict[str, Any] | None:
+    db = _read_db()
+    resolved = resolve_task_workspace(db, user_id, task_id)
+    if not resolved:
+        return None
+    owner_id, workspace, _task = resolved
     file_bytes, detected_mime = decode_data_url(data_url, mime_type)
     safe_name = safe_upload_name(file_name, detected_mime)
     file_path = TASK_UPLOAD_DIR / safe_name
@@ -406,11 +411,6 @@ def add_attachment(user_id: str, task_id: str, *, file_name: str, mime_type: str
         "createdAt": now_iso(),
     }
 
-    db = _read_db()
-    resolved = resolve_task_workspace(db, user_id, task_id)
-    if not resolved:
-        return None
-    owner_id, workspace, _task = resolved
     for task in workspace.setdefault("tasks", []):
         if task.get("id") != task_id:
             continue
@@ -423,8 +423,32 @@ def add_attachment(user_id: str, task_id: str, *, file_name: str, mime_type: str
     return None
 
 
-def attachment_path(file_name: str) -> Path | None:
+def attachment_path(user_id: str, file_name: str) -> Path | None:
     safe_name = Path(file_name).name
+    db = _read_db()
+    authorized = False
+    for owner_id, workspace in db.items():
+        if not isinstance(workspace, dict):
+            continue
+        for task in workspace.get("tasks", []):
+            project_id = str(task.get("projectId") or "default")
+            project = next(
+                (item for item in workspace.get("projects", []) if str(item.get("id")) == project_id),
+                None,
+            )
+            if not project or not project_accessible(normalize_project(project, str(owner_id)), user_id):
+                continue
+            if any(
+                Path(str(attachment.get("storedName") or "")).name == safe_name
+                for attachment in task.get("attachments", [])
+                if isinstance(attachment, dict)
+            ):
+                authorized = True
+                break
+        if authorized:
+            break
+    if not authorized:
+        return None
     path = TASK_UPLOAD_DIR / safe_name
     if not path.exists() or not path.is_file():
         return None

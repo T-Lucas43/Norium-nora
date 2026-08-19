@@ -13,6 +13,9 @@ const WS_URL = `${wsBaseUrl()}/api/omnichannel/ws`;
 const TEAM_WS_URL = `${wsBaseUrl()}/api/team-chat/ws`;
 const CALENDAR_SYNC_URL = `${apiBaseUrl()}/api/agenda/sync`;
 const GMAIL_SYNC_URL = `${apiBaseUrl()}/api/emails/gmail/sync-central`;
+const NOTIFICATION_STATE_URL = `${apiBaseUrl()}/api/omnichannel/notifications/state`;
+const NOTIFICATION_READ_URL = `${apiBaseUrl()}/api/omnichannel/notifications/read-all`;
+const NOTIFICATION_CLEAR_URL = `${apiBaseUrl()}/api/omnichannel/notifications`;
 const NOTIFICATIONS_TAB = "Notificações";
 
 type SocketMessage = {
@@ -32,6 +35,12 @@ type TeamSocketMessage = {
     senderName?: string;
     text?: string;
   };
+};
+
+type NotificationState = {
+  userId: string;
+  readBefore?: string | null;
+  clearedBefore?: string | null;
 };
 
 function sortEvents(events: OmnichannelEvent[]) {
@@ -73,20 +82,23 @@ function groupEventsBySource(events: OmnichannelEvent[]) {
 
 function buildSystemNotification(
   payload: {
+    id?: string;
     title: string;
     description: string;
+    timestamp?: string;
     severity?: SystemNotificationSeverity;
+    read?: boolean;
     metadata?: Record<string, unknown>;
   },
 ): SystemNotification {
-  const timestamp = new Date().toISOString();
+  const timestamp = payload.timestamp || new Date().toISOString();
   return {
-    id: `sys_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    id: payload.id || `sys_${Date.now()}_${Math.random().toString(16).slice(2)}`,
     title: payload.title,
     description: payload.description,
     timestamp,
     severity: payload.severity ?? "info",
-    read: false,
+    read: payload.read ?? false,
     metadata: payload.metadata,
   };
 }
@@ -95,12 +107,7 @@ function eventBelongsToUser(event: OmnichannelEvent, userId: string) {
   return String(event.metadata?.userId || "") === userId;
 }
 
-function notificationForEvent(event: OmnichannelEvent): {
-  title: string;
-  description: string;
-  severity: SystemNotificationSeverity;
-  metadata: Record<string, unknown>;
-} {
+function notificationForEvent(event: OmnichannelEvent, read = false): SystemNotification {
   const action = String(event.metadata?.action || "").toLocaleLowerCase("pt-BR");
   const normalized = `${action} ${event.title}`.toLocaleLowerCase("pt-BR");
   let title = event.title || "Nova atividade no Norium";
@@ -121,11 +128,27 @@ function notificationForEvent(event: OmnichannelEvent): {
   }
 
   return {
+    id: `notification_${event.id}`,
     title,
     description: event.description || "Uma nova atividade requer sua atencao.",
+    timestamp: event.timestamp,
     severity,
+    read,
     metadata: { ...event.metadata, source: event.source, eventId: event.id, action },
   };
+}
+
+function eventShouldNotify(event: OmnichannelEvent) {
+  if (event.source !== "gmail") return true;
+  const folder = String(event.metadata?.folder || "").toLocaleLowerCase("pt-BR");
+  return folder !== "sent" && folder !== "drafts";
+}
+
+function happenedAfter(timestamp: string, boundary?: string | null) {
+  if (!boundary) return true;
+  const itemTime = Date.parse(timestamp);
+  const boundaryTime = Date.parse(boundary);
+  return Number.isNaN(itemTime) || Number.isNaN(boundaryTime) || itemTime > boundaryTime;
 }
 
 export function useWebSockets(
@@ -151,6 +174,7 @@ export function useWebSockets(
   const integrationSyncInFlightRef = useRef(false);
   const teamChatOpenRef = useRef(teamChatOpen);
   const seenTeamMessageIdsRef = useRef<Set<string>>(new Set());
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
   const currentUserIdRef = useRef(userId);
   currentUserIdRef.current = userId;
   const isolatedForCurrentUser = stateUserId === userId;
@@ -168,6 +192,7 @@ export function useWebSockets(
     setSystemToasts([]);
     setTeamChatUnreadCount(0);
     seenTeamMessageIdsRef.current.clear();
+    seenEventIdsRef.current.clear();
     hasOpenedRef.current = false;
     lastConnectionStateRef.current = null;
     integrationSyncInFlightRef.current = false;
@@ -189,9 +214,12 @@ export function useWebSockets(
 
   const pushSystemNotification = useCallback(
     (payload: {
+      id?: string;
       title: string;
       description: string;
+      timestamp?: string;
       severity?: SystemNotificationSeverity;
+      read?: boolean;
       metadata?: Record<string, unknown>;
       showToast?: boolean;
     }) => {
@@ -208,12 +236,18 @@ export function useWebSockets(
           notification,
           createdAt: Date.now(),
         };
-        setSystemToasts((current) => [toast, ...current].slice(0, 4));
-        window.setTimeout(() => dismissSystemToast(toast.id), 9000);
+        setSystemToasts((current) => [...current, toast].slice(0, 20));
       }
     },
-    [dismissSystemToast],
+    [],
   );
+
+  const activeSystemToastId = systemToasts[0]?.id;
+  useEffect(() => {
+    if (!activeSystemToastId) return undefined;
+    const timer = window.setTimeout(() => dismissSystemToast(activeSystemToastId), 9000);
+    return () => window.clearTimeout(timer);
+  }, [activeSystemToastId, dismissSystemToast]);
 
   const notifyTeamMessage = useCallback(
     (message: { id?: string; senderId?: string; senderName?: string; text?: string }) => {
@@ -249,11 +283,24 @@ export function useWebSockets(
     const requestedUserId = userId;
     try {
       const params = new URLSearchParams({ user_id: userId });
-      const response = await fetch(`${API_URL}?${params.toString()}`, { headers: requestHeaders() });
-      if (!response.ok) throw new Error("Falha ao carregar a Central de Atividades.");
+      const [response, stateResponse] = await Promise.all([
+        fetch(`${API_URL}?${params.toString()}`, { headers: requestHeaders() }),
+        fetch(NOTIFICATION_STATE_URL, { headers: requestHeaders() }),
+      ]);
+      if (!response.ok || !stateResponse.ok) throw new Error("Falha ao carregar a Central de Atividades.");
       const data = (await response.json()) as OmnichannelEvent[];
+      const notificationState = (await stateResponse.json()) as NotificationState;
       if (currentUserIdRef.current !== requestedUserId) return;
-      setEvents(sortEvents(data.filter((event) => eventBelongsToUser(event, requestedUserId))));
+      if (notificationState.userId !== requestedUserId) throw new Error("Estado de notificacao pertence a outro usuario.");
+      const isolatedEvents = sortEvents(data.filter((event) => eventBelongsToUser(event, requestedUserId)));
+      isolatedEvents.forEach((event) => seenEventIdsRef.current.add(event.id));
+      setEvents(isolatedEvents);
+      const storedNotifications = isolatedEvents
+        .filter(eventShouldNotify)
+        .filter((event) => happenedAfter(event.timestamp, notificationState.clearedBefore))
+        .map((event) => notificationForEvent(event, !happenedAfter(event.timestamp, notificationState.readBefore)));
+      setSystemNotifications(storedNotifications.slice(0, 80));
+      setSystemUnreadCount(storedNotifications.filter((notification) => !notification.read).length);
     } catch {
       if (currentUserIdRef.current !== requestedUserId) return;
       pushSystemNotification({
@@ -295,12 +342,14 @@ export function useWebSockets(
   const clearSystemUnread = useCallback(() => {
     setSystemUnreadCount(0);
     setSystemNotifications((current) => current.map((notification) => ({ ...notification, read: true })));
+    void fetch(NOTIFICATION_READ_URL, { method: "POST", headers: requestHeaders() });
   }, []);
 
   const clearSystemNotifications = useCallback(() => {
     setSystemUnreadCount(0);
     setSystemNotifications([]);
     setSystemToasts([]);
+    void fetch(NOTIFICATION_CLEAR_URL, { method: "DELETE", headers: requestHeaders() });
   }, []);
 
   const clearTeamChatUnread = useCallback(() => {
@@ -418,6 +467,8 @@ export function useWebSockets(
 
           if (payload.type === "NEW_EVENT" && payload.event) {
             if (!eventBelongsToUser(payload.event, userId)) return;
+            if (seenEventIdsRef.current.has(payload.event.id)) return;
+            seenEventIdsRef.current.add(payload.event.id);
             setEvents((current) => mergeEvent(current, payload.event as OmnichannelEvent));
             const isTeamMessage = payload.event.source === "equipe" && payload.event.metadata?.action === "team_message_created";
             if (isTeamMessage) {
@@ -427,7 +478,7 @@ export function useWebSockets(
                 senderName: String(payload.event.metadata?.senderName || "Equipe"),
                 text: payload.event.description,
               });
-            } else {
+            } else if (eventShouldNotify(payload.event)) {
               pushSystemNotification(notificationForEvent(payload.event));
             }
             return;

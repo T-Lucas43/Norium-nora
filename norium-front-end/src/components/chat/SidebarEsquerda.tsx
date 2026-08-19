@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { ChatConversa } from "./types";
 import Button from "../shared/Button";
+import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
 interface SidebarProps {
   conversas: ChatConversa[];
@@ -44,7 +45,7 @@ function getInitials(name: string) {
 
 function ChatAvatar({ chat }: { chat: ChatConversa }) {
   const [failed, setFailed] = useState(false);
-  const photoUrl = chat.metadados?.photoUrl || chat.photoUrl;
+  const photoUrl = useAuthenticatedMedia(chat.metadados?.photoUrl || chat.photoUrl);
 
   return (
     <div className="h-12 w-12 rounded-full bg-[var(--background)] border border-[var(--border)] flex items-center justify-center overflow-hidden shrink-0 text-[var(--text-secondary)]">

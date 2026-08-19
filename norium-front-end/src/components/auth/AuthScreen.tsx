@@ -29,6 +29,16 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 
   async function submit() {
     setError("");
+    if (mode === "register") {
+      if (nome.trim().length < 2) {
+        setError("Informe seu nome com pelo menos 2 caracteres.");
+        return;
+      }
+      if (password.length < 10) {
+        setError("A senha deve ter pelo menos 10 caracteres.");
+        return;
+      }
+    }
     setLoading(true);
     try {
       const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
@@ -234,12 +244,13 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               <input
                 type="password"
                 value={password}
+                minLength={mode === "register" ? 10 : 1}
                 onChange={(event) => setPassword(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void submit();
                 }}
                 className="h-12 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold normal-case outline-none focus:border-blue-300"
-                placeholder={mode === "login" ? "Sua senha" : "Mínimo de 6 caracteres"}
+                placeholder={mode === "login" ? "Sua senha" : "Mínimo de 10 caracteres"}
               />
             </label>
           </div>

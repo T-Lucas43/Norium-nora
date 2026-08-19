@@ -23,10 +23,28 @@ function requestUrl(path: string) {
   return `${apiBaseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-function errorMessage(payload: unknown, fallback: string) {
+/** Converte erros FastAPI/Pydantic em uma mensagem útil para a tela.
+ *
+ * FastAPI envia falhas de validação no formato `{ detail: [{ msg, loc }] }`.
+ * Antes elas eram descartadas e o cadastro mostrava apenas a mensagem genérica
+ * "Falha na API do Norium", mesmo quando a API explicava exatamente o campo
+ * inválido.
+ */
+export function apiErrorMessage(payload: unknown, fallback: string) {
   if (!payload || typeof payload !== "object") return fallback;
   const detail = "detail" in payload ? payload.detail : null;
-  return typeof detail === "string" && detail.trim() ? detail : fallback;
+  if (typeof detail === "string" && detail.trim()) return detail;
+
+  if (Array.isArray(detail)) {
+    const firstMessage = detail.find((item): item is { msg: unknown } => (
+      Boolean(item) && typeof item === "object" && "msg" in item
+    ));
+    if (typeof firstMessage?.msg === "string" && firstMessage.msg.trim()) {
+      return firstMessage.msg.replace(/^Value error,\s*/i, "").trim();
+    }
+  }
+
+  return fallback;
 }
 
 function waitForRetry(delayMs: number, signal?: AbortSignal | null) {
@@ -87,7 +105,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        const apiError = new ApiError(errorMessage(payload, "Falha na API do Norium."), response.status, payload);
+        const apiError = new ApiError(apiErrorMessage(payload, "Falha na API do Norium."), response.status, payload);
         if (attempt + 1 < maxAttempts && [502, 503, 504].includes(response.status)) {
           await waitForRetry(300, signal);
           continue;
@@ -140,7 +158,7 @@ export async function apiBlobRequest(path: string, options: ApiRequestOptions = 
     const response = await fetch(requestUrl(path), { ...init, headers, signal: timeoutController.signal });
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
-      throw new ApiError(errorMessage(payload, "Falha ao gerar o arquivo no Norium."), response.status, payload);
+      throw new ApiError(apiErrorMessage(payload, "Falha ao gerar o arquivo no Norium."), response.status, payload);
     }
     return await response.blob();
   } catch (error) {

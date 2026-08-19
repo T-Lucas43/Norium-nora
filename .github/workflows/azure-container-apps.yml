@@ -114,6 +114,19 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Synchronize Google OAuth secrets
+        shell: bash
+        run: >-
+          az containerapp secret set
+          --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+          --name "${{ vars.AZURE_CONTAINER_APP_NAME }}"
+          --secrets
+          gmail-client-id="${{ secrets.GMAIL_CLIENT_ID }}"
+          gmail-client-secret="${{ secrets.GMAIL_CLIENT_SECRET }}"
+          google-client-id="${{ secrets.GOOGLE_CLIENT_ID }}"
+          google-client-secret="${{ secrets.GOOGLE_CLIENT_SECRET }}"
+          --output none
+
       - name: Deploy immutable image
         shell: bash
         run: >-
@@ -121,7 +134,12 @@ jobs:
           --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
           --name "${{ vars.AZURE_CONTAINER_APP_NAME }}"
           --image "${{ needs.publish-image.outputs.image }}"
-          --set-env-vars ENVIRONMENT=production
+          --set-env-vars
+          ENVIRONMENT=production
+          GMAIL_CLIENT_ID=secretref:gmail-client-id
+          GMAIL_CLIENT_SECRET=secretref:gmail-client-secret
+          GOOGLE_CLIENT_ID=secretref:google-client-id
+          GOOGLE_CLIENT_SECRET=secretref:google-client-secret
           --output none
 
       - name: Verify health endpoint

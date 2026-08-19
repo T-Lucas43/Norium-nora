@@ -4860,23 +4860,48 @@ body,
   box-shadow:0 0 0 2px var(--background), 0 4px 12px rgba(239,68,68,.35);
 }
 
-/* Nora em formato de conversa central, igual em desktop e mobile. */
-.nora-drawer,
-.nora-drawer-side,
-.nora-drawer-expanded{
-  inset:12px!important;
-  width:auto!important;
-  max-width:none!important;
-  height:auto!important;
-  border-radius:10px!important;
+/* Nora centralizada quando expandida; no desktop o estado inicial continua
+   sendo o painel lateral escolhido pelo usuario. */
+
+.nora-user-message{
+  width:fit-content;
 }
 
-.nora-expand-toggle{
-  display:none!important;
-}
+@media (min-width:901px){
+  .nora-drawer-side .nora-drawer-conversation{
+    padding-inline:16px!important;
+  }
 
-.nora-drawer-conversation{
-  padding-inline:max(24px, calc((100vw - 980px) / 2))!important;
+  .nora-drawer-expanded .nora-drawer-conversation{
+    padding-inline:max(24px, calc((100vw - 1040px) / 2))!important;
+  }
+
+  .nora-drawer-side .nora-composer > *{
+    display:flex;
+    width:100%;
+  }
+
+  .nora-drawer-expanded .nora-composer{
+    padding-inline:max(16px, calc((100vw - 1040px) / 2))!important;
+  }
+
+  .nora-drawer-expanded .nora-composer > *{
+    display:flex;
+    width:100%;
+    max-width:1040px;
+    margin-right:auto;
+    margin-left:auto;
+  }
+
+  .nora-drawer-side .nora-user-message{
+    width:fit-content;
+    max-width:88%!important;
+  }
+
+  .nora-drawer-expanded .nora-user-message{
+    width:fit-content;
+    max-width:min(72%, 720px)!important;
+  }
 }
 
 .nora-drawer-conversation.is-empty{
@@ -4930,13 +4955,11 @@ body,
   white-space:normal;
 }
 
-.nora-composer > *{
-  width:min(100%, 940px);
-  margin-right:auto;
-  margin-left:auto;
-}
-
 @media (max-width:900px){
+  .nora-expand-toggle{
+    display:none!important;
+  }
+
   .norium-workspace{
     width:100vw;
     max-width:100vw;

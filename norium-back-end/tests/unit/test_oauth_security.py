@@ -51,11 +51,52 @@ class OAuthSecurityTests(unittest.IsolatedAsyncioTestCase):
         write_state.assert_called_once_with("calendarOauthState", {})
         fetch_token.assert_not_called()
 
+    def test_gmail_keeps_other_active_oauth_attempts(self) -> None:
+        service = GmailService("victim")
+        previous_state = "victim:" + "b" * 32
+        next_state = "victim:" + "c" * 32
+        oauth_state = {
+            "state": previous_state,
+            "codeVerifier": "verifier-anterior",
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        }
+
+        class FakeFlow:
+            code_verifier = "verifier-novo"
+
+            def authorization_url(self, **_: object) -> tuple[str, str]:
+                return "https://accounts.google.com/o/oauth2/auth", next_state
+
+        with (
+            patch.object(service, "_read_profile_section", return_value=oauth_state),
+            patch.object(service, "_write_profile_section") as write_state,
+            patch.object(service, "_flow", return_value=FakeFlow()),
+        ):
+            result = service.authorization_url()
+
+        self.assertEqual(next_state, result["state"])
+        saved = write_state.call_args.args[1]
+        self.assertEqual([previous_state, next_state], [item["state"] for item in saved["attempts"]])
+
     async def test_callbacks_ignore_legacy_user_id_without_valid_state(self) -> None:
         gmail = await mail_router.gmail_callback(code="code", state=None, user_id="victim")
         self.assertEqual(400, gmail.status_code)
+        gmail_html = gmail.body.decode("utf-8")
+        self.assertIn('name="viewport"', gmail_html)
+        self.assertIn('href="/"', gmail_html)
+        self.assertNotIn("#/", gmail_html)
         calendar = calendar_router.finish_google_oauth("code", None, "victim")
         self.assertEqual(400, calendar.status_code)
+        calendar_html = calendar.body.decode("utf-8")
+        self.assertIn('name="viewport"', calendar_html)
+        self.assertIn('href="/"', calendar_html)
+        self.assertNotIn("#/", calendar_html)
+
+    def test_oauth_success_page_uses_clean_norium_url(self) -> None:
+        page = calendar_router.oauth_success_html()
+        self.assertIn("Google Agenda conectado", page)
+        self.assertIn('href="/"', page)
+        self.assertNotIn("#/", page)
 
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@ interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenProfile: () => void;
   onOpenSettings: () => void;
+  onOpenLegal: () => void;
   onLogout: () => void;
   onToggleSidebar: () => void;
   unreadNotifications: number;
@@ -86,6 +87,7 @@ export default function Header({
   onOpenNotifications,
   onOpenProfile,
   onOpenSettings,
+  onOpenLegal,
   onLogout,
   onToggleSidebar,
   unreadNotifications,
@@ -401,7 +403,7 @@ export default function Header({
                 <Settings size={17} />
                 <span><strong>Configurações</strong><small>Aparência, Nora e notificações</small></span>
               </button>
-              <button type="button" role="menuitem" onClick={() => { setProfileMenuOpen(false); window.location.hash = "#/termos"; }}>
+              <button type="button" role="menuitem" onClick={() => { setProfileMenuOpen(false); onOpenLegal(); }}>
                 <ShieldCheck size={17} />
                 <span><strong>Termos e privacidade</strong><small>Documentos do produto</small></span>
               </button>

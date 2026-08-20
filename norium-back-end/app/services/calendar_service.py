@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,6 +17,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
 from app.core.tenant import get_data_root, read_profile_db, write_profile_db
+from app.services.oauth_state import active_oauth_attempts, find_oauth_attempt, oauth_attempts_payload
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 TIMEZONE = "America/Sao_Paulo"
 DEFAULT_REDIRECT_URI = "http://localhost:8000/api/integracoes/google/callback"
-OAUTH_STATE_TTL_SECONDS = 10 * 60
+OAUTH_STATE_TTL_SECONDS = 20 * 60
+MAX_OAUTH_ATTEMPTS = 5
 
 TOKEN_PATH = BASE_DIR / "google_token.json"
 LEGACY_TOKENS_PATH = BASE_DIR / "mock_database.json"
@@ -85,34 +86,44 @@ class CalendarService:
             access_type="offline",
             prompt="consent",
         )
-        self._write_profile_section("calendarOauthState", {
+        attempts = active_oauth_attempts(
+            self._read_profile_section("calendarOauthState", {}),
+            ttl_seconds=OAUTH_STATE_TTL_SECONDS,
+        )
+        attempts.append({
             "state": state,
             "codeVerifier": flow.code_verifier,
             "createdAt": self._now_iso(),
         })
+        self._write_profile_section(
+            "calendarOauthState",
+            oauth_attempts_payload(attempts[-MAX_OAUTH_ATTEMPTS:]),
+        )
         return {"auth_url": auth_url, "state": state}
 
     def finish_oauth(self, *, code: str, state: str | None) -> dict[str, Any]:
         oauth_state = self._read_profile_section("calendarOauthState", {})
-        saved_state = str(oauth_state.get("state") or "")
-        if not state or not saved_state or not secrets.compare_digest(state, saved_state):
+        attempt, remaining_attempts = find_oauth_attempt(oauth_state, state)
+        if attempt is None:
             raise CalendarConfigError("Estado OAuth invalido. Gere um novo link de conexao.")
 
         try:
-            created_at = datetime.fromisoformat(str(oauth_state.get("createdAt") or ""))
+            created_at = datetime.fromisoformat(str(attempt.get("createdAt") or ""))
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=timezone.utc)
         except ValueError as exc:
+            self._write_profile_section("calendarOauthState", oauth_attempts_payload(remaining_attempts))
             raise CalendarConfigError("Sessao OAuth expirada. Gere um novo link de conexao do Google Agenda.") from exc
         if datetime.now(timezone.utc) - created_at > timedelta(seconds=OAUTH_STATE_TTL_SECONDS):
-            self._write_profile_section("calendarOauthState", {})
+            self._write_profile_section("calendarOauthState", oauth_attempts_payload(remaining_attempts))
             raise CalendarConfigError("Sessao OAuth expirada. Gere um novo link de conexao do Google Agenda.")
 
-        code_verifier = oauth_state.get("codeVerifier")
+        code_verifier = attempt.get("codeVerifier")
         if not code_verifier:
+            self._write_profile_section("calendarOauthState", oauth_attempts_payload(remaining_attempts))
             raise CalendarConfigError("Sessao OAuth expirada. Gere um novo link de conexao do Google Agenda.")
 
-        self._write_profile_section("calendarOauthState", {})
+        self._write_profile_section("calendarOauthState", oauth_attempts_payload(remaining_attempts))
         flow = self._flow(state=state, code_verifier=code_verifier)
         self._fetch_token(flow, code)
         payload = json.loads(flow.credentials.to_json())

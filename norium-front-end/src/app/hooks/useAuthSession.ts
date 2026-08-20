@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { AppMode, AuthSession } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import { AUTH_TOKEN_STORAGE } from "../../core/api/config";
+import { preferredAppMode } from "../navigation/view";
 
 
 export function useAuthSession() {
@@ -12,8 +13,8 @@ export function useAuthSession() {
 
   const updateSession = useCallback((nextSession: AuthSession) => {
     setAuthSession(nextSession);
-    sessionStorage.setItem(AUTH_TOKEN_STORAGE, nextSession.token);
-    localStorage.removeItem(AUTH_TOKEN_STORAGE);
+    localStorage.setItem(AUTH_TOKEN_STORAGE, nextSession.token);
+    sessionStorage.removeItem(AUTH_TOKEN_STORAGE);
   }, []);
 
   const clearSession = useCallback(() => {
@@ -24,12 +25,9 @@ export function useAuthSession() {
   }, []);
 
   useEffect(() => {
-    const legacyToken = localStorage.getItem(AUTH_TOKEN_STORAGE);
-    const token = sessionStorage.getItem(AUTH_TOKEN_STORAGE) || legacyToken;
-    if (legacyToken) {
-      sessionStorage.setItem(AUTH_TOKEN_STORAGE, legacyToken);
-      localStorage.removeItem(AUTH_TOKEN_STORAGE);
-    }
+    const token = localStorage.getItem(AUTH_TOKEN_STORAGE) || sessionStorage.getItem(AUTH_TOKEN_STORAGE);
+    if (token) localStorage.setItem(AUTH_TOKEN_STORAGE, token);
+    sessionStorage.removeItem(AUTH_TOKEN_STORAGE);
     if (!token) {
       setAuthLoading(false);
       return;
@@ -39,7 +37,7 @@ export function useAuthSession() {
       .then((data) => {
         const session: AuthSession = { token, user: data.user, availableModes: data.availableModes };
         setAuthSession(session);
-        setAppMode(window.location.hash === "#/admin" && data.availableModes.includes("admin") ? "admin" : "app");
+        setAppMode(preferredAppMode() === "admin" && data.availableModes.includes("admin") ? "admin" : "app");
       })
       .catch(clearSession)
       .finally(() => setAuthLoading(false));

@@ -3,6 +3,7 @@ import { ArrowRight, LockKeyhole, ShieldCheck, Sparkles, UserPlus } from "lucide
 import type { AppMode, AuthSession, UserPlan } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import BrandLogo from "../layout/BrandLogo";
+import { navigateNoriumView } from "../../app/navigation/view";
 
 interface AuthScreenProps {
   onAuthenticated: (session: AuthSession, mode: AppMode) => void;
@@ -270,8 +271,8 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                   className="mt-1 h-4 w-4 shrink-0"
                 />
                 <span>
-                  Li e aceito os <a className="font-black text-[var(--primary)] hover:underline" href="#/termos">Termos de Uso</a>
-                  {" "}e a <a className="font-black text-[var(--primary)] hover:underline" href="#/privacidade">Politica de Privacidade</a>.
+                  Li e aceito os <a className="font-black text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("terms"); }}>Termos de Uso</a>
+                  {" "}e a <a className="font-black text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("privacy"); }}>Politica de Privacidade</a>.
                 </span>
               </label>
             )}
@@ -302,8 +303,8 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             {mode === "login" ? "Criar novo cadastro" : "Já tenho acesso"}
           </button>
           <nav className="mt-5 flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs font-bold text-[var(--text-secondary)]">
-            <a className="hover:text-[var(--primary)] hover:underline" href="#/termos">Termos de Uso</a>
-            <a className="hover:text-[var(--primary)] hover:underline" href="#/privacidade">Politica de Privacidade</a>
+            <a className="hover:text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("terms"); }}>Termos de Uso</a>
+            <a className="hover:text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("privacy"); }}>Politica de Privacidade</a>
           </nav>
         </section>
       </div>

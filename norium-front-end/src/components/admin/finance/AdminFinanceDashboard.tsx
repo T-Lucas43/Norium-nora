@@ -211,7 +211,7 @@ export default function AdminFinanceDashboard({ session }: AdminFinanceDashboard
   if (loading && !dashboard) return <div className="grid min-h-[60vh] place-items-center"><RefreshCw className="animate-spin text-blue-400" size={28} /><span className="sr-only">Carregando financeiro</span></div>;
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-[1720px] flex-1 flex-col gap-4 overflow-hidden p-4 lg:p-5">
+    <div className="norium-admin-finance mx-auto flex min-h-0 w-full max-w-[1720px] flex-1 flex-col gap-4 overflow-hidden p-4 lg:p-5">
       <section className="finance-panel shrink-0">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><Landmark size={21}/></span><div><h2 className="text-xl font-black">Financeiro administrativo</h2><p className="finance-subtitle">Receita do SaaS, assinaturas, custos operacionais e consumo Jorro em uma única visão.</p></div></div>

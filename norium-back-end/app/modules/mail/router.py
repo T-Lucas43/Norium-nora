@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import Field
 
 from app.shared.schemas import StrictModel
+from app.infrastructure.http.oauth_result import oauth_result_html
 
 from app.routers.inbox_router import record_event
 from app.routers.auth_router import current_user
@@ -167,34 +168,45 @@ async def gmail_callback(
     resolved_user_id = GmailService.user_id_from_state(state)
     if not resolved_user_id:
         return HTMLResponse(
-            "<html><body><h1>Falha ao conectar o Gmail</h1><p>Solicitacao OAuth invalida ou expirada.</p></body></html>",
+            oauth_result_html(
+                provider="Gmail",
+                success=False,
+                title="Falha ao conectar o Gmail",
+                message="A solicitação de conexão é inválida ou expirou.",
+            ),
             status_code=400,
         )
     try:
         GmailService(resolved_user_id).finish_oauth(code=code, state=state)
+    except GmailConfigError:
+        logger.warning("Callback OAuth do Gmail recusado para uma tentativa invalida ou expirada")
+        return HTMLResponse(
+            oauth_result_html(
+                provider="Gmail",
+                success=False,
+                title="Falha ao conectar o Gmail",
+                message="A solicitação de conexão é inválida, expirou ou já foi utilizada.",
+            ),
+            status_code=400,
+        )
     except Exception:
         logger.exception("Falha no callback OAuth do Gmail")
         return HTMLResponse(
-            """
-            <html>
-              <body style="font-family:system-ui;background:#0B1220;color:white;padding:32px">
-                <h1>Falha ao conectar o Gmail</h1>
-                <p>Solicitacao OAuth invalida ou expirada. Gere um novo link no Norium.</p>
-              </body>
-            </html>
-            """,
+            oauth_result_html(
+                provider="Gmail",
+                success=False,
+                title="Não foi possível conectar o Gmail",
+                message="O Google não concluiu a autorização. Tente novamente em alguns instantes.",
+            ),
             status_code=400,
         )
 
-    return """
-    <html>
-      <body style="font-family:system-ui;background:#0B1220;color:white;padding:32px">
-        <h1>Gmail conectado</h1>
-        <p>Voce ja pode voltar para o Norium Mail. Seus e-mails serao sincronizados automaticamente.</p>
-        <script>setTimeout(() => window.close(), 1200)</script>
-      </body>
-    </html>
-    """
+    return oauth_result_html(
+        provider="Gmail",
+        success=True,
+        title="Gmail conectado",
+        message="Autorização concluída. Seus e-mails serão sincronizados automaticamente no Norium Mail.",
+    )
 
 
 @router.get("/api/emails/gmail/labels")

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { mailApiRequest as apiJson } from "../api";
 import { clearMailboxCacheForUser } from "../mailboxCache";
 import type { GmailLabel, GmailStatus } from "../types";
@@ -26,6 +26,20 @@ export function useGmailConnection({ userId, onError, onDisconnected }: UseGmail
     setLabels(data.labels || []);
     setStatus((prev) => ({ ...(prev || data), ...data }));
   }, [userId]);
+
+  useEffect(() => {
+    const refreshAfterOAuth = () => {
+      if (document.visibilityState === "visible") {
+        void fetchStatus().catch(() => undefined);
+      }
+    };
+    window.addEventListener("focus", refreshAfterOAuth);
+    document.addEventListener("visibilitychange", refreshAfterOAuth);
+    return () => {
+      window.removeEventListener("focus", refreshAfterOAuth);
+      document.removeEventListener("visibilitychange", refreshAfterOAuth);
+    };
+  }, [fetchStatus]);
 
   const connect = useCallback(async () => {
     onError("");

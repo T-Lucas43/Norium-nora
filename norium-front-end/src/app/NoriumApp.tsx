@@ -13,6 +13,13 @@ import AppPanels from "./components/AppPanels";
 import { useAuthSession } from "./hooks/useAuthSession";
 import { useOperatorProfile } from "./hooks/useOperatorProfile";
 import { ACTIVE_TAB_STORAGE, initialTab, PRIMARY_TABS, TAB_PERMISSIONS } from "./navigation/tabs";
+import {
+  currentNoriumView,
+  legacyViewFromHash,
+  navigateNoriumView,
+  NORIUM_VIEW_EVENT,
+  type NoriumView,
+} from "./navigation/view";
 
 const AdminDashboard = lazy(() => import("../components/admin/AdminDashboard"));
 const AuthScreen = lazy(() => import("../components/auth/AuthScreen"));
@@ -32,6 +39,7 @@ type NoriumDeepLink = {
 
 export default function NoriumApp() {
   const [currentHash, setCurrentHash] = useState(() => window.location.hash);
+  const [currentView, setCurrentView] = useState<NoriumView>(currentNoriumView);
   const publicMatch = currentHash.match(/^#\/(portal|formulario|assinatura)\/([^/?#]+)/i);
   const publicRoute = publicMatch
     ? publicMatch[1].toLowerCase() === "portal"
@@ -40,9 +48,9 @@ export default function NoriumApp() {
         ? { kind: "signature" as const, token: decodeURIComponent(publicMatch[2]) }
         : { kind: "form" as const, token: decodeURIComponent(publicMatch[2]) }
     : null;
-  const legalRoute = currentHash === "#/termos"
+  const legalRoute = currentView === "terms"
     ? "terms" as const
-    : currentHash === "#/privacidade"
+    : currentView === "privacy"
       ? "privacy" as const
       : null;
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -89,9 +97,23 @@ export default function NoriumApp() {
   const telegramEnabledForUser = Boolean(currentUser?.systemAdmin);
 
   useEffect(() => {
-    const syncHash = () => setCurrentHash(window.location.hash);
+    const syncHash = () => {
+      setCurrentHash(window.location.hash);
+      const legacyView = legacyViewFromHash();
+      if (legacyView) navigateNoriumView(legacyView);
+    };
+    const syncView = (event: Event) => setCurrentView((event as CustomEvent<NoriumView>).detail);
+    const syncHistory = () => setCurrentView(currentNoriumView());
     window.addEventListener("hashchange", syncHash);
-    return () => window.removeEventListener("hashchange", syncHash);
+    window.addEventListener(NORIUM_VIEW_EVENT, syncView);
+    window.addEventListener("popstate", syncHistory);
+    const legacyView = legacyViewFromHash();
+    if (legacyView) navigateNoriumView(legacyView);
+    return () => {
+      window.removeEventListener("hashchange", syncHash);
+      window.removeEventListener(NORIUM_VIEW_EVENT, syncView);
+      window.removeEventListener("popstate", syncHistory);
+    };
   }, []);
 
   const canAccessPermission = useCallback(
@@ -116,7 +138,7 @@ export default function NoriumApp() {
     if (nextMode === "app" && profile?.tema) {
       applyNoriumTheme(profile.tema, profile.tema_personalizado);
     }
-    window.location.hash = nextMode === "admin" ? "#/admin" : "#/app";
+    navigateNoriumView(nextMode);
   }, [profile?.tema, profile?.tema_personalizado, setAppMode, updateSession]);
 
   const handleLogout = useCallback(() => {
@@ -128,13 +150,13 @@ export default function NoriumApp() {
     clearSession();
     setIsNoraOpen(false);
     setTeamChatOpen(false);
-    window.location.hash = "#/login";
+    navigateNoriumView("login");
   }, [authSession, clearSession]);
 
   const useSystemMode = useCallback(() => {
     setAppMode("app");
     if (profile?.tema) applyNoriumTheme(profile.tema, profile.tema_personalizado);
-    window.location.hash = "#/app";
+    navigateNoriumView("app");
   }, [profile?.tema, profile?.tema_personalizado, setAppMode]);
 
   useEffect(() => {
@@ -316,6 +338,7 @@ export default function NoriumApp() {
           onOpenNotifications={openNotifications}
           onOpenProfile={() => setActiveTab("Perfil")}
           onOpenSettings={() => setActiveTab("Configurações")}
+          onOpenLegal={() => navigateNoriumView("terms")}
           onLogout={handleLogout}
           onToggleSidebar={() => {
             if (window.matchMedia("(max-width: 900px)").matches) {

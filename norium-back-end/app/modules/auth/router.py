@@ -641,13 +641,12 @@ async def user_from_websocket_ticket(ticket: str) -> dict[str, Any]:
 
 
 def visible_users_for(current: dict[str, Any], users: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if can_manage_system(current):
-        return [sanitize_user(user) for user in users]
-    current_id = current["id"]
+    current_team_id = team_id_for_user(current)
     return [
         sanitize_user(user)
         for user in users
-        if user.get("id") == current_id or user.get("teamOwnerId") == current_id
+        if str(user.get("id") or "") == current_team_id
+        or str(user.get("teamOwnerId") or "") == current_team_id
     ]
 
 
@@ -812,11 +811,8 @@ async def plans(_: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
 @router.get("/teams")
 async def list_teams(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     store = await read_user_store()
-    if can_manage_system(user):
-        teams = store.get("teams", [])
-    else:
-        current_team_id = team_id_for_user(user)
-        teams = [team for team in store.get("teams", []) if str(team.get("id") or "") == current_team_id]
+    current_team_id = team_id_for_user(user)
+    teams = [team for team in store.get("teams", []) if str(team.get("id") or "") == current_team_id]
     return {"teams": [sanitize_team(store, team) for team in teams if isinstance(team, dict)]}
 
 
@@ -969,7 +965,7 @@ async def admin_overview(user: dict[str, Any] = Depends(current_user)) -> dict[s
     if not can_manage_system(user):
         raise HTTPException(status_code=403, detail="Acesso admin restrito.")
     store = await read_user_store()
-    users = [sanitize_user(item) for item in store.get("users", [])]
+    users = visible_users_for(user, store.get("users", []))
     active_users = [item for item in users if item.get("status") == "ativo"]
     plan_counts: dict[str, int] = {}
     for item in users:

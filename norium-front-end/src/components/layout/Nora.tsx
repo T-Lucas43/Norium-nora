@@ -776,7 +776,7 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
       <div className="min-w-0 flex-1">
         <div className="nora-assistant-meta mb-2 flex min-h-5 items-center justify-between gap-3">
           <strong className="text-xs font-bold text-[var(--text)]">Nora</strong>
-          {msg.status && (
+          {msg.status && msg.status.toLowerCase() !== "chat" && (
             <span className="rounded-full border border-current/15 px-2 py-0.5 text-xs font-bold uppercase text-[var(--text-secondary)]">
               {msg.status}
             </span>

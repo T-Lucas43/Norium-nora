@@ -242,7 +242,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
       </div>
 
       {activeArea === "finance" ? <AdminFinanceDashboard session={session}/> : (
-      <div className="mx-auto grid min-h-0 w-full max-w-7xl flex-1 content-start gap-5 overflow-y-auto p-5 xl:grid-cols-[360px_1fr]">
+      <div className="norium-admin-content mx-auto grid min-h-0 w-full max-w-7xl flex-1 content-start gap-5 overflow-y-auto p-5 xl:grid-cols-[360px_1fr]">
         <section className="space-y-5">
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
             <div className="mb-4 flex items-center justify-between">

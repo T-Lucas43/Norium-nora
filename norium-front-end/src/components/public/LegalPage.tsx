@@ -1,4 +1,5 @@
 import BrandLogo from "../layout/BrandLogo";
+import { navigateNoriumView } from "../../app/navigation/view";
 
 type LegalKind = "terms" | "privacy";
 
@@ -22,7 +23,7 @@ export default function LegalPage({ kind, authenticated }: { kind: LegalKind; au
   return (
     <main className="min-h-dvh bg-[var(--background)] px-4 py-8 text-[var(--text)] sm:px-6">
       <article className="mx-auto max-w-3xl rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl shadow-blue-950/20 sm:p-10">
-        <a href={authenticated ? "#/app" : "#/login"} aria-label="Voltar ao Norium">
+        <a href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView(authenticated ? "app" : "login"); }} aria-label="Voltar ao Norium">
           <BrandLogo className="h-12 w-[132px] text-[var(--text)]" />
         </a>
         <p className="mt-8 text-xs font-black uppercase tracking-[0.2em] text-[var(--primary)]">Versao 2026-08-20</p>
@@ -43,9 +44,9 @@ export default function LegalPage({ kind, authenticated }: { kind: LegalKind; au
           ))}
         </div>
         <nav className="mt-10 flex flex-wrap gap-3 border-t border-[var(--border)] pt-6 text-sm font-bold">
-          <a className="text-[var(--primary)] hover:underline" href="#/termos">Termos de Uso</a>
-          <a className="text-[var(--primary)] hover:underline" href="#/privacidade">Politica de Privacidade</a>
-          <a className="text-[var(--primary)] hover:underline" href={authenticated ? "#/app" : "#/login"}>Voltar ao Norium</a>
+          <a className="text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("terms"); }}>Termos de Uso</a>
+          <a className="text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("privacy"); }}>Politica de Privacidade</a>
+          <a className="text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView(authenticated ? "app" : "login"); }}>Voltar ao Norium</a>
         </nav>
       </article>
     </main>

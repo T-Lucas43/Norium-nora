@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import Field
 
 from app.shared.schemas import StrictModel
+from app.infrastructure.http.oauth_result import oauth_result_html
 
 from app.routers.inbox_router import record_event
 from app.routers.auth_router import current_user
@@ -119,35 +120,23 @@ async def obter_url_autorizacao(user: dict[str, Any] = Depends(current_user)):
 
 def oauth_failure_html() -> HTMLResponse:
     return HTMLResponse(
-        """
-        <html>
-          <body style="font-family:system-ui;background:#0B1220;color:white;padding:32px">
-            <h1>Falha ao conectar o Google Agenda</h1>
-            <p>Solicitacao OAuth invalida ou expirada. Gere um novo link no Norium.</p>
-          </body>
-        </html>
-        """,
+        oauth_result_html(
+            provider="Google Agenda",
+            success=False,
+            title="Falha ao conectar a agenda",
+            message="A solicitação de conexão é inválida, expirou ou já foi utilizada.",
+        ),
         status_code=400,
     )
 
 
 def oauth_success_html() -> str:
-    return """
-    <html>
-      <body style="font-family:system-ui;background:#0B1220;color:white;padding:32px;text-align:center">
-        <h1>Google Agenda conectado</h1>
-        <p>Conexao concluida. A agenda sera sincronizada automaticamente.</p>
-        <a href="/#/app" style="display:inline-block;margin-top:16px;border-radius:10px;background:#1268e8;padding:12px 18px;color:white;text-decoration:none;font-weight:700">Voltar ao Norium</a>
-        <script>
-          if (window.opener) {
-            setTimeout(() => window.close(), 1200);
-          } else {
-            setTimeout(() => window.location.replace('/#/app'), 1400);
-          }
-        </script>
-      </body>
-    </html>
-    """
+    return oauth_result_html(
+        provider="Google Agenda",
+        success=True,
+        title="Google Agenda conectado",
+        message="Autorização concluída. Seus compromissos serão sincronizados automaticamente.",
+    )
 
 
 def finish_google_oauth(code: str, state: str | None, user_id: str | None) -> str | HTMLResponse:
@@ -157,6 +146,9 @@ def finish_google_oauth(code: str, state: str | None, user_id: str | None) -> st
         return oauth_failure_html()
     try:
         CalendarService(resolved_user_id).finish_oauth(code=code, state=state)
+    except CalendarConfigError:
+        logger.warning("Callback OAuth do Google Agenda recusado para uma tentativa invalida ou expirada")
+        return oauth_failure_html()
     except Exception:
         logger.exception("Falha no callback OAuth do Google Agenda")
         return oauth_failure_html()

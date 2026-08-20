@@ -47,7 +47,7 @@ export default function MailToolbar({
   return (
     <header className="mail-toolbar mail-surface flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-4">
       <div className="mail-toolbar-search-group flex min-w-0 items-center gap-4">
-        <button type="button" className="mobile-sidebar-toggle mail-navigation-toggle" aria-label="Abrir pastas do e-mail" title="Pastas do e-mail" onClick={onOpenMobileSidebar}>
+        <button type="button" className="mobile-sidebar-toggle mail-navigation-toggle" aria-label="Abrir menu do e-mail" title="Pastas do e-mail" onClick={onOpenMobileSidebar}>
           <Menu size={18} />
         </button>
 

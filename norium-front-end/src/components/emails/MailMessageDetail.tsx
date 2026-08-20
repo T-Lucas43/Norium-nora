@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -17,7 +17,12 @@ const ROTULOS_REDUNDANTES = ["Caixa de entrada", "Nao lido", "Com estrela", "Imp
 const MAX_ROTULOS = 10;
 
 function PortalWhen({ active, children }: { active: boolean; children: ReactNode }) {
-  if (active && typeof document !== "undefined") return createPortal(children, document.body);
+  if (active && typeof document !== "undefined") {
+    return createPortal(
+      <div className="norium-mail mail-fullscreen-portal">{children}</div>,
+      document.body,
+    );
+  }
   return children;
 }
 
@@ -118,13 +123,19 @@ export default function MailMessageDetail({
     .filter((label) => normalizeText(label) !== normalizeText(category.label))
     .slice(0, MAX_ROTULOS);
 
+  useEffect(() => {
+    if (!fullscreen || typeof document === "undefined") return undefined;
+    document.documentElement.classList.add("mail-fullscreen-open");
+    return () => document.documentElement.classList.remove("mail-fullscreen-open");
+  }, [fullscreen]);
+
   return (
     <PortalWhen active={fullscreen}>
       <aside
         className={cn(
           "mail-message-detail flex min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-[#18181B]",
           fullscreen
-            ? "fixed inset-0 z-[100] h-[100dvh] max-h-[100dvh] w-screen min-h-0"
+            ? "mail-message-fullscreen relative h-full max-h-full w-full"
             : "h-full w-[520px] shrink-0 border-l border-white/10",
         )}
         aria-label={fullscreen ? "E-mail aberto em tela cheia" : "Leitura do e-mail"}

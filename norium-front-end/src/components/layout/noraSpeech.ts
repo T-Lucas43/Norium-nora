@@ -97,9 +97,14 @@ export function takeNaturalSpeechSegments(buffer: string, flush = false) {
   }
 
   let remainder = buffer.slice(consumed).trimStart();
-  if (!segments.length && remainder.length >= 220) {
-    const softBoundary = Math.max(remainder.lastIndexOf(", ", 200), remainder.lastIndexOf(": ", 200), remainder.lastIndexOf("; ", 200));
-    if (softBoundary >= 90) {
+  if (!segments.length && remainder.length >= 110) {
+    const searchUntil = Math.min(remainder.length, 180);
+    const softBoundary = Math.max(
+      remainder.lastIndexOf(", ", searchUntil),
+      remainder.lastIndexOf(": ", searchUntil),
+      remainder.lastIndexOf("; ", searchUntil),
+    );
+    if (softBoundary >= 60) {
       segments.push(remainder.slice(0, softBoundary + 1));
       remainder = remainder.slice(softBoundary + 1).trimStart();
     }

@@ -735,7 +735,7 @@ async def gerar_audio_elevenlabs(texto: str, voice_id: str | None = None) -> byt
     return response.content
 
 
-async def gerar_audio_edge_tts(texto: str) -> bytes:
+def gerar_audio_edge_tts_stream(texto: str):
     clean_text = texto_para_voz(texto)
     if not clean_text:
         raise HTTPException(status_code=400, detail="Texto vazio para gerar voz.")
@@ -750,19 +750,40 @@ async def gerar_audio_edge_tts(texto: str) -> bytes:
     pitch = os.getenv("EDGE_TTS_PITCH", "+4Hz").strip() or "+4Hz"
     volume = os.getenv("EDGE_TTS_VOLUME", "+0%").strip() or "+0%"
 
-    try:
-        communicate = edge_tts.Communicate(clean_text, voice=voice, rate=rate, pitch=pitch, volume=volume)
-        audio_parts: list[bytes] = []
-        async for chunk in communicate.stream():
-            if chunk.get("type") == "audio" and chunk.get("data"):
-                audio_parts.append(chunk["data"])
-    except Exception as exc:
-        logger.exception("Falha ao gerar voz neural Edge.")
-        raise HTTPException(status_code=502, detail="Falha temporaria ao gerar voz neural.") from exc
+    async def audio_stream():
+        started_at = time.perf_counter()
+        first_byte_at: float | None = None
+        total_bytes = 0
+        try:
+            communicate = edge_tts.Communicate(clean_text, voice=voice, rate=rate, pitch=pitch, volume=volume)
+            async for chunk in communicate.stream():
+                if chunk.get("type") != "audio" or not chunk.get("data"):
+                    continue
+                audio_data = chunk["data"]
+                if first_byte_at is None:
+                    first_byte_at = time.perf_counter()
+                    logger.info(
+                        "nora_tts event=first_audio_chunk provider=edge-tts elapsed_ms=%.1f",
+                        (first_byte_at - started_at) * 1000,
+                    )
+                total_bytes += len(audio_data)
+                yield audio_data
+        except asyncio.CancelledError:
+            logger.info("nora_tts event=stream_cancelled provider=edge-tts bytes=%s", total_bytes)
+            raise
+        except Exception:
+            logger.exception("Falha durante o streaming da voz neural Edge.")
+            raise
 
-    if not audio_parts:
-        raise HTTPException(status_code=502, detail="A voz neural Edge nao retornou audio.")
-    return b"".join(audio_parts)
+        if first_byte_at is None:
+            raise RuntimeError("A voz neural Edge nao retornou audio.")
+        logger.info(
+            "nora_tts event=stream_completed provider=edge-tts total_ms=%.1f bytes=%s",
+            (time.perf_counter() - started_at) * 1000,
+            total_bytes,
+        )
+
+    return audio_stream()
 
 
 async def gerar_texto_de_envio_whatsapp(payload: NoraWhatsAppPayload, historico: str, empty_context: bool) -> str:
@@ -1172,16 +1193,17 @@ async def gerar_voz_nora(payload: NoraVoicePayload, _: dict[str, Any] = Depends(
     tts_started = time.perf_counter()
     provider = os.getenv("NORA_TTS_PROVIDER", "edge").strip().lower()
     if provider in {"edge", "edge-tts", "microsoft"}:
-        audio = await gerar_audio_edge_tts(payload.text)
-        elapsed_ms = round((time.perf_counter() - tts_started) * 1000, 1)
-        return Response(
-            content=audio,
+        audio_stream = gerar_audio_edge_tts_stream(payload.text)
+        return StreamingResponse(
+            audio_stream,
             media_type="audio/mpeg",
             headers={
-                "Cache-Control": "no-store",
+                "Cache-Control": "no-cache, no-store, no-transform",
+                "Content-Disposition": "inline",
+                "X-Accel-Buffering": "no",
+                "X-Norium-Audio-Mode": "progressive",
                 "X-Norium-Voice-Provider": "edge-tts",
                 "X-Norium-Voice-Id": os.getenv("EDGE_TTS_VOICE", EDGE_TTS_DEFAULT_VOICE),
-                "Server-Timing": f"tts;dur={elapsed_ms}",
             },
         )
 

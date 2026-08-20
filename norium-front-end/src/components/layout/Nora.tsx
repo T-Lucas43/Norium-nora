@@ -125,7 +125,7 @@ const NORA_STATE_LABELS: Record<NoraRunState, string> = {
   searching: "Consultando dados...",
   analyzing: "Analisando...",
   streaming: "Respondendo...",
-  synthesizing_audio: "Gerando áudio...",
+  synthesizing_audio: "Conectando voz ao vivo...",
   speaking: "Falando...",
   completed: "Concluído",
   cancelled: "Interrompido",
@@ -327,39 +327,147 @@ async function tryServerNoraVoice(cleanText: string, onPlayback?: () => void): P
     });
 
     if (!response.ok) {
-      if ([401, 402, 403, 429, 502, 503].includes(response.status)) {
+      if ([401, 402, 403, 503].includes(response.status)) {
         serverVoiceUnavailable = true;
       }
       return false;
     }
 
-    const audioBlob = await response.blob();
-    if (controller.signal.aborted) return null;
-    if (!audioBlob.size) return false;
-    const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
-    activeNoraAudio = audio;
-    return await new Promise<boolean | null>((resolve) => {
-      let settled = false;
-      const finish = (played: boolean | null) => {
-        if (settled) return;
-        settled = true;
-        finishActiveNoraAudio = null;
-        URL.revokeObjectURL(audioUrl);
-        if (activeNoraAudio === audio) activeNoraAudio = null;
-        if (activeNoraVoiceRequest === controller) activeNoraVoiceRequest = null;
-        resolve(played);
-      };
-      finishActiveNoraAudio = () => finish(null);
-      audio.onplaying = () => onPlayback?.();
-      audio.onended = () => finish(true);
-      audio.onerror = () => finish(false);
-      void audio.play().catch(() => finish(false));
-    });
+    return await playProgressiveNoraAudio(response, controller, onPlayback);
   } catch {
     return controller.signal.aborted ? null : false;
   } finally {
     if (activeNoraVoiceRequest === controller && controller.signal.aborted) activeNoraVoiceRequest = null;
+  }
+}
+
+function supportedMp3MediaType() {
+  if (typeof MediaSource === "undefined") return "";
+  return ["audio/mpeg", 'audio/mpeg; codecs="mp3"'].find((type) => MediaSource.isTypeSupported(type)) || "";
+}
+
+function waitForSourceBuffer(sourceBuffer: SourceBuffer) {
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      sourceBuffer.removeEventListener("updateend", handleUpdateEnd);
+      sourceBuffer.removeEventListener("error", handleError);
+    };
+    const handleUpdateEnd = () => {
+      cleanup();
+      resolve();
+    };
+    const handleError = () => {
+      cleanup();
+      reject(new Error("Falha ao anexar audio progressivo."));
+    };
+    sourceBuffer.addEventListener("updateend", handleUpdateEnd, { once: true });
+    sourceBuffer.addEventListener("error", handleError, { once: true });
+  });
+}
+
+async function appendAudioChunk(sourceBuffer: SourceBuffer, chunk: Uint8Array) {
+  if (sourceBuffer.updating) await waitForSourceBuffer(sourceBuffer);
+  const stableChunk = new Uint8Array(chunk.byteLength);
+  stableChunk.set(chunk);
+  sourceBuffer.appendBuffer(stableChunk);
+  await waitForSourceBuffer(sourceBuffer);
+}
+
+async function playProgressiveNoraAudio(
+  response: Response,
+  controller: AbortController,
+  onPlayback?: () => void,
+): Promise<boolean | null> {
+  const mediaType = supportedMp3MediaType();
+  if (!response.body || !mediaType) {
+    await response.body?.cancel().catch(() => undefined);
+    return false;
+  }
+
+  const mediaSource = new MediaSource();
+  const audioUrl = URL.createObjectURL(mediaSource);
+  const audio = new Audio();
+  audio.preload = "auto";
+  activeNoraAudio = audio;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let playbackStarted = false;
+  let settled = false;
+  let resolvePlayback: (played: boolean | null) => void = () => undefined;
+  const playbackDone = new Promise<boolean | null>((resolve) => {
+    resolvePlayback = resolve;
+  });
+  const finish = (played: boolean | null) => {
+    if (settled) return;
+    settled = true;
+    resolvePlayback(played);
+  };
+
+  finishActiveNoraAudio = () => {
+    void reader?.cancel().catch(() => undefined);
+    finish(null);
+  };
+  audio.onplaying = () => {
+    if (playbackStarted) return;
+    playbackStarted = true;
+    onPlayback?.();
+  };
+  audio.onended = () => finish(true);
+  audio.onerror = () => finish(playbackStarted);
+
+  try {
+    const opened = new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        mediaSource.removeEventListener("sourceopen", handleOpen);
+        mediaSource.removeEventListener("error", handleError);
+        controller.signal.removeEventListener("abort", handleAbort);
+      };
+      const handleOpen = () => {
+        cleanup();
+        resolve();
+      };
+      const handleError = () => {
+        cleanup();
+        reject(new Error("Falha ao iniciar audio progressivo."));
+      };
+      const handleAbort = () => {
+        cleanup();
+        reject(new DOMException("Audio cancelado.", "AbortError"));
+      };
+      mediaSource.addEventListener("sourceopen", handleOpen, { once: true });
+      mediaSource.addEventListener("error", handleError, { once: true });
+      controller.signal.addEventListener("abort", handleAbort, { once: true });
+    });
+    audio.src = audioUrl;
+    audio.load();
+    await opened;
+
+    const sourceBuffer = mediaSource.addSourceBuffer(mediaType);
+    reader = response.body.getReader();
+    let receivedAudio = false;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      receivedAudio = true;
+      await appendAudioChunk(sourceBuffer, value);
+      if (!playbackStarted && audio.paused) {
+        void audio.play().catch(() => finish(false));
+      }
+    }
+    if (!receivedAudio) return false;
+    if (sourceBuffer.updating) await waitForSourceBuffer(sourceBuffer);
+    if (mediaSource.readyState === "open") mediaSource.endOfStream();
+    return await playbackDone;
+  } catch {
+    return controller.signal.aborted ? null : playbackStarted;
+  } finally {
+    finishActiveNoraAudio = null;
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+    URL.revokeObjectURL(audioUrl);
+    if (activeNoraAudio === audio) activeNoraAudio = null;
+    if (activeNoraVoiceRequest === controller) activeNoraVoiceRequest = null;
   }
 }
 

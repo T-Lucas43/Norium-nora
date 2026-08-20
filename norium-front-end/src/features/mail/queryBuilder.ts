@@ -2,7 +2,7 @@
 // Extraido de EmailDashboard.tsx sem alteracao de comportamento.
 import type { MailQuickFilter } from "./types";
 
-export const GMAIL_PAGE_SIZE = 14;
+export const GMAIL_PAGE_SIZE = 50;
 
 export type AdvancedMailFilters = {
   from: string;

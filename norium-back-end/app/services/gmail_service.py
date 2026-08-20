@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import json
 import logging
@@ -48,6 +49,8 @@ MAX_ATTACHMENT_BYTES = 24 * 1024 * 1024
 PROFILE_CACHE_TTL_SECONDS = 600
 OAUTH_STATE_TTL_SECONDS = 20 * 60
 MAX_OAUTH_ATTEMPTS = 5
+MAILBOX_CACHE_TTL_SECONDS = 30
+MAILBOX_CACHE_MAX_ENTRIES = 24
 
 FOLDER_LABELS = {
     "inbox": ["INBOX"],
@@ -198,10 +201,27 @@ class GmailService:
         page_token: str | None = None,
         max_results: int = 25,
     ) -> dict[str, Any]:
-        service = self._service()
         folder_key = (folder or "inbox").strip()
+        cached_page = self._cached_mailbox_page(
+            folder=folder_key,
+            query=query,
+            page_token=page_token,
+            max_results=max_results,
+        )
+        if cached_page is not None:
+            return {**cached_page, **self.status(), "cacheSource": "user_profile"}
+
+        service = self._service()
         if folder_key == "drafts":
-            return self._list_drafts(query=query, page_token=page_token, max_results=max_results)
+            drafts = self._list_drafts(query=query, page_token=page_token, max_results=max_results)
+            self._save_mailbox_page(
+                folder=folder_key,
+                query=query,
+                page_token=page_token,
+                max_results=max_results,
+                payload=drafts,
+            )
+            return {**drafts, "cacheSource": "gmail"}
 
         label_ids, query_parts = self._folder_filters(folder_key)
         if query:
@@ -233,13 +253,20 @@ class GmailService:
         messages = [self._normalize_message(message) for message in message_details]
 
         self._mark_sync()
-        return {
+        payload = {
             "messages": messages,
             "nextPageToken": result.get("nextPageToken"),
             "resultSizeEstimate": result.get("resultSizeEstimate", 0),
             "folder": folder_key,
-            **self.status(),
         }
+        self._save_mailbox_page(
+            folder=folder_key,
+            query=query,
+            page_token=page_token,
+            max_results=max_results,
+            payload=payload,
+        )
+        return {**payload, **self.status(), "cacheSource": "gmail"}
 
     def get_message(self, message_id: str) -> dict[str, Any]:
         message = self._service().users().messages().get(userId="me", id=message_id, format="full").execute()
@@ -270,6 +297,7 @@ class GmailService:
         if thread_id:
             payload["threadId"] = thread_id
         sent = self._service().users().messages().send(userId="me", body=payload).execute()
+        self._clear_mailbox_cache()
         self._mark_sync()
         return {"sent": True, "message": sent}
 
@@ -326,17 +354,19 @@ class GmailService:
             userId="me",
             body={"message": {"raw": raw}},
         ).execute()
+        self._clear_mailbox_cache()
         self._mark_sync()
         return {"draft": draft}
 
     def send_draft(self, draft_id: str) -> dict[str, Any]:
         sent = self._service().users().drafts().send(userId="me", body={"id": draft_id}).execute()
+        self._clear_mailbox_cache()
         self._mark_sync()
         return {"sent": True, "message": sent}
 
     def disconnect(self) -> dict[str, Any]:
         profile = self._read_profile()
-        for key in ("gmailToken", "gmailProfileCache", "gmailOauthState", "gmailSync"):
+        for key in ("gmailToken", "gmailProfileCache", "gmailOauthState", "gmailSync", "gmailMailboxCache"):
             profile.pop(key, None)
         self._write_profile(profile)
         self._mark_sync()
@@ -391,6 +421,7 @@ class GmailService:
                 body={"addLabelIds": add, "removeLabelIds": remove},
             ).execute()
 
+        self._clear_mailbox_cache()
         self._mark_sync()
         return {"status": "sucesso", "message": self._normalize_message(result)}
 
@@ -804,6 +835,83 @@ class GmailService:
 
     def _mark_sync(self) -> None:
         self._write_profile_section("gmailSync", {"lastSync": self._now_iso()})
+
+    def _mailbox_cache_key(
+        self,
+        *,
+        folder: str,
+        query: str | None,
+        page_token: str | None,
+        max_results: int,
+    ) -> str:
+        raw_key = "|".join((folder, (query or "").strip(), page_token or "first", str(max_results)))
+        return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+    def _cached_mailbox_page(
+        self,
+        *,
+        folder: str,
+        query: str | None,
+        page_token: str | None,
+        max_results: int,
+    ) -> dict[str, Any] | None:
+        cache = self._read_profile_section("gmailMailboxCache", {})
+        if not isinstance(cache, dict):
+            return None
+        cache_key = self._mailbox_cache_key(
+            folder=folder,
+            query=query,
+            page_token=page_token,
+            max_results=max_results,
+        )
+        entry = cache.get(cache_key)
+        if not isinstance(entry, dict) or not isinstance(entry.get("payload"), dict):
+            return None
+        try:
+            cached_at = datetime.fromisoformat(str(entry.get("cachedAt") or ""))
+            if cached_at.tzinfo is None:
+                cached_at = cached_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - cached_at > timedelta(seconds=MAILBOX_CACHE_TTL_SECONDS):
+                return None
+        except ValueError:
+            return None
+        return dict(entry["payload"])
+
+    def _save_mailbox_page(
+        self,
+        *,
+        folder: str,
+        query: str | None,
+        page_token: str | None,
+        max_results: int,
+        payload: dict[str, Any],
+    ) -> None:
+        cache = self._read_profile_section("gmailMailboxCache", {})
+        if not isinstance(cache, dict):
+            cache = {}
+        cache_key = self._mailbox_cache_key(
+            folder=folder,
+            query=query,
+            page_token=page_token,
+            max_results=max_results,
+        )
+        cache[cache_key] = {
+            "cachedAt": self._now_iso(),
+            "folder": folder,
+            "payload": {
+                "messages": list(payload.get("messages") or []),
+                "nextPageToken": payload.get("nextPageToken"),
+                "resultSizeEstimate": payload.get("resultSizeEstimate", 0),
+                "folder": folder,
+            },
+        }
+        if len(cache) > MAILBOX_CACHE_MAX_ENTRIES:
+            ordered_keys = sorted(cache, key=lambda key: str(cache[key].get("cachedAt") or ""), reverse=True)
+            cache = {key: cache[key] for key in ordered_keys[:MAILBOX_CACHE_MAX_ENTRIES]}
+        self._write_profile_section("gmailMailboxCache", cache)
+
+    def _clear_mailbox_cache(self) -> None:
+        self._write_profile_section("gmailMailboxCache", {})
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()

@@ -380,7 +380,7 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
 
 
   return (
-    <div className={`norium-mail ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} ${selectedMessage ? "mail-message-open" : ""} flex h-full min-h-0 w-full overflow-hidden bg-[#111113] text-white`}>
+    <div className={`norium-mail ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} ${selectedMessage ? "mail-message-open" : ""} relative flex h-full min-h-0 w-full overflow-hidden bg-[#111113] text-white`}>
       {mobileSidebarOpen && (
         <button
           type="button"
@@ -404,7 +404,7 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
         onClose={() => setMobileSidebarOpen(false)}
       />
 
-      <section className="mail-main flex min-w-0 flex-1 flex-col bg-[#151518]">
+      <section className="mail-main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#151518]">
         <MailToolbar
           status={status}
           canUseNora={canUseNora}
@@ -457,7 +457,7 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
             </div>
           </main>
         ) : (
-          <main className="flex min-h-0 flex-1">
+          <main className="flex min-h-0 flex-1 overflow-hidden">
             <MailMessageList
               title={mailboxTitle}
               unreadCount={inboxUnread}

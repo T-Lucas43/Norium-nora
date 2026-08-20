@@ -58,6 +58,12 @@ function ResponsiveEmailFrame({ html }: { html: string }) {
     frameDocument.querySelectorAll("img").forEach((image) => {
       if (!image.complete) image.addEventListener("load", resizeToContent, { once: true });
     });
+    const reader = frameRef.current?.closest<HTMLElement>(".mail-reader-scroll");
+    frameDocument.addEventListener("wheel", (event) => {
+      if (!reader || !event.deltaY) return;
+      reader.scrollBy({ top: event.deltaY, behavior: "auto" });
+      event.preventDefault();
+    }, { passive: false });
   }
 
   return (
@@ -116,7 +122,7 @@ export default function MailMessageDetail({
     <PortalWhen active={fullscreen}>
       <aside
         className={cn(
-          "mail-message-detail flex min-w-0 max-w-full flex-col overflow-hidden bg-[#18181B]",
+          "mail-message-detail flex min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-[#18181B]",
           fullscreen
             ? "fixed inset-0 z-[100] h-[100dvh] max-h-[100dvh] w-screen min-h-0"
             : "h-full w-[520px] shrink-0 border-l border-white/10",

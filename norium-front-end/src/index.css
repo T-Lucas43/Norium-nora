@@ -5912,6 +5912,77 @@ body,
   overflow-x:hidden;
 }
 
+/* No desktop as pastas ficam em um drawer sob demanda. A coluna fixa antiga
+   desperdicava largura e deixava um bloco azul vazio ao lado da caixa. */
+.norium-mail .mail-navigation-toggle{
+  display:inline-flex;
+  width:42px;
+  height:42px;
+  min-width:42px;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--mail-border);
+  border-radius:10px;
+  background:var(--mail-surface);
+  color:var(--mail-text);
+}
+
+@media (min-width:901px){
+  .norium-mail > .mail-sidebar{
+    position:absolute!important;
+    inset:0 auto 0 0!important;
+    z-index:42!important;
+    width:280px!important;
+    height:100%!important;
+    border-color:var(--mail-border)!important;
+    background:#080a0c!important;
+    box-shadow:22px 0 60px rgba(0,0,0,.45);
+    transform:translateX(calc(-100% - 24px));
+    transition:transform .2s ease;
+  }
+
+  .norium-mail.mobile-sidebar-open > .mail-sidebar{
+    transform:translateX(0);
+  }
+
+  .norium-mail .mobile-sidebar-backdrop{
+    position:absolute;
+    inset:0;
+    z-index:41;
+    display:block;
+    border:0;
+    background:rgba(0,0,0,.38);
+    backdrop-filter:blur(2px);
+  }
+
+  .norium-mail .mail-sidebar-mobile-close{
+    display:grid;
+    width:36px;
+    height:36px;
+    flex:0 0 36px;
+    place-items:center;
+    border:1px solid var(--mail-border);
+    border-radius:9px;
+    color:var(--mail-text);
+  }
+
+  .norium-mail .mail-main,
+  .norium-mail .mail-main > main,
+  .norium-mail .mail-message-list,
+  .norium-mail .mail-message-detail{
+    min-height:0!important;
+    overflow:hidden;
+  }
+
+  .norium-mail .mail-reader-scroll{
+    height:0;
+    min-height:0!important;
+    flex:1 1 auto!important;
+    overflow-y:auto!important;
+    overscroll-behavior-y:contain;
+  }
+}
+
 .norium-mail .mail-message-body{
   padding:0!important;
 }

@@ -167,9 +167,6 @@ export default function MailSidebar({
       </nav>
 
       <div className="border-t border-white/10 p-4">
-        <div className="mb-2 h-1 rounded-full bg-white/15">
-          <div className="h-full w-[21%] rounded-full bg-[#38BDF8]" />
-        </div>
         <div className="flex items-center justify-between text-xs font-bold">
           <span className="text-white">Norium Mail</span>
           <button onClick={onRefreshLabels} className="text-white/70 hover:text-white">

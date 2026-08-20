@@ -256,14 +256,21 @@ try {
         throw "O Container App nao respondeu com sucesso em $healthUrl."
     }
 
-    $previousSmokeSecret = $env:NORIUM_SMOKE_AUTH_SECRET
+    $previousSmokeEmail = $env:NORIUM_SMOKE_EMAIL
+    $previousSmokePassword = $env:NORIUM_SMOKE_PASSWORD
     try {
-        $env:NORIUM_SMOKE_AUTH_SECRET = [string]$secretSettings["NORIUM_AUTH_SECRET"]
+        if (-not $env:NORIUM_SMOKE_EMAIL -and $secretSettings.ContainsKey("NORIUM_BOOTSTRAP_ADMIN_EMAIL")) {
+            $env:NORIUM_SMOKE_EMAIL = [string]$secretSettings["NORIUM_BOOTSTRAP_ADMIN_EMAIL"]
+        }
+        if (-not $env:NORIUM_SMOKE_PASSWORD -and $secretSettings.ContainsKey("NORIUM_BOOTSTRAP_ADMIN_PASSWORD")) {
+            $env:NORIUM_SMOKE_PASSWORD = [string]$secretSettings["NORIUM_BOOTSTRAP_ADMIN_PASSWORD"]
+        }
         & (Join-Path $backendRoot "venv\Scripts\python.exe") (Join-Path $PSScriptRoot "smoke_test.py") $publicUrl
         if ($LASTEXITCODE -ne 0) { throw "A validacao remota do Norium falhou." }
     }
     finally {
-        $env:NORIUM_SMOKE_AUTH_SECRET = $previousSmokeSecret
+        $env:NORIUM_SMOKE_EMAIL = $previousSmokeEmail
+        $env:NORIUM_SMOKE_PASSWORD = $previousSmokePassword
     }
 
     $outputDirectory = Join-Path $repositoryRoot "output"

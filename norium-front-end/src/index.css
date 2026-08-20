@@ -6184,6 +6184,160 @@ html.mail-fullscreen-open body{
   }
 }
 
+/* Caixa de entrada responsiva: nenhuma faixa ou linha pode conservar largura
+   intrinseca de desktop no telefone ou tablet. */
+@media (max-width:900px){
+  .norium-mail,
+  .norium-mail .mail-main,
+  .norium-mail .mail-main > main,
+  .norium-mail .mail-message-list,
+  .norium-mail .mail-list-scroll{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    overflow-x:hidden!important;
+  }
+
+  .norium-mail .mail-list-heading > div:first-child{
+    min-width:0;
+  }
+
+  .norium-mail .mail-list-heading p{
+    max-width:100%;
+    overflow-wrap:anywhere;
+  }
+
+  .norium-mail .mail-banner{
+    display:grid!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0;
+    grid-template-columns:40px minmax(0,1fr) auto;
+    align-items:center;
+    column-gap:10px;
+    overflow:hidden!important;
+    padding-inline:12px!important;
+  }
+
+  .norium-mail .mail-banner > div{
+    width:34px;
+    height:34px;
+    min-width:0;
+    margin:0!important;
+  }
+
+  .norium-mail .mail-banner > span{
+    display:-webkit-box;
+    min-width:0;
+    max-width:100%;
+    overflow:hidden;
+    white-space:normal!important;
+    overflow-wrap:anywhere;
+    line-height:1.35;
+    -webkit-box-orient:vertical;
+    -webkit-line-clamp:2;
+  }
+
+  .norium-mail .mail-banner > button{
+    max-width:120px;
+    min-width:0;
+    padding-inline:12px!important;
+    white-space:nowrap;
+  }
+
+  .norium-mail .mail-mobile-categories,
+  .norium-mail .mail-mobile-categories > button{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    overflow:hidden;
+  }
+
+  .norium-mail .mail-mobile-categories > button > span:nth-child(2),
+  .norium-mail .mail-mobile-categories strong,
+  .norium-mail .mail-mobile-categories small{
+    min-width:0;
+    max-width:100%;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .norium-mail .mail-row{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    box-sizing:border-box;
+    overflow:hidden!important;
+    grid-template-columns:42px minmax(0,1fr) 44px!important;
+  }
+
+  .norium-mail .mail-row-sender{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .norium-mail .mail-row-subject{
+    display:-webkit-box!important;
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    max-height:2.8em;
+    overflow:hidden;
+    white-space:normal!important;
+    overflow-wrap:anywhere;
+    line-height:1.35;
+    -webkit-box-orient:vertical;
+    -webkit-line-clamp:2;
+  }
+
+  .norium-mail .mail-row-date,
+  .norium-mail .mail-row-star{
+    max-width:44px;
+    overflow:hidden;
+  }
+}
+
+@media (max-width:640px){
+  .norium-mail .mail-banner{
+    grid-template-columns:minmax(0,1fr) auto;
+  }
+
+  .norium-mail .mail-banner > div{
+    display:none!important;
+  }
+
+  .norium-mail .mail-banner > button{
+    max-width:102px;
+    padding-inline:10px!important;
+    font-size:11px;
+  }
+
+  .norium-mail .mail-mobile-categories b{
+    display:none;
+  }
+
+  .norium-mail .mail-mobile-categories > button{
+    grid-template-columns:36px minmax(0,1fr);
+  }
+}
+
+.mail-fullscreen-portal .mail-message-fullscreen{
+  position:relative!important;
+  inset:auto!important;
+  width:100%!important;
+  max-width:100%!important;
+  height:100%!important;
+  max-height:100%!important;
+  min-height:0!important;
+  overflow:hidden!important;
+  background:#050607!important;
+}
+
 /* Mobile usa a rolagem natural do documento. Assim a barra principal e os
    cabecalhos dos modulos saem da tela junto com o conteudo, sem aprisionar a
    pagina em paineis com altura fixa. */

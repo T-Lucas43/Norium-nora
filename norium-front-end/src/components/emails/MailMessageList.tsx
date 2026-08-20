@@ -221,7 +221,7 @@ export default function MailMessageList({
         <div className="border-b border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200">{error}</div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mail-list-scroll min-h-0 flex-1 overflow-y-auto">
         {loading && !messages.length ? (
           <div className="flex h-full items-center justify-center text-sm font-bold text-white/50">
             <Loader2 size={18} className="mr-2 animate-spin" />

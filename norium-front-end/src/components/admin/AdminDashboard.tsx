@@ -207,7 +207,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-4">
             <BrandLogo className="h-11 w-[124px] shrink-0 text-[var(--text)]" />
-            <div className="min-w-0">
+            <div className="hidden min-w-0 lg:block">
               <p className="truncate text-sm font-bold uppercase tracking-wide text-[var(--text-secondary)]">Norium Admin</p>
               <h1 className="truncate text-xl font-black">Gerenciamento do sistema</h1>
             </div>
@@ -274,7 +274,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
                 <h2 className="text-lg font-black">Usuarios</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">Selecione para editar permissões.</p>
               </div>
-              <Button variant="primary" iconOnly
+              <Button variant="primary" size="lg" iconOnly
                 onClick={() => setCreateOpen((value) => !value)}
                 className="bg-blue-600"
               >
@@ -433,7 +433,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
               </div>
             </div>
 
-            <PermissionEditor permissions={mergePermissions(selectedUser.permissions)} onToggle={(key) => toggleUserPermission(selectedUser, key)} disabled={saving === selectedUser.id || selectedUser.email === "tarcisiolucas43@gmail.com"} />
+            <PermissionEditor permissions={mergePermissions(selectedUser.permissions)} onToggle={(key) => toggleUserPermission(selectedUser, key)} disabled={saving === selectedUser.id || selectedUser.systemAdmin} />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">

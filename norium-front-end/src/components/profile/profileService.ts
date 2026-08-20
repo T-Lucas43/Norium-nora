@@ -11,7 +11,7 @@ function cloneThemeCustomization(): TemaPersonalizado {
 export function createDefaultProfile(): PerfilOperador {
   return {
     fotoUrl: "",
-    nome: "Tarcisio Lucas",
+    nome: "Operador",
     cep: "",
     idioma: "pt-BR",
     tema: "escuro",

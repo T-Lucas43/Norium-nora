@@ -330,13 +330,13 @@ function eventCount(eventsBySource: NoraProps["eventsBySource"], source: EventSo
 function buildOpeningSummary(profile: PerfilOperador | null | undefined, eventsBySource: NoraProps["eventsBySource"]) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
-  const name = (profile?.nome || "Tarcisio").split(" ")[0] || "Tarcisio";
+  const name = (profile?.nome || "").split(" ")[0] || "";
   const emails = eventCount(eventsBySource, "gmail");
   const whatsapp = eventCount(eventsBySource, "whatsapp");
   const calendar = eventCount(eventsBySource, "calendar");
   const tasks = eventCount(eventsBySource, "kanban");
   const total = emails + whatsapp + calendar + tasks + eventCount(eventsBySource, "telegram");
-  return `${greeting}, ${name}. Aqui esta seu resumo: ${total} eventos recentes, ${emails} e-mails, ${whatsapp} mensagens, ${calendar} compromissos de agenda e ${tasks} atualizacoes de tarefas.`;
+  return `${greeting}${name ? `, ${name}` : ""}. Aqui esta seu resumo: ${total} eventos recentes, ${emails} e-mails, ${whatsapp} mensagens, ${calendar} compromissos de agenda e ${tasks} atualizacoes de tarefas.`;
 }
 
 const suggestions = [
@@ -1058,9 +1058,9 @@ function interruptsActiveAgentSession(text: string) {
   );
 }
 
-export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "lucas123", activeTab, onOpenEmail, contextualRequest }: NoraProps) {
+export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "primary", activeTab, onOpenEmail, contextualRequest }: NoraProps) {
   const screenContext = buildScreenContext(activeTab, eventsBySource);
-  const welcomeName = (profile?.nome || "Tarcisio").trim().split(/\s+/)[0] || "Tarcisio";
+  const welcomeName = (profile?.nome || "").trim().split(/\s+/)[0] || "";
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1850,7 +1850,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               {messages.length === 0 && !loading && (
                 <div className="nora-empty-state">
                   <NoraAvatar className="nora-empty-avatar" />
-                  <h3>Ola, {welcomeName}</h3>
+                  <h3>{welcomeName ? `Ola, ${welcomeName}` : "Ola"}</h3>
                   <p>Como posso ajudar?</p>
                 </div>
               )}

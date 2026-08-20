@@ -21,6 +21,7 @@ def user(
     role: str = "member",
     team_owner_id: str | None = None,
     created_by: str | None = None,
+    system_admin: bool = False,
 ) -> dict:
     return {
         "id": user_id,
@@ -29,7 +30,7 @@ def user(
         "role": role,
         "plan": "equipe",
         "status": "ativo",
-        "systemAdmin": False,
+        "systemAdmin": system_admin,
         "teamOwnerId": team_owner_id,
         "createdBy": created_by,
         "permissions": {"equipe": True},
@@ -129,8 +130,9 @@ class TeamIsolationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.system_owner = user(
             "system-owner",
-            email=auth_router.OWNER_EMAIL,
+            email="system@example.com",
             role="owner",
+            system_admin=True,
         )
         self.owner_a = user("owner-a", email="a@example.com", role="owner")
         self.owner_b = user("owner-b", email="b@example.com", role="owner")
@@ -195,7 +197,7 @@ class TeamIsolationTests(unittest.IsolatedAsyncioTestCase):
             ):
                 store = await auth_router.read_user_store()
 
-        self.assertEqual([auth_router.OWNER_USER_ID], [item["id"] for item in store["users"]])
+        self.assertEqual([], [item["id"] for item in store["users"]])
 
     async def test_only_team_owner_can_change_team_name(self) -> None:
         write_store = AsyncMock()

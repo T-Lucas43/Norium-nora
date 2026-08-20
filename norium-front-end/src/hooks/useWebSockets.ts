@@ -6,7 +6,7 @@ import type {
   SystemNotificationSeverity,
   SystemNotificationToast,
 } from "../types/omnichannel";
-import { apiBaseUrl, authToken, wsBaseUrl } from "../utils/api";
+import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../utils/api";
 
 const API_URL = `${apiBaseUrl()}/api/omnichannel/inbox`;
 const WS_URL = `${wsBaseUrl()}/api/omnichannel/ws`;
@@ -154,7 +154,7 @@ function happenedAfter(timestamp: string, boundary?: string | null) {
 export function useWebSockets(
   activeTab: string,
   enabled = true,
-  userId = "lucas123",
+  userId = "primary",
   teamChatOpen = false,
 ) {
   const [stateUserId, setStateUserId] = useState(userId);
@@ -437,18 +437,29 @@ export function useWebSockets(
       if (cancelled || reconnectTimerRef.current !== null) return;
       reconnectTimerRef.current = window.setTimeout(() => {
         reconnectTimerRef.current = null;
-        connect();
+        void connect();
       }, 1800);
     }
 
-    function connect() {
+    async function connect() {
       if (cancelled) return;
       const token = authToken();
       if (!token) {
         reportConnectionState("offline");
         return;
       }
-      const socket = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
+      let socket: WebSocket;
+      try {
+        const socketUrl = await authenticatedWebSocketUrl(WS_URL, token);
+        if (cancelled) return;
+        socket = new WebSocket(socketUrl);
+      } catch {
+        if (!cancelled) {
+          reportConnectionState("offline");
+          scheduleReconnect();
+        }
+        return;
+      }
       socketRef.current = socket;
 
       socket.onopen = () => {
@@ -509,7 +520,7 @@ export function useWebSockets(
       };
     }
 
-    connect();
+    void connect();
 
     return () => {
       cancelled = true;
@@ -527,11 +538,24 @@ export function useWebSockets(
     let cancelled = false;
     let reconnectTimer: number | null = null;
 
-    function connectTeamSocket() {
+    async function connectTeamSocket() {
       if (cancelled) return;
       const token = authToken();
       if (!token) return;
-      const socket = new WebSocket(`${TEAM_WS_URL}?token=${encodeURIComponent(token)}`);
+      let socket: WebSocket;
+      try {
+        const socketUrl = await authenticatedWebSocketUrl(TEAM_WS_URL, token);
+        if (cancelled) return;
+        socket = new WebSocket(socketUrl);
+      } catch {
+        if (!cancelled && reconnectTimer === null) {
+          reconnectTimer = window.setTimeout(() => {
+            reconnectTimer = null;
+            void connectTeamSocket();
+          }, 1800);
+        }
+        return;
+      }
       teamSocketRef.current = socket;
 
       socket.onmessage = (event) => {
@@ -547,13 +571,13 @@ export function useWebSockets(
         if (cancelled || currentUserIdRef.current !== userId || reconnectTimer !== null) return;
         reconnectTimer = window.setTimeout(() => {
           reconnectTimer = null;
-          connectTeamSocket();
+          void connectTeamSocket();
         }, 1800);
       };
       socket.onerror = () => socket.close();
     }
 
-    connectTeamSocket();
+    void connectTeamSocket();
     return () => {
       cancelled = true;
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);

@@ -74,7 +74,7 @@ describe("buildSuggestionPrompt", () => {
   it("no modo resposta deixa explicito que o operador RECEBEU o e-mail", () => {
     const p = buildSuggestionPrompt({ ...base, target: "reply", message });
     expect(p).toContain("RECEBEU o e-mail");
-    expect(p).toContain("Nunca escreva como se Tarcisio tivesse enviado");
+    expect(p).toContain("Nunca escreva como se o operador tivesse enviado");
   });
 
   it("no modo redacao usa destinatario e assunto do formulario", () => {

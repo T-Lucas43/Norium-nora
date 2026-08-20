@@ -203,7 +203,7 @@ function formFromLancamento(item: Lancamento): LancamentoForm {
   };
 }
 
-export default function FinanceDashboard({ userId = "lucas123" }: { userId?: string }) {
+export default function FinanceDashboard({ userId = "primary" }: { userId?: string }) {
   const [data, setData] = useState<FinanceData>(fallbackData);
   const [lancamentoForm, setLancamentoForm] = useState<LancamentoForm>(emptyLancamento);
   const [editForm, setEditForm] = useState<LancamentoForm>(emptyLancamento);

@@ -8,6 +8,7 @@ import { useWebSockets } from "../hooks/useWebSockets";
 import type { AppMode, AuthSession, PermissionKey } from "../types/auth";
 import { canUse } from "../types/auth";
 import { applyNoriumTheme } from "../utils/theme";
+import { authJson } from "../utils/authApi";
 import AppPanels from "./components/AppPanels";
 import { useAuthSession } from "./hooks/useAuthSession";
 import { useOperatorProfile } from "./hooks/useOperatorProfile";
@@ -17,6 +18,7 @@ const AdminDashboard = lazy(() => import("../components/admin/AdminDashboard"));
 const AuthScreen = lazy(() => import("../components/auth/AuthScreen"));
 const Nora = lazy(() => import("../components/layout/Nora"));
 const PublicAccess = lazy(() => import("../components/public/PublicAccess"));
+const LegalPage = lazy(() => import("../components/public/LegalPage"));
 const TeamChatDrawer = lazy(() => import("../components/team-chat/TeamChatDrawer"));
 const SESSION_TABS = ["Dashboard", "Central", "E-mails", "Agenda", "Chat", "Tarefas"];
 const SIMULATION_BACKUP_STORAGE = "norium-simulation-backup";
@@ -29,7 +31,8 @@ type NoriumDeepLink = {
 };
 
 export default function NoriumApp() {
-  const publicMatch = window.location.hash.match(/^#\/(portal|formulario|assinatura)\/([^/?#]+)/i);
+  const [currentHash, setCurrentHash] = useState(() => window.location.hash);
+  const publicMatch = currentHash.match(/^#\/(portal|formulario|assinatura)\/([^/?#]+)/i);
   const publicRoute = publicMatch
     ? publicMatch[1].toLowerCase() === "portal"
       ? { kind: "portal" as const, token: decodeURIComponent(publicMatch[2]) }
@@ -37,6 +40,11 @@ export default function NoriumApp() {
         ? { kind: "signature" as const, token: decodeURIComponent(publicMatch[2]) }
         : { kind: "form" as const, token: decodeURIComponent(publicMatch[2]) }
     : null;
+  const legalRoute = currentHash === "#/termos"
+    ? "terms" as const
+    : currentHash === "#/privacidade"
+      ? "privacy" as const
+      : null;
   const [activeTab, setActiveTab] = useState(initialTab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem("norium-sidebar-collapsed") === "true",
@@ -73,14 +81,18 @@ export default function NoriumApp() {
   } = useWebSockets(
     activeTab,
     Boolean(authSession),
-    authSession?.user.id || "lucas123",
+    authSession?.user.id || "primary",
     teamChatOpen,
   );
 
   const currentUser = authSession?.user ?? null;
-  const simulationBackup = sessionStorage.getItem(SIMULATION_BACKUP_STORAGE) || localStorage.getItem(SIMULATION_BACKUP_STORAGE);
-  const telegramEnabledForUser =
-    currentUser?.id === "lucas123" || currentUser?.email?.toLowerCase() === "tarcisiolucas43@gmail.com";
+  const telegramEnabledForUser = Boolean(currentUser?.systemAdmin);
+
+  useEffect(() => {
+    const syncHash = () => setCurrentHash(window.location.hash);
+    window.addEventListener("hashchange", syncHash);
+    return () => window.removeEventListener("hashchange", syncHash);
+  }, []);
 
   const canAccessPermission = useCallback(
     (permission: PermissionKey | null | undefined) => !permission || canUse(currentUser, permission),
@@ -108,30 +120,16 @@ export default function NoriumApp() {
   }, [profile?.tema, profile?.tema_personalizado, setAppMode, updateSession]);
 
   const handleLogout = useCallback(() => {
+    if (authSession) {
+      void authJson("/api/auth/logout", authSession.token, { method: "POST" }).catch(() => undefined);
+    }
     sessionStorage.removeItem(SIMULATION_BACKUP_STORAGE);
     localStorage.removeItem(SIMULATION_BACKUP_STORAGE);
     clearSession();
     setIsNoraOpen(false);
     setTeamChatOpen(false);
     window.location.hash = "#/login";
-  }, [clearSession]);
-
-  const exitPermissionSimulation = useCallback(() => {
-    const backup = sessionStorage.getItem(SIMULATION_BACKUP_STORAGE) || localStorage.getItem(SIMULATION_BACKUP_STORAGE);
-    if (!backup) return;
-    try {
-      const restored = JSON.parse(backup) as AuthSession;
-      updateSession(restored);
-      sessionStorage.removeItem(SIMULATION_BACKUP_STORAGE);
-      localStorage.removeItem(SIMULATION_BACKUP_STORAGE);
-      window.location.hash = "#/app";
-      window.location.reload();
-    } catch {
-      sessionStorage.removeItem(SIMULATION_BACKUP_STORAGE);
-      localStorage.removeItem(SIMULATION_BACKUP_STORAGE);
-      handleLogout();
-    }
-  }, [handleLogout, updateSession]);
+  }, [authSession, clearSession]);
 
   const useSystemMode = useCallback(() => {
     setAppMode("app");
@@ -214,6 +212,14 @@ export default function NoriumApp() {
     );
   }
 
+  if (legalRoute) {
+    return (
+      <Suspense fallback={<AppLoading label="Abrindo documento..." />}>
+        <LegalPage kind={legalRoute} authenticated={Boolean(authSession)} />
+      </Suspense>
+    );
+  }
+
   if (authLoading) {
     return (
       <main className="grid min-h-dvh place-items-center bg-[var(--background)] p-6 text-[var(--text)]">
@@ -248,14 +254,6 @@ export default function NoriumApp() {
   return (
     <div className="app-shell norium-modern-shell flex overflow-hidden bg-[var(--background)] font-sans antialiased">
       <a className="norium-skip-link" href="#norium-main">Pular para o conteudo</a>
-      {simulationBackup && (
-        <div className="fixed left-1/2 top-3 z-[120] flex -translate-x-1/2 items-center gap-3 rounded-lg border border-amber-300/40 bg-amber-950/95 px-4 py-2 text-xs font-bold text-amber-100 shadow-2xl">
-          Visualizando como {currentUser?.nome || currentUser?.email}
-          <button className="rounded-md bg-amber-300 px-3 py-1.5 text-amber-950" onClick={exitPermissionSimulation}>
-            Encerrar simulacao
-          </button>
-        </div>
-      )}
       {canAccessPermission("nora") && (
         <Suspense fallback={null}>
           <Nora
@@ -265,7 +263,7 @@ export default function NoriumApp() {
             conversaId={activeChatConversationId ?? undefined}
             profile={profile}
             eventsBySource={eventsBySource}
-            userId={currentUser?.id || "lucas123"}
+            userId={currentUser?.id || "primary"}
             activeTab={activeTab}
             contextualRequest={noraContextRequest}
             onOpenEmail={(messageId) => {

@@ -15,7 +15,7 @@ from pydantic import Field, field_validator
 from app.shared.schemas import StrictModel
 
 from app.core.tenant import get_user_db_path
-from app.routers.auth_router import current_user, user_from_token
+from app.routers.auth_router import current_user, user_from_websocket_ticket
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 EVENTS_DB_PATH = BASE_DIR / "eventos_db.json"
@@ -316,9 +316,9 @@ async def register_omnichannel_event(event: OmnichannelEvent, user: dict[str, An
 
 
 @router.websocket("/ws")
-async def omnichannel_websocket(websocket: WebSocket, token: str | None = Query(default=None)) -> None:
+async def omnichannel_websocket(websocket: WebSocket, ticket: str | None = Query(default=None)) -> None:
     try:
-        user = await user_from_token(token or "")
+        user = await user_from_websocket_ticket(ticket or "")
         user_id = str(user.get("id") or "lucas123")
     except Exception:
         await websocket.close(code=4401)

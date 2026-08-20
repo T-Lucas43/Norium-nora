@@ -76,7 +76,7 @@ class ComentarioPayload(StrictModel):
     user_id: str = "lucas123"
     projectId: str = "default"
     projectName: str | None = Field(default=None, max_length=160)
-    author: str = "Tarcísio"
+    author: str = "Operador"
     text: str = Field(min_length=1, max_length=1200)
 
 
@@ -113,7 +113,7 @@ class ProjetoPayload(StrictModel):
     description: str = ""
     color: str = "#0EA5E9"
     defaultPriority: str = "media"
-    owner: str = "Tarcisio"
+    owner: str = "Operador"
     responsibleUserId: str | None = None
     responsibleName: str | None = Field(default=None, max_length=160)
     sharedUserIds: list[str] = []
@@ -685,14 +685,15 @@ async def apagar_tarefa(
 @router.post("/{task_id}/comentarios")
 async def comentar_tarefa(task_id: str, payload: ComentarioPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
-    comment = add_comment(resolved_user_id, task_id, payload.author, payload.text)
+    authenticated_author = str(user.get("nome") or user.get("email") or "Operador").strip()
+    comment = add_comment(resolved_user_id, task_id, authenticated_author, payload.text)
     if not comment:
         raise HTTPException(status_code=404, detail="Tarefa nao encontrada.")
     await record_event(
         source="kanban",
         title=f"Comentario em tarefa de {clean_project_name(payload.projectId, payload.projectName)}",
         description=(
-            f'{payload.author} comentou na tarefa "{(find_task_snapshot(resolved_user_id, task_id) or {}).get("title", task_id)}": '
+            f'{authenticated_author} comentou na tarefa "{(find_task_snapshot(resolved_user_id, task_id) or {}).get("title", task_id)}": '
             f"{payload.text}"
         ),
         metadata={
@@ -702,7 +703,7 @@ async def comentar_tarefa(task_id: str, payload: ComentarioPayload, user: dict[s
             "projectId": payload.projectId,
             "projectName": clean_project_name(payload.projectId, payload.projectName),
             "commentId": comment.get("id"),
-            "author": payload.author,
+            "author": authenticated_author,
         },
     )
     return {"comment": comment}

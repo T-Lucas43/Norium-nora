@@ -104,7 +104,7 @@ const sectionLabels: Record<ReportSection, string> = {
 };
 
 
-export default function ReportsDashboard({ eventsBySource, notifications, connected, userId = "lucas123", onOpenNora }: ReportsDashboardProps) {
+export default function ReportsDashboard({ eventsBySource, notifications, connected, userId = "primary", onOpenNora }: ReportsDashboardProps) {
   const [period, setPeriod] = useState<Period>("7d");
   const [activeSource, setActiveSource] = useState<ReportSource>("all");
   const [customizerOpen, setCustomizerOpen] = useState(false);

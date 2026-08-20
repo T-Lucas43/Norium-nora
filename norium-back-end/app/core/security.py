@@ -103,6 +103,7 @@ def create_signed_token(
     payload = {
         "sub": user["id"],
         "email": user["email"],
+        "sv": int(user.get("sessionVersion") or 0),
         "exp": int(time.time()) + ttl_seconds,
     }
     payload_raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")

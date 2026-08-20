@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import mimetypes
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ from dotenv import load_dotenv
 from app.core.tenant import public_api_url, read_profile_db, write_profile_db
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 class TelegramConfigError(RuntimeError):
@@ -29,7 +31,7 @@ class TelegramService:
         return bool(self.bot_token)
 
     def webhook_url(self, user_id: str) -> str:
-        safe_user_id = "".join(char if char.isalnum() or char in "._-" else "_" for char in str(user_id or "lucas123"))
+        safe_user_id = "".join(char if char.isalnum() or char in "._-" else "_" for char in str(user_id or "primary"))
         return public_api_url(f"/api/telegram/webhook/{safe_user_id}")
 
     async def status(self, user_id: str) -> dict[str, Any]:
@@ -54,12 +56,13 @@ class TelegramService:
                 "pendingUpdates": webhook.get("pending_update_count", 0),
                 "webhookEsperado": self.webhook_url(user_id),
             }
-        except Exception as exc:
+        except Exception:
+            logger.exception("Falha ao consultar status do Telegram.")
             return {
                 "conectado": False,
                 "qrcode": None,
                 "disponivel": True,
-                "detail": str(exc),
+                "detail": "Falha ao consultar status do Telegram.",
             }
 
     async def configure_webhook(self, user_id: str) -> dict[str, Any]:

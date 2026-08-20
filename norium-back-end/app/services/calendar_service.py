@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,10 +21,12 @@ from app.core.tenant import get_data_root, read_profile_db, write_profile_db
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
+logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 TIMEZONE = "America/Sao_Paulo"
 DEFAULT_REDIRECT_URI = "http://localhost:8000/api/integracoes/google/callback"
+OAUTH_STATE_TTL_SECONDS = 10 * 60
 
 TOKEN_PATH = BASE_DIR / "google_token.json"
 LEGACY_TOKENS_PATH = BASE_DIR / "mock_database.json"
@@ -43,9 +47,12 @@ class CalendarService:
 
     @staticmethod
     def user_id_from_state(state: str | None) -> str | None:
-        if not state or ":" not in state:
+        if not state:
             return None
-        user_id = state.split(":", 1)[0].strip()
+        parts = state.split(":", 1)
+        if len(parts) != 2 or not re.fullmatch(r"[0-9a-f]{32}", parts[1]):
+            return None
+        user_id = parts[0].strip()
         return user_id or None
 
     def status(self) -> dict[str, Any]:
@@ -56,8 +63,9 @@ class CalendarService:
             try:
                 creds = self._credentials(refresh=True)
                 connected = bool(creds and creds.valid)
-            except Exception as exc:
-                detail = str(exc)
+            except Exception:
+                logger.exception("Falha ao validar a conexao do Google Agenda.")
+                detail = "Falha ao validar a conexao."
 
         sync_state = self._read_profile_section("calendarSync", {})
         return {
@@ -86,14 +94,25 @@ class CalendarService:
 
     def finish_oauth(self, *, code: str, state: str | None) -> dict[str, Any]:
         oauth_state = self._read_profile_section("calendarOauthState", {})
-        saved_state = oauth_state.get("state")
-        if saved_state and state and state != saved_state:
+        saved_state = str(oauth_state.get("state") or "")
+        if not state or not saved_state or not secrets.compare_digest(state, saved_state):
             raise CalendarConfigError("Estado OAuth invalido. Gere um novo link de conexao.")
+
+        try:
+            created_at = datetime.fromisoformat(str(oauth_state.get("createdAt") or ""))
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+        except ValueError as exc:
+            raise CalendarConfigError("Sessao OAuth expirada. Gere um novo link de conexao do Google Agenda.") from exc
+        if datetime.now(timezone.utc) - created_at > timedelta(seconds=OAUTH_STATE_TTL_SECONDS):
+            self._write_profile_section("calendarOauthState", {})
+            raise CalendarConfigError("Sessao OAuth expirada. Gere um novo link de conexao do Google Agenda.")
 
         code_verifier = oauth_state.get("codeVerifier")
         if not code_verifier:
             raise CalendarConfigError("Sessao OAuth expirada. Gere um novo link de conexao do Google Agenda.")
 
+        self._write_profile_section("calendarOauthState", {})
         flow = self._flow(state=state, code_verifier=code_verifier)
         self._fetch_token(flow, code)
         payload = json.loads(flow.credentials.to_json())

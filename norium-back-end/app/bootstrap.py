@@ -13,6 +13,7 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse, Response
 
 from app.core.request_context import reset_request_context, set_request_context
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.security import TokenValidationError, auth_secret, decode_signed_token
 from app.core.settings import settings
 from app.infrastructure.observability.diagnostics import record_request
@@ -22,7 +23,12 @@ from app.infrastructure.reliability.idempotency import (
     body_digest,
     complete_request,
 )
-from app.modules.auth.router import router as auth_router
+from app.modules.auth.router import (
+    assert_route_permissions,
+    assert_workspace_access,
+    router as auth_router,
+    user_from_token,
+)
 from app.modules.admin_finance.router import router as admin_finance_router
 from app.modules.automations.router import router as automacoes_router
 from app.modules.brainstorm.router import router as brainstorm_router
@@ -50,6 +56,56 @@ LOCAL_FRONTEND_ORIGINS = (
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 )
+
+api_limiter = SlidingWindowRateLimiter(limit=600, window_seconds=60)
+public_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
+auth_ip_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=15 * 60)
+webhook_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
+ai_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=60)
+message_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
+admin_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
+
+
+def rate_limit_bucket(path: str) -> str:
+    if path.startswith(("/api/whatsapp/webhook", "/api/telegram/webhook")):
+        return "webhook"
+    if path.startswith(("/api/nora", "/api/brainstorm/sessions")):
+        return "ai"
+    if path.startswith(("/api/chat/enviar", "/api/team-chat/messages")):
+        return "message"
+    if path.startswith(("/api/admin", "/api/auth/admin")):
+        return "admin"
+    if path.startswith(("/api/auth/login", "/api/auth/register")):
+        return "auth"
+    if "/public/" in path or "/publico/" in path or path == "/health":
+        return "public"
+    return "api" if path.startswith("/api/") else "none"
+
+
+async def enforce_rate_limit(path: str, key: str) -> None:
+    bucket = rate_limit_bucket(path)
+    limiter = {
+        "api": api_limiter,
+        "public": public_limiter,
+        "auth": auth_ip_limiter,
+        "webhook": webhook_limiter,
+        "ai": ai_limiter,
+        "message": message_limiter,
+        "admin": admin_limiter,
+    }.get(bucket)
+    if limiter:
+        await limiter.check(f"{bucket}:{key}")
+
+
+async def idempotency_identity(request: Request, raw_token: str) -> str | None:
+    """Autoriza replay somente depois de revalidar sessao, tenant e permissao."""
+    try:
+        user = await user_from_token(raw_token)
+        await assert_workspace_access(user, request)
+        assert_route_permissions(user, request.url.path)
+    except Exception:
+        return None
+    return str(user.get("id") or "").strip() or None
 
 
 def cors_origins() -> list[str]:
@@ -84,23 +140,32 @@ def create_app() -> FastAPI:
         method = request.method.upper()
         mutation = method in {"POST", "PUT", "PATCH", "DELETE"}
         user_id = "anonymous"
+        raw_token = ""
+        idempotency_user_id: str | None = None
 
         authorization = request.headers.get("Authorization", "")
         if authorization.lower().startswith("bearer "):
+            raw_token = authorization.split(" ", 1)[1].strip()
             try:
                 token_payload = decode_signed_token(
-                    authorization.split(" ", 1)[1].strip(),
+                    raw_token,
                     secret=auth_secret(),
                 )
                 user_id = str(token_payload.get("sub") or "anonymous")
             except TokenValidationError:
                 pass
 
+        if method != "OPTIONS":
+            client_host = request.client.host if request.client else "unknown"
+            await enforce_rate_limit(request.url.path, user_id if user_id != "anonymous" else client_host)
+
         try:
-            if mutation and idempotency_key and not request.url.path.startswith("/api/auth/"):
+            if mutation and idempotency_key and raw_token and not request.url.path.startswith("/api/auth/"):
+                idempotency_user_id = await idempotency_identity(request, raw_token)
+            if mutation and idempotency_key and idempotency_user_id:
                 body = await request.body()
                 state = await begin_request(
-                    user_id,
+                    idempotency_user_id,
                     idempotency_key,
                     method,
                     request.url.path,
@@ -127,7 +192,7 @@ def create_app() -> FastAPI:
             if response is None:
                 response = await call_next(request)
 
-            if mutation and idempotency_key and response.headers.get("X-Idempotency-Replayed") != "true":
+            if mutation and idempotency_key and idempotency_user_id and response.headers.get("X-Idempotency-Replayed") != "true":
                 body_chunks = [chunk async for chunk in response.body_iterator]
                 response_body = b"".join(body_chunks)
                 content_type = response.headers.get("content-type", "")
@@ -140,7 +205,7 @@ def create_app() -> FastAPI:
                 else:
                     cached_payload = {"detail": "Operacao concluida.", "statusCode": response.status_code}
                 await complete_request(
-                    user_id,
+                    idempotency_user_id,
                     idempotency_key,
                     response.status_code,
                     cached_payload,

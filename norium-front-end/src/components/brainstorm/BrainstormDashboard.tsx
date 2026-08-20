@@ -53,7 +53,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AuthSession, NoriumUser } from "../../types/auth";
-import { apiBaseUrl, authToken, wsBaseUrl } from "../../utils/api";
+import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../../utils/api";
 import { showConfirm } from "../shared/AppDialogProvider";
 import Button from "../shared/Button";
 
@@ -235,45 +235,51 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   useEffect(() => {
     const token = authToken();
     if (!token) return undefined;
-    const socket = new WebSocket(`${wsBaseUrl()}/api/brainstorm/ws/${encodeURIComponent(sessionId)}?token=${encodeURIComponent(token)}`);
-    socketRef.current = socket;
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === "BOARD_UPDATED" && message.clientId !== clientIdRef.current && message.session) {
-          remoteUpdateRef.current = true;
-          setSession(message.session);
-          setNodes(message.session.board?.nodes || []);
-          setEdges(message.session.board?.edges || []);
-          window.setTimeout(() => { remoteUpdateRef.current = false; }, 0);
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    void authenticatedWebSocketUrl(`${wsBaseUrl()}/api/brainstorm/ws/${encodeURIComponent(sessionId)}`, token).then((socketUrl) => {
+      if (cancelled) return;
+      socket = new WebSocket(socketUrl);
+      socketRef.current = socket;
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === "BOARD_UPDATED" && message.clientId !== clientIdRef.current && message.session) {
+            remoteUpdateRef.current = true;
+            setSession(message.session);
+            setNodes(message.session.board?.nodes || []);
+            setEdges(message.session.board?.edges || []);
+            window.setTimeout(() => { remoteUpdateRef.current = false; }, 0);
+          }
+          if (message.type === "SESSION_UPDATED" && message.session) {
+            setSession((current) => {
+              if (current?.status === "ativo" && message.session.status === "encerrado") setEndAlertOpen(true);
+              return message.session;
+            });
+          }
+          if (message.type === "SESSION_LOCKED") {
+            if (message.session) setSession(message.session);
+            setError(message.detail || "O tempo terminou e o quadro foi bloqueado.");
+            setEndAlertOpen(true);
+          }
+          if (message.type === "PRESENCE_JOIN" && message.participant) {
+            setPresence((current) => ({ ...current, [message.participant.id]: message.participant }));
+          }
+          if (message.type === "PRESENCE_LEAVE" && message.participant) {
+            setPresence((current) => {
+              const next = { ...current };
+              delete next[message.participant.id];
+              return next;
+            });
+          }
+        } catch {
+          // Ignore envelopes from older socket clients.
         }
-        if (message.type === "SESSION_UPDATED" && message.session) {
-          setSession((current) => {
-            if (current?.status === "ativo" && message.session.status === "encerrado") setEndAlertOpen(true);
-            return message.session;
-          });
-        }
-        if (message.type === "SESSION_LOCKED") {
-          if (message.session) setSession(message.session);
-          setError(message.detail || "O tempo terminou e o quadro foi bloqueado.");
-          setEndAlertOpen(true);
-        }
-        if (message.type === "PRESENCE_JOIN" && message.participant) {
-          setPresence((current) => ({ ...current, [message.participant.id]: message.participant }));
-        }
-        if (message.type === "PRESENCE_LEAVE" && message.participant) {
-          setPresence((current) => {
-            const next = { ...current };
-            delete next[message.participant.id];
-            return next;
-          });
-        }
-      } catch {
-        // Ignore envelopes from older socket clients.
-      }
-    };
+      };
+    }).catch(() => undefined);
     return () => {
-      socket.close();
+      cancelled = true;
+      socket?.close();
       socketRef.current = null;
     };
   }, [sessionId]);

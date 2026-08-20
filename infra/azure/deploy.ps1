@@ -18,6 +18,8 @@ $localDataPath = Join-Path $backendRoot "data"
 $authConfigPath = Join-Path $localDataPath "auth_config_db.json"
 $portableGitHubCli = Join-Path $repositoryRoot "tmp\github-cli\bin\gh.exe"
 $allowedSecretNames = @(
+    "NORIUM_BOOTSTRAP_ADMIN_EMAIL", "NORIUM_BOOTSTRAP_ADMIN_USER_ID",
+    "NORIUM_BOOTSTRAP_ADMIN_NAME", "NORIUM_BOOTSTRAP_ADMIN_PASSWORD",
     "GROQ_API_KEY", "NORA_MODEL", "NORA_FALLBACK_MODELS", "NORA_INTENT_LLM", "NORA_TTS_PROVIDER",
     "ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID", "ELEVENLABS_MODEL_ID",
     "ELEVENLABS_LANGUAGE_CODE", "EDGE_TTS_VOICE", "EDGE_TTS_RATE",

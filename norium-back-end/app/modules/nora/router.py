@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import unicodedata
@@ -31,6 +32,7 @@ from app.services.conversation_store import (
     build_conversation_history,
     is_empty_history,
 )
+
 from app.services.email_agent import EmailAgent
 from app.services.nora import NoraIAService
 from app.services.nora_module_help import answer_module_help
@@ -55,6 +57,7 @@ from app.services.whatsapp import WhatsAppService
 from app.services.brainstorm_store import create_brainstorm_session, list_brainstorm_sessions
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/nora", tags=["Nora IA"])
 nora_service = NoraIAService()
 whatsapp_service = WhatsAppService()
@@ -64,7 +67,7 @@ email_agent = EmailAgent()
 ELEVENLABS_DEFAULT_VOICE_ID = "KHmfNHtEjHhLK9eER20w"
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 EDGE_TTS_DEFAULT_VOICE = "pt-BR-ThalitaMultilingualNeural"
-TELEGRAM_OWNER_USER_ID = os.getenv("TELEGRAM_OWNER_USER_ID", "lucas123").strip()
+TELEGRAM_OWNER_USER_ID = os.getenv("TELEGRAM_OWNER_USER_ID", "").strip()
 
 
 class MessageItem(StrictModel):
@@ -671,7 +674,8 @@ async def gerar_audio_elevenlabs(texto: str, voice_id: str | None = None) -> byt
                 json=voice_payload,
             )
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao conectar na ElevenLabs: {str(exc)}") from exc
+        logger.exception("Falha ao conectar na ElevenLabs.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao conectar ao provedor de voz.") from exc
 
     if response.status_code == 402:
         raise HTTPException(
@@ -679,8 +683,8 @@ async def gerar_audio_elevenlabs(texto: str, voice_id: str | None = None) -> byt
             detail="A ElevenLabs recusou a geracao por falta de creditos, limite ou plano ativo.",
         )
     if response.status_code >= 400:
-        detail = response.text[:500] if response.text else "ElevenLabs recusou a geracao de voz."
-        raise HTTPException(status_code=response.status_code, detail=detail)
+        logger.warning("ElevenLabs recusou a geracao de voz com status %s.", response.status_code)
+        raise HTTPException(status_code=response.status_code, detail="O provedor recusou a geracao de voz.")
     return response.content
 
 
@@ -706,7 +710,8 @@ async def gerar_audio_edge_tts(texto: str) -> bytes:
             if chunk.get("type") == "audio" and chunk.get("data"):
                 audio_parts.append(chunk["data"])
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao gerar voz neural Edge: {str(exc)}") from exc
+        logger.exception("Falha ao gerar voz neural Edge.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao gerar voz neural.") from exc
 
     if not audio_parts:
         raise HTTPException(status_code=502, detail="A voz neural Edge nao retornou audio.")
@@ -738,7 +743,8 @@ async def conversar_com_nora_generico(payload: ConversaPayload, _: dict[str, Any
         resposta = await nora_service.perguntar_nora(mensagens_dict)
         return {"response": resposta}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Falha na conversa generica da Nora.")
+        raise HTTPException(status_code=500, detail="A Nora falhou temporariamente.") from exc
 
 
 @router.post("/natural")
@@ -982,7 +988,8 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             "response": resposta,
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Nora natural falhou: {str(exc)}") from exc
+        logger.exception("Falha na orquestracao natural da Nora.")
+        raise HTTPException(status_code=500, detail="A Nora falhou temporariamente.") from exc
 
 
 @router.post("/natural/stream")
@@ -1210,9 +1217,10 @@ async def listar_skills_nora(_: dict[str, Any] = Depends(require_nora_permission
 
 
 @router.post("/agentes/mensagens/rascunho")
-async def gerar_rascunho_agente_mensagens(payload: AgentDraftPayload, _: dict[str, Any] = Depends(require_nora_permission)):
+async def gerar_rascunho_agente_mensagens(payload: AgentDraftPayload, user: dict[str, Any] = Depends(require_nora_permission)):
     return await agent_manager.draft_message(
         payload.conversa_id,
+        user_id=tenant_id(user),
         instrucao=payload.instrucao,
         tom_atendente=payload.tom_atendente,
     )

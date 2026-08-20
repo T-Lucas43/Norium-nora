@@ -61,7 +61,6 @@ type Workspace = JsonItem & {
 
 type PlatformDashboardProps = {
   session: AuthSession;
-  onSessionUpdate: (session: AuthSession) => void;
   onNavigate?: (tab: string) => void;
 };
 
@@ -104,7 +103,7 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-export default function PlatformDashboard({ session, onSessionUpdate, onNavigate }: PlatformDashboardProps) {
+export default function PlatformDashboard({ session, onNavigate }: PlatformDashboardProps) {
   const [area, setArea] = useState<PlatformArea>("overview");
   const [summary, setSummary] = useState(initialSummary);
   const [data, setData] = useState<Record<string, unknown>>({});
@@ -261,7 +260,6 @@ export default function PlatformDashboard({ session, onSessionUpdate, onNavigate
                 auditPreview={auditPreview}
                 mutate={mutate}
                 busy={busy}
-                onSessionUpdate={onSessionUpdate}
                 onNavigate={onNavigate}
               />
             )}
@@ -974,7 +972,6 @@ function SecurityArea({
   auditPreview,
   mutate,
   busy,
-  onSessionUpdate,
   onNavigate,
 }: {
   session: AuthSession;
@@ -984,7 +981,6 @@ function SecurityArea({
   auditPreview: AuditEntry[];
   mutate: MutationRunner;
   busy: string;
-  onSessionUpdate: (session: AuthSession) => void;
   onNavigate?: (tab: string) => void;
 }) {
   const [ruleName, setRuleName] = useState("");
@@ -1146,10 +1142,14 @@ function SecurityArea({
                 type="button"
                 className="norium-platform-action justify-between"
                 onClick={async () => {
-                  const simulated = await apiRequest<AuthSession>(`/api/plataforma/permissoes/simular/${member.id}`, { method: "POST" });
-                  sessionStorage.setItem("norium-simulation-backup", JSON.stringify(session));
-                  onSessionUpdate(simulated);
-                  window.location.reload();
+                  const simulated = await apiRequest<{ user: NoriumUser }>(`/api/plataforma/permissoes/simular/${member.id}`, { method: "POST" });
+                  const allowed = Object.entries(normalizePermissions(simulated.user.permissions))
+                    .filter(([, enabled]) => enabled)
+                    .map(([key]) => permissionLabels[key as keyof typeof permissionLabels]);
+                  await showAlert({
+                    title: `Permissoes de ${simulated.user.nome}`,
+                    description: allowed.length ? allowed.join(", ") : "Nenhum modulo liberado.",
+                  });
                 }}
               >
                 <span className="min-w-0 text-left">

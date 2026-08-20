@@ -19,7 +19,10 @@ ENVIRONMENT=production
 FRONTEND_URL=https://SEU_DOMINIO
 BACKEND_PUBLIC_URL=https://SEU_DOMINIO
 NORIUM_AUTH_SECRET=uma-chave-longa-e-aleatoria
-NORIUM_OWNER_PASSWORD=uma-senha-segura
+NORIUM_BOOTSTRAP_ADMIN_EMAIL=admin@seu-dominio
+NORIUM_BOOTSTRAP_ADMIN_USER_ID=norium-admin
+NORIUM_BOOTSTRAP_ADMIN_NAME=Administrador Norium
+NORIUM_BOOTSTRAP_ADMIN_PASSWORD=uma-senha-segura-apenas-para-o-primeiro-acesso
 GROQ_API_KEY=...
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
@@ -28,6 +31,8 @@ GMAIL_CLIENT_ID=...
 GMAIL_CLIENT_SECRET=...
 GMAIL_REDIRECT_URI=https://SEU_DOMINIO/api/auth/callback/gmail
 ```
+
+As variaveis de bootstrap so criam o primeiro administrador em uma instalacao vazia. Depois do primeiro acesso, remova `NORIUM_BOOTSTRAP_ADMIN_PASSWORD` do ambiente; a identidade administrativa permanece persistida no banco.
 
 Adicione tambem as credenciais de WhatsApp, Telegram e boletos presentes em
 `norium-back-end/.env.example` quando essas integracoes forem usadas. Nao defina

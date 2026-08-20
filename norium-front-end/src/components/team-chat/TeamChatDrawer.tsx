@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Download, FileText, ImageIcon, Paperclip, PlayCircle, Send, Users, UserRound, Volume2, X } from "lucide-react";
 import { canUse, type AuthSession, type NoriumUser } from "../../types/auth";
-import { apiBaseUrl, authToken, wsBaseUrl } from "../../utils/api";
+import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../../utils/api";
 import { downloadWithAuth } from "../../utils/download";
 import NoraAvatar from "../layout/NoraAvatar";
 import Button from "../shared/Button";
@@ -495,23 +495,31 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
     if (!open) return;
     const token = session.token || authToken();
     if (!token) return;
-    const socket = new WebSocket(`${WS_URL}?token=${encodeURIComponent(token)}`);
-    socket.onmessage = (event) => {
-      const payload = JSON.parse(String(event.data || "{}"));
-      if (payload.type === "PRESENCE") {
-        setOnlineUserIds(payload.onlineUserIds || []);
-      }
-      if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) {
-        const message = payload.message as TeamMessage;
-        const expectedThread = scope === "team" ? "team" : `direct:${[session.user.id, recipientId].sort().join(":")}`;
-        if (message.threadId === expectedThread) {
-          setMessages((current) => [...current.filter((item) => item.id !== message.id), message]);
-        } else {
-          onUnread?.(1);
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    void authenticatedWebSocketUrl(WS_URL, token).then((socketUrl) => {
+      if (cancelled) return;
+      socket = new WebSocket(socketUrl);
+      socket.onmessage = (event) => {
+        const payload = JSON.parse(String(event.data || "{}"));
+        if (payload.type === "PRESENCE") {
+          setOnlineUserIds(payload.onlineUserIds || []);
         }
-      }
+        if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) {
+          const message = payload.message as TeamMessage;
+          const expectedThread = scope === "team" ? "team" : `direct:${[session.user.id, recipientId].sort().join(":")}`;
+          if (message.threadId === expectedThread) {
+            setMessages((current) => [...current.filter((item) => item.id !== message.id), message]);
+          } else {
+            onUnread?.(1);
+          }
+        }
+      };
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      socket?.close();
     };
-    return () => socket.close();
   }, [onUnread, open, recipientId, scope, session.token, session.user.id]);
 
   useEffect(() => {

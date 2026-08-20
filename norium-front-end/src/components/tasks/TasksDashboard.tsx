@@ -70,7 +70,7 @@ const emptyWorkspaceForm: WorkspaceForm = {
   description: "",
   color: "#0EA5E9",
   defaultPriority: "media",
-  owner: "Tarcisio",
+  owner: "Operador",
   responsibleUserId: "",
   responsibleName: "",
   sharedUserIds: [],
@@ -210,7 +210,7 @@ function workspaceToForm(workspace: TaskWorkspace): WorkspaceForm {
 
 export default function TasksDashboard({ session }: { session: AuthSession }) {
   const userId = session.user.id;
-  const userName = session.user.nome || "Tarcisio";
+  const userName = session.user.nome || "Operador";
   const [workspaces, setWorkspaces] = useState<TaskWorkspace[]>([]);
   const [teamMembers, setTeamMembers] = useState<NoriumUser[]>([session.user]);
   const [activeWorkspace, setActiveWorkspace] = useState<TaskWorkspace | null>(null);
@@ -825,7 +825,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                     >
                       Abrir Kanban
                     </Button>
-                    <Button iconOnly
+                    <Button size="lg" iconOnly
                       onClick={() => openProjectSettings(workspace)}
                       disabled={!canManageProject(workspace)}
                       className="text-[var(--text-secondary)] hover:bg-[var(--background)] hover:text-blue-300"
@@ -833,7 +833,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                      aria-label="Configuracoes do projeto">
                       <Settings size={16} />
                     </Button>
-                    <Button iconOnly
+                    <Button size="lg" iconOnly
                       onClick={() => setPendingProjectAction({ type: "archive", workspace })}
                       disabled={!canManageProject(workspace)}
                       className="border-amber-400/25 text-amber-200 hover:bg-amber-500/10"

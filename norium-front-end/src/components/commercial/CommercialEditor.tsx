@@ -22,6 +22,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { authToken, wsBaseUrl } from "../../core/api/config";
+import { authenticatedWebSocketUrl } from "../../core/api/client";
 import type { AuthSession } from "../../types/auth";
 import type {
   Branding,
@@ -169,30 +170,37 @@ export default function CommercialEditor({
   useEffect(() => {
     const token = authToken();
     if (!token) return;
-    const socket = new WebSocket(`${wsBaseUrl()}/api/comercial/ws/${sourceDocument.id}?token=${encodeURIComponent(token)}`);
-    const heartbeat = window.setInterval(() => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "PING" }));
-    }, 25_000);
-    socket.onmessage = (event) => {
-      let message: unknown;
-      try {
-        message = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-      if (!message || typeof message !== "object" || !("type" in message)) return;
-      const payload = message as { type: string; participant?: Participant; document?: CommercialDocument; actorId?: string };
-      if (payload.type === "PRESENCE_JOIN" && payload.participant) {
-        setParticipants((current) => current.some((item) => item.id === payload.participant?.id) ? current : [...current, payload.participant as Participant]);
-      } else if (payload.type === "PRESENCE_LEAVE" && payload.participant) {
-        setParticipants((current) => current.filter((item) => item.id !== payload.participant?.id));
-      } else if (payload.type === "DOCUMENT_UPDATED" && payload.document && payload.actorId !== session.user.id) {
-        onDocumentChange(payload.document);
-      }
-    };
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    let heartbeat: number | null = null;
+    void authenticatedWebSocketUrl(`${wsBaseUrl()}/api/comercial/ws/${sourceDocument.id}`, token).then((socketUrl) => {
+      if (cancelled) return;
+      socket = new WebSocket(socketUrl);
+      heartbeat = window.setInterval(() => {
+        if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "PING" }));
+      }, 25_000);
+      socket.onmessage = (event) => {
+        let message: unknown;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (!message || typeof message !== "object" || !("type" in message)) return;
+        const payload = message as { type: string; participant?: Participant; document?: CommercialDocument; actorId?: string };
+        if (payload.type === "PRESENCE_JOIN" && payload.participant) {
+          setParticipants((current) => current.some((item) => item.id === payload.participant?.id) ? current : [...current, payload.participant as Participant]);
+        } else if (payload.type === "PRESENCE_LEAVE" && payload.participant) {
+          setParticipants((current) => current.filter((item) => item.id !== payload.participant?.id));
+        } else if (payload.type === "DOCUMENT_UPDATED" && payload.document && payload.actorId !== session.user.id) {
+          onDocumentChange(payload.document);
+        }
+      };
+    }).catch(() => undefined);
     return () => {
-      window.clearInterval(heartbeat);
-      socket.close();
+      cancelled = true;
+      if (heartbeat !== null) window.clearInterval(heartbeat);
+      socket?.close();
     };
   }, [onDocumentChange, session.user.id, sourceDocument.id]);
 

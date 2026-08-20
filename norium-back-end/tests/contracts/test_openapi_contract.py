@@ -18,6 +18,16 @@ INTENTIONAL_SECURITY_STRENGTHENING = {
     "GET /api/chat/telegram-file",
     "GET /api/chat/uploads/{file_name}",
 }
+INTENTIONAL_PARAMETER_STRENGTHENING = {
+    ("GET /api/agenda/oauth2callback", ("user_id", "query")),
+    ("GET /api/integracoes/google/callback", ("user_id", "query")),
+    ("GET /api/auth/callback/gmail", ("user_id", "query")),
+}
+INTENTIONAL_SCHEMA_CHANGES = {
+    "components.schemas.ComentarioPayload.properties.author.default",
+    "components.schemas.PerfilOperador.properties.nome.default",
+    "components.schemas.ProjetoPayload.properties.owner.default",
+}
 
 
 def _public_contract(specification: dict[str, Any]) -> dict[str, Any]:
@@ -47,6 +57,8 @@ def _assert_schema_backward_compatible(
     path: str,
 ) -> None:
     """Aceita campos opcionais novos sem afrouxar o contrato historico."""
+    if path in INTENTIONAL_SCHEMA_CHANGES:
+        return
     if isinstance(baseline, dict):
         test_case.assertIsInstance(current, dict, path)
         for key, value in baseline.items():
@@ -86,7 +98,8 @@ def _assert_operation_backward_compatible(
         identity = (parameter.get("name"), parameter.get("in"))
         baseline_identities.add(identity)
         test_case.assertIn(identity, current_by_identity, f"Parametro removido: {path}.{identity}")
-        test_case.assertEqual(parameter, current_by_identity[identity], f"Parametro alterado: {path}.{identity}")
+        if (path, identity) not in INTENTIONAL_PARAMETER_STRENGTHENING:
+            test_case.assertEqual(parameter, current_by_identity[identity], f"Parametro alterado: {path}.{identity}")
 
     for identity, parameter in current_by_identity.items():
         if identity not in baseline_identities:

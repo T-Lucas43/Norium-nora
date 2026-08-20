@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import mimetypes
+import logging
 import os
 import re
 import secrets
@@ -24,7 +25,7 @@ from app.shared.schemas import StrictModel
 
 load_dotenv()
 
-from app.routers.auth_router import current_user, find_user, read_user_store
+from app.routers.auth_router import current_user, effective_permissions, find_user, read_user_store
 from app.core.tenant import get_data_root, public_api_url
 from app.routers.inbox_router import record_event
 from app.services.conversation_store import (
@@ -43,13 +44,14 @@ from app.services.whatsapp import WhatsAppService
 from app.services.telegram import TelegramConfigError, TelegramService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 whatsapp_service = WhatsAppService()
 telegram_service = TelegramService()
 
 status_conexoes: Dict[str, Dict[str, Dict[str, Any]]] = {}
-TELEGRAM_OWNER_EMAIL = os.getenv("TELEGRAM_OWNER_EMAIL", "tarcisiolucas43@gmail.com").strip().lower()
-TELEGRAM_OWNER_USER_ID = os.getenv("TELEGRAM_OWNER_USER_ID", "lucas123").strip()
+TELEGRAM_OWNER_EMAIL = os.getenv("TELEGRAM_OWNER_EMAIL", "").strip().lower()
+TELEGRAM_OWNER_USER_ID = os.getenv("TELEGRAM_OWNER_USER_ID", "").strip()
 TELEGRAM_ALLOWED_USER_IDS = {
     item.strip()
     for item in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",")
@@ -60,7 +62,7 @@ TELEGRAM_ALLOWED_CHAT_IDS = {
     for item in os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "").split(",")
     if item.strip()
 }
-WHATSAPP_OWNER_USER_ID = os.getenv("WHATSAPP_OWNER_USER_ID", "lucas123").strip() or "lucas123"
+WHATSAPP_OWNER_USER_ID = os.getenv("WHATSAPP_OWNER_USER_ID", "").strip()
 WHATSAPP_WEBHOOK_SECRET = os.getenv("WHATSAPP_WEBHOOK_SECRET", "").strip()
 WHATSAPP_MEDIA_HOSTS = {
     item.strip().lower()
@@ -125,6 +127,14 @@ def connection_status(user_id: str) -> Dict[str, Dict[str, Any]]:
 def assert_whatsapp_owner(user: dict[str, Any]) -> None:
     if tenant_id(user) != WHATSAPP_OWNER_USER_ID:
         raise HTTPException(status_code=403, detail="WhatsApp vinculado a outra conta do Norium.")
+
+
+def assert_channel_permission(user: dict[str, Any], channel: str) -> None:
+    permissions = effective_permissions(user)
+    if not permissions.get("chat"):
+        raise HTTPException(status_code=403, detail="Acesso ao chat indisponivel.")
+    if channel == "whatsapp" and not permissions.get("integracao_whatsapp"):
+        raise HTTPException(status_code=403, detail="Integracao WhatsApp indisponivel para este usuario.")
 
 
 def user_upload_dir(user_id: str) -> Path:
@@ -211,7 +221,8 @@ async def media_proxy(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Erro interno no proxy: {str(exc)}") from exc
+        logger.exception("Falha no proxy de midia.")
+        raise HTTPException(status_code=500, detail="Falha temporaria no proxy de midia.") from exc
 
 
 @router.get("/api/chat/telegram-file")
@@ -232,7 +243,8 @@ async def telegram_file_proxy(
     except TelegramConfigError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao baixar arquivo do Telegram: {str(exc)}") from exc
+        logger.exception("Falha ao baixar arquivo do Telegram.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao baixar arquivo do Telegram.") from exc
 
 
 @router.get("/api/chat/uploads/{file_name}")
@@ -255,8 +267,8 @@ async def obter_status_canais(user_id: str, user: dict[str, Any] = Depends(curre
             resultado = await whatsapp_service.inicializar_instancia(resolved_user_id)
             user_status["whatsapp"]["conectado"] = resultado["status"] == "conectado"
             user_status["whatsapp"]["qrcode"] = None if resultado["status"] == "conectado" else resultado.get("qrcode")
-    except Exception as exc:
-        print(f"Erro ao sincronizar status WhatsApp: {exc}")
+    except Exception:
+        logger.exception("Falha ao sincronizar status WhatsApp.")
     if is_telegram_owner_user(user):
         user_status["telegram"] = await telegram_service.status(resolved_user_id)
     else:
@@ -267,6 +279,7 @@ async def obter_status_canais(user_id: str, user: dict[str, Any] = Depends(curre
 @router.post("/api/chat/inicializar-login")
 async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
+    assert_channel_permission(user, payload.canal)
     user_status = connection_status(resolved_user_id)
     if payload.canal == "telegram":
         assert_telegram_owner(user)
@@ -301,6 +314,8 @@ async def webhook_whatsapp(
     client_token: str | None = Header(default=None, alias="client-token"),
 ):
     supplied_secret = x_whatsapp_webhook_secret or client_token or ""
+    if not WHATSAPP_WEBHOOK_SECRET and os.getenv("ENVIRONMENT", "development").strip().lower() == "production":
+        raise HTTPException(status_code=503, detail="Webhook WhatsApp indisponivel ate a configuracao segura.")
     if WHATSAPP_WEBHOOK_SECRET and not secrets.compare_digest(supplied_secret, WHATSAPP_WEBHOOK_SECRET):
         raise HTTPException(status_code=403, detail="Webhook WhatsApp nao autorizado.")
     received_instance = str(data.get("instanceId") or data.get("instance_id") or "").strip()
@@ -397,8 +412,9 @@ async def webhook_whatsapp(
         )
     except HTTPException:
         raise
-    except Exception as exc:
-        print(f"Erro no webhook WhatsApp: {exc}")
+    except Exception:
+        logger.exception("Falha ao processar webhook WhatsApp.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao processar webhook WhatsApp.")
     return {"status": "success"}
 
 
@@ -420,9 +436,9 @@ async def webhook_telegram(
     try:
         processed = await process_telegram_update(data, user_id)
         return {"status": "success", "processed": processed}
-    except Exception as exc:
-        print(f"Erro no webhook Telegram: {exc}")
-        return {"status": "ignored", "detail": str(exc)}
+    except Exception:
+        logger.exception("Falha ao processar webhook Telegram.")
+        return {"status": "ignored", "detail": "Atualizacao nao processada."}
 
 
 @router.get("/api/chat/conversas")
@@ -536,8 +552,8 @@ async def obter_conversas(
                         conversa["metadados"]["descricaoGrupo"] = meta_extra["descricaoGrupo"]
                     db[phone] = normalize_conversation(phone, conversa)
                     changed = True
-    except Exception as exc:
-        print(f"Erro ao sincronizar catalogo WhatsApp: {exc}")
+    except Exception:
+        logger.exception("Falha ao sincronizar catalogo WhatsApp.")
 
     if changed:
         await save_conversations(db, resolved_user_id)
@@ -547,8 +563,8 @@ async def obter_conversas(
             telegram_count = await sync_telegram_updates(resolved_user_id)
             if telegram_count:
                 db = await load_conversations(resolved_user_id)
-        except Exception as exc:
-            print(f"Erro ao sincronizar Telegram: {exc}")
+        except Exception:
+            logger.exception("Falha ao sincronizar Telegram.")
 
     lista_ordenada = list(db.values())
     lista_ordenada.sort(
@@ -609,6 +625,7 @@ async def obter_contatos_disponiveis(user_id: str = "lucas123", user: dict[str, 
 @router.post("/api/chat/enviar")
 async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
+    assert_channel_permission(user, payload.canal)
     if payload.canal == "telegram":
         assert_telegram_owner(user)
         try:
@@ -616,7 +633,8 @@ async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] =
         except TelegramConfigError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Telegram recusou o envio: {str(exc)}") from exc
+            logger.exception("Telegram recusou o envio.")
+            raise HTTPException(status_code=502, detail="Falha temporaria no envio pelo Telegram.") from exc
 
         await append_outgoing_message(
             payload.conversa_id,
@@ -667,6 +685,7 @@ async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] =
 @router.post("/api/chat/enviar-arquivo")
 async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
+    assert_channel_permission(user, payload.canal)
     file_bytes, mime_type = decode_data_url(payload.data_url, payload.mime_type)
     local_url, safe_file_name = save_upload_file(resolved_user_id, payload.nome_arquivo, mime_type, file_bytes)
     media_kind = classify_media(mime_type, safe_file_name)
@@ -687,7 +706,8 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
         except TelegramConfigError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Telegram recusou o envio do arquivo: {str(exc)}") from exc
+            logger.exception("Telegram recusou o envio do arquivo.")
+            raise HTTPException(status_code=502, detail="Falha temporaria no envio do arquivo pelo Telegram.") from exc
 
         if media_kind == "audio":
             tipo = "audio"
@@ -861,10 +881,7 @@ async def process_telegram_update(update: Dict[str, Any], user_id: str) -> bool:
     normalized_message_id = f"tg_{conversa_id}_{message_id}"
     sender = message.get("from") if isinstance(message.get("from"), dict) else {}
     if not is_allowed_telegram_sender(chat, sender):
-        print(
-            "Update Telegram ignorado por allowlist: "
-            f"chat_id={chat.get('id')} sender_id={sender.get('id')}"
-        )
+        logger.info("Update Telegram ignorado pela allowlist.")
         return False
 
     sender_name = telegram_sender_name(sender) or telegram_chat_name(chat) or conversa_id
@@ -1235,8 +1252,8 @@ async def fetch_profile_picture(phone: str, client: httpx.AsyncClient | None = N
         if response.status_code == 200:
             data = response.json()
             return data.get("profilePictureUrl") or data.get("photoUrl") or data.get("link") or data.get("value")
-    except Exception as exc:
-        print(f"Erro ao buscar foto para {phone}: {exc}")
+    except Exception:
+        logger.exception("Falha ao buscar foto de perfil WhatsApp.")
     finally:
         if owns_client:
             await active_client.aclose()
@@ -1265,8 +1282,8 @@ async def fetch_group_metadata(phone: str, client: httpx.AsyncClient | None = No
             "criadoPor": data.get("owner"),
             "photoUrl": extract_photo_url(data),
         }
-    except Exception as exc:
-        print(f"Erro ao buscar metadados do grupo {phone}: {exc}")
+    except Exception:
+        logger.exception("Falha ao buscar metadados de grupo WhatsApp.")
     finally:
         if owns_client:
             await active_client.aclose()

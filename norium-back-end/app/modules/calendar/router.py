@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -19,6 +20,7 @@ from app.services.calendar_service import CalendarConfigError, CalendarService
 router = APIRouter(prefix="/api/agenda", tags=["Agenda"])
 integracoes_google_router = APIRouter(prefix="/api/integracoes/google", tags=["Agenda"])
 agenda_agent = AgendaAgent()
+logger = logging.getLogger(__name__)
 
 
 class CriarEventoPayload(StrictModel):
@@ -115,13 +117,13 @@ async def obter_url_autorizacao(user: dict[str, Any] = Depends(current_user)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def oauth_failure_html(exc: Exception) -> HTMLResponse:
+def oauth_failure_html() -> HTMLResponse:
     return HTMLResponse(
-        f"""
+        """
         <html>
           <body style="font-family:system-ui;background:#0B1220;color:white;padding:32px">
             <h1>Falha ao conectar o Google Agenda</h1>
-            <p>{str(exc)}</p>
+            <p>Solicitacao OAuth invalida ou expirada. Gere um novo link no Norium.</p>
           </body>
         </html>
         """,
@@ -148,12 +150,16 @@ def oauth_success_html() -> str:
     """
 
 
-def finish_google_oauth(code: str, state: str | None, user_id: str) -> str | HTMLResponse:
-    resolved_user_id = CalendarService.user_id_from_state(state) or user_id
+def finish_google_oauth(code: str, state: str | None, user_id: str | None) -> str | HTMLResponse:
+    # O parametro legado nao participa da autorizacao.
+    resolved_user_id = CalendarService.user_id_from_state(state)
+    if not resolved_user_id:
+        return oauth_failure_html()
     try:
         CalendarService(resolved_user_id).finish_oauth(code=code, state=state)
-    except Exception as exc:
-        return oauth_failure_html(exc)
+    except Exception:
+        logger.exception("Falha no callback OAuth do Google Agenda")
+        return oauth_failure_html()
     return oauth_success_html()
 
 
@@ -161,7 +167,7 @@ def finish_google_oauth(code: str, state: str | None, user_id: str) -> str | HTM
 async def finalizar_oauth(
     code: str = Query(...),
     state: str | None = Query(default=None),
-    user_id: str = "lucas123",
+    user_id: str | None = None,
 ):
     return finish_google_oauth(code, state, user_id)
 
@@ -170,7 +176,7 @@ async def finalizar_oauth(
 async def finalizar_oauth_integracoes(
     code: str = Query(...),
     state: str | None = Query(default=None),
-    user_id: str = "lucas123",
+    user_id: str | None = None,
 ):
     return finish_google_oauth(code, state, user_id)
 
@@ -200,7 +206,8 @@ async def listar_eventos(
         await _record_calendar_events(result.get("eventos", []), resolved_user_id)
         return result
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao sincronizar agenda: {str(exc)}") from exc
+        logger.exception("Falha ao sincronizar agenda.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao sincronizar agenda.") from exc
 
 
 @router.post("/eventos")
@@ -231,7 +238,8 @@ async def criar_evento(payload: CriarEventoPayload, user: dict[str, Any] = Depen
         )
         return result
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao criar evento: {str(exc)}") from exc
+        logger.exception("Falha ao criar evento.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao criar evento.") from exc
 
 
 @router.patch("/eventos/{event_id}")
@@ -255,7 +263,8 @@ async def atualizar_evento(event_id: str, payload: AtualizarEventoPayload, user:
         )
         return result
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao atualizar evento: {str(exc)}") from exc
+        logger.exception("Falha ao atualizar evento.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao atualizar evento.") from exc
 
 
 @router.post("/sync")
@@ -279,4 +288,5 @@ async def conversar_com_agente_agenda(payload: AgendaAgentPayload, user: dict[st
             user_id=tenant_id(user),
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Agente de agenda falhou: {str(exc)}") from exc
+        logger.exception("Agente de agenda falhou.")
+        raise HTTPException(status_code=500, detail="O agente de agenda falhou temporariamente.") from exc

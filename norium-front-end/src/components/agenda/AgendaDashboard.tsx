@@ -154,7 +154,7 @@ function emptyForm(selectedDate: Date): EventForm {
   };
 }
 
-export default function AgendaDashboard({ userId = "lucas123" }: { userId?: string }) {
+export default function AgendaDashboard({ userId = "primary" }: { userId?: string }) {
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("Semana");
   const [dataSelecionada, setDataSelecionada] = useState<Date>(new Date());

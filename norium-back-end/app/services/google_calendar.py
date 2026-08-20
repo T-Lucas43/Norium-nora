@@ -1,6 +1,9 @@
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 class GoogleCalendarService:
     def __init__(self, tokens: dict):
@@ -23,7 +26,7 @@ class GoogleCalendarService:
         agora = datetime.datetime.utcnow().isoformat() + 'Z' # 'Z' indica UTC
         
         try:
-            print("📅 [Google Service] A procurar eventos no Google Calendar...")
+            logger.debug("Consultando eventos no Google Calendar.")
             eventos_result = self.service.events().list(
                 calendarId='primary',
                 timeMin=agora,
@@ -48,8 +51,8 @@ class GoogleCalendarService:
                 })
                 
             return lista_formatada
-        except Exception as e:
-            print(f"❌ Erro ao listar eventos no Google: {str(e)}")
+        except Exception as exc:
+            logger.warning("Falha ao listar eventos no Google Calendar (%s).", type(exc).__name__)
             return []
 
     def criar_compromisso(self, titulo: str, inicio_iso: str, fim_iso: str, descricao: str = ""):
@@ -68,6 +71,6 @@ class GoogleCalendarService:
                 body=evento_body
             ).execute()
             return evento_criado
-        except Exception as e:
-            print(f"❌ Erro ao criar evento no Google: {str(e)}")
+        except Exception as exc:
+            logger.warning("Falha ao criar evento no Google Calendar (%s).", type(exc).__name__)
             return None

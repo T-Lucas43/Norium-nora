@@ -5,13 +5,14 @@ import os
 import asyncio
 import base64
 import io
+import logging
 from collections import defaultdict
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-from app.modules.auth.router import current_user, user_from_token
+from app.modules.auth.router import current_user, effective_permissions, user_from_websocket_ticket
 from app.modules.commercial.repository import read_store
 from app.modules.commercial.schemas import (
     BrandProfileCreate,
@@ -30,6 +31,7 @@ from app.modules.commercial.schemas import (
     SuggestionDecision,
     TemplateCreate,
 )
+
 from app.modules.commercial.service import (
     analyze_with_nora,
     can_approve,
@@ -56,6 +58,8 @@ from app.modules.commercial.service import (
     update_proposal,
     write_document_with_nora,
 )
+
+logger = logging.getLogger(__name__)
 from app.modules.operations.schemas import AuditCreate
 from app.modules.operations.service import record_audit
 from app.modules.team.router import append_team_message_for_user
@@ -201,7 +205,8 @@ async def share_document(
         except GmailConfigError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Falha ao enviar pelo Gmail: {exc}") from exc
+            logger.exception("Falha ao enviar documento comercial pelo Gmail.")
+            raise HTTPException(status_code=502, detail="Falha temporaria ao enviar documento pelo Gmail.") from exc
 
         await audit(
             user,
@@ -597,9 +602,11 @@ async def post_template(payload: TemplateCreate, user: dict[str, Any] = Depends(
 
 
 @router.websocket("/ws/{document_id}")
-async def commercial_socket(document_id: str, websocket: WebSocket, token: str = "") -> None:
+async def commercial_socket(document_id: str, websocket: WebSocket, ticket: str = "") -> None:
     try:
-        user = await user_from_token(token)
+        user = await user_from_websocket_ticket(ticket)
+        if not effective_permissions(user).get("propostas"):
+            raise HTTPException(status_code=403, detail="Acesso comercial indisponivel.")
     except Exception:
         await websocket.close(code=4401)
         return

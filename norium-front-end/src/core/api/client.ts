@@ -139,6 +139,15 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   throw new ApiError("Nao foi possivel concluir a requisicao.", 0);
 }
 
+export async function authenticatedWebSocketUrl(url: string, token?: string | null) {
+  const response = await apiRequest<{ ticket: string }>("/api/auth/websocket-ticket", {
+    method: "POST",
+    token,
+  });
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}ticket=${encodeURIComponent(response.ticket)}`;
+}
+
 /** Usa a mesma autenticacao e identificacao de workspace para respostas binarias. */
 export async function apiBlobRequest(path: string, options: ApiRequestOptions = {}): Promise<Blob> {
   const { token = authToken(), timeoutMs = 60_000, headers: customHeaders, signal, ...init } = options;

@@ -21,7 +21,6 @@ from app.core.tenant import get_data_root, get_user_db_path, read_json_file, wri
 from app.modules.auth.router import (
     can_manage_system,
     can_manage_team,
-    create_token,
     current_user,
     find_user,
     read_user_store,
@@ -215,10 +214,8 @@ async def simulate_permissions(member_id: str, user: dict[str, Any] = Depends(cu
     if not can_manage_system(user) and target.get("teamOwnerId") != user.get("id"):
         raise HTTPException(status_code=403, detail="O usuario nao pertence a sua equipe.")
     return {
-        "token": create_token(target),
         "user": sanitize_user(target),
         "simulatedBy": sanitize_user(user),
-        "availableModes": ["app"],
     }
 
 

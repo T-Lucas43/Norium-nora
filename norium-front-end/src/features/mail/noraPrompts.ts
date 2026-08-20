@@ -27,7 +27,6 @@ export function fallbackEmailSuggestion(target: NoraTarget, message: GmailMessag
       "Se houver alguma prioridade ou prazo especifico, pode me sinalizar por aqui.",
       "",
       "Atenciosamente,",
-      "Tarcisio",
     ].join("\n");
   }
 
@@ -39,7 +38,6 @@ export function fallbackEmailSuggestion(target: NoraTarget, message: GmailMessag
     "Fico no aguardo do seu retorno.",
     "",
     "Atenciosamente,",
-    "Tarcisio",
   ].join("\n");
 }
 
@@ -82,8 +80,8 @@ export function buildSuggestionPrompt({
     const sourceText = cleanEmailSourceText(message.bodyText || message.snippet || message.bodyHtml);
     return [
       "Tarefa: escreva SOMENTE o corpo final de uma resposta de e-mail.",
-      "Voce esta escrevendo COMO Tarcisio, que RECEBEU o e-mail abaixo e vai responder ao remetente.",
-      "Nunca escreva como se Tarcisio tivesse enviado o e-mail recebido.",
+      "Voce esta escrevendo em nome do operador autenticado, que RECEBEU o e-mail abaixo e vai responder ao remetente.",
+      "Nunca escreva como se o operador tivesse enviado o e-mail recebido.",
       "Nao diga que enviou, anexou, comprou, participou ou realizou algo se isso estiver apenas no e-mail recebido.",
       "Nao mencione historico de conversa, WhatsApp, falta de contexto, IA, Todoist ou analise externa.",
       "Use apenas os dados abaixo. Se o conteudo for promocional ou informativo, responda de forma curta, educada e neutra.",

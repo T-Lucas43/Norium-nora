@@ -24,13 +24,13 @@ function greeting() {
 }
 
 export default function Hero({ metrics, profile, connected, onOpenNora, onNavigate }: HeroProps) {
-  const firstName = profile?.nome?.trim().split(/\s+/)[0] || "Tarcisio";
+  const firstName = profile?.nome?.trim().split(/\s+/)[0] || "";
 
   return (
     <section className="norium-dashboard-hero">
       <div className="norium-dashboard-hero-copy">
         <h1>
-          {greeting()}, <span>{firstName}</span>
+          {greeting()}{firstName ? <>, <span>{firstName}</span></> : null}
         </h1>
         <p>
           Aqui está o que está acontecendo no seu mundo hoje.

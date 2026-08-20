@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Literal, Optional
 
 from app.services.conversation_store import (
@@ -13,7 +14,7 @@ from app.services.telegram import TelegramConfigError, TelegramService
 from app.services.whatsapp import WhatsAppService
 
 AgentStatus = Literal["ativo", "planejado"]
-TELEGRAM_OWNER_USER_ID = "lucas123"
+TELEGRAM_OWNER_USER_ID = os.getenv("TELEGRAM_OWNER_USER_ID", "").strip()
 
 
 class AgentManager:
@@ -66,10 +67,11 @@ class AgentManager:
         self,
         conversa_id: str,
         *,
+        user_id: str,
         instrucao: Optional[str] = None,
         tom_atendente: Optional[str] = None,
     ) -> Dict[str, Any]:
-        history = await build_conversation_history(conversa_id, limit=30)
+        history = await build_conversation_history(conversa_id, limit=30, user_id=user_id)
         empty_context = is_empty_history(history)
 
         if empty_context:
@@ -108,7 +110,7 @@ class AgentManager:
         *,
         canal: Literal["whatsapp", "telegram"] = "whatsapp",
         autorizado: bool = False,
-        user_id: str = "lucas123",
+        user_id: str,
     ) -> Dict[str, Any]:
         if not autorizado:
             return {

@@ -11,7 +11,7 @@ from pydantic import Field
 
 from app.shared.schemas import StrictModel
 
-from app.routers.auth_router import current_user, user_from_token
+from app.routers.auth_router import current_user, user_from_websocket_ticket
 from app.routers.inbox_router import record_event
 from app.services.brainstorm_store import (
     BrainstormLockedError,
@@ -264,9 +264,9 @@ async def delete_session(session_id: str, user: dict[str, Any] = Depends(require
 
 
 @router.websocket("/ws/{session_id}")
-async def brainstorm_socket(session_id: str, websocket: WebSocket, token: str | None = Query(default=None)) -> None:
+async def brainstorm_socket(session_id: str, websocket: WebSocket, ticket: str | None = Query(default=None)) -> None:
     try:
-        user = await user_from_token(token or "")
+        user = await user_from_websocket_ticket(ticket or "")
         require_brainstorm_access(user)
     except Exception:
         await websocket.close(code=4401)

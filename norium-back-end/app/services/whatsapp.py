@@ -1,10 +1,12 @@
 import httpx
+import logging
 import os
 from typing import Dict, Any
 from dotenv import load_dotenv
 
 # 👑 CRÍTICO: Carrega explicitamente o arquivo .env da raiz do projeto
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 class WhatsAppService:
     def __init__(self):
@@ -38,8 +40,8 @@ class WhatsAppService:
                             qrcode_base64 = f"data:image/png;base64,{qrcode_base64}"
                         return {"status": "aguardando_qrcode", "qrcode": qrcode_base64}
                 return {"status": "erro", "qrcode": None}
-            except Exception as e:
-                print(f"❌ Erro de comunicação com o gateway Z-API: {e}")
+            except Exception as exc:
+                logger.warning("Falha de comunicacao com o gateway WhatsApp (%s).", type(exc).__name__)
                 return {"status": "erro", "qrcode": None}
 
     async def enviar_mensagem_texto(self, numero: str, texto: str) -> bool:
@@ -50,10 +52,10 @@ class WhatsAppService:
                     "message": texto
                 }
                 res = await client.post(f"{self.base_url}/send-text", json=payload, headers=self.headers, timeout=10.0)
-                print(f"Resposta Z-API send-text: status {res.status_code}")
+                logger.info("Gateway WhatsApp respondeu ao envio de texto com status %s.", res.status_code)
                 return res.status_code in [200, 201]
-            except Exception as e:
-                print(f"❌ Erro ao disparar mensagem: {e}")
+            except Exception as exc:
+                logger.warning("Falha no envio pelo gateway WhatsApp (%s).", type(exc).__name__)
                 return False
     async def enviar_audio(self, numero: str, audio: str) -> bool:
         return await self._post_gateway("/send-audio", {"phone": numero, "audio": audio, "waveform": True}, timeout=35.0)
@@ -84,8 +86,8 @@ class WhatsAppService:
         async with httpx.AsyncClient() as client:
             try:
                 res = await client.post(f"{self.base_url}{endpoint}", json=payload, headers=self.headers, timeout=timeout)
-                print(f"Z-API {endpoint}: status {res.status_code}")
+                logger.info("Gateway WhatsApp respondeu a %s com status %s.", endpoint, res.status_code)
                 return res.status_code in [200, 201]
-            except Exception as e:
-                print(f"Erro no endpoint {endpoint}: {e}")
+            except Exception as exc:
+                logger.warning("Falha no endpoint WhatsApp %s (%s).", endpoint, type(exc).__name__)
                 return False

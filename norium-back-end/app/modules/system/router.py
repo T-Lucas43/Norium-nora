@@ -11,7 +11,7 @@ from app.infrastructure.http.spa import (
 )
 from app.infrastructure.observability.diagnostics import diagnostics_snapshot
 from app.infrastructure.reliability.idempotency import reliability_snapshot
-from app.modules.auth.router import current_user
+from app.modules.auth.router import can_manage_system, current_user
 
 
 router = APIRouter(tags=["Sistema"])
@@ -28,11 +28,15 @@ async def root(request: Request):
 
 @router.get("/health")
 async def health() -> dict[str, Any]:
-    return diagnostics_snapshot()
+    return {"status": "ok"}
 
 
 @router.get("/api/system/diagnostics")
-async def diagnostics(_: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+async def diagnostics(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    if not can_manage_system(user):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=403, detail="Diagnosticos restritos ao administrador do sistema.")
     return diagnostics_snapshot()
 
 

@@ -182,7 +182,7 @@ async def delete_collection_item(
 
 
 def _fernet() -> Fernet:
-    digest = hashlib.sha256(auth_secret().encode("utf-8")).digest()
+    digest = hashlib.sha256(auth_secret()).digest()
     return Fernet(base64.urlsafe_b64encode(digest))
 
 

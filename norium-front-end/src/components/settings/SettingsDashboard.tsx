@@ -66,7 +66,7 @@ const colorGroups: Array<{
 ];
 
 export default function SettingsDashboard({
-  userId = "lucas123",
+  userId = "primary",
   currentUser,
   onSaved,
 }: SettingsDashboardProps) {

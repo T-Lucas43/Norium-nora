@@ -24,6 +24,8 @@ O App Service F1 foi descartado porque a assinatura gratuita atual possui cota d
 
 O script importa somente as variaveis permitidas do `.env`, cria os recursos com Bicep, envia os dados locais ao Azure Files e valida frontend, API e WebSocket. Nos deploys seguintes, omita `-UploadLocalData` para nao substituir dados mais novos da nuvem.
 
+Em instalacoes vazias, configure `NORIUM_BOOTSTRAP_ADMIN_EMAIL`, `NORIUM_BOOTSTRAP_ADMIN_USER_ID`, `NORIUM_BOOTSTRAP_ADMIN_NAME` e `NORIUM_BOOTSTRAP_ADMIN_PASSWORD` apenas para criar o primeiro administrador. Remova a senha de bootstrap do ambiente apos validar o primeiro acesso.
+
 ## CI/CD sem senha
 
 Depois do primeiro deploy, configure a identidade federada e as variaveis do repositorio:

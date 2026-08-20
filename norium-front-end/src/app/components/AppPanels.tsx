@@ -238,7 +238,7 @@ export default function AppPanels({
       {isPanelMounted("Governanca") && (
         <section className={activePanelClass("Governanca")}>
           {coach("Governanca")}
-          <PlatformDashboard session={authSession} onSessionUpdate={onSessionUpdate} onNavigate={onNavigate} />
+          <PlatformDashboard session={authSession} onNavigate={onNavigate} />
         </section>
       )}
       {isPanelMounted("Brainstorm") && (

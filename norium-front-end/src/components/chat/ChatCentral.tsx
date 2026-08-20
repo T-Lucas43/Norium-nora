@@ -26,7 +26,7 @@ interface ChatCentralProps {
   onOpenNora?: (prompt?: string) => void;
 }
 
-export default function ChatCentral({ userId = "lucas123", telegramEnabled = true, onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
+export default function ChatCentral({ userId = "primary", telegramEnabled = true, onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [canaisStatus, setCanaisStatus] = useState<{ [key: string]: { conectado: boolean; qrcode?: string | null; detail?: string; username?: string; webhookUrl?: string; webhookEsperado?: string } }>({});
   const [canalSelecionadoLogin, setCanalSelecionadoLogin] = useState<"whatsapp" | "telegram" | null>(null);

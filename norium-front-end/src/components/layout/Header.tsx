@@ -20,6 +20,7 @@ import {
   Moon,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   UserCircle2,
   UserRoundCheck,
@@ -399,6 +400,10 @@ export default function Header({
               >
                 <Settings size={17} />
                 <span><strong>Configurações</strong><small>Aparência, Nora e notificações</small></span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => { setProfileMenuOpen(false); window.location.hash = "#/termos"; }}>
+                <ShieldCheck size={17} />
+                <span><strong>Termos e privacidade</strong><small>Documentos do produto</small></span>
               </button>
               <button type="button" role="menuitem" className="is-danger" onClick={onLogout}>
                 <LogOut size={17} />

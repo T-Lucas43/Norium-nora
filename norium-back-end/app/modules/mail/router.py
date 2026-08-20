@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 from typing import Any, Literal
 
@@ -21,6 +22,7 @@ from app.services.gmail_service import GmailConfigError, GmailService
 
 router = APIRouter(tags=["Gmail"])
 email_agent = EmailAgent()
+logger = logging.getLogger(__name__)
 
 
 class AttachmentPayload(StrictModel):
@@ -158,18 +160,26 @@ async def gmail_disconnect(payload: DisconnectPayload, user: dict[str, Any] = De
 async def gmail_callback(
     code: str = Query(...),
     state: str | None = Query(default=None),
-    user_id: str = "lucas123",
+    user_id: str | None = None,
 ):
-    resolved_user_id = GmailService.user_id_from_state(state) or user_id
+    # ``user_id`` permanece apenas por compatibilidade de contrato e nunca e
+    # usado como autorizacao. A conta vem exclusivamente do state aleatorio.
+    resolved_user_id = GmailService.user_id_from_state(state)
+    if not resolved_user_id:
+        return HTMLResponse(
+            "<html><body><h1>Falha ao conectar o Gmail</h1><p>Solicitacao OAuth invalida ou expirada.</p></body></html>",
+            status_code=400,
+        )
     try:
         GmailService(resolved_user_id).finish_oauth(code=code, state=state)
-    except Exception as exc:
+    except Exception:
+        logger.exception("Falha no callback OAuth do Gmail")
         return HTMLResponse(
-            f"""
+            """
             <html>
               <body style="font-family:system-ui;background:#0B1220;color:white;padding:32px">
                 <h1>Falha ao conectar o Gmail</h1>
-                <p>{str(exc)}</p>
+                <p>Solicitacao OAuth invalida ou expirada. Gere um novo link no Norium.</p>
               </body>
             </html>
             """,
@@ -222,7 +232,8 @@ async def list_gmail_messages(
     except GmailConfigError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao sincronizar Gmail: {str(exc)}") from exc
+        logger.exception("Falha ao sincronizar Gmail.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao sincronizar Gmail.") from exc
 
 
 @router.post("/api/emails/gmail/sync-central")
@@ -239,7 +250,8 @@ async def sync_gmail_to_central(user_id: str = "lucas123", user: dict[str, Any] 
     except GmailConfigError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao sincronizar Gmail com a Central: {str(exc)}") from exc
+        logger.exception("Falha ao sincronizar Gmail com a Central.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao sincronizar Gmail com a Central.") from exc
 
 
 @router.get("/api/emails/gmail/messages/{message_id}")
@@ -249,7 +261,8 @@ async def get_gmail_message(message_id: str, user_id: str = "lucas123", user: di
     except GmailConfigError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao abrir e-mail: {str(exc)}") from exc
+        logger.exception("Falha ao abrir e-mail.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao abrir e-mail.") from exc
 
 
 @router.post("/api/emails/gmail/send")
@@ -293,7 +306,8 @@ async def send_gmail_message(payload: SendEmailPayload, user: dict[str, Any] = D
     except GmailConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao enviar e-mail: {str(exc)}") from exc
+        logger.exception("Falha ao enviar e-mail.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao enviar e-mail.") from exc
 
 
 @router.post("/api/emails/gmail/drafts")
@@ -360,7 +374,8 @@ async def reply_gmail_message(message_id: str, payload: ReplyEmailPayload, user:
     except GmailConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao responder e-mail: {str(exc)}") from exc
+        logger.exception("Falha ao responder e-mail.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao responder e-mail.") from exc
 
 
 @router.patch("/api/emails/gmail/messages/{message_id}")
@@ -406,4 +421,5 @@ async def conversar_com_agente_email(payload: EmailAgentPayload, user: dict[str,
             user_id=tenant_id(user),
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Agente de e-mail falhou: {str(exc)}") from exc
+        logger.exception("Agente de e-mail falhou.")
+        raise HTTPException(status_code=500, detail="O agente de e-mail falhou temporariamente.") from exc

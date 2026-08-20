@@ -66,7 +66,7 @@ type EmailDashboardProps = {
   onSelectedEmailHandled?: () => void;
 };
 
-export default function EmailDashboard({ userId = "lucas123", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
+export default function EmailDashboard({ userId = "primary", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
   const [activeFolder, setActiveFolder] = useState("inbox");
   const [activeFilter, setActiveFilter] = useState<MailQuickFilter>("all");
   const [searchDraft, setSearchDraft] = useState("");

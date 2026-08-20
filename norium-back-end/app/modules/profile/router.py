@@ -13,7 +13,7 @@ from pydantic import Field
 from app.shared.schemas import StrictModel
 
 from app.core.tenant import get_user_db_path, read_json_file, write_json_file
-from app.routers.auth_router import current_user
+from app.routers.auth_router import auth_lock, current_user, find_user, now_iso, read_user_store, write_user_store
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 PROFILE_DB_PATH = BASE_DIR / "perfil_db.json"
@@ -74,7 +74,7 @@ class TemaPersonalizado(StrictModel):
 
 class PerfilOperador(StrictModel):
     fotoUrl: str = ""
-    nome: str = Field(default="Tarcisio Lucas", min_length=1, max_length=120)
+    nome: str = Field(default="Operador", min_length=1, max_length=120)
     cep: str = Field(default="", max_length=12)
     idioma: str = Field(default="pt-BR", min_length=2, max_length=12)
     tema: TemaPerfil = "escuro"
@@ -160,6 +160,9 @@ def write_user_profile_sync(user_id: str, profile_payload: dict[str, Any]) -> No
 @router.get("")
 async def get_profile(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     raw_profile = await asyncio.to_thread(read_user_profile_sync, user["id"])
+    authenticated_name = str(user.get("nome") or "").strip()
+    if authenticated_name:
+        raw_profile = {**raw_profile, "nome": authenticated_name}
     profile_payload = enforce_theme_plan(public_profile_payload(raw_profile), user)
     profile = PerfilOperador.model_validate(profile_payload)
     return profile.model_dump()
@@ -168,6 +171,13 @@ async def get_profile(user: dict[str, Any] = Depends(current_user)) -> dict[str,
 @router.put("")
 async def save_profile(profile: PerfilOperador, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     profile_payload = enforce_theme_plan(profile.model_dump(), user)
+    async with auth_lock:
+        store = await read_user_store()
+        account = find_user(store, user["id"])
+        if account:
+            account["nome"] = profile.nome.strip()
+            account["updatedAt"] = now_iso()
+            await write_user_store(store)
     async with profile_lock:
         existing = await asyncio.to_thread(read_user_profile_sync, user["id"])
         preserved = {

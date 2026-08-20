@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
@@ -32,6 +33,8 @@ from app.services.finance_store import (
     update_lancamento,
     update_programado,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/financeiro", tags=["Financeiro"])
 
@@ -490,8 +493,8 @@ async def consultar_boletos_para_usuario(payload: ConsultaBoletosPayload, user_i
                 headers={"Accept": "application/json", "Content-Type": "application/json"},
             )
         if response.status_code >= 400:
-            detail = response.text[:400] if response.text else "Provedor de boletos recusou a consulta."
-            raise HTTPException(status_code=502, detail=f"Sami Meu Boleto recusou a consulta: {detail}")
+            logger.warning("Provedor de boletos recusou a consulta com status %s.", response.status_code)
+            raise HTTPException(status_code=502, detail="O provedor de boletos recusou a consulta.")
         try:
             provider_payload = response.json()
         except ValueError:
@@ -507,7 +510,8 @@ async def consultar_boletos_para_usuario(payload: ConsultaBoletosPayload, user_i
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Falha ao consultar boletos: {str(exc)}") from exc
+        logger.exception("Falha ao consultar boletos.")
+        raise HTTPException(status_code=502, detail="Falha temporaria ao consultar boletos.") from exc
 
 
 def _samierp_config() -> dict[str, Any]:

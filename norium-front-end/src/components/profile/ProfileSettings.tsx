@@ -32,7 +32,7 @@ function initials(name: string) {
 }
 
 export default function ProfileSettings({
-  userId = "lucas123",
+  userId = "primary",
   currentUser,
   onSaved,
   onLogout,

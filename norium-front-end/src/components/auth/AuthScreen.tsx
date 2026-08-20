@@ -20,8 +20,9 @@ const planOptions: Array<{ code: UserPlan; name: string; price: string; descript
 export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [mode, setMode] = useState<FormMode>("login");
   const [nome, setNome] = useState("");
-  const [email, setEmail] = useState("tarcisiolucas43@gmail.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [legalAccepted, setLegalAccepted] = useState(false);
   const [pendingSession, setPendingSession] = useState<AuthSession | null>(null);
   const [planSession, setPlanSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,11 +39,17 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
         setError("A senha deve ter pelo menos 10 caracteres.");
         return;
       }
+      if (!legalAccepted) {
+        setError("Aceite os Termos de Uso e a Politica de Privacidade para criar a conta.");
+        return;
+      }
     }
     setLoading(true);
     try {
       const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
-      const payload = mode === "login" ? { email, password } : { nome, email, password };
+      const payload = mode === "login"
+        ? { email, password }
+        : { nome, email, password, acceptedTerms: true, acceptedPrivacy: true };
       const session = await authJson<AuthSession>(endpoint, undefined, {
         method: "POST",
         body: JSON.stringify(payload),
@@ -94,7 +101,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               <button
                 key={plan.code}
                 onClick={() => void choosePlan(plan.code)}
-                disabled={loading}
+                disabled={loading || plan.code !== "free"}
                 className="group rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 text-left shadow-xl shadow-blue-950/16 transition hover:-translate-y-1 hover:border-cyan-300/45 hover:bg-[var(--surface-hover)] disabled:opacity-60"
               >
                 <span className="text-sm font-bold text-[var(--primary)]">{plan.price}/mês</span>
@@ -106,7 +113,8 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                   ))}
                 </span>
                 <span className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-[var(--primary)]">
-                  Escolher {plan.name} <ArrowRight size={16} className="transition group-hover:translate-x-1" />
+                  {plan.code === "free" ? `Escolher ${plan.name}` : "Ativacao administrativa necessaria"}
+                  {plan.code === "free" && <ArrowRight size={16} className="transition group-hover:translate-x-1" />}
                 </span>
               </button>
             ))}
@@ -253,6 +261,20 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                 placeholder={mode === "login" ? "Sua senha" : "Mínimo de 10 caracteres"}
               />
             </label>
+            {mode === "register" && (
+              <label className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={legalAccepted}
+                  onChange={(event) => setLegalAccepted(event.target.checked)}
+                  className="mt-1 h-4 w-4 shrink-0"
+                />
+                <span>
+                  Li e aceito os <a className="font-black text-[var(--primary)] hover:underline" href="#/termos">Termos de Uso</a>
+                  {" "}e a <a className="font-black text-[var(--primary)] hover:underline" href="#/privacidade">Politica de Privacidade</a>.
+                </span>
+              </label>
+            )}
           </div>
 
           {error && (
@@ -263,7 +285,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 
           <button
             onClick={() => void submit()}
-            disabled={loading}
+            disabled={loading || (mode === "register" && !legalAccepted)}
             className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 px-5 text-sm font-bold text-white shadow-lg shadow-blue-950/25 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? "Validando..." : mode === "login" ? "Entrar no Norium" : "Criar conta"}
@@ -279,6 +301,10 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           >
             {mode === "login" ? "Criar novo cadastro" : "Já tenho acesso"}
           </button>
+          <nav className="mt-5 flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs font-bold text-[var(--text-secondary)]">
+            <a className="hover:text-[var(--primary)] hover:underline" href="#/termos">Termos de Uso</a>
+            <a className="hover:text-[var(--primary)] hover:underline" href="#/privacidade">Politica de Privacidade</a>
+          </nav>
         </section>
       </div>
     </main>

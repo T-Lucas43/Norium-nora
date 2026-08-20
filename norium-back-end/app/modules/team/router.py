@@ -20,7 +20,7 @@ from app.shared.schemas import StrictModel
 
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, read_profile_db, write_json_file
 from app.modules.team.nora_mentions import generate_team_reply, has_nora_mention
-from app.routers.auth_router import current_user, read_user_store, sanitize_user, user_from_token
+from app.routers.auth_router import current_user, read_user_store, sanitize_user, user_from_websocket_ticket
 from app.routers.inbox_router import record_event
 
 router = APIRouter(prefix="/api/team-chat", tags=["Chat interno"])
@@ -393,9 +393,9 @@ async def download_attachment(file_name: str, _: dict[str, Any] = Depends(curren
 
 
 @router.websocket("/ws")
-async def team_chat_ws(websocket: WebSocket, token: str | None = Query(default=None)) -> None:
+async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=None)) -> None:
     try:
-        user = await user_from_token(token or "")
+        user = await user_from_websocket_ticket(ticket or "")
         require_team_chat(user)
         team_id = team_id_for(user)
         user_id = str(user["id"])

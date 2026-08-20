@@ -2463,12 +2463,12 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   --mail-panel:#0c0e10;
   --mail-input:#0a0d11;
   --mail-hover:#14171a;
-  --mail-active:rgba(39,130,255,.14);
+  --mail-active:#15191e;
   --mail-border:#22262b;
   --mail-text:#f4f6f8;
   --mail-muted:#9098a3;
   --mail-soft:rgba(39,130,255,.11);
-  --mail-banner:#101b2c;
+  --mail-banner:#0c0e10;
   --mail-banner-text:#f4f6f8;
 }
 
@@ -6021,6 +6021,18 @@ html.mail-fullscreen-open body{
   background:#050607!important;
 }
 
+.dark .mail-fullscreen-portal{
+  --mail-bg:#050607;
+  --mail-surface:#0c0e10;
+  --mail-sidebar:#080a0c;
+  --mail-panel:#0c0e10;
+  --mail-input:#0a0d11;
+  --mail-hover:#14171a;
+  --mail-active:#15191e;
+  --mail-border:#252a30;
+  --mail-banner:#0c0e10;
+}
+
 .mail-fullscreen-portal .mail-message-detail,
 .dark .mail-fullscreen-portal .mail-message-detail{
   width:100%;
@@ -6217,6 +6229,8 @@ html.mail-fullscreen-open body{
     column-gap:10px;
     overflow:hidden!important;
     padding-inline:12px!important;
+    border-block:1px solid var(--mail-border);
+    background:#0c0e10!important;
   }
 
   .norium-mail .mail-banner > div{
@@ -6300,6 +6314,10 @@ html.mail-fullscreen-open body{
     max-width:44px;
     overflow:hidden;
   }
+
+  .norium-mail .mail-row-category{
+    display:none!important;
+  }
 }
 
 @media (max-width:640px){
@@ -6323,6 +6341,11 @@ html.mail-fullscreen-open body{
 
   .norium-mail .mail-mobile-categories > button{
     grid-template-columns:36px minmax(0,1fr);
+  }
+
+  .norium-mail .mail-row-preview,
+  .norium-mail .mail-row-preview-separator{
+    display:none!important;
   }
 }
 

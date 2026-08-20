@@ -74,19 +74,19 @@ export default function MailMessageRow({
       </span>
 
       <span className="mail-row-subject min-w-0 truncate text-sm">
-        {message.unread && <span className="mr-3 inline-block h-2 w-2 rounded-full bg-[#38BDF8]" />}
+        {message.unread && <span className="mail-row-unread-dot mr-3 inline-block h-2 w-2 rounded-full bg-[#38BDF8]" />}
         <span className={cn(message.unread ? "font-extrabold text-white" : "font-semibold text-white/80")}>
           {message.subject}
         </span>
         {groupByCategory && (
-          <span className={cn("ml-2 inline-flex rounded-full border px-2 py-0.5 text-xs font-black uppercase", categoryMeta.tone)}>
+          <span className={cn("mail-row-category ml-2 inline-flex rounded-full border px-2 py-0.5 text-xs font-black uppercase", categoryMeta.tone)}>
             {categoryMeta.label}
           </span>
         )}
         {showPreview && (
           <>
-            <span className="mx-2 text-white/25">-</span>
-            <span className="text-white/45">{message.snippet}</span>
+            <span className="mail-row-preview-separator mx-2 text-white/25">-</span>
+            <span className="mail-row-preview text-white/45">{message.snippet}</span>
           </>
         )}
       </span>

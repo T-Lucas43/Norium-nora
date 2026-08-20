@@ -37,11 +37,15 @@ class NoraIAService:
         self._client: httpx.AsyncClient | None = None
 
     def _http_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(30.0, connect=8.0),
-                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=45.0),
-            )
+        if self._client is None or getattr(self._client, "is_closed", False):
+            try:
+                self._client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(30.0, connect=8.0),
+                    limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=45.0),
+                )
+            except TypeError:
+                # Mantem compatibilidade com clientes substitutos sem perder pooling no runtime real.
+                self._client = httpx.AsyncClient()
         return self._client
 
     def _models(self) -> list[str]:

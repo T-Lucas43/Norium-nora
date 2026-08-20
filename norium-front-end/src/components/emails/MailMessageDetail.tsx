@@ -24,7 +24,7 @@ function PortalWhen({ active, children }: { active: boolean; children: ReactNode
 function responsiveEmailDocument(rawHtml: string) {
   const protections = `
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob: https:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'" />
     <style>
       :root { color-scheme: light; }
       html, body { width: 100% !important; max-width: 100% !important; margin: 0 !important; overflow-x: hidden !important; }
@@ -55,6 +55,9 @@ function ResponsiveEmailFrame({ html }: { html: string }) {
       180,
     );
     setHeight(Math.min(measured + 4, 20_000));
+    frameDocument.querySelectorAll("img").forEach((image) => {
+      if (!image.complete) image.addEventListener("load", resizeToContent, { once: true });
+    });
   }
 
   return (

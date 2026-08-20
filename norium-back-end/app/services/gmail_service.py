@@ -637,14 +637,20 @@ class GmailService:
         plain_parts: list[str] = []
         html_parts: list[str] = []
         attachments: list[dict[str, Any]] = []
+        inline_images: dict[str, str] = {}
+        inline_image_bytes = 0
+        max_inline_image_bytes = 8 * 1024 * 1024
 
         def walk(part: dict[str, Any]) -> None:
+            nonlocal inline_image_bytes
             mime_type = str(part.get("mimeType") or "")
             body = part.get("body") or {}
             filename = str(part.get("filename") or "").strip()
+            part_headers = self._headers_to_dict(part.get("headers") or [])
+            content_id = str(part_headers.get("content-id") or "").strip().strip("<>")
+            attachment_id = str(body.get("attachmentId") or "")
 
-            if filename and body.get("attachmentId"):
-                attachment_id = str(body.get("attachmentId"))
+            if filename and attachment_id:
                 attachments.append(
                     {
                         "attachmentId": attachment_id,
@@ -660,6 +666,22 @@ class GmailService:
                 )
 
             data = body.get("data")
+            if content_id and mime_type.lower().startswith("image/"):
+                try:
+                    image_content = (
+                        self._decode_base64_url(str(data))
+                        if data
+                        else self.download_attachment(message_id=message_id, attachment_id=attachment_id)
+                        if attachment_id
+                        else b""
+                    )
+                    if image_content and inline_image_bytes + len(image_content) <= max_inline_image_bytes:
+                        inline_image_bytes += len(image_content)
+                        encoded = base64.b64encode(image_content).decode("ascii")
+                        inline_images[content_id] = f"data:{mime_type};base64,{encoded}"
+                except Exception as exc:
+                    logger.info("gmail_inline_image_unavailable content_id=%s reason=%s", content_id[:80], type(exc).__name__)
+
             if data and mime_type in {"text/plain", "text/html"}:
                 decoded = self._decode_base64_url(str(data)).decode(self._part_charset(part), errors="replace")
                 if mime_type == "text/plain":
@@ -673,6 +695,8 @@ class GmailService:
         walk(payload)
         body_text = "\n\n".join(part.strip() for part in plain_parts if part.strip())
         body_html = "\n".join(part.strip() for part in html_parts if part.strip())
+        for content_id, data_url in inline_images.items():
+            body_html = re.sub(rf"cid:{re.escape(content_id)}", data_url, body_html, flags=re.I)
         return {
             "bodyText": body_text,
             "bodyHtml": body_html,

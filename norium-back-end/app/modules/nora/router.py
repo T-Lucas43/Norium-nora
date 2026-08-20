@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+import uuid
 import json
 import logging
 import os
@@ -13,7 +16,7 @@ from typing import Any, Literal, List
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import Field
 
@@ -97,6 +100,19 @@ class NoraVoicePayload(StrictModel):
 class NoraTranscriptionPayload(StrictModel):
     audio_data_url: str = Field(min_length=32, max_length=21_000_000)
     mime_type: str = Field(default="audio/webm", max_length=100)
+
+
+class NoraTelemetryPayload(StrictModel):
+    response_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    event: Literal[
+        "first_visible_token",
+        "first_audio",
+        "playback_started",
+        "completed",
+        "cancelled",
+    ]
+    elapsed_ms: float = Field(ge=0, le=600_000)
+    channel: Literal["text", "voice", "stream"] = "stream"
 
 
 def sensitive_action_request(text: str, selected_skill: str) -> dict[str, str] | None:
@@ -560,6 +576,7 @@ def resposta_agente(
     session_kind: str | None = None,
     resolution: SkillResolution | None = None,
 ) -> dict[str, Any]:
+    response_text = result.get("response") or "O agente não retornou confirmação. Nenhuma execução foi assumida como concluída."
     return {
         "intent": intent,
         "skill": intent,
@@ -567,7 +584,8 @@ def resposta_agente(
         "session_kind": session_kind,
         "session_id": result.get("session_id"),
         "status": result.get("status"),
-        "response": result.get("response") or "O agente não retornou confirmação. Nenhuma execução foi assumida como concluída.",
+        "response": response_text,
+        "speech_text": texto_para_voz(str(response_text)),
         "agent_result": result,
     }
 
@@ -633,7 +651,36 @@ async def handle_team_agent(user_id: str, texto: str, sender_name: str = "Nora")
 
 
 def texto_para_voz(texto: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[`*_#>\-]+", " ", texto)).strip()[:1800]
+    value = re.sub(r"```[\s\S]*?```", " Inclui um trecho de codigo na tela. ", texto)
+    value = re.sub(
+        r"(?:^|\n)(?:\s*\|.*\|\s*\n?){2,}",
+        "\nOrganizei os detalhes em uma tabela na tela.\n",
+        value,
+        flags=re.M,
+    )
+    value = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"Imagem: \1.", value)
+    value = re.sub(r"\[([^\]]+)\]\((?:https?://|mailto:)[^)]+\)", r"\1", value)
+    value = re.sub(r"https?://\S+", "um link disponivel na tela", value, flags=re.I)
+    value = re.sub(r"`([^`]+)`", r"\1", value)
+    value = re.sub(r"^\s{0,3}#{1,6}\s+", "", value, flags=re.M)
+    value = re.sub(r"^\s*(?:[-*+] |\d+[.)]\s*)", "", value, flags=re.M)
+    value = re.sub(r"R\$\s*(\d+(?:[.,]\d{1,2})?)", r"\1 reais", value, flags=re.I)
+    value = re.sub(r"(\d+(?:[.,]\d+)?)\s*%", r"\1 por cento", value)
+    pronunciations = {
+        r"\bNorium\b": "Nórium",
+        r"\bOAuth\b": "ô auth",
+        r"\bWebSockets?\b": "uéb sóquete",
+        r"\bAPIs?\b": "A P I",
+        r"\bIA\b": "I A",
+        r"\bHTTP\b": "H T T P",
+        r"\bJSON\b": "jêison",
+    }
+    for pattern, replacement in pronunciations.items():
+        value = re.sub(pattern, replacement, value, flags=re.I if pattern not in {r"\bIA\b", r"\bHTTP\b", r"\bJSON\b"} else 0)
+    value = re.sub(r"[`*_#>|{}\[\]<>~]+", " ", value)
+    value = re.sub(r"\s*\n+\s*", ". ", value)
+    value = re.sub(r"\s+([,.;:!?])", r"\1", value)
+    return re.sub(r"\s+", " ", value).strip()[:1800]
 
 
 async def gerar_audio_elevenlabs(texto: str, voice_id: str | None = None) -> bytes:
@@ -741,7 +788,7 @@ async def conversar_com_nora_generico(payload: ConversaPayload, _: dict[str, Any
     try:
         mensagens_dict = [msg.model_dump() for msg in payload.messages]
         resposta = await nora_service.perguntar_nora(mensagens_dict)
-        return {"response": resposta}
+        return {"response": resposta, "speech_text": texto_para_voz(resposta)}
     except Exception as exc:
         logger.exception("Falha na conversa generica da Nora.")
         raise HTTPException(status_code=500, detail="A Nora falhou temporariamente.") from exc
@@ -780,6 +827,7 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
 
         social_greeting = mensagem_social_curta(texto)
         if social_greeting:
+            social_response = resposta_social_curta(social_greeting, user)
             return {
                 "intent": "chat",
                 "skill": "chat",
@@ -787,7 +835,8 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
                 "session_kind": None,
                 "session_id": None,
                 "status": "chat",
-                "response": resposta_social_curta(social_greeting, user),
+                "response": social_response,
+                "speech_text": texto_para_voz(social_response),
             }
 
         module_help = answer_module_help(texto)
@@ -818,6 +867,11 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
                 f"{index}. {step['agent'].capitalize()}: {step['instruction']}"
                 for index, step in enumerate(steps, start=1)
             )
+            plan_response = (
+                "Entendi o pedido completo e montei este plano:\n\n"
+                f"{plan_lines}\n\n"
+                "Nada foi executado ainda. Revise e aprove na Central de pendencias."
+            )
             return {
                 "intent": "compound",
                 "skill": "compound",
@@ -828,10 +882,10 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
                 "session_kind": None,
                 "session_id": None,
                 "status": "aguardando_aprovacao",
-                "response": (
-                    "Entendi o pedido completo e montei este plano:\n\n"
-                    f"{plan_lines}\n\n"
-                    "Nada foi executado ainda. Revise e aprove na Central de pendencias."
+                "response": plan_response,
+                "speech_text": (
+                    f"Montei um plano com {len(steps)} etapas e deixei os detalhes na tela. "
+                    "Nada foi executado. Revise e aprove na Central de pendências."
                 ),
                 "agent_result": {"approval": approval, "steps": steps},
             }
@@ -986,6 +1040,7 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             "session_id": None,
             "status": "chat",
             "response": resposta,
+            "speech_text": texto_para_voz(resposta),
         }
     except Exception as exc:
         logger.exception("Falha na orquestracao natural da Nora.")
@@ -994,7 +1049,9 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
 
 @router.post("/natural/stream")
 async def conversar_com_nora_natural_stream(
-    payload: NoraNaturalPayload, user: dict[str, Any] = Depends(require_nora_permission)
+    payload: NoraNaturalPayload,
+    request: Request,
+    user: dict[str, Any] = Depends(require_nora_permission),
 ):
     """Streama a resposta da Nora token a token quando a mensagem e conversa geral.
 
@@ -1004,6 +1061,8 @@ async def conversar_com_nora_natural_stream(
     frontend refaz a chamada em /natural, que ja trata cada um desses fluxos
     com o resultado estruturado (nao apenas texto) que cada agente precisa.
     """
+    request_started = time.perf_counter()
+    response_id = uuid.uuid4().hex
     texto = payload.message.strip()
 
     has_active_session = bool(
@@ -1017,38 +1076,104 @@ async def conversar_com_nora_natural_stream(
         or is_compound_request(texto)
     )
 
-    if not needs_structured_flow:
-        resolution = resolve_skill(texto)
-        intent = resolution.skill_id
-        semantic_enabled = os.getenv("NORA_INTENT_LLM", "1").strip() != "0"
-        if resolution.needs_semantic_fallback and semantic_enabled and len(texto.split()) >= 2:
-            recent_context = "\n".join(f"{message.role}: {message.content}" for message in payload.messages[-4:])
-            semantic_intent, semantic_confidence = await classificar_intencao_com_nora(texto, resolution, recent_context)
-            if semantic_confidence >= 0.55 or resolution.score <= 0:
-                intent = semantic_intent
+    resolution = resolve_skill(texto)
+    if not needs_structured_flow and resolution.skill_id == "chat":
+        base_messages = [msg.model_dump() for msg in payload.messages[-6:]]
 
-        if intent == "chat":
-            mensagens_dict = [msg.model_dump() for msg in payload.messages[-6:]]
-            mensagens_dict.append(
-                {"role": "user", "content": await message_with_memory(user, texto, {"communication", "client", "project", "process", "general"})}
-            )
+        def encode_event(event_type: str, payload_data: dict[str, Any]) -> str:
+            data = {"type": event_type, "response_id": response_id, **payload_data}
+            return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
-            async def event_stream():
+        async def event_stream():
+            first_token_at: float | None = None
+            first_token_sent_at: float | None = None
+            try:
+                yield encode_event("status", {"state": "thinking"})
+                context_started = time.perf_counter()
+                user_message = await message_with_memory(
+                    user,
+                    texto,
+                    {"communication", "client", "project", "process", "general"},
+                )
+                mensagens_dict = [*base_messages, {"role": "user", "content": user_message}]
+                context_ready = time.perf_counter()
+                yield encode_event(
+                    "status",
+                    {
+                        "state": "streaming",
+                        "context_ms": round((context_ready - context_started) * 1000, 1),
+                    },
+                )
+
                 async for delta in nora_service.perguntar_nora_stream(mensagens_dict, payload.screen_context):
-                    yield f"data: {json.dumps({'delta': delta})}\n\n"
-                yield "data: [DONE]\n\n"
+                    if await request.is_disconnected():
+                        logger.info("nora_latency response_id=%s event=cancelled", response_id)
+                        return
+                    now = time.perf_counter()
+                    if first_token_at is None:
+                        first_token_at = now
+                    event = encode_event("delta", {"delta": delta})
+                    if first_token_sent_at is None:
+                        first_token_sent_at = time.perf_counter()
+                    yield event
 
-            return StreamingResponse(event_stream(), media_type="text/event-stream")
+                completed_at = time.perf_counter()
+                metrics = {
+                    "context_ms": round((context_ready - context_started) * 1000, 1),
+                    "ttft_ms": round(((first_token_at or completed_at) - request_started) * 1000, 1),
+                    "first_token_send_ms": round(((first_token_sent_at or completed_at) - request_started) * 1000, 1),
+                    "total_ms": round((completed_at - request_started) * 1000, 1),
+                }
+                logger.info(
+                    "nora_latency response_id=%s event=completed context_ms=%s ttft_ms=%s first_token_send_ms=%s total_ms=%s",
+                    response_id,
+                    metrics["context_ms"],
+                    metrics["ttft_ms"],
+                    metrics["first_token_send_ms"],
+                    metrics["total_ms"],
+                )
+                yield encode_event("done", {"metrics": metrics})
+            except asyncio.CancelledError:
+                logger.info("nora_latency response_id=%s event=cancelled", response_id)
+                raise
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+                "X-Norium-Response-Id": response_id,
+            },
+        )
 
     return JSONResponse({"redirect": True})
+
+
+@router.post("/telemetry", status_code=204)
+async def record_nora_telemetry(
+    payload: NoraTelemetryPayload,
+    _: dict[str, Any] = Depends(require_nora_permission),
+) -> Response:
+    logger.info(
+        "nora_client_latency response_id=%s event=%s elapsed_ms=%.1f channel=%s",
+        payload.response_id,
+        payload.event,
+        payload.elapsed_ms,
+        payload.channel,
+    )
+    return Response(status_code=204)
 
 
 @router.post("/voz")
 async def gerar_voz_nora(payload: NoraVoicePayload, _: dict[str, Any] = Depends(require_nora_permission)):
     load_dotenv()
+    tts_started = time.perf_counter()
     provider = os.getenv("NORA_TTS_PROVIDER", "edge").strip().lower()
     if provider in {"edge", "edge-tts", "microsoft"}:
         audio = await gerar_audio_edge_tts(payload.text)
+        elapsed_ms = round((time.perf_counter() - tts_started) * 1000, 1)
         return Response(
             content=audio,
             media_type="audio/mpeg",
@@ -1056,10 +1181,12 @@ async def gerar_voz_nora(payload: NoraVoicePayload, _: dict[str, Any] = Depends(
                 "Cache-Control": "no-store",
                 "X-Norium-Voice-Provider": "edge-tts",
                 "X-Norium-Voice-Id": os.getenv("EDGE_TTS_VOICE", EDGE_TTS_DEFAULT_VOICE),
+                "Server-Timing": f"tts;dur={elapsed_ms}",
             },
         )
 
     audio = await gerar_audio_elevenlabs(payload.text, payload.voice_id)
+    elapsed_ms = round((time.perf_counter() - tts_started) * 1000, 1)
     return Response(
         content=audio,
         media_type="audio/mpeg",
@@ -1067,6 +1194,7 @@ async def gerar_voz_nora(payload: NoraVoicePayload, _: dict[str, Any] = Depends(
             "Cache-Control": "no-store",
             "X-Norium-Voice-Provider": "elevenlabs",
             "X-Norium-Voice-Id": payload.voice_id or os.getenv("ELEVENLABS_VOICE_ID") or ELEVENLABS_DEFAULT_VOICE_ID,
+            "Server-Timing": f"tts;dur={elapsed_ms}",
         },
     )
 

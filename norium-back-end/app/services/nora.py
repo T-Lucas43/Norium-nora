@@ -34,6 +34,15 @@ class NoraIAService:
         ]
         self.fallback_models = list(dict.fromkeys([self.model, *configured_fallbacks]))
         self.system_prompt = NORA_SYSTEM_PROMPT
+        self._client: httpx.AsyncClient | None = None
+
+    def _http_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(30.0, connect=8.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=45.0),
+            )
+        return self._client
 
     def _models(self) -> list[str]:
         """Mantem a Nora operante quando um modelo configurado e retirado pelo provedor."""
@@ -73,26 +82,25 @@ class NoraIAService:
             "max_tokens": 1400,
         }
 
-        async with httpx.AsyncClient() as client:
-            try:
-                last_status = 503
-                for model in self._models():
-                    response = await client.post(
-                        self.base_url,
-                        json={**payload, "model": model},
-                        headers=self.headers,
-                        timeout=30.0,
-                    )
-                    last_status = response.status_code
-                    if response.status_code == 200:
-                        self.model = model
-                        data = response.json()
-                        return str(data["choices"][0]["message"]["content"])
-                    if response.status_code not in {400, 404}:
-                        break
-                return self._provider_error(last_status)
-            except Exception:
-                return "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."
+        try:
+            client = self._http_client()
+            last_status = 503
+            for model in self._models():
+                response = await client.post(
+                    self.base_url,
+                    json={**payload, "model": model},
+                    headers=self.headers,
+                )
+                last_status = response.status_code
+                if response.status_code == 200:
+                    self.model = model
+                    data = response.json()
+                    return str(data["choices"][0]["message"]["content"])
+                if response.status_code not in {400, 404}:
+                    break
+            return self._provider_error(last_status)
+        except Exception:
+            return "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."
 
     async def perguntar_nora_stream(
         self, mensagens: list[dict[str, str]], screen_context: str | None = None
@@ -109,38 +117,37 @@ class NoraIAService:
         }
 
         try:
-            async with httpx.AsyncClient() as client:
-                last_status = 503
-                for model in self._models():
-                    async with client.stream(
-                        "POST",
-                        self.base_url,
-                        json={**payload, "model": model},
-                        headers=self.headers,
-                        timeout=30.0,
-                    ) as response:
-                        last_status = response.status_code
-                        if response.status_code in {400, 404}:
-                            continue
-                        if response.status_code != 200:
-                            yield self._provider_error(response.status_code)
-                            return
-                        self.model = model
-                        async for line in response.aiter_lines():
-                            if not line or not line.startswith("data: "):
-                                continue
-                            data = line[len("data: "):].strip()
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                            except json.JSONDecodeError:
-                                continue
-                            choices = chunk.get("choices") or []
-                            delta = choices[0].get("delta", {}).get("content") if choices else None
-                            if delta:
-                                yield delta
+            client = self._http_client()
+            last_status = 503
+            for model in self._models():
+                async with client.stream(
+                    "POST",
+                    self.base_url,
+                    json={**payload, "model": model},
+                    headers=self.headers,
+                ) as response:
+                    last_status = response.status_code
+                    if response.status_code in {400, 404}:
+                        continue
+                    if response.status_code != 200:
+                        yield self._provider_error(response.status_code)
                         return
-                yield self._provider_error(last_status)
+                    self.model = model
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data = line[len("data: "):].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = chunk.get("choices") or []
+                        delta = choices[0].get("delta", {}).get("content") if choices else None
+                        if delta:
+                            yield delta
+                    return
+            yield self._provider_error(last_status)
         except Exception:
             yield "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."

@@ -22,6 +22,7 @@ import {
   Settings2,
   SpellCheck,
   Sparkles,
+  Square,
   Volume2,
   VolumeX,
   Wallet,
@@ -34,6 +35,7 @@ import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/
 import { apiBaseUrl } from "../../utils/api";
 import NoraAvatar from "./NoraAvatar";
 import Button from "../shared/Button";
+import { speechTextFromDisplay, takeNaturalSpeechSegments } from "./noraSpeech";
 
 interface NoraProps {
   open: boolean;
@@ -97,6 +99,9 @@ function buildScreenContext(
 
 const BACKEND_URL = apiBaseUrl();
 let activeNoraAudio: HTMLAudioElement | null = null;
+let activeNoraVoiceRequest: AbortController | null = null;
+let finishActiveNoraAudio: (() => void) | null = null;
+let finishBrowserSpeech: (() => void) | null = null;
 let serverVoiceUnavailable = false;
 
 type Msg = {
@@ -109,7 +114,23 @@ type Msg = {
 };
 
 type VoiceAccessStatus = "locked" | "requesting" | "unlocked" | "denied" | "unsupported";
+type NoraRunState = "idle" | "submitting" | "thinking" | "searching" | "analyzing" | "streaming" | "synthesizing_audio" | "speaking" | "completed" | "cancelled" | "error";
 type NoraAgentKind = "geral" | "whatsapp" | "email" | "agenda" | "tarefas" | "financeiro" | "comercial" | "automacoes" | "operacoes" | "equipe" | "mensagens" | "erro";
+
+const ACTIVE_NORA_STATES = new Set<NoraRunState>(["submitting", "thinking", "searching", "analyzing", "streaming", "synthesizing_audio", "speaking"]);
+const NORA_STATE_LABELS: Record<NoraRunState, string> = {
+  idle: "Pronta",
+  submitting: "Enviando...",
+  thinking: "Pensando...",
+  searching: "Consultando dados...",
+  analyzing: "Analisando...",
+  streaming: "Respondendo...",
+  synthesizing_audio: "Gerando áudio...",
+  speaking: "Falando...",
+  completed: "Concluído",
+  cancelled: "Interrompido",
+  error: "Não foi possível concluir",
+};
 
 type NoraEmailAttachment = {
   attachmentId?: string;
@@ -198,14 +219,6 @@ function pickPortugueseVoice() {
   );
 }
 
-function cleanSpeechText(text: string) {
-  return text
-    .replace(/[`*_#>-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 1200);
-}
-
 function blobToDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -250,6 +263,10 @@ function requestMicrophoneStream(timeoutMs = 12_000) {
 }
 
 function stopNoraVoice() {
+  activeNoraVoiceRequest?.abort();
+  activeNoraVoiceRequest = null;
+  finishActiveNoraAudio?.();
+  finishActiveNoraAudio = null;
   if (activeNoraAudio) {
     activeNoraAudio.pause();
     activeNoraAudio.removeAttribute("src");
@@ -257,28 +274,53 @@ function stopNoraVoice() {
     activeNoraAudio = null;
   }
   window.speechSynthesis?.cancel();
+  finishBrowserSpeech?.();
+  finishBrowserSpeech = null;
 }
 
-function speakWithBrowserVoice(cleanText: string) {
-  if (!("speechSynthesis" in window)) return;
-  if (!cleanText) return;
-  window.speechSynthesis?.cancel();
-  const utterance = new SpeechSynthesisUtterance(cleanText);
-  const voice = pickPortugueseVoice();
-  if (voice) utterance.voice = voice;
-  utterance.lang = "pt-BR";
-  utterance.rate = 0.96;
-  utterance.pitch = 1.02;
-  utterance.volume = 1;
-  window.speechSynthesis.speak(utterance);
+function speakWithBrowserVoice(cleanText: string, onPlayback?: () => void) {
+  return new Promise<boolean>((resolve) => {
+    if (!("speechSynthesis" in window) || !cleanText) {
+      resolve(false);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    const voice = pickPortugueseVoice();
+    if (voice) utterance.voice = voice;
+    utterance.lang = "pt-BR";
+    utterance.rate = 0.98;
+    utterance.pitch = 1.02;
+    utterance.volume = 1;
+    let settled = false;
+    const finish = (played: boolean) => {
+      if (settled) return;
+      settled = true;
+      finishBrowserSpeech = null;
+      resolve(played);
+    };
+    finishBrowserSpeech = () => finish(false);
+    utterance.onstart = () => onPlayback?.();
+    utterance.onend = () => finish(true);
+    utterance.onerror = () => finish(false);
+    window.speechSynthesis.speak(utterance);
+  });
 }
 
-async function tryServerNoraVoice(cleanText: string) {
+async function tryServerNoraVoice(cleanText: string, onPlayback?: () => void): Promise<boolean | null> {
   if (serverVoiceUnavailable || !cleanText) return false;
+  const controller = new AbortController();
+  activeNoraVoiceRequest?.abort();
+  activeNoraVoiceRequest = controller;
   try {
     const response = await fetch(`${BACKEND_URL}/api/nora/voz`, {
       method: "POST",
-      headers: { Accept: "audio/mpeg", "Content-Type": "application/json" },
+      signal: controller.signal,
+      headers: {
+        Accept: "audio/mpeg",
+        "Content-Type": "application/json",
+        ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      },
       body: JSON.stringify({
         text: cleanText,
       }),
@@ -292,35 +334,48 @@ async function tryServerNoraVoice(cleanText: string) {
     }
 
     const audioBlob = await response.blob();
+    if (controller.signal.aborted) return null;
     if (!audioBlob.size) return false;
     const audioUrl = URL.createObjectURL(audioBlob);
-    stopNoraVoice();
     const audio = new Audio(audioUrl);
     activeNoraAudio = audio;
-    audio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
-      if (activeNoraAudio === audio) activeNoraAudio = null;
-    };
-    audio.onerror = () => {
-      URL.revokeObjectURL(audioUrl);
-      if (activeNoraAudio === audio) activeNoraAudio = null;
-    };
-    await audio.play();
-    return true;
+    return await new Promise<boolean | null>((resolve) => {
+      let settled = false;
+      const finish = (played: boolean | null) => {
+        if (settled) return;
+        settled = true;
+        finishActiveNoraAudio = null;
+        URL.revokeObjectURL(audioUrl);
+        if (activeNoraAudio === audio) activeNoraAudio = null;
+        if (activeNoraVoiceRequest === controller) activeNoraVoiceRequest = null;
+        resolve(played);
+      };
+      finishActiveNoraAudio = () => finish(null);
+      audio.onplaying = () => onPlayback?.();
+      audio.onended = () => finish(true);
+      audio.onerror = () => finish(false);
+      void audio.play().catch(() => finish(false));
+    });
   } catch {
-    return false;
+    return controller.signal.aborted ? null : false;
+  } finally {
+    if (activeNoraVoiceRequest === controller && controller.signal.aborted) activeNoraVoiceRequest = null;
+  }
+}
+
+async function playNoraSpeechSegment(text: string, onStage?: (stage: "synthesizing_audio" | "speaking") => void) {
+  const cleanText = speechTextFromDisplay(text);
+  if (!cleanText) return;
+  onStage?.("synthesizing_audio");
+  const played = await tryServerNoraVoice(cleanText, () => onStage?.("speaking"));
+  if (played === false) {
+    await speakWithBrowserVoice(cleanText, () => onStage?.("speaking"));
   }
 }
 
 function speakNoraResponse(text: string) {
-  const cleanText = cleanSpeechText(text);
-  if (!cleanText) return;
-  void tryServerNoraVoice(cleanText).then((played) => {
-    if (!played) {
-      stopNoraVoice();
-      speakWithBrowserVoice(cleanText);
-    }
-  });
+  stopNoraVoice();
+  void playNoraSpeechSegment(text);
 }
 
 function eventCount(eventsBySource: NoraProps["eventsBySource"], source: EventSource) {
@@ -879,8 +934,14 @@ async function askNaturalNoraStream(
   commercialSessionId: string | null,
   userId: string,
   screenContext: string,
-  onDelta: (fullText: string) => void,
-): Promise<{ redirect: true } | { redirect: false; fullText: string }> {
+  signal: AbortSignal,
+  handlers: {
+    onDelta: (fullText: string, delta: string) => void;
+    onStatus: (state: NoraRunState) => void;
+    onResponseId: (responseId: string) => void;
+    onDone: (metrics: Record<string, number>) => void;
+  },
+): Promise<{ redirect: true } | { redirect: false; fullText: string; responseId: string }> {
   const payloadMessages = messages.slice(-6).map((message) => ({
     role: message.role === "user" ? "user" : "assistant",
     content: message.text,
@@ -888,7 +949,9 @@ async function askNaturalNoraStream(
 
   const res = await fetch(`${BACKEND_URL}/api/nora/natural/stream`, {
     method: "POST",
+    signal,
     headers: {
+      Accept: "text/event-stream",
       "Content-Type": "application/json",
       ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
     },
@@ -912,6 +975,8 @@ async function askNaturalNoraStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let fullText = "";
+  let responseId = res.headers.get("X-Norium-Response-Id") || "";
+  if (responseId) handlers.onResponseId(responseId);
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -923,12 +988,23 @@ async function askNaturalNoraStream(
       const line = event.trim();
       if (!line.startsWith("data:")) continue;
       const data = line.slice("data:".length).trim();
-      if (data === "[DONE]") continue;
       try {
-        const parsed = JSON.parse(data) as { delta?: string };
-        if (typeof parsed.delta === "string") {
+        const parsed = JSON.parse(data) as {
+          type?: "status" | "delta" | "done";
+          state?: NoraRunState;
+          response_id?: string;
+          delta?: string;
+          metrics?: Record<string, number>;
+        };
+        if (parsed.response_id && parsed.response_id !== responseId) {
+          responseId = parsed.response_id;
+          handlers.onResponseId(responseId);
+        }
+        if (parsed.type === "status" && parsed.state) handlers.onStatus(parsed.state);
+        if (parsed.type === "done") handlers.onDone(parsed.metrics || {});
+        if ((parsed.type === "delta" || !parsed.type) && typeof parsed.delta === "string") {
           fullText += parsed.delta;
-          onDelta(fullText);
+          handlers.onDelta(fullText, parsed.delta);
         }
       } catch {
         // pedaco de evento incompleto ou malformado; ignora e segue
@@ -936,7 +1012,25 @@ async function askNaturalNoraStream(
     }
   }
 
-  return { redirect: false, fullText };
+  return { redirect: false, fullText, responseId };
+}
+
+function recordNoraTelemetry(
+  responseId: string,
+  event: "first_visible_token" | "first_audio" | "playback_started" | "completed" | "cancelled",
+  elapsedMs: number,
+  channel: "text" | "voice" | "stream" = "stream",
+) {
+  if (!responseId) return;
+  void fetch(`${BACKEND_URL}/api/nora/telemetry`, {
+    method: "POST",
+    keepalive: true,
+    headers: {
+      "Content-Type": "application/json",
+      ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+    },
+    body: JSON.stringify({ response_id: responseId, event, elapsed_ms: Math.max(0, elapsedMs), channel }),
+  }).catch(() => undefined);
 }
 
 async function askNaturalNora(
@@ -978,6 +1072,7 @@ async function askNaturalNora(
     session_id: string | null;
     status: string;
     response: string;
+    speech_text?: string;
     agent_result?: Record<string, unknown> & { messages?: unknown; events?: unknown; event?: unknown };
   };
 }
@@ -1063,7 +1158,8 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   const welcomeName = (profile?.nome || "").trim().split(/\s+/)[0] || "";
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [runState, setRunState] = useState<NoraRunState>("idle");
+  const loading = ACTIVE_NORA_STATES.has(runState);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [sendDirect, setSendDirect] = useState(false);
   const [agentDraft, setAgentDraft] = useState<string | null>(null);
@@ -1092,15 +1188,86 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   const voiceSendTimerRef = useRef<number | null>(null);
   const greetedRef = useRef(false);
   const contextualRequestHandledRef = useRef(0);
+  const activeCycleRef = useRef(0);
+  const requestAbortRef = useRef<AbortController | null>(null);
+  const speechQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const speechGenerationRef = useRef(0);
+  const streamingCompleteRef = useRef(false);
+  const responseIdRef = useRef("");
+  const requestStartedRef = useRef(0);
+  const firstAudioReportedRef = useRef(false);
+  const pinnedToBottomRef = useRef(true);
+
+  function setCycleState(cycleId: number, state: NoraRunState) {
+    if (activeCycleRef.current === cycleId) setRunState(state);
+  }
+
+  function cancelActiveResponse(markCancelled = true) {
+    const wasActive = ACTIVE_NORA_STATES.has(runState);
+    activeCycleRef.current += 1;
+    requestAbortRef.current?.abort();
+    requestAbortRef.current = null;
+    speechGenerationRef.current += 1;
+    streamingCompleteRef.current = true;
+    stopNoraVoice();
+    speechQueueRef.current = Promise.resolve();
+    if (markCancelled && wasActive) {
+      recordNoraTelemetry(
+        responseIdRef.current,
+        "cancelled",
+        performance.now() - requestStartedRef.current,
+      );
+      setRunState("cancelled");
+    }
+  }
+
+  function queueSpeechSegment(text: string, cycleId: number) {
+    const speechText = speechTextFromDisplay(text);
+    if (!speechText) return speechQueueRef.current;
+    const speechGeneration = speechGenerationRef.current;
+    const next = speechQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (activeCycleRef.current !== cycleId || speechGenerationRef.current !== speechGeneration) return;
+        await playNoraSpeechSegment(speechText, (stage) => {
+          if (activeCycleRef.current !== cycleId || speechGenerationRef.current !== speechGeneration) return;
+          setRunState(stage);
+          if (stage === "speaking" && !firstAudioReportedRef.current) {
+            firstAudioReportedRef.current = true;
+            const elapsed = performance.now() - requestStartedRef.current;
+            recordNoraTelemetry(responseIdRef.current, "first_audio", elapsed, "voice");
+            recordNoraTelemetry(responseIdRef.current, "playback_started", elapsed, "voice");
+          }
+        });
+        if (
+          activeCycleRef.current === cycleId &&
+          speechGenerationRef.current === speechGeneration &&
+          !streamingCompleteRef.current
+        ) {
+          setRunState("streaming");
+        }
+      });
+    speechQueueRef.current = next;
+    return next;
+  }
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({
+    if (!pinnedToBottomRef.current || !scrollRef.current) return;
+    scrollRef.current.scrollTo({
       top: scrollRef.current.scrollHeight,
-      behavior: "smooth",
+      behavior: runState === "streaming" ? "auto" : "smooth",
     });
-  }, [messages, loading, agentDraft]);
+  }, [messages, runState, agentDraft]);
 
   useEffect(() => {
+    activeCycleRef.current += 1;
+    requestAbortRef.current?.abort();
+    requestAbortRef.current = null;
+    speechGenerationRef.current += 1;
+    streamingCompleteRef.current = true;
+    stopNoraVoice();
+    speechQueueRef.current = Promise.resolve();
+    setRunState("idle");
     setMessages([]);
     setShowSuggestions(true);
     setAgentDraft(null);
@@ -1128,13 +1295,20 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       if (mediaStopTimerRef.current !== null) window.clearTimeout(mediaStopTimerRef.current);
+      activeCycleRef.current += 1;
+      requestAbortRef.current?.abort();
+      speechGenerationRef.current += 1;
       stopNoraVoice();
     };
   }, []);
 
   useEffect(() => {
     localStorage.setItem("norium:nora:voice-replies-v2", String(voiceRepliesEnabled));
-    if (!voiceRepliesEnabled) stopNoraVoice();
+    if (!voiceRepliesEnabled) {
+      speechGenerationRef.current += 1;
+      speechQueueRef.current = Promise.resolve();
+      stopNoraVoice();
+    }
   }, [voiceRepliesEnabled]);
 
   useEffect(() => {
@@ -1163,6 +1337,13 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       setVoiceAccess("locked");
       setVoiceError("");
       setExpanded(false);
+      activeCycleRef.current += 1;
+      requestAbortRef.current?.abort();
+      requestAbortRef.current = null;
+      speechGenerationRef.current += 1;
+      streamingCompleteRef.current = true;
+      speechQueueRef.current = Promise.resolve();
+      setRunState("idle");
       stopNoraVoice();
     }
   }, [open]);
@@ -1235,6 +1416,18 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     const finalText = (text || input).trim();
     if (!finalText) return;
 
+    cancelActiveResponse(false);
+    const cycleId = activeCycleRef.current;
+    const controller = new AbortController();
+    requestAbortRef.current = controller;
+    speechGenerationRef.current += 1;
+    streamingCompleteRef.current = false;
+    speechQueueRef.current = Promise.resolve();
+    responseIdRef.current = "";
+    requestStartedRef.current = performance.now();
+    firstAudioReportedRef.current = false;
+    pinnedToBottomRef.current = true;
+    setCycleState(cycleId, "submitting");
     setInput("");
     setVoiceError("");
     setShowSuggestions(false);
@@ -1242,15 +1435,18 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
     const currentMessages: Msg[] = [...messages, { role: "user", text: finalText }];
     setMessages(currentMessages);
-    setLoading(true);
 
     try {
       let response = "";
+      let responseSpeechText = "";
       let responseAgent: NoraAgentKind = "geral";
       let responseStatus = "";
       let responseEmailMessages: NoraEmailMessage[] | undefined;
       let responseAgendaEvents: NoraAgendaEvent[] | undefined;
       let handledInline = false;
+      let speechWasQueued = false;
+      let speechBuffer = "";
+      const shouldSpeak = speakReply || voiceRepliesEnabled;
       const sessionInterrupted = interruptsActiveAgentSession(finalText);
       const explicitEmailSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isAgendaIntent(finalText) || isCommercialIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
       const explicitAgendaSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isEmailIntent(finalText) || isCommercialIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
@@ -1284,7 +1480,9 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
         !isTeamIntent(finalText);
 
       if (continueEmailSession) {
+        setCycleState(cycleId, "searching");
         const result = await askEmailAgent(finalText, emailSessionId, userId);
+        if (activeCycleRef.current !== cycleId) return;
         responseAgent = "email";
         responseStatus = result.status;
         responseEmailMessages = normalizeEmailMessages(result.messages);
@@ -1295,7 +1493,9 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
         }
         response = result.response;
       } else if (continueAgendaSession) {
+        setCycleState(cycleId, "searching");
         const result = await askAgendaAgent(finalText, agendaSessionId, userId);
+        if (activeCycleRef.current !== cycleId) return;
         responseAgent = "agenda";
         responseStatus = result.status;
         responseAgendaEvents = result.events || (result.event ? [result.event] : undefined);
@@ -1303,7 +1503,9 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
         setAgendaAgentActive(Boolean(result.session_id && !["criado", "cancelado", "consulta", "atualizado"].includes(result.status)));
         response = result.response;
       } else if (shouldUseWhatsAppContext) {
+        setCycleState(cycleId, "analyzing");
         const result = await askNoraWhatsAppBackend(finalText, conversaId, sendDirect);
+        if (activeCycleRef.current !== cycleId) return;
         responseAgent = "whatsapp";
         responseStatus = result.sent ? "enviado" : result.blockedReason || "";
         response = result.sent
@@ -1313,41 +1515,92 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             : result.text;
       } else {
         let streamStarted = false;
-        const streamResult = await askNaturalNoraStream(
-          messages,
-          finalText,
-          effectiveAgendaSessionId,
-          effectiveEmailSessionId,
-          continueCommercialSession ? effectiveCommercialSessionId : null,
-          userId,
-          screenContext,
-          (partial) => {
-            if (!streamStarted) {
-              streamStarted = true;
-              setMessages((prev) => [
-                ...prev,
-                { role: "ai", text: partial, agent: "geral", status: "chat" },
-              ]);
-              return;
-            }
-            setMessages((prev) => {
-              const lastMessage = prev.at(-1);
-              if (lastMessage?.role !== "ai" || lastMessage.status !== "chat") {
-                return [...prev, { role: "ai", text: partial, agent: "geral", status: "chat" }];
-              }
-              return [
-                ...prev.slice(0, -1),
-                { ...lastMessage, text: partial },
-              ];
-            });
-        }).catch(() => ({ redirect: true as const }));
+        let firstVisibleReported = false;
+        let streamResult: Awaited<ReturnType<typeof askNaturalNoraStream>>;
+        try {
+          streamResult = await askNaturalNoraStream(
+            messages,
+            finalText,
+            effectiveAgendaSessionId,
+            effectiveEmailSessionId,
+            continueCommercialSession ? effectiveCommercialSessionId : null,
+            userId,
+            screenContext,
+            controller.signal,
+            {
+              onResponseId: (responseId) => {
+                if (activeCycleRef.current !== cycleId) return;
+                responseIdRef.current = responseId;
+              },
+              onStatus: (state) => setCycleState(cycleId, state),
+              onDone: () => {
+                if (activeCycleRef.current === cycleId) streamingCompleteRef.current = true;
+              },
+              onDelta: (partial, delta) => {
+                if (activeCycleRef.current !== cycleId) return;
+                if (!firstVisibleReported) {
+                  firstVisibleReported = true;
+                  window.requestAnimationFrame(() => {
+                    recordNoraTelemetry(
+                      responseIdRef.current,
+                      "first_visible_token",
+                      performance.now() - requestStartedRef.current,
+                      "text",
+                    );
+                  });
+                }
+                if (!streamStarted) {
+                  streamStarted = true;
+                  setMessages((prev) => [
+                    ...prev,
+                    { role: "ai", text: partial, agent: "geral", status: "chat" },
+                  ]);
+                } else {
+                  setMessages((prev) => {
+                    const lastMessage = prev.at(-1);
+                    if (lastMessage?.role !== "ai" || lastMessage.status !== "chat") {
+                      return [...prev, { role: "ai", text: partial, agent: "geral", status: "chat" }];
+                    }
+                    return [...prev.slice(0, -1), { ...lastMessage, text: partial }];
+                  });
+                }
+
+                if (shouldSpeak) {
+                  speechBuffer += delta;
+                  const extracted = takeNaturalSpeechSegments(speechBuffer);
+                  speechBuffer = extracted.remainder;
+                  for (const segment of extracted.segments) {
+                    speechWasQueued = true;
+                    queueSpeechSegment(segment, cycleId);
+                  }
+                }
+              },
+            },
+          );
+        } catch (error) {
+          if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+          streamResult = { redirect: true };
+        }
 
         if (!streamResult.redirect) {
+          if (activeCycleRef.current !== cycleId) return;
+          responseIdRef.current = streamResult.responseId || responseIdRef.current;
+          streamingCompleteRef.current = true;
+          if (shouldSpeak) {
+            const finalSegments = takeNaturalSpeechSegments(speechBuffer, true);
+            speechBuffer = finalSegments.remainder;
+            for (const segment of finalSegments.segments) {
+              speechWasQueued = true;
+              queueSpeechSegment(segment, cycleId);
+            }
+          }
           response = streamResult.fullText || "Entendi, mas nao recebi resposta do agente.";
+          responseSpeechText = speechTextFromDisplay(response);
           responseAgent = "geral";
           responseStatus = "chat";
-          handledInline = true;
+          handledInline = streamStarted;
         } else {
+          setCycleState(cycleId, "analyzing");
           if (streamStarted) {
             setMessages((prev) => {
               const lastMessage = prev.at(-1);
@@ -1365,6 +1618,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             userId,
             screenContext,
           );
+          if (activeCycleRef.current !== cycleId) return;
           applyNaturalAgentEffects(result);
           responseAgent = naturalIntentToAgent(result.intent);
           responseStatus = result.status;
@@ -1378,8 +1632,11 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             }
           }
           response = result.response || "Entendi, mas nao recebi resposta do agente.";
+          responseSpeechText = result.speech_text || speechTextFromDisplay(response);
         }
       }
+      if (activeCycleRef.current !== cycleId) return;
+      streamingCompleteRef.current = true;
       if (!handledInline) {
         setMessages((prev) => [
           ...prev,
@@ -1393,11 +1650,26 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           },
         ]);
       }
-      if (speakReply || voiceRepliesEnabled) speakNoraResponse(response);
+      if (shouldSpeak && !speechWasQueued) {
+        queueSpeechSegment(responseSpeechText || response, cycleId);
+      }
+      if (shouldSpeak) await speechQueueRef.current;
+      if (activeCycleRef.current !== cycleId) return;
+      recordNoraTelemetry(
+        responseIdRef.current,
+        "completed",
+        performance.now() - requestStartedRef.current,
+        shouldSpeak ? "voice" : "stream",
+      );
+      setCycleState(cycleId, "completed");
     } catch (err) {
+      if (controller.signal.aborted || activeCycleRef.current !== cycleId || (err instanceof DOMException && err.name === "AbortError")) {
+        return;
+      }
       setMessages((prev) => [...prev, { role: "ai", text: err instanceof Error ? err.message : "Erro ao se conectar com o back-end.", agent: "erro" }]);
+      setCycleState(cycleId, "error");
     } finally {
-      setLoading(false);
+      if (requestAbortRef.current === controller) requestAbortRef.current = null;
     }
   }
 
@@ -1615,17 +1887,28 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       return;
     }
 
+    cancelActiveResponse(false);
+    const cycleId = activeCycleRef.current;
+    const controller = new AbortController();
+    requestAbortRef.current = controller;
     setShowSuggestions(false);
-    setLoading(true);
+    setCycleState(cycleId, "analyzing");
     setMessages((prev) => [...prev, { role: "user", text: "Resumir esta conversa" }]);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/nora/resumir-conversa?conversa_id=${encodeURIComponent(conversaId)}`);
+      const res = await fetch(`${BACKEND_URL}/api/nora/resumir-conversa?conversa_id=${encodeURIComponent(conversaId)}`, {
+        signal: controller.signal,
+        headers: { ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}) },
+      });
       const data = await res.json();
+      if (activeCycleRef.current !== cycleId) return;
       setMessages((prev) => [...prev, { role: "ai", text: data?.resumo || "Nao achei nada para resumir.", agent: "mensagens", status: "resumo" }]);
-    } catch {
+      setCycleState(cycleId, "completed");
+    } catch (error) {
+      if (controller.signal.aborted || activeCycleRef.current !== cycleId) return;
       setMessages((prev) => [...prev, { role: "ai", text: "Falhei no resumo. O back-end resolveu tirar um cochilo.", agent: "erro" }]);
+      setCycleState(cycleId, "error");
     } finally {
-      setLoading(false);
+      if (requestAbortRef.current === controller) requestAbortRef.current = null;
     }
   }
 
@@ -1635,15 +1918,24 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       return;
     }
 
+    cancelActiveResponse(false);
+    const cycleId = activeCycleRef.current;
+    const controller = new AbortController();
+    requestAbortRef.current = controller;
     setShowSuggestions(false);
-    setLoading(true);
+    setCycleState(cycleId, "analyzing");
     setAgentDraft(null);
     setMessages((prev) => [...prev, { role: "user", text: "Gerar rascunho do Agente de Mensagens" }]);
 
     try {
       const res = await fetch(`${BACKEND_URL}/api/nora/agentes/mensagens/rascunho`, {
         method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+        },
         body: JSON.stringify({
           conversa_id: conversaId,
           instrucao: input.trim() || undefined,
@@ -1652,22 +1944,35 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || "Erro ao gerar rascunho.");
+      if (activeCycleRef.current !== cycleId) return;
       setAgentDraft(data.draft);
       setMessages((prev) => [...prev, { role: "ai", text: `Rascunho do agente:\n\n${data.draft}`, agent: "mensagens", status: "rascunho" }]);
+      setCycleState(cycleId, "completed");
     } catch (err) {
+      if (controller.signal.aborted || activeCycleRef.current !== cycleId) return;
       setMessages((prev) => [...prev, { role: "ai", text: err instanceof Error ? err.message : "Nao consegui gerar o rascunho.", agent: "erro" }]);
+      setCycleState(cycleId, "error");
     } finally {
-      setLoading(false);
+      if (requestAbortRef.current === controller) requestAbortRef.current = null;
     }
   }
 
   async function sendAgentDraft() {
     if (!conversaId || !agentDraft) return;
-    setLoading(true);
+    cancelActiveResponse(false);
+    const cycleId = activeCycleRef.current;
+    const controller = new AbortController();
+    requestAbortRef.current = controller;
+    setCycleState(cycleId, "submitting");
     try {
       const res = await fetch(`${BACKEND_URL}/api/nora/agentes/mensagens/enviar`, {
         method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+        },
         body: JSON.stringify({
           conversa_id: conversaId,
           texto: agentDraft,
@@ -1677,12 +1982,16 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || "Falha ao enviar rascunho.");
+      if (activeCycleRef.current !== cycleId) return;
       setMessages((prev) => [...prev, { role: "ai", text: "Rascunho enviado pelo Agente de Mensagens. Trabalho limpo, sem fanfic.", agent: "mensagens", status: "enviado" }]);
       setAgentDraft(null);
+      setCycleState(cycleId, "completed");
     } catch (err) {
+      if (controller.signal.aborted || activeCycleRef.current !== cycleId) return;
       setMessages((prev) => [...prev, { role: "ai", text: err instanceof Error ? err.message : "Nao consegui enviar o rascunho.", agent: "erro" }]);
+      setCycleState(cycleId, "error");
     } finally {
-      setLoading(false);
+      if (requestAbortRef.current === controller) requestAbortRef.current = null;
     }
   }
 
@@ -1734,6 +2043,11 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           ? "Voz indisponivel"
           : "Voz bloqueada";
 
+  function closeNora() {
+    cancelActiveResponse(false);
+    onClose();
+  }
+
   return (
     <AnimatePresence>
       {open && (
@@ -1743,7 +2057,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={closeNora}
           />
 
           <motion.aside
@@ -1765,7 +2079,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
                 <div className="min-w-0">
                   <h2 className="flex items-center gap-2 text-base font-bold text-white">
-                    Nora <span className="nora-online-dot" /> <span className="text-xs font-bold text-emerald-400">Online</span>
+                    Nora <span className="nora-online-dot" /> <span className="text-xs font-bold text-emerald-400">{loading ? NORA_STATE_LABELS[runState] : "Online"}</span>
                   </h2>
                   <p className="truncate text-xs font-semibold text-white/75">
                     {conversaId ? `Contexto ativo: ${conversaId}` : "Sem conversa ativa"}
@@ -1793,7 +2107,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                  aria-label={expanded ? "Voltar para lateral" : "Expandir Nora"}>
                   {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                 </Button>
-                <Button variant="ghost" size="sm" iconOnly aria-label="Fechar Nora" title="Fechar Nora" onClick={onClose} className="hover:bg-white/10">
+                <Button variant="ghost" size="sm" iconOnly aria-label="Fechar Nora" title="Fechar Nora" onClick={closeNora} className="hover:bg-white/10">
                   <X size={18} />
                 </Button>
               </div>
@@ -1846,7 +2160,14 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             </div>
             )}
 
-            <div ref={scrollRef} className={`nora-drawer-conversation flex-1 space-y-5 overflow-y-auto px-4 py-5 ${messages.length === 0 ? "is-empty" : ""}`}>
+            <div
+              ref={scrollRef}
+              onScroll={(event) => {
+                const element = event.currentTarget;
+                pinnedToBottomRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
+              }}
+              className={`nora-drawer-conversation flex-1 space-y-5 overflow-y-auto px-4 py-5 ${messages.length === 0 ? "is-empty" : ""}`}
+            >
               {messages.length === 0 && !loading && (
                 <div className="nora-empty-state">
                   <NoraAvatar className="nora-empty-avatar" />
@@ -1865,9 +2186,9 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               ))}
 
               {loading && (
-                <div className="nora-typing flex items-center gap-2 text-sm font-semibold text-[var(--text-secondary)]">
+                <div aria-live="polite" className="nora-typing flex items-center gap-2 text-sm font-semibold text-[var(--text-secondary)]">
                   <Loader2 size={15} className="animate-spin text-blue-400" />
-                  Nora está pensando...
+                  {NORA_STATE_LABELS[runState]}
                 </div>
               )}
 
@@ -1982,10 +2303,15 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
                 <motion.button
                   whileTap={{ scale: 0.94 }}
-                  onClick={() => void sendMessage()}
-                  className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-r from-blue-700 to-cyan-500 text-white shadow-sm"
+                  type="button"
+                  onClick={() => loading ? cancelActiveResponse() : void sendMessage()}
+                  aria-label={loading ? "Parar resposta da Nora" : "Enviar mensagem para a Nora"}
+                  title={loading ? "Parar resposta" : "Enviar mensagem"}
+                  className={`flex h-10 w-10 items-center justify-center rounded-lg text-white shadow-sm ${
+                    loading ? "bg-red-500 hover:bg-red-400" : "bg-gradient-to-r from-blue-700 to-cyan-500"
+                  }`}
                 >
-                  <SendHorizontal size={18} />
+                  {loading ? <Square size={16} fill="currentColor" /> : <SendHorizontal size={18} />}
                 </motion.button>
               </div>
             </div>

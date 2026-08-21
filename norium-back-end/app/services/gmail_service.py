@@ -23,7 +23,12 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
-from app.core.tenant import public_api_url, read_profile_db, write_profile_db
+from app.core.tenant import (
+    public_api_url,
+    read_account_db,
+    read_profile_db,
+    write_account_db,
+)
 from app.services.oauth_state import active_oauth_attempts, find_oauth_attempt, oauth_attempts_payload
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -51,6 +56,7 @@ OAUTH_STATE_TTL_SECONDS = 20 * 60
 MAX_OAUTH_ATTEMPTS = 5
 MAILBOX_CACHE_TTL_SECONDS = 30
 MAILBOX_CACHE_MAX_ENTRIES = 24
+INTEGRATION_DB_NAME = "gmail_integration"
 
 FOLDER_LABELS = {
     "inbox": ["INBOX"],
@@ -173,6 +179,12 @@ class GmailService:
         self._write_profile_section("gmailToken", payload)
         self._mark_sync()
         return {"connected": True, "scopes": payload.get("scopes", SCOPES)}
+
+    def cancel_oauth(self, state: str | None) -> None:
+        """Consome uma tentativa recusada pelo Google sem afetar outras abas."""
+        oauth_state = self._read_profile_section("gmailOauthState", {})
+        _, remaining_attempts = find_oauth_attempt(oauth_state, state)
+        self._write_profile_section("gmailOauthState", oauth_attempts_payload(remaining_attempts))
 
     def list_labels(self) -> dict[str, Any]:
         labels = self._service().users().labels().list(userId="me").execute().get("labels", [])
@@ -365,11 +377,7 @@ class GmailService:
         return {"sent": True, "message": sent}
 
     def disconnect(self) -> dict[str, Any]:
-        profile = self._read_profile()
-        for key in ("gmailToken", "gmailProfileCache", "gmailOauthState", "gmailSync", "gmailMailboxCache"):
-            profile.pop(key, None)
-        self._write_profile(profile)
-        self._mark_sync()
+        self._write_integration_store({})
         return {"connected": False, "status": "desconectado"}
 
     def modify_message(
@@ -939,13 +947,27 @@ class GmailService:
                     return legacy_profile[self.user_id]
         return {}
 
-    def _write_profile(self, profile: dict[str, Any]) -> None:
-        write_profile_db(self.user_id, profile)
+    def _read_integration_store(self) -> dict[str, Any]:
+        payload = read_account_db(self.user_id, INTEGRATION_DB_NAME, {})
+        return payload if isinstance(payload, dict) else {}
+
+    def _write_integration_store(self, payload: dict[str, Any]) -> None:
+        write_account_db(self.user_id, INTEGRATION_DB_NAME, payload)
 
     def _read_profile_section(self, section: str, fallback: Any) -> Any:
+        # A autorizacao pertence a conta, nao ao workspace ativo. O callback do
+        # Google nao carrega X-Norium-Workspace; guardar o state no perfil do
+        # workspace fazia contas secundarias falharem ao retornar do consentimento.
+        integration = self._read_integration_store()
+        if section in integration:
+            return integration[section]
+
+        # Migra de forma transparente os dados gravados antes da separacao.
         profile = self._read_profile()
         value = profile.get(section)
         if value is not None:
+            integration[section] = value
+            self._write_integration_store(integration)
             return value
         if self.user_id != "lucas123":
             return fallback
@@ -959,9 +981,9 @@ class GmailService:
         return self._read_json(legacy_path, fallback) if legacy_path else fallback
 
     def _write_profile_section(self, section: str, value: Any) -> None:
-        profile = self._read_profile()
-        profile[section] = value
-        self._write_profile(profile)
+        integration = self._read_integration_store()
+        integration[section] = value
+        self._write_integration_store(integration)
 
     def _safe_user_id(self) -> str:
         return re.sub(r"[^a-zA-Z0-9_.-]+", "_", self.user_id or "lucas123").strip("._") or "lucas123"

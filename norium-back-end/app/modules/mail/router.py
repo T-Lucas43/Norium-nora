@@ -159,8 +159,10 @@ async def gmail_disconnect(payload: DisconnectPayload, user: dict[str, Any] = De
 
 @router.get("/api/auth/callback/gmail", response_class=HTMLResponse)
 async def gmail_callback(
-    code: str = Query(...),
+    code: str | None = Query(default=None),
     state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
     user_id: str | None = None,
 ):
     # ``user_id`` permanece apenas por compatibilidade de contrato e nunca e
@@ -173,6 +175,35 @@ async def gmail_callback(
                 success=False,
                 title="Falha ao conectar o Gmail",
                 message="A solicitação de conexão é inválida ou expirou.",
+            ),
+            status_code=400,
+        )
+    if error:
+        GmailService(resolved_user_id).cancel_oauth(state)
+        message = (
+            "A autorização foi cancelada na Conta do Google. Nenhum acesso foi concedido."
+            if error == "access_denied"
+            else "O Google não conseguiu autorizar esta conta. Gere um novo link e tente novamente."
+        )
+        if error_description and error != "access_denied":
+            logger.warning("Google recusou OAuth do Gmail: %s", error)
+        return HTMLResponse(
+            oauth_result_html(
+                provider="Gmail",
+                success=False,
+                title="Gmail não conectado",
+                message=message,
+            ),
+            status_code=400,
+        )
+    if not code:
+        GmailService(resolved_user_id).cancel_oauth(state)
+        return HTMLResponse(
+            oauth_result_html(
+                provider="Gmail",
+                success=False,
+                title="Resposta incompleta do Google",
+                message="O Google não devolveu um código de autorização. Gere um novo link no Norium.",
             ),
             status_code=400,
         )

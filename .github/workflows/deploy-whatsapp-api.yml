@@ -6,6 +6,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  packages: write
 
 concurrency:
   group: whatsapp-api-production
@@ -15,9 +16,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      DEPLOYMENT_REGISTRY: norium-whatsapp-registry
       DEPLOYMENT_APP: norium-whatsapp-app
       WHATSAPP_APP_NAME: norium-whatsapp-api
+      REGISTRY: ghcr.io
+      IMAGE_NAME: t-lucas43/norium-nora
     steps:
       - name: Checkout WhatsApp API repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -48,43 +50,35 @@ jobs:
           done
           test -n "$OWNER_USER_ID"
 
-      - name: Provision private registry
-        id: registry
-        shell: bash
-        run: |
-          set -euo pipefail
-          az deployment group create \
-            --name "$DEPLOYMENT_REGISTRY" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --template-file whatsapp-api/infra/registry.bicep \
-            --output none
-          registry_name="$(az deployment group show \
-            --name "$DEPLOYMENT_REGISTRY" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --query properties.outputs.registryName.value \
-            --output tsv)"
-          login_server="$(az deployment group show \
-            --name "$DEPLOYMENT_REGISTRY" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --query properties.outputs.registryLoginServer.value \
-            --output tsv)"
-          echo "registry_name=$registry_name" >> "$GITHUB_OUTPUT"
-          echo "login_server=$login_server" >> "$GITHUB_OUTPUT"
-
-      - name: Build immutable image in Azure
-        id: image
+      - name: Resolve immutable source revision
+        id: source
         shell: bash
         run: |
           set -euo pipefail
           source_sha="$(git -C whatsapp-api rev-parse HEAD)"
-          reference="${{ steps.registry.outputs.login_server }}/norium-whatsapp-api:sha-${source_sha}"
-          az acr build \
-            --registry "${{ steps.registry.outputs.registry_name }}" \
-            --image "norium-whatsapp-api:sha-${source_sha}" \
-            --file whatsapp-api/Dockerfile \
-            whatsapp-api \
-            --output none
-          echo "reference=$reference" >> "$GITHUB_OUTPUT"
+          echo "sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "reference=${REGISTRY}/${IMAGE_NAME}:whatsapp-sha-${source_sha}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Authenticate with GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish immutable WhatsApp image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: whatsapp-api
+          file: whatsapp-api/Dockerfile
+          push: true
+          tags: ${{ steps.source.outputs.reference }}
+          cache-from: type=gha,scope=whatsapp-api
+          cache-to: type=gha,mode=max,scope=whatsapp-api
+          provenance: mode=max
+          sbom: true
 
       - name: Provision API and persistent session storage
         id: app
@@ -96,14 +90,22 @@ jobs:
           WEBHOOK_SECRET: ${{ secrets.WHATSAPP_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
+          registry_password="$(az containerapp secret list \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --show-values \
+            --query "[?name=='ghcr-token'].value | [0]" \
+            --output tsv)"
+          test -n "$registry_password"
+          echo "::add-mask::$registry_password"
           az deployment group create \
             --name "$DEPLOYMENT_APP" \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --template-file whatsapp-api/infra/main.bicep \
             --parameters \
               appName="$WHATSAPP_APP_NAME" \
-              registryName="${{ steps.registry.outputs.registry_name }}" \
-              containerImage="${{ steps.image.outputs.reference }}" \
+              containerImage="${{ steps.source.outputs.reference }}" \
+              registryPassword="$registry_password" \
               noriumWebhookUrl="${{ vars.AZURE_PUBLIC_URL }}/api/whatsapp/webhook" \
               allowedOrigin="${{ vars.AZURE_PUBLIC_URL }}" \
               noriumOwnerUserId="${{ vars.WHATSAPP_OWNER_USER_ID }}" \

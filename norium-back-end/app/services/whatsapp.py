@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class WhatsAppService:
     def __init__(self) -> None:
+        self.instance_id = ""
         self.base_url = os.getenv("WHATSAPP_API_URL", "").strip().rstrip("/")
         self.api_key = os.getenv("WHATSAPP_API_KEY", "").strip()
         self.headers = {

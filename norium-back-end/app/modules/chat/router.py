@@ -197,7 +197,7 @@ async def obter_foto_perfil(
 
 @router.get("/api/chat/media-proxy")
 async def media_proxy(
-    url: str = Query(..., description="URL original do arquivo recebida pelo WhatsApp"),
+    url: str = Query(..., description="URL original do arquivo vinda da Z-API"),
     user: dict[str, Any] = Depends(current_user),
 ):
     if tenant_id(user) != WHATSAPP_OWNER_USER_ID:

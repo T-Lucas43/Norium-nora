@@ -1320,7 +1320,7 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
             canal_label = "Telegram" if payload.canal == "telegram" else "WhatsApp"
             return {"response": f"Enviei no {canal_label}:\n\n{texto_envio}", "whatsapp_enviado": True}
 
-        gateway_label = "Telegram" if payload.canal == "telegram" else "Z-API"
+        gateway_label = "Telegram" if payload.canal == "telegram" else "API privada do WhatsApp"
         return {
             "response": f"{texto_envio}\n\n[{gateway_label}]: falha ao tentar disparar automaticamente para o cliente.",
             "whatsapp_enviado": False,
@@ -1391,5 +1391,5 @@ async def enviar_rascunho_agente_mensagens(payload: AgentExecutePayload, user: d
     if result.get("status") == "telegram_restrito":
         raise HTTPException(status_code=403, detail=result.get("detail") or "Telegram restrito.")
     if result.get("status") == "falha_gateway":
-        raise HTTPException(status_code=502, detail="Z-API recusou o envio do agente.")
+        raise HTTPException(status_code=502, detail="A API do WhatsApp recusou o envio do agente.")
     return result

@@ -35,7 +35,7 @@ const integrations: Integration[] = [
   },
   {
     name: "WhatsApp",
-    subtitle: "Conversas via Z-API",
+    subtitle: "Conversas pela API privada Norium",
     tab: "Chat",
     icon: MessageCircle,
     iconClass: "text-emerald-400",

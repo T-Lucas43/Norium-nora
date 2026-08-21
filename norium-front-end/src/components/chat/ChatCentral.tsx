@@ -169,6 +169,44 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
   }, [carregarConversasDoBackend, userId]);
 
   useEffect(() => {
+    if (canalSelecionadoLogin !== "whatsapp") return;
+    let active = true;
+
+    const atualizarQrCode = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/chat/status-canais?user_id=${userId}`, { cache: "no-store" });
+        if (!res.ok || !active) return;
+        const data = await res.json();
+        const whatsapp = data.whatsapp || {};
+        setCanaisStatus(data);
+        if (whatsapp.conectado) {
+          setQrCodeString(null);
+          setErroLogin(null);
+          setMensagemLogin("WhatsApp conectado com sucesso.");
+          await carregarConversasDoBackend();
+          return;
+        }
+        if (whatsapp.qrcode) {
+          setQrCodeString(whatsapp.qrcode);
+          setErroLogin(null);
+          setMensagemLogin("Abra o WhatsApp no celular, acesse Aparelhos conectados e escaneie este QR Code.");
+        } else {
+          setMensagemLogin("Preparando uma conexao segura e gerando o QR Code...");
+        }
+      } catch {
+        if (active) setMensagemLogin("A API esta iniciando. O QR Code aparecera automaticamente.");
+      }
+    };
+
+    void atualizarQrCode();
+    const interval = window.setInterval(() => void atualizarQrCode(), 3000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [canalSelecionadoLogin, carregarConversasDoBackend, userId]);
+
+  useEffect(() => {
     const atualizarSeVisivel = () => {
       if (!document.hidden && !canalSelecionadoLogin) {
         void carregarConversasDoBackend(true);
@@ -513,6 +551,15 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
       if (res.ok) {
         const data = await res.json();
         if (data.qrcode) setQrCodeString(data.qrcode);
+        if (canal === "whatsapp") {
+          setMensagemLogin(
+            data.status === "conectado"
+              ? "WhatsApp conectado com sucesso."
+              : data.qrcode
+                ? "Escaneie o QR Code com o WhatsApp do celular."
+                : "Preparando uma conexao segura e gerando o QR Code..."
+          );
+        }
         if (canal === "telegram") {
           setMensagemLogin(
             data.status === "conectado_polling"
@@ -523,7 +570,7 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
           await carregarConversasDoBackend();
         }
       } else {
-        setErroLogin((await res.json()).detail || "Erro Z-API.");
+        setErroLogin((await res.json()).detail || "A API do WhatsApp nao respondeu.");
       }
     } catch { setErroLogin("Erro de conexão."); }
   };
@@ -620,13 +667,27 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
 
   if (canalSelecionadoLogin === "whatsapp") {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-[var(--background)] p-6 font-sans">
-        <div className="w-[400px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-6 text-center space-y-4 text-xs font-bold text-[var(--text)]">
-          <h3 className="text-sm font-extrabold text-emerald-500">Autenticação WhatsApp</h3>
-          <div className="h-48 w-48 bg-white mx-auto flex items-center justify-center rounded-xl p-3 shadow-inner overflow-hidden">
-            {erroLogin ? <span className="text-red-500">{erroLogin}</span> : qrCodeString ? <img src={qrCodeString} className="w-full h-full object-contain" /> : <span className="text-neutral-400 animate-pulse">Gerando...</span>}
+      <div className="w-full h-full min-h-0 overflow-y-auto flex items-start sm:items-center justify-center bg-[var(--background)] p-4 sm:p-6 font-sans">
+        <div className="w-full max-w-[420px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 sm:p-7 text-center space-y-4 text-xs font-bold text-[var(--text)] shadow-2xl">
+          <div>
+            <h3 className="text-base font-extrabold text-emerald-500">Conectar WhatsApp</h3>
+            <p className="mt-2 text-[var(--text-secondary)] leading-5">O QR Code e gerado pela API privada do Norium e atualizado automaticamente nesta tela.</p>
           </div>
-          <button onClick={() => setCanalSelecionadoLogin(null)} className="text-[var(--text-secondary)] hover:underline block mx-auto mt-2">Voltar</button>
+          <div className="aspect-square w-full max-w-[300px] bg-white mx-auto flex items-center justify-center rounded-2xl p-3 shadow-inner overflow-hidden">
+            {erroLogin ? (
+              <span className="text-red-600 px-4 leading-5">{erroLogin}</span>
+            ) : qrCodeString ? (
+              <img src={qrCodeString} alt="QR Code para conectar o WhatsApp ao Norium" className="w-full h-full object-contain" />
+            ) : canaisStatus.whatsapp?.conectado ? (
+              <span className="text-emerald-700 px-4 text-sm">Conectado</span>
+            ) : (
+              <span className="text-neutral-500 animate-pulse px-4">Gerando QR Code...</span>
+            )}
+          </div>
+          <p className="min-h-10 text-[var(--text-secondary)] leading-5">{mensagemLogin}</p>
+          <Button onClick={() => setCanalSelecionadoLogin(null)} className="w-full">
+            {canaisStatus.whatsapp?.conectado ? "Abrir conversas" : "Voltar"}
+          </Button>
         </div>
       </div>
     );

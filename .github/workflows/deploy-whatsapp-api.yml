@@ -189,11 +189,17 @@ jobs:
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
             --set-env-vars \
-              WHATSAPP_API_URL="${{ steps.app.outputs.public_url }}/v1/compat" \
+              WHATSAPP_API_URL="${{ steps.app.outputs.public_url }}/v1" \
               WHATSAPP_API_KEY=secretref:whatsapp-api-key \
               WHATSAPP_WEBHOOK_HMAC_SECRET=secretref:whatsapp-webhook-hmac-secret \
               WHATSAPP_WEBHOOK_SECRET=secretref:whatsapp-webhook-secret \
               WHATSAPP_OWNER_USER_ID="${{ steps.owner.outputs.user_id }}" \
+            --remove-env-vars \
+              WHATSAPP_INSTANCE_ID \
+              WHATSAPP_INSTANCE_TOKEN \
+              WHATSAPP_CLIENT_TOKEN \
+              ZAPI_INSTANCE_ID \
+              ZAPI_TOKEN \
             --output none
 
       - name: Verify both production services

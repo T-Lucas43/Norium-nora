@@ -197,7 +197,7 @@ async def obter_foto_perfil(
 
 @router.get("/api/chat/media-proxy")
 async def media_proxy(
-    url: str = Query(..., description="URL original do arquivo vinda da Z-API"),
+    url: str = Query(..., description="URL original do arquivo recebida pelo WhatsApp"),
     user: dict[str, Any] = Depends(current_user),
 ):
     if tenant_id(user) != WHATSAPP_OWNER_USER_ID:
@@ -209,10 +209,9 @@ async def media_proxy(
         raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
     try:
         async with httpx.AsyncClient(follow_redirects=False) as client:
-            headers = {"client-token": whatsapp_service.headers.get("client-token", "")}
-            res_media = await client.get(url, headers=headers, timeout=25.0)
+            res_media = await client.get(url, timeout=25.0)
             if res_media.status_code != 200:
-                raise HTTPException(status_code=404, detail="Midia indisponivel na Z-API.")
+                raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
             if len(res_media.content) > MAX_UPLOAD_BYTES:
                 raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
             content_type = res_media.headers.get("Content-Type", "application/octet-stream")
@@ -309,20 +308,22 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
     if resultado["status"] == "aguardando_qrcode":
         user_status["whatsapp"]["conectado"] = False
         return {"status": "aguardando_qrcode", "qrcode": resultado["qrcode"]}
-    raise HTTPException(status_code=400, detail="Erro ao gerar QR Code.")
+    if resultado["status"] == "iniciando":
+        user_status["whatsapp"]["conectado"] = False
+        return {"status": "iniciando", "qrcode": None}
+    raise HTTPException(status_code=503, detail="API do WhatsApp ainda nao esta disponivel.")
 
 
 @router.post("/api/whatsapp/webhook")
 async def webhook_whatsapp(
     data: Dict[str, Any] = Body(...),
     x_whatsapp_webhook_secret: str | None = Header(default=None),
-    client_token: str | None = Header(default=None, alias="client-token"),
     x_norium_timestamp: str | None = Header(default=None),
     x_norium_signature: str | None = Header(default=None),
     x_norium_event_id: str | None = Header(default=None),
     request: Request = None,
 ):
-    supplied_secret = x_whatsapp_webhook_secret or client_token or ""
+    supplied_secret = x_whatsapp_webhook_secret or ""
     if not WHATSAPP_WEBHOOK_SECRET and os.getenv("ENVIRONMENT", "development").strip().lower() == "production":
         raise HTTPException(status_code=503, detail="Webhook WhatsApp indisponivel ate a configuracao segura.")
     if WHATSAPP_WEBHOOK_SECRET and not secrets.compare_digest(supplied_secret, WHATSAPP_WEBHOOK_SECRET):
@@ -353,9 +354,6 @@ async def webhook_whatsapp(
             if x_norium_event_id in whatsapp_webhook_event_cache:
                 return {"status": "duplicate"}
             whatsapp_webhook_event_cache[x_norium_event_id] = now + 600
-    received_instance = str(data.get("instanceId") or data.get("instance_id") or "").strip()
-    if received_instance and whatsapp_service.instance_id and received_instance != whatsapp_service.instance_id:
-        raise HTTPException(status_code=403, detail="Instancia WhatsApp nao autorizada.")
     phone = data.get("phone") or data.get("chatId") or data.get("from")
     if not phone:
         return {"status": "ignored"}
@@ -527,8 +525,8 @@ async def obter_conversas(
                 return_exceptions=True,
             )
 
-            contacts = parse_zapi_collection(res_contacts) if isinstance(res_contacts, httpx.Response) else []
-            chats = parse_zapi_collection(res_chats) if isinstance(res_chats, httpx.Response) else []
+            contacts = parse_whatsapp_collection(res_contacts) if isinstance(res_contacts, httpx.Response) else []
+            chats = parse_whatsapp_collection(res_chats) if isinstance(res_chats, httpx.Response) else []
 
             nomes, fotos, metadata = build_contact_indexes(contacts)
 
@@ -638,7 +636,7 @@ async def obter_contatos_disponiveis(user_id: str = "lucas123", user: dict[str, 
     try:
         async with httpx.AsyncClient() as client:
             res = await client.get(f"{whatsapp_service.base_url}/contacts", headers=whatsapp_service.headers, timeout=10.0)
-            contatos = parse_zapi_collection(res)
+            contatos = parse_whatsapp_collection(res)
             contatos_whatsapp = [
                 {
                     "id": c.get("id") or c.get("phone") or c.get("jid"),
@@ -694,7 +692,7 @@ async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] =
     assert_whatsapp_owner(user)
     sucesso = await whatsapp_service.enviar_mensagem_texto(payload.conversa_id, payload.texto)
     if not sucesso:
-        raise HTTPException(status_code=502, detail="Z-API recusou o envio.")
+        raise HTTPException(status_code=502, detail="A API do WhatsApp recusou o envio.")
 
     await append_outgoing_message(
         payload.conversa_id,
@@ -816,7 +814,7 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
         texto = legenda or "[Documento]"
 
     if not sucesso:
-        raise HTTPException(status_code=502, detail="Z-API recusou o envio do arquivo.")
+        raise HTTPException(status_code=502, detail="A API do WhatsApp recusou o envio do arquivo.")
 
     hora, timestamp = current_clock()
     await append_message(
@@ -1145,7 +1143,7 @@ def is_group_chat(phone: str, data: Dict[str, Any] | None = None) -> bool:
     return explicit or "@g.us" in lowered or lowered.endswith("-group")
 
 
-def parse_zapi_collection(response: httpx.Response) -> list[Dict[str, Any]]:
+def parse_whatsapp_collection(response: httpx.Response) -> list[Dict[str, Any]]:
     if response.status_code != 200:
         return []
     payload = response.json()
@@ -1282,7 +1280,7 @@ async def fetch_profile_picture(phone: str, client: httpx.AsyncClient | None = N
     owns_client = client is None
     active_client = client or httpx.AsyncClient()
     try:
-        url_foto = f"{whatsapp_service.base_url}/profile-picture?phone={query_phone}"
+        url_foto = f"{whatsapp_service.base_url}/contacts/{quote(query_phone, safe='')}/profile-picture"
         response = await active_client.get(url_foto, headers=whatsapp_service.headers, timeout=6.0)
         if response.status_code == 200:
             data = response.json()
@@ -1301,7 +1299,7 @@ async def fetch_group_metadata(phone: str, client: httpx.AsyncClient | None = No
     group_id = phone.strip()
     try:
         response = await active_client.get(
-            f"{whatsapp_service.base_url}/group-metadata/{quote(group_id, safe='')}",
+            f"{whatsapp_service.base_url}/groups/{quote(group_id, safe='')}",
             headers=whatsapp_service.headers,
             timeout=8.0,
         )

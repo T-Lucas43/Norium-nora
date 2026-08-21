@@ -561,7 +561,7 @@ def integration_health(user_id: str, events: list[dict[str, Any]], audits: list[
     profile = read_profile_db(user_id, {})
     gmail_connected = _token_connected(profile, "gmailToken")
     calendar_connected = _token_connected(profile, "calendarToken") and not bool(profile.get("calendarTokenRevoked"))
-    whatsapp_configured = bool(os.getenv("ZAPI_INSTANCE_ID") and os.getenv("ZAPI_TOKEN"))
+    whatsapp_configured = bool(os.getenv("WHATSAPP_API_URL") and os.getenv("WHATSAPP_API_KEY"))
     telegram_configured = bool(os.getenv("TELEGRAM_BOT_TOKEN"))
 
     audits = audits or []
@@ -600,7 +600,7 @@ def integration_health(user_id: str, events: list[dict[str, Any]], audits: list[
             "status": "online" if whatsapp_configured else "attention",
             "connected": whatsapp_configured,
             "lastSync": _last_event_by_source(events, "whatsapp"),
-            "detail": "Gateway configurado" if whatsapp_configured else "Gateway nao configurado",
+            "detail": "API privada configurada" if whatsapp_configured else "API privada nao configurada",
             "permissions": ["Mensagens", "Midias"] if whatsapp_configured else [],
             "failures": failure_count("whatsapp"),
         },

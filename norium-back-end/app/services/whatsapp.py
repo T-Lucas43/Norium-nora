@@ -13,14 +13,24 @@ class WhatsAppService:
         self.instance_id = os.getenv("WHATSAPP_INSTANCE_ID", "").strip()
         self.instance_token = os.getenv("WHATSAPP_INSTANCE_TOKEN", "").strip()
         self.client_token = os.getenv("WHATSAPP_CLIENT_TOKEN", "").strip()
-        
-        self.base_url = f"https://api.z-api.io/instances/{self.instance_id}/token/{self.instance_token}"
-        
-        # Chave em minúsculo protegida conforme os padrões exigidos pela Z-API
-        self.headers = {
-            "client-token": self.client_token,
-            "Content-Type": "application/json"
-        }
+        self.api_url = os.getenv("WHATSAPP_API_URL", "").strip().rstrip("/")
+        self.api_key = os.getenv("WHATSAPP_API_KEY", "").strip()
+
+        if self.api_url:
+            self.base_url = self.api_url
+            self.headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            self.provider = "openwa"
+        else:
+            self.base_url = f"https://api.z-api.io/instances/{self.instance_id}/token/{self.instance_token}"
+            # Compatibilidade temporaria com a integracao legada.
+            self.headers = {
+                "client-token": self.client_token,
+                "Content-Type": "application/json",
+            }
+            self.provider = "z-api"
 
     async def inicializar_instancia(self, user_id: str) -> Dict[str, Any]:
         async with httpx.AsyncClient() as client:
@@ -47,10 +57,7 @@ class WhatsAppService:
     async def enviar_mensagem_texto(self, numero: str, texto: str) -> bool:
         async with httpx.AsyncClient() as client:
             try:
-                payload = {
-                    "phone": numero, 
-                    "message": texto
-                }
+                payload = {"phone": numero, "message": texto}
                 res = await client.post(f"{self.base_url}/send-text", json=payload, headers=self.headers, timeout=10.0)
                 logger.info("Gateway WhatsApp respondeu ao envio de texto com status %s.", res.status_code)
                 return res.status_code in [200, 201]

@@ -1,0 +1,154 @@
+name: Deploy WhatsApp API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: whatsapp-api-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOYMENT_REGISTRY: norium-whatsapp-registry
+      DEPLOYMENT_APP: norium-whatsapp-app
+      WHATSAPP_APP_NAME: norium-whatsapp-api
+    steps:
+      - name: Checkout WhatsApp API repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: T-Lucas43/norium-whatsapp-api
+          ref: main
+          path: whatsapp-api
+
+      - name: Authenticate with Azure using OpenID Connect
+        uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate protected configuration
+        shell: bash
+        env:
+          NORIUM_API_KEY: ${{ secrets.WHATSAPP_API_KEY }}
+          ADMIN_API_KEY: ${{ secrets.WHATSAPP_ADMIN_API_KEY }}
+          HMAC_SECRET: ${{ secrets.WHATSAPP_WEBHOOK_HMAC_SECRET }}
+          WEBHOOK_SECRET: ${{ secrets.WHATSAPP_WEBHOOK_SECRET }}
+          OWNER_USER_ID: ${{ vars.WHATSAPP_OWNER_USER_ID }}
+        run: |
+          set -euo pipefail
+          for value in "$NORIUM_API_KEY" "$ADMIN_API_KEY" "$HMAC_SECRET" "$WEBHOOK_SECRET"; do
+            test "${#value}" -ge 32
+          done
+          test -n "$OWNER_USER_ID"
+
+      - name: Provision private registry
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          az deployment group create \
+            --name "$DEPLOYMENT_REGISTRY" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --template-file whatsapp-api/infra/registry.bicep \
+            --output none
+          registry_name="$(az deployment group show \
+            --name "$DEPLOYMENT_REGISTRY" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query properties.outputs.registryName.value \
+            --output tsv)"
+          login_server="$(az deployment group show \
+            --name "$DEPLOYMENT_REGISTRY" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query properties.outputs.registryLoginServer.value \
+            --output tsv)"
+          echo "registry_name=$registry_name" >> "$GITHUB_OUTPUT"
+          echo "login_server=$login_server" >> "$GITHUB_OUTPUT"
+
+      - name: Build immutable image in Azure
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C whatsapp-api rev-parse HEAD)"
+          reference="${{ steps.registry.outputs.login_server }}/norium-whatsapp-api:sha-${source_sha}"
+          az acr build \
+            --registry "${{ steps.registry.outputs.registry_name }}" \
+            --image "norium-whatsapp-api:sha-${source_sha}" \
+            --file whatsapp-api/Dockerfile \
+            whatsapp-api \
+            --output none
+          echo "reference=$reference" >> "$GITHUB_OUTPUT"
+
+      - name: Provision API and persistent session storage
+        id: app
+        shell: bash
+        env:
+          NORIUM_API_KEY: ${{ secrets.WHATSAPP_API_KEY }}
+          ADMIN_API_KEY: ${{ secrets.WHATSAPP_ADMIN_API_KEY }}
+          HMAC_SECRET: ${{ secrets.WHATSAPP_WEBHOOK_HMAC_SECRET }}
+          WEBHOOK_SECRET: ${{ secrets.WHATSAPP_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+          az deployment group create \
+            --name "$DEPLOYMENT_APP" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --template-file whatsapp-api/infra/main.bicep \
+            --parameters \
+              appName="$WHATSAPP_APP_NAME" \
+              registryName="${{ steps.registry.outputs.registry_name }}" \
+              containerImage="${{ steps.image.outputs.reference }}" \
+              noriumWebhookUrl="${{ vars.AZURE_PUBLIC_URL }}/api/whatsapp/webhook" \
+              allowedOrigin="${{ vars.AZURE_PUBLIC_URL }}" \
+              noriumOwnerUserId="${{ vars.WHATSAPP_OWNER_USER_ID }}" \
+              noriumApiKey="$NORIUM_API_KEY" \
+              adminApiKey="$ADMIN_API_KEY" \
+              webhookHmacSecret="$HMAC_SECRET" \
+              noriumWebhookSecret="$WEBHOOK_SECRET" \
+            --output none
+          public_url="$(az deployment group show \
+            --name "$DEPLOYMENT_APP" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query properties.outputs.publicUrl.value \
+            --output tsv)"
+          echo "public_url=$public_url" >> "$GITHUB_OUTPUT"
+
+      - name: Connect Norium to the private API
+        shell: bash
+        env:
+          NORIUM_API_KEY: ${{ secrets.WHATSAPP_API_KEY }}
+          HMAC_SECRET: ${{ secrets.WHATSAPP_WEBHOOK_HMAC_SECRET }}
+          WEBHOOK_SECRET: ${{ secrets.WHATSAPP_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+          az containerapp secret set \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --secrets \
+              whatsapp-api-key="$NORIUM_API_KEY" \
+              whatsapp-webhook-hmac-secret="$HMAC_SECRET" \
+              whatsapp-webhook-secret="$WEBHOOK_SECRET" \
+            --output none
+          az containerapp update \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --set-env-vars \
+              WHATSAPP_API_URL="${{ steps.app.outputs.public_url }}/v1/compat" \
+              WHATSAPP_API_KEY=secretref:whatsapp-api-key \
+              WHATSAPP_WEBHOOK_HMAC_SECRET=secretref:whatsapp-webhook-hmac-secret \
+              WHATSAPP_WEBHOOK_SECRET=secretref:whatsapp-webhook-secret \
+              WHATSAPP_OWNER_USER_ID="${{ vars.WHATSAPP_OWNER_USER_ID }}" \
+            --output none
+
+      - name: Verify both production services
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --retry 24 --retry-delay 10 --retry-all-errors "${{ steps.app.outputs.public_url }}/health"
+          curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health"

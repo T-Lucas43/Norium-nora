@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import mimetypes
 import logging
 import os
 import re
 import secrets
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +20,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import Field
 
@@ -64,12 +67,14 @@ TELEGRAM_ALLOWED_CHAT_IDS = {
 }
 WHATSAPP_OWNER_USER_ID = os.getenv("WHATSAPP_OWNER_USER_ID", "").strip()
 WHATSAPP_WEBHOOK_SECRET = os.getenv("WHATSAPP_WEBHOOK_SECRET", "").strip()
+WHATSAPP_WEBHOOK_HMAC_SECRET = os.getenv("WHATSAPP_WEBHOOK_HMAC_SECRET", "").strip()
 WHATSAPP_MEDIA_HOSTS = {
     item.strip().lower()
     for item in os.getenv("WHATSAPP_MEDIA_HOSTS", "").split(",")
     if item.strip()
 }
 profile_photo_attempt_cache: Dict[str, int] = {}
+whatsapp_webhook_event_cache: Dict[str, float] = {}
 UPLOAD_DIR = get_data_root() / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = 14 * 1024 * 1024
@@ -309,15 +314,43 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
 
 @router.post("/api/whatsapp/webhook")
 async def webhook_whatsapp(
+    request: Request,
     data: Dict[str, Any] = Body(...),
     x_whatsapp_webhook_secret: str | None = Header(default=None),
     client_token: str | None = Header(default=None, alias="client-token"),
+    x_norium_timestamp: str | None = Header(default=None),
+    x_norium_signature: str | None = Header(default=None),
+    x_norium_event_id: str | None = Header(default=None),
 ):
     supplied_secret = x_whatsapp_webhook_secret or client_token or ""
     if not WHATSAPP_WEBHOOK_SECRET and os.getenv("ENVIRONMENT", "development").strip().lower() == "production":
         raise HTTPException(status_code=503, detail="Webhook WhatsApp indisponivel ate a configuracao segura.")
     if WHATSAPP_WEBHOOK_SECRET and not secrets.compare_digest(supplied_secret, WHATSAPP_WEBHOOK_SECRET):
         raise HTTPException(status_code=403, detail="Webhook WhatsApp nao autorizado.")
+    if WHATSAPP_WEBHOOK_HMAC_SECRET:
+        try:
+            timestamp = int(x_norium_timestamp or "")
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail="Assinatura do webhook ausente ou invalida.") from exc
+        if abs(int(time.time()) - timestamp) > 300:
+            raise HTTPException(status_code=403, detail="Assinatura do webhook expirada.")
+        raw_body = await request.body()
+        expected_signature = "sha256=" + hmac.new(
+            WHATSAPP_WEBHOOK_HMAC_SECRET.encode("utf-8"),
+            f"{timestamp}.".encode("utf-8") + raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        if not x_norium_signature or not secrets.compare_digest(x_norium_signature, expected_signature):
+            raise HTTPException(status_code=403, detail="Assinatura do webhook invalida.")
+
+        now = time.time()
+        expired_ids = [event_id for event_id, expires_at in whatsapp_webhook_event_cache.items() if expires_at <= now]
+        for event_id in expired_ids:
+            whatsapp_webhook_event_cache.pop(event_id, None)
+        if x_norium_event_id:
+            if x_norium_event_id in whatsapp_webhook_event_cache:
+                return {"status": "duplicate"}
+            whatsapp_webhook_event_cache[x_norium_event_id] = now + 600
     received_instance = str(data.get("instanceId") or data.get("instance_id") or "").strip()
     if received_instance and whatsapp_service.instance_id and received_instance != whatsapp_service.instance_id:
         raise HTTPException(status_code=403, detail="Instancia WhatsApp nao autorizada.")

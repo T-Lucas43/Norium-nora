@@ -190,6 +190,7 @@ async def obter_upload_local(file_name: str, user: dict[str, Any] = Depends(curr
 async def obter_status_canais(user_id: str, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     user_status = connection_status(resolved_user_id)
+    user_status["whatsapp"] = {"conectado": False, "qrcode": None}
     try:
         if resolved_user_id != WHATSAPP_OWNER_USER_ID:
             user_status["whatsapp"] = {"conectado": False, "qrcode": None, "disponivel": False, "restrito": True}
@@ -198,6 +199,7 @@ async def obter_status_canais(user_id: str, user: dict[str, Any] = Depends(curre
             user_status["whatsapp"]["conectado"] = resultado["status"] == "conectado"
             user_status["whatsapp"]["qrcode"] = None if resultado["status"] == "conectado" else resultado.get("qrcode")
     except Exception:
+        user_status["whatsapp"] = {"conectado": False, "qrcode": None, "disponivel": False}
         logger.exception("Falha ao sincronizar status WhatsApp.")
     return user_status
 

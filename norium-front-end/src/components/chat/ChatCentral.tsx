@@ -70,6 +70,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const cancelarEnvioAudioRef = useRef<boolean>(false);
   const carregandoConversasRef = useRef(false);
   const cursorConversasRef = useRef(0);
+  const whatsappConectadoRef = useRef(false);
 
   const formatarTempo = (segundos: number): string => {
     const mins = Math.floor(segundos / 60);
@@ -151,24 +152,47 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   }, []);
 
   useEffect(() => {
+    let active = true;
+
     async function checarAutenticacao() {
       try {
-        setLoadingStatus(true);
-        const res = await fetch(`${BACKEND_URL}/api/chat/status-canais?user_id=${userId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setCanaisStatus(data);
-          if (data.whatsapp?.conectado) {
+        const res = await fetch(`${BACKEND_URL}/api/chat/status-canais?user_id=${userId}`, { cache: "no-store" });
+        if (!res.ok) throw new Error("Status do WhatsApp indisponivel.");
+        const data = await res.json();
+        if (!active) return;
+        const conectado = data.whatsapp?.conectado === true;
+        const estavaConectado = whatsappConectadoRef.current;
+        whatsappConectadoRef.current = conectado;
+        setCanaisStatus(data);
+        if (conectado) {
+          if (!estavaConectado) {
             await carregarConversasDoBackend();
-          } else {
-            setConversas([]);
-            setConversaSelecionada(null);
           }
+        } else {
+          cursorConversasRef.current = 0;
+          setConversas([]);
+          setConversaSelecionada(null);
         }
-      } catch (err) { console.error(err); } 
-      finally { setLoadingStatus(false); }
+      } catch (err) {
+        console.error(err);
+        if (active) {
+          whatsappConectadoRef.current = false;
+          cursorConversasRef.current = 0;
+          setCanaisStatus({ whatsapp: { conectado: false, qrcode: null } });
+          setConversas([]);
+          setConversaSelecionada(null);
+        }
+      } finally {
+        if (active) setLoadingStatus(false);
+      }
     }
-    checarAutenticacao();
+
+    void checarAutenticacao();
+    const intervalo = window.setInterval(() => void checarAutenticacao(), 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(intervalo);
+    };
   }, [carregarConversasDoBackend, userId]);
 
   useEffect(() => {
@@ -183,6 +207,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         const whatsapp = data.whatsapp || {};
         setCanaisStatus(data);
         if (whatsapp.conectado) {
+          whatsappConectadoRef.current = true;
           setQrCodeString(null);
           setErroLogin(null);
           setMensagemLogin("WhatsApp conectado com sucesso.");
@@ -190,6 +215,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           if (active) setCanalSelecionadoLogin(null);
           return;
         }
+        whatsappConectadoRef.current = false;
+        cursorConversasRef.current = 0;
+        setConversas([]);
+        setConversaSelecionada(null);
         if (whatsapp.qrcode) {
           setQrCodeString(whatsapp.qrcode);
           setErroLogin(null);

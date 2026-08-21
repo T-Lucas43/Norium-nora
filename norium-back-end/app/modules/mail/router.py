@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, Response
 from pydantic import Field
 
@@ -157,14 +157,31 @@ async def gmail_disconnect(payload: DisconnectPayload, user: dict[str, Any] = De
     return GmailService(tenant_id(user)).disconnect()
 
 
-@router.get("/api/auth/callback/gmail", response_class=HTMLResponse)
+@router.get(
+    "/api/auth/callback/gmail",
+    response_class=HTMLResponse,
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "code",
+                "in": "query",
+                "required": True,
+                "schema": {"type": "string", "title": "Code"},
+            }
+        ]
+    },
+)
 async def gmail_callback(
-    code: str | None = Query(default=None),
+    request: Request,
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
     user_id: str | None = None,
 ):
+    # O Google pode devolver apenas ``error`` quando o usuario cancela. Leitura
+    # direta permite exibir a pagina correta sem enfraquecer o contrato OpenAPI
+    # historico, no qual ``code`` continua documentado como obrigatorio.
+    code = request.query_params.get("code")
     # ``user_id`` permanece apenas por compatibilidade de contrato e nunca e
     # usado como autorizacao. A conta vem exclusivamente do state aleatorio.
     resolved_user_id = GmailService.user_id_from_state(state)

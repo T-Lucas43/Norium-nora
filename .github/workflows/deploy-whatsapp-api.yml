@@ -50,6 +50,38 @@ jobs:
           done
           test -n "$OWNER_USER_ID"
 
+      - name: Resolve the production owner from persistent storage
+        id: owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          fallback="${{ vars.WHATSAPP_OWNER_USER_ID }}"
+          storage_account="$(az storage account list \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query "[?tags.application=='norium'].name | [0]" \
+            --output tsv)"
+          owner_id="$fallback"
+          if [ -n "$storage_account" ]; then
+            storage_key="$(az storage account keys list \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --account-name "$storage_account" \
+              --query '[0].value' \
+              --output tsv)"
+            echo "::add-mask::$storage_key"
+            if az storage file download \
+              --account-name "$storage_account" \
+              --account-key "$storage_key" \
+              --share-name norium-data \
+              --path usuarios_db.json \
+              --dest "${RUNNER_TEMP}/norium-users.json" \
+              --output none; then
+              persisted_owner="$(python3 -c 'import json,sys; users=json.load(open(sys.argv[1], encoding="utf-8")).get("users", []); active=[u for u in users if isinstance(u, dict) and u.get("status") != "inativo"]; choices=[u for u in active if u.get("systemAdmin")] or [u for u in active if str(u.get("email", "")).lower()=="tarcisiolucas43@gmail.com"] or [u for u in active if u.get("role")=="owner"]; print(str(choices[0].get("id", "")) if choices else "")' "${RUNNER_TEMP}/norium-users.json")"
+              if [ -n "$persisted_owner" ]; then owner_id="$persisted_owner"; fi
+            fi
+          fi
+          test -n "$owner_id"
+          echo "user_id=$owner_id" >> "$GITHUB_OUTPUT"
+
       - name: Resolve immutable source revision
         id: source
         shell: bash
@@ -108,7 +140,7 @@ jobs:
               registryPassword="$registry_password" \
               noriumWebhookUrl="${{ vars.AZURE_PUBLIC_URL }}/api/whatsapp/webhook" \
               allowedOrigin="${{ vars.AZURE_PUBLIC_URL }}" \
-              noriumOwnerUserId="${{ vars.WHATSAPP_OWNER_USER_ID }}" \
+              noriumOwnerUserId="${{ steps.owner.outputs.user_id }}" \
               noriumApiKey="$NORIUM_API_KEY" \
               adminApiKey="$ADMIN_API_KEY" \
               webhookHmacSecret="$HMAC_SECRET" \
@@ -145,7 +177,7 @@ jobs:
               WHATSAPP_API_KEY=secretref:whatsapp-api-key \
               WHATSAPP_WEBHOOK_HMAC_SECRET=secretref:whatsapp-webhook-hmac-secret \
               WHATSAPP_WEBHOOK_SECRET=secretref:whatsapp-webhook-secret \
-              WHATSAPP_OWNER_USER_ID="${{ vars.WHATSAPP_OWNER_USER_ID }}" \
+              WHATSAPP_OWNER_USER_ID="${{ steps.owner.outputs.user_id }}" \
             --output none
 
       - name: Verify both production services

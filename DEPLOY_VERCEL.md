@@ -34,7 +34,7 @@ GMAIL_REDIRECT_URI=https://SEU_DOMINIO/api/auth/callback/gmail
 
 As variaveis de bootstrap so criam o primeiro administrador em uma instalacao vazia. Depois do primeiro acesso, remova `NORIUM_BOOTSTRAP_ADMIN_PASSWORD` do ambiente; a identidade administrativa permanece persistida no banco.
 
-Adicione tambem as credenciais de WhatsApp, Telegram e boletos presentes em
+Adicione tambem as credenciais de WhatsApp e boletos presentes em
 `norium-back-end/.env.example` quando essas integracoes forem usadas. Nao defina
 `VITE_API_URL` ou `VITE_WS_URL` no deploy de dominio unico; o front-end usa a
 origem atual automaticamente.

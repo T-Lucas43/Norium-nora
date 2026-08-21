@@ -44,27 +44,13 @@ from app.services.conversation_store import (
     save_conversations,
 )
 from app.services.whatsapp import WhatsAppService
-from app.services.telegram import TelegramConfigError, TelegramService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 whatsapp_service = WhatsAppService()
-telegram_service = TelegramService()
 
 status_conexoes: Dict[str, Dict[str, Dict[str, Any]]] = {}
-TELEGRAM_OWNER_EMAIL = os.getenv("TELEGRAM_OWNER_EMAIL", "").strip().lower()
-TELEGRAM_OWNER_USER_ID = os.getenv("TELEGRAM_OWNER_USER_ID", "").strip()
-TELEGRAM_ALLOWED_USER_IDS = {
-    item.strip()
-    for item in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",")
-    if item.strip()
-}
-TELEGRAM_ALLOWED_CHAT_IDS = {
-    item.strip()
-    for item in os.getenv("TELEGRAM_ALLOWED_CHAT_IDS", "").split(",")
-    if item.strip()
-}
 WHATSAPP_OWNER_USER_ID = os.getenv("WHATSAPP_OWNER_USER_ID", "").strip()
 WHATSAPP_WEBHOOK_SECRET = os.getenv("WHATSAPP_WEBHOOK_SECRET", "").strip()
 WHATSAPP_WEBHOOK_HMAC_SECRET = os.getenv("WHATSAPP_WEBHOOK_HMAC_SECRET", "").strip()
@@ -82,20 +68,20 @@ MAX_UPLOAD_BYTES = 14 * 1024 * 1024
 
 class InicializarLoginPayload(StrictModel):
     user_id: str = Field(min_length=1)
-    canal: Literal["whatsapp", "telegram"]
+    canal: Literal["whatsapp"]
 
 
 class EnviarMensagemPayload(StrictModel):
     user_id: str = Field(min_length=1)
     conversa_id: str = Field(min_length=1)
-    canal: Literal["whatsapp", "telegram"] = "whatsapp"
+    canal: Literal["whatsapp"] = "whatsapp"
     texto: str = Field(min_length=1)
 
 
 class EnviarArquivoPayload(StrictModel):
     user_id: str = Field(min_length=1)
     conversa_id: str = Field(min_length=1)
-    canal: Literal["whatsapp", "telegram"] = "whatsapp"
+    canal: Literal["whatsapp"] = "whatsapp"
     nome_arquivo: str = Field(min_length=1)
     mime_type: str = Field(min_length=1)
     data_url: str = Field(min_length=16)
@@ -124,7 +110,6 @@ def connection_status(user_id: str) -> Dict[str, Dict[str, Any]]:
         user_id,
         {
             "whatsapp": {"conectado": False, "qrcode": None},
-            "telegram": {"conectado": False, "qrcode": None, "disponivel": False},
         },
     )
 
@@ -146,43 +131,6 @@ def user_upload_dir(user_id: str) -> Path:
     path = UPLOAD_DIR / re.sub(r"[^a-zA-Z0-9._-]", "_", user_id)
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def is_telegram_owner_user(user: dict[str, Any]) -> bool:
-    user_id = str(user.get("id") or "")
-    email = str(user.get("email") or "").strip().lower()
-    return user_id == TELEGRAM_OWNER_USER_ID or email == TELEGRAM_OWNER_EMAIL
-
-
-def is_telegram_owner_id(user_id: str) -> bool:
-    return str(user_id) == TELEGRAM_OWNER_USER_ID
-
-
-def telegram_unavailable_status() -> dict[str, Any]:
-    return {
-        "conectado": False,
-        "qrcode": None,
-        "disponivel": False,
-        "restrito": True,
-        "detail": "Telegram liberado somente para a conta principal do Norium.",
-    }
-
-
-def assert_telegram_owner(user: dict[str, Any]) -> None:
-    if not is_telegram_owner_user(user):
-        raise HTTPException(status_code=403, detail="Telegram liberado somente para a conta principal do Norium.")
-
-
-def is_allowed_telegram_sender(chat: Dict[str, Any], sender: Dict[str, Any]) -> bool:
-    if not TELEGRAM_ALLOWED_USER_IDS and not TELEGRAM_ALLOWED_CHAT_IDS:
-        return True
-
-    sender_id = str(sender.get("id") or "")
-    chat_id = str(chat.get("id") or "")
-    return (
-        (sender_id and sender_id in TELEGRAM_ALLOWED_USER_IDS)
-        or (chat_id and chat_id in TELEGRAM_ALLOWED_CHAT_IDS)
-    )
 
 
 @router.get("/api/chat/foto-perfil")
@@ -229,28 +177,6 @@ async def media_proxy(
         raise HTTPException(status_code=500, detail="Falha temporaria no proxy de midia.") from exc
 
 
-@router.get("/api/chat/telegram-file")
-async def telegram_file_proxy(
-    file_id: str = Query(..., description="file_id retornado pelo Telegram"),
-    filename: str = Query(default="arquivo"),
-    user: dict[str, Any] = Depends(current_user),
-):
-    assert_telegram_owner(user)
-    try:
-        content, mime_type = await telegram_service.download_file(file_id)
-        safe_name = Path(filename).name or "arquivo"
-        return Response(
-            content=content,
-            media_type=mime_type,
-            headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
-        )
-    except TelegramConfigError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Falha ao baixar arquivo do Telegram.")
-        raise HTTPException(status_code=502, detail="Falha temporaria ao baixar arquivo do Telegram.") from exc
-
-
 @router.get("/api/chat/uploads/{file_name}")
 async def obter_upload_local(file_name: str, user: dict[str, Any] = Depends(current_user)):
     safe_name = Path(file_name).name
@@ -273,10 +199,6 @@ async def obter_status_canais(user_id: str, user: dict[str, Any] = Depends(curre
             user_status["whatsapp"]["qrcode"] = None if resultado["status"] == "conectado" else resultado.get("qrcode")
     except Exception:
         logger.exception("Falha ao sincronizar status WhatsApp.")
-    if is_telegram_owner_user(user):
-        user_status["telegram"] = await telegram_service.status(resolved_user_id)
-    else:
-        user_status["telegram"] = telegram_unavailable_status()
     return user_status
 
 
@@ -285,20 +207,6 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, payload.canal)
     user_status = connection_status(resolved_user_id)
-    if payload.canal == "telegram":
-        assert_telegram_owner(user)
-        try:
-            resultado = await telegram_service.configure_webhook(resolved_user_id)
-            user_status["telegram"] = await telegram_service.status(resolved_user_id)
-            return {
-                "qrcode": None,
-                "canal": "telegram",
-                **resultado,
-                **{key: value for key, value in user_status["telegram"].items() if key not in {"qrcode"}},
-            }
-        except TelegramConfigError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
     if resolved_user_id != WHATSAPP_OWNER_USER_ID:
         raise HTTPException(status_code=403, detail="WhatsApp vinculado a outra conta do Norium.")
     resultado = await whatsapp_service.inicializar_instancia(resolved_user_id)
@@ -451,29 +359,6 @@ async def webhook_whatsapp(
     return {"status": "success"}
 
 
-@router.post("/api/telegram/webhook/{user_id}")
-async def webhook_telegram(
-    user_id: str,
-    data: Dict[str, Any] = Body(...),
-    x_telegram_bot_api_secret_token: str | None = Header(default=None),
-):
-    if not is_telegram_owner_id(user_id):
-        raise HTTPException(status_code=403, detail="Webhook Telegram restrito a conta principal.")
-
-    expected_secret = telegram_service.webhook_secret
-    if not expected_secret and os.getenv("ENVIRONMENT", "development").strip().lower() == "production":
-        raise HTTPException(status_code=503, detail="Webhook Telegram sem segredo configurado.")
-    if expected_secret and x_telegram_bot_api_secret_token != expected_secret:
-        raise HTTPException(status_code=403, detail="Webhook Telegram nao autorizado.")
-
-    try:
-        processed = await process_telegram_update(data, user_id)
-        return {"status": "success", "processed": processed}
-    except Exception:
-        logger.exception("Falha ao processar webhook Telegram.")
-        return {"status": "ignored", "detail": "Atualizacao nao processada."}
-
-
 @router.get("/api/chat/conversas")
 async def obter_conversas(
     user_id: str,
@@ -482,6 +367,11 @@ async def obter_conversas(
     user: dict[str, Any] = Depends(current_user),
 ):
     resolved_user_id = tenant_id(user)
+    if resolved_user_id != WHATSAPP_OWNER_USER_ID:
+        return {"items": [], "cursor": since or 0, "hasMore": False} if since is not None else []
+    whatsapp_status = await whatsapp_service.inicializar_instancia(resolved_user_id)
+    if whatsapp_status["status"] != "conectado":
+        return {"items": [], "cursor": since or 0, "hasMore": False} if since is not None else []
     db = await load_conversations(resolved_user_id)
 
     if since is not None:
@@ -508,14 +398,6 @@ async def obter_conversas(
         }
 
     changed = False
-
-    if resolved_user_id != WHATSAPP_OWNER_USER_ID:
-        lista_local = list(db.values())
-        lista_local.sort(
-            key=lambda item: (bool(item.get("fixada")), int(item.get("timestampUltimaMsg") or 0)),
-            reverse=True,
-        )
-        return lista_local
 
     try:
         async with httpx.AsyncClient() as client:
@@ -591,14 +473,6 @@ async def obter_conversas(
     if changed:
         await save_conversations(db, resolved_user_id)
 
-    if is_telegram_owner_user(user):
-        try:
-            telegram_count = await sync_telegram_updates(resolved_user_id)
-            if telegram_count:
-                db = await load_conversations(resolved_user_id)
-        except Exception:
-            logger.exception("Falha ao sincronizar Telegram.")
-
     lista_ordenada = list(db.values())
     lista_ordenada.sort(
         key=lambda item: (bool(item.get("fixada")), int(item.get("timestampUltimaMsg") or 0)),
@@ -610,28 +484,8 @@ async def obter_conversas(
 @router.get("/api/chat/contatos-disponiveis")
 async def obter_contatos_disponiveis(user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
-    contatos_telegram: list[Dict[str, Any]] = []
-    if is_telegram_owner_user(user):
-        try:
-            db = await load_conversations(resolved_user_id)
-            contatos_telegram = [
-                {
-                    "id": conversa.get("id"),
-                    "phone": conversa.get("id"),
-                    "name": conversa.get("contato"),
-                    "pushname": conversa.get("contato"),
-                    "photoUrl": conversa.get("photoUrl") or conversa.get("metadados", {}).get("photoUrl"),
-                    "channel": "telegram",
-                    "canal": "telegram",
-                }
-                for conversa in db.values()
-                if conversa.get("canal") == "telegram"
-            ]
-        except Exception:
-            contatos_telegram = []
-
     if resolved_user_id != WHATSAPP_OWNER_USER_ID:
-        return contatos_telegram
+        return []
 
     try:
         async with httpx.AsyncClient() as client:
@@ -650,45 +504,15 @@ async def obter_contatos_disponiveis(user_id: str = "lucas123", user: dict[str, 
                 for c in contatos
                 if c.get("name") or c.get("phone") or c.get("id")
             ]
-            return [*contatos_telegram, *contatos_whatsapp]
+            return contatos_whatsapp
     except Exception:
-        return contatos_telegram
+        return []
 
 
 @router.post("/api/chat/enviar")
 async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, payload.canal)
-    if payload.canal == "telegram":
-        assert_telegram_owner(user)
-        try:
-            await telegram_service.send_text(payload.conversa_id, payload.texto)
-        except TelegramConfigError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except Exception as exc:
-            logger.exception("Telegram recusou o envio.")
-            raise HTTPException(status_code=502, detail="Falha temporaria no envio pelo Telegram.") from exc
-
-        await append_outgoing_message(
-            payload.conversa_id,
-            payload.texto,
-            channel="telegram",
-            status="enviado",
-            user_id=resolved_user_id,
-        )
-        await record_event(
-            source="telegram",
-            title="Mensagem enviada no Telegram",
-            description=payload.texto,
-            metadata={
-                "conversaId": payload.conversa_id,
-                "channel": "telegram",
-                "direction": "outgoing",
-                "userId": resolved_user_id,
-            },
-        )
-        return {"status": "enviado_real", "canal": "telegram"}
-
     assert_whatsapp_owner(user)
     sucesso = await whatsapp_service.enviar_mensagem_texto(payload.conversa_id, payload.texto)
     if not sucesso:
@@ -724,76 +548,6 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
     media_kind = classify_media(mime_type, safe_file_name)
     extension = file_extension(safe_file_name, mime_type)
     legenda = (payload.legenda or "").strip() or None
-
-    if payload.canal == "telegram":
-        assert_telegram_owner(user)
-        try:
-            await telegram_service.send_file(
-                payload.conversa_id,
-                file_bytes=file_bytes,
-                file_name=safe_file_name,
-                mime_type=mime_type,
-                media_kind=media_kind,
-                caption=legenda,
-            )
-        except TelegramConfigError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except Exception as exc:
-            logger.exception("Telegram recusou o envio do arquivo.")
-            raise HTTPException(status_code=502, detail="Falha temporaria no envio do arquivo pelo Telegram.") from exc
-
-        if media_kind == "audio":
-            tipo = "audio"
-            texto = legenda or "[Audio]"
-        elif media_kind == "image":
-            tipo = "midia"
-            texto = legenda or "[Imagem]"
-        elif media_kind == "video":
-            tipo = "midia"
-            texto = legenda or "[Video]"
-        else:
-            tipo = "documento"
-            texto = legenda or "[Documento]"
-
-        hora, timestamp = current_clock()
-        await append_message(
-            payload.conversa_id,
-            {
-                "id": f"tg_file_out_{timestamp}_{uuid.uuid4().hex[:8]}",
-                "remetente": "usuario",
-                "texto": texto,
-                "tipo": tipo,
-                "arquivoUrl": local_url,
-                "arquivoMime": mime_type,
-                "nomeArquivo": safe_file_name,
-                "horario": hora,
-                "timestamp": timestamp,
-                "status": "enviado",
-                "canal": "telegram",
-                "channel": "telegram",
-            },
-            channel="telegram",
-            user_id=resolved_user_id,
-        )
-        await record_event(
-            source="telegram",
-            title="Arquivo enviado no Telegram",
-            description=f"{safe_file_name} ({mime_type})",
-            metadata={
-                "conversaId": payload.conversa_id,
-                "channel": "telegram",
-                "tipo": tipo,
-                "arquivoUrl": local_url,
-                "userId": resolved_user_id,
-            },
-        )
-        return {
-            "status": "enviado_real",
-            "canal": "telegram",
-            "tipo": tipo,
-            "arquivoUrl": local_url,
-            "nomeArquivo": safe_file_name,
-        }
 
     assert_whatsapp_owner(user)
     if media_kind == "audio":
@@ -879,188 +633,6 @@ async def excluir_conversa(conversa_id: str, user_id: str, user: dict[str, Any] 
 async def modificar_chat(payload: ModificarChatPayload, user: dict[str, Any] = Depends(current_user)):
     sucesso = await modify_conversation(payload.conversa_id, payload.acao, payload.valor, tenant_id(user))
     return {"status": "sucesso" if sucesso else "not_found"}
-
-
-async def sync_telegram_updates(user_id: str) -> int:
-    if not is_telegram_owner_id(user_id):
-        return 0
-    updates = await telegram_service.get_updates(user_id, limit=30)
-    processed = 0
-    for update in updates:
-        if await process_telegram_update(update, user_id):
-            processed += 1
-    return processed
-
-
-async def process_telegram_update(update: Dict[str, Any], user_id: str) -> bool:
-    if not is_telegram_owner_id(user_id):
-        return False
-
-    message = (
-        update.get("message")
-        or update.get("edited_message")
-        or update.get("channel_post")
-        or update.get("edited_channel_post")
-    )
-    if not isinstance(message, dict):
-        return False
-
-    chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
-    if not chat.get("id"):
-        return False
-
-    conversa_id = str(chat["id"])
-    message_id = str(message.get("message_id") or update.get("update_id") or uuid.uuid4().hex)
-    normalized_message_id = f"tg_{conversa_id}_{message_id}"
-    sender = message.get("from") if isinstance(message.get("from"), dict) else {}
-    if not is_allowed_telegram_sender(chat, sender):
-        logger.info("Update Telegram ignorado pela allowlist.")
-        return False
-
-    sender_name = telegram_sender_name(sender) or telegram_chat_name(chat) or conversa_id
-    chat_name = telegram_chat_name(chat) or sender_name
-    is_group = str(chat.get("type") or "").lower() in {"group", "supergroup", "channel"}
-    timestamp = int(message.get("date") or datetime.now().timestamp())
-    hora_formatada = datetime.fromtimestamp(timestamp).strftime("%H:%M")
-    message_payload = telegram_message_payload(message)
-
-    db = await load_conversations(user_id)
-    conversa = db.get(conversa_id) or new_conversation(
-        conversa_id,
-        contato=chat_name,
-        channel="telegram",
-        is_group=is_group,
-    )
-
-    mensagens = conversa.get("mensagens") or []
-    if any(str(item.get("id")) == normalized_message_id for item in mensagens):
-        return False
-
-    conversa["contato"] = chat_name
-    conversa["canal"] = "telegram"
-    conversa["channel"] = "telegram"
-    conversa["esGrupo"] = is_group
-    conversa["ultimoTexto"] = message_payload["texto"]
-    conversa["horario"] = hora_formatada
-    conversa["timestampUltimaMsg"] = timestamp
-    conversa["lida"] = False
-    conversa["naoLidasCount"] = int(conversa.get("naoLidasCount") or 0) + 1
-    conversa.setdefault("metadados", {})
-    conversa["metadados"]["username"] = chat.get("username") or sender.get("username")
-    conversa["metadados"]["numeroCompleto"] = conversa_id
-
-    conversa.setdefault("mensagens", []).append(
-        normalize_message(
-            {
-                "id": normalized_message_id,
-                "remetente": "contato",
-                "remetenteNome": sender_name if is_group else None,
-                "texto": message_payload["texto"],
-                "tipo": message_payload["tipo"],
-                "arquivoUrl": message_payload.get("arquivoUrl"),
-                "arquivoMime": message_payload.get("arquivoMime"),
-                "nomeArquivo": message_payload.get("nomeArquivo"),
-                "duracaoAudio": message_payload.get("duracaoAudio"),
-                "horario": hora_formatada,
-                "timestamp": timestamp,
-                "canal": "telegram",
-                "channel": "telegram",
-            },
-            "telegram",
-        )
-    )
-
-    conversa["mensagens"] = conversa["mensagens"][-250:]
-    db[conversa_id] = normalize_conversation(conversa_id, conversa)
-    await save_conversations(db, user_id)
-    await record_event(
-        source="telegram",
-        title="Nova mensagem no Telegram",
-        description=f"{chat_name}: {message_payload['texto'] or '[sem texto]'}",
-        metadata={
-            "conversaId": conversa_id,
-            "messageId": normalized_message_id,
-            "channel": "telegram",
-            "isGroup": is_group,
-            "userId": user_id,
-            "sender": sender_name,
-        },
-    )
-    return True
-
-
-def telegram_chat_name(chat: Dict[str, Any]) -> str:
-    title = chat.get("title")
-    if title:
-        return str(title)
-    full_name = " ".join(str(chat.get(key) or "").strip() for key in ("first_name", "last_name")).strip()
-    if full_name:
-        return full_name
-    username = chat.get("username")
-    return f"@{username}" if username else ""
-
-
-def telegram_sender_name(sender: Dict[str, Any]) -> str:
-    full_name = " ".join(str(sender.get(key) or "").strip() for key in ("first_name", "last_name")).strip()
-    if full_name:
-        return full_name
-    username = sender.get("username")
-    return f"@{username}" if username else ""
-
-
-def telegram_message_payload(message: Dict[str, Any]) -> Dict[str, Any]:
-    text = message.get("text") or message.get("caption")
-    if text:
-        return {"texto": str(text), "tipo": "texto"}
-
-    media_specs = [
-        ("voice", "audio", "[Audio]", "voice.ogg"),
-        ("audio", "audio", "[Audio]", "audio.mp3"),
-        ("photo", "midia", "[Imagem]", "imagem.jpg"),
-        ("video", "midia", "[Video]", "video.mp4"),
-        ("sticker", "sticker", "[Figurinha]", "sticker.webp"),
-        ("document", "documento", "[Documento]", "documento"),
-    ]
-
-    for key, tipo, label, default_name in media_specs:
-        value = message.get(key)
-        if not value:
-            continue
-        payload = value[-1] if key == "photo" and isinstance(value, list) and value else value
-        if not isinstance(payload, dict):
-            continue
-        file_id = payload.get("file_id")
-        file_name = payload.get("file_name") or default_name
-        mime_type = payload.get("mime_type") or guess_telegram_mime(file_name, tipo)
-        return {
-            "texto": str(message.get("caption") or label),
-            "tipo": tipo,
-            "arquivoUrl": telegram_file_url(file_id, file_name) if file_id else None,
-            "arquivoMime": mime_type,
-            "nomeArquivo": file_name,
-            "duracaoAudio": payload.get("duration"),
-        }
-
-    return {"texto": "", "tipo": "texto"}
-
-
-def telegram_file_url(file_id: Any, file_name: Any) -> str:
-    return public_api_url(
-        f"/api/chat/telegram-file?file_id={quote(str(file_id), safe='')}&filename={quote(str(file_name or 'arquivo'), safe='')}"
-    )
-
-
-def guess_telegram_mime(file_name: str, tipo: str) -> str:
-    guessed = mimetypes.guess_type(file_name)[0]
-    if guessed:
-        return guessed
-    if tipo == "audio":
-        return "audio/ogg"
-    if tipo == "midia":
-        return "image/jpeg"
-    if tipo == "sticker":
-        return "image/webp"
-    return "application/octet-stream"
 
 
 def current_clock() -> tuple[str, int]:

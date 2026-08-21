@@ -44,7 +44,6 @@ function renderPdfColor(color: PdfColor | undefined, theme: typeof pdfTheme, fal
 export const sourcePdfColors: Record<EventSource, PdfColor> = {
   gmail: [0.94, 0.24, 0.32],
   whatsapp: [0.02, 0.74, 0.52],
-  telegram: [0.18, 0.62, 0.92],
   calendar: [0.22, 0.48, 0.96],
   kanban: [0.02, 0.72, 0.88],
   financeiro: [0.05, 0.70, 0.62],

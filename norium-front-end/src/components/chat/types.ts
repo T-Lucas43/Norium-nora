@@ -1,4 +1,4 @@
-export type ChatChannel = "whatsapp" | "telegram";
+export type ChatChannel = "whatsapp";
 
 export interface MsgConteudo {
   id: string;

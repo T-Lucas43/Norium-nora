@@ -67,7 +67,6 @@ function groupEventsBySource(events: OmnichannelEvent[]) {
     {
       gmail: [],
       whatsapp: [],
-      telegram: [],
       calendar: [],
       kanban: [],
       financeiro: [],

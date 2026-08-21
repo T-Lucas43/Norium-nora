@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, List, Literal, Optional
 
 from app.services.conversation_store import (
@@ -10,38 +9,35 @@ from app.services.conversation_store import (
     is_empty_history,
 )
 from app.services.nora import NoraIAService
-from app.services.telegram import TelegramConfigError, TelegramService
 from app.services.whatsapp import WhatsAppService
 
 AgentStatus = Literal["ativo", "planejado"]
-TELEGRAM_OWNER_USER_ID = os.getenv("TELEGRAM_OWNER_USER_ID", "").strip()
 
 
 class AgentManager:
     def __init__(self) -> None:
         self.nora_service = NoraIAService()
         self.whatsapp_service = WhatsAppService()
-        self.telegram_service = TelegramService()
         self._agents: List[Dict[str, Any]] = [
             {
                 "id": "mensagens",
                 "nome": "Agente de Mensagens",
                 "status": "ativo",
-                "canais": ["whatsapp", "telegram"],
+                "canais": ["whatsapp"],
                 "descricao": "Gera rascunhos e envia respostas aprovadas no chat ativo.",
             },
             {
                 "id": "agenda",
                 "nome": "Agente de Agenda",
                 "status": "ativo",
-                "canais": ["whatsapp", "telegram"],
+                "canais": ["whatsapp"],
                 "descricao": "Consulta compromissos e cria eventos no Google Agenda com perguntas sequenciais.",
             },
             {
                 "id": "tarefas",
                 "nome": "Agente de Tarefas",
                 "status": "ativo",
-                "canais": ["norium", "whatsapp", "telegram"],
+                "canais": ["norium", "whatsapp"],
                 "descricao": "Cria, consulta e conclui tarefas do Kanban do Norium.",
             },
             {
@@ -55,7 +51,7 @@ class AgentManager:
                 "id": "relatorios",
                 "nome": "Agente de Relatorios",
                 "status": "planejado",
-                "canais": ["whatsapp", "telegram"],
+                "canais": ["whatsapp"],
                 "descricao": "Base reservada para metricas e analises operacionais.",
             },
         ]
@@ -108,7 +104,7 @@ class AgentManager:
         conversa_id: str,
         texto: str,
         *,
-        canal: Literal["whatsapp", "telegram"] = "whatsapp",
+        canal: Literal["whatsapp"] = "whatsapp",
         autorizado: bool = False,
         user_id: str,
     ) -> Dict[str, Any]:
@@ -119,21 +115,7 @@ class AgentManager:
                 "sent": False,
             }
 
-        if canal == "telegram":
-            if user_id != TELEGRAM_OWNER_USER_ID:
-                return {
-                    "agent_id": "mensagens",
-                    "status": "telegram_restrito",
-                    "sent": False,
-                    "detail": "Telegram liberado somente para a conta principal do Norium.",
-                }
-            try:
-                await self.telegram_service.send_text(conversa_id, texto)
-                success = True
-            except TelegramConfigError:
-                success = False
-        else:
-            success = await self.whatsapp_service.enviar_mensagem_texto(conversa_id, texto)
+        success = await self.whatsapp_service.enviar_mensagem_texto(conversa_id, texto)
 
         if success:
             await append_outgoing_message(

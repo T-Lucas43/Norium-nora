@@ -55,7 +55,6 @@ from app.modules.operations.service import (
 )
 from app.modules.platform.service import conflict_scan, generate_handoff, quality_scan, query_knowledge
 from app.services.task_store import list_tasks
-from app.services.telegram import TelegramConfigError, TelegramService
 from app.services.whatsapp import WhatsAppService
 from app.services.brainstorm_store import create_brainstorm_session, list_brainstorm_sessions
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
@@ -64,13 +63,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/nora", tags=["Nora IA"])
 nora_service = NoraIAService()
 whatsapp_service = WhatsAppService()
-telegram_service = TelegramService()
 agent_manager = AgentManager()
 email_agent = EmailAgent()
 ELEVENLABS_DEFAULT_VOICE_ID = "KHmfNHtEjHhLK9eER20w"
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 EDGE_TTS_DEFAULT_VOICE = "pt-BR-ThalitaMultilingualNeural"
-TELEGRAM_OWNER_USER_ID = os.getenv("TELEGRAM_OWNER_USER_ID", "").strip()
 
 
 class MessageItem(StrictModel):
@@ -264,17 +261,12 @@ class AgentDraftPayload(StrictModel):
 class AgentExecutePayload(StrictModel):
     conversa_id: str = Field(min_length=1)
     texto: str = Field(min_length=1)
-    canal: Literal["whatsapp", "telegram"] = "whatsapp"
+    canal: Literal["whatsapp"] = "whatsapp"
     autorizado: bool = False
 
 
 def tenant_id(user: dict[str, Any]) -> str:
     return str(user.get("id") or "lucas123")
-
-
-def assert_telegram_owner_user_id(user_id: str) -> None:
-    if str(user_id) != TELEGRAM_OWNER_USER_ID:
-        raise HTTPException(status_code=403, detail="Telegram liberado somente para a conta principal do Norium.")
 
 
 def require_nora_permission(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
@@ -1298,15 +1290,7 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
                 "blocked_reason": "texto_envio_vazio",
             }
 
-        if payload.canal == "telegram":
-            assert_telegram_owner_user_id(resolved_user_id)
-            try:
-                await telegram_service.send_text(payload.conversa_id, texto_envio)
-                sucesso_envio = True
-            except TelegramConfigError:
-                sucesso_envio = False
-        else:
-            sucesso_envio = await whatsapp_service.enviar_mensagem_texto(payload.conversa_id, texto_envio)
+        sucesso_envio = await whatsapp_service.enviar_mensagem_texto(payload.conversa_id, texto_envio)
 
         if sucesso_envio:
             await append_outgoing_message(
@@ -1317,12 +1301,10 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
                 status="enviado",
                 user_id=resolved_user_id,
             )
-            canal_label = "Telegram" if payload.canal == "telegram" else "WhatsApp"
-            return {"response": f"Enviei no {canal_label}:\n\n{texto_envio}", "whatsapp_enviado": True}
+            return {"response": f"Enviei no WhatsApp:\n\n{texto_envio}", "whatsapp_enviado": True}
 
-        gateway_label = "Telegram" if payload.canal == "telegram" else "API privada do WhatsApp"
         return {
-            "response": f"{texto_envio}\n\n[{gateway_label}]: falha ao tentar disparar automaticamente para o cliente.",
+            "response": f"{texto_envio}\n\n[API privada do WhatsApp]: falha ao tentar disparar automaticamente para o cliente.",
             "whatsapp_enviado": False,
             "blocked_reason": "falha_gateway",
         }
@@ -1388,8 +1370,6 @@ async def enviar_rascunho_agente_mensagens(payload: AgentExecutePayload, user: d
     )
     if result.get("status") == "bloqueado_sem_autorizacao":
         raise HTTPException(status_code=403, detail="Envio bloqueado: autorizacao explicita ausente.")
-    if result.get("status") == "telegram_restrito":
-        raise HTTPException(status_code=403, detail=result.get("detail") or "Telegram restrito.")
     if result.get("status") == "falha_gateway":
         raise HTTPException(status_code=502, detail="A API do WhatsApp recusou o envio do agente.")
     return result

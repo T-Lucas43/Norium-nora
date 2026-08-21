@@ -51,7 +51,6 @@ type AppPanelsProps = {
   mountedTabs: Set<string>;
   profile: PerfilOperador | null;
   systemNotifications: SystemNotification[];
-  telegramEnabledForUser: boolean;
   onActiveConversationChange: (conversationId: string | null) => void;
   onEmailHandled: () => void;
   onLogout: () => void;
@@ -75,7 +74,6 @@ export default function AppPanels({
   mountedTabs,
   profile,
   systemNotifications,
-  telegramEnabledForUser,
   onActiveConversationChange,
   onClearSystemNotifications,
   onEmailHandled,
@@ -160,7 +158,6 @@ export default function AppPanels({
           {coach("Chat", true)}
           <ChatCentral
             userId={currentUser.id}
-            telegramEnabled={telegramEnabledForUser}
             onConversaAtivaChange={onActiveConversationChange}
             onOpenNora={onOpenNora}
           />

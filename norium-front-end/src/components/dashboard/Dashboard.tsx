@@ -129,7 +129,7 @@ export default function Dashboard({ eventsBySource, connected, profile, onNaviga
       whatsapp,
       calendar,
       tasks,
-      total: emails + whatsapp + calendar + tasks + eventsBySource.telegram.length,
+      total: emails + whatsapp + calendar + tasks,
     };
   }, [eventsBySource]);
 

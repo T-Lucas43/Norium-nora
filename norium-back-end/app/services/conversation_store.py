@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 from app.core.tenant import get_user_db_path
 
-ChatChannel = Literal["whatsapp", "telegram"]
+ChatChannel = Literal["whatsapp"]
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 JSON_FILE = BACKEND_ROOT / "conversas_db.json"
@@ -300,7 +300,7 @@ def is_empty_history(history: str) -> bool:
 
 
 def _normalize_channel(value: Any) -> ChatChannel:
-    return "telegram" if value == "telegram" else "whatsapp"
+    return "whatsapp"
 
 
 def _looks_like_group(conversa_id: str) -> bool:

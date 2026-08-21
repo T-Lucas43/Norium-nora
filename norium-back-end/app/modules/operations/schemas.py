@@ -101,7 +101,7 @@ class OperationTemplateUpdate(StrictModel):
 
 class FollowUpCreate(StrictModel):
     title: str = Field(min_length=2, max_length=180)
-    channel: Literal["gmail", "whatsapp", "telegram", "task", "calendar", "finance", "other"] = "other"
+    channel: Literal["gmail", "whatsapp", "task", "calendar", "finance", "other"] = "other"
     counterpart: str = Field(default="", max_length=180)
     dueAt: str | None = None
     referenceId: str | None = Field(default=None, max_length=180)

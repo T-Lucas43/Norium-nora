@@ -25,7 +25,6 @@ MAX_DESCRIPTION_LENGTH = 1200
 EventSource = Literal[
     "gmail",
     "whatsapp",
-    "telegram",
     "calendar",
     "kanban",
     "financeiro",

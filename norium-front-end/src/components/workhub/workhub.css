@@ -208,7 +208,6 @@
 .workhub-inbox-open small { margin-top: 3px; color: var(--text-secondary); font-size: 10px; }
 .source-gmail { background: rgba(244, 63, 94, .12); color: #fb7185; }
 .source-whatsapp { background: rgba(16, 185, 129, .12); color: #34d399; }
-.source-telegram { background: rgba(14, 165, 233, .12); color: #38bdf8; }
 
 .workhub-goal-form { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 100px auto; gap: 8px; margin-top: 16px; }
 .workhub-goals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }

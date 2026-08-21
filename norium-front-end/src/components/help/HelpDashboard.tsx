@@ -43,7 +43,7 @@ const sections: GuideSection[] = [
     icon: Sparkles,
     topics: [
       { title: "Complete seu perfil", description: "Defina nome, foto, CEP, idioma e preferências.", action: "Abrir perfil", tab: "Perfil" },
-      { title: "Conecte suas contas", description: "Autorize Gmail, Google Agenda, WhatsApp e Telegram nos módulos correspondentes.", action: "Abrir e-mails", tab: "E-mails" },
+      { title: "Conecte suas contas", description: "Autorize Gmail, Google Agenda e WhatsApp nos módulos correspondentes.", action: "Abrir e-mails", tab: "E-mails" },
       { title: "Acompanhe a operação", description: "Use a Central para ver eventos separados por canal em tempo real.", action: "Abrir Central", tab: "Central" },
     ],
   },
@@ -55,7 +55,7 @@ const sections: GuideSection[] = [
     topics: [
       { title: "E-mails", description: "Leia, pesquise, responda e envie mensagens pelo Gmail com apoio da Nora.", action: "Abrir e-mails", tab: "E-mails" },
       { title: "Agenda", description: "Visualize compromissos e crie eventos integrados ao Google Agenda.", action: "Abrir agenda", tab: "Agenda" },
-      { title: "Chat", description: "Centralize conversas do WhatsApp e Telegram, mídias, áudios e grupos.", action: "Abrir chat", tab: "Chat" },
+      { title: "Chat", description: "Centralize conversas do WhatsApp, mídias, áudios e grupos.", action: "Abrir chat", tab: "Chat" },
       { title: "Tarefas", description: "Organize projetos, Kanban, responsáveis, prazos, anexos e comentários.", action: "Abrir tarefas", tab: "Tarefas" },
       { title: "Gastos", description: "Registre entradas e saídas, acompanhe vencimentos e anexe comprovantes.", action: "Abrir gastos", tab: "Gastos" },
       { title: "Automações", description: "Monte fluxos visuais com gatilhos, ações e participação da Nora.", action: "Abrir automações", tab: "Automações" },
@@ -80,7 +80,7 @@ const sections: GuideSection[] = [
     icon: GitBranch,
     topics: [
       { title: "Google", description: "Gmail e Agenda usam autorização individual por conta e mantêm os dados separados por usuário." },
-      { title: "Conversas", description: "WhatsApp e Telegram aparecem no Chat; mensagens recentes também alimentam a Central." },
+      { title: "Conversas", description: "O WhatsApp aparece no Chat; mensagens recentes também alimentam a Central." },
       { title: "Equipe", description: "Membros autorizados compartilham chat interno, projetos e relatórios conforme suas permissões.", action: "Abrir equipe", tab: "Equipe" },
       { title: "Tempo real", description: "A Central e os contadores recebem novos eventos por WebSocket sem recarregar a página." },
     ],

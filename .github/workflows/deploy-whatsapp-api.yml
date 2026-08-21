@@ -200,11 +200,41 @@ jobs:
               WHATSAPP_CLIENT_TOKEN \
               ZAPI_INSTANCE_ID \
               ZAPI_TOKEN \
+              TELEGRAM_BOT_TOKEN \
+              TELEGRAM_WEBHOOK_SECRET \
+              TELEGRAM_OWNER_EMAIL \
+              TELEGRAM_OWNER_USER_ID \
+              TELEGRAM_ALLOWED_USER_IDS \
+              TELEGRAM_ALLOWED_CHAT_IDS \
             --output none
 
       - name: Verify both production services
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --retry 24 --retry-delay 10 --retry-all-errors "${{ steps.app.outputs.public_url }}/health"
-          curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health"
+          verify_endpoint() {
+            local url="$1"
+            local attempts="$2"
+            for ((attempt = 1; attempt <= attempts; attempt++)); do
+              if curl --silent --show-error --fail --connect-timeout 8 --max-time 20 "$url"; then
+                return 0
+              fi
+              sleep 10
+            done
+            return 1
+          }
+
+          if ! verify_endpoint "${{ steps.app.outputs.public_url }}/health" 18; then
+            az containerapp revision list \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --name "$WHATSAPP_APP_NAME" \
+              --query "[].{name:name,active:properties.active,health:properties.healthState,provisioning:properties.provisioningState,replicas:properties.replicas}" \
+              --output table || true
+            az containerapp logs show \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+              --name "$WHATSAPP_APP_NAME" \
+              --type system \
+              --tail 80 || true
+            exit 1
+          fi
+          verify_endpoint "${{ vars.AZURE_PUBLIC_URL }}/health" 18

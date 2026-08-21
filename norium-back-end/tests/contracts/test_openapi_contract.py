@@ -15,7 +15,6 @@ IGNORED_OPERATION_FIELDS = {"description", "operationId", "summary", "tags"}
 INTENTIONAL_SECURITY_STRENGTHENING = {
     "GET /api/chat/foto-perfil",
     "GET /api/chat/media-proxy",
-    "GET /api/chat/telegram-file",
     "GET /api/chat/uploads/{file_name}",
 }
 INTENTIONAL_PARAMETER_STRENGTHENING = {

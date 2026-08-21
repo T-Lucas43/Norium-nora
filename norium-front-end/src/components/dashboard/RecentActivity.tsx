@@ -1,4 +1,4 @@
-import { BarChart3, CalendarDays, CheckCircle2, Clock3, CreditCard, GitBranch, Lightbulb, Mail, MessageSquare, Send, ShieldAlert, UsersRound } from "lucide-react";
+import { BarChart3, CalendarDays, CheckCircle2, Clock3, CreditCard, GitBranch, Lightbulb, Mail, MessageSquare, ShieldAlert, UsersRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { EventSource, OmnichannelEvent } from "../../types/omnichannel";
 
@@ -10,7 +10,6 @@ type RecentActivityProps = {
 const config: Record<EventSource, { icon: LucideIcon; color: string; tab: string }> = {
   gmail: { icon: Mail, color: "bg-red-500/10 text-red-500", tab: "E-mails" },
   whatsapp: { icon: MessageSquare, color: "bg-emerald-500/10 text-emerald-500", tab: "Chat" },
-  telegram: { icon: Send, color: "bg-sky-500/10 text-sky-500", tab: "Central" },
   calendar: { icon: CalendarDays, color: "bg-blue-500/10 text-blue-500", tab: "Agenda" },
   kanban: { icon: CheckCircle2, color: "bg-cyan-500/10 text-cyan-500", tab: "Tarefas" },
   financeiro: { icon: CreditCard, color: "bg-teal-500/10 text-teal-500", tab: "Gastos" },

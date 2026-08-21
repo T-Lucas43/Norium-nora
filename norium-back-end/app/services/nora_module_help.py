@@ -58,9 +58,9 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
     ),
     ModuleHelp(
         module="chat",
-        aliases=("tela de chat", "conversas do chat", "chat", "whatsapp", "telegram"),
+        aliases=("tela de chat", "conversas do chat", "chat", "whatsapp"),
         response=(
-            "O Chat reúne as conversas dos canais conectados, como WhatsApp e Telegram.\n\n"
+            "O Chat reúne as conversas do WhatsApp conectado.\n\n"
             "Como usar:\n"
             "1. Filtre por canal, mensagens não lidas, grupos ou arquivados.\n"
             "2. Selecione uma conversa para carregar o histórico e o contexto corretos.\n"

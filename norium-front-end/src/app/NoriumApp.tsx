@@ -94,7 +94,6 @@ export default function NoriumApp() {
   );
 
   const currentUser = authSession?.user ?? null;
-  const telegramEnabledForUser = Boolean(currentUser?.systemAdmin);
 
   useEffect(() => {
     const syncHash = () => {
@@ -371,7 +370,6 @@ export default function NoriumApp() {
             mountedTabs={mountedTabs}
             profile={profile}
             systemNotifications={systemNotifications}
-            telegramEnabledForUser={telegramEnabledForUser}
             onActiveConversationChange={setActiveChatConversationId}
             onClearSystemNotifications={clearSystemNotifications}
             onEmailHandled={() => setEmailToOpenId(null)}

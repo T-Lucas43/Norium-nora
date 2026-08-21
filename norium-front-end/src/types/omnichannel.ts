@@ -1,7 +1,6 @@
 export type EventSource =
   | "gmail"
   | "whatsapp"
-  | "telegram"
   | "calendar"
   | "kanban"
   | "financeiro"

@@ -14,7 +14,6 @@ import type {
 export const sourceLabels: Record<EventSource, string> = {
   gmail: "Gmail",
   whatsapp: "WhatsApp",
-  telegram: "Telegram",
   calendar: "Agenda",
   kanban: "Tarefas",
   financeiro: "Gastos",
@@ -257,7 +256,7 @@ export function classifyEvent(event: OmnichannelEvent): EventImpact {
     return { productivePoints: 0.7, potentialPoints: 1.4, savedMinutes: 1, handled: false, completedTask: false, reason: "E-mail monitorado" };
   }
 
-  if (event.source === "whatsapp" || event.source === "telegram") {
+  if (event.source === "whatsapp") {
     if (fromMe || title.includes("enviad") || description.includes("voce:")) {
       return { productivePoints: 1.4, potentialPoints: 1.6, savedMinutes: 2.5, handled: true, completedTask: false, reason: "Mensagem respondida" };
     }
@@ -327,7 +326,6 @@ function createEmptySavedBySource(): Record<EventSource, number> {
   return {
     gmail: 0,
     whatsapp: 0,
-    telegram: 0,
     calendar: 0,
     kanban: 0,
     financeiro: 0,
@@ -363,7 +361,7 @@ export function calculateProductivity(events: OmnichannelEvent[]): ProductivityM
     else monitoredEvents += 1;
     if (impact.completedTask) completedTasks += 1;
     if (event.source === "gmail" && impact.handled) emailsHandled += 1;
-    if ((event.source === "whatsapp" || event.source === "telegram") && impact.handled) messagesHandled += 1;
+    if (event.source === "whatsapp" && impact.handled) messagesHandled += 1;
     if (event.source === "kanban" && impact.handled) tasksMoved += 1;
     if (event.source === "calendar" && impact.handled) scheduledEvents += 1;
   }

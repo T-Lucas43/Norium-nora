@@ -67,7 +67,7 @@ admin_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
 
 
 def rate_limit_bucket(path: str) -> str:
-    if path.startswith(("/api/whatsapp/webhook", "/api/telegram/webhook")):
+    if path.startswith("/api/whatsapp/webhook"):
         return "webhook"
     if path.startswith(("/api/nora", "/api/brainstorm/sessions")):
         return "ai"

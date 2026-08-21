@@ -63,7 +63,6 @@ type ReportsDashboardProps = {
 const sourceMeta: Record<EventSource, { label: string; icon: LucideIcon; color: string; tabColor: string }> = {
   gmail: { label: "Gmail", icon: Mail, color: "bg-red-500", tabColor: "text-red-400 bg-red-500/10" },
   whatsapp: { label: "WhatsApp", icon: MessageSquare, color: "bg-emerald-500", tabColor: "text-emerald-400 bg-emerald-500/10" },
-  telegram: { label: "Telegram", icon: MessageSquare, color: "bg-sky-500", tabColor: "text-sky-400 bg-sky-500/10" },
   calendar: { label: "Agenda", icon: CalendarDays, color: "bg-blue-500", tabColor: "text-blue-400 bg-blue-500/10" },
   kanban: { label: "Tarefas", icon: CheckSquare, color: "bg-cyan-500", tabColor: "text-cyan-400 bg-cyan-500/10" },
   financeiro: { label: "Gastos", icon: CreditCard, color: "bg-teal-500", tabColor: "text-teal-400 bg-teal-500/10" },

@@ -19,7 +19,7 @@ def integration_for_path(path: str) -> str:
     mappings = (
         (("gmail", "email", "mail"), "gmail"),
         (("agenda", "calendar", "google"), "calendar"),
-        (("whatsapp", "telegram", "/chat"), "messaging"),
+        (("whatsapp", "/chat"), "messaging"),
         (("tarefas", "task"), "tasks"),
         (("financeiro", "gastos"), "finance"),
         (("automacoes", "automation"), "automations"),

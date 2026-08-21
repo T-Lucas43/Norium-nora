@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   Mail,
   MessageCircle,
-  Send,
 } from "lucide-react";
 
 type Integration = {
@@ -40,14 +39,6 @@ const integrations: Integration[] = [
     icon: MessageCircle,
     iconClass: "text-emerald-400",
     iconSurface: "bg-emerald-500/10",
-  },
-  {
-    name: "Telegram",
-    subtitle: "Mensagens pelo bot",
-    tab: "Chat",
-    icon: Send,
-    iconClass: "text-sky-400",
-    iconSurface: "bg-sky-500/10",
   },
 ];
 

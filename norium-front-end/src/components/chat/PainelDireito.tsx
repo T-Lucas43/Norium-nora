@@ -64,8 +64,8 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
           <div className="flex flex-col items-center py-5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-center">
             <ProfileAvatar conversa={conversaAtiva} />
             <h3 className="mt-3 font-bold text-sm px-2 truncate w-full">{conversaAtiva.contato}</h3>
-            <span className={`mt-2 inline-flex h-6 items-center rounded-full px-2 text-xs font-extrabold uppercase ${conversaAtiva.canal === "telegram" ? "bg-sky-500/10 text-sky-600" : "bg-emerald-500/10 text-emerald-600"}`}>
-              {conversaAtiva.canal}
+            <span className="mt-2 inline-flex h-6 items-center rounded-full bg-emerald-500/10 px-2 text-xs font-extrabold uppercase text-emerald-600">
+              WhatsApp
             </span>
           </div>
 

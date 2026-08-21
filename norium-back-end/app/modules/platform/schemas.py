@@ -119,7 +119,7 @@ class VaultPayload(StrictModel):
 
 class SlaPolicyPayload(StrictModel):
     name: str = Field(min_length=2, max_length=160)
-    channel: Literal["all", "gmail", "whatsapp", "telegram", "portal"]
+    channel: Literal["all", "gmail", "whatsapp", "portal"]
     priority: Literal["all", "low", "medium", "high", "urgent"] = "all"
     responseMinutes: int = Field(ge=1, le=43_200)
     businessHours: dict[str, Any] = {

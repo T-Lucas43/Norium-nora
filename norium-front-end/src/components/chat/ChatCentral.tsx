@@ -21,15 +21,14 @@ interface ContatoAgenda {
 
 interface ChatCentralProps {
   userId?: string;
-  telegramEnabled?: boolean;
   onConversaAtivaChange?: (conversaId: string | null) => void;
   onOpenNora?: (prompt?: string) => void;
 }
 
-export default function ChatCentral({ userId = "primary", telegramEnabled = true, onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
+export default function ChatCentral({ userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [canaisStatus, setCanaisStatus] = useState<{ [key: string]: { conectado: boolean; qrcode?: string | null; detail?: string; username?: string; webhookUrl?: string; webhookEsperado?: string } }>({});
-  const [canalSelecionadoLogin, setCanalSelecionadoLogin] = useState<"whatsapp" | "telegram" | null>(null);
+  const [canalSelecionadoLogin, setCanalSelecionadoLogin] = useState<"whatsapp" | null>(null);
   const [qrCodeString, setQrCodeString] = useState<string | null>(null);
   const [erroLogin, setErroLogin] = useState<string | null>(null);
   const [mensagemLogin, setMensagemLogin] = useState<string | null>(null);
@@ -47,7 +46,6 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
   const [filtroContatoNome, setFiltroContatoNome] = useState<string>("");
 
   const [nomeNovoGrupo, setNomeNovoGrupo] = useState("");
-  const [plataformaGrupo, setPlataformaGrupo] = useState<"whatsapp" | "telegram">("whatsapp");
   const [contatosSelecionadosGrupo, setContatosSelecionadosGrupo] = useState<string[]>([]);
 
   const [gravando, setGravando] = useState<boolean>(false);
@@ -160,7 +158,12 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
         if (res.ok) {
           const data = await res.json();
           setCanaisStatus(data);
-          await carregarConversasDoBackend();
+          if (data.whatsapp?.conectado) {
+            await carregarConversasDoBackend();
+          } else {
+            setConversas([]);
+            setConversaSelecionada(null);
+          }
         }
       } catch (err) { console.error(err); } 
       finally { setLoadingStatus(false); }
@@ -184,6 +187,7 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
           setErroLogin(null);
           setMensagemLogin("WhatsApp conectado com sucesso.");
           await carregarConversasDoBackend();
+          if (active) setCanalSelecionadoLogin(null);
           return;
         }
         if (whatsapp.qrcode) {
@@ -208,7 +212,7 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
 
   useEffect(() => {
     const atualizarSeVisivel = () => {
-      if (!document.hidden && !canalSelecionadoLogin) {
+      if (!document.hidden && !canalSelecionadoLogin && canaisStatus.whatsapp?.conectado) {
         void carregarConversasDoBackend(true);
       }
     };
@@ -218,7 +222,7 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
       window.clearInterval(intervaloChats);
       document.removeEventListener("visibilitychange", atualizarSeVisivel);
     };
-  }, [canalSelecionadoLogin, carregarConversasDoBackend]);
+  }, [canalSelecionadoLogin, canaisStatus.whatsapp?.conectado, carregarConversasDoBackend]);
 
   const abrirAgendaContatos = async () => {
     setModalContatosAberto(true);
@@ -532,12 +536,7 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
     } catch (err) { console.error(err); }
   };
 
-  const handleIniciarLogin = async (canal: "whatsapp" | "telegram") => {
-    if (canal === "telegram" && !telegramEnabled) {
-      setCanalSelecionadoLogin("telegram");
-      setErroLogin("Telegram liberado somente para a conta principal do Norium.");
-      return;
-    }
+  const handleIniciarLogin = async (canal: "whatsapp") => {
     setCanalSelecionadoLogin(canal);
     setQrCodeString(null);
     setErroLogin(null);
@@ -559,15 +558,6 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
                 ? "Escaneie o QR Code com o WhatsApp do celular."
                 : "Preparando uma conexao segura e gerando o QR Code..."
           );
-        }
-        if (canal === "telegram") {
-          setMensagemLogin(
-            data.status === "conectado_polling"
-              ? "Telegram conectado em modo local. Envie uma mensagem para o bot e mantenha a tela de Chat aberta para sincronizar."
-              : `Telegram conectado${data.username ? ` como @${data.username}` : ""}. Envie uma mensagem para o bot para a conversa aparecer aqui.`
-          );
-          setCanaisStatus((prev) => ({ ...prev, telegram: { ...(prev.telegram || {}), ...data, conectado: true } }));
-          await carregarConversasDoBackend();
         }
       } else {
         setErroLogin((await res.json()).detail || "A API do WhatsApp nao respondeu.");
@@ -645,7 +635,7 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
   };
 
   const conversaAtiva = conversas.find(c => c.id === conversaSelecionada);
-  const nenhumConectado = !canaisStatus.whatsapp?.conectado && !canaisStatus.telegram?.conectado && conversas.length === 0;
+  const nenhumConectado = !canaisStatus.whatsapp?.conectado;
 
   if (loadingStatus) return <div className="w-full h-full flex items-center justify-center text-xs font-semibold opacity-50 text-[var(--text)]">Sincronizando...</div>;
 
@@ -656,9 +646,6 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
           <h3 className="text-sm font-extrabold tracking-tight mb-4 text-[var(--text)]">Painel de Acesso Unificado</h3>
           <div className="space-y-3">
             <button onClick={() => handleIniciarLogin("whatsapp")} className="w-full h-12 bg-emerald-600 text-white rounded-xl shadow-md">Conectar WhatsApp</button>
-            {telegramEnabled && (
-              <button onClick={() => handleIniciarLogin("telegram")} className="w-full h-12 bg-sky-600 text-white rounded-xl shadow-md">Conectar Telegram</button>
-            )}
           </div>
         </div>
       </div>
@@ -693,30 +680,6 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
     );
   }
 
-  if (canalSelecionadoLogin === "telegram") {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-[var(--background)] p-6 font-sans">
-        <div className="w-[430px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-6 text-center space-y-4 text-xs font-bold text-[var(--text)] shadow-2xl">
-          <h3 className="text-sm font-extrabold text-sky-500">Autenticacao Telegram</h3>
-          {erroLogin ? (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-left text-red-400">{erroLogin}</div>
-          ) : (
-            <div className="rounded-xl border border-sky-500/25 bg-sky-500/10 p-4 text-left leading-6">
-              <p>{mensagemLogin || "Conectando ao bot do Telegram..."}</p>
-              <p className="mt-3 text-[var(--text-secondary)]">
-                O Telegram nao usa QR Code. A conversa aparece quando alguem envia mensagem para o bot ou quando o bot e adicionado a um grupo.
-              </p>
-            </div>
-          )}
-          <div className="flex gap-2">
-            <Button onClick={() => setCanalSelecionadoLogin(null)} className="flex-1 text-[var(--text-secondary)]">Voltar</Button>
-            <Button variant="ghost" onClick={() => { setCanalSelecionadoLogin(null); carregarConversasDoBackend(); }} className="flex-1 bg-sky-600 shadow-md">Abrir chat</Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={`norium-chat ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} w-full h-full flex bg-[var(--background)] font-sans overflow-hidden relative`}>
       <button
@@ -746,12 +709,6 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
       <SidebarEsquerda 
         conversas={conversas} conversaSelecionada={conversaSelecionada} 
         onSelecionar={selecionarConversa} onAcao={handleAcaoChat} onExcluir={handleExcluirChat}
-        telegramEnabled={telegramEnabled}
-        canaisConectados={{
-          whatsapp: Boolean(canaisStatus.whatsapp?.conectado),
-          telegram: Boolean(canaisStatus.telegram?.conectado),
-        }}
-        onConectarCanal={handleIniciarLogin}
         onAbrirConfigPropria={() => setModalConfigAberto(true)}
         onAbrirModalContatos={abrirAgendaContatos}
         onAbrirModalCriarGrupo={abrirModalGrupo}
@@ -874,10 +831,7 @@ export default function ChatCentral({ userId = "primary", telegramEnabled = true
             
             <div className="p-4 space-y-3 bg-[var(--background)] border-b border-[var(--border)]">
               <input type="text" placeholder="Nome do grupo..." value={nomeNovoGrupo} onChange={(e) => setNomeNovoGrupo(e.target.value)} className="w-full h-10 border border-[var(--border)] bg-[var(--surface)] px-3 rounded-xl outline-none font-semibold text-xs text-[var(--text)] focus:border-[var(--primary)]"/>
-              <div className="flex gap-2 font-bold">
-                <button onClick={() => setPlataformaGrupo("whatsapp")} className={`flex-1 py-2 rounded-xl border text-center transition ${plataformaGrupo === "whatsapp" ? "bg-emerald-600 text-white border-transparent" : "border-[var(--border)] opacity-60"}`}>WhatsApp</button>
-                <button onClick={() => setPlataformaGrupo("telegram")} className={`flex-1 py-2 rounded-xl border text-center transition ${plataformaGrupo === "telegram" ? "bg-blue-600 text-white border-transparent" : "border-[var(--border)] opacity-60"}`}>Telegram</button>
-              </div>
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-center text-emerald-400">Grupo do WhatsApp</div>
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-[var(--border)]/30">

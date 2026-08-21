@@ -777,7 +777,7 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
                           {checkingIntegrationId === integration.id ? <LoaderCircle className="animate-spin" size={13} /> : <RefreshCw size={13} />} Testar
                         </Button>
                         {!integration.connected && onNavigate && (
-                          <Button variant="primary" size="sm" onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" || integration.id === "telegram" ? "Chat" : "Mais")} className="bg-blue-600 uppercase hover:bg-blue-500">
+                          <Button variant="primary" size="sm" onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" ? "Chat" : "Mais")} className="bg-blue-600 uppercase hover:bg-blue-500">
                             Reconectar <ChevronRight size={13} />
                           </Button>
                         )}
@@ -786,7 +786,7 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
                     {onNavigate && integration.connected && (
                       <Button size="sm" iconOnly
                        
-                        onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" || integration.id === "telegram" ? "Chat" : "Mais")}
+                        onClick={() => onNavigate(integration.id === "gmail" ? "E-mails" : integration.id === "calendar" ? "Agenda" : integration.id === "whatsapp" ? "Chat" : "Mais")}
                         className="text-[var(--text-secondary)] hover:text-[var(--text)]"
                         aria-label={`Abrir ${integration.name}`}
                         title={`Abrir ${integration.name}`}

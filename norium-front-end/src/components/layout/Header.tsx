@@ -113,7 +113,7 @@ export default function Header({
       { title: "Central", description: "Atividades de todas as integrações.", keywords: "eventos inbox notificacoes", icon: Inbox, tab: "Central" },
       { title: "E-mails", description: "Ler, responder e enviar pelo Gmail.", keywords: "gmail caixa entrada mensagem", icon: Mail, tab: "E-mails" },
       { title: "Agenda", description: "Compromissos e novos eventos.", keywords: "calendario reuniao compromisso", icon: CalendarDays, tab: "Agenda" },
-      { title: "Chat", description: "WhatsApp, Telegram, grupos e mídia.", keywords: "conversas mensagens whatsapp telegram", icon: MessageSquare, tab: "Chat" },
+      { title: "Chat", description: "WhatsApp, grupos e mídia.", keywords: "conversas mensagens whatsapp", icon: MessageSquare, tab: "Chat" },
       { title: "Tarefas", description: "Projetos, Kanban, prazos e responsáveis.", keywords: "cards projetos prioridade", icon: CheckSquare, tab: "Tarefas" },
       { title: "Financeiro", description: "Entradas, saídas, boletos e anexos.", keywords: "financeiro pagamentos lancamentos", icon: CreditCard, tab: "Financeiro" },
       { title: "Automações", description: "Fluxos, gatilhos e execuções.", keywords: "workflow fluxo nora gatilho", icon: GitBranch, tab: "Automações" },

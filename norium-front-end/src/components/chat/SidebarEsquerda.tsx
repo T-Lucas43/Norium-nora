@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Archive,
-  ArrowLeftRight,
-  MessageCircle,
   MessageSquare,
   MoreVertical,
   Pin,
@@ -25,9 +23,6 @@ interface SidebarProps {
   onSelecionar: (id: string) => void;
   onAcao: (id: string, acao: string, valor: boolean) => void;
   onExcluir: (id: string, e: React.MouseEvent) => void;
-  telegramEnabled?: boolean;
-  canaisConectados?: Partial<Record<"whatsapp" | "telegram", boolean>>;
-  onConectarCanal?: (canal: "whatsapp" | "telegram") => void;
   onAbrirConfigPropria: () => void;
   onAbrirModalContatos: () => void;
   onAbrirModalCriarGrupo: () => void;
@@ -73,26 +68,14 @@ export default function SidebarEsquerda({
   onSelecionar,
   onAcao,
   onExcluir,
-  telegramEnabled = true,
-  canaisConectados,
-  onConectarCanal,
   onAbrirConfigPropria,
   onAbrirModalContatos,
   onAbrirModalCriarGrupo,
   onClose,
 }: SidebarProps) {
-  const [canalAtivo, setCanalAtivo] = useState<"todos" | "whatsapp" | "telegram">("todos");
   const [filtroTipo, setFiltroTipo] = useState<"todos" | "nao-lidas" | "grupos" | "arquivados">("todos");
   const [menuAbertoId, setMenuAbertoId] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
-
-  const selecionarCanal = (canal: "todos" | "whatsapp" | "telegram") => {
-    if (canal !== "todos" && canaisConectados?.[canal] === false) {
-      onConectarCanal?.(canal);
-      return;
-    }
-    setCanalAtivo(canal);
-  };
 
   useEffect(() => {
     const fecharMenu = (event: MouseEvent) => {
@@ -107,8 +90,6 @@ export default function SidebarEsquerda({
     const termo = busca.trim().toLowerCase();
     return conversas
       .filter((chat) => {
-        const canal = chat.channel ?? chat.canal;
-        if (canalAtivo !== "todos" && canal !== canalAtivo) return false;
         if (filtroTipo === "arquivados") return chat.arquivada === true;
         if (chat.arquivada) return false;
         if (filtroTipo === "nao-lidas") return Boolean(chat.naoLidasCount && chat.naoLidasCount > 0);
@@ -120,7 +101,7 @@ export default function SidebarEsquerda({
         if (Boolean(a.fixada) !== Boolean(b.fixada)) return a.fixada ? -1 : 1;
         return Number(b.timestampUltimaMsg || 0) - Number(a.timestampUltimaMsg || 0);
       });
-  }, [busca, canalAtivo, conversas, filtroTipo]);
+  }, [busca, conversas, filtroTipo]);
 
   return (
     <aside className="w-[400px] min-w-[340px] border-r border-[var(--border)] flex flex-col h-full bg-[var(--surface)] select-none">
@@ -156,20 +137,6 @@ export default function SidebarEsquerda({
           />
         </div>
 
-        <div className={`grid ${telegramEnabled ? "grid-cols-3" : "grid-cols-2"} gap-1 bg-[var(--background)] p-1 rounded-lg border border-[var(--border)] text-xs font-semibold`}>
-          <button onClick={() => selecionarCanal("todos")} className={`py-2 rounded-md flex items-center justify-center gap-1 ${canalAtivo === "todos" ? "bg-[var(--surface)] text-[var(--primary)] shadow-sm" : "text-[var(--text-secondary)]"}`}>
-            <ArrowLeftRight size={13} /> Todos
-          </button>
-          <button onClick={() => selecionarCanal("whatsapp")} className={`py-2 rounded-md flex items-center justify-center gap-1 ${canalAtivo === "whatsapp" ? "bg-[var(--surface)] text-emerald-600 shadow-sm" : "text-[var(--text-secondary)]"}`}>
-            <MessageCircle size={13} /> WhatsApp
-          </button>
-          {telegramEnabled && (
-            <button onClick={() => selecionarCanal("telegram")} className={`py-2 rounded-md flex items-center justify-center gap-1 ${canalAtivo === "telegram" ? "bg-[var(--surface)] text-sky-600 shadow-sm" : "text-[var(--text-secondary)]"}`}>
-              <MessageSquare size={13} /> Telegram
-            </button>
-          )}
-        </div>
-
         <div className="flex gap-1 overflow-x-auto text-xs font-semibold scrollbar-hide">
           {[
             ["todos", "Todos"],
@@ -191,7 +158,6 @@ export default function SidebarEsquerda({
       <div className="flex-1 overflow-y-auto">
         {filtradas.map((chat) => {
           const unread = Number(chat.naoLidasCount || 0);
-          const canal = chat.channel ?? chat.canal;
           return (
             <div
               key={chat.id}
@@ -212,8 +178,8 @@ export default function SidebarEsquerda({
                   <span className={`text-xs truncate ${unread > 0 ? "text-[var(--text)] font-semibold" : "text-[var(--text-secondary)]"}`}>{chat.ultimoTexto || "Sem mensagens recentes"}</span>
                 </div>
 
-                <span className={`mt-1 inline-flex h-5 items-center rounded-full px-2 text-xs font-bold uppercase ${canal === "telegram" ? "bg-sky-500/10 text-sky-600" : "bg-emerald-500/10 text-emerald-600"}`}>
-                  {canal}
+                <span className="mt-1 inline-flex h-5 items-center rounded-full bg-emerald-500/10 px-2 text-xs font-bold uppercase text-emerald-600">
+                  WhatsApp
                 </span>
               </div>
 

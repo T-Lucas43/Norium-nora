@@ -136,7 +136,7 @@ export default function SystemNotificationsCenter({
     if (metadata.approvalId || context.includes("aprova")) return "Controle";
     if (context.includes("gmail") || context.includes("e-mail") || context.includes("email")) return "E-mails";
     if (context.includes("agenda") || context.includes("calendar")) return "Agenda";
-    if (context.includes("whatsapp") || context.includes("telegram") || context.includes("chat")) return "Chat";
+    if (context.includes("whatsapp") || context.includes("chat")) return "Chat";
     if (context.includes("tarefa") || context.includes("kanban")) return "Tarefas";
     if (context.includes("financ") || context.includes("gasto") || context.includes("boleto")) return "Financeiro";
     if (context.includes("automa")) return "Automações";

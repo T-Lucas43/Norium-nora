@@ -53,7 +53,7 @@ from app.services.task_store import create_task, list_projects, list_tasks
 
 
 LOCAL_TZ = timezone(timedelta(hours=-3))
-ATTENTION_SOURCES = {"gmail", "whatsapp", "telegram"}
+ATTENTION_SOURCES = {"gmail", "whatsapp"}
 DONE_TASK_STATUSES = {"concluida", "concluido"}
 
 
@@ -110,7 +110,6 @@ def _event_link(event: dict[str, Any]) -> dict[str, Any]:
     tab_by_source = {
         "gmail": "E-mails",
         "whatsapp": "Chat",
-        "telegram": "Chat",
         "calendar": "Agenda",
         "kanban": "Tarefas",
         "financeiro": "Gastos",
@@ -429,7 +428,7 @@ async def detect_followups(user: dict[str, Any]) -> dict[str, Any]:
             or "sent" in direction
             or "enviado" in direction
         )
-        if source in {"gmail", "whatsapp", "telegram"} and requires_response:
+        if source in {"gmail", "whatsapp"} and requires_response:
             candidates.append(
                 FollowUpCreate(
                     title=f'Acompanhar: {event.get("title") or "conversa sem retorno"}',
@@ -518,7 +517,7 @@ async def client_360(user: dict[str, Any], client_id: str) -> dict[str, Any] | N
         if not _client_matches(client, event):
             continue
         source = str(event.get("source") or "")
-        bucket = "emails" if source == "gmail" else "messages" if source in {"whatsapp", "telegram"} else "calendar" if source == "calendar" else ""
+        bucket = "emails" if source == "gmail" else "messages" if source == "whatsapp" else "calendar" if source == "calendar" else ""
         if bucket:
             channels[bucket].append(event)
         timeline.append(
@@ -1129,7 +1128,7 @@ async def usage_meter(user: dict[str, Any]) -> dict[str, Any]:
     profile = read_user_db(user_id, "perfil", {})
     integrations = sum(
         1
-        for key in ("gmailToken", "calendarToken", "telegramConfig")
+        for key in ("gmailToken", "calendarToken")
         if isinstance(profile, dict) and profile.get(key)
     )
     def actor_id(item: dict[str, Any]) -> str:

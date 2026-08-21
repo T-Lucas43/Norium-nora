@@ -191,7 +191,7 @@ async def test_integration(
     integration_id: str,
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    allowed = {"gmail", "calendar", "whatsapp", "telegram", "local"}
+    allowed = {"gmail", "calendar", "whatsapp", "local"}
     if integration_id not in allowed:
         raise HTTPException(status_code=404, detail="Integracao nao encontrada.")
     user_id = str(user.get("id") or "lucas123")

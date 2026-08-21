@@ -562,7 +562,6 @@ def integration_health(user_id: str, events: list[dict[str, Any]], audits: list[
     gmail_connected = _token_connected(profile, "gmailToken")
     calendar_connected = _token_connected(profile, "calendarToken") and not bool(profile.get("calendarTokenRevoked"))
     whatsapp_configured = bool(os.getenv("WHATSAPP_API_URL") and os.getenv("WHATSAPP_API_KEY"))
-    telegram_configured = bool(os.getenv("TELEGRAM_BOT_TOKEN"))
 
     audits = audits or []
 
@@ -603,16 +602,6 @@ def integration_health(user_id: str, events: list[dict[str, Any]], audits: list[
             "detail": "API privada configurada" if whatsapp_configured else "API privada nao configurada",
             "permissions": ["Mensagens", "Midias"] if whatsapp_configured else [],
             "failures": failure_count("whatsapp"),
-        },
-        {
-            "id": "telegram",
-            "name": "Telegram",
-            "status": "online" if telegram_configured else "attention",
-            "connected": telegram_configured,
-            "lastSync": _last_event_by_source(events, "telegram"),
-            "detail": "Bot configurado" if telegram_configured else "Bot nao configurado",
-            "permissions": ["Mensagens do bot"] if telegram_configured else [],
-            "failures": failure_count("telegram"),
         },
         {
             "id": "local",
@@ -914,7 +903,6 @@ async def global_search(user: dict[str, Any], query: str, limit: int = 20) -> di
     source_tabs = {
         "gmail": "E-mails",
         "whatsapp": "Chat",
-        "telegram": "Chat",
         "calendar": "Agenda",
         "kanban": "Tarefas",
         "financeiro": "Gastos",

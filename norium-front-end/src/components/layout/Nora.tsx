@@ -498,7 +498,7 @@ function buildOpeningSummary(profile: PerfilOperador | null | undefined, eventsB
   const whatsapp = eventCount(eventsBySource, "whatsapp");
   const calendar = eventCount(eventsBySource, "calendar");
   const tasks = eventCount(eventsBySource, "kanban");
-  const total = emails + whatsapp + calendar + tasks + eventCount(eventsBySource, "telegram");
+  const total = emails + whatsapp + calendar + tasks;
   return `${greeting}${name ? `, ${name}` : ""}. Aqui esta seu resumo: ${total} eventos recentes, ${emails} e-mails, ${whatsapp} mensagens, ${calendar} compromissos de agenda e ${tasks} atualizacoes de tarefas.`;
 }
 
@@ -579,7 +579,7 @@ function inferAgentFromText(message: Msg): NoraAgentKind {
   if (/equipe|time|chat interno|mensagem interna/.test(normalized)) return "equipe";
   if (/tarefa|kanban|projeto|prioridade|pendente|concluida|vencimento/.test(normalized)) return "tarefas";
   if (/financeiro|gasto|boleto|pix|saldo|lancamento|entrada|saida|despesa|receita/.test(normalized)) return "financeiro";
-  if (/whatsapp|telegram|chat|mensagem/.test(normalized)) return "whatsapp";
+  if (/whatsapp|chat|mensagem/.test(normalized)) return "whatsapp";
   return "geral";
 }
 

@@ -130,12 +130,20 @@ jobs:
             --output tsv)"
           test -n "$registry_password"
           echo "::add-mask::$registry_password"
+          managed_environment_id="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query properties.managedEnvironmentId \
+            --output tsv)"
+          managed_environment_name="${managed_environment_id##*/}"
+          test -n "$managed_environment_name"
           az deployment group create \
             --name "$DEPLOYMENT_APP" \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --template-file whatsapp-api/infra/main.bicep \
             --parameters \
               appName="$WHATSAPP_APP_NAME" \
+              managedEnvironmentName="$managed_environment_name" \
               containerImage="${{ steps.source.outputs.reference }}" \
               registryPassword="$registry_password" \
               noriumWebhookUrl="${{ vars.AZURE_PUBLIC_URL }}/api/whatsapp/webhook" \

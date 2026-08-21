@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
 from pydantic import Field
 
@@ -172,16 +172,15 @@ async def gmail_disconnect(payload: DisconnectPayload, user: dict[str, Any] = De
     },
 )
 async def gmail_callback(
-    request: Request,
+    code: str | None = Query(default=None, include_in_schema=False),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
     error_description: str | None = Query(default=None),
     user_id: str | None = None,
 ):
-    # O Google pode devolver apenas ``error`` quando o usuario cancela. Leitura
-    # direta permite exibir a pagina correta sem enfraquecer o contrato OpenAPI
-    # historico, no qual ``code`` continua documentado como obrigatorio.
-    code = request.query_params.get("code")
+    # O Google pode devolver apenas ``error`` quando o usuario cancela. O campo
+    # fica opcional em execucao, mas o contrato OpenAPI historico continua
+    # documentando ``code`` como obrigatorio via ``openapi_extra`` acima.
     # ``user_id`` permanece apenas por compatibilidade de contrato e nunca e
     # usado como autorizacao. A conta vem exclusivamente do state aleatorio.
     resolved_user_id = GmailService.user_id_from_state(state)

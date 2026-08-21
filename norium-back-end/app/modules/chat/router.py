@@ -314,13 +314,13 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
 
 @router.post("/api/whatsapp/webhook")
 async def webhook_whatsapp(
-    request: Request,
     data: Dict[str, Any] = Body(...),
     x_whatsapp_webhook_secret: str | None = Header(default=None),
     client_token: str | None = Header(default=None, alias="client-token"),
     x_norium_timestamp: str | None = Header(default=None),
     x_norium_signature: str | None = Header(default=None),
     x_norium_event_id: str | None = Header(default=None),
+    request: Request = None,
 ):
     supplied_secret = x_whatsapp_webhook_secret or client_token or ""
     if not WHATSAPP_WEBHOOK_SECRET and os.getenv("ENVIRONMENT", "development").strip().lower() == "production":
@@ -328,6 +328,8 @@ async def webhook_whatsapp(
     if WHATSAPP_WEBHOOK_SECRET and not secrets.compare_digest(supplied_secret, WHATSAPP_WEBHOOK_SECRET):
         raise HTTPException(status_code=403, detail="Webhook WhatsApp nao autorizado.")
     if WHATSAPP_WEBHOOK_HMAC_SECRET:
+        if request is None:
+            raise HTTPException(status_code=403, detail="Assinatura do webhook ausente ou invalida.")
         try:
             timestamp = int(x_norium_timestamp or "")
         except ValueError as exc:

@@ -27,6 +27,8 @@ jobs:
           repository: T-Lucas43/norium-whatsapp-api
           ref: main
           path: whatsapp-api
+          ssh-key: ${{ secrets.WHATSAPP_REPO_DEPLOY_KEY }}
+          persist-credentials: false
 
       - name: Authenticate with Azure using OpenID Connect
         uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2

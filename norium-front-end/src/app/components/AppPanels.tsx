@@ -154,7 +154,7 @@ export default function AppPanels({
         </section>
       )}
       {isPanelMounted("Chat") && (
-        <section className={activePanelClass("Chat")}>
+        <section className={`${activePanelClass("Chat")} app-panel-chat`}>
           {coach("Chat", true)}
           <ChatCentral
             userId={currentUser.id}

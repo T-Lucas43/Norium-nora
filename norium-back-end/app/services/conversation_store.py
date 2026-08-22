@@ -92,6 +92,7 @@ def normalize_conversation(conversa_id: str, conversa: Dict[str, Any]) -> Dict[s
         "historicoSincronizadoEm": metadados.get("historicoSincronizadoEm"),
         "historicoCursor": metadados.get("historicoCursor"),
         "historicoTemMais": bool(metadados.get("historicoTemMais", False)),
+        "historicoSchema": metadados.get("historicoSchema"),
     }
 
     mensagens_raw = conversa.get("mensagens")
@@ -127,7 +128,7 @@ def normalize_message(mensagem: Dict[str, Any], channel: ChatChannel) -> Dict[st
     texto = mensagem.get("texto")
     tipo = mensagem.get("tipo") or "texto"
     status = mensagem.get("status")
-    if status not in {"enviado", "entregue", "lido", None}:
+    if status not in {"erro", "pendente", "enviado", "entregue", "lido", "reproduzido", None}:
         status = None
 
     timestamp = mensagem.get("timestamp")
@@ -140,6 +141,7 @@ def normalize_message(mensagem: Dict[str, Any], channel: ChatChannel) -> Dict[st
         "id": str(mensagem.get("id") or f"msg_{timestamp_normalizado}"),
         "remetente": "usuario" if mensagem.get("remetente") == "usuario" else "contato",
         "remetenteNome": mensagem.get("remetenteNome"),
+        "remetenteId": mensagem.get("remetenteId"),
         "texto": texto if texto is not None else "",
         "tipo": tipo,
         "arquivoUrl": mensagem.get("arquivoUrl"),
@@ -149,6 +151,8 @@ def normalize_message(mensagem: Dict[str, Any], channel: ChatChannel) -> Dict[st
         "horario": mensagem.get("horario") or datetime.now().strftime("%H:%M"),
         "timestamp": timestamp_normalizado,
         "status": status,
+        "reacoes": _normalize_reactions(mensagem.get("reacoes") or mensagem.get("reactions")),
+        "citada": mensagem.get("citada") if isinstance(mensagem.get("citada"), dict) else None,
         "canal": channel,
         "channel": channel,
     }
@@ -164,7 +168,6 @@ def new_conversation(
     participantes: Optional[List[Dict[str, Any]]] = None,
     descricao_grupo: str = "",
 ) -> Dict[str, Any]:
-    hora, timestamp = _now_payload()
     return normalize_conversation(
         conversa_id,
         {
@@ -172,9 +175,9 @@ def new_conversation(
             "contato": contato or conversa_id,
             "canal": channel,
             "channel": channel,
-            "ultimoTexto": "Sincronizado",
-            "horario": hora,
-            "timestampUltimaMsg": timestamp,
+            "ultimoTexto": "",
+            "horario": "",
+            "timestampUltimaMsg": 0,
             "lida": True,
             "naoLidasCount": 0,
             "fixada": False,
@@ -335,6 +338,7 @@ def _normalize_participants(value: Any) -> List[Dict[str, Any]]:
                 "id": str(item.get("id") or phone),
                 "phone": str(phone),
                 "name": item.get("name") or item.get("pushname") or item.get("shortName"),
+                "photoUrl": item.get("photoUrl") or item.get("pic"),
                 "isAdmin": bool(item.get("isAdmin") or item.get("admin")),
                 "isSuperAdmin": bool(item.get("isSuperAdmin") or item.get("superAdmin")),
             }
@@ -342,15 +346,37 @@ def _normalize_participants(value: Any) -> List[Dict[str, Any]]:
     return participants
 
 
+def _normalize_reactions(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    reactions: List[Dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        emoji = str(item.get("emoji") or item.get("aggregateEmoji") or "").strip()
+        if not emoji:
+            continue
+        senders = item.get("senders") if isinstance(item.get("senders"), list) else []
+        reactions.append(
+            {
+                "emoji": emoji[:16],
+                "count": max(1, int(item.get("count") or len(senders) or 1)),
+                "fromMe": bool(item.get("fromMe") or item.get("hasReactionByMe")),
+                "senders": [str(sender) for sender in senders if sender],
+            }
+        )
+    return reactions
+
+
 def _last_text(mensagens: List[Dict[str, Any]]) -> str:
     if not mensagens:
-        return "Nenhuma mensagem"
+        return ""
     return mensagens[-1].get("texto") or _label_for_message(mensagens[-1])
 
 
 def _last_timestamp(mensagens: List[Dict[str, Any]]) -> int:
     if not mensagens:
-        return int(datetime.now().timestamp())
+        return 0
     return int(mensagens[-1].get("timestamp") or datetime.now().timestamp())
 
 

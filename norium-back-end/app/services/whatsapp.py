@@ -145,6 +145,9 @@ class WhatsAppService:
         safe_name = file_name or f"arquivo.{extension or 'bin'}"
         return await self._send_media(user_id, numero, document, safe_name, "", timeout=95.0)
 
+    async def enviar_figurinha(self, user_id: str, numero: str, image: str) -> Dict[str, Any] | None:
+        return await self._send_media(user_id, numero, image, "figurinha.webp", "", timeout=70.0, as_sticker=True)
+
     async def _send_media(
         self,
         user_id: str,
@@ -153,12 +156,20 @@ class WhatsAppService:
         filename: str,
         caption: str,
         timeout: float,
+        as_sticker: bool = False,
     ) -> Dict[str, Any] | None:
         result = await self._request_json(
             user_id,
             "POST",
             "/messages/media",
-            payload={"to": numero, "data": data, "filename": filename, "caption": caption, "viewOnce": False},
+            payload={
+                "to": numero,
+                "data": data,
+                "filename": filename,
+                "caption": caption,
+                "viewOnce": False,
+                "asSticker": as_sticker,
+            },
             timeout=timeout,
         )
         return result if isinstance(result, dict) else None

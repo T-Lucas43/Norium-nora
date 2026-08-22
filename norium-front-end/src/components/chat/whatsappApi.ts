@@ -116,6 +116,7 @@ export const whatsappApi = {
     mimeType: string;
     dataUrl: string;
     caption?: string;
+    asSticker?: boolean;
   }) {
     return apiRequest<{ status: string }>("/api/chat/enviar-arquivo", {
       method: "POST",
@@ -126,8 +127,17 @@ export const whatsappApi = {
         mime_type: payload.mimeType,
         data_url: payload.dataUrl,
         legenda: payload.caption,
+        como_figurinha: Boolean(payload.asSticker),
       }),
       timeoutMs: 110_000,
+    });
+  },
+
+  async react(conversationId: string, messageId: string, emoji: string) {
+    return apiRequest<{ status: string; emoji: string }>("/api/chat/reagir", {
+      method: "POST",
+      body: JSON.stringify({ conversa_id: conversationId, mensagem_id: messageId, emoji }),
+      timeoutMs: 45_000,
     });
   },
 

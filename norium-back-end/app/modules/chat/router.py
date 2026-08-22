@@ -61,7 +61,9 @@ WHATSAPP_MEDIA_HOSTS = {
 profile_photo_attempt_cache: Dict[str, int] = {}
 whatsapp_webhook_event_cache: Dict[str, float] = {}
 WHATSAPP_CATALOG_CACHE_TTL_SECONDS = max(60, int(os.getenv("WHATSAPP_CATALOG_CACHE_TTL_SECONDS", "300")))
+WHATSAPP_CATALOG_SCHEMA_VERSION = 2
 WHATSAPP_HISTORY_CACHE_TTL_SECONDS = max(30, int(os.getenv("WHATSAPP_HISTORY_CACHE_TTL_SECONDS", "120")))
+WHATSAPP_HISTORY_SCHEMA_VERSION = 2
 UPLOAD_DIR = get_data_root() / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = 14 * 1024 * 1024
@@ -87,6 +89,13 @@ class EnviarArquivoPayload(StrictModel):
     mime_type: str = Field(min_length=1)
     data_url: str = Field(min_length=16)
     legenda: str | None = None
+    como_figurinha: bool = False
+
+
+class ReagirMensagemPayload(StrictModel):
+    conversa_id: str = Field(min_length=1)
+    mensagem_id: str = Field(min_length=1)
+    emoji: str = Field(min_length=0, max_length=16)
 
 
 class ModificarChatPayload(StrictModel):
@@ -144,6 +153,8 @@ async def save_whatsapp_catalog_cache(user_id: str, payload: Dict[str, Any]) -> 
 
 
 def catalog_cache_is_fresh(cache: Dict[str, Any], key: str = "catalogSyncedAt") -> bool:
+    if cache.get("schemaVersion") != WHATSAPP_CATALOG_SCHEMA_VERSION:
+        return False
     try:
         cached_at = float(cache.get(key) or 0)
     except (TypeError, ValueError):
@@ -338,10 +349,38 @@ async def webhook_whatsapp(
         expected_session_id = whatsapp_service.session_id_for(webhook_user_id)
         if not secrets.compare_digest(webhook_session_id, expected_session_id):
             raise HTTPException(status_code=403, detail="Webhook tentou acessar uma sessao de outro usuario.")
+        if event_name in {"ack", "reaction"}:
+            event_message = payload.get("message") if event_name == "reaction" else payload
+            if not isinstance(event_message, dict):
+                return {"status": "ignored", "event": event_name}
+            message_id = str(event_message.get("id") or "")
+            chat_id = str(event_message.get("chatId") or "")
+            if not message_id:
+                return {"status": "ignored", "event": event_name}
+            db = await load_conversations(webhook_user_id)
+            candidates = [db.get(chat_id)] if chat_id and db.get(chat_id) else list(db.values())
+            changed = False
+            for conversation in candidates:
+                if not isinstance(conversation, dict):
+                    continue
+                for stored_message in conversation.get("mensagens") or []:
+                    if str(stored_message.get("id") or "") != message_id:
+                        continue
+                    if event_name == "ack":
+                        stored_message["status"] = event_message.get("status") or stored_message.get("status")
+                    else:
+                        stored_message["reacoes"] = event_message.get("reactions") or []
+                    changed = True
+                    break
+                if changed:
+                    break
+            if changed:
+                await save_conversations(db, webhook_user_id)
+            return {"status": "success" if changed else "ignored", "event": event_name}
         if event_name not in {"message", "any-message"}:
             return {"status": "ignored", "event": event_name}
         data = payload
-        phone = data.get("phone") or data.get("chatId") or data.get("from")
+        phone = data.get("chatId") or data.get("phone") or data.get("from")
         if not phone:
             return {"status": "ignored"}
         phone = str(phone)
@@ -400,6 +439,7 @@ async def webhook_whatsapp(
                     "id": message_id,
                     "remetente": "usuario" if is_from_me else "contato",
                     "remetenteNome": sender_name if is_group and not is_from_me else None,
+                    "remetenteId": data.get("senderId"),
                     "texto": message_payload["texto"],
                     "tipo": message_payload["tipo"],
                     "arquivoUrl": message_payload.get("arquivoUrl"),
@@ -408,7 +448,9 @@ async def webhook_whatsapp(
                     "duracaoAudio": message_payload.get("duracaoAudio"),
                     "horario": hora_formatada,
                     "timestamp": message_timestamp,
-                    "status": "enviado" if is_from_me else None,
+                    "status": data.get("status") if is_from_me else None,
+                    "reacoes": data.get("reactions") or [],
+                    "citada": data.get("quoted"),
                     "canal": "whatsapp",
                     "channel": "whatsapp",
                 },
@@ -502,11 +544,21 @@ async def obter_conversas(
         remote_catalog_loaded = not isinstance(res_chats, Exception)
         remote_contacts_loaded = not isinstance(res_contacts, Exception)
 
+        if remote_catalog_loaded and chats:
+            remote_ids = {
+                str(chat.get("phone") or chat.get("id") or chat.get("jid"))
+                for chat in chats
+                if chat.get("phone") or chat.get("id") or chat.get("jid")
+            }
+            for stale_id in [conversation_id for conversation_id in db if conversation_id not in remote_ids]:
+                db.pop(stale_id, None)
+                changed = True
+
         nomes, fotos, metadata = build_contact_indexes(contacts)
 
         missing_photo_count = 0
         group_metadata_count = 0
-        for chat in chats[:250]:
+        for chat in chats[:500]:
             phone = chat.get("phone") or chat.get("id") or chat.get("jid")
             if not phone:
                 continue
@@ -593,6 +645,7 @@ async def obter_conversas(
             resolved_user_id,
             {
                 **catalog_cache,
+                "schemaVersion": WHATSAPP_CATALOG_SCHEMA_VERSION,
                 "authenticatedAt": catalog_cache.get("authenticatedAt") or time.time(),
                 "catalogSyncedAt": time.time(),
                 "contactsSyncedAt": time.time() if remote_contacts_loaded else catalog_cache.get("contactsSyncedAt"),
@@ -615,11 +668,18 @@ async def obter_historico_conversa(
     db = await load_conversations(resolved_user_id)
     conversation = db.get(conversa_id)
     history_synced_at = (conversation or {}).get("metadados", {}).get("historicoSincronizadoEm")
+    history_schema = (conversation or {}).get("metadados", {}).get("historicoSchema")
     try:
         history_cache_fresh = bool(history_synced_at) and time.time() - float(history_synced_at) < WHATSAPP_HISTORY_CACHE_TTL_SECONDS
     except (TypeError, ValueError):
         history_cache_fresh = False
-    if before is None and conversation and conversation.get("mensagens") and history_cache_fresh:
+    if (
+        before is None
+        and conversation
+        and conversation.get("mensagens")
+        and history_cache_fresh
+        and history_schema == WHATSAPP_HISTORY_SCHEMA_VERSION
+    ):
         cached_messages = list(conversation.get("mensagens") or [])[-limit:]
         cached_messages.sort(key=lambda item: int(item.get("timestamp") or 0))
         return {
@@ -641,6 +701,7 @@ async def obter_historico_conversa(
     conversation = db.get(conversa_id) or new_conversation(conversa_id, channel="whatsapp")
     sync_catalog_messages(conversation, {"messages": payload["items"]})
     conversation.setdefault("metadados", {})["historicoSincronizadoEm"] = time.time()
+    conversation["metadados"]["historicoSchema"] = WHATSAPP_HISTORY_SCHEMA_VERSION
     conversation["metadados"]["historicoCursor"] = payload.get("cursor")
     conversation["metadados"]["historicoTemMais"] = bool(payload.get("hasMore"))
     db[conversa_id] = normalize_conversation(conversa_id, conversation)
@@ -692,6 +753,8 @@ async def obter_detalhes_conversa(
         if name:
             conversation["contato"] = str(name)
         photo_url = extract_photo_url(details)
+        if not photo_url:
+            photo_url = await fetch_profile_picture(resolved_user_id, conversa_id)
         if photo_url:
             metadata["photoUrl"] = photo_url
             conversation["photoUrl"] = photo_url
@@ -850,7 +913,13 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
     extension = file_extension(safe_file_name, mime_type)
     legenda = (payload.legenda or "").strip() or None
 
-    if media_kind == "audio":
+    if payload.como_figurinha:
+        if media_kind != "image":
+            raise HTTPException(status_code=415, detail="Figurinhas devem ser enviadas a partir de uma imagem.")
+        result = await whatsapp_service.enviar_figurinha(resolved_user_id, payload.conversa_id, payload.data_url)
+        tipo = "sticker"
+        texto = "[Figurinha]"
+    elif media_kind == "audio":
         result = await whatsapp_service.enviar_audio(resolved_user_id, payload.conversa_id, payload.data_url)
         tipo = "audio"
         texto = "[Audio]"
@@ -916,6 +985,35 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
         "arquivoUrl": local_url,
         "nomeArquivo": safe_file_name,
     }
+
+
+@router.post("/api/chat/reagir")
+async def reagir_mensagem(payload: ReagirMensagemPayload, user: dict[str, Any] = Depends(current_user)):
+    assert_channel_permission(user, "whatsapp")
+    resolved_user_id = tenant_id(user)
+    result = await whatsapp_service.post(
+        resolved_user_id,
+        f"/messages/{quote(payload.mensagem_id, safe='')}/reactions",
+        {"emoji": payload.emoji},
+        timeout=35.0,
+    )
+    if not isinstance(result, dict) or result.get("reacted") is not True:
+        raise HTTPException(status_code=502, detail="O WhatsApp recusou a reacao.")
+
+    db = await load_conversations(resolved_user_id)
+    conversation = db.get(payload.conversa_id)
+    if isinstance(conversation, dict):
+        for message in conversation.get("mensagens") or []:
+            if str(message.get("id") or "") != payload.mensagem_id:
+                continue
+            reactions = [item for item in (message.get("reacoes") or []) if isinstance(item, dict)]
+            reactions = [item for item in reactions if not item.get("fromMe")]
+            if payload.emoji:
+                reactions.append({"emoji": payload.emoji, "count": 1, "fromMe": True, "senders": []})
+            message["reacoes"] = reactions
+            await save_conversations(db, resolved_user_id)
+            break
+    return {"status": "reagido", "emoji": payload.emoji}
 
 
 @router.post("/api/chat/apagar-mensagem")
@@ -1006,6 +1104,24 @@ def decode_data_url(data_url: str, fallback_mime: str) -> tuple[bytes, str]:
         raise HTTPException(status_code=400, detail="Arquivo vazio.")
     if len(file_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Arquivo acima do limite de 14 MB.")
+
+    normalized_mime = mime_type.split(";", 1)[0].strip().lower()
+    if normalized_mime.startswith("image/"):
+        allowed_image_types = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+        if normalized_mime not in allowed_image_types:
+            raise HTTPException(status_code=415, detail="Use imagens PNG, JPEG, GIF ou WebP.")
+        valid_signature = (
+            (normalized_mime == "image/png" and file_bytes.startswith(b"\x89PNG\r\n\x1a\n"))
+            or (normalized_mime == "image/jpeg" and file_bytes.startswith(b"\xff\xd8\xff"))
+            or (normalized_mime == "image/gif" and file_bytes.startswith((b"GIF87a", b"GIF89a")))
+            or (
+                normalized_mime == "image/webp"
+                and file_bytes.startswith(b"RIFF")
+                and file_bytes[8:12] == b"WEBP"
+            )
+        )
+        if not valid_signature:
+            raise HTTPException(status_code=415, detail="Conteudo da imagem nao corresponde ao formato declarado.")
 
     return file_bytes, mime_type
 
@@ -1105,8 +1221,15 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
     ):
         timestamp = normalize_whatsapp_timestamp(raw_message.get("timestamp"))
         message_id = str(raw_message.get("id") or "").strip()
-        if not message_id or not timestamp or message_id in existing_ids:
+        if not message_id or not timestamp:
             continue
+        if message_id in existing_ids:
+            existing_messages[:] = [
+                existing for existing in existing_messages
+                if str(existing.get("id") or "") != message_id
+            ]
+            existing_ids.discard(message_id)
+            changed = True
         raw_type = str(raw_message.get("type") or "chat").lower()
         content = str(raw_message.get("content") or labels.get(raw_type) or "")
         existing_messages.append(
@@ -1115,6 +1238,7 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
                     "id": message_id,
                     "remetente": "usuario" if raw_message.get("fromMe") else "contato",
                     "remetenteNome": raw_message.get("senderName"),
+                    "remetenteId": raw_message.get("senderId"),
                     "texto": content,
                     "tipo": type_map.get(raw_type, "texto"),
                     "arquivoUrl": whatsapp_media_url(message_id) if raw_type in type_map and raw_type != "chat" else None,
@@ -1123,7 +1247,9 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
                     "duracaoAudio": raw_message.get("duration"),
                     "horario": datetime.fromtimestamp(timestamp).strftime("%H:%M"),
                     "timestamp": timestamp,
-                    "status": "enviado" if raw_message.get("fromMe") else None,
+                    "status": raw_message.get("status") if raw_message.get("fromMe") else None,
+                    "reacoes": raw_message.get("reactions") or [],
+                    "citada": raw_message.get("quoted"),
                     "canal": "whatsapp",
                     "channel": "whatsapp",
                 },
@@ -1147,6 +1273,11 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
         changed = True
     if latest_text and latest_text != conversation.get("ultimoTexto"):
         conversation["ultimoTexto"] = latest_text
+        changed = True
+    if not latest_timestamp and not conversation["mensagens"] and conversation.get("ultimoTexto") in {"Sincronizado", "[Mensagem]", "Mensagem"}:
+        conversation["ultimoTexto"] = ""
+        conversation["horario"] = ""
+        conversation["timestampUltimaMsg"] = 0
         changed = True
     unread_count = max(0, int(chat.get("unreadCount") or 0))
     if unread_count != int(conversation.get("naoLidasCount") or 0):

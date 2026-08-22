@@ -43,6 +43,8 @@ interface AreaCentralProps {
   onCarregarMensagensAntigas: () => Promise<void>;
   temMaisMensagens: boolean;
   carregandoMensagens: boolean;
+  onReagirMensagem: (messageId: string, emoji: string) => void | Promise<void>;
+  onEscolherFigurinha: () => void;
 }
 
 function initials(name: string) {
@@ -73,10 +75,21 @@ function HeaderAvatar({ conversa }: { conversa: ChatConversa }) {
   );
 }
 
+function ParticipantAvatar({ conversa, message }: { conversa: ChatConversa; message: MsgConteudo }) {
+  const participant = conversa.metadados?.participantes?.find((item) => item.id === message.remetenteId || item.phone === message.remetenteId);
+  const photoUrl = useAuthenticatedMedia(participant?.photoUrl);
+  return (
+    <div className="mb-0.5 grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] text-[9px] font-extrabold text-[var(--text-secondary)]">
+      {photoUrl ? <img src={photoUrl} alt={message.remetenteNome || "Participante"} className="h-full w-full object-cover" /> : initials(message.remetenteNome || "?")}
+    </div>
+  );
+}
+
 function MessageStatus({ status }: { status?: MsgConteudo["status"] }) {
-  if (status === "lido") return <CheckCheck size={15} className="text-sky-500" />;
+  if (status === "lido" || status === "reproduzido") return <CheckCheck size={15} className="text-sky-400" />;
   if (status === "entregue") return <CheckCheck size={15} className="text-current opacity-60" />;
   if (status === "enviado") return <Check size={15} className="text-current opacity-60" />;
+  if (status === "erro") return <X size={14} className="text-red-400" />;
   return <Clock3 size={13} className="text-current opacity-40" />;
 }
 
@@ -346,6 +359,8 @@ export default function AreaCentralChat({
   onCarregarMensagensAntigas,
   temMaisMensagens,
   carregandoMensagens,
+  onReagirMensagem,
+  onEscolherFigurinha,
 }: AreaCentralProps) {
   const [resposta, setResposta] = useState("");
   const [mostrarPesquisa, setMostrarPesquisa] = useState(false);
@@ -355,6 +370,7 @@ export default function AreaCentralChat({
   const [modoSelecao, setModoSelecao] = useState(false);
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
   const [mostrarPainelEmojis, setMostrarPainelEmojis] = useState(false);
+  const [modoPainelEmojis, setModoPainelEmojis] = useState<"emoji" | "figurinha">("emoji");
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const previousHeightRef = useRef<number | null>(null);
@@ -537,8 +553,10 @@ export default function AreaCentralChat({
                 />
               )}
 
+              {!outgoing && conversaAtiva.esGrupo && <ParticipantAvatar conversa={conversaAtiva} message={msg} />}
+
               <div
-                className={`norium-message-bubble relative max-w-[68%] rounded-xl px-3 py-2 shadow-sm ${outgoing ? "norium-message-outgoing text-white" : "norium-message-incoming text-[var(--text)]"} ${estaSelecionada ? "ring-2 ring-[var(--primary)]" : ""}`}
+                className={`norium-message-bubble relative max-w-[min(66%,620px)] rounded-xl px-3 py-2 shadow-sm ${outgoing ? "norium-message-outgoing text-white" : "norium-message-incoming text-[var(--text)]"} ${estaSelecionada ? "ring-2 ring-[var(--primary)]" : ""}`}
                 data-message-menu-root
               >
                 {!modoSelecao && (
@@ -548,7 +566,12 @@ export default function AreaCentralChat({
                 )}
 
                 {menuMensagemId === msg.id && (
-                  <div className="absolute right-1 top-8 z-50 w-32 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] py-1 text-xs font-bold text-[var(--text)] shadow-xl">
+                  <div className="absolute right-1 top-8 z-50 w-48 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] py-1 text-xs font-bold text-[var(--text)] shadow-xl">
+                    <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5">
+                      {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((emoji) => (
+                        <button key={emoji} className="grid h-7 w-7 place-items-center rounded-full text-base hover:bg-[var(--surface-hover)]" onClick={() => { void onReagirMensagem(msg.id, emoji); setMenuMensagemId(null); }} aria-label={`Reagir com ${emoji}`}>{emoji}</button>
+                      ))}
+                    </div>
                     <button onClick={() => { if (msg.texto) void navigator.clipboard.writeText(msg.texto); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
                       <Copy size={13} /> Copiar
                     </button>
@@ -565,6 +588,13 @@ export default function AreaCentralChat({
                   <span className="mb-1 block text-xs font-extrabold text-[var(--primary)]">~ {msg.remetenteNome}</span>
                 )}
 
+                {msg.citada?.content && (
+                  <div className="mb-1.5 rounded-md border-l-2 border-[var(--primary)] bg-black/10 px-2 py-1 text-xs opacity-80">
+                    {msg.citada.senderName && <span className="block font-bold text-[var(--primary)]">{msg.citada.senderName}</span>}
+                    <span className="line-clamp-2">{msg.citada.content}</span>
+                  </div>
+                )}
+
                 {msg.tipo === "texto" ? (
                   <p className="whitespace-pre-wrap break-words pr-6 text-sm leading-relaxed font-medium">{msg.texto}</p>
                 ) : (
@@ -575,6 +605,20 @@ export default function AreaCentralChat({
                   <span className="text-xs font-medium">{msg.horario}</span>
                   {outgoing && <MessageStatus status={msg.status} />}
                 </div>
+                {Boolean(msg.reacoes?.length) && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {msg.reacoes?.map((reaction, index) => (
+                      <button
+                        key={`${reaction.emoji}-${index}`}
+                        onClick={() => void onReagirMensagem(msg.id, reaction.fromMe ? "" : reaction.emoji)}
+                        className={`rounded-full border px-1.5 py-0.5 text-xs shadow-sm ${reaction.fromMe ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_18%,var(--surface))]" : "border-[var(--border)] bg-[var(--surface)]"}`}
+                        title={reaction.fromMe ? "Remover sua reacao" : "Reagir igual"}
+                      >
+                        {reaction.emoji}{reaction.count > 1 ? ` ${reaction.count}` : ""}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -584,15 +628,23 @@ export default function AreaCentralChat({
 
       <div className="norium-chat-composer relative shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-3">
         {mostrarPainelEmojis && (
-          <div data-emoji-panel-root className="absolute bottom-16 left-4 bg-[var(--surface)] border border-[var(--border)] p-3 rounded-lg shadow-2xl z-50 w-72 text-xs font-bold text-[var(--text)]">
-            <p className="text-[var(--text-secondary)] mb-2 uppercase tracking-wide text-xs">Mais usados</p>
-            <div className="grid grid-cols-6 gap-2 text-xl">
-              {["😂", "👍", "😍", "🔥", "🙏", "😭", "👏", "🎉", "🚀", "❤️", "👀", "✨"].map((emoji) => (
-                <Button variant="ghost" size="sm" key={emoji} onClick={() => { setResposta((prev) => prev + emoji); setMostrarPainelEmojis(false); }}>
-                  {emoji}
-                </Button>
-              ))}
+          <div data-emoji-panel-root className="absolute bottom-16 left-4 z-50 w-[340px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-xs font-bold text-[var(--text)] shadow-2xl">
+            <div className="flex border-b border-[var(--border)] p-1.5">
+              <button onClick={() => setModoPainelEmojis("emoji")} className={`flex-1 rounded-lg px-3 py-2 ${modoPainelEmojis === "emoji" ? "bg-[var(--surface-hover)] text-[var(--primary)]" : "text-[var(--text-secondary)]"}`}>Emojis</button>
+              <button onClick={() => setModoPainelEmojis("figurinha")} className={`flex-1 rounded-lg px-3 py-2 ${modoPainelEmojis === "figurinha" ? "bg-[var(--surface-hover)] text-[var(--primary)]" : "text-[var(--text-secondary)]"}`}>Figurinhas</button>
             </div>
+            {modoPainelEmojis === "emoji" ? (
+              <div className="grid max-h-64 grid-cols-8 gap-1 overflow-y-auto p-3 text-xl">
+                {["😀", "😃", "😄", "😁", "😆", "😂", "🤣", "😊", "😍", "🥰", "😘", "😎", "🤩", "🥳", "😢", "😭", "😡", "🤯", "😴", "🤔", "🫡", "👍", "👎", "👏", "🙌", "🙏", "💪", "🔥", "❤️", "💙", "💚", "✨", "🎉", "🚀", "✅", "👀", "💬", "📌", "📷", "🎧"].map((emoji) => (
+                  <button className="grid h-9 w-9 place-items-center rounded-lg hover:bg-[var(--surface-hover)]" key={emoji} onClick={() => setResposta((prev) => prev + emoji)}>{emoji}</button>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 text-center">
+                <p className="mb-3 font-medium text-[var(--text-secondary)]">Escolha uma imagem e o Norium enviara como figurinha do WhatsApp.</p>
+                <Button variant="primary" onClick={() => { onEscolherFigurinha(); setMostrarPainelEmojis(false); }} className="w-full">Escolher imagem</Button>
+              </div>
+            )}
           </div>
         )}
 

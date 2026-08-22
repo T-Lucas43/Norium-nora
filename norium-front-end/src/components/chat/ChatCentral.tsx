@@ -59,6 +59,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const [desconectando, setDesconectando] = useState(false);
   const avisoTimeoutRef = useRef<number | null>(null);
   const arquivoInputRef = useRef<HTMLInputElement>(null);
+  const figurinhaInputRef = useRef<HTMLInputElement>(null);
   const anexosPendentesRef = useRef<AnexoPendente[]>([]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -290,11 +291,16 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
   useEffect(() => {
     const atualizarEmTempoReal = () => {
-      if (whatsappConectadoRef.current) void carregarConversasDoBackend(true);
+      if (!whatsappConectadoRef.current) return;
+      void carregarConversasDoBackend(true);
+      if (conversaSelecionada) {
+        historicoRef.current.delete(conversaSelecionada);
+        void carregarHistorico(conversaSelecionada);
+      }
     };
     window.addEventListener("norium:whatsapp-event", atualizarEmTempoReal);
     return () => window.removeEventListener("norium:whatsapp-event", atualizarEmTempoReal);
-  }, [carregarConversasDoBackend]);
+  }, [carregarConversasDoBackend, carregarHistorico, conversaSelecionada]);
 
   const abrirAgendaContatos = async () => {
     setModalContatosAberto(true);
@@ -337,7 +343,15 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     setConversaSelecionada(id);
     setPainelPerfilAberto(false);
     setMobileSidebarOpen(false);
-    if (!historicoRef.current.has(id)) void carregarHistorico(id);
+    const selected = conversas.find((conversation) => conversation.id === id);
+    if (!historicoRef.current.has(id) || !selected?.mensagens.length) void carregarHistorico(id);
+    void whatsappApi.details(id).then((details) => {
+      setConversas((current) => current.map((conversation) => (
+        conversation.id === id
+          ? { ...conversation, ...details, mensagens: details.mensagens?.length ? details.mensagens : conversation.mensagens }
+          : conversation
+      )));
+    }).catch(() => undefined);
     try {
       await whatsappApi.markConversation(id, "lida", true);
       carregarConversasDoBackend();
@@ -383,7 +397,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       reader.readAsDataURL(arquivo);
     });
 
-  const enviarArquivoOuAudio = async (arquivo: File | Blob, nomeArquivo: string, mimeType: string, legenda?: string) => {
+  const enviarArquivoOuAudio = async (arquivo: File | Blob, nomeArquivo: string, mimeType: string, legenda?: string, asSticker = false) => {
     if (!conversaSelecionada) {
       throw new Error("Selecione uma conversa antes de enviar.");
     }
@@ -398,7 +412,51 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       mimeType: mimeType || arquivo.type || "application/octet-stream",
       dataUrl,
       caption: legenda,
+      asSticker,
     });
+  };
+
+  const handleFigurinhaSelecionada = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const arquivo = event.target.files?.[0];
+    event.target.value = "";
+    if (!arquivo || !conversaSelecionada) return;
+    if (!arquivo.type.startsWith("image/")) {
+      mostrarAviso("error", "Escolha uma imagem para criar a figurinha.");
+      return;
+    }
+    setEnviandoAnexos(true);
+    try {
+      await enviarArquivoOuAudio(arquivo, arquivo.name || "figurinha.webp", arquivo.type, undefined, true);
+      historicoRef.current.delete(conversaSelecionada);
+      await carregarHistorico(conversaSelecionada);
+    } catch (error) {
+      mostrarAviso("error", error instanceof Error ? error.message : "Nao foi possivel enviar a figurinha.");
+    } finally {
+      setEnviandoAnexos(false);
+    }
+  };
+
+  const handleReagirMensagem = async (messageId: string, emoji: string) => {
+    if (!conversaSelecionada) return;
+    const conversationId = conversaSelecionada;
+    setConversas((current) => current.map((conversation) => {
+      if (conversation.id !== conversationId) return conversation;
+      return {
+        ...conversation,
+        mensagens: conversation.mensagens.map((message) => {
+          if (message.id !== messageId) return message;
+          const reactions = (message.reacoes || []).filter((reaction) => !reaction.fromMe);
+          return { ...message, reacoes: emoji ? [...reactions, { emoji, count: 1, fromMe: true }] : reactions };
+        }),
+      };
+    }));
+    try {
+      await whatsappApi.react(conversationId, messageId, emoji);
+    } catch (error) {
+      historicoRef.current.delete(conversationId);
+      void carregarHistorico(conversationId);
+      mostrarAviso("error", error instanceof Error ? error.message : "Nao foi possivel reagir a mensagem.");
+    }
   };
 
   const classificarArquivo = (mimeType: string, nomeArquivo: string): AnexoPendente["tipo"] => {
@@ -796,6 +854,13 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         className="hidden"
         onChange={handleArquivoSelecionado}
       />
+      <input
+        ref={figurinhaInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={handleFigurinhaSelecionada}
+      />
       <SidebarEsquerda 
         conversas={conversas} conversaSelecionada={conversaSelecionada} 
         onSelecionar={selecionarConversa} onAcao={handleAcaoChat} onExcluir={handleExcluirChat}
@@ -820,6 +885,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         onLimparAnexos={limparAnexosPendentes}
         onApagarMensagensEmMassa={handleApagarMensagensMassa}
         onEncaminharMensagens={handleAbrirEncaminhar}
+        onReagirMensagem={handleReagirMensagem}
+        onEscolherFigurinha={() => figurinhaInputRef.current?.click()}
         onCarregarMensagensAntigas={carregarMensagensAntigas}
         temMaisMensagens={paginaHistoricoAtiva?.hasMore ?? true}
         carregandoMensagens={historicoCarregandoId === conversaSelecionada}

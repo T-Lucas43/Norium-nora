@@ -4,6 +4,7 @@ export interface MsgConteudo {
   id: string;
   remetente: "usuario" | "contato";
   remetenteNome?: string;
+  remetenteId?: string;
   texto?: string;
   tipo: "texto" | "audio" | "documento" | "midia" | "sticker";
   arquivoUrl?: string;
@@ -12,7 +13,9 @@ export interface MsgConteudo {
   nomeArquivo?: string;
   horario: string;
   timestamp?: number;
-  status?: "enviado" | "entregue" | "lido";
+  status?: "erro" | "pendente" | "enviado" | "entregue" | "lido" | "reproduzido";
+  reacoes?: Array<{ emoji: string; count: number; fromMe?: boolean; senders?: string[] }>;
+  citada?: { id?: string; content?: string; senderName?: string; type?: string } | null;
   canal?: ChatChannel;
   channel?: ChatChannel;
 }

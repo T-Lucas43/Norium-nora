@@ -4524,6 +4524,73 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   border-radius: 2px;
 }
 
+/* WhatsApp: viewport fechado. A pagina nao rola; lista, conversa e dados rolam
+   separadamente como no WhatsApp Desktop. */
+.app-main:has(.app-panel-chat:not(.hidden)){
+  height:calc(100dvh - 64px)!important;
+  min-height:0!important;
+  overflow:hidden!important;
+}
+
+.app-panel-chat:not(.hidden){
+  height:calc(100dvh - 64px)!important;
+  min-height:0!important;
+  max-height:calc(100dvh - 64px)!important;
+  overflow:hidden!important;
+}
+
+.app-panel-chat > .norium-chat{
+  height:auto!important;
+  min-height:0!important;
+  max-height:none!important;
+  flex:1 1 0!important;
+  overflow:hidden!important;
+}
+
+.norium-chat-wallpaper{
+  background-color:#090c10!important;
+  background-attachment:local;
+}
+
+.norium-message-outgoing{
+  border-color:rgba(47,165,131,.42)!important;
+  background:linear-gradient(145deg,#0b6756,#075647)!important;
+}
+
+.norium-message-bubble{
+  width:fit-content;
+  max-width:min(66%,620px)!important;
+}
+
+@media (max-width:900px){
+  .app-main:has(.app-panel-chat:not(.hidden)),
+  .app-panel-chat:not(.hidden){
+    height:calc(100dvh - 64px)!important;
+    min-height:0!important;
+    max-height:calc(100dvh - 64px)!important;
+    overflow:hidden!important;
+  }
+
+  .app-panel-chat > .norium-chat{
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    flex:1 1 0!important;
+  }
+}
+
+@media (max-width:640px){
+  .app-main:has(.app-panel-chat:not(.hidden)),
+  .app-panel-chat:not(.hidden){
+    height:calc(100dvh - 112px)!important;
+    max-height:calc(100dvh - 112px)!important;
+  }
+
+  .norium-message-bubble{
+    max-width:84%!important;
+  }
+}
+
 /* WhatsApp Norium: o modulo ocupa um unico viewport e cada coluna controla a
    propria rolagem. As regras ficam no fim para neutralizar offsets legados. */
 .norium-chat{
@@ -6763,5 +6830,27 @@ html.mail-fullscreen-open body{
   .norium-chat > aside.norium-chat-sidebar,
   .norium-chat > aside.norium-chat-details{
     width:100%!important;
+  }
+}
+
+/* Override final do modulo para vencer as regras mobile globais legadas. */
+.app-panel-chat:not(.hidden),
+.app-panel-chat:not(.hidden) > .norium-chat{
+  min-height:0!important;
+  overflow:hidden!important;
+}
+
+.app-panel-chat:not(.hidden) > .norium-chat{
+  height:auto!important;
+  max-height:none!important;
+  flex:1 1 0!important;
+}
+
+@media (max-width:900px){
+  .app-panel-chat:not(.hidden) > .norium-chat{
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    flex:1 1 0!important;
   }
 }

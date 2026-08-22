@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiBlobRequest } from "../../core/api/client";
 
 function needsAuthenticatedFetch(source: string) {
   if (!source) return false;
@@ -29,11 +30,7 @@ export function useAuthenticatedMedia(source?: string | null) {
     }
 
     setResolved("");
-    void fetch(value, { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error("Midia privada indisponivel.");
-        return response.blob();
-      })
+    void apiBlobRequest(value, { cache: "no-store" })
       .then((blob) => {
         if (cancelled) return;
         revokedUrl = URL.createObjectURL(blob);

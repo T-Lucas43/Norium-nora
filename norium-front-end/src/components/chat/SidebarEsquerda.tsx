@@ -91,12 +91,15 @@ export default function SidebarEsquerda({
       if (termo && !`${chat.contato} ${chat.ultimoTexto} ${chat.id}`.toLowerCase().includes(termo)) return false;
       if (filtroTipo === "arquivados") return chat.arquivada === true;
       if (chat.arquivada) return false;
-      if (filtroTipo === "nao-lidas") return Number(chat.naoLidasCount || 0) > 0;
+      // Ao abrir uma conversa ela e marcada como lida no WhatsApp. Mantemos a
+      // conversa selecionada visivel para que ela nao desapareca sob o cursor
+      // enquanto o usuario ainda esta lendo/respondendo dentro deste filtro.
+      if (filtroTipo === "nao-lidas") return Number(chat.naoLidasCount || 0) > 0 || chat.id === conversaSelecionada;
       if (filtroTipo === "favoritos") return chat.favorita === true;
       if (filtroTipo === "grupos") return chat.esGrupo === true;
       return true;
     });
-  }, [busca, filtroTipo, sorted]);
+  }, [busca, conversaSelecionada, filtroTipo, sorted]);
 
   const sections = useMemo(() => {
     if (filtroTipo !== "todos") return [{ label: "", items: filtradas }];

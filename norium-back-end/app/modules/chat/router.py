@@ -185,6 +185,38 @@ def user_upload_dir(user_id: str) -> Path:
     return path
 
 
+def whatsapp_media_cache_paths(user_id: str, message_id: str) -> tuple[Path, Path]:
+    digest = hashlib.sha256(message_id.encode("utf-8")).hexdigest()
+    cache_dir = user_upload_dir(user_id) / "whatsapp_media"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{digest}.bin", cache_dir / f"{digest}.mime"
+
+
+def read_whatsapp_media_cache(user_id: str, message_id: str) -> tuple[bytes, str] | None:
+    data_path, mime_path = whatsapp_media_cache_paths(user_id, message_id)
+    if not data_path.is_file() or not mime_path.is_file():
+        return None
+    try:
+        file_bytes = data_path.read_bytes()
+        mime_type = mime_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not file_bytes or len(file_bytes) > MAX_UPLOAD_BYTES or not mime_type:
+        return None
+    return file_bytes, mime_type
+
+
+def write_whatsapp_media_cache(user_id: str, message_id: str, file_bytes: bytes, mime_type: str) -> None:
+    data_path, mime_path = whatsapp_media_cache_paths(user_id, message_id)
+    suffix = uuid.uuid4().hex[:10]
+    temp_data = data_path.with_name(f"{data_path.name}.{suffix}.tmp")
+    temp_mime = mime_path.with_name(f"{mime_path.name}.{suffix}.tmp")
+    temp_data.write_bytes(file_bytes)
+    temp_mime.write_text(mime_type, encoding="utf-8")
+    temp_data.replace(data_path)
+    temp_mime.replace(mime_path)
+
+
 @router.get("/api/chat/foto-perfil")
 async def obter_foto_perfil(
     phone: str = Query(..., description="ID ou numero do contato/grupo"),
@@ -401,7 +433,7 @@ async def webhook_whatsapp(
         webhook_user = find_user(user_store, webhook_user_id)
         if not webhook_user or webhook_user.get("status") != "ativo":
             return {"status": "ignored", "detail": "Usuario de destino inexistente ou inativo."}
-        message_payload = extract_message_payload(data, message_id)
+        message_payload = extract_message_payload(data, message_id, phone)
         db = await load_conversations(webhook_user_id)
         conversa = db.get(phone) or new_conversation(
             phone,
@@ -544,15 +576,9 @@ async def obter_conversas(
         remote_catalog_loaded = not isinstance(res_chats, Exception)
         remote_contacts_loaded = not isinstance(res_contacts, Exception)
 
-        if remote_catalog_loaded and chats:
-            remote_ids = {
-                str(chat.get("phone") or chat.get("id") or chat.get("jid"))
-                for chat in chats
-                if chat.get("phone") or chat.get("id") or chat.get("jid")
-            }
-            for stale_id in [conversation_id for conversation_id in db if conversation_id not in remote_ids]:
-                db.pop(stale_id, None)
-                changed = True
+        # O catalogo remoto e paginado/limitado. A ausencia de um chat nesse
+        # lote nao significa exclusao no WhatsApp e nunca deve apagar o cache
+        # duravel do usuario; exclusoes so acontecem pela rota explicita.
 
         nomes, fotos, metadata = build_contact_indexes(contacts)
 
@@ -699,7 +725,7 @@ async def obter_historico_conversa(
     if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
         raise HTTPException(status_code=502, detail="Falha ao carregar o historico real do WhatsApp.")
     conversation = db.get(conversa_id) or new_conversation(conversa_id, channel="whatsapp")
-    sync_catalog_messages(conversation, {"messages": payload["items"]})
+    sync_catalog_messages(conversation, {"id": conversa_id, "messages": payload["items"]})
     conversation.setdefault("metadados", {})["historicoSincronizadoEm"] = time.time()
     conversation["metadados"]["historicoSchema"] = WHATSAPP_HISTORY_SCHEMA_VERSION
     conversation["metadados"]["historicoCursor"] = payload.get("cursor")
@@ -781,11 +807,36 @@ async def obter_detalhes_conversa(
 
 
 @router.get("/api/chat/midia/{message_id}")
-async def obter_midia_whatsapp(message_id: str, user: dict[str, Any] = Depends(current_user)):
+async def obter_midia_whatsapp(
+    message_id: str,
+    conversa_id: str | None = Query(default=None, max_length=120),
+    user: dict[str, Any] = Depends(current_user),
+):
     assert_channel_permission(user, "whatsapp")
+    resolved_user_id = tenant_id(user)
+    cached = await asyncio.to_thread(read_whatsapp_media_cache, resolved_user_id, message_id)
+    if cached:
+        file_bytes, mime_type = cached
+        return Response(
+            content=file_bytes,
+            media_type=mime_type,
+            headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
+        )
+
+    resolved_conversation_id = conversa_id
+    if not resolved_conversation_id:
+        db = await load_conversations(resolved_user_id)
+        for candidate_id, conversation in db.items():
+            if any(str(item.get("id") or "") == message_id for item in conversation.get("mensagens") or []):
+                resolved_conversation_id = candidate_id
+                break
+
+    endpoint = f"/messages/{quote(message_id, safe='')}/media"
+    if resolved_conversation_id:
+        endpoint += f"?chatId={quote(resolved_conversation_id, safe='')}"
     payload = await whatsapp_service.get(
-        tenant_id(user),
-        f"/messages/{quote(message_id, safe='')}/media",
+        resolved_user_id,
+        endpoint,
         timeout=65.0,
     )
     data_url = payload.get("data") if isinstance(payload, dict) else None
@@ -796,10 +847,11 @@ async def obter_midia_whatsapp(message_id: str, user: dict[str, Any] = Depends(c
         raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
     if mime_type.split(";", 1)[0].lower() in {"text/html", "image/svg+xml"}:
         raise HTTPException(status_code=415, detail="Tipo de midia nao permitido.")
+    await asyncio.to_thread(write_whatsapp_media_cache, resolved_user_id, message_id, file_bytes, mime_type)
     return Response(
         content=file_bytes,
         media_type=mime_type,
-        headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"},
+        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
     )
 
 
@@ -1223,6 +1275,13 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
         message_id = str(raw_message.get("id") or "").strip()
         if not message_id or not timestamp:
             continue
+        existing_message = next(
+            (
+                item for item in existing_messages
+                if isinstance(item, dict) and str(item.get("id") or "") == message_id
+            ),
+            None,
+        )
         if message_id in existing_ids:
             existing_messages[:] = [
                 existing for existing in existing_messages
@@ -1232,6 +1291,13 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
             changed = True
         raw_type = str(raw_message.get("type") or "chat").lower()
         content = str(raw_message.get("content") or labels.get(raw_type) or "")
+        chat_id = str(chat.get("id") or chat.get("phone") or chat.get("jid") or "") or None
+        existing_media_url = str((existing_message or {}).get("arquivoUrl") or "")
+        preserved_local_media_url = (
+            existing_media_url
+            if "/api/chat/uploads/" in existing_media_url
+            else None
+        )
         existing_messages.append(
             normalize_message(
                 {
@@ -1241,10 +1307,10 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
                     "remetenteId": raw_message.get("senderId"),
                     "texto": content,
                     "tipo": type_map.get(raw_type, "texto"),
-                    "arquivoUrl": whatsapp_media_url(message_id) if raw_type in type_map and raw_type != "chat" else None,
-                    "arquivoMime": raw_message.get("mimetype"),
-                    "nomeArquivo": raw_message.get("filename") or default_file_name(type_map.get(raw_type, "texto"), raw_message.get("mimetype")),
-                    "duracaoAudio": raw_message.get("duration"),
+                    "arquivoUrl": preserved_local_media_url or (whatsapp_media_url(message_id, chat_id) if raw_type in type_map and raw_type != "chat" else None),
+                    "arquivoMime": raw_message.get("mimetype") or (existing_message or {}).get("arquivoMime"),
+                    "nomeArquivo": raw_message.get("filename") or (existing_message or {}).get("nomeArquivo") or default_file_name(type_map.get(raw_type, "texto"), raw_message.get("mimetype")),
+                    "duracaoAudio": raw_message.get("duration") or (existing_message or {}).get("duracaoAudio"),
                     "horario": datetime.fromtimestamp(timestamp).strftime("%H:%M"),
                     "timestamp": timestamp,
                     "status": raw_message.get("status") if raw_message.get("fromMe") else None,
@@ -1316,7 +1382,11 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
     return nomes, fotos, metadata
 
 
-def extract_message_payload(data: Dict[str, Any], message_id: str | None = None) -> Dict[str, Any]:
+def extract_message_payload(
+    data: Dict[str, Any],
+    message_id: str | None = None,
+    conversa_id: str | None = None,
+) -> Dict[str, Any]:
     raw_type = str(data.get("type") or "").lower()
     flat_media_types = {
         "audio": ("audio", "[Audio]"),
@@ -1331,7 +1401,7 @@ def extract_message_payload(data: Dict[str, Any], message_id: str | None = None)
         return {
             "texto": str(data.get("caption") or label),
             "tipo": tipo,
-            "arquivoUrl": whatsapp_media_url(message_id) if message_id else None,
+            "arquivoUrl": whatsapp_media_url(message_id, conversa_id) if message_id else None,
             "arquivoMime": data.get("mimetype"),
             "duracaoAudio": data.get("duration"),
             "nomeArquivo": data.get("filename") or default_file_name(tipo, data.get("mimetype")),
@@ -1375,8 +1445,11 @@ def extract_message_payload(data: Dict[str, Any], message_id: str | None = None)
     return {"texto": "", "tipo": "texto"}
 
 
-def whatsapp_media_url(message_id: str) -> str:
-    return public_api_url(f"/api/chat/midia/{quote(message_id, safe='')}")
+def whatsapp_media_url(message_id: str, conversa_id: str | None = None) -> str:
+    path = f"/api/chat/midia/{quote(message_id, safe='')}"
+    if conversa_id:
+        path += f"?conversa_id={quote(conversa_id, safe='')}"
+    return public_api_url(path)
 
 
 def proxied_media_url(raw_url: Any) -> str | None:

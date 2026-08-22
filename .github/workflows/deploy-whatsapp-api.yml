@@ -259,15 +259,16 @@ jobs:
 
           session_state=""
           for attempt in {1..42}; do
-            session_state="$(curl --silent --show-error --fail \
+            session_payload="$(curl --silent --show-error --fail \
               --connect-timeout 8 --max-time 30 \
               --header "Authorization: Bearer $NORIUM_API_KEY" \
               --header "X-Norium-User-Id: $OWNER_USER_ID" \
               --header "X-Norium-Session-Id: $session_id" \
               --header "X-Norium-Session-Signature: $session_signature" \
-              "${{ steps.app.outputs.public_url }}/v1/session/status" \
-              | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload.get("state", ""))')"
-            echo "WhatsApp session state: $session_state"
+              "${{ steps.app.outputs.public_url }}/v1/session/status")"
+            session_state="$(printf '%s' "$session_payload" | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload.get("state", ""))')"
+            session_detail="$(printf '%s' "$session_payload" | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload.get("lastError") or "")')"
+            echo "WhatsApp session state: $session_state${session_detail:+ - $session_detail}"
             if [ "$session_state" = "connected" ]; then break; fi
             sleep 10
           done

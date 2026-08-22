@@ -17,6 +17,11 @@ export type Contact = {
   name?: string;
   pushname?: string;
   photoUrl?: string;
+  verifiedName?: string;
+  bio?: string;
+  isBusiness?: boolean;
+  isMyContact?: boolean;
+  isBlocked?: boolean;
 };
 
 export type HistoryPage = {
@@ -52,12 +57,21 @@ export const whatsappApi = {
     });
   },
 
-  async conversations(since?: number) {
-    const query = since && since > 0 ? `?since=${since}` : "";
+  async conversations(since?: number, refresh = false) {
+    const params = new URLSearchParams();
+    if (since && since > 0) params.set("since", String(since));
+    if (refresh) params.set("refresh", "true");
+    const query = params.size ? `?${params.toString()}` : "";
     return apiRequest<ChatConversa[] | { items: ChatConversa[]; cursor: number; hasMore: boolean }>(
       `/api/chat/conversas${query}`,
       { timeoutMs: 35_000 },
     );
+  },
+
+  async details(conversationId: string) {
+    return apiRequest<ChatConversa>(`/api/chat/conversas/${encodeURIComponent(conversationId)}/detalhes`, {
+      timeoutMs: 30_000,
+    });
   },
 
   async history(conversationId: string, before?: number | null, limit = 50) {
@@ -73,7 +87,14 @@ export const whatsappApi = {
     return apiRequest<Contact[]>("/api/chat/contatos-disponiveis", { timeoutMs: 30_000 });
   },
 
-  async markConversation(conversationId: string, action: "lida" | "fixada" | "silenciada" | "arquivada", value: boolean) {
+  async markConversation(conversationId: string, action: "lida" | "fixada" | "favorita" | "silenciada" | "arquivada", value: boolean) {
+    if (action === "favorita") {
+      return apiRequest<{ status: string }>("/api/chat/favoritar", {
+        method: "PATCH",
+        body: JSON.stringify({ conversa_id: conversationId, valor: value }),
+        timeoutMs: 25_000,
+      });
+    }
     return apiRequest<{ status: string }>("/api/chat/modificar", {
       method: "PATCH",
       body: JSON.stringify({ conversa_id: conversationId, acao: action, valor: value }),

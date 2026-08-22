@@ -5,8 +5,10 @@ import {
   MoreVertical,
   Pin,
   PlusCircle,
+  RefreshCw,
   Search,
   Settings,
+  Star,
   Trash2,
   User,
   Users,
@@ -17,47 +19,37 @@ import type { ChatConversa } from "./types";
 import Button from "../shared/Button";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
+type ChatAction = "lida" | "fixada" | "favorita" | "silenciada" | "arquivada";
+type Filter = "todos" | "nao-lidas" | "favoritos" | "grupos" | "arquivados";
+
 interface SidebarProps {
   conversas: ChatConversa[];
   conversaSelecionada: string | null;
   onSelecionar: (id: string) => void;
-  onAcao: (id: string, acao: "lida" | "fixada" | "silenciada" | "arquivada", valor: boolean) => void;
+  onAcao: (id: string, acao: ChatAction, valor: boolean) => void;
   onExcluir: (id: string, e: React.MouseEvent) => void;
   onAbrirConfigPropria: () => void;
   onAbrirModalContatos: () => void;
   onAbrirModalCriarGrupo: () => void;
+  onAtualizar: () => void;
+  sincronizando?: boolean;
   onClose?: () => void;
 }
 
 function getInitials(name: string) {
-  const parts = name
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2);
-  return parts.map((part) => part[0]?.toUpperCase()).join("") || "?";
+  return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
 }
 
 function ChatAvatar({ chat }: { chat: ChatConversa }) {
   const [failed, setFailed] = useState(false);
   const photoUrl = useAuthenticatedMedia(chat.metadados?.photoUrl || chat.photoUrl);
-
   return (
-    <div className="h-12 w-12 rounded-full bg-[var(--background)] border border-[var(--border)] flex items-center justify-center overflow-hidden shrink-0 text-[var(--text-secondary)]">
+    <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--background)] text-[var(--text-secondary)]">
       {photoUrl && !failed ? (
-        <img
-          src={photoUrl}
-          alt={chat.contato}
-          className="h-full w-full object-cover"
-          onError={() => setFailed(true)}
-        />
-      ) : chat.esGrupo ? (
-        <Users size={18} />
-      ) : chat.contato ? (
+        <img src={photoUrl} alt={chat.contato} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      ) : chat.esGrupo ? <Users size={17} /> : chat.contato ? (
         <span className="text-xs font-extrabold">{getInitials(chat.contato)}</span>
-      ) : (
-        <User size={18} />
-      )}
+      ) : <User size={17} />}
     </div>
   );
 }
@@ -71,9 +63,11 @@ export default function SidebarEsquerda({
   onAbrirConfigPropria,
   onAbrirModalContatos,
   onAbrirModalCriarGrupo,
+  onAtualizar,
+  sincronizando = false,
   onClose,
 }: SidebarProps) {
-  const [filtroTipo, setFiltroTipo] = useState<"todos" | "nao-lidas" | "grupos" | "arquivados">("todos");
+  const [filtroTipo, setFiltroTipo] = useState<Filter>("todos");
   const [menuAbertoId, setMenuAbertoId] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
 
@@ -86,147 +80,132 @@ export default function SidebarEsquerda({
     return () => document.removeEventListener("mousedown", fecharMenu);
   }, []);
 
+  const sorted = useMemo(() => [...conversas].sort((a, b) => {
+    if (Boolean(a.fixada) !== Boolean(b.fixada)) return a.fixada ? -1 : 1;
+    return Number(b.timestampUltimaMsg || 0) - Number(a.timestampUltimaMsg || 0);
+  }), [conversas]);
+
   const filtradas = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    return conversas
-      .filter((chat) => {
-        if (filtroTipo === "arquivados") return chat.arquivada === true;
-        if (chat.arquivada) return false;
-        if (filtroTipo === "nao-lidas") return Boolean(chat.naoLidasCount && chat.naoLidasCount > 0);
-        if (filtroTipo === "grupos") return chat.esGrupo === true;
-        if (!termo) return true;
-        return `${chat.contato} ${chat.ultimoTexto} ${chat.id}`.toLowerCase().includes(termo);
-      })
-      .sort((a, b) => {
-        if (Boolean(a.fixada) !== Boolean(b.fixada)) return a.fixada ? -1 : 1;
-        return Number(b.timestampUltimaMsg || 0) - Number(a.timestampUltimaMsg || 0);
-      });
-  }, [busca, conversas, filtroTipo]);
+    return sorted.filter((chat) => {
+      if (termo && !`${chat.contato} ${chat.ultimoTexto} ${chat.id}`.toLowerCase().includes(termo)) return false;
+      if (filtroTipo === "arquivados") return chat.arquivada === true;
+      if (chat.arquivada) return false;
+      if (filtroTipo === "nao-lidas") return Number(chat.naoLidasCount || 0) > 0;
+      if (filtroTipo === "favoritos") return chat.favorita === true;
+      if (filtroTipo === "grupos") return chat.esGrupo === true;
+      return true;
+    });
+  }, [busca, filtroTipo, sorted]);
 
-  return (
-    <aside className="w-[400px] min-w-[340px] border-r border-[var(--border)] flex flex-col h-full bg-[var(--surface)] select-none">
-      <div className="module-sidebar-mobile-header">
-        <span><MessageSquare size={18} /> Conversas</span>
-        <button type="button" onClick={onClose} aria-label="Fechar lista de conversas">
-          <X size={19} />
-        </button>
-      </div>
-      <div className="px-4 py-3 border-b border-[var(--border)] space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold tracking-tight text-[var(--text)]">Conversas</h2>
-          <div className="flex items-center gap-1 text-[var(--text)]">
-            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirModalContatos} title="Novo chat" aria-label="Novo chat">
-              <PlusCircle size={18} />
-            </Button>
-            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirModalCriarGrupo} title="Criar grupo" aria-label="Criar grupo">
-              <Users size={18} />
-            </Button>
-            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirConfigPropria} title="Configuracoes" aria-label="Configuracoes">
-              <Settings size={18} />
-            </Button>
+  const sections = useMemo(() => {
+    if (filtroTipo !== "todos") return [{ label: "", items: filtradas }];
+    const direct = filtradas.filter((chat) => !chat.esGrupo);
+    const groups = filtradas.filter((chat) => chat.esGrupo);
+    return [
+      { label: "Conversas", items: direct },
+      { label: "Grupos", items: groups },
+    ].filter((section) => section.items.length > 0);
+  }, [filtradas, filtroTipo]);
+
+  const counts = {
+    unread: conversas.filter((chat) => !chat.arquivada && Number(chat.naoLidasCount || 0) > 0).length,
+    favorites: conversas.filter((chat) => !chat.arquivada && chat.favorita).length,
+    groups: conversas.filter((chat) => !chat.arquivada && chat.esGrupo).length,
+    archived: conversas.filter((chat) => chat.arquivada).length,
+  };
+
+  const renderChat = (chat: ChatConversa) => {
+    const unread = Number(chat.naoLidasCount || 0);
+    const selected = conversaSelecionada === chat.id;
+    return (
+      <div
+        key={chat.id}
+        onClick={() => onSelecionar(chat.id)}
+        className={`group/chat relative flex min-h-[72px] cursor-pointer items-center gap-3 border-b border-[var(--border)]/55 px-3 py-2.5 transition-colors ${selected ? "bg-[color-mix(in_srgb,var(--primary)_14%,var(--surface))]" : "hover:bg-[var(--surface-hover)]"}`}
+      >
+        <ChatAvatar chat={chat} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className={`truncate text-sm text-[var(--text)] ${unread > 0 ? "font-extrabold" : "font-semibold"}`}>{chat.contato}</span>
+            <span className={`shrink-0 text-[11px] ${unread > 0 ? "font-bold text-[var(--primary)]" : "text-[var(--text-secondary)]"}`}>{chat.horario}</span>
+          </div>
+          <div className="mt-1 flex min-w-0 items-center gap-1.5">
+            {chat.fixada && <Pin size={11} className="shrink-0 rotate-45 text-[var(--primary)]" />}
+            {chat.favorita && <Star size={11} fill="currentColor" className="shrink-0 text-[var(--primary)]" />}
+            {chat.silenciada && <VolumeX size={11} className="shrink-0 text-[var(--text-secondary)]" />}
+            <span className={`truncate text-xs ${unread > 0 ? "font-semibold text-[var(--text)]" : "text-[var(--text-secondary)]"}`}>{chat.ultimoTexto || "Sem mensagens recentes"}</span>
           </div>
         </div>
+        {unread > 0 && <span className="absolute bottom-2.5 right-10 grid h-5 min-w-5 place-items-center rounded-full bg-[var(--primary)] px-1.5 text-[10px] font-extrabold text-white">{unread > 99 ? "99+" : unread}</span>}
 
-        <div className="h-10 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center gap-2 px-3">
-          <Search size={15} className="text-[var(--text-secondary)]" />
-          <input
-            value={busca}
-            onChange={(event) => setBusca(event.target.value)}
-            placeholder="Pesquisar ou comecar uma conversa"
-            className="min-w-0 flex-1 bg-transparent outline-none text-sm text-[var(--text)] placeholder:text-[var(--text-secondary)]"
-          />
+        <div className="relative" data-chat-menu-root>
+          <Button variant="ghost" size="sm" iconOnly aria-label={`Acoes de ${chat.contato}`} onClick={(event) => { event.stopPropagation(); setMenuAbertoId(menuAbertoId === chat.id ? null : chat.id); }} className="text-[var(--text-secondary)] opacity-40 transition group-hover/chat:opacity-100">
+            <MoreVertical size={16} />
+          </Button>
+          {menuAbertoId === chat.id && (
+            <div className="absolute right-0 top-9 z-50 w-48 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] py-1 text-xs font-semibold text-[var(--text)] shadow-2xl">
+              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "favorita", !chat.favorita); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)]"><Star size={13} /> {chat.favorita ? "Remover dos favoritos" : "Adicionar aos favoritos"}</button>
+              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "fixada", !chat.fixada); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)]"><Pin size={13} /> {chat.fixada ? "Desfixar" : "Fixar"}</button>
+              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "silenciada", !chat.silenciada); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)]"><VolumeX size={13} /> {chat.silenciada ? "Reativar som" : "Silenciar"}</button>
+              <button onClick={(e) => { e.stopPropagation(); onAcao(chat.id, "arquivada", !chat.arquivada); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-hover)]"><Archive size={13} /> {chat.arquivada ? "Desarquivar" : "Arquivar"}</button>
+              <div className="my-1 h-px bg-[var(--border)]" />
+              <button onClick={(e) => { onExcluir(chat.id, e); setMenuAbertoId(null); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-500 hover:bg-[var(--surface-hover)]"><Trash2 size={13} /> Excluir</button>
+            </div>
+          )}
         </div>
+      </div>
+    );
+  };
 
-        <div className="flex gap-1 overflow-x-auto text-xs font-semibold scrollbar-hide">
-          {[
-            ["todos", "Todos"],
-            ["nao-lidas", "Nao lidas"],
-            ["grupos", "Grupos"],
-            ["arquivados", "Arquivados"],
-          ].map(([valor, label]) => (
-            <button
-              key={valor}
-              onClick={() => setFiltroTipo(valor as typeof filtroTipo)}
-              className={`h-8 px-3 rounded-full border whitespace-nowrap ${filtroTipo === valor ? "bg-[#00a884] text-[#0b141a] border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"}`}
-            >
-              {label}
+  const filters: Array<[Filter, string, number | null]> = [
+    ["todos", "Tudo", null],
+    ["nao-lidas", "Nao lidas", counts.unread],
+    ["favoritos", "Favoritos", counts.favorites],
+    ["grupos", "Grupos", counts.groups],
+    ["arquivados", "Arquivadas", counts.archived],
+  ];
+
+  return (
+    <aside className="norium-chat-sidebar flex h-full min-h-0 w-[380px] min-w-[320px] select-none flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)]">
+      <div className="module-sidebar-mobile-header">
+        <span><MessageSquare size={18} /> Conversas</span>
+        <button type="button" onClick={onClose} aria-label="Fechar lista de conversas"><X size={19} /></button>
+      </div>
+      <div className="shrink-0 space-y-3 border-b border-[var(--border)] px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-lg font-semibold tracking-tight text-[var(--text)]">Norium WhatsApp</h2>
+            <p className="text-[11px] font-medium text-[var(--text-secondary)]">{conversas.length} conversas em cache seguro</p>
+          </div>
+          <div className="flex items-center gap-0.5 text-[var(--text)]">
+            <Button variant="ghost" size="sm" iconOnly onClick={onAtualizar} disabled={sincronizando} title="Sincronizar agora" aria-label="Sincronizar agora"><RefreshCw size={17} className={sincronizando ? "animate-spin" : ""} /></Button>
+            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirModalContatos} title="Novo chat" aria-label="Novo chat"><PlusCircle size={18} /></Button>
+            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirModalCriarGrupo} title="Criar grupo" aria-label="Criar grupo"><Users size={18} /></Button>
+            <Button variant="ghost" size="sm" iconOnly onClick={onAbrirConfigPropria} title="Configuracoes" aria-label="Configuracoes"><Settings size={18} /></Button>
+          </div>
+        </div>
+        <div className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 focus-within:border-[var(--primary)]">
+          <Search size={15} className="text-[var(--text-secondary)]" />
+          <input value={busca} onChange={(event) => setBusca(event.target.value)} placeholder="Pesquisar ou iniciar conversa" className="min-w-0 flex-1 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--text-secondary)]" />
+        </div>
+        <div className="scrollbar-hide flex gap-1 overflow-x-auto text-xs font-semibold">
+          {filters.map(([value, label, count]) => (
+            <button key={value} onClick={() => setFiltroTipo(value)} className={`h-8 whitespace-nowrap rounded-full border px-3 transition ${filtroTipo === value ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_18%,transparent)] text-[var(--primary)]" : "border-[var(--border)] text-[var(--text)] hover:bg-[var(--surface-hover)]"}`}>
+              {label}{count ? ` ${count}` : ""}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {filtradas.map((chat) => {
-          const unread = Number(chat.naoLidasCount || 0);
-          return (
-            <div
-              key={chat.id}
-              onClick={() => onSelecionar(chat.id)}
-              className={`h-[76px] px-3 flex items-center gap-3 cursor-pointer transition-colors relative border-b border-[var(--border)]/50 ${conversaSelecionada === chat.id ? "bg-[#2a3942]/70" : "hover:bg-[var(--surface-hover)]"}`}
-            >
-              <ChatAvatar chat={chat} />
-
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-sm truncate text-[var(--text)]">{chat.contato}</span>
-                  <span className={`text-xs shrink-0 ${unread > 0 ? "text-emerald-600 font-bold" : "text-[var(--text-secondary)]"}`}>{chat.horario}</span>
-                </div>
-
-                <div className="mt-1 flex items-center gap-1.5 min-w-0">
-                  {chat.fixada && <Pin size={12} className="text-[var(--primary)] rotate-45 shrink-0" />}
-                  {chat.silenciada && <VolumeX size={12} className="text-[var(--text-secondary)] shrink-0" />}
-                  <span className={`text-xs truncate ${unread > 0 ? "text-[var(--text)] font-semibold" : "text-[var(--text-secondary)]"}`}>{chat.ultimoTexto || "Sem mensagens recentes"}</span>
-                </div>
-
-                <span className="mt-1 inline-flex h-5 items-center rounded-full bg-emerald-500/10 px-2 text-xs font-bold uppercase text-emerald-600">
-                  WhatsApp
-                </span>
-              </div>
-
-              {unread > 0 && (
-                <div className="absolute right-10 bottom-4 h-5 min-w-5 px-1.5 bg-emerald-500 rounded-full flex items-center justify-center text-xs font-extrabold text-white">
-                  {unread > 99 ? "99+" : unread}
-                </div>
-              )}
-
-              <div className="relative" data-chat-menu-root>
-                <Button variant="ghost" size="sm" iconOnly
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setMenuAbertoId(menuAbertoId === chat.id ? null : chat.id);
-                  }}
-                  className="hover:bg-[var(--background)] text-[var(--text-secondary)]"
-                >
-                  <MoreVertical size={16} />
-                </Button>
-
-                {menuAbertoId === chat.id && (
-                  <div className="absolute right-0 top-9 w-48 bg-[#233138] border border-white/10 rounded-lg shadow-2xl z-50 py-1 text-xs font-semibold text-[#e9edef]">
-                    <button onClick={(event) => { event.stopPropagation(); onAcao(chat.id, "fixada", !chat.fixada); setMenuAbertoId(null); }} className="w-full px-3 py-2 text-left hover:bg-[var(--surface-hover)] flex items-center gap-2">
-                      <Pin size={13} /> {chat.fixada ? "Desfixar" : "Fixar"}
-                    </button>
-                    <button onClick={(event) => { event.stopPropagation(); onAcao(chat.id, "silenciada", !chat.silenciada); setMenuAbertoId(null); }} className="w-full px-3 py-2 text-left hover:bg-[var(--surface-hover)] flex items-center gap-2">
-                      <VolumeX size={13} /> {chat.silenciada ? "Reativar som" : "Silenciar"}
-                    </button>
-                    <button onClick={(event) => { event.stopPropagation(); onAcao(chat.id, "arquivada", !chat.arquivada); setMenuAbertoId(null); }} className="w-full px-3 py-2 text-left hover:bg-[var(--surface-hover)] flex items-center gap-2">
-                      <Archive size={13} /> {chat.arquivada ? "Desarquivar" : "Arquivar"}
-                    </button>
-                    <div className="my-1 h-px bg-[var(--border)]" />
-                    <button onClick={(event) => { onExcluir(chat.id, event); setMenuAbertoId(null); }} className="w-full px-3 py-2 text-left text-red-500 hover:bg-[var(--surface-hover)] flex items-center gap-2">
-                      <Trash2 size={13} /> Excluir
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {filtradas.length === 0 && (
-          <div className="p-8 text-center text-sm font-medium text-[var(--text-secondary)]">
-            Nenhuma conversa encontrada.
+      <div className="norium-chat-list min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {sections.map((section) => (
+          <div key={section.label || filtroTipo}>
+            {section.label && <div className="sticky top-0 z-10 border-b border-[var(--border)]/60 bg-[color-mix(in_srgb,var(--surface)_94%,transparent)] px-4 py-2 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--text-secondary)] backdrop-blur">{section.label} · {section.items.length}</div>}
+            {section.items.map(renderChat)}
           </div>
-        )}
+        ))}
+        {filtradas.length === 0 && <div className="p-8 text-center text-sm font-medium text-[var(--text-secondary)]">Nenhuma conversa encontrada.</div>}
       </div>
     </aside>
   );

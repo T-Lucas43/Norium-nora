@@ -33,18 +33,24 @@ export interface ParticipanteGrupo {
   name?: string;
   isAdmin: boolean;
   isSuperAdmin?: boolean;
+  photoUrl?: string;
 }
 
 export interface PerfilMetadados {
   numeroCompleto: string;
   username?: string;
   bioRecado?: string;
+  verifiedName?: string;
+  isBusiness?: boolean;
+  isMyContact?: boolean;
+  isBlocked?: boolean;
   statusOnline: boolean;
   photoUrl?: string;
   // Metadados adicionais para Grupos
   participantes?: ParticipanteGrupo[];
   descricaoGrupo?: string;
   criadoPor?: string;
+  criadoEm?: number | string;
 }
 
 export interface ChatConversa {
@@ -58,6 +64,7 @@ export interface ChatConversa {
   lida: boolean;
   naoLidasCount?: number;
   fixada?: boolean;
+  favorita?: boolean;
   silenciada?: boolean;
   arquivada?: boolean;
   esGrupo?: boolean;

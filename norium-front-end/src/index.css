@@ -4524,6 +4524,184 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   border-radius: 2px;
 }
 
+/* WhatsApp Norium: o modulo ocupa um unico viewport e cada coluna controla a
+   propria rolagem. As regras ficam no fim para neutralizar offsets legados. */
+.norium-chat{
+  isolation:isolate;
+  min-width:0;
+  min-height:0;
+  max-height:100%;
+  overflow:hidden!important;
+}
+
+.norium-chat-sidebar,
+.norium-chat-thread,
+.norium-chat-details{
+  min-height:0;
+  max-height:100%;
+}
+
+.norium-chat-list,
+.norium-chat-message-scroll,
+.norium-chat-details-scroll{
+  min-height:0;
+  scrollbar-color:color-mix(in srgb,var(--primary) 42%,transparent) transparent;
+  scrollbar-width:thin;
+  -webkit-overflow-scrolling:touch;
+}
+
+.norium-chat-list::-webkit-scrollbar,
+.norium-chat-message-scroll::-webkit-scrollbar,
+.norium-chat-details-scroll::-webkit-scrollbar{
+  width:7px;
+}
+
+.norium-chat-list::-webkit-scrollbar-thumb,
+.norium-chat-message-scroll::-webkit-scrollbar-thumb,
+.norium-chat-details-scroll::-webkit-scrollbar-thumb{
+  border:2px solid transparent;
+  border-radius:999px;
+  background:color-mix(in srgb,var(--primary) 48%,transparent);
+  background-clip:padding-box;
+}
+
+.norium-chat-wallpaper{
+  background-color:color-mix(in srgb,var(--background) 94%,var(--primary) 6%);
+}
+
+.norium-message-outgoing{
+  border:1px solid color-mix(in srgb,var(--primary) 72%,white 4%);
+  background:linear-gradient(145deg,color-mix(in srgb,var(--primary) 92%,#10213d),color-mix(in srgb,var(--primary) 70%,#081221));
+}
+
+.norium-message-incoming{
+  border:1px solid var(--border);
+  background:color-mix(in srgb,var(--surface) 94%,var(--primary) 6%);
+}
+
+@media (min-width:901px) and (max-width:1180px){
+  .norium-chat-details{
+    position:absolute!important;
+    inset:0 0 0 auto!important;
+    z-index:38!important;
+    width:min(390px,52vw)!important;
+    height:100%!important;
+    max-height:100%!important;
+    box-shadow:-18px 0 44px rgba(0,0,0,.26);
+  }
+}
+
+@media (max-width:900px){
+  .app-panel > .norium-chat{
+    width:100%!important;
+    height:calc(100dvh - 64px)!important;
+    min-height:480px!important;
+    max-height:calc(100dvh - 64px)!important;
+    flex:none!important;
+    overflow:hidden!important;
+  }
+
+  .norium-chat > aside.norium-chat-sidebar{
+    position:absolute!important;
+    inset:0 auto 0 0!important;
+    z-index:40!important;
+    width:min(380px,100%)!important;
+    min-width:0!important;
+    height:100%!important;
+    max-height:100%!important;
+    overflow:hidden!important;
+    border-width:0 1px 0 0!important;
+    border-radius:0!important;
+    background:var(--surface)!important;
+    box-shadow:18px 0 48px rgba(0,0,0,.32)!important;
+    transform:translateX(-102%);
+  }
+
+  .dark .norium-chat > aside.norium-chat-sidebar{
+    background:var(--surface)!important;
+  }
+
+  .norium-chat.mobile-sidebar-open > aside.norium-chat-sidebar{
+    transform:translateX(0);
+  }
+
+  .norium-chat .mobile-sidebar-backdrop{
+    position:absolute!important;
+    inset:0!important;
+    z-index:39!important;
+  }
+
+  .norium-chat > aside.norium-chat-details{
+    position:absolute!important;
+    inset:0 0 0 auto!important;
+    z-index:42!important;
+    width:min(390px,100%)!important;
+    min-width:0!important;
+    height:100%!important;
+    max-height:100%!important;
+    overflow:hidden!important;
+    border-width:0 0 0 1px!important;
+    border-radius:0!important;
+    background:var(--surface)!important;
+    box-shadow:-18px 0 48px rgba(0,0,0,.34);
+  }
+
+  .norium-chat-thread{
+    width:100%!important;
+    min-width:0!important;
+  }
+
+  .norium-chat-thread > div:first-child{
+    padding-left:64px!important;
+  }
+
+  .norium-chat .mobile-screen-fab{
+    position:absolute!important;
+    top:11px!important;
+    left:11px!important;
+    z-index:34!important;
+  }
+}
+
+@media (max-width:640px){
+  .app-panel > .norium-chat{
+    height:calc(100dvh - 112px)!important;
+    max-height:calc(100dvh - 112px)!important;
+  }
+
+  .norium-chat > aside.norium-chat-sidebar,
+  .norium-chat > aside.norium-chat-details{
+    width:100%!important;
+  }
+
+  .norium-chat-message-scroll{
+    padding:16px 10px!important;
+  }
+
+  .norium-message-bubble{
+    max-width:88%!important;
+  }
+
+  .norium-chat-composer{
+    padding:9px!important;
+  }
+
+  .norium-chat-composer > div:last-child{
+    gap:6px!important;
+  }
+
+  .norium-chat-composer button{
+    width:40px!important;
+    min-width:40px!important;
+    height:40px!important;
+  }
+
+  .norium-chat-composer input[type="text"]{
+    height:40px!important;
+    padding-inline:12px!important;
+  }
+}
+
 /* Respostas da Nora: bloco editorial legivel e tabelas que preservam colunas. */
 .nora-assistant-content{
   overflow:hidden;
@@ -6530,5 +6708,60 @@ html.mail-fullscreen-open body{
   .nora-message-markdown :is(th,td){
     min-width:124px;
     padding:9px 10px;
+  }
+}
+
+/* Deve permanecer como o ultimo ajuste responsivo do chat. */
+@media (max-width:900px){
+  .app-panel > .norium-chat{
+    width:100%!important;
+    height:calc(100dvh - 64px)!important;
+    min-height:480px!important;
+    max-height:calc(100dvh - 64px)!important;
+    flex:none!important;
+    overflow:hidden!important;
+  }
+
+  .norium-chat > aside.norium-chat-sidebar{
+    position:absolute!important;
+    inset:0 auto 0 0!important;
+    width:min(380px,100%)!important;
+    min-width:0!important;
+    height:100%!important;
+    max-height:100%!important;
+    overflow:hidden!important;
+    border-radius:0!important;
+    transform:translateX(-102%);
+  }
+
+  .norium-chat.mobile-sidebar-open > aside.norium-chat-sidebar{
+    transform:translateX(0);
+  }
+
+  .norium-chat .mobile-sidebar-backdrop{
+    position:absolute!important;
+    inset:0!important;
+  }
+
+  .norium-chat > aside.norium-chat-details{
+    position:absolute!important;
+    inset:0 0 0 auto!important;
+    width:min(390px,100%)!important;
+    height:100%!important;
+    max-height:100%!important;
+    overflow:hidden!important;
+    border-radius:0!important;
+  }
+}
+
+@media (max-width:640px){
+  .app-panel > .norium-chat{
+    height:calc(100dvh - 112px)!important;
+    max-height:calc(100dvh - 112px)!important;
+  }
+
+  .norium-chat > aside.norium-chat-sidebar,
+  .norium-chat > aside.norium-chat-details{
+    width:100%!important;
   }
 }

@@ -156,12 +156,12 @@ function AudioMessage({ src, outgoing }: { src: string; outgoing: boolean }) {
   };
 
   return (
-    <div className={`w-[320px] max-w-[70vw] rounded-xl px-3 py-2.5 ${outgoing ? "bg-white/10" : "bg-[#111b21]"}`}>
+    <div className={`w-[320px] max-w-[70vw] rounded-xl px-3 py-2.5 ${outgoing ? "bg-white/10" : "bg-[var(--background)]"}`}>
       <audio ref={audioRef} src={src} preload="metadata" />
       <div className="flex items-center gap-3">
         <button
           onClick={togglePlay}
-          className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition ${outgoing ? "bg-white text-[#005c4b]" : "bg-[#00a884] text-[#111b21]"}`}
+          className={`h-10 w-10 shrink-0 rounded-full flex items-center justify-center transition ${outgoing ? "bg-white text-[var(--primary)]" : "bg-[var(--primary)] text-white"}`}
           title={playing ? "Pausar audio" : "Tocar audio"}
          aria-label={playing ? "Pausar audio" : "Tocar audio"}>
           {playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
@@ -416,7 +416,7 @@ export default function AreaCentralChat({
 
   if (!conversaAtiva) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-[var(--background)] text-sm font-semibold text-[var(--text-secondary)]">
+      <div className="norium-chat-thread flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--background)] text-sm font-semibold text-[var(--text-secondary)]">
         Selecione uma conversa para comecar.
       </div>
     );
@@ -439,9 +439,9 @@ export default function AreaCentralChat({
   };
 
   return (
-    <section className="flex-1 flex flex-col h-full border-r border-[var(--border)] bg-[var(--background)] min-w-0">
+    <section className="norium-chat-thread flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--background)]">
       {!modoSelecao ? (
-        <div className="h-16 px-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--surface)]">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4">
           <button className="min-w-0 flex items-center gap-3 text-left" onClick={onAbrirDadosPerfil}>
             <HeaderAvatar conversa={conversaAtiva} />
             <div className="min-w-0">
@@ -465,7 +465,7 @@ export default function AreaCentralChat({
           </div>
         </div>
       ) : (
-        <div className="h-16 px-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--surface)] text-[var(--text)]">
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4 text-[var(--text)]">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" iconOnly onClick={() => { setModoSelecao(false); setSelecionadas([]); }}>
               <X size={17} />
@@ -484,7 +484,7 @@ export default function AreaCentralChat({
       )}
 
       {mostrarPesquisa && (
-        <div className="bg-[var(--surface)] p-2.5 border-b border-[var(--border)] flex gap-2">
+        <div className="flex shrink-0 gap-2 border-b border-[var(--border)] bg-[var(--surface)] p-2.5">
           <input
             type="text"
             placeholder="Buscar nesta conversa"
@@ -501,7 +501,7 @@ export default function AreaCentralChat({
       <div
         ref={scrollRef}
         onScroll={handleMessageScroll}
-        className="flex-1 overflow-y-auto px-8 py-6 space-y-2 bg-[#0b141a] dark:bg-[#0b141a]"
+        className="norium-chat-message-scroll norium-chat-wallpaper min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-8 py-6"
         style={{
           backgroundImage:
             "radial-gradient(circle at 20px 20px, rgba(255,255,255,0.035) 1px, transparent 1.4px), radial-gradient(circle at 70px 60px, rgba(255,255,255,0.025) 1.4px, transparent 1.8px)",
@@ -515,7 +515,7 @@ export default function AreaCentralChat({
               variant="ghost"
               disabled={carregandoMensagens}
               onClick={carregarAnterioresPreservandoPosicao}
-              className="rounded-full bg-black/20 text-[#e9edef]"
+              className="rounded-full bg-[var(--surface)]/80 text-[var(--text)]"
             >
               {carregandoMensagens ? "Carregando mensagens..." : "Carregar mensagens anteriores"}
             </Button>
@@ -538,7 +538,7 @@ export default function AreaCentralChat({
               )}
 
               <div
-                className={`relative max-w-[68%] rounded-lg px-3 py-2 shadow-sm ${outgoing ? "bg-[#005c4b] text-white" : "bg-[#202c33] text-[#e9edef]"} ${estaSelecionada ? "ring-2 ring-[#00a884]" : ""}`}
+                className={`norium-message-bubble relative max-w-[68%] rounded-xl px-3 py-2 shadow-sm ${outgoing ? "norium-message-outgoing text-white" : "norium-message-incoming text-[var(--text)]"} ${estaSelecionada ? "ring-2 ring-[var(--primary)]" : ""}`}
                 data-message-menu-root
               >
                 {!modoSelecao && (
@@ -548,7 +548,7 @@ export default function AreaCentralChat({
                 )}
 
                 {menuMensagemId === msg.id && (
-                  <div className="absolute right-1 top-8 bg-[#233138] border border-white/10 rounded-lg shadow-xl z-50 text-xs font-bold text-[#e9edef] py-1 w-32 overflow-hidden">
+                  <div className="absolute right-1 top-8 z-50 w-32 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] py-1 text-xs font-bold text-[var(--text)] shadow-xl">
                     <button onClick={() => { if (msg.texto) void navigator.clipboard.writeText(msg.texto); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
                       <Copy size={13} /> Copiar
                     </button>
@@ -582,7 +582,7 @@ export default function AreaCentralChat({
         <div ref={bottomRef} />
       </div>
 
-      <div className="p-3 border-t border-[var(--border)] bg-[var(--surface)] relative">
+      <div className="norium-chat-composer relative shrink-0 border-t border-[var(--border)] bg-[var(--surface)] p-3">
         {mostrarPainelEmojis && (
           <div data-emoji-panel-root className="absolute bottom-16 left-4 bg-[var(--surface)] border border-[var(--border)] p-3 rounded-lg shadow-2xl z-50 w-72 text-xs font-bold text-[var(--text)]">
             <p className="text-[var(--text-secondary)] mb-2 uppercase tracking-wide text-xs">Mais usados</p>

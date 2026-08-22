@@ -29,7 +29,7 @@ from app.shared.schemas import StrictModel
 load_dotenv()
 
 from app.routers.auth_router import current_user, effective_permissions, find_user, read_user_store
-from app.core.tenant import get_data_root, public_api_url
+from app.core.tenant import get_data_root, public_api_url, read_user_db, write_user_db
 from app.routers.inbox_router import record_event
 from app.services.conversation_store import (
     append_message,
@@ -60,6 +60,8 @@ WHATSAPP_MEDIA_HOSTS = {
 }
 profile_photo_attempt_cache: Dict[str, int] = {}
 whatsapp_webhook_event_cache: Dict[str, float] = {}
+WHATSAPP_CATALOG_CACHE_TTL_SECONDS = max(60, int(os.getenv("WHATSAPP_CATALOG_CACHE_TTL_SECONDS", "300")))
+WHATSAPP_HISTORY_CACHE_TTL_SECONDS = max(30, int(os.getenv("WHATSAPP_HISTORY_CACHE_TTL_SECONDS", "120")))
 UPLOAD_DIR = get_data_root() / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = 14 * 1024 * 1024
@@ -94,6 +96,11 @@ class ModificarChatPayload(StrictModel):
     valor: bool
 
 
+class FavoritarChatPayload(StrictModel):
+    conversa_id: str = Field(min_length=1)
+    valor: bool
+
+
 class ApagarMensagemPayload(StrictModel):
     user_id: str | None = Field(default=None, min_length=1)
     conversa_id: str = Field(min_length=1)
@@ -125,6 +132,32 @@ def connection_status(user_id: str) -> Dict[str, Dict[str, Any]]:
             "whatsapp": {"conectado": False, "qrcode": None},
         },
     )
+
+
+async def load_whatsapp_catalog_cache(user_id: str) -> Dict[str, Any]:
+    payload = await asyncio.to_thread(read_user_db, user_id, "whatsapp_catalog_cache", {})
+    return payload if isinstance(payload, dict) else {}
+
+
+async def save_whatsapp_catalog_cache(user_id: str, payload: Dict[str, Any]) -> None:
+    await asyncio.to_thread(write_user_db, user_id, "whatsapp_catalog_cache", payload)
+
+
+def catalog_cache_is_fresh(cache: Dict[str, Any], key: str = "catalogSyncedAt") -> bool:
+    try:
+        cached_at = float(cache.get(key) or 0)
+    except (TypeError, ValueError):
+        return False
+    return cached_at > 0 and time.time() - cached_at < WHATSAPP_CATALOG_CACHE_TTL_SECONDS
+
+
+def sorted_conversations(db: Dict[str, Any]) -> list[Dict[str, Any]]:
+    items = list(db.values())
+    items.sort(
+        key=lambda item: (bool(item.get("fixada")), int(item.get("timestampUltimaMsg") or 0)),
+        reverse=True,
+    )
+    return items
 
 
 def assert_channel_permission(user: dict[str, Any], channel: str) -> None:
@@ -248,6 +281,7 @@ async def desconectar_whatsapp(user: dict[str, Any] = Depends(current_user)):
     if not await whatsapp_service.desconectar_instancia(resolved_user_id):
         raise HTTPException(status_code=502, detail="Nao foi possivel desconectar a sessao do WhatsApp.")
     await save_conversations({}, resolved_user_id)
+    await save_whatsapp_catalog_cache(resolved_user_id, {})
     status_conexoes.pop(resolved_user_id, None)
     return {"status": "desconectado"}
 
@@ -411,14 +445,18 @@ async def obter_conversas(
     user_id: str | None = Query(default=None, deprecated=True),
     since: int | None = Query(default=None, ge=0),
     limit: int = Query(default=100, ge=1, le=250),
+    refresh: bool = Query(default=False),
     user: dict[str, Any] = Depends(current_user),
 ):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
+    db = await load_conversations(resolved_user_id)
+    catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
     whatsapp_status = await whatsapp_service.consultar_instancia(resolved_user_id)
     if whatsapp_status["status"] != "conectado":
+        if since is None and db and catalog_cache.get("authenticatedAt"):
+            return sorted_conversations(db)
         return {"items": [], "cursor": since or 0, "hasMore": False} if since is not None else []
-    db = await load_conversations(resolved_user_id)
 
     if since is not None:
         changed_items = [
@@ -443,7 +481,14 @@ async def obter_conversas(
             "hasMore": len(changed_items) > limit,
         }
 
+    if db and not refresh and catalog_cache_is_fresh(catalog_cache):
+        return sorted_conversations(db)
+
     changed = False
+    contacts: list[Dict[str, Any]] = []
+    chats: list[Dict[str, Any]] = []
+    remote_catalog_loaded = False
+    remote_contacts_loaded = False
 
     try:
         res_chats, res_contacts = await asyncio.gather(
@@ -454,12 +499,14 @@ async def obter_conversas(
 
         contacts = parse_whatsapp_collection(res_contacts) if not isinstance(res_contacts, Exception) else []
         chats = parse_whatsapp_collection(res_chats) if not isinstance(res_chats, Exception) else []
+        remote_catalog_loaded = not isinstance(res_chats, Exception)
+        remote_contacts_loaded = not isinstance(res_contacts, Exception)
 
         nomes, fotos, metadata = build_contact_indexes(contacts)
 
         missing_photo_count = 0
         group_metadata_count = 0
-        for chat in chats[:45]:
+        for chat in chats[:250]:
             phone = chat.get("phone") or chat.get("id") or chat.get("jid")
             if not phone:
                 continue
@@ -482,6 +529,8 @@ async def obter_conversas(
                 if group_metadata:
                     meta_extra["participantes"] = group_metadata.get("participantes", [])
                     meta_extra["descricaoGrupo"] = group_metadata.get("descricaoGrupo", "")
+                    meta_extra["criadoPor"] = group_metadata.get("criadoPor")
+                    meta_extra["criadoEm"] = group_metadata.get("criadoEm")
                     nome_final = group_metadata.get("nome") or nome_final
                     pic_url = pic_url or group_metadata.get("photoUrl")
 
@@ -495,6 +544,18 @@ async def obter_conversas(
                     participantes=meta_extra["participantes"],
                     descricao_grupo=meta_extra["descricaoGrupo"],
                 )
+                db[phone]["metadados"].update(
+                    {
+                        "verifiedName": meta_extra.get("verifiedName"),
+                        "bioRecado": meta_extra.get("bioRecado"),
+                        "isBusiness": bool(meta_extra.get("isBusiness")),
+                        "isMyContact": bool(meta_extra.get("isMyContact")),
+                        "isBlocked": bool(meta_extra.get("isBlocked")),
+                        "criadoPor": meta_extra.get("criadoPor"),
+                        "criadoEm": meta_extra.get("criadoEm"),
+                    }
+                )
+                db[phone] = normalize_conversation(phone, db[phone])
                 changed = True
             else:
                 conversa = db[phone]
@@ -510,6 +571,11 @@ async def obter_conversas(
                     conversa["metadados"]["participantes"] = meta_extra["participantes"]
                 if meta_extra["descricaoGrupo"]:
                     conversa["metadados"]["descricaoGrupo"] = meta_extra["descricaoGrupo"]
+                for metadata_key in (
+                    "verifiedName", "bioRecado", "isBusiness", "isMyContact", "isBlocked", "criadoPor", "criadoEm"
+                ):
+                    if metadata_key in meta_extra and meta_extra.get(metadata_key) is not None:
+                        conversa["metadados"][metadata_key] = meta_extra[metadata_key]
                 db[phone] = normalize_conversation(phone, conversa)
                 changed = True
 
@@ -522,12 +588,19 @@ async def obter_conversas(
     if changed:
         await save_conversations(db, resolved_user_id)
 
-    lista_ordenada = list(db.values())
-    lista_ordenada.sort(
-        key=lambda item: (bool(item.get("fixada")), int(item.get("timestampUltimaMsg") or 0)),
-        reverse=True,
-    )
-    return lista_ordenada
+    if remote_catalog_loaded:
+        await save_whatsapp_catalog_cache(
+            resolved_user_id,
+            {
+                **catalog_cache,
+                "authenticatedAt": catalog_cache.get("authenticatedAt") or time.time(),
+                "catalogSyncedAt": time.time(),
+                "contactsSyncedAt": time.time() if remote_contacts_loaded else catalog_cache.get("contactsSyncedAt"),
+                "contacts": contacts if remote_contacts_loaded else catalog_cache.get("contacts", []),
+            },
+        )
+
+    return sorted_conversations(db)
 
 
 @router.get("/api/chat/conversas/{conversa_id}/mensagens")
@@ -539,6 +612,22 @@ async def obter_historico_conversa(
 ):
     assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
+    db = await load_conversations(resolved_user_id)
+    conversation = db.get(conversa_id)
+    history_synced_at = (conversation or {}).get("metadados", {}).get("historicoSincronizadoEm")
+    try:
+        history_cache_fresh = bool(history_synced_at) and time.time() - float(history_synced_at) < WHATSAPP_HISTORY_CACHE_TTL_SECONDS
+    except (TypeError, ValueError):
+        history_cache_fresh = False
+    if before is None and conversation and conversation.get("mensagens") and history_cache_fresh:
+        cached_messages = list(conversation.get("mensagens") or [])[-limit:]
+        cached_messages.sort(key=lambda item: int(item.get("timestamp") or 0))
+        return {
+            "items": cached_messages,
+            "cursor": conversation.get("metadados", {}).get("historicoCursor")
+            or min((int(item.get("timestamp") or 0) for item in cached_messages), default=None),
+            "hasMore": bool(conversation.get("metadados", {}).get("historicoTemMais")),
+        }
     query = f"?limit={limit}"
     if before:
         query += f"&before={before}"
@@ -549,9 +638,11 @@ async def obter_historico_conversa(
     )
     if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
         raise HTTPException(status_code=502, detail="Falha ao carregar o historico real do WhatsApp.")
-    db = await load_conversations(resolved_user_id)
     conversation = db.get(conversa_id) or new_conversation(conversa_id, channel="whatsapp")
     sync_catalog_messages(conversation, {"messages": payload["items"]})
+    conversation.setdefault("metadados", {})["historicoSincronizadoEm"] = time.time()
+    conversation["metadados"]["historicoCursor"] = payload.get("cursor")
+    conversation["metadados"]["historicoTemMais"] = bool(payload.get("hasMore"))
     db[conversa_id] = normalize_conversation(conversa_id, conversation)
     await save_conversations(db, resolved_user_id)
     requested_ids = {
@@ -569,6 +660,61 @@ async def obter_historico_conversa(
         "cursor": payload.get("cursor"),
         "hasMore": bool(payload.get("hasMore")),
     }
+
+
+@router.get("/api/chat/conversas/{conversa_id}/detalhes")
+async def obter_detalhes_conversa(
+    conversa_id: str,
+    user: dict[str, Any] = Depends(current_user),
+):
+    assert_channel_permission(user, "whatsapp")
+    resolved_user_id = tenant_id(user)
+    db = await load_conversations(resolved_user_id)
+    conversation = db.get(conversa_id) or new_conversation(
+        conversa_id,
+        channel="whatsapp",
+        is_group=is_group_chat(conversa_id),
+    )
+    endpoint = "/groups/" if is_group_chat(conversa_id, conversation) else "/contacts/"
+    try:
+        details = await whatsapp_service.get(
+            resolved_user_id,
+            f"{endpoint}{quote(conversa_id, safe='')}",
+            timeout=25.0,
+        )
+    except Exception:
+        logger.exception("Falha ao carregar detalhes do WhatsApp.")
+        details = None
+
+    metadata = conversation.setdefault("metadados", {})
+    if isinstance(details, dict) and not details.get("error"):
+        name = details.get("subject") or details.get("name") or details.get("formattedName")
+        if name:
+            conversation["contato"] = str(name)
+        photo_url = extract_photo_url(details)
+        if photo_url:
+            metadata["photoUrl"] = photo_url
+            conversation["photoUrl"] = photo_url
+        metadata.update(
+            {
+                "numeroCompleto": details.get("phone") or details.get("id") or conversa_id,
+                "bioRecado": details.get("bio") or details.get("status") or metadata.get("bioRecado"),
+                "verifiedName": details.get("verifiedName") or metadata.get("verifiedName"),
+                "isBusiness": bool(details.get("isBusiness", metadata.get("isBusiness", False))),
+                "isMyContact": bool(details.get("isMyContact", metadata.get("isMyContact", False))),
+                "isBlocked": bool(details.get("isBlocked", metadata.get("isBlocked", False))),
+                "descricaoGrupo": details.get("description") or metadata.get("descricaoGrupo") or "",
+                "participantes": details.get("participants") or metadata.get("participantes") or [],
+                "criadoPor": details.get("owner") or metadata.get("criadoPor"),
+                "criadoEm": details.get("createdAt") or metadata.get("criadoEm"),
+            }
+        )
+        conversation["metadados"] = metadata
+        db[conversa_id] = normalize_conversation(conversa_id, conversation)
+        await save_conversations(db, resolved_user_id)
+        return db[conversa_id]
+
+    return normalize_conversation(conversa_id, conversation)
 
 
 @router.get("/api/chat/midia/{message_id}")
@@ -629,9 +775,18 @@ async def obter_contatos_disponiveis(
 ):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
+    catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
 
     try:
-        contatos = parse_whatsapp_collection(await whatsapp_service.get(resolved_user_id, "/contacts", timeout=25.0))
+        cached_contacts = catalog_cache.get("contacts")
+        if catalog_cache_is_fresh(catalog_cache, "contactsSyncedAt") and isinstance(cached_contacts, list):
+            contatos = [item for item in cached_contacts if isinstance(item, dict)]
+        else:
+            contatos = parse_whatsapp_collection(await whatsapp_service.get(resolved_user_id, "/contacts", timeout=25.0))
+            await save_whatsapp_catalog_cache(
+                resolved_user_id,
+                {**catalog_cache, "contactsSyncedAt": time.time(), "contacts": contatos},
+            )
         contatos_whatsapp = [
             {
                 "id": c.get("id") or c.get("phone") or c.get("jid"),
@@ -639,6 +794,11 @@ async def obter_contatos_disponiveis(
                 "name": c.get("name") or c.get("verifiedName") or c.get("pushname"),
                 "pushname": c.get("pushname"),
                 "photoUrl": extract_photo_url(c),
+                "verifiedName": c.get("verifiedName"),
+                "bio": c.get("bio") or c.get("status"),
+                "isBusiness": bool(c.get("isBusiness")),
+                "isMyContact": bool(c.get("isMyContact")),
+                "isBlocked": bool(c.get("isBlocked")),
                 "channel": "whatsapp",
                 "canal": "whatsapp",
             }
@@ -809,6 +969,13 @@ async def modificar_chat(payload: ModificarChatPayload, user: dict[str, Any] = D
             timeout=20.0,
         )
     sucesso = await modify_conversation(payload.conversa_id, payload.acao, payload.valor, resolved_user_id)
+    return {"status": "sucesso" if sucesso else "not_found"}
+
+
+@router.patch("/api/chat/favoritar")
+async def favoritar_chat(payload: FavoritarChatPayload, user: dict[str, Any] = Depends(current_user)):
+    assert_channel_permission(user, "whatsapp")
+    sucesso = await modify_conversation(payload.conversa_id, "favorita", payload.valor, tenant_id(user))
     return {"status": "sucesso" if sucesso else "not_found"}
 
 
@@ -1008,6 +1175,11 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
         metadata[jid] = {
             "participantes": contato.get("participants") or contato.get("participantes") or [],
             "descricaoGrupo": contato.get("description") or contato.get("descricao") or "",
+            "verifiedName": contato.get("verifiedName"),
+            "bioRecado": contato.get("bio") or contato.get("status"),
+            "isBusiness": bool(contato.get("isBusiness")),
+            "isMyContact": bool(contato.get("isMyContact")),
+            "isBlocked": bool(contato.get("isBlocked")),
         }
 
     return nomes, fotos, metadata
@@ -1162,6 +1334,7 @@ async def fetch_group_metadata(user_id: str, phone: str) -> Dict[str, Any] | Non
             "descricaoGrupo": data.get("description") or "",
             "participantes": data.get("participants") or [],
             "criadoPor": data.get("owner"),
+            "criadoEm": data.get("createdAt"),
             "photoUrl": extract_photo_url(data),
         }
     except Exception:

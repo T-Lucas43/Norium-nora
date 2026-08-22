@@ -1,0 +1,34 @@
+name: Diagnose WhatsApp API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate with Azure using OpenID Connect
+        uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Read filtered WhatsApp API logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          az containerapp logs show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name norium-whatsapp-api \
+            --type console \
+            --follow false \
+            --tail 300 \
+            --format text \
+            | grep -Eai 'auth|browser|chrome|disconnect|error|fail|launch|openwa|persist|qr|session|snapshot|state|timeout|worker' \
+            | tail -n 160 \
+            || true

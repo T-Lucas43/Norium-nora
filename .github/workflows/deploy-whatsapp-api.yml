@@ -210,6 +210,8 @@ jobs:
 
       - name: Verify both production services
         shell: bash
+        env:
+          NORIUM_API_KEY: ${{ secrets.WHATSAPP_API_KEY }}
         run: |
           set -euo pipefail
           verify_endpoint() {
@@ -238,3 +240,18 @@ jobs:
             exit 1
           fi
           verify_endpoint "${{ vars.AZURE_PUBLIC_URL }}/health" 18
+
+          session_state="$(curl --silent --show-error --fail \
+            --connect-timeout 8 --max-time 30 \
+            --header "Authorization: Bearer $NORIUM_API_KEY" \
+            "${{ steps.app.outputs.public_url }}/v1/session/status" \
+            | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload.get("state", ""))')"
+          test "$session_state" = "connected"
+
+          chat_count="$(curl --silent --show-error --fail \
+            --connect-timeout 8 --max-time 60 \
+            --header "Authorization: Bearer $NORIUM_API_KEY" \
+            "${{ steps.app.outputs.public_url }}/v1/chats" \
+            | python3 -c 'import json,sys; payload=json.load(sys.stdin); assert isinstance(payload, list); print(len(payload))')"
+          test "$chat_count" -gt 0
+          echo "Authenticated WhatsApp catalog returned $chat_count chat(s)."

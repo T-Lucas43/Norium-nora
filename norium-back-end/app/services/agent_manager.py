@@ -115,7 +115,8 @@ class AgentManager:
                 "sent": False,
             }
 
-        success = await self.whatsapp_service.enviar_mensagem_texto(conversa_id, texto)
+        result = await self.whatsapp_service.enviar_mensagem_texto(user_id, conversa_id, texto)
+        success = bool(result and result.get("sent") is True)
 
         if success:
             await append_outgoing_message(
@@ -124,6 +125,7 @@ class AgentManager:
                 channel=canal,
                 sender_label="Agente de Mensagens",
                 status="enviado",
+                message_id=str(result.get("messageId") or "") or None,
                 user_id=user_id,
             )
 

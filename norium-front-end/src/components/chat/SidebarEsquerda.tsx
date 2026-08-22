@@ -21,7 +21,7 @@ interface SidebarProps {
   conversas: ChatConversa[];
   conversaSelecionada: string | null;
   onSelecionar: (id: string) => void;
-  onAcao: (id: string, acao: string, valor: boolean) => void;
+  onAcao: (id: string, acao: "lida" | "fixada" | "silenciada" | "arquivada", valor: boolean) => void;
   onExcluir: (id: string, e: React.MouseEvent) => void;
   onAbrirConfigPropria: () => void;
   onAbrirModalContatos: () => void;

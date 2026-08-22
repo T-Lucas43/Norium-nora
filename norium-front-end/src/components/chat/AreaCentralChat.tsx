@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Check,
   CheckCheck,
@@ -40,6 +40,9 @@ interface AreaCentralProps {
   onLimparAnexos: () => void;
   onApagarMensagensEmMassa: (mensagensIds: string[]) => void;
   onEncaminharMensagens: (mensagensIds: string[]) => void;
+  onCarregarMensagensAntigas: () => Promise<void>;
+  temMaisMensagens: boolean;
+  carregandoMensagens: boolean;
 }
 
 function initials(name: string) {
@@ -340,6 +343,9 @@ export default function AreaCentralChat({
   onLimparAnexos,
   onApagarMensagensEmMassa,
   onEncaminharMensagens,
+  onCarregarMensagensAntigas,
+  temMaisMensagens,
+  carregandoMensagens,
 }: AreaCentralProps) {
   const [resposta, setResposta] = useState("");
   const [mostrarPesquisa, setMostrarPesquisa] = useState(false);
@@ -350,10 +356,48 @@ export default function AreaCentralChat({
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
   const [mostrarPainelEmojis, setMostrarPainelEmojis] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const previousHeightRef = useRef<number | null>(null);
+  const nearBottomRef = useRef(true);
+  const previousConversationRef = useRef<string | undefined>(undefined);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  useLayoutEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const conversationChanged = previousConversationRef.current !== conversaAtiva?.id;
+    previousConversationRef.current = conversaAtiva?.id;
+    if (previousHeightRef.current !== null) {
+      container.scrollTop += container.scrollHeight - previousHeightRef.current;
+      previousHeightRef.current = null;
+      return;
+    }
+    if (conversationChanged || nearBottomRef.current) {
+      container.scrollTop = container.scrollHeight;
+      nearBottomRef.current = true;
+    }
   }, [conversaAtiva?.id, conversaAtiva?.mensagens.length]);
+
+  const carregarAnterioresPreservandoPosicao = () => {
+    const container = scrollRef.current;
+    if (!container || !temMaisMensagens || carregandoMensagens || previousHeightRef.current !== null) return;
+    previousHeightRef.current = container.scrollHeight;
+    void onCarregarMensagensAntigas().finally(() => {
+      window.requestAnimationFrame(() => {
+        const current = scrollRef.current;
+        if (current && previousHeightRef.current !== null) {
+          current.scrollTop += current.scrollHeight - previousHeightRef.current;
+          previousHeightRef.current = null;
+        }
+      });
+    });
+  };
+
+  const handleMessageScroll = () => {
+    const container = scrollRef.current;
+    if (!container) return;
+    nearBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+    if (container.scrollTop <= 80) carregarAnterioresPreservandoPosicao();
+  };
 
   useEffect(() => {
     const fecharFlutuantes = (event: MouseEvent) => {
@@ -455,6 +499,8 @@ export default function AreaCentralChat({
       )}
 
       <div
+        ref={scrollRef}
+        onScroll={handleMessageScroll}
         className="flex-1 overflow-y-auto px-8 py-6 space-y-2 bg-[#0b141a] dark:bg-[#0b141a]"
         style={{
           backgroundImage:
@@ -462,6 +508,19 @@ export default function AreaCentralChat({
           backgroundSize: "96px 96px",
         }}
       >
+        {(temMaisMensagens || carregandoMensagens) && (
+          <div className="flex justify-center pb-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={carregandoMensagens}
+              onClick={carregarAnterioresPreservandoPosicao}
+              className="rounded-full bg-black/20 text-[#e9edef]"
+            >
+              {carregandoMensagens ? "Carregando mensagens..." : "Carregar mensagens anteriores"}
+            </Button>
+          </div>
+        )}
         {mensagensFiltradas.map((msg) => {
           const outgoing = msg.remetente === "usuario";
           const estaSelecionada = selecionadas.includes(msg.id);

@@ -3,21 +3,14 @@ import SidebarEsquerda from "./SidebarEsquerda";
 import AreaCentralChat from "./AreaCentralChat";
 import PainelDireito from "./PainelDireito";
 import { Menu, X, Search, User, Send } from "lucide-react";
-import type { AnexoPendente, ChatConversa } from "./types";
+import type { AnexoPendente, ChatConversa, MsgConteudo } from "./types";
 import { apiBaseUrl } from "../../utils/api";
 import StatusBanner from "../shared/StatusBanner";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import Button from "../shared/Button";
+import { whatsappApi, type Contact, type WhatsAppConnection } from "./whatsappApi";
 
 const BACKEND_URL = apiBaseUrl();
-
-interface ContatoAgenda {
-  id: string;
-  phone: string;
-  name?: string;
-  pushname?: string;
-  photoUrl?: string;
-}
 
 interface ChatCentralProps {
   userId?: string;
@@ -27,7 +20,7 @@ interface ChatCentralProps {
 
 export default function ChatCentral({ userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
-  const [canaisStatus, setCanaisStatus] = useState<{ [key: string]: { conectado: boolean; qrcode?: string | null; detail?: string; username?: string; webhookUrl?: string; webhookEsperado?: string } }>({});
+  const [canaisStatus, setCanaisStatus] = useState<{ whatsapp?: WhatsAppConnection }>({});
   const [canalSelecionadoLogin, setCanalSelecionadoLogin] = useState<"whatsapp" | null>(null);
   const [qrCodeString, setQrCodeString] = useState<string | null>(null);
   const [erroLogin, setErroLogin] = useState<string | null>(null);
@@ -42,7 +35,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const [modalContatosAberto, setModalContatosAberto] = useState<boolean>(false);
   const [modalGrupoAberto, setModalGrupoAberto] = useState<boolean>(false);
   const [modalConfigAberto, setModalConfigAberto] = useState<boolean>(false);
-  const [listaContatos, setListaContatos] = useState<ContatoAgenda[]>([]);
+  const [listaContatos, setListaContatos] = useState<Contact[]>([]);
   const [filtroContatoNome, setFiltroContatoNome] = useState<string>("");
 
   const [nomeNovoGrupo, setNomeNovoGrupo] = useState("");
@@ -60,6 +53,9 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const [mensagensParaEncaminhar, setMensagensParaEncaminhar] = useState<string[]>([]);
   const [destinoEncaminhar, setDestinoEncaminhar] = useState<string | null>(null);
   const [encaminhando, setEncaminhando] = useState(false);
+  const [historicoCarregandoId, setHistoricoCarregandoId] = useState<string | null>(null);
+  const [confirmarDesconexaoAberta, setConfirmarDesconexaoAberta] = useState(false);
+  const [desconectando, setDesconectando] = useState(false);
   const avisoTimeoutRef = useRef<number | null>(null);
   const arquivoInputRef = useRef<HTMLInputElement>(null);
   const anexosPendentesRef = useRef<AnexoPendente[]>([]);
@@ -71,6 +67,13 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const carregandoConversasRef = useRef(false);
   const cursorConversasRef = useRef(0);
   const whatsappConectadoRef = useRef(false);
+  const historicoRef = useRef(new Map<string, { cursor: number | null; hasMore: boolean }>());
+
+  const mostrarAviso = useCallback((tone: "error" | "info" | "success", texto: string) => {
+    if (avisoTimeoutRef.current) window.clearTimeout(avisoTimeoutRef.current);
+    setAviso({ tone, texto });
+    avisoTimeoutRef.current = window.setTimeout(() => setAviso(null), 5000);
+  }, []);
 
   const formatarTempo = (segundos: number): string => {
     const mins = Math.floor(segundos / 60);
@@ -82,35 +85,56 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     if (carregandoConversasRef.current) return [];
     carregandoConversasRef.current = true;
     try {
-      const since = incremental && cursorConversasRef.current > 0
-        ? `&since=${cursorConversasRef.current}`
-        : "";
-      const res = await fetch(`${BACKEND_URL}/api/chat/conversas?user_id=${userId}${since}`);
-      if (res.ok) {
-        const payload = await res.json() as ChatConversa[] | { items: ChatConversa[]; cursor: number };
-        const data = Array.isArray(payload) ? payload : payload.items;
-        const nextCursor = Array.isArray(payload)
-          ? Math.max(0, ...data.map((item) => Number(item.timestampUltimaMsg || 0)))
-          : Number(payload.cursor || cursorConversasRef.current);
-        cursorConversasRef.current = Math.max(cursorConversasRef.current, nextCursor);
-        setConversas((current) => {
-          if (Array.isArray(payload)) return data;
-          if (!data.length) return current;
-          const merged = new Map(current.map((item) => [item.id, item]));
-          data.forEach((item) => merged.set(item.id, item));
-          return [...merged.values()].sort(
-            (left, right) => Number(right.timestampUltimaMsg || 0) - Number(left.timestampUltimaMsg || 0),
-          );
-        });
-        return data;
-      }
+      const since = incremental && cursorConversasRef.current > 0 ? cursorConversasRef.current : undefined;
+      const payload = await whatsappApi.conversations(since);
+      const data = Array.isArray(payload) ? payload : payload.items;
+      const nextCursor = Array.isArray(payload)
+        ? Math.max(0, ...data.map((item) => Number(item.timestampUltimaMsg || 0)))
+        : Number(payload.cursor || cursorConversasRef.current);
+      cursorConversasRef.current = Math.max(cursorConversasRef.current, nextCursor);
+      setConversas((current) => {
+        if (Array.isArray(payload)) return data;
+        if (!data.length) return current;
+        const merged = new Map(current.map((item) => [item.id, item]));
+        data.forEach((item) => merged.set(item.id, item));
+        return [...merged.values()].sort(
+          (left, right) => Number(right.timestampUltimaMsg || 0) - Number(left.timestampUltimaMsg || 0),
+        );
+      });
+      return data;
     } catch (err) {
-      console.error(err);
+      mostrarAviso("error", err instanceof Error ? err.message : "Falha ao carregar conversas.");
     } finally {
       carregandoConversasRef.current = false;
     }
     return [];
-  }, [userId]);
+  }, [mostrarAviso, userId]);
+
+  const carregarHistorico = useCallback(async (conversationId: string, older = false) => {
+    if (historicoCarregandoId === conversationId) return;
+    const currentPage = historicoRef.current.get(conversationId);
+    if (older && currentPage?.hasMore === false) return;
+    setHistoricoCarregandoId(conversationId);
+    try {
+      const page = await whatsappApi.history(conversationId, older ? currentPage?.cursor : undefined);
+      setConversas((current) => current.map((conversation) => {
+        if (conversation.id !== conversationId) return conversation;
+        const merged = new Map<string, MsgConteudo>();
+        for (const message of [...conversation.mensagens, ...page.items]) merged.set(message.id, message);
+        return {
+          ...conversation,
+          mensagens: [...merged.values()].sort(
+            (left, right) => Number(left.timestamp || 0) - Number(right.timestamp || 0),
+          ),
+        };
+      }));
+      historicoRef.current.set(conversationId, { cursor: page.cursor, hasMore: page.hasMore });
+    } catch (error) {
+      mostrarAviso("error", error instanceof Error ? error.message : "Falha ao carregar o historico do WhatsApp.");
+    } finally {
+      setHistoricoCarregandoId((current) => current === conversationId ? null : current);
+    }
+  }, [historicoCarregandoId, mostrarAviso]);
 
   useEffect(() => {
     let intervalo: any;
@@ -141,6 +165,16 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   }, [conversaSelecionada, onConversaAtivaChange]);
 
   useEffect(() => {
+    whatsappConectadoRef.current = false;
+    cursorConversasRef.current = 0;
+    historicoRef.current.clear();
+    setConversas([]);
+    setConversaSelecionada(null);
+    setQrCodeString(null);
+    setCanalSelecionadoLogin(null);
+  }, [userId]);
+
+  useEffect(() => {
     const escutarEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setConversaSelecionada(null);
@@ -156,20 +190,19 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
     async function checarAutenticacao() {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/chat/status-canais?user_id=${userId}`, { cache: "no-store" });
-        if (!res.ok) throw new Error("Status do WhatsApp indisponivel.");
-        const data = await res.json();
+        const whatsapp = await whatsappApi.status();
         if (!active) return;
-        const conectado = data.whatsapp?.conectado === true;
+        const conectado = whatsapp.conectado === true;
         const estavaConectado = whatsappConectadoRef.current;
         whatsappConectadoRef.current = conectado;
-        setCanaisStatus(data);
+        setCanaisStatus({ whatsapp });
         if (conectado) {
           if (!estavaConectado) {
             await carregarConversasDoBackend();
           }
         } else {
           cursorConversasRef.current = 0;
+          historicoRef.current.clear();
           setConversas([]);
           setConversaSelecionada(null);
         }
@@ -178,7 +211,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         if (active) {
           whatsappConectadoRef.current = false;
           cursorConversasRef.current = 0;
-          setCanaisStatus({ whatsapp: { conectado: false, qrcode: null } });
+          historicoRef.current.clear();
+          setCanaisStatus({ whatsapp: { conectado: false, qrcode: null, status: "erro" } });
           setConversas([]);
           setConversaSelecionada(null);
         }
@@ -201,11 +235,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
     const atualizarQrCode = async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/chat/status-canais?user_id=${userId}`, { cache: "no-store" });
-        if (!res.ok || !active) return;
-        const data = await res.json();
-        const whatsapp = data.whatsapp || {};
-        setCanaisStatus(data);
+        const whatsapp = await whatsappApi.status();
+        if (!active) return;
+        setErroLogin(null);
+        setCanaisStatus({ whatsapp });
         if (whatsapp.conectado) {
           whatsappConectadoRef.current = true;
           setQrCodeString(null);
@@ -217,6 +250,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         }
         whatsappConectadoRef.current = false;
         cursorConversasRef.current = 0;
+        historicoRef.current.clear();
         setConversas([]);
         setConversaSelecionada(null);
         if (whatsapp.qrcode) {
@@ -226,8 +260,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         } else {
           setMensagemLogin("Preparando uma conexao segura e gerando o QR Code...");
         }
-      } catch {
-        if (active) setMensagemLogin("A API esta iniciando. O QR Code aparecera automaticamente.");
+      } catch (error) {
+        if (active) {
+          setErroLogin(error instanceof Error ? error.message : "API do WhatsApp indisponivel.");
+          setMensagemLogin("Nao foi possivel consultar a sessao. Tente novamente.");
+        }
       }
     };
 
@@ -245,7 +282,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         void carregarConversasDoBackend(true);
       }
     };
-    const intervaloChats = window.setInterval(atualizarSeVisivel, 10_000);
+    const intervaloChats = window.setInterval(atualizarSeVisivel, 30_000);
     document.addEventListener("visibilitychange", atualizarSeVisivel);
     return () => {
       window.clearInterval(intervaloChats);
@@ -253,20 +290,26 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     };
   }, [canalSelecionadoLogin, canaisStatus.whatsapp?.conectado, carregarConversasDoBackend]);
 
+  useEffect(() => {
+    const atualizarEmTempoReal = () => {
+      if (whatsappConectadoRef.current) void carregarConversasDoBackend(true);
+    };
+    window.addEventListener("norium:whatsapp-event", atualizarEmTempoReal);
+    return () => window.removeEventListener("norium:whatsapp-event", atualizarEmTempoReal);
+  }, [carregarConversasDoBackend]);
+
   const abrirAgendaContatos = async () => {
     setModalContatosAberto(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/chat/contatos-disponiveis?user_id=${userId}`);
-      if (res.ok) setListaContatos(await res.json());
-    } catch (err) { console.error(err); }
+      setListaContatos(await whatsappApi.contacts());
+    } catch (err) { mostrarAviso("error", err instanceof Error ? err.message : "Falha ao carregar contatos."); }
   };
 
   const abrirModalGrupo = async () => {
     setModalGrupoAberto(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/chat/contatos-disponiveis?user_id=${userId}`);
-      if (res.ok) setListaContatos(await res.json());
-    } catch (err) { console.error(err); }
+      setListaContatos(await whatsappApi.contacts());
+    } catch (err) { mostrarAviso("error", err instanceof Error ? err.message : "Falha ao carregar contatos."); }
   };
 
   const gerenciarSelecaoContatoGrupo = (id: string) => {
@@ -275,30 +318,38 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     );
   };
 
-  const executarCriacaoGrupo = () => {
+  const executarCriacaoGrupo = async () => {
     if (!nomeNovoGrupo.trim() || contatosSelecionadosGrupo.length === 0) {
       mostrarAviso("error", "Preencha o nome e selecione ao menos um contato.");
       return;
     }
-    mostrarAviso("success", `Grupo "${nomeNovoGrupo}" criado.`);
-    setModalGrupoAberto(false);
-    setNomeNovoGrupo("");
-    setContatosSelecionadosGrupo([]);
+    try {
+      await whatsappApi.createGroup(nomeNovoGrupo.trim(), contatosSelecionadosGrupo);
+      mostrarAviso("success", `Grupo "${nomeNovoGrupo}" criado no WhatsApp.`);
+      setModalGrupoAberto(false);
+      setNomeNovoGrupo("");
+      setContatosSelecionadosGrupo([]);
+      await carregarConversasDoBackend();
+    } catch (error) {
+      mostrarAviso("error", error instanceof Error ? error.message : "Nao foi possivel criar o grupo.");
+    }
   };
 
   const selecionarConversa = async (id: string) => {
     setConversaSelecionada(id);
     setPainelPerfilAberto(false);
     setMobileSidebarOpen(false);
+    void carregarHistorico(id);
     try {
-      await fetch(`${BACKEND_URL}/api/chat/modificar`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, conversa_id: id, acao: "lida", valor: true })
-      });
+      await whatsappApi.markConversation(id, "lida", true);
       carregarConversasDoBackend();
-    } catch (e) { console.error(e); }
+    } catch (error) { mostrarAviso("error", error instanceof Error ? error.message : "Falha ao marcar conversa como lida."); }
   };
+
+  const carregarMensagensAntigas = useCallback(async () => {
+    if (!conversaSelecionada) return;
+    await carregarHistorico(conversaSelecionada, true);
+  }, [carregarHistorico, conversaSelecionada]);
 
   const arquivoParaDataUrl = (arquivo: Blob): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -317,24 +368,13 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     }
 
     const dataUrl = await arquivoParaDataUrl(arquivo);
-    const res = await fetch(`${BACKEND_URL}/api/chat/enviar-arquivo`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: userId,
-        conversa_id: conversaSelecionada,
-        canal: conversaAtiva?.canal ?? "whatsapp",
-        nome_arquivo: nomeArquivo,
-        mime_type: mimeType || arquivo.type || "application/octet-stream",
-        data_url: dataUrl,
-        legenda,
-      }),
+    await whatsappApi.sendMedia({
+      conversationId: conversaSelecionada,
+      fileName: nomeArquivo,
+      mimeType: mimeType || arquivo.type || "application/octet-stream",
+      dataUrl,
+      caption: legenda,
     });
-
-    if (!res.ok) {
-      const erro = await res.json().catch(() => null);
-      throw new Error(erro?.detail || "Falha ao enviar arquivo.");
-    }
   };
 
   const classificarArquivo = (mimeType: string, nomeArquivo: string): AnexoPendente["tipo"] => {
@@ -358,7 +398,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
       const mimeType = item.mimeType || item.arquivo.type || "application/octet-stream";
       novos.push({
-        id: `anexo-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        id: `anexo-${crypto.randomUUID()}`,
         arquivo: item.arquivo,
         nomeArquivo: item.nomeArquivo,
         mimeType,
@@ -400,15 +440,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     const anexosEnviados = new Set<string>();
     try {
       if (textoLimpo) {
-        const res = await fetch(`${BACKEND_URL}/api/chat/enviar`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: userId, conversa_id: conversaSelecionada, canal: conversaAtiva?.canal ?? "whatsapp", texto: textoLimpo })
-        });
-        if (!res.ok) {
-          const erro = await res.json().catch(() => null);
-          throw new Error(erro?.detail || "Falha ao enviar mensagem.");
-        }
+        await whatsappApi.sendText(conversaSelecionada, textoLimpo);
       }
 
       for (const anexo of anexosParaEnviar) {
@@ -544,25 +576,17 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     if (!conversaSelecionada) return;
     for (const msgId of mensagensIds) {
       try {
-        await fetch(`${BACKEND_URL}/api/chat/apagar-mensagem`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: userId, conversa_id: conversaSelecionada, mensagem_id: msgId })
-        });
-      } catch (err) { console.error(err); }
+        await whatsappApi.deleteMessage(conversaSelecionada, msgId);
+      } catch (err) { mostrarAviso("error", err instanceof Error ? err.message : "Falha ao apagar mensagem."); }
     }
     carregarConversasDoBackend();
   };
 
-  const handleAcaoChat = async (id: string, acao: string, valor: any) => {
+  const handleAcaoChat = async (id: string, acao: "lida" | "fixada" | "silenciada" | "arquivada", valor: boolean) => {
     try {
-      await fetch(`${BACKEND_URL}/api/chat/modificar`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, conversa_id: id, acao, valor })
-      });
+      await whatsappApi.markConversation(id, acao, valor);
       carregarConversasDoBackend();
-    } catch (err) { console.error(err); }
+    } catch (err) { mostrarAviso("error", err instanceof Error ? err.message : "Falha ao atualizar conversa."); }
   };
 
   const handleIniciarLogin = async (canal: "whatsapp") => {
@@ -571,34 +595,19 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     setErroLogin(null);
     setMensagemLogin(null);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/chat/inicializar-login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, canal })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.qrcode) setQrCodeString(data.qrcode);
-        if (canal === "whatsapp") {
-          setMensagemLogin(
-            data.status === "conectado"
-              ? "WhatsApp conectado com sucesso."
-              : data.qrcode
-                ? "Escaneie o QR Code com o WhatsApp do celular."
-                : "Preparando uma conexao segura e gerando o QR Code..."
-          );
-        }
-      } else {
-        setErroLogin((await res.json()).detail || "A API do WhatsApp nao respondeu.");
+      const data = await whatsappApi.start();
+      if (data.qrcode) setQrCodeString(data.qrcode);
+      if (canal === "whatsapp") {
+        setMensagemLogin(
+          data.status === "conectado"
+            ? "WhatsApp conectado com sucesso."
+            : data.qrcode
+              ? "Escaneie o QR Code com o WhatsApp do celular."
+              : "Preparando uma conexao segura e gerando o QR Code..."
+        );
       }
-    } catch { setErroLogin("Erro de conexão."); }
+    } catch (error) { setErroLogin(error instanceof Error ? error.message : "Erro de conexao."); }
   };
-
-  const mostrarAviso = useCallback((tone: "error" | "info" | "success", texto: string) => {
-    if (avisoTimeoutRef.current) window.clearTimeout(avisoTimeoutRef.current);
-    setAviso({ tone, texto });
-    avisoTimeoutRef.current = window.setTimeout(() => setAviso(null), 5000);
-  }, []);
 
   const handleExcluirChat = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -610,15 +619,36 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     if (!id) return;
     setExcluindoConversa(true);
     try {
-      await fetch(`${BACKEND_URL}/api/chat/conversas/${encodeURIComponent(id)}?user_id=${userId}`, {
-        method: "DELETE"
-      });
-    } catch (err) { console.error(err); }
-    finally {
+      await whatsappApi.deleteConversation(id);
       setConversas((prev) => prev.filter(c => c.id !== id));
+      historicoRef.current.delete(id);
       if (conversaSelecionada === id) setConversaSelecionada(null);
-      setExcluindoConversa(false);
       setConversaParaExcluir(null);
+    } catch (err) {
+      mostrarAviso("error", err instanceof Error ? err.message : "Falha ao excluir conversa.");
+    } finally {
+      setExcluindoConversa(false);
+    }
+  };
+
+  const confirmarDesconexao = async () => {
+    setDesconectando(true);
+    try {
+      await whatsappApi.disconnect();
+      whatsappConectadoRef.current = false;
+      cursorConversasRef.current = 0;
+      historicoRef.current.clear();
+      setConversas([]);
+      setConversaSelecionada(null);
+      setQrCodeString(null);
+      setCanaisStatus({ whatsapp: { conectado: false, qrcode: null, status: "desconectado" } });
+      setConfirmarDesconexaoAberta(false);
+      setModalConfigAberto(false);
+      mostrarAviso("success", "WhatsApp desconectado deste usuario.");
+    } catch (error) {
+      mostrarAviso("error", error instanceof Error ? error.message : "Nao foi possivel desconectar o WhatsApp.");
+    } finally {
+      setDesconectando(false);
     }
   };
 
@@ -633,26 +663,16 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     if (!destinoEncaminhar || !conversaAtiva) return;
     const destino = conversas.find((c) => c.id === destinoEncaminhar);
     if (!destino) return;
-    const textos = conversaAtiva.mensagens
-      .filter((m) => mensagensParaEncaminhar.includes(m.id) && m.texto?.trim())
-      .map((m) => m.texto as string);
-    if (textos.length === 0) {
-      mostrarAviso("error", "As mensagens selecionadas nao tem texto para encaminhar.");
+    if (mensagensParaEncaminhar.length === 0) {
+      mostrarAviso("error", "Selecione ao menos uma mensagem para encaminhar.");
       setModalEncaminharAberto(false);
       return;
     }
     setEncaminhando(true);
     try {
-      for (const texto of textos) {
-        const res = await fetch(`${BACKEND_URL}/api/chat/enviar`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: userId, conversa_id: destino.id, canal: destino.canal, texto }),
-        });
-        if (!res.ok) throw new Error("Falha ao encaminhar para " + destino.contato);
-      }
+      await whatsappApi.forwardMessages(destino.id, mensagensParaEncaminhar);
       await carregarConversasDoBackend();
-      mostrarAviso("success", `${textos.length} mensagem(ns) encaminhada(s) para ${destino.contato}.`);
+      mostrarAviso("success", `${mensagensParaEncaminhar.length} mensagem(ns) encaminhada(s) para ${destino.contato}.`);
     } catch (err) {
       mostrarAviso("error", err instanceof Error ? err.message : "Nao foi possivel encaminhar.");
     } finally {
@@ -664,6 +684,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   };
 
   const conversaAtiva = conversas.find(c => c.id === conversaSelecionada);
+  const paginaHistoricoAtiva = conversaSelecionada ? historicoRef.current.get(conversaSelecionada) : undefined;
   const nenhumConectado = !canaisStatus.whatsapp?.conectado;
 
   if (loadingStatus) return <div className="w-full h-full flex items-center justify-center text-xs font-semibold opacity-50 text-[var(--text)]">Sincronizando...</div>;
@@ -673,6 +694,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       <div className="w-full h-full flex flex-col items-center justify-center bg-[var(--background)] p-6 font-sans">
         <div className="w-[400px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-6 text-center text-xs font-bold shadow-2xl">
           <h3 className="text-sm font-extrabold tracking-tight mb-4 text-[var(--text)]">Painel de Acesso Unificado</h3>
+          {canaisStatus.whatsapp?.detail && (
+            <p className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-left font-semibold leading-5 text-red-400">
+              {canaisStatus.whatsapp.detail}
+            </p>
+          )}
           <div className="space-y-3">
             <button onClick={() => handleIniciarLogin("whatsapp")} className="w-full h-12 bg-emerald-600 text-white rounded-xl shadow-md">Conectar WhatsApp</button>
           </div>
@@ -701,6 +727,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
             )}
           </div>
           <p className="min-h-10 text-[var(--text-secondary)] leading-5">{mensagemLogin}</p>
+          {erroLogin && (
+            <Button onClick={() => void handleIniciarLogin("whatsapp")} className="w-full" variant="primary">
+              Tentar novamente
+            </Button>
+          )}
           <Button onClick={() => setCanalSelecionadoLogin(null)} className="w-full">
             {canaisStatus.whatsapp?.conectado ? "Abrir conversas" : "Voltar"}
           </Button>
@@ -757,6 +788,9 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         onLimparAnexos={limparAnexosPendentes}
         onApagarMensagensEmMassa={handleApagarMensagensMassa}
         onEncaminharMensagens={handleAbrirEncaminhar}
+        onCarregarMensagensAntigas={carregarMensagensAntigas}
+        temMaisMensagens={paginaHistoricoAtiva?.hasMore ?? true}
+        carregandoMensagens={historicoCarregandoId === conversaSelecionada}
       />
 
       {aviso && (
@@ -776,6 +810,18 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           busy={excluindoConversa}
           onConfirm={confirmarExclusaoChat}
           onCancel={() => setConversaParaExcluir(null)}
+        />
+      )}
+
+      {confirmarDesconexaoAberta && (
+        <ConfirmDialog
+          title="Desconectar WhatsApp?"
+          description="A sessao e o historico local deste usuario serao removidos. Nenhum outro usuario sera afetado."
+          confirmLabel="Desconectar"
+          danger
+          busy={desconectando}
+          onConfirm={confirmarDesconexao}
+          onCancel={() => setConfirmarDesconexaoAberta(false)}
         />
       )}
 
@@ -900,22 +946,20 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
                 <input type="text" readOnly value={BACKEND_URL} className="w-full h-10 border border-[var(--border)] bg-[var(--background)] px-3 rounded-xl outline-none font-semibold text-xs text-[var(--text)] opacity-70"/>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="opacity-60 block text-xs uppercase tracking-wider">ID Global do Usuário (Session ID)</label>
-                <input type="text" readOnly value={userId} className="w-full h-10 border border-[var(--border)] bg-[var(--background)] px-3 rounded-xl outline-none font-semibold text-xs text-[var(--text)] opacity-70"/>
-              </div>
-
               <div className="bg-[var(--background)] border border-[var(--border)] p-3 rounded-xl space-y-1.5">
                 <p className="text-emerald-500 font-bold text-xs uppercase tracking-wide">Status do Gateway</p>
                 <div className="flex justify-between font-medium text-xs opacity-80">
-                  <span>Servidor Backend:</span>
-                  <span className="text-emerald-400 font-bold">Online (127.0.0.1)</span>
+                  <span>WhatsApp:</span>
+                  <span className="text-emerald-400 font-bold">
+                    {canaisStatus.whatsapp?.conectado ? `Conectado${canaisStatus.whatsapp.numero ? ` (${canaisStatus.whatsapp.numero})` : ""}` : "Desconectado"}
+                  </span>
                 </div>
               </div>
             </div>
 
             <div className="p-4 bg-[var(--background)] border-t border-[var(--border)] flex gap-2">
-              <button onClick={() => setModalConfigAberto(false)} className="w-full h-11 bg-[var(--primary)] text-white rounded-xl shadow-md font-bold text-xs hover:opacity-90">Fechar</button>
+              <Button variant="danger" className="flex-1" onClick={() => setConfirmarDesconexaoAberta(true)}>Desconectar WhatsApp</Button>
+              <Button className="flex-1" onClick={() => setModalConfigAberto(false)}>Fechar</Button>
             </div>
           </div>
         </div>

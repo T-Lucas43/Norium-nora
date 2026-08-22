@@ -51,7 +51,6 @@ logger = logging.getLogger(__name__)
 whatsapp_service = WhatsAppService()
 
 status_conexoes: Dict[str, Dict[str, Dict[str, Any]]] = {}
-WHATSAPP_OWNER_USER_ID = os.getenv("WHATSAPP_OWNER_USER_ID", "").strip()
 WHATSAPP_WEBHOOK_SECRET = os.getenv("WHATSAPP_WEBHOOK_SECRET", "").strip()
 WHATSAPP_WEBHOOK_HMAC_SECRET = os.getenv("WHATSAPP_WEBHOOK_HMAC_SECRET", "").strip()
 WHATSAPP_MEDIA_HOSTS = {
@@ -67,19 +66,19 @@ MAX_UPLOAD_BYTES = 14 * 1024 * 1024
 
 
 class InicializarLoginPayload(StrictModel):
-    user_id: str = Field(min_length=1)
+    user_id: str | None = Field(default=None, min_length=1)
     canal: Literal["whatsapp"]
 
 
 class EnviarMensagemPayload(StrictModel):
-    user_id: str = Field(min_length=1)
+    user_id: str | None = Field(default=None, min_length=1)
     conversa_id: str = Field(min_length=1)
     canal: Literal["whatsapp"] = "whatsapp"
     texto: str = Field(min_length=1)
 
 
 class EnviarArquivoPayload(StrictModel):
-    user_id: str = Field(min_length=1)
+    user_id: str | None = Field(default=None, min_length=1)
     conversa_id: str = Field(min_length=1)
     canal: Literal["whatsapp"] = "whatsapp"
     nome_arquivo: str = Field(min_length=1)
@@ -89,20 +88,34 @@ class EnviarArquivoPayload(StrictModel):
 
 
 class ModificarChatPayload(StrictModel):
-    user_id: str = Field(min_length=1)
+    user_id: str | None = Field(default=None, min_length=1)
     conversa_id: str = Field(min_length=1)
     acao: Literal["lida", "fixada", "silenciada", "arquivada"]
     valor: bool
 
 
 class ApagarMensagemPayload(StrictModel):
-    user_id: str = Field(min_length=1)
+    user_id: str | None = Field(default=None, min_length=1)
     conversa_id: str = Field(min_length=1)
     mensagem_id: str = Field(min_length=1)
+    para_todos: bool = False
+
+
+class CriarGrupoPayload(StrictModel):
+    nome: str = Field(min_length=1, max_length=100)
+    participantes: list[str] = Field(min_length=1, max_length=256)
+
+
+class EncaminharMensagensPayload(StrictModel):
+    destino_id: str = Field(min_length=1)
+    mensagens_ids: list[str] = Field(min_length=1, max_length=100)
 
 
 def tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("id") or "lucas123")
+    resolved = str(user.get("id") or "").strip()
+    if not resolved:
+        raise HTTPException(status_code=401, detail="Identidade autenticada invalida.")
+    return resolved
 
 
 def connection_status(user_id: str) -> Dict[str, Dict[str, Any]]:
@@ -112,11 +125,6 @@ def connection_status(user_id: str) -> Dict[str, Dict[str, Any]]:
             "whatsapp": {"conectado": False, "qrcode": None},
         },
     )
-
-
-def assert_whatsapp_owner(user: dict[str, Any]) -> None:
-    if tenant_id(user) != WHATSAPP_OWNER_USER_ID:
-        raise HTTPException(status_code=403, detail="WhatsApp vinculado a outra conta do Norium.")
 
 
 def assert_channel_permission(user: dict[str, Any], channel: str) -> None:
@@ -138,18 +146,16 @@ async def obter_foto_perfil(
     phone: str = Query(..., description="ID ou numero do contato/grupo"),
     user: dict[str, Any] = Depends(current_user),
 ):
-    if tenant_id(user) != WHATSAPP_OWNER_USER_ID:
-        raise HTTPException(status_code=403, detail="Midia do WhatsApp nao pertence a este usuario.")
-    return {"photoUrl": await fetch_profile_picture(phone)}
+    assert_channel_permission(user, "whatsapp")
+    return {"photoUrl": await fetch_profile_picture(tenant_id(user), phone)}
 
 
 @router.get("/api/chat/media-proxy")
 async def media_proxy(
-    url: str = Query(..., description="URL original do arquivo vinda da Z-API"),
+    url: str = Query(..., description="URL original da midia do WhatsApp"),
     user: dict[str, Any] = Depends(current_user),
 ):
-    if tenant_id(user) != WHATSAPP_OWNER_USER_ID:
-        raise HTTPException(status_code=403, detail="Midia do WhatsApp nao pertence a este usuario.")
+    assert_channel_permission(user, "whatsapp")
     parsed = urlparse(url)
     base = urlparse(whatsapp_service.base_url)
     allowed_hosts = {base.hostname or "", *WHATSAPP_MEDIA_HOSTS}
@@ -187,19 +193,32 @@ async def obter_upload_local(file_name: str, user: dict[str, Any] = Depends(curr
 
 
 @router.get("/api/chat/status-canais")
-async def obter_status_canais(user_id: str, user: dict[str, Any] = Depends(current_user)):
+async def obter_status_canais(
+    user_id: str | None = Query(default=None, deprecated=True),
+    user: dict[str, Any] = Depends(current_user),
+):
     resolved_user_id = tenant_id(user)
+    assert_channel_permission(user, "whatsapp")
     user_status = connection_status(resolved_user_id)
     user_status["whatsapp"] = {"conectado": False, "qrcode": None}
     try:
-        if resolved_user_id != WHATSAPP_OWNER_USER_ID:
-            user_status["whatsapp"] = {"conectado": False, "qrcode": None, "disponivel": False, "restrito": True}
-        else:
-            resultado = await whatsapp_service.inicializar_instancia(resolved_user_id)
-            user_status["whatsapp"]["conectado"] = resultado["status"] == "conectado"
-            user_status["whatsapp"]["qrcode"] = None if resultado["status"] == "conectado" else resultado.get("qrcode")
+        resultado = await whatsapp_service.consultar_instancia(resolved_user_id)
+        user_status["whatsapp"] = {
+            "conectado": resultado["status"] == "conectado",
+            "qrcode": None if resultado["status"] == "conectado" else resultado.get("qrcode"),
+            "status": resultado.get("status"),
+            "state": resultado.get("state"),
+            "detail": resultado.get("detail"),
+            "numero": resultado.get("numero"),
+            "conectadoEm": resultado.get("conectadoEm"),
+        }
     except Exception:
-        user_status["whatsapp"] = {"conectado": False, "qrcode": None, "disponivel": False}
+        user_status["whatsapp"] = {
+            "conectado": False,
+            "qrcode": None,
+            "status": "indisponivel",
+            "disponivel": False,
+        }
         logger.exception("Falha ao sincronizar status WhatsApp.")
     return user_status
 
@@ -209,8 +228,6 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, payload.canal)
     user_status = connection_status(resolved_user_id)
-    if resolved_user_id != WHATSAPP_OWNER_USER_ID:
-        raise HTTPException(status_code=403, detail="WhatsApp vinculado a outra conta do Norium.")
     resultado = await whatsapp_service.inicializar_instancia(resolved_user_id)
     if resultado["status"] == "conectado":
         user_status["whatsapp"]["conectado"] = True
@@ -222,6 +239,17 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
         user_status["whatsapp"]["conectado"] = False
         return {"status": "iniciando", "qrcode": None}
     raise HTTPException(status_code=503, detail="API do WhatsApp ainda nao esta disponivel.")
+
+
+@router.post("/api/chat/desconectar")
+async def desconectar_whatsapp(user: dict[str, Any] = Depends(current_user)):
+    assert_channel_permission(user, "whatsapp")
+    resolved_user_id = tenant_id(user)
+    if not await whatsapp_service.desconectar_instancia(resolved_user_id):
+        raise HTTPException(status_code=502, detail="Nao foi possivel desconectar a sessao do WhatsApp.")
+    await save_conversations({}, resolved_user_id)
+    status_conexoes.pop(resolved_user_id, None)
+    return {"status": "desconectado"}
 
 
 @router.post("/api/whatsapp/webhook")
@@ -260,33 +288,47 @@ async def webhook_whatsapp(
         expired_ids = [event_id for event_id, expires_at in whatsapp_webhook_event_cache.items() if expires_at <= now]
         for event_id in expired_ids:
             whatsapp_webhook_event_cache.pop(event_id, None)
-        if x_norium_event_id:
-            if x_norium_event_id in whatsapp_webhook_event_cache:
+        event_id = x_norium_event_id or str(data.get("eventId") or "")
+        if event_id:
+            if event_id in whatsapp_webhook_event_cache:
                 return {"status": "duplicate"}
-            whatsapp_webhook_event_cache[x_norium_event_id] = now + 600
-    phone = data.get("phone") or data.get("chatId") or data.get("from")
-    if not phone:
-        return {"status": "ignored"}
+            whatsapp_webhook_event_cache[event_id] = now + 600
 
     try:
+        webhook_user_id = str(data.get("userId") or "").strip()
+        webhook_session_id = str(data.get("sessionId") or "").strip()
+        event_name = str(data.get("event") or "").strip()
+        payload = data.get("data")
+        if not webhook_user_id or not webhook_session_id or not isinstance(payload, dict):
+            raise HTTPException(status_code=403, detail="Webhook sem contexto privado de sessao.")
+        expected_session_id = whatsapp_service.session_id_for(webhook_user_id)
+        if not secrets.compare_digest(webhook_session_id, expected_session_id):
+            raise HTTPException(status_code=403, detail="Webhook tentou acessar uma sessao de outro usuario.")
+        if event_name not in {"message", "any-message"}:
+            return {"status": "ignored", "event": event_name}
+        data = payload
+        phone = data.get("phone") or data.get("chatId") or data.get("from")
+        if not phone:
+            return {"status": "ignored"}
         phone = str(phone)
         is_group = is_group_chat(phone, data)
         sender_name = str(data.get("senderName") or data.get("pushName") or data.get("name") or phone)
         chat_name = str(data.get("chatName") or data.get("name") or sender_name)
         is_from_me = bool(data.get("fromMe", False))
         hora_formatada, current_ts = current_clock()
+        try:
+            message_timestamp = int(data.get("timestamp") or current_ts)
+        except (TypeError, ValueError):
+            message_timestamp = current_ts
+        hora_formatada = datetime.fromtimestamp(message_timestamp).strftime("%H:%M")
 
-        message_id = str(data.get("zaid") or data.get("messageId") or data.get("id") or f"msg_{current_ts}")
+        message_id = str(data.get("zaid") or data.get("messageId") or data.get("id") or f"msg_{message_timestamp}")
 
-        requested_user_id = str(data.get("userId") or data.get("user_id") or "").strip()
-        if requested_user_id and requested_user_id != WHATSAPP_OWNER_USER_ID:
-            raise HTTPException(status_code=403, detail="Webhook tentou atribuir dados a outro usuario.")
-        webhook_user_id = WHATSAPP_OWNER_USER_ID
         user_store = await read_user_store()
         webhook_user = find_user(user_store, webhook_user_id)
         if not webhook_user or webhook_user.get("status") != "ativo":
             return {"status": "ignored", "detail": "Usuario de destino inexistente ou inativo."}
-        message_payload = extract_message_payload(data)
+        message_payload = extract_message_payload(data, message_id)
         db = await load_conversations(webhook_user_id)
         conversa = db.get(phone) or new_conversation(
             phone,
@@ -302,7 +344,7 @@ async def webhook_whatsapp(
         conversa["esGrupo"] = is_group
         conversa["ultimoTexto"] = message_payload["texto"]
         conversa["horario"] = hora_formatada
-        conversa["timestampUltimaMsg"] = current_ts
+        conversa["timestampUltimaMsg"] = message_timestamp
 
         if is_from_me:
             conversa["lida"] = True
@@ -315,7 +357,10 @@ async def webhook_whatsapp(
             conversa.setdefault("metadados", {})["photoUrl"] = photo_url
             conversa["photoUrl"] = photo_url
 
-        conversa.setdefault("mensagens", []).append(
+        mensagens_existentes = conversa.setdefault("mensagens", [])
+        if any(str(item.get("id") or "") == message_id for item in mensagens_existentes):
+            return {"status": "duplicate"}
+        mensagens_existentes.append(
             normalize_message(
                 {
                     "id": message_id,
@@ -328,7 +373,7 @@ async def webhook_whatsapp(
                     "nomeArquivo": message_payload.get("nomeArquivo"),
                     "duracaoAudio": message_payload.get("duracaoAudio"),
                     "horario": hora_formatada,
-                    "timestamp": current_ts,
+                    "timestamp": message_timestamp,
                     "status": "enviado" if is_from_me else None,
                     "canal": "whatsapp",
                     "channel": "whatsapp",
@@ -363,15 +408,14 @@ async def webhook_whatsapp(
 
 @router.get("/api/chat/conversas")
 async def obter_conversas(
-    user_id: str,
+    user_id: str | None = Query(default=None, deprecated=True),
     since: int | None = Query(default=None, ge=0),
     limit: int = Query(default=100, ge=1, le=250),
     user: dict[str, Any] = Depends(current_user),
 ):
     resolved_user_id = tenant_id(user)
-    if resolved_user_id != WHATSAPP_OWNER_USER_ID:
-        return {"items": [], "cursor": since or 0, "hasMore": False} if since is not None else []
-    whatsapp_status = await whatsapp_service.inicializar_instancia(resolved_user_id)
+    assert_channel_permission(user, "whatsapp")
+    whatsapp_status = await whatsapp_service.consultar_instancia(resolved_user_id)
     if whatsapp_status["status"] != "conectado":
         return {"items": [], "cursor": since or 0, "hasMore": False} if since is not None else []
     db = await load_conversations(resolved_user_id)
@@ -402,73 +446,76 @@ async def obter_conversas(
     changed = False
 
     try:
-        async with httpx.AsyncClient() as client:
-            res_chats, res_contacts = await asyncio.gather(
-                client.get(f"{whatsapp_service.base_url}/chats", headers=whatsapp_service.headers, timeout=10.0),
-                client.get(f"{whatsapp_service.base_url}/contacts", headers=whatsapp_service.headers, timeout=10.0),
-                return_exceptions=True,
-            )
+        res_chats, res_contacts = await asyncio.gather(
+            whatsapp_service.get(resolved_user_id, "/chats", timeout=25.0),
+            whatsapp_service.get(resolved_user_id, "/contacts", timeout=25.0),
+            return_exceptions=True,
+        )
 
-            contacts = parse_whatsapp_collection(res_contacts) if isinstance(res_contacts, httpx.Response) else []
-            chats = parse_whatsapp_collection(res_chats) if isinstance(res_chats, httpx.Response) else []
+        contacts = parse_whatsapp_collection(res_contacts) if not isinstance(res_contacts, Exception) else []
+        chats = parse_whatsapp_collection(res_chats) if not isinstance(res_chats, Exception) else []
 
-            nomes, fotos, metadata = build_contact_indexes(contacts)
+        nomes, fotos, metadata = build_contact_indexes(contacts)
 
-            missing_photo_count = 0
-            group_metadata_count = 0
-            for chat in chats[:45]:
-                phone = chat.get("phone") or chat.get("id") or chat.get("jid")
-                if not phone:
-                    continue
+        missing_photo_count = 0
+        group_metadata_count = 0
+        for chat in chats[:45]:
+            phone = chat.get("phone") or chat.get("id") or chat.get("jid")
+            if not phone:
+                continue
 
-                phone = str(phone)
-                is_group = is_group_chat(phone, chat)
-                nome_final = nomes.get(phone) or chat.get("name") or chat.get("pushname") or phone
-                meta_extra = metadata.get(phone, {"participantes": [], "descricaoGrupo": ""})
-                existing_photo = db.get(phone, {}).get("metadados", {}).get("photoUrl")
-                pic_url = fotos.get(phone) or extract_photo_url(chat) or existing_photo
+            phone = str(phone)
+            is_group = is_group_chat(phone, chat)
+            nome_final = nomes.get(phone) or chat.get("name") or chat.get("pushname") or phone
+            meta_extra = metadata.get(phone, {"participantes": [], "descricaoGrupo": ""})
+            existing_photo = db.get(phone, {}).get("metadados", {}).get("photoUrl")
+            pic_url = fotos.get(phone) or extract_photo_url(chat) or existing_photo
 
-                if not pic_url and missing_photo_count < 45 and should_try_profile_picture(phone):
-                    missing_photo_count += 1
-                    pic_url = await fetch_profile_picture(phone, client=client)
+            if not pic_url and missing_photo_count < 45 and should_try_profile_picture(resolved_user_id, phone):
+                missing_photo_count += 1
+                pic_url = await fetch_profile_picture(resolved_user_id, phone)
 
-                existing_participants = db.get(phone, {}).get("metadados", {}).get("participantes") or []
-                if is_group and (not meta_extra["participantes"] and not existing_participants) and group_metadata_count < 12:
-                    group_metadata_count += 1
-                    group_metadata = await fetch_group_metadata(phone, client=client)
-                    if group_metadata:
-                        meta_extra["participantes"] = group_metadata.get("participantes", [])
-                        meta_extra["descricaoGrupo"] = group_metadata.get("descricaoGrupo", "")
-                        nome_final = group_metadata.get("nome") or nome_final
-                        pic_url = pic_url or group_metadata.get("photoUrl")
+            existing_participants = db.get(phone, {}).get("metadados", {}).get("participantes") or []
+            if is_group and (not meta_extra["participantes"] and not existing_participants) and group_metadata_count < 12:
+                group_metadata_count += 1
+                group_metadata = await fetch_group_metadata(resolved_user_id, phone)
+                if group_metadata:
+                    meta_extra["participantes"] = group_metadata.get("participantes", [])
+                    meta_extra["descricaoGrupo"] = group_metadata.get("descricaoGrupo", "")
+                    nome_final = group_metadata.get("nome") or nome_final
+                    pic_url = pic_url or group_metadata.get("photoUrl")
 
-                if phone not in db:
-                    db[phone] = new_conversation(
-                        phone,
-                        contato=str(nome_final),
-                        channel="whatsapp",
-                        is_group=is_group,
-                        photo_url=pic_url,
-                        participantes=meta_extra["participantes"],
-                        descricao_grupo=meta_extra["descricaoGrupo"],
-                    )
-                    changed = True
-                else:
-                    conversa = db[phone]
-                    conversa["contato"] = str(nome_final)
-                    conversa["canal"] = "whatsapp"
-                    conversa["channel"] = "whatsapp"
-                    conversa["esGrupo"] = is_group
-                    conversa.setdefault("metadados", {})
-                    if pic_url:
-                        conversa["metadados"]["photoUrl"] = pic_url
-                        conversa["photoUrl"] = pic_url
-                    if meta_extra["participantes"]:
-                        conversa["metadados"]["participantes"] = meta_extra["participantes"]
-                    if meta_extra["descricaoGrupo"]:
-                        conversa["metadados"]["descricaoGrupo"] = meta_extra["descricaoGrupo"]
-                    db[phone] = normalize_conversation(phone, conversa)
-                    changed = True
+            if phone not in db:
+                db[phone] = new_conversation(
+                    phone,
+                    contato=str(nome_final),
+                    channel="whatsapp",
+                    is_group=is_group,
+                    photo_url=pic_url,
+                    participantes=meta_extra["participantes"],
+                    descricao_grupo=meta_extra["descricaoGrupo"],
+                )
+                changed = True
+            else:
+                conversa = db[phone]
+                conversa["contato"] = str(nome_final)
+                conversa["canal"] = "whatsapp"
+                conversa["channel"] = "whatsapp"
+                conversa["esGrupo"] = is_group
+                conversa.setdefault("metadados", {})
+                if pic_url:
+                    conversa["metadados"]["photoUrl"] = pic_url
+                    conversa["photoUrl"] = pic_url
+                if meta_extra["participantes"]:
+                    conversa["metadados"]["participantes"] = meta_extra["participantes"]
+                if meta_extra["descricaoGrupo"]:
+                    conversa["metadados"]["descricaoGrupo"] = meta_extra["descricaoGrupo"]
+                db[phone] = normalize_conversation(phone, conversa)
+                changed = True
+
+            if sync_catalog_messages(db[phone], chat):
+                db[phone] = normalize_conversation(phone, db[phone])
+                changed = True
     except Exception:
         logger.exception("Falha ao sincronizar catalogo WhatsApp.")
 
@@ -483,30 +530,122 @@ async def obter_conversas(
     return lista_ordenada
 
 
-@router.get("/api/chat/contatos-disponiveis")
-async def obter_contatos_disponiveis(user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
+@router.get("/api/chat/conversas/{conversa_id}/mensagens")
+async def obter_historico_conversa(
+    conversa_id: str,
+    before: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+    user: dict[str, Any] = Depends(current_user),
+):
+    assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
-    if resolved_user_id != WHATSAPP_OWNER_USER_ID:
-        return []
+    query = f"?limit={limit}"
+    if before:
+        query += f"&before={before}"
+    payload = await whatsapp_service.get(
+        resolved_user_id,
+        f"/chats/{quote(conversa_id, safe='')}/messages{query}",
+        timeout=25.0,
+    )
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise HTTPException(status_code=502, detail="Falha ao carregar o historico real do WhatsApp.")
+    db = await load_conversations(resolved_user_id)
+    conversation = db.get(conversa_id) or new_conversation(conversa_id, channel="whatsapp")
+    sync_catalog_messages(conversation, {"messages": payload["items"]})
+    db[conversa_id] = normalize_conversation(conversa_id, conversation)
+    await save_conversations(db, resolved_user_id)
+    requested_ids = {
+        str(item.get("id") or "")
+        for item in payload["items"]
+        if isinstance(item, dict)
+    }
+    messages = [
+        item for item in db[conversa_id].get("mensagens", [])
+        if str(item.get("id") or "") in requested_ids
+    ]
+    messages.sort(key=lambda item: int(item.get("timestamp") or 0))
+    return {
+        "items": messages,
+        "cursor": payload.get("cursor"),
+        "hasMore": bool(payload.get("hasMore")),
+    }
+
+
+@router.get("/api/chat/midia/{message_id}")
+async def obter_midia_whatsapp(message_id: str, user: dict[str, Any] = Depends(current_user)):
+    assert_channel_permission(user, "whatsapp")
+    payload = await whatsapp_service.get(
+        tenant_id(user),
+        f"/messages/{quote(message_id, safe='')}/media",
+        timeout=65.0,
+    )
+    data_url = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data_url, str):
+        raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+    file_bytes, mime_type = decode_data_url(data_url, "application/octet-stream")
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
+    if mime_type.split(";", 1)[0].lower() in {"text/html", "image/svg+xml"}:
+        raise HTTPException(status_code=415, detail="Tipo de midia nao permitido.")
+    return Response(
+        content=file_bytes,
+        media_type=mime_type,
+        headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.post("/api/chat/grupos")
+async def criar_grupo(payload: CriarGrupoPayload, user: dict[str, Any] = Depends(current_user)):
+    assert_channel_permission(user, "whatsapp")
+    result = await whatsapp_service.post(
+        tenant_id(user),
+        "/groups",
+        {"name": payload.nome, "participants": payload.participantes},
+        timeout=50.0,
+    )
+    if not isinstance(result, dict):
+        raise HTTPException(status_code=502, detail="A API do WhatsApp nao conseguiu criar o grupo.")
+    return {"status": "criado", "group": result}
+
+
+@router.post("/api/chat/encaminhar")
+async def encaminhar_mensagens(payload: EncaminharMensagensPayload, user: dict[str, Any] = Depends(current_user)):
+    assert_channel_permission(user, "whatsapp")
+    result = await whatsapp_service.post(
+        tenant_id(user),
+        "/messages/forward",
+        {"to": payload.destino_id, "messageIds": payload.mensagens_ids},
+        timeout=50.0,
+    )
+    if not isinstance(result, dict) or result.get("forwarded") is not True:
+        raise HTTPException(status_code=502, detail="A API do WhatsApp nao conseguiu encaminhar as mensagens.")
+    return {"status": "encaminhado"}
+
+
+@router.get("/api/chat/contatos-disponiveis")
+async def obter_contatos_disponiveis(
+    user_id: str | None = Query(default=None, deprecated=True),
+    user: dict[str, Any] = Depends(current_user),
+):
+    resolved_user_id = tenant_id(user)
+    assert_channel_permission(user, "whatsapp")
 
     try:
-        async with httpx.AsyncClient() as client:
-            res = await client.get(f"{whatsapp_service.base_url}/contacts", headers=whatsapp_service.headers, timeout=10.0)
-            contatos = parse_whatsapp_collection(res)
-            contatos_whatsapp = [
-                {
-                    "id": c.get("id") or c.get("phone") or c.get("jid"),
-                    "phone": c.get("phone") or c.get("id") or c.get("jid"),
-                    "name": c.get("name") or c.get("verifiedName") or c.get("pushname"),
-                    "pushname": c.get("pushname"),
-                    "photoUrl": extract_photo_url(c),
-                    "channel": "whatsapp",
-                    "canal": "whatsapp",
-                }
-                for c in contatos
-                if c.get("name") or c.get("phone") or c.get("id")
-            ]
-            return contatos_whatsapp
+        contatos = parse_whatsapp_collection(await whatsapp_service.get(resolved_user_id, "/contacts", timeout=25.0))
+        contatos_whatsapp = [
+            {
+                "id": c.get("id") or c.get("phone") or c.get("jid"),
+                "phone": c.get("phone") or c.get("id") or c.get("jid"),
+                "name": c.get("name") or c.get("verifiedName") or c.get("pushname"),
+                "pushname": c.get("pushname"),
+                "photoUrl": extract_photo_url(c),
+                "channel": "whatsapp",
+                "canal": "whatsapp",
+            }
+            for c in contatos
+            if c.get("name") or c.get("phone") or c.get("id")
+        ]
+        return contatos_whatsapp
     except Exception:
         return []
 
@@ -515,9 +654,8 @@ async def obter_contatos_disponiveis(user_id: str = "lucas123", user: dict[str, 
 async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, payload.canal)
-    assert_whatsapp_owner(user)
-    sucesso = await whatsapp_service.enviar_mensagem_texto(payload.conversa_id, payload.texto)
-    if not sucesso:
+    result = await whatsapp_service.enviar_mensagem_texto(resolved_user_id, payload.conversa_id, payload.texto)
+    if not result or result.get("sent") is not True:
         raise HTTPException(status_code=502, detail="A API do WhatsApp recusou o envio.")
 
     await append_outgoing_message(
@@ -525,6 +663,7 @@ async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] =
         payload.texto,
         channel="whatsapp",
         status="enviado",
+        message_id=str(result.get("messageId") or "") or None,
         user_id=resolved_user_id,
     )
     await record_event(
@@ -551,32 +690,37 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
     extension = file_extension(safe_file_name, mime_type)
     legenda = (payload.legenda or "").strip() or None
 
-    assert_whatsapp_owner(user)
     if media_kind == "audio":
-        sucesso = await whatsapp_service.enviar_audio(payload.conversa_id, payload.data_url)
+        result = await whatsapp_service.enviar_audio(resolved_user_id, payload.conversa_id, payload.data_url)
         tipo = "audio"
         texto = "[Audio]"
     elif media_kind == "image":
-        sucesso = await whatsapp_service.enviar_imagem(payload.conversa_id, payload.data_url, legenda)
+        result = await whatsapp_service.enviar_imagem(resolved_user_id, payload.conversa_id, payload.data_url, legenda)
         tipo = "midia"
         texto = legenda or "[Imagem]"
     elif media_kind == "video":
-        sucesso = await whatsapp_service.enviar_video(payload.conversa_id, payload.data_url, legenda)
+        result = await whatsapp_service.enviar_video(resolved_user_id, payload.conversa_id, payload.data_url, legenda)
         tipo = "midia"
         texto = legenda or "[Video]"
     else:
-        sucesso = await whatsapp_service.enviar_documento(payload.conversa_id, payload.data_url, safe_file_name, extension)
+        result = await whatsapp_service.enviar_documento(
+            resolved_user_id,
+            payload.conversa_id,
+            payload.data_url,
+            safe_file_name,
+            extension,
+        )
         tipo = "documento"
         texto = legenda or "[Documento]"
 
-    if not sucesso:
+    if not result or result.get("sent") is not True:
         raise HTTPException(status_code=502, detail="A API do WhatsApp recusou o envio do arquivo.")
 
     hora, timestamp = current_clock()
     await append_message(
         payload.conversa_id,
         {
-            "id": f"file_out_{timestamp}_{uuid.uuid4().hex[:8]}",
+            "id": str(result.get("messageId") or "") or f"file_out_{timestamp}_{uuid.uuid4().hex[:8]}",
             "remetente": "usuario",
             "texto": texto,
             "tipo": tipo,
@@ -616,15 +760,37 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
 
 @router.post("/api/chat/apagar-mensagem")
 async def apagar_mensagem(payload: ApagarMensagemPayload, user: dict[str, Any] = Depends(current_user)):
-    sucesso = await delete_message(payload.conversa_id, payload.mensagem_id, tenant_id(user))
+    assert_channel_permission(user, "whatsapp")
+    resolved_user_id = tenant_id(user)
+    result = await whatsapp_service.delete(
+        resolved_user_id,
+        f"/messages/{quote(payload.mensagem_id, safe='')}",
+        {"chatId": payload.conversa_id, "onlyLocal": not payload.para_todos},
+        timeout=35.0,
+    )
+    if not isinstance(result, dict) or result.get("deleted") is not True:
+        raise HTTPException(status_code=502, detail="O WhatsApp recusou a exclusao da mensagem.")
+    sucesso = await delete_message(payload.conversa_id, payload.mensagem_id, resolved_user_id)
     if sucesso:
         return {"status": "sucesso"}
     raise HTTPException(status_code=404, detail="Mensagem ou conversa nao encontrada.")
 
 
 @router.delete("/api/chat/conversas/{conversa_id}")
-async def excluir_conversa(conversa_id: str, user_id: str, user: dict[str, Any] = Depends(current_user)):
+async def excluir_conversa(
+    conversa_id: str,
+    user_id: str | None = Query(default=None, deprecated=True),
+    user: dict[str, Any] = Depends(current_user),
+):
+    assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
+    result = await whatsapp_service.delete(
+        resolved_user_id,
+        f"/chats/{quote(conversa_id, safe='')}",
+        timeout=35.0,
+    )
+    if not isinstance(result, dict) or result.get("deleted") is not True:
+        raise HTTPException(status_code=502, detail="O WhatsApp recusou a exclusao da conversa.")
     sucesso = await delete_conversation(conversa_id, resolved_user_id)
     if sucesso:
         return {"status": "sucesso", "user_id": resolved_user_id}
@@ -633,7 +799,16 @@ async def excluir_conversa(conversa_id: str, user_id: str, user: dict[str, Any] 
 
 @router.patch("/api/chat/modificar")
 async def modificar_chat(payload: ModificarChatPayload, user: dict[str, Any] = Depends(current_user)):
-    sucesso = await modify_conversation(payload.conversa_id, payload.acao, payload.valor, tenant_id(user))
+    assert_channel_permission(user, "whatsapp")
+    resolved_user_id = tenant_id(user)
+    if payload.acao == "lida" and payload.valor is True:
+        await whatsapp_service.post(
+            resolved_user_id,
+            f"/chats/{quote(payload.conversa_id, safe='')}/read",
+            {},
+            timeout=20.0,
+        )
+    sucesso = await modify_conversation(payload.conversa_id, payload.acao, payload.valor, resolved_user_id)
     return {"status": "sucesso" if sucesso else "not_found"}
 
 
@@ -717,10 +892,7 @@ def is_group_chat(phone: str, data: Dict[str, Any] | None = None) -> bool:
     return explicit or "@g.us" in lowered or lowered.endswith("-group")
 
 
-def parse_whatsapp_collection(response: httpx.Response) -> list[Dict[str, Any]]:
-    if response.status_code != 200:
-        return []
-    payload = response.json()
+def parse_whatsapp_collection(payload: Any) -> list[Dict[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
     if isinstance(payload, dict):
@@ -729,6 +901,92 @@ def parse_whatsapp_collection(response: httpx.Response) -> list[Dict[str, Any]]:
             if isinstance(value, list):
                 return [item for item in value if isinstance(item, dict)]
     return []
+
+
+def normalize_whatsapp_timestamp(value: Any) -> int:
+    try:
+        timestamp = int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+    return timestamp // 1000 if timestamp > 10_000_000_000 else timestamp
+
+
+def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) -> bool:
+    changed = False
+    existing_messages = conversation.setdefault("mensagens", [])
+    existing_ids = {str(item.get("id") or "") for item in existing_messages if isinstance(item, dict)}
+    raw_messages = chat.get("messages") if isinstance(chat.get("messages"), list) else []
+    type_map = {
+        "audio": "audio",
+        "ptt": "audio",
+        "image": "midia",
+        "video": "midia",
+        "document": "documento",
+        "sticker": "sticker",
+    }
+    labels = {
+        "audio": "[Audio]",
+        "ptt": "[Audio]",
+        "image": "[Imagem]",
+        "video": "[Video]",
+        "document": "[Documento]",
+        "sticker": "[Figurinha]",
+    }
+    for raw_message in sorted(
+        (item for item in raw_messages if isinstance(item, dict)),
+        key=lambda item: normalize_whatsapp_timestamp(item.get("timestamp")),
+    ):
+        timestamp = normalize_whatsapp_timestamp(raw_message.get("timestamp"))
+        message_id = str(raw_message.get("id") or "").strip()
+        if not message_id or not timestamp or message_id in existing_ids:
+            continue
+        raw_type = str(raw_message.get("type") or "chat").lower()
+        content = str(raw_message.get("content") or labels.get(raw_type) or "")
+        existing_messages.append(
+            normalize_message(
+                {
+                    "id": message_id,
+                    "remetente": "usuario" if raw_message.get("fromMe") else "contato",
+                    "remetenteNome": raw_message.get("senderName"),
+                    "texto": content,
+                    "tipo": type_map.get(raw_type, "texto"),
+                    "arquivoUrl": whatsapp_media_url(message_id) if raw_type in type_map and raw_type != "chat" else None,
+                    "arquivoMime": raw_message.get("mimetype"),
+                    "nomeArquivo": raw_message.get("filename") or default_file_name(type_map.get(raw_type, "texto"), raw_message.get("mimetype")),
+                    "duracaoAudio": raw_message.get("duration"),
+                    "horario": datetime.fromtimestamp(timestamp).strftime("%H:%M"),
+                    "timestamp": timestamp,
+                    "status": "enviado" if raw_message.get("fromMe") else None,
+                    "canal": "whatsapp",
+                    "channel": "whatsapp",
+                },
+                "whatsapp",
+            )
+        )
+        existing_ids.add(message_id)
+        changed = True
+
+    existing_messages.sort(key=lambda item: int(item.get("timestamp") or 0))
+    conversation["mensagens"] = existing_messages[-250:]
+    latest_timestamp = normalize_whatsapp_timestamp(chat.get("timestamp"))
+    latest_text = str(chat.get("lastMessage") or "")
+    if conversation["mensagens"]:
+        latest_message = conversation["mensagens"][-1]
+        latest_timestamp = max(latest_timestamp, int(latest_message.get("timestamp") or 0))
+        latest_text = str(latest_message.get("texto") or latest_text)
+    if latest_timestamp and latest_timestamp != int(conversation.get("timestampUltimaMsg") or 0):
+        conversation["timestampUltimaMsg"] = latest_timestamp
+        conversation["horario"] = datetime.fromtimestamp(latest_timestamp).strftime("%H:%M")
+        changed = True
+    if latest_text and latest_text != conversation.get("ultimoTexto"):
+        conversation["ultimoTexto"] = latest_text
+        changed = True
+    unread_count = max(0, int(chat.get("unreadCount") or 0))
+    if unread_count != int(conversation.get("naoLidasCount") or 0):
+        conversation["naoLidasCount"] = unread_count
+        conversation["lida"] = unread_count == 0
+        changed = True
+    return changed
 
 
 def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str], Dict[str, str], Dict[str, Dict[str, Any]]]:
@@ -755,7 +1013,27 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
     return nomes, fotos, metadata
 
 
-def extract_message_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+def extract_message_payload(data: Dict[str, Any], message_id: str | None = None) -> Dict[str, Any]:
+    raw_type = str(data.get("type") or "").lower()
+    flat_media_types = {
+        "audio": ("audio", "[Audio]"),
+        "ptt": ("audio", "[Audio]"),
+        "sticker": ("sticker", "[Figurinha]"),
+        "image": ("midia", "[Imagem]"),
+        "video": ("midia", "[Video]"),
+        "document": ("documento", "[Documento]"),
+    }
+    if raw_type in flat_media_types:
+        tipo, label = flat_media_types[raw_type]
+        return {
+            "texto": str(data.get("caption") or label),
+            "tipo": tipo,
+            "arquivoUrl": whatsapp_media_url(message_id) if message_id else None,
+            "arquivoMime": data.get("mimetype"),
+            "duracaoAudio": data.get("duration"),
+            "nomeArquivo": data.get("filename") or default_file_name(tipo, data.get("mimetype")),
+        }
+
     text_data = data.get("text")
     if isinstance(text_data, dict):
         text = text_data.get("message") or text_data.get("body") or text_data.get("text") or ""
@@ -792,6 +1070,10 @@ def extract_message_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     return {"texto": "", "tipo": "texto"}
+
+
+def whatsapp_media_url(message_id: str) -> str:
+    return public_api_url(f"/api/chat/midia/{quote(message_id, safe='')}")
 
 
 def proxied_media_url(raw_url: Any) -> str | None:
@@ -840,46 +1122,39 @@ def normalize_profile_phone(phone: str) -> str:
     return f"{query_phone}@c.us"
 
 
-def should_try_profile_picture(phone: str) -> bool:
+def should_try_profile_picture(user_id: str, phone: str) -> bool:
     now = int(datetime.now().timestamp())
-    last_try = profile_photo_attempt_cache.get(phone, 0)
+    cache_key = f"{user_id}:{phone}"
+    last_try = profile_photo_attempt_cache.get(cache_key, 0)
     if now - last_try < 900:
         return False
-    profile_photo_attempt_cache[phone] = now
+    profile_photo_attempt_cache[cache_key] = now
     return True
 
 
-async def fetch_profile_picture(phone: str, client: httpx.AsyncClient | None = None) -> str | None:
+async def fetch_profile_picture(user_id: str, phone: str) -> str | None:
     query_phone = normalize_profile_phone(phone)
-    owns_client = client is None
-    active_client = client or httpx.AsyncClient()
     try:
-        url_foto = f"{whatsapp_service.base_url}/contacts/{quote(query_phone, safe='')}/profile-picture"
-        response = await active_client.get(url_foto, headers=whatsapp_service.headers, timeout=6.0)
-        if response.status_code == 200:
-            data = response.json()
+        data = await whatsapp_service.get(
+            user_id,
+            f"/contacts/{quote(query_phone, safe='')}/profile-picture",
+            timeout=8.0,
+        )
+        if isinstance(data, dict):
             return data.get("profilePictureUrl") or data.get("photoUrl") or data.get("link") or data.get("value")
     except Exception:
         logger.exception("Falha ao buscar foto de perfil WhatsApp.")
-    finally:
-        if owns_client:
-            await active_client.aclose()
     return None
 
 
-async def fetch_group_metadata(phone: str, client: httpx.AsyncClient | None = None) -> Dict[str, Any] | None:
-    owns_client = client is None
-    active_client = client or httpx.AsyncClient()
+async def fetch_group_metadata(user_id: str, phone: str) -> Dict[str, Any] | None:
     group_id = phone.strip()
     try:
-        response = await active_client.get(
-            f"{whatsapp_service.base_url}/groups/{quote(group_id, safe='')}",
-            headers=whatsapp_service.headers,
+        data = await whatsapp_service.get(
+            user_id,
+            f"/groups/{quote(group_id, safe='')}",
             timeout=8.0,
         )
-        if response.status_code != 200:
-            return None
-        data = response.json()
         if not isinstance(data, dict) or data.get("error"):
             return None
         return {
@@ -891,7 +1166,4 @@ async def fetch_group_metadata(phone: str, client: httpx.AsyncClient | None = No
         }
     except Exception:
         logger.exception("Falha ao buscar metadados de grupo WhatsApp.")
-    finally:
-        if owns_client:
-            await active_client.aclose()
     return None

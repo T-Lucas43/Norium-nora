@@ -204,6 +204,7 @@ async def append_outgoing_message(
     channel: ChatChannel = "whatsapp",
     sender_label: Optional[str] = None,
     status: Literal["enviado", "entregue", "lido"] = "enviado",
+    message_id: Optional[str] = None,
     user_id: str = "lucas123",
 ) -> Dict[str, Any]:
     hora, timestamp = _now_payload()
@@ -211,7 +212,7 @@ async def append_outgoing_message(
     return await append_message(
         conversa_id,
         {
-            "id": f"out_{timestamp}",
+            "id": message_id or f"out_{timestamp}",
             "remetente": "usuario",
             "texto": f"{prefix}{texto}",
             "tipo": "texto",

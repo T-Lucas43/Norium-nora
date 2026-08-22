@@ -156,7 +156,6 @@ jobs:
               registryPassword="$registry_password" \
               noriumWebhookUrl="${{ vars.AZURE_PUBLIC_URL }}/api/whatsapp/webhook" \
               allowedOrigin="${{ vars.AZURE_PUBLIC_URL }}" \
-              noriumOwnerUserId="${{ steps.owner.outputs.user_id }}" \
               noriumApiKey="$NORIUM_API_KEY" \
               adminApiKey="$ADMIN_API_KEY" \
               webhookHmacSecret="$HMAC_SECRET" \
@@ -193,8 +192,9 @@ jobs:
               WHATSAPP_API_KEY=secretref:whatsapp-api-key \
               WHATSAPP_WEBHOOK_HMAC_SECRET=secretref:whatsapp-webhook-hmac-secret \
               WHATSAPP_WEBHOOK_SECRET=secretref:whatsapp-webhook-secret \
-              WHATSAPP_OWNER_USER_ID="${{ steps.owner.outputs.user_id }}" \
+              WHATSAPP_LEGACY_OWNER_USER_ID="${{ steps.owner.outputs.user_id }}" \
             --remove-env-vars \
+              WHATSAPP_OWNER_USER_ID \
               WHATSAPP_INSTANCE_ID \
               WHATSAPP_INSTANCE_TOKEN \
               WHATSAPP_CLIENT_TOKEN \
@@ -212,6 +212,7 @@ jobs:
         shell: bash
         env:
           NORIUM_API_KEY: ${{ secrets.WHATSAPP_API_KEY }}
+          OWNER_USER_ID: ${{ steps.owner.outputs.user_id }}
         run: |
           set -euo pipefail
           verify_endpoint() {
@@ -241,16 +242,42 @@ jobs:
           fi
           verify_endpoint "${{ vars.AZURE_PUBLIC_URL }}/health" 18
 
-          session_state="$(curl --silent --show-error --fail \
+          session_id="norium"
+          session_signature="$(python3 -c 'import hashlib,hmac,os; key=os.environ["NORIUM_API_KEY"].encode(); payload=(os.environ["OWNER_USER_ID"]+"\nnorium").encode(); print(hmac.new(key,payload,hashlib.sha256).hexdigest())')"
+          echo "::add-mask::$session_signature"
+
+          curl --silent --show-error --fail \
             --connect-timeout 8 --max-time 30 \
+            --request POST \
+            --header "Content-Type: application/json" \
             --header "Authorization: Bearer $NORIUM_API_KEY" \
-            "${{ steps.app.outputs.public_url }}/v1/session/status" \
-            | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload.get("state", ""))')"
+            --header "X-Norium-User-Id: $OWNER_USER_ID" \
+            --header "X-Norium-Session-Id: $session_id" \
+            --header "X-Norium-Session-Signature: $session_signature" \
+            --data '{}' \
+            "${{ steps.app.outputs.public_url }}/v1/session/reconnect" > /dev/null
+
+          session_state=""
+          for attempt in {1..18}; do
+            session_state="$(curl --silent --show-error --fail \
+              --connect-timeout 8 --max-time 30 \
+              --header "Authorization: Bearer $NORIUM_API_KEY" \
+              --header "X-Norium-User-Id: $OWNER_USER_ID" \
+              --header "X-Norium-Session-Id: $session_id" \
+              --header "X-Norium-Session-Signature: $session_signature" \
+              "${{ steps.app.outputs.public_url }}/v1/session/status" \
+              | python3 -c 'import json,sys; payload=json.load(sys.stdin); print(payload.get("state", ""))')"
+            if [ "$session_state" = "connected" ]; then break; fi
+            sleep 10
+          done
           test "$session_state" = "connected"
 
           chat_count="$(curl --silent --show-error --fail \
             --connect-timeout 8 --max-time 60 \
             --header "Authorization: Bearer $NORIUM_API_KEY" \
+            --header "X-Norium-User-Id: $OWNER_USER_ID" \
+            --header "X-Norium-Session-Id: $session_id" \
+            --header "X-Norium-Session-Signature: $session_signature" \
             "${{ steps.app.outputs.public_url }}/v1/chats" \
             | python3 -c 'import json,sys; payload=json.load(sys.stdin); assert isinstance(payload, list); print(len(payload))')"
           test "$chat_count" -gt 0

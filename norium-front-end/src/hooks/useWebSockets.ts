@@ -480,6 +480,9 @@ export function useWebSockets(
             if (seenEventIdsRef.current.has(payload.event.id)) return;
             seenEventIdsRef.current.add(payload.event.id);
             setEvents((current) => mergeEvent(current, payload.event as OmnichannelEvent));
+            if (payload.event.source === "whatsapp") {
+              window.dispatchEvent(new CustomEvent("norium:whatsapp-event", { detail: payload.event }));
+            }
             const isTeamMessage = payload.event.source === "equipe" && payload.event.metadata?.action === "team_message_created";
             if (isTeamMessage) {
               notifyTeamMessage({

@@ -21,11 +21,28 @@ INTENTIONAL_PARAMETER_STRENGTHENING = {
     ("GET /api/agenda/oauth2callback", ("user_id", "query")),
     ("GET /api/integracoes/google/callback", ("user_id", "query")),
     ("GET /api/auth/callback/gmail", ("user_id", "query")),
+    ("GET /api/chat/status-canais", ("user_id", "query")),
+    ("GET /api/chat/conversas", ("user_id", "query")),
+    ("GET /api/chat/contatos-disponiveis", ("user_id", "query")),
+    ("DELETE /api/chat/conversas/{conversa_id}", ("user_id", "query")),
+}
+INTENTIONAL_PARAMETER_DESCRIPTION_CHANGES = {
+    ("GET /api/chat/media-proxy", ("url", "query")),
 }
 INTENTIONAL_SCHEMA_CHANGES = {
     "components.schemas.ComentarioPayload.properties.author.default",
     "components.schemas.PerfilOperador.properties.nome.default",
     "components.schemas.ProjetoPayload.properties.owner.default",
+    "components.schemas.InicializarLoginPayload.properties.user_id",
+    "components.schemas.InicializarLoginPayload.required",
+    "components.schemas.EnviarMensagemPayload.properties.user_id",
+    "components.schemas.EnviarMensagemPayload.required",
+    "components.schemas.EnviarArquivoPayload.properties.user_id",
+    "components.schemas.EnviarArquivoPayload.required",
+    "components.schemas.ModificarChatPayload.properties.user_id",
+    "components.schemas.ModificarChatPayload.required",
+    "components.schemas.ApagarMensagemPayload.properties.user_id",
+    "components.schemas.ApagarMensagemPayload.required",
 }
 
 
@@ -98,7 +115,15 @@ def _assert_operation_backward_compatible(
         baseline_identities.add(identity)
         test_case.assertIn(identity, current_by_identity, f"Parametro removido: {path}.{identity}")
         if (path, identity) not in INTENTIONAL_PARAMETER_STRENGTHENING:
-            test_case.assertEqual(parameter, current_by_identity[identity], f"Parametro alterado: {path}.{identity}")
+            current_parameter = current_by_identity[identity]
+            if (path, identity) in INTENTIONAL_PARAMETER_DESCRIPTION_CHANGES:
+                parameter = copy.deepcopy(parameter)
+                current_parameter = copy.deepcopy(current_parameter)
+                parameter.pop("description", None)
+                current_parameter.pop("description", None)
+                parameter.get("schema", {}).pop("description", None)
+                current_parameter.get("schema", {}).pop("description", None)
+            test_case.assertEqual(parameter, current_parameter, f"Parametro alterado: {path}.{identity}")
 
     for identity, parameter in current_by_identity.items():
         if identity not in baseline_identities:

@@ -1290,7 +1290,12 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
                 "blocked_reason": "texto_envio_vazio",
             }
 
-        sucesso_envio = await whatsapp_service.enviar_mensagem_texto(payload.conversa_id, texto_envio)
+        resultado_envio = await whatsapp_service.enviar_mensagem_texto(
+            resolved_user_id,
+            payload.conversa_id,
+            texto_envio,
+        )
+        sucesso_envio = bool(resultado_envio and resultado_envio.get("sent") is True)
 
         if sucesso_envio:
             await append_outgoing_message(
@@ -1299,6 +1304,7 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
                 channel=payload.canal,
                 sender_label="Nora",
                 status="enviado",
+                message_id=str(resultado_envio.get("messageId") or "") or None,
                 user_id=resolved_user_id,
             )
             return {"response": f"Enviei no WhatsApp:\n\n{texto_envio}", "whatsapp_enviado": True}

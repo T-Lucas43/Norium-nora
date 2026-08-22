@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -14,10 +15,11 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 JSON_FILE = BACKEND_ROOT / "conversas_db.json"
 
 EMPTY_HISTORY_MARKER = "[Nenhuma mensagem recente registrada no sistema ainda]"
+BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 
 
 def _now_payload() -> tuple[str, int]:
-    agora = datetime.now()
+    agora = datetime.now(BRAZIL_TZ)
     return agora.strftime("%H:%M"), int(agora.timestamp())
 
 
@@ -102,6 +104,7 @@ def normalize_conversation(conversa_id: str, conversa: Dict[str, Any]) -> Dict[s
         if isinstance(mensagem, dict)
     ] if isinstance(mensagens_raw, list) else []
 
+    latest_message = mensagens[-1] if mensagens else None
     normalized = {
         "id": conversa.get("id") or conversa_id,
         "contato": contato,
@@ -110,6 +113,15 @@ def normalize_conversation(conversa_id: str, conversa: Dict[str, Any]) -> Dict[s
         "ultimoTexto": conversa.get("ultimoTexto") or _last_text(mensagens),
         "horario": conversa.get("horario") or (mensagens[-1]["horario"] if mensagens else ""),
         "timestampUltimaMsg": int(conversa.get("timestampUltimaMsg") or _last_timestamp(mensagens)),
+        "ultimaMensagemMinha": bool(
+            conversa.get("ultimaMensagemMinha")
+            if conversa.get("ultimaMensagemMinha") is not None
+            else latest_message and latest_message.get("remetente") == "usuario"
+        ),
+        "statusUltimaMensagem": conversa.get("statusUltimaMensagem")
+        or (latest_message.get("status") if latest_message and latest_message.get("remetente") == "usuario" else None),
+        "ultimoRemetenteNome": conversa.get("ultimoRemetenteNome")
+        or (latest_message.get("remetenteNome") if latest_message and latest_message.get("remetente") != "usuario" else None),
         "lida": bool(conversa.get("lida", True)),
         "naoLidasCount": int(conversa.get("naoLidasCount") or 0),
         "fixada": bool(conversa.get("fixada", False)),
@@ -133,9 +145,9 @@ def normalize_message(mensagem: Dict[str, Any], channel: ChatChannel) -> Dict[st
 
     timestamp = mensagem.get("timestamp")
     try:
-        timestamp_normalizado = int(timestamp) if timestamp is not None else int(datetime.now().timestamp())
+        timestamp_normalizado = int(timestamp) if timestamp is not None else int(datetime.now(BRAZIL_TZ).timestamp())
     except (TypeError, ValueError):
-        timestamp_normalizado = int(datetime.now().timestamp())
+        timestamp_normalizado = int(datetime.now(BRAZIL_TZ).timestamp())
 
     return {
         "id": str(mensagem.get("id") or f"msg_{timestamp_normalizado}"),
@@ -148,7 +160,7 @@ def normalize_message(mensagem: Dict[str, Any], channel: ChatChannel) -> Dict[st
         "arquivoMime": mensagem.get("arquivoMime"),
         "duracaoAudio": mensagem.get("duracaoAudio"),
         "nomeArquivo": mensagem.get("nomeArquivo"),
-        "horario": mensagem.get("horario") or datetime.now().strftime("%H:%M"),
+        "horario": mensagem.get("horario") or datetime.now(BRAZIL_TZ).strftime("%H:%M"),
         "timestamp": timestamp_normalizado,
         "status": status,
         "reacoes": _normalize_reactions(mensagem.get("reacoes") or mensagem.get("reactions")),
@@ -205,6 +217,9 @@ async def append_message(conversa_id: str, mensagem: Dict[str, Any], *, contato:
     conversa["ultimoTexto"] = normalized_message.get("texto") or _label_for_message(normalized_message)
     conversa["horario"] = normalized_message.get("horario")
     conversa["timestampUltimaMsg"] = normalized_message.get("timestamp")
+    conversa["ultimaMensagemMinha"] = normalized_message.get("remetente") == "usuario"
+    conversa["statusUltimaMensagem"] = normalized_message.get("status") if conversa["ultimaMensagemMinha"] else None
+    conversa["ultimoRemetenteNome"] = normalized_message.get("remetenteNome") if not conversa["ultimaMensagemMinha"] else None
     db[conversa_id] = normalize_conversation(conversa_id, conversa)
     await save_conversations(db, user_id)
     return db[conversa_id]
@@ -377,7 +392,7 @@ def _last_text(mensagens: List[Dict[str, Any]]) -> str:
 def _last_timestamp(mensagens: List[Dict[str, Any]]) -> int:
     if not mensagens:
         return 0
-    return int(mensagens[-1].get("timestamp") or datetime.now().timestamp())
+    return int(mensagens[-1].get("timestamp") or datetime.now(BRAZIL_TZ).timestamp())
 
 
 def _label_for_message(mensagem: Dict[str, Any]) -> str:

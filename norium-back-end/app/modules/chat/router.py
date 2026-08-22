@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Literal
 from urllib.parse import quote, urlparse
+from zoneinfo import ZoneInfo
 
 import httpx
 from dotenv import load_dotenv
@@ -64,6 +65,9 @@ WHATSAPP_CATALOG_CACHE_TTL_SECONDS = max(60, int(os.getenv("WHATSAPP_CATALOG_CAC
 WHATSAPP_CATALOG_SCHEMA_VERSION = 2
 WHATSAPP_HISTORY_CACHE_TTL_SECONDS = max(30, int(os.getenv("WHATSAPP_HISTORY_CACHE_TTL_SECONDS", "120")))
 WHATSAPP_HISTORY_SCHEMA_VERSION = 2
+WHATSAPP_RECENT_CONVERSATION_LIMIT = max(10, min(100, int(os.getenv("WHATSAPP_RECENT_CONVERSATION_LIMIT", "50"))))
+WHATSAPP_RECENT_DAYS = max(1, min(90, int(os.getenv("WHATSAPP_RECENT_DAYS", "30"))))
+BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 UPLOAD_DIR = get_data_root() / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = 14 * 1024 * 1024
@@ -163,12 +167,16 @@ def catalog_cache_is_fresh(cache: Dict[str, Any], key: str = "catalogSyncedAt") 
 
 
 def sorted_conversations(db: Dict[str, Any]) -> list[Dict[str, Any]]:
-    items = list(db.values())
+    cutoff = int(time.time()) - WHATSAPP_RECENT_DAYS * 24 * 60 * 60
+    items = [
+        item for item in db.values()
+        if int(item.get("timestampUltimaMsg") or 0) >= cutoff
+    ]
     items.sort(
         key=lambda item: (bool(item.get("fixada")), int(item.get("timestampUltimaMsg") or 0)),
         reverse=True,
     )
-    return items
+    return items[:WHATSAPP_RECENT_CONVERSATION_LIMIT]
 
 
 def assert_channel_permission(user: dict[str, Any], channel: str) -> None:
@@ -425,7 +433,7 @@ async def webhook_whatsapp(
             message_timestamp = int(data.get("timestamp") or current_ts)
         except (TypeError, ValueError):
             message_timestamp = current_ts
-        hora_formatada = datetime.fromtimestamp(message_timestamp).strftime("%H:%M")
+        hora_formatada = format_whatsapp_time(message_timestamp)
 
         message_id = str(data.get("zaid") or data.get("messageId") or data.get("id") or f"msg_{message_timestamp}")
 
@@ -454,6 +462,9 @@ async def webhook_whatsapp(
         conversa["ultimoTexto"] = message_payload["texto"]
         conversa["horario"] = hora_formatada
         conversa["timestampUltimaMsg"] = message_timestamp
+        conversa["ultimaMensagemMinha"] = is_from_me
+        conversa["statusUltimaMensagem"] = data.get("status") if is_from_me else None
+        conversa["ultimoRemetenteNome"] = sender_name if is_group and not is_from_me else None
 
         if is_from_me:
             conversa["lida"] = True
@@ -534,54 +545,9 @@ async def obter_conversas(
         return {"items": [], "cursor": since or 0, "hasMore": False} if since is not None else []
 
     if since is not None:
-        # O webhook continua sendo o caminho mais rapido, mas a interface nao
-        # pode depender exclusivamente dele. Consulte o catalogo remoto antes
-        # de calcular o delta para recuperar mensagens que chegaram enquanto o
-        # WebSocket/webhook estava indisponivel.
-        try:
-            remote_chats_payload = await whatsapp_service.get(
-                resolved_user_id,
-                "/chats",
-                timeout=12.0,
-            )
-            remote_chats = parse_whatsapp_collection(remote_chats_payload)
-            incremental_changed = False
-            for chat in remote_chats[:500]:
-                phone = chat.get("phone") or chat.get("id") or chat.get("jid")
-                if not phone:
-                    continue
-                phone = str(phone)
-                is_group = is_group_chat(phone, chat)
-                if phone not in db:
-                    db[phone] = new_conversation(
-                        phone,
-                        contato=str(chat.get("name") or chat.get("pushname") or phone),
-                        channel="whatsapp",
-                        is_group=is_group,
-                        photo_url=extract_photo_url(chat),
-                    )
-                    incremental_changed = True
-                else:
-                    conversation = db[phone]
-                    remote_name = chat.get("name") or chat.get("pushname")
-                    if remote_name:
-                        conversation["contato"] = str(remote_name)
-                    conversation["esGrupo"] = is_group
-                    remote_photo = extract_photo_url(chat)
-                    if remote_photo:
-                        conversation.setdefault("metadados", {})["photoUrl"] = remote_photo
-                        conversation["photoUrl"] = remote_photo
-                if sync_catalog_messages(db[phone], chat):
-                    incremental_changed = True
-                db[phone] = normalize_conversation(phone, db[phone])
-            if incremental_changed:
-                await save_conversations(db, resolved_user_id)
-        except Exception:
-            logger.warning(
-                "Sincronizacao incremental direta do WhatsApp falhou; usando cache/webhook.",
-                exc_info=True,
-            )
-
+        # O webhook/evento em tempo real ja atualiza o cache. Um delta nunca
+        # abre uma varredura completa no navegador do WhatsApp: isso evitava
+        # que simples cliques em contatos derrubassem a sessao.
         changed_items = [
             normalize_conversation(conversation_id, conversation)
             for conversation_id, conversation in db.items()
@@ -1179,8 +1145,12 @@ async def favoritar_chat(payload: FavoritarChatPayload, user: dict[str, Any] = D
 
 
 def current_clock() -> tuple[str, int]:
-    agora = datetime.now()
+    agora = datetime.now(BRAZIL_TZ)
     return agora.strftime("%H:%M"), int(agora.timestamp())
+
+
+def format_whatsapp_time(timestamp: int) -> str:
+    return datetime.fromtimestamp(timestamp, tz=BRAZIL_TZ).strftime("%H:%M")
 
 
 def decode_data_url(data_url: str, fallback_mime: str) -> tuple[bytes, str]:
@@ -1360,7 +1330,7 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
                     "arquivoMime": raw_message.get("mimetype") or (existing_message or {}).get("arquivoMime"),
                     "nomeArquivo": raw_message.get("filename") or (existing_message or {}).get("nomeArquivo") or default_file_name(type_map.get(raw_type, "texto"), raw_message.get("mimetype")),
                     "duracaoAudio": raw_message.get("duration") or (existing_message or {}).get("duracaoAudio"),
-                    "horario": datetime.fromtimestamp(timestamp).strftime("%H:%M"),
+                    "horario": format_whatsapp_time(timestamp),
                     "timestamp": timestamp,
                     "status": raw_message.get("status") if raw_message.get("fromMe") else None,
                     "reacoes": raw_message.get("reactions") or [],
@@ -1384,11 +1354,25 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
         latest_text = str(latest_message.get("texto") or latest_text)
     if latest_timestamp and latest_timestamp != int(conversation.get("timestampUltimaMsg") or 0):
         conversation["timestampUltimaMsg"] = latest_timestamp
-        conversation["horario"] = datetime.fromtimestamp(latest_timestamp).strftime("%H:%M")
+        conversation["horario"] = format_whatsapp_time(latest_timestamp)
         changed = True
     if latest_text and latest_text != conversation.get("ultimoTexto"):
         conversation["ultimoTexto"] = latest_text
         changed = True
+    if conversation["mensagens"]:
+        latest_message = conversation["mensagens"][-1]
+        latest_is_mine = latest_message.get("remetente") == "usuario"
+        latest_status = latest_message.get("status") if latest_is_mine else None
+        latest_sender = latest_message.get("remetenteNome") if not latest_is_mine else None
+        if conversation.get("ultimaMensagemMinha") != latest_is_mine:
+            conversation["ultimaMensagemMinha"] = latest_is_mine
+            changed = True
+        if conversation.get("statusUltimaMensagem") != latest_status:
+            conversation["statusUltimaMensagem"] = latest_status
+            changed = True
+        if conversation.get("ultimoRemetenteNome") != latest_sender:
+            conversation["ultimoRemetenteNome"] = latest_sender
+            changed = True
     if not latest_timestamp and not conversation["mensagens"] and conversation.get("ultimoTexto") in {"Sincronizado", "[Mensagem]", "Mensagem"}:
         conversation["ultimoTexto"] = ""
         conversation["horario"] = ""

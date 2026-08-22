@@ -45,6 +45,8 @@ interface AreaCentralProps {
   carregandoMensagens: boolean;
   onReagirMensagem: (messageId: string, emoji: string) => void | Promise<void>;
   onEscolherFigurinha: () => void;
+  figurinhasRecentes: MsgConteudo[];
+  onEnviarFigurinhaExistente: (figurinha: MsgConteudo) => void | Promise<void>;
 }
 
 function initials(name: string) {
@@ -264,6 +266,27 @@ function MessageMedia({ msg, outgoing }: { msg: MsgConteudo; outgoing: boolean }
   );
 }
 
+function StickerLibraryItem({
+  sticker,
+  onSelect,
+}: {
+  sticker: MsgConteudo;
+  onSelect: (sticker: MsgConteudo) => void | Promise<void>;
+}) {
+  const mediaUrl = useAuthenticatedMedia(sticker.arquivoUrl);
+  return (
+    <button
+      type="button"
+      onClick={() => void onSelect(sticker)}
+      disabled={!mediaUrl}
+      className="grid aspect-square place-items-center rounded-xl bg-[var(--background)] p-1.5 transition hover:bg-[var(--surface-hover)] disabled:opacity-40"
+      title="Enviar figurinha"
+    >
+      {mediaUrl ? <img src={mediaUrl} alt="Figurinha recente" className="h-full w-full object-contain" /> : <span className="animate-pulse text-[var(--text-secondary)]">...</span>}
+    </button>
+  );
+}
+
 function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -361,6 +384,8 @@ export default function AreaCentralChat({
   carregandoMensagens,
   onReagirMensagem,
   onEscolherFigurinha,
+  figurinhasRecentes,
+  onEnviarFigurinhaExistente,
 }: AreaCentralProps) {
   const [resposta, setResposta] = useState("");
   const [mostrarPesquisa, setMostrarPesquisa] = useState(false);
@@ -640,9 +665,25 @@ export default function AreaCentralChat({
                 ))}
               </div>
             ) : (
-              <div className="p-4 text-center">
-                <p className="mb-3 font-medium text-[var(--text-secondary)]">Escolha uma imagem e o Norium enviara como figurinha do WhatsApp.</p>
-                <Button variant="primary" onClick={() => { onEscolherFigurinha(); setMostrarPainelEmojis(false); }} className="w-full">Escolher imagem</Button>
+              <div className="p-3">
+                <p className="mb-2 px-1 text-left font-bold text-[var(--text-secondary)]">Figurinhas recentes</p>
+                {figurinhasRecentes.length > 0 ? (
+                  <div className="grid max-h-60 grid-cols-4 gap-2 overflow-y-auto pr-1">
+                    {figurinhasRecentes.map((sticker) => (
+                      <StickerLibraryItem
+                        key={`${sticker.id}-${sticker.arquivoUrl}`}
+                        sticker={sticker}
+                        onSelect={async (selected) => {
+                          await onEnviarFigurinhaExistente(selected);
+                          setMostrarPainelEmojis(false);
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-[var(--background)] p-4 text-center font-medium text-[var(--text-secondary)]">As figurinhas usadas nas suas conversas aparecerao aqui.</p>
+                )}
+                <Button variant="ghost" onClick={() => { onEscolherFigurinha(); setMostrarPainelEmojis(false); }} className="mt-3 w-full">Adicionar nova figurinha</Button>
               </div>
             )}
           </div>

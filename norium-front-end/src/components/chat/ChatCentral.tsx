@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import SidebarEsquerda from "./SidebarEsquerda";
 import AreaCentralChat from "./AreaCentralChat";
 import PainelDireito from "./PainelDireito";
@@ -9,6 +9,7 @@ import StatusBanner from "../shared/StatusBanner";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import Button from "../shared/Button";
 import { whatsappApi, type Contact, type WhatsAppConnection } from "./whatsappApi";
+import { apiBlobRequest } from "../../core/api/client";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -88,7 +89,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     if (carregandoConversasRef.current) return null;
     carregandoConversasRef.current = true;
     try {
-      const since = incremental && cursorConversasRef.current > 0 ? cursorConversasRef.current : undefined;
+      // Inclui novamente o ultimo segundo para nao perder duas mensagens que
+      // tenham chegado com o mesmo timestamp. O merge por ID remove repeticoes.
+      const since = incremental && cursorConversasRef.current > 0
+        ? Math.max(0, cursorConversasRef.current - 1)
+        : undefined;
       const payload = await whatsappApi.conversations(since, refresh);
       const data = Array.isArray(payload) ? payload : payload.items;
       const nextCursor = Array.isArray(payload)
@@ -281,7 +286,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         void carregarConversasDoBackend(true);
       }
     };
-    const intervaloChats = window.setInterval(atualizarSeVisivel, 30_000);
+    const intervaloChats = window.setInterval(atualizarSeVisivel, 3_000);
     document.addEventListener("visibilitychange", atualizarSeVisivel);
     return () => {
       window.clearInterval(intervaloChats);
@@ -431,6 +436,30 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       await carregarHistorico(conversaSelecionada);
     } catch (error) {
       mostrarAviso("error", error instanceof Error ? error.message : "Nao foi possivel enviar a figurinha.");
+    } finally {
+      setEnviandoAnexos(false);
+    }
+  };
+
+  const handleEnviarFigurinhaExistente = async (figurinha: MsgConteudo) => {
+    if (!conversaSelecionada || !figurinha.arquivoUrl) return;
+    setEnviandoAnexos(true);
+    try {
+      const blob = await apiBlobRequest(figurinha.arquivoUrl, {
+        headers: { Accept: "image/webp,image/*,*/*" },
+        cache: "no-store",
+      });
+      await enviarArquivoOuAudio(
+        blob,
+        figurinha.nomeArquivo || `figurinha-${figurinha.id}.webp`,
+        figurinha.arquivoMime || blob.type || "image/webp",
+        undefined,
+        true,
+      );
+      historicoRef.current.delete(conversaSelecionada);
+      await carregarHistorico(conversaSelecionada);
+    } catch (error) {
+      mostrarAviso("error", error instanceof Error ? error.message : "Nao foi possivel reenviar a figurinha.");
     } finally {
       setEnviandoAnexos(false);
     }
@@ -766,6 +795,19 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     }
   };
 
+  const figurinhasRecentes = useMemo(() => {
+    const unicas = new Map<string, MsgConteudo>();
+    for (const conversation of conversas) {
+      for (const message of conversation.mensagens) {
+        if (message.tipo !== "sticker" || !message.arquivoUrl) continue;
+        unicas.set(message.arquivoUrl, message);
+      }
+    }
+    return [...unicas.values()]
+      .sort((left, right) => Number(right.timestamp || 0) - Number(left.timestamp || 0))
+      .slice(0, 48);
+  }, [conversas]);
+
   const conversaAtiva = conversas.find(c => c.id === conversaSelecionada);
   const paginaHistoricoAtiva = conversaSelecionada ? historicoRef.current.get(conversaSelecionada) : undefined;
   const nenhumConectado = !canaisStatus.whatsapp?.conectado && conversas.length === 0;
@@ -887,6 +929,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         onEncaminharMensagens={handleAbrirEncaminhar}
         onReagirMensagem={handleReagirMensagem}
         onEscolherFigurinha={() => figurinhaInputRef.current?.click()}
+        figurinhasRecentes={figurinhasRecentes}
+        onEnviarFigurinhaExistente={handleEnviarFigurinhaExistente}
         onCarregarMensagensAntigas={carregarMensagensAntigas}
         temMaisMensagens={paginaHistoricoAtiva?.hasMore ?? true}
         carregandoMensagens={historicoCarregandoId === conversaSelecionada}

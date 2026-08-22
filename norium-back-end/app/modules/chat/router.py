@@ -443,6 +443,10 @@ async def webhook_whatsapp(
             photo_url=extract_photo_url(data),
         )
 
+        mensagens_existentes = conversa.setdefault("mensagens", [])
+        if any(str(item.get("id") or "") == message_id for item in mensagens_existentes):
+            return {"status": "duplicate"}
+
         conversa["contato"] = chat_name
         conversa["canal"] = "whatsapp"
         conversa["channel"] = "whatsapp"
@@ -462,9 +466,6 @@ async def webhook_whatsapp(
             conversa.setdefault("metadados", {})["photoUrl"] = photo_url
             conversa["photoUrl"] = photo_url
 
-        mensagens_existentes = conversa.setdefault("mensagens", [])
-        if any(str(item.get("id") or "") == message_id for item in mensagens_existentes):
-            return {"status": "duplicate"}
         mensagens_existentes.append(
             normalize_message(
                 {
@@ -533,6 +534,54 @@ async def obter_conversas(
         return {"items": [], "cursor": since or 0, "hasMore": False} if since is not None else []
 
     if since is not None:
+        # O webhook continua sendo o caminho mais rapido, mas a interface nao
+        # pode depender exclusivamente dele. Consulte o catalogo remoto antes
+        # de calcular o delta para recuperar mensagens que chegaram enquanto o
+        # WebSocket/webhook estava indisponivel.
+        try:
+            remote_chats_payload = await whatsapp_service.get(
+                resolved_user_id,
+                "/chats",
+                timeout=12.0,
+            )
+            remote_chats = parse_whatsapp_collection(remote_chats_payload)
+            incremental_changed = False
+            for chat in remote_chats[:500]:
+                phone = chat.get("phone") or chat.get("id") or chat.get("jid")
+                if not phone:
+                    continue
+                phone = str(phone)
+                is_group = is_group_chat(phone, chat)
+                if phone not in db:
+                    db[phone] = new_conversation(
+                        phone,
+                        contato=str(chat.get("name") or chat.get("pushname") or phone),
+                        channel="whatsapp",
+                        is_group=is_group,
+                        photo_url=extract_photo_url(chat),
+                    )
+                    incremental_changed = True
+                else:
+                    conversation = db[phone]
+                    remote_name = chat.get("name") or chat.get("pushname")
+                    if remote_name:
+                        conversation["contato"] = str(remote_name)
+                    conversation["esGrupo"] = is_group
+                    remote_photo = extract_photo_url(chat)
+                    if remote_photo:
+                        conversation.setdefault("metadados", {})["photoUrl"] = remote_photo
+                        conversation["photoUrl"] = remote_photo
+                if sync_catalog_messages(db[phone], chat):
+                    incremental_changed = True
+                db[phone] = normalize_conversation(phone, db[phone])
+            if incremental_changed:
+                await save_conversations(db, resolved_user_id)
+        except Exception:
+            logger.warning(
+                "Sincronizacao incremental direta do WhatsApp falhou; usando cache/webhook.",
+                exc_info=True,
+            )
+
         changed_items = [
             normalize_conversation(conversation_id, conversation)
             for conversation_id, conversation in db.items()

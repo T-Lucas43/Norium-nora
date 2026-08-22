@@ -281,13 +281,32 @@ jobs:
             exit 1
           fi
 
-          chat_count="$(curl --silent --show-error --fail \
+          catalog_file="${RUNNER_TEMP}/whatsapp-catalog.json"
+          curl --silent --show-error --fail \
             --connect-timeout 8 --max-time 60 \
             --header "Authorization: Bearer $NORIUM_API_KEY" \
             --header "X-Norium-User-Id: $OWNER_USER_ID" \
             --header "X-Norium-Session-Id: $session_id" \
             --header "X-Norium-Session-Signature: $session_signature" \
             "${{ steps.app.outputs.public_url }}/v1/chats" \
-            | python3 -c 'import json,sys; payload=json.load(sys.stdin); assert isinstance(payload, list); print(len(payload))')"
+            --output "$catalog_file"
+          chat_count="$(python3 -c 'import json,sys; payload=json.load(open(sys.argv[1], encoding="utf-8")); assert isinstance(payload, list); print(len(payload))' "$catalog_file")"
           test "$chat_count" -gt 0
           echo "Authenticated WhatsApp catalog returned $chat_count chat(s)."
+
+          mapfile -t media_target < <(python3 -c 'import json,sys; chats=json.load(open(sys.argv[1], encoding="utf-8")); match=next(((str(message.get("id") or ""), str(chat.get("id") or "")) for chat in chats if isinstance(chat, dict) for message in reversed(chat.get("messages") or []) if isinstance(message, dict) and message.get("mediaAvailable") and str(message.get("type") or "").lower() in {"image","video","audio","ptt","document","sticker"} and message.get("id") and chat.get("id")), None); print("\n".join(match or ()))' "$catalog_file")
+          test "${#media_target[@]}" -ge 2
+          media_path_id="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${media_target[0]}")"
+          media_file="${RUNNER_TEMP}/whatsapp-media.json"
+          curl --silent --show-error --fail \
+            --connect-timeout 8 --max-time 90 \
+            --get \
+            --data-urlencode "chatId=${media_target[1]}" \
+            --header "Authorization: Bearer $NORIUM_API_KEY" \
+            --header "X-Norium-User-Id: $OWNER_USER_ID" \
+            --header "X-Norium-Session-Id: $session_id" \
+            --header "X-Norium-Session-Signature: $session_signature" \
+            "${{ steps.app.outputs.public_url }}/v1/messages/${media_path_id}/media" \
+            --output "$media_file"
+          python3 -c 'import base64,json,sys; payload=json.load(open(sys.argv[1], encoding="utf-8")); data=payload.get("data", ""); assert data.startswith("data:") and ";base64," in data; decoded=base64.b64decode(data.split(",", 1)[1], validate=True); assert len(decoded) > 0' "$media_file"
+          echo "Authenticated WhatsApp media retrieval succeeded."

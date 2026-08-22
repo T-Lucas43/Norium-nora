@@ -206,13 +206,20 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         whatsappConectadoRef.current = conectado;
         setCanaisStatus({ whatsapp });
         if (conectado) {
+          setQrCodeString(null);
+          setErroLogin(null);
           if (!estavaConectado) {
             await carregarConversasDoBackend();
             catalogoInicialTentadoRef.current = true;
           }
-        } else if (!catalogoInicialTentadoRef.current) {
-          catalogoInicialTentadoRef.current = true;
-          await carregarConversasDoBackend();
+        } else {
+          if (whatsapp.qrcode) {
+            setQrCodeString(whatsapp.qrcode);
+            setErroLogin(null);
+            setMensagemLogin("Escaneie este QR Code para liberar conversas, imagens, audios e figurinhas.");
+            setCanalSelecionadoLogin("whatsapp");
+          }
+          if (!catalogoInicialTentadoRef.current) catalogoInicialTentadoRef.current = true;
         }
       } catch (err) {
         console.error(err);
@@ -810,7 +817,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
   const conversaAtiva = conversas.find(c => c.id === conversaSelecionada);
   const paginaHistoricoAtiva = conversaSelecionada ? historicoRef.current.get(conversaSelecionada) : undefined;
-  const nenhumConectado = !canaisStatus.whatsapp?.conectado && conversas.length === 0;
+  const nenhumConectado = !canaisStatus.whatsapp?.conectado;
 
   if (loadingStatus) return <div className="w-full h-full flex items-center justify-center text-xs font-semibold opacity-50 text-[var(--text)]">Sincronizando...</div>;
 
@@ -867,11 +874,6 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
   return (
     <div className={`norium-chat ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} relative flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)] font-sans`}>
-      {!canaisStatus.whatsapp?.conectado && conversas.length > 0 && (
-        <div className="pointer-events-none absolute left-1/2 top-2 z-[65] -translate-x-1/2 rounded-full border border-[var(--primary)]/30 bg-[var(--surface)]/95 px-3 py-1.5 text-[11px] font-bold text-[var(--primary)] shadow-lg backdrop-blur">
-          Reconectando a sessao. O cache permanece disponivel.
-        </div>
-      )}
       <button
         type="button"
         className="mobile-sidebar-toggle mobile-screen-fab"

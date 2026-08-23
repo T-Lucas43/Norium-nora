@@ -11,6 +11,8 @@ import logging
 import os
 import re
 import secrets
+import shutil
+import subprocess
 import time
 import uuid
 from datetime import datetime
@@ -160,6 +162,34 @@ def wapi_creds(user_id: str) -> tuple[str, str] | None:
     """Credenciais (instanceId, token) da instancia vinculada, ou None."""
     binding = wb.get_binding(user_id)
     return (binding.instance_id, binding.token) if binding.exists else None
+
+
+def transcode_audio_to_ogg(audio_bytes: bytes) -> bytes | None:
+    """Converte áudio (ex.: webm/opus do navegador) para ogg/opus via ffmpeg.
+
+    A W-API rejeita webm; ogg/opus é o formato de voz do WhatsApp. Retorna None
+    se o ffmpeg não existir ou a conversão falhar (o chamador envia o original).
+    """
+    if not audio_bytes or not shutil.which("ffmpeg"):
+        return None
+    try:
+        proc = subprocess.run(  # nosec B603 B607
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
+                "-vn", "-c:a", "libopus", "-b:a", "32k", "-ar", "48000", "-ac", "1",
+                "-f", "ogg", "pipe:1",
+            ],
+            input=audio_bytes,
+            capture_output=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        logger.warning("Falha ao executar ffmpeg para transcodificar audio.")
+        return None
+    if proc.returncode != 0 or not proc.stdout:
+        logger.warning("ffmpeg retornou rc=%s ao transcodificar audio.", proc.returncode)
+        return None
+    return proc.stdout
 
 
 def connection_status(user_id: str) -> Dict[str, Dict[str, Any]]:
@@ -510,6 +540,8 @@ async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str,
                 "texto": msg["texto"],
                 "tipo": msg["tipo"],
                 "midiaMeta": msg.get("midiaMeta"),
+                "arquivoUrl": whatsapp_media_url(message_id, phone) if msg.get("midiaMeta") else None,
+                "arquivoMime": (msg.get("midiaMeta") or {}).get("mimetype"),
                 "horario": hora,
                 "timestamp": timestamp,
                 "status": msg.get("status") if is_from_me else None,
@@ -1065,10 +1097,16 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
     if payload.como_figurinha and media_kind != "image":
         raise HTTPException(status_code=415, detail="Figurinhas devem ser enviadas a partir de uma imagem.")
 
+    media_data = payload.data_url
     if payload.como_figurinha:
         kind, tipo, texto = "sticker", "sticker", "[Figurinha]"
     elif media_kind == "audio":
         kind, tipo, texto = "audio", "audio", "[Audio]"
+        # A W-API rejeita webm (formato de gravacao do navegador). Transcodifica
+        # para ogg/opus (formato de voz do WhatsApp). Fallback: envia o original.
+        ogg = await asyncio.to_thread(transcode_audio_to_ogg, file_bytes)
+        if ogg:
+            media_data = "data:audio/ogg;base64," + base64.b64encode(ogg).decode()
     elif media_kind == "image":
         kind, tipo, texto = "image", "midia", (legenda or "[Imagem]")
     elif media_kind == "video":
@@ -1077,13 +1115,12 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
         kind, tipo, texto = "document", "documento", (legenda or "[Documento]")
 
     try:
-        # NOTA: envia como data URI (base64). Confirmar o formato aceito pela
-        # W-API (URL publica vs base64 puro) em teste com instancia conectada.
+        # A W-API aceita mídia como data URI (base64), verificado ao vivo.
         result = await wapi_messaging.send_media(
             resolved_user_id,
             payload.conversa_id,
             kind,
-            payload.data_url,
+            media_data,
             caption=(legenda or ""),
             file_name=safe_file_name,
             extension=extension,

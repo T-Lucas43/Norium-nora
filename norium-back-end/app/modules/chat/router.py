@@ -65,6 +65,10 @@ wapi_client = WapiClient()
 def _messaging_http_error(exc: Exception, default_detail: str) -> HTTPException:
     if isinstance(exc, MessagingUnavailable):
         return HTTPException(status_code=409, detail="WhatsApp nao esta conectado nesta conta.")
+    # A W-API responde 403 "Acesso negado" para recursos fora do plano contratado
+    # (ex.: reacoes e figurinhas no LITE). Sinaliza de forma clara em vez de 502.
+    if isinstance(exc, WapiError) and (exc.status == 403 or "acesso negado" in str(exc.message or "").lower()):
+        return HTTPException(status_code=501, detail="Recurso indisponivel no plano atual da W-API.")
     return HTTPException(status_code=502, detail=default_detail)
 
 status_conexoes: Dict[str, Dict[str, Dict[str, Any]]] = {}

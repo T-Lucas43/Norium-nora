@@ -24,6 +24,31 @@ def chat_user(user_id: str) -> dict:
 
 
 class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_new_chat_details_uses_contact_catalog_and_persists_conversation(self) -> None:
+        conversation_id = "5511999999999@c.us"
+        catalog = {
+            "contacts": [{
+                "id": conversation_id,
+                "phone": "5511999999999",
+                "pushname": "Joao da Silva",
+                "profilePictureUrl": "https://example.test/avatar.jpg",
+            }]
+        }
+        save = AsyncMock()
+
+        with (
+            patch.object(chat_router, "load_conversations", AsyncMock(return_value={})),
+            patch.object(chat_router, "load_whatsapp_catalog_cache", AsyncMock(return_value=catalog)),
+            patch.object(chat_router, "save_conversations", save),
+            patch.object(chat_router, "wapi_creds", return_value=None),
+        ):
+            result = await chat_router.obter_detalhes_conversa(conversation_id, chat_user("owner"))
+
+        self.assertEqual("Joao da Silva", result["contato"])
+        self.assertEqual("https://example.test/avatar.jpg", result["photoUrl"])
+        self.assertEqual("5511999999999", result["metadados"]["numeroCompleto"])
+        save.assert_awaited_once()
+
     async def test_media_proxy_rejects_untrusted_host_before_network_access(self) -> None:
         with self.assertRaises(HTTPException) as error:
             await chat_router.media_proxy("https://example.invalid/private", chat_user("owner"))

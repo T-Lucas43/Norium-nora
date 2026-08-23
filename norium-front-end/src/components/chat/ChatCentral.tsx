@@ -10,6 +10,8 @@ import ConfirmDialog from "../shared/ConfirmDialog";
 import Button from "../shared/Button";
 import { whatsappApi, type Contact, type WhatsAppConnection, type ConsentInfo } from "./whatsappApi";
 import { apiBlobRequest } from "../../core/api/client";
+import { contactConversationId, contactDisplayName, contactMatchesSearch, contactToConversation, mergeConversationDetails } from "./contactPicker";
+import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -17,6 +19,25 @@ interface ChatCentralProps {
   userId?: string;
   onConversaAtivaChange?: (conversaId: string | null) => void;
   onOpenNora?: (prompt?: string) => void;
+}
+
+function ContactAvatar({ contact }: { contact: Contact }) {
+  const [failed, setFailed] = useState(false);
+  const photoUrl = useAuthenticatedMedia(contact.photoUrl);
+  const initials = contactDisplayName(contact)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+
+  return (
+    <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--background)] flex items-center justify-center text-[var(--text-secondary)]">
+      {photoUrl && !failed
+        ? <img src={photoUrl} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
+        : initials ? <span className="text-[10px] font-extrabold">{initials}</span> : <User size={14} />}
+    </div>
+  );
 }
 
 export default function ChatCentral({ userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
@@ -41,6 +62,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const [modalConfigAberto, setModalConfigAberto] = useState<boolean>(false);
   const [listaContatos, setListaContatos] = useState<Contact[]>([]);
   const [filtroContatoNome, setFiltroContatoNome] = useState<string>("");
+  const [carregandoContatos, setCarregandoContatos] = useState(false);
+  const [erroContatos, setErroContatos] = useState<string | null>(null);
 
   const [nomeNovoGrupo, setNomeNovoGrupo] = useState("");
   const [contatosSelecionadosGrupo, setContatosSelecionadosGrupo] = useState<string[]>([]);
@@ -319,9 +342,18 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
   const abrirAgendaContatos = async () => {
     setModalContatosAberto(true);
+    setFiltroContatoNome("");
+    setErroContatos(null);
+    setCarregandoContatos(true);
     try {
       setListaContatos(await whatsappApi.contacts());
-    } catch (err) { mostrarAviso("error", err instanceof Error ? err.message : "Falha ao carregar contatos."); }
+    } catch (err) {
+      const mensagem = err instanceof Error ? err.message : "Falha ao carregar contatos.";
+      setErroContatos(mensagem);
+      mostrarAviso("error", mensagem);
+    } finally {
+      setCarregandoContatos(false);
+    }
   };
 
   const abrirModalGrupo = async () => {
@@ -361,16 +393,22 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     const selected = conversas.find((conversation) => conversation.id === id);
     if (!historicoRef.current.has(id) || !selected?.mensagens.length) void carregarHistorico(id);
     void whatsappApi.details(id).then((details) => {
-      setConversas((current) => current.map((conversation) => (
-        conversation.id === id
-          ? { ...conversation, ...details, mensagens: details.mensagens?.length ? details.mensagens : conversation.mensagens }
-          : conversation
-      )));
+      setConversas((current) => mergeConversationDetails(current, details));
     }).catch(() => undefined);
     try {
       await whatsappApi.markConversation(id, "lida", true);
-      carregarConversasDoBackend();
+      if (selected) void carregarConversasDoBackend();
     } catch (error) { mostrarAviso("error", error instanceof Error ? error.message : "Falha ao marcar conversa como lida."); }
+  };
+
+  const iniciarConversaContato = (contact: Contact) => {
+    const conversation = contactToConversation(contact);
+    if (!conversation.id) return;
+    setConversas((current) => current.some((item) => item.id === conversation.id)
+      ? current
+      : [conversation, ...current]);
+    setModalContatosAberto(false);
+    void selecionarConversa(conversation.id);
   };
 
   const atualizarCatalogo = useCallback(async () => {
@@ -858,6 +896,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   }, [conversas]);
 
   const conversaAtiva = conversas.find(c => c.id === conversaSelecionada);
+  const contatosFiltrados = listaContatos.filter((contact) => contactMatchesSearch(contact, filtroContatoNome));
   const paginaHistoricoAtiva = conversaSelecionada ? historicoRef.current.get(conversaSelecionada) : undefined;
   const nenhumConectado = !canaisStatus.whatsapp?.conectado;
 
@@ -1113,25 +1152,44 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       )}
 
       {modalContatosAberto && (
-        <div className="absolute inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="w-[450px] max-h-[80vh] bg-[var(--surface)] border border-[var(--border)] rounded-2xl flex flex-col shadow-2xl overflow-hidden text-xs font-bold text-[var(--text)]">
+        <div className="absolute inset-0 bg-black/60 z-50 flex items-center justify-center p-4" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setModalContatosAberto(false);
+        }}>
+          <div role="dialog" aria-modal="true" aria-labelledby="contact-picker-title" className="w-[450px] max-h-[80vh] bg-[var(--surface)] border border-[var(--border)] rounded-2xl flex flex-col shadow-2xl overflow-hidden text-xs font-bold text-[var(--text)]">
             <div className="p-4 border-b border-[var(--border)] flex items-center justify-between">
-              <h3 className="text-sm font-extrabold">Lista de Contatos</h3>
-              <button onClick={() => setModalContatosAberto(false)}><X size={16}/></button>
+              <div>
+                <h3 id="contact-picker-title" className="text-sm font-extrabold">Novo chat</h3>
+                <p className="mt-0.5 text-[11px] font-medium text-[var(--text-secondary)]">Escolha um contato para iniciar a conversa</p>
+              </div>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Fechar lista de contatos" onClick={() => setModalContatosAberto(false)}><X size={16}/></Button>
             </div>
             <div className="p-3 bg-[var(--background)] border-b border-[var(--border)] flex items-center gap-2">
               <Search size={14} className="opacity-40" />
-              <input type="text" placeholder="Buscar contato..." value={filtroContatoNome} onChange={(e) => setFiltroContatoNome(e.target.value)} className="bg-transparent flex-1 outline-none text-xs font-semibold text-[var(--text)]"/>
+              <input autoFocus type="search" aria-label="Buscar contatos" placeholder="Buscar por nome ou telefone" value={filtroContatoNome} onChange={(e) => setFiltroContatoNome(e.target.value)} className="bg-transparent flex-1 outline-none text-xs font-semibold text-[var(--text)]"/>
             </div>
             <div className="flex-1 overflow-y-auto divide-y divide-[var(--border)]/30">
-              {listaContatos.filter(c => (c.name || "").toLowerCase().includes(filtroContatoNome.toLowerCase())).map((c) => (
-                <div key={c.id || c.phone} onClick={() => { setModalContatosAberto(false); selecionarConversa(c.phone || c.id); }} className="p-3 flex items-center gap-3 hover:bg-[var(--surface-hover)] cursor-pointer transition-all">
-                  <div className="h-8 w-8 rounded-full bg-neutral-700 flex items-center justify-center text-neutral-300"><User size={14}/></div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="font-bold text-sm truncate">{c.name || c.pushname || "Sem Nome"}</span>
-                    <span className="text-xs opacity-50 font-mono">{c.phone}</span>
-                  </div>
+              {carregandoContatos && (
+                <div className="p-8 text-center font-semibold text-[var(--text-secondary)]">Carregando contatos...</div>
+              )}
+              {!carregandoContatos && erroContatos && (
+                <div className="p-8 text-center">
+                  <p className="font-semibold text-red-400">Não foi possível carregar os contatos.</p>
+                  <Button className="mt-3" size="sm" onClick={() => void abrirAgendaContatos()}>Tentar novamente</Button>
                 </div>
+              )}
+              {!carregandoContatos && !erroContatos && contatosFiltrados.length === 0 && (
+                <div className="p-8 text-center font-semibold text-[var(--text-secondary)]">
+                  {filtroContatoNome ? "Nenhum contato encontrado." : "Nenhum contato disponível."}
+                </div>
+              )}
+              {!carregandoContatos && !erroContatos && contatosFiltrados.map((c) => (
+                <button type="button" key={contactConversationId(c)} onClick={() => iniciarConversaContato(c)} className="w-full p-3 flex items-center gap-3 text-left hover:bg-[var(--surface-hover)] cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--primary)]">
+                  <ContactAvatar contact={c} />
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-bold text-sm truncate">{contactDisplayName(c)}</span>
+                    <span className="text-xs opacity-50 font-mono">{c.phone || c.id}</span>
+                  </div>
+                </button>
               ))}
             </div>
           </div>

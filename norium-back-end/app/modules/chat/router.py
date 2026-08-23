@@ -86,7 +86,45 @@ WHATSAPP_HISTORY_CACHE_TTL_SECONDS = max(30, int(os.getenv("WHATSAPP_HISTORY_CAC
 WHATSAPP_HISTORY_SCHEMA_VERSION = 2
 WHATSAPP_RECENT_CONVERSATION_LIMIT = max(10, min(100, int(os.getenv("WHATSAPP_RECENT_CONVERSATION_LIMIT", "50"))))
 WHATSAPP_RECENT_DAYS = max(1, min(90, int(os.getenv("WHATSAPP_RECENT_DAYS", "30"))))
+# Diagnóstico temporário: quando ligado, loga um retrato REDIGIDO de cada webhook
+# (estrutura + campos de status; sem texto de mensagem e com telefones mascarados)
+# para mapear os campos reais da W-API (status/visto e mensagens fromMe). Desligar
+# após capturar (env WHATSAPP_WEBHOOK_DEBUG).
+WHATSAPP_WEBHOOK_DEBUG = os.getenv("WHATSAPP_WEBHOOK_DEBUG", "").strip().lower() in {"1", "true", "yes"}
 BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _mask_id(value: Any) -> str | None:
+    """Mascara um telefone/jid mantendo só os 4 últimos dígitos e o sufixo (@lid/@c.us)."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    local, sep, suffix = s.partition("@")
+    tail = local[-4:] if len(local) > 4 else local
+    return f"...{tail}" + (f"@{suffix}" if sep else "")
+
+
+def _webhook_debug_snapshot(data: Dict[str, Any], kind: str) -> Dict[str, Any]:
+    """Retrato seguro do webhook para diagnóstico: nenhum texto de mensagem, telefones mascarados."""
+    sender = data.get("sender") if isinstance(data.get("sender"), dict) else {}
+    chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
+    content = data.get("msgContent") if isinstance(data.get("msgContent"), dict) else None
+    return {
+        "classifiedAs": kind,
+        "event": data.get("event") or data.get("type"),
+        "topKeys": sorted(data.keys()),
+        "fromMe": data.get("fromMe"),
+        "isGroup": data.get("isGroup"),
+        "chatIdMasked": _mask_id(data.get("chatId") or data.get("phone") or chat.get("id")),
+        "senderIdMasked": _mask_id(sender.get("id") or data.get("senderId")),
+        "senderLidMasked": _mask_id(sender.get("senderLid") or sender.get("lid")),
+        "hasPushName": bool(sender.get("pushName") or data.get("pushName")),
+        "msgContentKeys": sorted(content.keys()) if content else None,
+        # Campos candidatos a status/visto (não são PII) — o que falta mapear.
+        "status": data.get("status"),
+        "ack": data.get("ack"),
+        "state": data.get("state"),
+    }
 UPLOAD_DIR = get_data_root() / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = 14 * 1024 * 1024
@@ -470,6 +508,11 @@ async def webhook_whatsapp(
     # 3) Deduplicacao por (tipo de evento + id). Recebido e status compartilham o
     #    messageId, entao a chave inclui o tipo para nao descartar o status.
     kind = wapi_webhook.classify_event(data)
+    if WHATSAPP_WEBHOOK_DEBUG:
+        try:
+            logger.info("WAPI_WEBHOOK_DEBUG %r", _webhook_debug_snapshot(data, kind))
+        except Exception:  # diagnóstico nunca pode quebrar o webhook
+            logger.info("WAPI_WEBHOOK_DEBUG <falha ao serializar>")
     now = time.time()
     for expired in [eid for eid, expires_at in whatsapp_webhook_event_cache.items() if expires_at <= now]:
         whatsapp_webhook_event_cache.pop(expired, None)

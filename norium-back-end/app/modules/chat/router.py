@@ -557,6 +557,12 @@ async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str,
     if msg.get("photoUrl"):
         conversa["photoUrl"] = msg["photoUrl"]
         conversa.setdefault("metadados", {})["photoUrl"] = msg["photoUrl"]
+    elif not conversa.get("photoUrl") and should_try_profile_picture(user_id, phone):
+        # O webhook não traz foto; busca via profile-picture (uma vez, com cache).
+        foto = await fetch_profile_picture(user_id, phone)
+        if foto:
+            conversa["photoUrl"] = foto
+            conversa.setdefault("metadados", {})["photoUrl"] = foto
     conversa["ultimoTexto"] = msg["texto"]
     conversa["horario"] = hora
     conversa["timestampUltimaMsg"] = timestamp
@@ -698,26 +704,32 @@ async def obter_conversas(
     creds = wapi_creds(resolved_user_id)
 
     async def _remote_catalog(kind: str) -> list[Dict[str, Any]] | None:
-        # Lista remota; [] em sucesso vazio; None quando indisponivel (sem
-        # instancia, erro, ou "Acesso negado" no plano LITE). Nunca apaga o cache.
+        # Lista remota paginada (fetch-chats/contacts vem em páginas de ~10).
+        # [] em sucesso vazio; None quando indisponivel (sem instancia, erro, ou
+        # "Acesso negado" no LITE). Nunca apaga o cache.
         if not creds:
             return None
         instance_id, token = creds
-        try:
-            data = await (
-                wapi_client.fetch_chats(instance_id, token)
-                if kind == "chats"
-                else wapi_client.fetch_contacts(instance_id, token)
-            )
-        except WapiError:
-            return None
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            for key in (kind, "items", "data"):
-                if isinstance(data.get(key), list):
-                    return data[key]
-        return []
+        fetch = wapi_client.fetch_chats if kind == "chats" else wapi_client.fetch_contacts
+        combined: list[Dict[str, Any]] = []
+        for page in range(1, 6):  # até 5 páginas
+            try:
+                data = await fetch(instance_id, token, page=page)
+            except WapiError:
+                return combined if page > 1 else None
+            if isinstance(data, list):
+                combined.extend(data)
+                break
+            if not isinstance(data, dict):
+                break
+            items = next((data[k] for k in (kind, "items", "data") if isinstance(data.get(k), list)), None)
+            if not items:
+                break
+            combined.extend(items)
+            total_pages = data.get("totalPages")
+            if not isinstance(total_pages, int) or page >= total_pages:
+                break
+        return combined
 
     try:
         res_chats, res_contacts = await asyncio.gather(_remote_catalog("chats"), _remote_catalog("contacts"))
@@ -741,6 +753,15 @@ async def obter_conversas(
                 continue
 
             phone = str(phone)
+            # W-API fetch-chats traz "lastMessageTime" (sem mensagens). Usa como
+            # timestamp da conversa para não ser filtrada pelo corte de recência.
+            last_ts = chat.get("lastMessageTime") or chat.get("timestamp") or 0
+            try:
+                last_ts = int(last_ts)
+                if last_ts > 1_000_000_000_000:  # milissegundos → segundos
+                    last_ts //= 1000
+            except (TypeError, ValueError):
+                last_ts = 0
             is_group = is_group_chat(phone, chat)
             nome_final = nomes.get(phone) or chat.get("name") or chat.get("pushname") or phone
             meta_extra = metadata.get(phone, {"participantes": [], "descricaoGrupo": ""})
@@ -784,6 +805,9 @@ async def obter_conversas(
                         "criadoEm": meta_extra.get("criadoEm"),
                     }
                 )
+                if last_ts:
+                    db[phone]["timestampUltimaMsg"] = last_ts
+                    db[phone]["horario"] = format_whatsapp_time(last_ts)
                 db[phone] = normalize_conversation(phone, db[phone])
                 changed = True
             else:
@@ -805,6 +829,8 @@ async def obter_conversas(
                 ):
                     if metadata_key in meta_extra and meta_extra.get(metadata_key) is not None:
                         conversa["metadados"][metadata_key] = meta_extra[metadata_key]
+                if last_ts:
+                    conversa["timestampUltimaMsg"] = max(int(conversa.get("timestampUltimaMsg") or 0), last_ts)
                 db[phone] = normalize_conversation(phone, conversa)
                 changed = True
 
@@ -1291,8 +1317,22 @@ async def excluir_conversa(
 async def modificar_chat(payload: ModificarChatPayload, user: dict[str, Any] = Depends(current_user)):
     assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
-    # "Marcar como lida" e tratado localmente; a W-API cuida de recibos de leitura
-    # pela configuracao automaticReading da instancia.
+    # "Marcar como lida": envia o recibo de leitura (✓✓) da última mensagem
+    # recebida ao WhatsApp e limpa o não-lido localmente.
+    if payload.acao == "lida" and payload.valor is True:
+        try:
+            db_read = await load_conversations(resolved_user_id)
+            conv_read = db_read.get(payload.conversa_id)
+            if isinstance(conv_read, dict):
+                ultima = next(
+                    (m for m in reversed(conv_read.get("mensagens") or [])
+                     if m.get("remetente") == "contato" and m.get("id")),
+                    None,
+                )
+                if ultima:
+                    await wapi_messaging.mark_read(resolved_user_id, payload.conversa_id, str(ultima["id"]))
+        except (MessagingUnavailable, WapiError):
+            pass  # marca localmente mesmo se a W-API recusar/estiver indisponível
     sucesso = await modify_conversation(payload.conversa_id, payload.acao, payload.valor, resolved_user_id)
     return {"status": "sucesso" if sucesso else "not_found"}
 

@@ -26,8 +26,10 @@ def wapi_phone(conversa_id: str) -> str:
     cid = str(conversa_id or "").strip()
     if not cid:
         raise MessagingUnavailable("Conversa invalida.")
-    if cid.endswith("@g.us"):
-        return cid  # grupo: mantém o id completo
+    # Grupos (@g.us) e ids de privacidade (@lid) vão inteiros; a W-API os resolve.
+    if cid.endswith("@g.us") or cid.endswith("@lid"):
+        return cid
+    # Individuais (@c.us / @s.whatsapp.net) viram número puro.
     local = cid.split("@", 1)[0]
     digits = re.sub(r"\D", "", local)
     return digits or local

@@ -165,6 +165,7 @@ def normalize_message(mensagem: Dict[str, Any], channel: ChatChannel) -> Dict[st
         "status": status,
         "reacoes": _normalize_reactions(mensagem.get("reacoes") or mensagem.get("reactions")),
         "citada": mensagem.get("citada") if isinstance(mensagem.get("citada"), dict) else None,
+        "midiaMeta": mensagem.get("midiaMeta") if isinstance(mensagem.get("midiaMeta"), dict) else None,
         "canal": channel,
         "channel": channel,
     }

@@ -471,13 +471,21 @@ async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str,
 
     db = await load_conversations(user_id)
     conversa = db.get(phone) or new_conversation(
-        phone, contato=msg["chatName"], channel="whatsapp", is_group=msg["isGroup"]
+        phone, contato=(msg["chatName"] or phone), channel="whatsapp", is_group=msg["isGroup"]
     )
     mensagens = conversa.setdefault("mensagens", [])
     if any(str(item.get("id") or "") == message_id for item in mensagens):
         return {"status": "duplicate"}
 
-    conversa["contato"] = msg["chatName"]
+    # Nome da conversa: grupo nao vem no webhook (busca o subject uma vez);
+    # individual usa o pushName do contato.
+    if msg["isGroup"]:
+        nome_atual = conversa.get("contato")
+        if not nome_atual or nome_atual == phone:
+            grupo = await fetch_group_metadata(user_id, phone)
+            conversa["contato"] = (grupo or {}).get("nome") or nome_atual or phone
+    elif msg["chatName"]:
+        conversa["contato"] = msg["chatName"]
     conversa["canal"] = "whatsapp"
     conversa["channel"] = "whatsapp"
     conversa["esGrupo"] = msg["isGroup"]
@@ -501,6 +509,7 @@ async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str,
                 "remetenteId": msg.get("senderId"),
                 "texto": msg["texto"],
                 "tipo": msg["tipo"],
+                "midiaMeta": msg.get("midiaMeta"),
                 "horario": hora,
                 "timestamp": timestamp,
                 "status": msg.get("status") if is_from_me else None,
@@ -908,12 +917,24 @@ async def obter_midia_whatsapp(
         )
     except WapiError as exc:
         raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.") from exc
-    data_url = None
+    inline = link = None
     if isinstance(payload, dict):
-        data_url = payload.get("data") or payload.get("base64") or payload.get("media") or payload.get("fileLink")
-    if not isinstance(data_url, str):
+        inline = payload.get("data") or payload.get("base64") or payload.get("media")
+        link = payload.get("fileLink") or payload.get("url") or payload.get("link")
+    fallback_mime = str(media_meta.get("mimetype") or "application/octet-stream")
+    if isinstance(inline, str) and inline:
+        # base64 / data URI
+        file_bytes, mime_type = decode_data_url(inline, fallback_mime)
+    elif isinstance(link, str) and link.startswith("https://"):
+        # A W-API entrega a midia decriptada por uma URL temporaria (fileLink).
+        async with httpx.AsyncClient(follow_redirects=True) as media_client:
+            res_link = await media_client.get(link, timeout=60.0)
+        if res_link.status_code != 200:
+            raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+        file_bytes = res_link.content
+        mime_type = res_link.headers.get("Content-Type", fallback_mime)
+    else:
         raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
-    file_bytes, mime_type = decode_data_url(data_url, "application/octet-stream")
     if len(file_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
     if mime_type.split(";", 1)[0].lower() in {"text/html", "image/svg+xml"}:
@@ -1606,13 +1627,15 @@ async def fetch_group_metadata(user_id: str, phone: str) -> Dict[str, Any] | Non
         data = await wapi_client.group_metadata(creds[0], creds[1], group_id)
         if not isinstance(data, dict) or data.get("error"):
             return None
+        # O subject/participantes vêm aninhados em "group".
+        g = data.get("group") if isinstance(data.get("group"), dict) else data
         return {
-            "nome": data.get("subject") or data.get("name"),
-            "descricaoGrupo": data.get("description") or data.get("desc") or "",
-            "participantes": data.get("participants") or [],
-            "criadoPor": data.get("owner") or data.get("creator"),
-            "criadoEm": data.get("createdAt") or data.get("creation"),
-            "photoUrl": extract_photo_url(data),
+            "nome": g.get("subject") or g.get("name"),
+            "descricaoGrupo": g.get("description") or g.get("desc") or "",
+            "participantes": g.get("participants") or [],
+            "criadoPor": g.get("owner") or g.get("creator") or g.get("subjectOwner"),
+            "criadoEm": g.get("creation") or g.get("createdAt"),
+            "photoUrl": extract_photo_url(g),
         }
     except WapiError:
         logger.warning("Falha ao buscar metadados de grupo W-API.")

@@ -99,21 +99,24 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
     from_me = bool(_first(data, "fromMe", "isFromMe") or False)
     is_group = bool(_first(data, "isGroup", "isGroupMsg") or (str(chat_id).endswith("@g.us")))
     sender_name = str(
-        _first(data, "senderName", "pushName", "notifyName", "chatName", "name")
+        _first(data, "senderName", "pushName", "notifyName")
         or sender.get("pushName")
         or sender.get("name")
         or chat_id
     )
-    chat_name = str(_first(data, "chatName", "name") or (chat.get("name") if chat else None) or sender_name)
+    # O payload do grupo NÃO traz o nome (subject) — só id e foto. Deixamos vazio
+    # para o handler resolver o subject via group-metadata; individual usa o nome
+    # do próprio contato (pushName).
+    chat_name = "" if is_group else sender_name
 
-    # Timestamp: W-API usa "momment" (grafia própria) em segundos.
-    timestamp = _first(data, "momment", "moment", "timestamp", "messageTimestamp", "t")
+    # Timestamp em segundos: campo real "moment".
+    timestamp = _first(data, "moment", "momment", "timestamp", "messageTimestamp", "t")
     try:
         timestamp_int = int(timestamp) if timestamp is not None else 0
     except (TypeError, ValueError):
         timestamp_int = 0
 
-    texto, tipo = _extract_text_and_type(data)
+    texto, tipo, midia_meta = _extract_content(data)
 
     return {
         "messageId": str(_first(data, "messageId", "id", "zaid") or ""),
@@ -126,37 +129,52 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
         "timestamp": timestamp_int,
         "texto": texto,
         "tipo": tipo,
+        "midiaMeta": midia_meta,
         "status": str(_first(data, "status") or "") or None,
     }
 
 
-def _extract_text_and_type(data: dict[str, Any]) -> tuple[str, str]:
+# msgContent.<key>Message -> (tipo interno, type para download-media)
+_MEDIA_TYPES = {
+    "imageMessage": ("midia", "image"),
+    "videoMessage": ("midia", "video"),
+    "audioMessage": ("audio", "audio"),
+    "documentMessage": ("documento", "document"),
+    "stickerMessage": ("sticker", "sticker"),
+}
+
+
+def _extract_content(data: dict[str, Any]) -> tuple[str, str, dict[str, Any] | None]:
+    """Retorna (texto, tipo, midia_meta). ``midia_meta`` alimenta download-media."""
     content = data.get("msgContent")
     if isinstance(content, dict):
         if isinstance(content.get("conversation"), str):
-            return content["conversation"], "texto"
+            return content["conversation"], "texto", None
         ext = content.get("extendedTextMessage")
         if isinstance(ext, dict) and isinstance(ext.get("text"), str):
-            return ext["text"], "texto"
-        for key, tipo in (
-            ("imageMessage", "midia"),
-            ("videoMessage", "midia"),
-            ("audioMessage", "audio"),
-            ("documentMessage", "documento"),
-            ("stickerMessage", "sticker"),
-            ("locationMessage", "localizacao"),
-            ("contactMessage", "contato"),
-        ):
+            return ext["text"], "texto", None
+        for key, (tipo, dtype) in _MEDIA_TYPES.items():
             node = content.get(key)
             if isinstance(node, dict):
                 caption = node.get("caption")
-                return (caption if isinstance(caption, str) else ""), tipo
-    # Fallbacks simples.
+                meta = {
+                    "mediaKey": node.get("mediaKey") or "",
+                    "directPath": node.get("directPath") or "",
+                    "type": dtype,
+                    "mimetype": node.get("mimetype") or "",
+                }
+                # Só é baixável se tiver as chaves mínimas.
+                if not (meta["mediaKey"] and meta["directPath"]):
+                    meta = None
+                return (caption if isinstance(caption, str) else ""), tipo, meta
+        for key, tipo in (("locationMessage", "localizacao"), ("contactMessage", "contato")):
+            if isinstance(content.get(key), dict):
+                return "", tipo, None
     for key in ("text", "body", "message", "caption"):
         value = data.get(key)
         if isinstance(value, str):
-            return value, "texto"
-    return "", "texto"
+            return value, "texto", None
+    return "", "texto", None
 
 
 def _first(data: dict[str, Any], *keys: str) -> Any:

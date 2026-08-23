@@ -96,5 +96,70 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("lido", msg["status"])  # "READ" mapeado para o vocabulario interno
 
 
+class WapiAdaptIncomingTests(unittest.TestCase):
+    """Trava o parsing do payload real da W-API (grupo, nome, mídia, timestamp)."""
+
+    def test_group_message_uses_group_id_and_no_sender_name(self) -> None:
+        from app.services.wapi_webhook import adapt_incoming
+
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "isGroup": True,
+            "messageId": "M1",
+            "fromMe": False,
+            "chat": {"id": "120363000000000000@g.us"},
+            "sender": {"id": "5511999998888", "pushName": "Joao"},
+            "moment": 1700000000,
+            "msgContent": {"conversation": "ola grupo"},
+        }
+        msg = adapt_incoming(payload)
+        self.assertEqual("120363000000000000@g.us", msg["chatId"])  # chave = grupo, não remetente
+        self.assertTrue(msg["isGroup"])
+        self.assertEqual("", msg["chatName"])  # grupo não traz nome no webhook
+        self.assertEqual("Joao", msg["senderName"])
+        self.assertEqual(1700000000, msg["timestamp"])
+        self.assertEqual("texto", msg["tipo"])
+
+    def test_image_message_captures_media_meta(self) -> None:
+        from app.services.wapi_webhook import adapt_incoming
+
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "isGroup": False,
+            "messageId": "M2",
+            "chat": {"id": "73650132766836@lid"},
+            "sender": {"pushName": "Nando"},
+            "moment": 1700000001,
+            "msgContent": {
+                "imageMessage": {
+                    "caption": "olha isso",
+                    "mediaKey": "abc",
+                    "directPath": "/v/t62...",
+                    "mimetype": "image/jpeg",
+                    "URL": "https://mmg.whatsapp.net/enc",
+                }
+            },
+        }
+        msg = adapt_incoming(payload)
+        self.assertEqual("73650132766836@lid", msg["chatId"])
+        self.assertEqual("midia", msg["tipo"])
+        self.assertEqual("olha isso", msg["texto"])
+        self.assertEqual(
+            {"mediaKey": "abc", "directPath": "/v/t62...", "type": "image", "mimetype": "image/jpeg"},
+            msg["midiaMeta"],
+        )
+
+
+class WapiPhoneLidTests(unittest.TestCase):
+    def test_lid_and_group_kept_whole(self) -> None:
+        from app.services.wapi_messaging import wapi_phone
+
+        self.assertEqual("73650132766836@lid", wapi_phone("73650132766836@lid"))
+        self.assertEqual("120363000000000000@g.us", wapi_phone("120363000000000000@g.us"))
+        self.assertEqual("5511999998888", wapi_phone("5511999998888@c.us"))
+
+
 if __name__ == "__main__":
     unittest.main()

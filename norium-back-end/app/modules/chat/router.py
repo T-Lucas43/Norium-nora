@@ -107,6 +107,7 @@ class EnviarMensagemPayload(StrictModel):
     conversa_id: str = Field(min_length=1)
     canal: Literal["whatsapp"] = "whatsapp"
     texto: str = Field(min_length=1)
+    responder_a: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class EnviarArquivoPayload(StrictModel):
@@ -550,6 +551,9 @@ async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str,
     conversa["canal"] = "whatsapp"
     conversa["channel"] = "whatsapp"
     conversa["esGrupo"] = msg["isGroup"]
+    if msg.get("photoUrl"):
+        conversa["photoUrl"] = msg["photoUrl"]
+        conversa.setdefault("metadados", {})["photoUrl"] = msg["photoUrl"]
     conversa["ultimoTexto"] = msg["texto"]
     conversa["horario"] = hora
     conversa["timestampUltimaMsg"] = timestamp
@@ -1086,8 +1090,29 @@ async def obter_contatos_disponiveis(
 async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, payload.canal)
+
+    # Citação (responder): monta a prévia a partir da mensagem alvo no store.
+    citada = None
+    if payload.responder_a:
+        db_quote = await load_conversations(resolved_user_id)
+        conversa_quote = db_quote.get(payload.conversa_id)
+        if isinstance(conversa_quote, dict):
+            alvo = next(
+                (m for m in conversa_quote.get("mensagens") or [] if str(m.get("id") or "") == payload.responder_a),
+                None,
+            )
+            if alvo:
+                citada = {
+                    "id": payload.responder_a,
+                    "content": alvo.get("texto") or "",
+                    "senderName": alvo.get("remetenteNome")
+                    or (None if alvo.get("remetente") == "usuario" else conversa_quote.get("contato")),
+                }
+
     try:
-        result = await wapi_messaging.send_text(resolved_user_id, payload.conversa_id, payload.texto)
+        result = await wapi_messaging.send_text(
+            resolved_user_id, payload.conversa_id, payload.texto, quoted_message_id=payload.responder_a or ""
+        )
     except (MessagingUnavailable, WapiError) as exc:
         raise _messaging_http_error(exc, "A API do WhatsApp recusou o envio.") from exc
     if not result.get("sent"):
@@ -1099,6 +1124,7 @@ async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] =
         channel="whatsapp",
         status="enviado",
         message_id=str(result.get("messageId") or "") or None,
+        citada=citada,
         user_id=resolved_user_id,
     )
     await record_event(

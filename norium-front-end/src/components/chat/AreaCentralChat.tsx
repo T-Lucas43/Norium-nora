@@ -28,7 +28,7 @@ import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
 interface AreaCentralProps {
   conversaAtiva: ChatConversa | undefined;
-  onEnviar: (texto: string) => void | Promise<void>;
+  onEnviar: (texto: string, responderA?: string) => void | Promise<void>;
   onAbrirDadosPerfil: () => void;
   onAnexarArquivo: () => void;
   onGravarAudio: () => void;
@@ -465,6 +465,7 @@ export default function AreaCentralChat({
   onEnviarFigurinhaExistente,
 }: AreaCentralProps) {
   const [resposta, setResposta] = useState("");
+  const [respondendoA, setRespondendoA] = useState<MsgConteudo | null>(null);
   const [mostrarPesquisa, setMostrarPesquisa] = useState(false);
   const [termoPesquisa, setTermoPesquisa] = useState("");
   const [traduzirChat, setTraduzirChat] = useState(false);
@@ -548,8 +549,9 @@ export default function AreaCentralChat({
   const acionarEnviar = () => {
     const texto = resposta.trim();
     if (!texto && anexosPendentes.length === 0) return;
-    void onEnviar(texto);
+    void onEnviar(texto, respondendoA?.id);
     setResposta("");
+    setRespondendoA(null);
   };
 
   const alternarSelecaoMensagem = (id: string) => {
@@ -674,6 +676,9 @@ export default function AreaCentralChat({
                         <button key={emoji} className="grid h-7 w-7 place-items-center rounded-full text-base hover:bg-[var(--surface-hover)]" onClick={() => { void onReagirMensagem(msg.id, emoji); setMenuMensagemId(null); }} aria-label={`Reagir com ${emoji}`}>{emoji}</button>
                       ))}
                     </div>
+                    <button onClick={() => { setRespondendoA(msg); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
+                      <CornerUpRight size={13} /> Responder
+                    </button>
                     <button onClick={() => { if (msg.texto) void navigator.clipboard.writeText(msg.texto); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
                       <Copy size={13} /> Copiar
                     </button>
@@ -778,6 +783,27 @@ export default function AreaCentralChat({
                   ? "Microfone bloqueado"
                   : "Permissao do microfone"}
             </span>
+          </div>
+        )}
+
+        {respondendoA && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border-l-4 border-[var(--primary)] bg-[var(--background)] px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-extrabold text-[var(--primary)]">
+                Respondendo{respondendoA.remetenteNome ? ` a ${respondendoA.remetenteNome}` : ""}
+              </p>
+              <p className="truncate text-xs font-medium text-[var(--text-secondary)]">
+                {respondendoA.texto || "[midia]"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRespondendoA(null)}
+              aria-label="Cancelar resposta"
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
 

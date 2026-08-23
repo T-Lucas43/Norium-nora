@@ -234,6 +234,7 @@ async def append_outgoing_message(
     sender_label: Optional[str] = None,
     status: Literal["enviado", "entregue", "lido"] = "enviado",
     message_id: Optional[str] = None,
+    citada: Optional[Dict[str, Any]] = None,
     user_id: str = "lucas123",
 ) -> Dict[str, Any]:
     hora, timestamp = _now_payload()
@@ -248,6 +249,7 @@ async def append_outgoing_message(
             "horario": hora,
             "timestamp": timestamp,
             "status": status,
+            "citada": citada,
             "canal": channel,
             "channel": channel,
         },

@@ -45,9 +45,13 @@ class WapiMessagingService:
             raise MessagingUnavailable("Nenhuma instancia de WhatsApp vinculada a esta conta.")
         return binding.instance_id, binding.token
 
-    async def send_text(self, user_id: str, conversa_id: str, text: str) -> dict[str, Any]:
+    async def send_text(
+        self, user_id: str, conversa_id: str, text: str, *, quoted_message_id: str = ""
+    ) -> dict[str, Any]:
         instance_id, token = self._creds(user_id)
-        res = await self._client.send_text(instance_id, token, wapi_phone(conversa_id), text)
+        res = await self._client.send_text(
+            instance_id, token, wapi_phone(conversa_id), text, quoted_message_id=quoted_message_id
+        )
         message_id = str(res.get("messageId") or "")
         return {"sent": bool(message_id), "messageId": message_id}
 

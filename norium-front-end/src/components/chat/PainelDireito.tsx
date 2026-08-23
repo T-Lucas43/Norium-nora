@@ -43,7 +43,7 @@ function PrivateMediaThumbnail({ source }: { source?: string }) {
 }
 
 export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora }: PainelDireitoProps) {
-  const midiasGaleria = conversaAtiva?.mensagens.filter((mensagem) => mensagem.tipo === "midia" || mensagem.tipo === "sticker") || [];
+  const midiasGaleria = conversaAtiva?.mensagens.filter((mensagem) => mensagem.tipo === "midia") || [];
   const participantes = conversaAtiva?.metadados?.participantes || [];
   const createdValue = conversaAtiva?.metadados?.criadoEm;
   const createdDate = createdValue

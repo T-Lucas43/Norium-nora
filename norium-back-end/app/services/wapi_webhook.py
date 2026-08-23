@@ -122,6 +122,9 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
     if tipo is None and not reaction_target:
         return None
 
+    # Foto de perfil vem no proprio webhook (chat/sender.profilePicture).
+    photo_url = (chat.get("profilePicture") if chat else None) or sender.get("profilePicture")
+
     return {
         "messageId": str(_first(data, "messageId", "id", "zaid") or ""),
         "chatId": str(chat_id),
@@ -130,6 +133,7 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
         "senderName": sender_name,
         "chatName": chat_name,
         "senderId": sender.get("id") if sender else _first(data, "senderId", "participant"),
+        "photoUrl": photo_url if isinstance(photo_url, str) and photo_url.startswith("http") else None,
         "timestamp": timestamp_int,
         "texto": texto,
         "tipo": tipo or "texto",

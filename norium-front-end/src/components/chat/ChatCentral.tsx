@@ -552,7 +552,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     });
   };
 
-  const handleEnviarMensagem = async (texto: string) => {
+  const handleEnviarMensagem = async (texto: string, responderA?: string) => {
     const textoLimpo = texto.trim();
     const anexosParaEnviar = [...anexosPendentesRef.current];
     if (!conversaSelecionada || (!textoLimpo && anexosParaEnviar.length === 0)) return;
@@ -561,7 +561,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     const anexosEnviados = new Set<string>();
     try {
       if (textoLimpo) {
-        await whatsappApi.sendText(conversaSelecionada, textoLimpo);
+        await whatsappApi.sendText(conversaSelecionada, textoLimpo, responderA);
       }
 
       for (const anexo of anexosParaEnviar) {

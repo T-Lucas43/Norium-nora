@@ -124,10 +124,15 @@ export const whatsappApi = {
     });
   },
 
-  async sendText(conversationId: string, text: string) {
+  async sendText(conversationId: string, text: string, quotedId?: string) {
     return apiRequest<{ status: string }>("/api/chat/enviar", {
       method: "POST",
-      body: JSON.stringify({ conversa_id: conversationId, canal: "whatsapp", texto: text }),
+      body: JSON.stringify({
+        conversa_id: conversationId,
+        canal: "whatsapp",
+        texto: text,
+        ...(quotedId ? { responder_a: quotedId } : {}),
+      }),
       timeoutMs: 45_000,
     });
   },

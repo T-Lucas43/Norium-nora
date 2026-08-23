@@ -86,6 +86,23 @@ class WapiConnectService:
             os.getenv("WAPI_TEST_INSTANCE_TOKEN", "").strip(),
         )
 
+    async def _find_instance_by_name(self, name: str) -> dict[str, Any] | None:
+        """Procura na conta uma instância já criada com este nome (idempotência)."""
+        try:
+            listing = await self._client.list_instances()
+        except WapiError:
+            return None
+        items = listing.get("instances") if isinstance(listing, dict) else listing
+        for item in items or []:
+            if (
+                isinstance(item, dict)
+                and item.get("instanceName") == name
+                and item.get("instanceId")
+                and item.get("token")
+            ):
+                return item
+        return None
+
     async def ensure_instance(self, user_id: str, *, allow_create: bool = True) -> InstanceBinding:
         """Garante o vínculo de uma instância à conta, de forma idempotente."""
         binding = wb.get_binding(user_id)
@@ -109,9 +126,26 @@ class WapiConnectService:
         # Produção: cria a instância pela API Key Mestra, já com os webhooks.
         binding.state = "creating"
         wb.save_binding(user_id, binding)
+        instance_name = f"norium-{user_id}"[:60]
+
+        # Idempotência: se já existe uma instância deste usuário, reutiliza — evita
+        # criar duplicatas que religam o mesmo número e derrubam outras sessões.
+        existing = await self._find_instance_by_name(instance_name)
+        if existing:
+            binding.instance_id = str(existing.get("instanceId") or "")
+            binding.token = str(existing.get("token") or "")
+            binding.instance_name = instance_name
+            binding.state = "awaiting_qr"
+            binding.created_at = time.time()
+            if binding.exists:
+                return wb.save_binding(user_id, binding)
+
+        # Plano da instância criada: PRO por padrão (LITE bloqueia reações,
+        # figurinhas, listagem e sync de enviadas). Override por WAPI_INSTANCE_LITE.
+        lite = os.getenv("WAPI_INSTANCE_LITE", "false").strip().lower() in {"1", "true", "yes"}
         created = await self._client.create_instance(
-            instance_name=f"norium-{user_id}"[:60],
-            lite=True,
+            instance_name=instance_name,
+            lite=lite,
             webhooks=self._webhook_urls(),
         )
         new_id = str(created.get("instanceId") or created.get("id") or "")

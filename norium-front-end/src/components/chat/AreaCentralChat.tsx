@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Check,
   CheckCheck,
@@ -233,7 +234,9 @@ function MediaLightbox({ src, kind, onClose }: { src: string; kind: "image" | "v
     };
   }, [onClose]);
 
-  return (
+  // Portal para o body: escapa de ancestrais com transform (framer-motion), que
+  // fariam o overlay "fixed" ser recortado dentro do balão da mensagem.
+  return createPortal(
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 p-4"
       onClick={onClose}
@@ -264,7 +267,8 @@ function MediaLightbox({ src, kind, onClose }: { src: string; kind: "image" | "v
           onClick={(e) => e.stopPropagation()}
         />
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

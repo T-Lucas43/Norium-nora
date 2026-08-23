@@ -33,7 +33,7 @@ jobs:
             --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
             --type console \
             --follow false \
-            --tail 500 \
+            --tail 300 \
             --format text \
             | grep -Eai 'WAPI_WEBHOOK_DEBUG' \
             | tail -n 200 \

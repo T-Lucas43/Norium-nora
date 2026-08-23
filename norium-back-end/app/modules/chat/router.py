@@ -509,10 +509,12 @@ async def webhook_whatsapp(
     #    messageId, entao a chave inclui o tipo para nao descartar o status.
     kind = wapi_webhook.classify_event(data)
     if WHATSAPP_WEBHOOK_DEBUG:
+        # WARNING (não INFO): o app não configura logging, então o nível efetivo é
+        # WARNING e um logger.info seria descartado (não apareceria no console).
         try:
-            logger.info("WAPI_WEBHOOK_DEBUG %r", _webhook_debug_snapshot(data, kind))
+            logger.warning("WAPI_WEBHOOK_DEBUG %r", _webhook_debug_snapshot(data, kind))
         except Exception:  # diagnóstico nunca pode quebrar o webhook
-            logger.info("WAPI_WEBHOOK_DEBUG <falha ao serializar>")
+            logger.warning("WAPI_WEBHOOK_DEBUG <falha ao serializar>")
     now = time.time()
     for expired in [eid for eid, expires_at in whatsapp_webhook_event_cache.items() if expires_at <= now]:
         whatsapp_webhook_event_cache.pop(expired, None)

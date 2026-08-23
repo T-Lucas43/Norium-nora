@@ -37,10 +37,22 @@ class ConsentRequiredError(Exception):
 _WEBHOOK_PATH = "/api/whatsapp/webhook"
 _WEBHOOK_EVENTS = ("connected", "disconnected", "delivery", "received", "status", "presence")
 
+# A W-API gera um QR NOVO a cada chamada de /instance/qr-code (verificado ao
+# vivo: chamadas consecutivas retornam QRs distintos), e cada QR é uma sessão de
+# pareamento nova que invalida a anterior. O frontend faz polling de status a
+# cada ~3s; se cada poll regenerasse o QR, o código exibido seria substituído
+# antes de o WhatsApp concluir a vinculação — o celular acusa "não foi possível
+# conectar o dispositivo". Por isso mantemos o último QR estável por uma janela
+# (tempo suficiente para escanear) e só renovamos quando ele realmente expira.
+_QR_CACHE_TTL_SECONDS = max(5.0, float(os.getenv("WAPI_QR_TTL_SECONDS", "20")))
+
 
 class WapiConnectService:
     def __init__(self, client: WapiClient | None = None) -> None:
         self._client = client or WapiClient()
+        # instance_id -> (qrcode, fetched_at). Estabiliza o QR entre polls para
+        # não regenerar a sessão de pareamento a cada consulta de status.
+        self._qr_cache: dict[str, tuple[str, float]] = {}
 
     @property
     def configured(self) -> bool:
@@ -176,6 +188,32 @@ class WapiConnectService:
             binding.connected_at = time.time()
         wb.save_binding(user_id, binding)
 
+    def _drop_qr_cache(self, instance_id: str) -> None:
+        self._qr_cache.pop(instance_id, None)
+
+    async def _stable_qr(self, instance_id: str, token: str, *, force: bool = False) -> str | None:
+        """Devolve um QR estável dentro da janela de TTL.
+
+        Como cada chamada à W-API cria uma sessão de pareamento nova (invalidando
+        a anterior), reusar o último QR dentro da janela dá tempo ao WhatsApp de
+        concluir a vinculação. ``force`` renova imediatamente — usado quando o
+        usuário (re)inicia a conexão e quer um QR fresco para começar a escanear.
+        """
+        now = time.time()
+        if not force:
+            cached = self._qr_cache.get(instance_id)
+            if cached and now - cached[1] < _QR_CACHE_TTL_SECONDS:
+                return cached[0]
+        try:
+            qr = await self._client.qr_code(instance_id, token)
+        except WapiError:
+            return None
+        qrcode = qr.get("qrcode") if isinstance(qr, dict) else None
+        if qrcode:
+            self._qr_cache[instance_id] = (qrcode, now)
+            return qrcode
+        return None
+
     async def status(self, user_id: str) -> dict[str, Any]:
         if not self.configured:
             return {"status": "indisponivel", "qrcode": None, "detail": "W-API não configurada."}
@@ -194,14 +232,36 @@ class WapiConnectService:
             return {"status": "erro", "qrcode": None, "state": "error", "detail": exc.message}
 
         connected = live.get("connected") is True
+        device: dict[str, Any] | None = None
+
+        # A W-API às vezes reporta connected:false no status-instance mesmo com o
+        # aparelho vinculado (segue em "Aparelhos conectados" no celular) logo
+        # após o pareamento. O webhook `connected` já confirmou o vínculo, gravando
+        # binding.state="connected" e binding.connected_at. Como o ramo do QR
+        # sobrescreve `state` a cada poll (corrida), usamos também connected_at —
+        # que não é limpo — como sinal durável, e confirmamos pelo /instance/device
+        # (só responde com connectedPhone quando realmente conectado) antes de
+        # voltar a exibir QR.
+        if not connected and (binding.state == "connected" or binding.connected_at is not None):
+            try:
+                device = await self._client.device(binding.instance_id, binding.token)
+                connected = bool(
+                    device.get("connectedPhone") or device.get("phone") or device.get("number")
+                )
+            except WapiError:
+                device = None
+                connected = False
+
         if connected:
             number = None
             try:
-                device = await self._client.device(binding.instance_id, binding.token)
+                if device is None:
+                    device = await self._client.device(binding.instance_id, binding.token)
                 # Shape verificado ao vivo: {connectedPhone, name, profilePictureUrl, ...}.
                 number = device.get("connectedPhone") or device.get("phone") or device.get("number")
             except WapiError:
                 number = None
+            self._drop_qr_cache(binding.instance_id)
             self._apply_state(user_id, binding, "connected")
             return {
                 "status": "conectado",
@@ -216,12 +276,10 @@ class WapiConnectService:
             return {"status": "aguardando_aceite", "qrcode": None, "state": "disconnected", "consentRequired": True}
 
         # Retorna o QR atual para o polling do frontend exibir/renovar. Sem isso,
-        # o app fica "Gerando QR Code..." para sempre (o polling usa /status).
-        try:
-            qr = await self._client.qr_code(binding.instance_id, binding.token)
-            qrcode = qr.get("qrcode") if isinstance(qr, dict) else None
-        except WapiError:
-            qrcode = None
+        # o app fica "Gerando QR Code..." para sempre (o polling usa /status). O
+        # QR é servido do cache dentro da janela de TTL para não regenerar a
+        # sessão de pareamento a cada poll (senão o WhatsApp não vincula).
+        qrcode = await self._stable_qr(binding.instance_id, binding.token)
         if qrcode:
             self._apply_state(user_id, binding, "awaiting_qr")
             return {"status": "aguardando_qrcode", "qrcode": qrcode, "state": "qr"}
@@ -242,11 +300,12 @@ class WapiConnectService:
 
         live = await self._client.status(binding.instance_id, binding.token)
         if live.get("connected") is True:
+            self._drop_qr_cache(binding.instance_id)
             self._apply_state(user_id, binding, "connected")
             return {"status": "conectado", "qrcode": None, "state": "connected"}
 
-        qr = await self._client.qr_code(binding.instance_id, binding.token)
-        qrcode = qr.get("qrcode") if isinstance(qr, dict) else None
+        # Usuário iniciando a conexão: renova o QR e abre uma nova janela estável.
+        qrcode = await self._stable_qr(binding.instance_id, binding.token, force=True)
         self._apply_state(user_id, binding, "awaiting_qr" if qrcode else "connecting")
         return {
             "status": "aguardando_qrcode" if qrcode else "iniciando",
@@ -262,5 +321,6 @@ class WapiConnectService:
             await self._client.disconnect(binding.instance_id, binding.token)
         except WapiError:
             return False
+        self._drop_qr_cache(binding.instance_id)
         self._apply_state(user_id, binding, "disconnected")
         return True

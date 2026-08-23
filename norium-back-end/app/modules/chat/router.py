@@ -550,7 +550,7 @@ async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str,
             grupo = await fetch_group_metadata(user_id, phone)
             conversa["contato"] = (grupo or {}).get("nome") or nome_atual or phone
     elif msg["chatName"]:
-        conversa["contato"] = msg["chatName"]
+        conversa["contato"] = melhor_nome_contato(conversa.get("contato"), msg["chatName"], phone)
     conversa["canal"] = "whatsapp"
     conversa["channel"] = "whatsapp"
     conversa["esGrupo"] = msg["isGroup"]
@@ -812,7 +812,9 @@ async def obter_conversas(
                 changed = True
             else:
                 conversa = db[phone]
-                conversa["contato"] = str(nome_final)
+                # Não rebaixa um nome real já existente (ex.: pushName de webhook)
+                # para o id cru quando o catálogo não resolveu o nome (@lid).
+                conversa["contato"] = melhor_nome_contato(conversa.get("contato"), str(nome_final), phone)
                 conversa["canal"] = "whatsapp"
                 conversa["channel"] = "whatsapp"
                 conversa["esGrupo"] = is_group
@@ -1446,6 +1448,34 @@ def is_group_chat(phone: str, data: Dict[str, Any] | None = None) -> bool:
     return explicit or "@g.us" in lowered or lowered.endswith("-group")
 
 
+# Um id "cru" é o próprio jid do chat (ex.: "2194...@lid", "5511...@c.us") ou só
+# dígitos — nunca um nome de verdade. Com a migração do WhatsApp para @lid, os
+# chats chegam com id @lid enquanto os nomes do fetch-contacts vêm por número,
+# então o nome resolvido frequentemente cai para o id. Estas funções evitam que
+# um nome real (ex.: pushName de um webhook) seja rebaixado de volta para o id.
+_JID_LIKE = re.compile(r"^[0-9]+(@|$)")
+
+
+def _is_id_like(value: str | None, phone: str) -> bool:
+    v = (value or "").strip()
+    return (not v) or v == phone or bool(_JID_LIKE.match(v))
+
+
+def melhor_nome_contato(atual: str | None, novo: str | None, phone: str) -> str:
+    """Escolhe o melhor nome de exibição, sem rebaixar um nome real para o id.
+
+    Promove ``novo`` só quando é um nome de verdade; caso contrário mantém um
+    ``atual`` já bom; e só cai para o id (``phone``) quando não há nenhum nome.
+    """
+    atual = (atual or "").strip()
+    novo = (novo or "").strip()
+    if novo and not _is_id_like(novo, phone):
+        return novo
+    if atual and not _is_id_like(atual, phone):
+        return atual
+    return atual or novo or phone
+
+
 def parse_whatsapp_collection(payload: Any) -> list[Dict[str, Any]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
@@ -1596,12 +1626,21 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
         if not jid:
             continue
         jid = str(jid)
+        # Chaves alternativas: com @lid os chats chegam por lid, mas o contato
+        # costuma vir indexado pelo número. Indexa também por qualquer lid/jid
+        # do contato para a busca por telefone do chat casar (ponte @lid → nome).
+        alt_keys = {jid}
+        for alt in (contato.get("lid"), contato.get("senderLid"), contato.get("jid"), contato.get("id")):
+            if alt:
+                alt_keys.add(str(alt))
         nome = contato.get("name") or contato.get("verifiedName") or contato.get("pushname")
         if nome:
-            nomes[jid] = str(nome)
+            for key in alt_keys:
+                nomes[key] = str(nome)
         photo = extract_photo_url(contato)
         if photo:
-            fotos[jid] = photo
+            for key in alt_keys:
+                fotos[key] = photo
         metadata[jid] = {
             "participantes": contato.get("participants") or contato.get("participantes") or [],
             "descricaoGrupo": contato.get("description") or contato.get("descricao") or "",

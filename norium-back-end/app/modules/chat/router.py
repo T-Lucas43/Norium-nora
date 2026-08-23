@@ -578,34 +578,39 @@ async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str,
     is_from_me = msg["fromMe"]
 
     db = await load_conversations(user_id)
+    # Numa conversa nova aberta por uma msg fromMe (você enviou primeiro, inclusive
+    # pelo celular), o "sender" é você — não use isso como nome do contato.
+    contato_inicial = phone if is_from_me else (msg["chatName"] or phone)
     conversa = db.get(phone) or new_conversation(
-        phone, contato=(msg["chatName"] or phone), channel="whatsapp", is_group=msg["isGroup"]
+        phone, contato=contato_inicial, channel="whatsapp", is_group=msg["isGroup"]
     )
     mensagens = conversa.setdefault("mensagens", [])
     if any(str(item.get("id") or "") == message_id for item in mensagens):
         return {"status": "duplicate"}
 
-    # Nome da conversa: grupo nao vem no webhook (busca o subject uma vez);
-    # individual usa o pushName do contato.
-    if msg["isGroup"]:
-        nome_atual = conversa.get("contato")
-        if not nome_atual or nome_atual == phone:
-            grupo = await fetch_group_metadata(user_id, phone)
-            conversa["contato"] = (grupo or {}).get("nome") or nome_atual or phone
-    elif msg["chatName"]:
-        conversa["contato"] = melhor_nome_contato(conversa.get("contato"), msg["chatName"], phone)
+    # Identidade do contato (nome/foto) só é atualizada por mensagens do PRÓPRIO
+    # contato. Em mensagens fromMe o remetente é você, então atualizar aqui
+    # apagaria/trocaria o nome e a foto do contato (bug: "sumiam ao enviar").
+    if not is_from_me:
+        if msg["isGroup"]:
+            nome_atual = conversa.get("contato")
+            if not nome_atual or nome_atual == phone:
+                grupo = await fetch_group_metadata(user_id, phone)
+                conversa["contato"] = (grupo or {}).get("nome") or nome_atual or phone
+        elif msg["chatName"]:
+            conversa["contato"] = melhor_nome_contato(conversa.get("contato"), msg["chatName"], phone)
+        if msg.get("photoUrl"):
+            conversa["photoUrl"] = msg["photoUrl"]
+            conversa.setdefault("metadados", {})["photoUrl"] = msg["photoUrl"]
+        elif not conversa.get("photoUrl") and should_try_profile_picture(user_id, phone):
+            # O webhook não traz foto; busca via profile-picture (uma vez, com cache).
+            foto = await fetch_profile_picture(user_id, phone)
+            if foto:
+                conversa["photoUrl"] = foto
+                conversa.setdefault("metadados", {})["photoUrl"] = foto
     conversa["canal"] = "whatsapp"
     conversa["channel"] = "whatsapp"
     conversa["esGrupo"] = msg["isGroup"]
-    if msg.get("photoUrl"):
-        conversa["photoUrl"] = msg["photoUrl"]
-        conversa.setdefault("metadados", {})["photoUrl"] = msg["photoUrl"]
-    elif not conversa.get("photoUrl") and should_try_profile_picture(user_id, phone):
-        # O webhook não traz foto; busca via profile-picture (uma vez, com cache).
-        foto = await fetch_profile_picture(user_id, phone)
-        if foto:
-            conversa["photoUrl"] = foto
-            conversa.setdefault("metadados", {})["photoUrl"] = foto
     conversa["ultimoTexto"] = msg["texto"]
     conversa["horario"] = hora
     conversa["timestampUltimaMsg"] = timestamp

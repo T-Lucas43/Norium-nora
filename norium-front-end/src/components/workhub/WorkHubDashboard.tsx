@@ -2,6 +2,8 @@ import {
   ArchiveRestore,
   BellRing,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   CloudDownload,
   DatabaseBackup,
@@ -10,6 +12,8 @@ import {
   Inbox,
   LoaderCircle,
   MessageSquareReply,
+  Mail,
+  MessageCircle,
   RefreshCw,
   Target,
   UsersRound,
@@ -144,6 +148,8 @@ export default function WorkHubDashboard({
   const [goalTitle, setGoalTitle] = useState("");
   const [goalTarget, setGoalTarget] = useState("10");
   const [goalMetric, setGoalMetric] = useState("completedTasks");
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingPageSize, setPendingPageSize] = useState(10);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
@@ -180,6 +186,16 @@ export default function WorkHubDashboard({
     if (inboxFilter === "meus") return items.filter((item) => item.assignedToId);
     return items.filter((item) => !["resolvido", "arquivado"].includes(item.status));
   }, [data?.inbox.items, inboxFilter]);
+
+  const pendingPageCount = Math.max(1, Math.ceil((data?.pending.items.length || 0) / pendingPageSize));
+  const visiblePending = useMemo(() => {
+    const start = (pendingPage - 1) * pendingPageSize;
+    return (data?.pending.items || []).slice(start, start + pendingPageSize);
+  }, [data?.pending.items, pendingPage, pendingPageSize]);
+
+  useEffect(() => {
+    setPendingPage((current) => Math.min(current, pendingPageCount));
+  }, [pendingPageCount]);
 
   async function mutate(label: string, task: () => Promise<unknown>, success: string) {
     setBusy(label);
@@ -404,15 +420,38 @@ export default function WorkHubDashboard({
               <strong>{data.pending.total} item(ns)</strong>
             </div>
             <div className="workhub-list">
-              {data.pending.items.map((item) => (
+              {visiblePending.map((item) => {
+                const source = pendingSource(item);
+                const SourceIcon = source.icon;
+                return (
                 <button key={item.id} type="button" className={`workhub-row severity-${item.severity}`} onClick={() => onOpenDeepLink(item.deepLink)}>
                   <span className="workhub-row-signal" />
-                  <span className="workhub-row-copy"><strong>{item.title}</strong><small>{item.description}</small></span>
+                  <span className={`workhub-row-icon ${source.tone}`}><SourceIcon size={17} /></span>
+                  <span className="workhub-row-copy"><span className="flex flex-wrap items-center gap-2"><strong>{item.title}</strong><em>{source.label}</em></span><small>{item.description}</small></span>
                   <time>{formatDate(item.timestamp)}</time>
+                  <ChevronRight className="workhub-row-chevron" size={16} />
                 </button>
-              ))}
+                );
+              })}
               {!data.pending.items.length && <div className="workhub-empty"><Check size={24} /><strong>Nenhuma pendência.</strong></div>}
             </div>
+            {data.pending.items.length > 0 && (
+              <footer className="workhub-pagination">
+                <span>Exibindo {(pendingPage - 1) * pendingPageSize + 1}–{Math.min(pendingPage * pendingPageSize, data.pending.items.length)} de {data.pending.total} itens</span>
+                <div>
+                  <button type="button" disabled={pendingPage === 1} onClick={() => setPendingPage((page) => Math.max(1, page - 1))} aria-label="Pagina anterior"><ChevronLeft size={16} /></button>
+                  {Array.from({ length: Math.min(5, pendingPageCount) }, (_, index) => {
+                    const start = Math.max(1, Math.min(pendingPage - 2, pendingPageCount - 4));
+                    const page = start + index;
+                    return <button key={page} type="button" onClick={() => setPendingPage(page)} className={page === pendingPage ? "is-active" : ""}>{page}</button>;
+                  })}
+                  <button type="button" disabled={pendingPage === pendingPageCount} onClick={() => setPendingPage((page) => Math.min(pendingPageCount, page + 1))} aria-label="Proxima pagina"><ChevronRight size={16} /></button>
+                </div>
+                <select value={pendingPageSize} onChange={(event) => { setPendingPageSize(Number(event.target.value)); setPendingPage(1); }} aria-label="Itens por pagina">
+                  <option value={10}>10 por página</option><option value={20}>20 por página</option><option value={50}>50 por página</option>
+                </select>
+              </footer>
+            )}
           </section>
         )}
 
@@ -533,6 +572,14 @@ export default function WorkHubDashboard({
       </div>
     </main>
   );
+}
+
+function pendingSource(item: PendingItem) {
+  const tab = `${item.deepLink?.tab || ""} ${item.kind || ""}`.toLocaleLowerCase("pt-BR");
+  if (tab.includes("email")) return { label: "Externo", icon: Mail, tone: "is-email" };
+  if (tab.includes("chat") || tab.includes("whatsapp")) return { label: item.severity === "warning" ? "Atenção" : "Não lida", icon: MessageCircle, tone: "is-whatsapp" };
+  if (tab.includes("tarefa")) return { label: "Tarefa", icon: Check, tone: "is-task" };
+  return { label: "Operação", icon: CircleAlert, tone: "is-default" };
 }
 
 function Kpi({ label, value }: { label: string; value: string | number }) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, CalendarDays, CheckSquare, History, LoaderCircle, Mail, MessageSquare, Paperclip, Pencil, Phone, Plus, Search, Trash2, UserRoundCheck, Wallet, X } from "lucide-react";
+import { Building2, CalendarDays, CheckSquare, Download, History, LoaderCircle, Mail, MessageSquare, Paperclip, Pencil, Phone, Plus, Search, Trash2, UserRoundCheck, Wallet, X } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
 import LoadingState from "../shared/LoadingState";
 import EmptyState from "../shared/EmptyState";
@@ -186,6 +186,19 @@ export default function ClientsDashboard() {
     }
   }
 
+  function exportClients() {
+    const escapeCell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const header = ["Nome", "Empresa", "E-mail", "Telefone", "Segmento", "Status", "Etapa", "Responsavel", "Proxima acao", "Tags"];
+    const rows = filtered.map((client) => [client.name, client.company, client.email, client.phone, client.segment, client.status, stageLabels[client.stage], client.ownerName, client.nextActionAt || "", client.tags.join("; ")]);
+    const csv = [header, ...rows].map((row) => row.map(escapeCell).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `clientes-norium-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <main className="min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
       <div className="mx-auto max-w-[1600px]">
@@ -194,7 +207,10 @@ export default function ClientsDashboard() {
             <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><UserRoundCheck size={21} /></span>
             <div><h1 className="text-2xl font-black">Clientes</h1><p className="text-sm font-semibold text-[var(--text-secondary)]">Relacionamento, etapa comercial e proximo contato em uma unica fila.</p></div>
           </div>
-          <Button variant="primary" onClick={openCreate}><Plus size={16} /> Novo cliente</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={exportClients} disabled={!filtered.length}><Download size={16} /> Exportar clientes</Button>
+            <Button variant="primary" onClick={openCreate}><Plus size={16} /> Novo cliente</Button>
+          </div>
         </header>
 
         {error && <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-300">{error}</div>}

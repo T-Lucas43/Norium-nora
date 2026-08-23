@@ -22,6 +22,7 @@ import {
 import {
   AlertTriangle,
   ArrowLeft,
+  BarChart3,
   Bot,
   Boxes,
   Check,
@@ -40,6 +41,7 @@ import {
   Plus,
   Save,
   Search,
+  Share2,
   Settings2,
   Shapes,
   Sparkles,
@@ -675,6 +677,16 @@ export default function BrainstormDashboard({
     onNavigate("Propostas");
   }
 
+  async function shareSession(item: BrainstormSession) {
+    const shareData = { title: `Brainstorm: ${item.title}`, text: item.objective || "Brainstorm colaborativo no Norium", url: window.location.href };
+    try {
+      if (navigator.share) await navigator.share(shareData);
+      else await navigator.clipboard.writeText(`${shareData.title}\n${shareData.text}\n${shareData.url}`);
+    } catch (shareError) {
+      if ((shareError as DOMException)?.name !== "AbortError") setError("Nao foi possivel compartilhar esta sessao.");
+    }
+  }
+
   function openSessionProperties(item: BrainstormSession) {
     setEditing(item);
     setEditForm({
@@ -802,9 +814,14 @@ export default function BrainstormDashboard({
               <div className="mt-auto grid grid-cols-2 gap-2 pt-5 text-xs font-bold text-[var(--text-secondary)]"><span className="inline-flex items-center gap-2"><UsersRound size={14} /> {item.responsibleName}</span><span className="inline-flex items-center justify-end gap-2"><StickyNote size={14} /> {item.nodeCount || 0} itens</span><span className="col-span-2 inline-flex items-center gap-2"><Clock3 size={14} /> Atualizado em {formatDate(item.updatedAt)}</span></div>
               <div className="mt-4 grid grid-cols-[minmax(0,1fr)_40px_40px] gap-2">
                 <Button variant="primary" onClick={() => setSelectedSessionId(item.id)} className="min-w-0"><MousePointer2 size={15} /> Abrir quadro</Button>
-                <Button iconOnly onClick={() => openSessionProperties(item)} className="text-cyan-200 hover:bg-cyan-400/10" title="Editar propriedades" aria-label="Editar propriedades"><Settings2 size={16} /></Button>
+                <Button iconOnly onClick={() => void shareSession(item)} className="text-cyan-200 hover:bg-cyan-400/10" title="Compartilhar" aria-label="Compartilhar"><Share2 size={16} /></Button>
                 <Button variant="danger" iconOnly onClick={() => void deleteSession(item)} className="border-red-400/20 text-red-300 hover:bg-red-500/10" title="Excluir sessao" aria-label="Excluir sessao"><Trash2 size={16} /></Button>
-                <Button onClick={() => createProposalFromSession(item)} className="col-span-3 border-cyan-400/25 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/15"><FileSignature size={15} /> Criar proposta deste brainstorm</Button>
+                {item.status === "encerrado" ? (
+                  <Button onClick={() => setSelectedSessionId(item.id)} className="col-span-2 border-violet-400/25 bg-violet-400/10 text-violet-200 hover:bg-violet-400/15"><BarChart3 size={15} /> Ver resultado final</Button>
+                ) : (
+                  <Button onClick={() => createProposalFromSession(item)} className="col-span-2 border-cyan-400/25 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/15"><FileSignature size={15} /> Criar proposta deste brainstorm</Button>
+                )}
+                <Button iconOnly onClick={() => openSessionProperties(item)} className="text-cyan-200 hover:bg-cyan-400/10" title="Editar propriedades" aria-label="Editar propriedades"><Settings2 size={16} /></Button>
               </div>
             </article>
           ))}

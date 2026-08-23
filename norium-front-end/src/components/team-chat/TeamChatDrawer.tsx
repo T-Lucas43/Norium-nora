@@ -34,6 +34,8 @@ type TeamChatDrawerProps = {
   onClose: () => void;
   session: AuthSession;
   onUnread?: (count: number) => void;
+  onOpenNora?: (prompt?: string) => void;
+  variant?: "drawer" | "page";
 };
 
 const API_URL = `${apiBaseUrl()}/api/team-chat`;
@@ -418,7 +420,7 @@ async function fileToDataUrl(file: File) {
   });
 }
 
-export default function TeamChatDrawer({ open, onClose, session, onUnread }: TeamChatDrawerProps) {
+export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenNora, variant = "drawer" }: TeamChatDrawerProps) {
   const [members, setMembers] = useState<NoriumUser[]>([]);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [scope, setScope] = useState<"team" | "direct">("team");
@@ -573,11 +575,14 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
     <AnimatePresence>
       {open && (
         <motion.aside
-          initial={{ x: 420, opacity: 0 }}
+          initial={variant === "drawer" ? { x: 420, opacity: 0 } : { opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
-          exit={{ x: 420, opacity: 0 }}
+          exit={variant === "drawer" ? { x: 420, opacity: 0 } : { opacity: 0 }}
           transition={{ type: "spring", stiffness: 260, damping: 28 }}
-          className="team-chat-drawer fixed right-4 top-20 z-[95] flex h-[min(760px,calc(100dvh-104px))] w-[390px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/50 backdrop-blur-2xl"
+          className={variant === "drawer"
+            ? "team-chat-drawer fixed right-4 top-20 z-[95] flex h-[min(760px,calc(100dvh-104px))] w-[390px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/50 backdrop-blur-2xl"
+            : "team-chat-drawer team-chat-page mx-4 mb-4 mt-3 min-h-[680px] overflow-hidden rounded-lg border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/35"
+          }
         >
           <header className="team-chat-header flex h-16 shrink-0 items-center justify-between border-b border-[var(--border)] px-4">
             <div className="flex min-w-0 items-center gap-3">
@@ -589,12 +594,16 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">{onlineUserIds.length} online agora</p>
               </span>
             </div>
-            <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
-              <X size={18} />
-            </Button>
+            {variant === "drawer" ? (
+              <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
+                <X size={18} />
+              </Button>
+            ) : (
+              <Button variant="secondary" size="sm" onClick={onClose}>Voltar para equipe</Button>
+            )}
           </header>
 
-          <div className="grid grid-cols-2 gap-2 border-b border-[var(--border)] p-3">
+          <div className="team-chat-scope grid grid-cols-2 gap-2 border-b border-[var(--border)] p-3">
             <button onClick={() => setScope("team")} className={`h-10 rounded-xl text-xs font-bold transition ${scope === "team" ? "team-chat-primary-control" : "team-chat-secondary-control"}`}>
               <Users size={15} className="mr-2 inline" /> Time todo
             </button>
@@ -615,7 +624,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
             </select>
           </div>
 
-          <div className="border-b border-[var(--border)] px-3 py-2">
+          <div className="team-chat-members border-b border-[var(--border)] px-3 py-2">
             <div className="flex gap-2 overflow-x-auto pb-1">
               {members.map((member) => (
                 <span key={member.id} className="team-chat-member-chip flex shrink-0 items-center gap-2 rounded-full border border-[var(--border)] px-3 py-1 text-xs font-bold">
@@ -743,6 +752,51 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread }: Tea
               <Send size={18} />
             </Button>
           </footer>
+          {variant === "page" && (
+            <aside className="team-chat-context border-l border-[var(--border)] p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-blue-400">Detalhes da conversa</p>
+              <h2 className="mt-2 text-lg font-black">{scope === "team" ? "Time todo" : memberById.get(recipientId)?.nome || "Mensagem direta"}</h2>
+              <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
+                {scope === "team" ? "Canal interno para decisões, atualizações e colaboração entre todos os membros." : "Conversa reservada entre os participantes selecionados."}
+              </p>
+              <div className="mt-5 grid gap-2">
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                  <span className="text-xs font-bold text-[var(--text-secondary)]">Participantes</span>
+                  <strong className="mt-1 block text-xl">{scope === "team" ? members.length : 2}</strong>
+                </div>
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+                  <span className="text-xs font-bold text-[var(--text-secondary)]">Online agora</span>
+                  <strong className="mt-1 block text-xl text-emerald-300">{onlineUserIds.length}</strong>
+                </div>
+              </div>
+              {canUse(session.user, "nora") && (
+                <section className="mt-5 rounded-lg border border-cyan-400/25 bg-cyan-400/8 p-4">
+                  <div className="flex items-center gap-3">
+                    <NoraAvatar className="h-10 w-10" />
+                    <div><strong className="block text-sm">Nora na conversa</strong><small className="text-[var(--text-secondary)]">Ativa quando mencionada</small></div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenNora?.("Resuma a conversa recente do Chat da equipe e destaque decisoes, responsaveis e proximos passos.")}
+                    className="mt-3 flex h-10 w-full items-center justify-center rounded-lg border border-cyan-400/25 text-xs font-bold text-cyan-200 hover:bg-cyan-400/10"
+                  >
+                    Resumir conversa com a Nora
+                  </button>
+                </section>
+              )}
+              <div className="mt-5">
+                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Membros</p>
+                <div className="mt-3 space-y-2">
+                  {members.slice(0, 8).map((member) => (
+                    <button key={member.id} type="button" onClick={() => { if (member.id !== session.user.id) { setScope("direct"); setRecipientId(member.id); } }} className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-left hover:bg-[var(--surface-hover)]">
+                      <MessageAvatar name={member.nome} avatar={member.fotoUrl || ""} />
+                      <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{member.nome}</strong><small className={onlineUserIds.includes(member.id) ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{onlineUserIds.includes(member.id) ? "Online" : "Offline"}</small></span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </aside>
+          )}
           {previewAttachment && <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} token={session.token} />}
         </motion.aside>
       )}

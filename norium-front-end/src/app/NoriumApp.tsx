@@ -27,7 +27,7 @@ const Nora = lazy(() => import("../components/layout/Nora"));
 const PublicAccess = lazy(() => import("../components/public/PublicAccess"));
 const LegalPage = lazy(() => import("../components/public/LegalPage"));
 const TeamChatDrawer = lazy(() => import("../components/team-chat/TeamChatDrawer"));
-const SESSION_TABS = ["Dashboard", "Central", "E-mails", "Agenda", "Chat", "Tarefas"];
+const SESSION_TABS = ["Dashboard", "Central", "E-mails", "Agenda", "Chat", "Chat da Equipe", "Tarefas"];
 const SIMULATION_BACKUP_STORAGE = "norium-simulation-backup";
 
 type NoriumDeepLink = {
@@ -303,6 +303,7 @@ export default function NoriumApp() {
             onClose={() => setTeamChatOpen(false)}
             session={authSession}
             onUnread={(count) => addTeamChatUnread(count)}
+            onOpenNora={openNora}
           />
         </Suspense>
       )}

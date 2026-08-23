@@ -29,6 +29,7 @@ const SettingsDashboard = lazy(() => import("../../components/settings/SettingsD
 const SystemNotificationsCenter = lazy(() => import("../../components/notifications/SystemNotificationsCenter"));
 const TasksDashboard = lazy(() => import("../../components/tasks/TasksDashboard"));
 const TeamDashboard = lazy(() => import("../../components/team/TeamDashboard"));
+const TeamChatDrawer = lazy(() => import("../../components/team-chat/TeamChatDrawer"));
 const WorkHubDashboard = lazy(() => import("../../components/workhub/WorkHubDashboard"));
 
 function PanelLoading() {
@@ -97,7 +98,7 @@ export default function AppPanels({
     <Suspense fallback={<PanelLoading />}>
       {isPanelMounted("Dashboard", "Resumo") && (
         <section className={activePanelClass("Dashboard", "Resumo")}>
-          {coach("Dashboard", true)}
+          {coach("Dashboard")}
           <Dashboard
             eventsBySource={eventsBySource}
             connected={connected}
@@ -138,7 +139,7 @@ export default function AppPanels({
       )}
       {isPanelMounted("E-mail", "E-mails") && (
         <section className={activePanelClass("E-mail", "E-mails")}>
-          {coach("Emails", true)}
+          {coach("Emails")}
           <EmailDashboard
             userId={currentUser.id}
             canUseNora={canUseNora}
@@ -149,13 +150,13 @@ export default function AppPanels({
       )}
       {isPanelMounted("Agenda") && (
         <section className={activePanelClass("Agenda")}>
-          {coach("Agenda", true)}
+          {coach("Agenda")}
           <AgendaDashboard userId={currentUser.id} />
         </section>
       )}
       {isPanelMounted("Chat") && (
         <section className={`${activePanelClass("Chat")} app-panel-chat`}>
-          {coach("Chat", true)}
+          {coach("Chat")}
           <ChatCentral
             userId={currentUser.id}
             onConversaAtivaChange={onActiveConversationChange}
@@ -165,7 +166,7 @@ export default function AppPanels({
       )}
       {isPanelMounted("Tarefas") && (
         <section className={activePanelClass("Tarefas")}>
-          {coach("Tarefas", true)}
+          {coach("Tarefas")}
           <TasksDashboard session={authSession} />
         </section>
       )}
@@ -224,6 +225,19 @@ export default function AppPanels({
         <section className={activePanelClass("Equipe")}>
           {coach("Equipe")}
           <TeamDashboard session={authSession} onSessionUpdate={onSessionUpdate} onOpenTeamChat={onOpenTeamChat} />
+        </section>
+      )}
+      {isPanelMounted("Chat da Equipe") && (
+        <section className={activePanelClass("Chat da Equipe")}>
+          {coach("TeamChat")}
+          <TeamChatDrawer
+            open
+            variant="page"
+            session={authSession}
+            onClose={() => onNavigate("Equipe")}
+            onUnread={() => undefined}
+            onOpenNora={onOpenNora}
+          />
         </section>
       )}
       {isPanelMounted("Clientes") && (

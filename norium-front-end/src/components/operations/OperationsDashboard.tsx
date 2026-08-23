@@ -11,7 +11,6 @@ import {
   ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
-  Clock3,
   Download,
   DatabaseBackup,
   FileCheck2,
@@ -207,17 +206,6 @@ function formatDate(value?: string | null, includeDate = true) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(parsed);
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
-}
-
-function formatReminderTiming(daysUntil: number) {
-  if (daysUntil < 0) return `vencido ha ${Math.abs(daysUntil)} dia(s)`;
-  if (daysUntil === 0) return "vence hoje";
-  if (daysUntil === 1) return "vence amanha";
-  return `vence em ${daysUntil} dia(s)`;
 }
 
 function entryTarget(entry: OperationEntry): string | null {
@@ -581,7 +569,7 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
             <div>
               <p className="text-xs font-bold uppercase tracking-wider text-blue-400">Governanca em tempo real</p>
               <h1 className="mt-1 text-2xl font-black">Controle operacional</h1>
-              <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Seu dia, aprovacoes, integracoes, auditoria e comprovantes em uma unica visao.</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Aprovacoes, integracoes, auditoria e comprovantes em uma unica visao.</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -684,21 +672,6 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,.65fr)]">
           <div className="space-y-5">
-            <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <SectionHeader title="Meu Dia" description="O que merece sua atencao agora." icon={Clock3} />
-              <div className="grid gap-4 p-4 lg:grid-cols-3">
-                <DayColumn title="Tarefas prioritarias" empty="Nenhuma tarefa ativa." icon={ListChecks}>
-                  {(overview?.myDay.tasks || []).slice(0, 5).map((task) => <CompactRow key={task.id} title={task.title} detail={`${task.status} · ${task.priority}`} accent={task.priority === "urgente" ? "rose" : "blue"} onClick={() => onNavigate?.("Tarefas")} />)}
-                </DayColumn>
-                <DayColumn title="Agenda de hoje" empty="Nenhum compromisso hoje." icon={CalendarDays}>
-                  {(overview?.myDay.calendar || []).slice(0, 5).map((event) => <CompactRow key={event.id} title={event.title} detail={formatDate(event.timestamp, false)} accent="violet" onClick={() => onNavigate?.("Agenda")} />)}
-                </DayColumn>
-                <DayColumn title="Financeiro" empty="Nenhum lembrete financeiro." icon={CircleDollarSign}>
-                  {(overview?.myDay.financialReminders || []).slice(0, 5).map((reminder) => <CompactRow key={reminder.id} title={reminder.title} detail={`${money(reminder.amount)} · ${formatReminderTiming(reminder.daysUntil)}`} accent="emerald" onClick={() => onNavigate?.("Gastos")} />)}
-                </DayColumn>
-              </div>
-            </section>
-
             <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <SectionHeader title="Central de aprovacoes" description="Acoes sensiveis ficam visiveis antes da decisao." icon={ClipboardCheck} action={`${pendingApprovals.length} pendente(s)`} />
               <div className="divide-y divide-[var(--border)]">
@@ -863,16 +836,6 @@ function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; labe
 
 function SectionHeader({ title, description, icon: Icon, action }: { title: string; description: string; icon: LucideIcon; action?: string }) {
   return <header className="flex items-center justify-between gap-4 border-b border-[var(--border)] px-5 py-4"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><Icon size={17} /></span><div className="min-w-0"><h2 className="truncate font-black">{title}</h2><p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>{action && <span className="shrink-0 rounded-full bg-amber-500/12 px-3 py-1 text-xs font-bold uppercase text-amber-300">{action}</span>}</header>;
-}
-
-function DayColumn({ title, empty, icon: Icon, children }: { title: string; empty: string; icon: LucideIcon; children: ReactNode }) {
-  const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
-  return <section className="min-h-60 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><h3 className="flex items-center gap-2 text-sm font-bold"><Icon className="text-blue-400" size={16} /> {title}</h3><div className="mt-3 space-y-2">{hasChildren ? children : <p className="rounded-lg border border-dashed border-[var(--border)] p-4 text-center text-xs font-semibold text-[var(--text-secondary)]">{empty}</p>}</div></section>;
-}
-
-function CompactRow({ title, detail, accent, onClick }: { title: string; detail: string; accent: "rose" | "blue" | "violet" | "emerald"; onClick?: () => void }) {
-  const dots = { rose: "bg-rose-400", blue: "bg-blue-400", violet: "bg-violet-400", emerald: "bg-emerald-400" };
-  return <button type="button" onClick={onClick} className="flex w-full items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-3 text-left hover:bg-[var(--surface-hover)]"><span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dots[accent]}`} /><span className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{title}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{detail}</small></span><ChevronRight className="mt-1 shrink-0 text-[var(--text-secondary)]" size={14} /></button>;
 }
 
 function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {

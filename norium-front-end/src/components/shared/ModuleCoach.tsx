@@ -1,5 +1,29 @@
 import Button from "../shared/Button";
-import { ChevronDown, CircleHelp, Sparkles } from "lucide-react";
+import {
+  BarChart3,
+  Bell,
+  Bot,
+  BrainCircuit,
+  CalendarDays,
+  CheckSquare,
+  ChevronDown,
+  CircleHelp,
+  CreditCard,
+  FileSignature,
+  GitBranch,
+  Inbox,
+  LayoutDashboard,
+  Mail,
+  MessageSquare,
+  MessagesSquare,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  UserRound,
+  UserRoundCheck,
+  UsersRound,
+  type LucideIcon,
+} from "lucide-react";
 
 export type GuidedModule =
   | "Dashboard"
@@ -10,6 +34,7 @@ export type GuidedModule =
   | "Emails"
   | "Agenda"
   | "Chat"
+  | "TeamChat"
   | "Tarefas"
   | "Gastos"
   | "Automacoes"
@@ -98,6 +123,15 @@ const guides: Record<GuidedModule, ModuleGuide> = {
     description: "Acompanhe conversas, grupos, mensagens e midias dos canais conectados.",
     topics: ["Use os filtros por canal e status", "Selecione uma conversa para carregar o historico", "Anexos, audio e dados do grupo ficam no contexto da conversa"],
     prompt: "Explique a tela de Chat e me oriente para localizar uma conversa, consultar o historico e enviar texto, audio ou arquivo. Nao envie nada sem confirmacao.",
+  },
+  TeamChat: {
+    title: "Chat da equipe",
+    description: "Converse com o time, envie anexos, abra mensagens diretas e mencione a Nora com o contexto da conversa.",
+    topics: ["O canal geral inclui toda a equipe", "Mensagens diretas ficam separadas", "Use @nora para pedir ajuda sem sair da conversa"],
+    prompt: "Explique o Chat da equipe e me ajude a organizar uma conversa interna, sem enviar nenhuma mensagem sem minha confirmacao.",
+    quickPrompts: [
+      { label: "Resumir conversa", prompt: "Resuma as mensagens recentes do Chat da equipe e destaque decisoes e proximos passos." },
+    ],
   },
   Tarefas: {
     title: "Tarefas",
@@ -204,6 +238,31 @@ const guides: Record<GuidedModule, ModuleGuide> = {
   },
 };
 
+const moduleIcons: Record<GuidedModule, LucideIcon> = {
+  Dashboard: LayoutDashboard,
+  Central: Inbox,
+  Controle: ShieldCheck,
+  Pendencias: CheckSquare,
+  Notificacoes: Bell,
+  Emails: Mail,
+  Agenda: CalendarDays,
+  Chat: MessageSquare,
+  TeamChat: MessagesSquare,
+  Tarefas: CheckSquare,
+  Gastos: CreditCard,
+  Automacoes: GitBranch,
+  Relatorios: BarChart3,
+  Propostas: FileSignature,
+  Perfil: UserRound,
+  Configuracoes: Settings,
+  Equipe: UsersRound,
+  Clientes: UserRoundCheck,
+  Governanca: ShieldCheck,
+  Brainstorm: BrainCircuit,
+  Ajuda: CircleHelp,
+  Mais: Bot,
+};
+
 export default function ModuleCoach({
   module,
   onAskNora,
@@ -214,6 +273,7 @@ export default function ModuleCoach({
   compact?: boolean;
 }) {
   const guide = guides[module];
+  const GuideIcon = moduleIcons[module];
 
   if (compact) {
     return (
@@ -228,7 +288,7 @@ export default function ModuleCoach({
   return (
     <aside className="norium-module-coach" aria-label={`Orientacao da tela ${guide.title}`}>
       <div className="norium-module-coach__intro">
-        <span className="norium-module-coach__icon"><CircleHelp size={17} /></span>
+        <span className="norium-module-coach__icon"><GuideIcon size={18} /></span>
         <span className="min-w-0">
           <strong>{guide.title}</strong>
           <small>{guide.description}</small>

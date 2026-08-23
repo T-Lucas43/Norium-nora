@@ -196,6 +196,7 @@ class RegisterPayload(StrictModel):
 
 class CreateUserPayload(StrictModel):
     nome: str = Field(min_length=2, max_length=140)
+    jobTitle: str = Field(default="Membro", max_length=120)
     email: str = Field(min_length=3, max_length=180)
     password: str = Field(min_length=6, max_length=180)
     role: Role = "member"
@@ -218,6 +219,7 @@ class CreateUserPayload(StrictModel):
 
 class UpdateUserPayload(StrictModel):
     nome: str | None = Field(default=None, min_length=2, max_length=140)
+    jobTitle: str | None = Field(default=None, max_length=120)
     password: str | None = Field(default=None, min_length=6, max_length=180)
     status: UserStatus | None = None
     role: Role | None = None
@@ -349,6 +351,7 @@ async def assert_workspace_access(user: dict[str, Any], request: Request) -> Non
 
 def sanitize_user(user: dict[str, Any]) -> dict[str, Any]:
     safe = {key: value for key, value in user.items() if key != "passwordHash"}
+    safe["jobTitle"] = str(safe.get("jobTitle") or ("Lider" if safe.get("role") == "owner" else "Membro"))
     safe["systemAdmin"] = is_system_owner(safe)
     safe["permissions"] = effective_permissions(safe)
     safe["status"] = safe.get("status", "ativo")
@@ -868,6 +871,7 @@ async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends
         new_user = {
             "id": f"usr_{secrets.token_hex(8)}",
             "nome": payload.nome.strip(),
+            "jobTitle": payload.jobTitle.strip() or "Membro",
             "email": payload.email,
             "passwordHash": hash_password(payload.password),
             "role": payload.role if can_manage_system(user) else "member",
@@ -901,6 +905,8 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
 
         if payload.nome is not None:
             target["nome"] = payload.nome.strip()
+        if payload.jobTitle is not None:
+            target["jobTitle"] = payload.jobTitle.strip() or ("Lider" if target.get("role") == "owner" else "Membro")
         if payload.password:
             target["passwordHash"] = hash_password(payload.password)
             target["sessionVersion"] = int(target.get("sessionVersion") or 0) + 1

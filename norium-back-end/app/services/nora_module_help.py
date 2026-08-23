@@ -218,6 +218,20 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         ),
     ),
     ModuleHelp(
+        module="chat da equipe",
+        aliases=("tela chat da equipe", "chat da equipe", "chat interno", "conversa da equipe"),
+        response=(
+            "Chat da Equipe é o canal interno separado das conversas do WhatsApp. Ele reúne canais "
+            "coletivos e mensagens diretas, mostra quem está online e mantém arquivos e contexto do time.\n\n"
+            "Como usar:\n"
+            "1. Selecione um canal ou uma pessoa na coluna lateral.\n"
+            "2. Escreva a mensagem, mencione @nora ou um colega e anexe arquivos quando necessário.\n"
+            "3. Confira participantes, presença e detalhes da conversa no painel de contexto.\n"
+            "4. Use a Nora para resumir a conversa ou organizar os próximos passos.\n\n"
+            "Mensagens desta tela permanecem no chat interno e não são enviadas ao WhatsApp."
+        ),
+    ),
+    ModuleHelp(
         module="clientes",
         aliases=("area de clientes", "tela clientes", "clientes", "cliente"),
         response=(

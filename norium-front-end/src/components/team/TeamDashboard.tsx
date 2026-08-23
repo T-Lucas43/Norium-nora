@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BarChart3, Building2, Check, CheckCircle2, Clock3, ListChecks, Lock, MessageCircle, PlayCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Badge, BarChart3, Building2, Check, CheckCircle2, Clock3, ListChecks, Lock, MessageCircle, PlayCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound, type LucideIcon } from "lucide-react";
 import type { AuthSession, NoriumTeam, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
@@ -16,6 +16,8 @@ interface TeamTaskReportMember {
   nome: string;
   email: string;
   role: string;
+  jobTitle?: string;
+  fotoUrl?: string;
   status: string;
   stats: {
     total: number;
@@ -45,6 +47,7 @@ interface TeamTaskReport {
 
 const initialForm = {
   nome: "",
+  jobTitle: "Membro",
   email: "",
   password: "",
   permissions: defaultMemberPermissions,
@@ -55,7 +58,7 @@ function mergePermissions(value?: Partial<PermissionMap>) {
 }
 
 export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat }: TeamDashboardProps) {
-  const [view, setView] = useState<"overview" | "access">("overview");
+  const [view, setView] = useState<"overview" | "access" | "roles">("overview");
   const [users, setUsers] = useState<NoriumUser[]>([]);
   const [selectedUserId, setSelectedUserId] = useState(session.user.id);
   const [form, setForm] = useState(initialForm);
@@ -76,12 +79,14 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
     setLoading(true);
     setError("");
     try {
-      const [data, reportData, teamData] = await Promise.all([
+      const [data, reportData, teamData, memberData] = await Promise.all([
         authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token),
         authJson<TeamTaskReport>("/api/tarefas/relatorio-equipe", session.token),
         authJson<{ team: NoriumTeam }>("/api/auth/team-profile", session.token),
+        authJson<{ members: NoriumUser[] }>("/api/team-chat/members", session.token).catch(() => ({ members: [] })),
       ]);
-      setUsers(data.users);
+      const profileById = new Map(memberData.members.map((member) => [member.id, member]));
+      setUsers(data.users.map((user) => ({ ...user, ...profileById.get(user.id) })));
       setReport(reportData);
       setTeam(teamData.team);
       setTeamName(teamData.team.name);
@@ -129,6 +134,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
         method: "POST",
         body: JSON.stringify({
           nome: form.nome,
+          jobTitle: form.jobTitle,
           email: form.email,
           password: form.password,
           role: "member",
@@ -222,6 +228,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
       <nav className="flex gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-3">
         <Button variant={view === "overview" ? "primary" : "ghost"} onClick={() => setView("overview")} icon={<BarChart3 size={15} />}>Visão da equipe</Button>
         <Button variant={view === "access" ? "primary" : "ghost"} onClick={() => setView("access")} icon={<Settings2 size={15} />}>Membros e acessos</Button>
+        <Button variant={view === "roles" ? "primary" : "ghost"} onClick={() => setView("roles")} icon={<Badge size={15} />}>Cargos</Button>
       </nav>
 
       {view === "overview" ? (
@@ -251,9 +258,9 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
             </div>
           </section>
           <TeamGoals storageKey={`norium:team-goals:${session.user.teamOwnerId || session.user.id}`} />
-          <TeamPerformanceReport report={report} selectedUserId={selectedUser.id} onSelect={setSelectedUserId} />
+          <TeamPerformanceReport report={report} users={users} selectedUserId={selectedUser.id} onSelect={setSelectedUserId} />
         </div>
-      ) : (
+      ) : view === "access" ? (
       <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 xl:grid-cols-[360px_1fr]">
         <aside className="space-y-5">
           <details className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
@@ -268,6 +275,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
             </summary>
             <div className="mt-4 grid gap-3">
               <input value={form.nome} onChange={(event) => setForm({ ...form, nome: event.target.value })} placeholder="Nome" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
+              <input value={form.jobTitle} onChange={(event) => setForm({ ...form, jobTitle: event.target.value })} placeholder="Cargo na empresa" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
               <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="E-mail" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
               <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Senha inicial" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
             </div>
@@ -288,8 +296,11 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
                     selectedUser.id === user.id ? "border-cyan-300/50 bg-cyan-400/14" : "border-[var(--border)] bg-[var(--background)]"
                   }`}
                 >
-                  <p className="truncate text-sm font-bold">{user.nome}</p>
-                  <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{user.email}</p>
+                  <span className="flex items-center gap-3">
+                    <MemberAvatar user={user} />
+                    <span className="min-w-0 flex-1"><strong className="block truncate text-sm">{user.nome}</strong><small className="block truncate text-[var(--text-secondary)]">{user.jobTitle || "Membro"}</small></span>
+                  </span>
+                  <p className="mt-2 truncate text-xs font-semibold text-[var(--text-secondary)]">{user.email}</p>
                   <span className={`mt-3 inline-flex rounded-full px-2 py-1 text-xs font-bold ${user.status === "ativo" ? "bg-emerald-400/18 text-emerald-100" : "bg-red-500/18 text-red-100"}`}>
                     {user.status}
                   </span>
@@ -308,10 +319,13 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
 
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
             <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
-              <div>
+              <div className="flex min-w-0 items-center gap-4">
+                <MemberAvatar user={selectedUser} large />
+                <div className="min-w-0">
                 <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Selecionado</p>
                 <h2 className="mt-1 text-2xl font-black">{selectedUser.nome}</h2>
                 <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{selectedUser.email}</p>
+                </div>
               </div>
               <Button
                 onClick={() => void patchUser(selectedUser, { status: selectedUser.status === "ativo" ? "inativo" : "ativo" }, "Status atualizado.")}
@@ -323,9 +337,9 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
             </div>
 
             <div className="mb-5 grid gap-3 md:grid-cols-3">
-              <Info label="Plano" value={selectedUser.plan} />
-              <Info label="Perfil" value={selectedUser.role === "owner" ? "Principal" : "Menor"} />
-              <Info label="Admin" value={selectedUser.systemAdmin ? "Sim" : "Nao"} />
+              <label className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3"><span className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Cargo</span><input defaultValue={selectedUser.jobTitle || "Membro"} onBlur={(event) => { const jobTitle = event.target.value.trim(); if (jobTitle && jobTitle !== selectedUser.jobTitle) void patchUser(selectedUser, { jobTitle }, "Cargo atualizado."); }} className="mt-2 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black outline-none focus:border-blue-500" /></label>
+              <Info label="Perfil" value={selectedUser.role === "owner" ? "Principal" : "Membro"} />
+              <Info label="Status" value={selectedUser.status} />
             </div>
 
             <details className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
@@ -343,6 +357,21 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
           </div>
         </main>
       </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          <section className="mx-auto max-w-[1400px] rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
+              <div><p className="text-xs font-bold uppercase text-blue-400">Estrutura da equipe</p><h2 className="mt-1 text-xl font-black">Cargos e membros</h2><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Confira quem ocupa cada cargo e edite o cargo na área Membros e acessos.</p></div>
+              <Badge size={24} className="text-blue-400" />
+            </div>
+            <div className="mt-5 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+              {Array.from(new Set(users.map((user) => user.jobTitle || (user.role === "owner" ? "Lider" : "Membro")))).map((jobTitle) => {
+                const occupants = users.filter((user) => (user.jobTitle || (user.role === "owner" ? "Lider" : "Membro")) === jobTitle);
+                return <article key={jobTitle} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><div className="flex items-center justify-between"><strong>{jobTitle}</strong><span className="rounded-full bg-blue-500/12 px-2 py-1 text-xs font-bold text-blue-300">{occupants.length}</span></div><div className="mt-4 space-y-2">{occupants.map((user) => <button key={user.id} type="button" onClick={() => { setSelectedUserId(user.id); setView("access"); }} className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 text-left hover:bg-[var(--surface-hover)]"><MemberAvatar user={user} /><span className="min-w-0"><strong className="block truncate text-xs">{user.nome}</strong><small className="text-[var(--text-secondary)]">{user.status}</small></span></button>)}</div></article>;
+              })}
+            </div>
+          </section>
+        </div>
       )}
     </section>
   );
@@ -418,13 +447,16 @@ function TeamGoals({ storageKey }: { storageKey: string }) {
 
 function TeamPerformanceReport({
   report,
+  users,
   selectedUserId,
   onSelect,
 }: {
   report: TeamTaskReport | null;
+  users: NoriumUser[];
   selectedUserId: string;
   onSelect: (userId: string) => void;
 }) {
+  const userById = new Map(users.map((user) => [user.id, user]));
   const selected = report?.members.find((member) => member.id === selectedUserId) || report?.members[0];
   const totals = report?.totals || {};
 
@@ -453,7 +485,10 @@ function TeamPerformanceReport({
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="grid gap-3 md:grid-cols-2">
-          {(report?.members || []).map((member) => (
+          {(report?.members || []).map((member) => {
+            const profile = userById.get(member.id);
+            const displayMember = { ...profile, ...member } as NoriumUser;
+            return (
             <button
               key={member.id}
               type="button"
@@ -463,8 +498,10 @@ function TeamPerformanceReport({
               }`}
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                <MemberAvatar user={displayMember} />
+                <div className="min-w-0 flex-1">
                   <p className="truncate font-black">{member.nome}</p>
+                  <p className="truncate text-xs font-bold text-blue-300">{profile?.jobTitle || member.jobTitle || (member.role === "owner" ? "Lider" : "Membro")}</p>
                   <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{member.email}</p>
                 </div>
                 <span className="rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase text-[var(--text-secondary)]">
@@ -478,7 +515,8 @@ function TeamPerformanceReport({
                 <MiniNumber label="Fim" value={member.stats.concluidas} />
               </div>
             </button>
-          ))}
+            );
+          })}
         </div>
 
         <div className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
@@ -505,6 +543,15 @@ function TeamPerformanceReport({
       </div>
     </section>
   );
+}
+
+function MemberAvatar({ user, large = false }: { user: Pick<NoriumUser, "nome" | "fotoUrl">; large?: boolean }) {
+  const size = large ? "h-16 w-16 text-lg" : "h-10 w-10 text-sm";
+  if (user.fotoUrl) {
+    return <img src={user.fotoUrl} alt={`Foto de ${user.nome}`} className={`${size} shrink-0 rounded-full border border-blue-400/35 object-cover`} />;
+  }
+  const initials = user.nome.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "N";
+  return <span aria-label={`Foto de ${user.nome}`} className={`grid ${size} shrink-0 place-items-center rounded-full border border-blue-400/35 bg-blue-500/15 font-black text-blue-200`}>{initials}</span>;
 }
 
 function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {

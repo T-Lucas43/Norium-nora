@@ -7,6 +7,7 @@ import {
   FileSignature,
   Filter,
   ExternalLink,
+  Eye,
   Link2,
   LayoutTemplate,
   Palette,
@@ -469,12 +470,19 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                 <div className="min-h-[480px]">
                   {currentItems.map((item) => (
                     <article key={item.id} className="flex items-stretch border-b border-[var(--border)] transition hover:bg-[var(--surface-hover)]">
-                      <button type="button" onClick={() => setSelected(item)} className="grid min-w-0 flex-1 gap-3 p-4 text-left md:grid-cols-[48px_minmax(0,1fr)_170px_150px_120px] md:items-center">
+                      <button type="button" onClick={() => setSelected(item)} className="grid min-w-0 flex-1 gap-3 p-4 text-left md:grid-cols-[48px_minmax(0,1fr)_140px_140px_110px] md:items-center xl:grid-cols-[48px_minmax(0,1fr)_140px_140px_110px_230px]">
                         <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{isProposal(item) ? <FileSignature size={19} /> : <FileCheck2 size={19} />}</span>
                         <span className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.client?.name || "Cliente nao informado"} {item.brainstormId ? "- vinculado ao Brainstorm" : ""}</small></span>
                         <span className="text-xs font-bold">{formatMoney(item.amount, item.currency)}</span>
                         <span><StatusChip status={item.status} /></span>
                         <time className="text-xs font-bold text-[var(--text-secondary)]">{formatDate(item.updatedAt)}</time>
+                        <span className="hidden min-w-0 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 xl:flex">
+                          <span className="relative grid h-20 w-14 shrink-0 place-items-center overflow-hidden rounded border border-slate-300/20 bg-slate-100 text-center text-[5px] font-black uppercase leading-tight text-slate-700 shadow-lg">
+                            <span className="absolute left-0 top-0 h-1.5 w-full" style={{ background: item.branding?.primaryColor || "#1266f1" }} />
+                            <span className="px-1">{isProposal(item) ? "Proposta comercial" : "Contrato"}</span>
+                          </span>
+                          <span className="min-w-0"><strong className="block truncate text-xs">Pre-visualizacao</strong><small className="mt-1 block truncate text-[var(--text-secondary)]">Documento A4</small><span className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-300"><Eye size={13} /> Visualizar</span></span>
+                        </span>
                       </button>
                       {isProposal(item) && !item.contractId && (
                         <Button variant="danger" iconOnly

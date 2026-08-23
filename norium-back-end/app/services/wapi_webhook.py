@@ -116,7 +116,11 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         timestamp_int = 0
 
-    texto, tipo, midia_meta = _extract_content(data)
+    texto, tipo, midia_meta, reaction_target = _extract_content(data)
+    # Conteúdo não exibível (protocolo, enquete, apenas contextInfo) → ignora,
+    # para não criar "mensagens em branco".
+    if tipo is None and not reaction_target:
+        return None
 
     return {
         "messageId": str(_first(data, "messageId", "id", "zaid") or ""),
@@ -128,8 +132,9 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
         "senderId": sender.get("id") if sender else _first(data, "senderId", "participant"),
         "timestamp": timestamp_int,
         "texto": texto,
-        "tipo": tipo,
+        "tipo": tipo or "texto",
         "midiaMeta": midia_meta,
+        "reactionTargetId": reaction_target,
         "status": str(_first(data, "status") or "") or None,
     }
 
@@ -144,17 +149,26 @@ _MEDIA_TYPES = {
 }
 
 
-def _extract_content(data: dict[str, Any]) -> tuple[str, str, dict[str, Any] | None]:
-    """Retorna (texto, tipo, midia_meta). ``midia_meta`` alimenta download-media."""
+def _extract_content(data: dict[str, Any]) -> tuple[str, str | None, dict[str, Any] | None, str | None]:
+    """Retorna (texto, tipo, midia_meta, reaction_target_id).
+
+    - ``reaction_target_id`` != None: é uma reação recebida (atualiza a msg alvo).
+    - ``tipo`` == None: conteúdo não exibível (protocolo/enquete/etc.) → ignorar.
+    """
     content = data.get("msgContent")
     if isinstance(content, dict):
+        # Reação recebida: {reactionMessage: {key:{id,...}, text}}
+        reaction = content.get("reactionMessage")
+        if isinstance(reaction, dict):
+            key = reaction.get("key") if isinstance(reaction.get("key"), dict) else {}
+            return (reaction.get("text") or ""), "reaction", None, str(key.get("id") or "")
         if isinstance(content.get("conversation"), str):
-            return content["conversation"], "texto", None
+            return content["conversation"], "texto", None, None
         ext = content.get("extendedTextMessage")
         if isinstance(ext, dict) and isinstance(ext.get("text"), str):
-            return ext["text"], "texto", None
-        for key, (tipo, dtype) in _MEDIA_TYPES.items():
-            node = content.get(key)
+            return ext["text"], "texto", None, None
+        for media_key, (tipo, dtype) in _MEDIA_TYPES.items():
+            node = content.get(media_key)
             if isinstance(node, dict):
                 caption = node.get("caption")
                 meta = {
@@ -163,18 +177,19 @@ def _extract_content(data: dict[str, Any]) -> tuple[str, str, dict[str, Any] | N
                     "type": dtype,
                     "mimetype": node.get("mimetype") or "",
                 }
-                # Só é baixável se tiver as chaves mínimas.
                 if not (meta["mediaKey"] and meta["directPath"]):
                     meta = None
-                return (caption if isinstance(caption, str) else ""), tipo, meta
-        for key, tipo in (("locationMessage", "localizacao"), ("contactMessage", "contato")):
-            if isinstance(content.get(key), dict):
-                return "", tipo, None
+                return (caption if isinstance(caption, str) else ""), tipo, meta, None
+        for loc_key, tipo in (("locationMessage", "localizacao"), ("contactMessage", "contato")):
+            if isinstance(content.get(loc_key), dict):
+                return "", tipo, None, None
+        # msgContent presente, mas sem conteúdo exibível reconhecido → ignora.
+        return "", None, None, None
     for key in ("text", "body", "message", "caption"):
         value = data.get(key)
         if isinstance(value, str):
-            return value, "texto", None
-    return "", "texto", None
+            return value, "texto", None, None
+    return "", "texto", None, None
 
 
 def _first(data: dict[str, Any], *keys: str) -> Any:

@@ -152,6 +152,38 @@ class WapiAdaptIncomingTests(unittest.TestCase):
         )
 
 
+    def test_received_reaction_is_flagged_not_stored_as_message(self) -> None:
+        from app.services.wapi_webhook import adapt_incoming
+
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "isGroup": False,
+            "messageId": "R1",
+            "chat": {"id": "73650132766836@lid"},
+            "sender": {"pushName": "Nando"},
+            "moment": 1700000002,
+            "msgContent": {"reactionMessage": {"key": {"id": "TARGET-1"}, "text": "\U0001F602"}},
+        }
+        msg = adapt_incoming(payload)
+        self.assertEqual("reaction", msg["tipo"])
+        self.assertEqual("\U0001F602", msg["texto"])
+        self.assertEqual("TARGET-1", msg["reactionTargetId"])
+
+    def test_non_displayable_content_is_ignored(self) -> None:
+        from app.services.wapi_webhook import adapt_incoming
+
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "chat": {"id": "x@lid"},
+            "sender": {},
+            "moment": 1,
+            "msgContent": {"protocolMessage": {"type": "REVOKE"}},
+        }
+        self.assertIsNone(adapt_incoming(payload))
+
+
 class WapiPhoneLidTests(unittest.TestCase):
     def test_lid_and_group_kept_whole(self) -> None:
         from app.services.wapi_messaging import wapi_phone

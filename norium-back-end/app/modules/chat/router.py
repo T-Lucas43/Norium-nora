@@ -492,10 +492,37 @@ async def webhook_whatsapp(
         raise HTTPException(status_code=502, detail="Falha temporaria ao processar webhook.")
 
 
+async def _wapi_apply_reaction(user_id: str, msg: Dict[str, Any]) -> Dict[str, Any]:
+    """Reação recebida: atualiza a mensagem alvo em vez de criar uma mensagem."""
+    target_id = str(msg.get("reactionTargetId") or "")
+    if not target_id:
+        return {"status": "ignored", "event": "reaction"}
+    emoji = msg.get("texto") or ""
+    db = await load_conversations(user_id)
+    conversation = db.get(msg["chatId"])
+    candidates = [conversation] if isinstance(conversation, dict) else list(db.values())
+    for conv in candidates:
+        if not isinstance(conv, dict):
+            continue
+        for stored in conv.get("mensagens") or []:
+            if str(stored.get("id") or "") != target_id:
+                continue
+            # Preserva a reação do próprio usuário (fromMe); substitui a do contato.
+            reactions = [r for r in (stored.get("reacoes") or []) if isinstance(r, dict) and r.get("fromMe")]
+            if emoji:
+                reactions.append({"emoji": emoji, "count": 1, "fromMe": False, "senders": []})
+            stored["reacoes"] = reactions
+            await save_conversations(db, user_id)
+            return {"status": "success", "event": "reaction"}
+    return {"status": "ignored", "event": "reaction"}
+
+
 async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     msg = wapi_webhook.adapt_incoming(data)
     if not msg:
         return {"status": "ignored"}
+    if msg.get("tipo") == "reaction":
+        return await _wapi_apply_reaction(user_id, msg)
     phone = msg["chatId"]
     _, current_ts = current_clock()
     timestamp = msg["timestamp"] or current_ts

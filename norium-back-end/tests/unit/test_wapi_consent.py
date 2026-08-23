@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 
 from app.modules.chat import router as chat_router
+from app.services.wapi_client import WapiConfig
 
 
 def chat_user(user_id: str) -> dict:
@@ -37,8 +38,13 @@ class WapiConsentGateTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
         )
-        # Mocka a rede da W-API: instância desconectada com QR disponível.
+        # Garante configuração válida em CI (sem .env) para não cair no atalho
+        # "indisponivel" antes do consent gate.
         client = chat_router.wapi_connect._client
+        self._stack.enter_context(
+            patch.object(client, "_config", WapiConfig(base_url="https://api.w-api.app", master_api_key="test-master", webhook_secret=""))
+        )
+        # Mocka a rede da W-API: instância desconectada com QR disponível.
         self._stack.enter_context(
             patch.object(client, "status", AsyncMock(return_value={"connected": False, "instanceId": "TEST-INSTANCE"}))
         )

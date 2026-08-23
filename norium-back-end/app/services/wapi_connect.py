@@ -107,7 +107,15 @@ class WapiConnectService:
         """Garante o vínculo de uma instância à conta, de forma idempotente."""
         binding = wb.get_binding(user_id)
         if binding.exists:
-            return binding
+            # Valida se a instância ainda existe (o usuário pode tê-la apagado no
+            # painel). Se sumiu, limpa o vínculo e recria/reutiliza abaixo.
+            try:
+                await self._client.status(binding.instance_id, binding.token)
+                return binding
+            except WapiError:
+                logger.info("Vínculo aponta para instância inexistente; recriando.")
+                wb.clear_binding(user_id)
+                binding = wb.get_binding(user_id)
 
         # Homologação: vincula uma instância pré-provisionada (sem create-instance).
         test_id, test_token = self._homolog_instance()
@@ -206,7 +214,18 @@ class WapiConnectService:
         # Desconectado: só oferece QR se houver aceite válido.
         if not wb.has_valid_consent(user_id):
             return {"status": "aguardando_aceite", "qrcode": None, "state": "disconnected", "consentRequired": True}
-        return {"status": "desconectado", "qrcode": None, "state": "disconnected"}
+
+        # Retorna o QR atual para o polling do frontend exibir/renovar. Sem isso,
+        # o app fica "Gerando QR Code..." para sempre (o polling usa /status).
+        try:
+            qr = await self._client.qr_code(binding.instance_id, binding.token)
+            qrcode = qr.get("qrcode") if isinstance(qr, dict) else None
+        except WapiError:
+            qrcode = None
+        if qrcode:
+            self._apply_state(user_id, binding, "awaiting_qr")
+            return {"status": "aguardando_qrcode", "qrcode": qrcode, "state": "qr"}
+        return {"status": "iniciando", "qrcode": None, "state": "starting"}
 
     async def start(self, user_id: str) -> dict[str, Any]:
         """Inicia a conexão. Exige aceite; retorna o estado já com QR quando houver."""

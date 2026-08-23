@@ -143,6 +143,7 @@ jobs:
           --set-env-vars
           ENVIRONMENT=production
           BACKEND_PUBLIC_URL="${{ vars.AZURE_PUBLIC_URL }}"
+          WHATSAPP_WEBHOOK_DEBUG=true
           GMAIL_CLIENT_ID=secretref:gmail-client-id
           GMAIL_CLIENT_SECRET=secretref:gmail-client-secret
           GOOGLE_CLIENT_ID=secretref:google-client-id

@@ -54,6 +54,7 @@ from app.services import wapi_webhook
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+webhook_debug_logger = logging.getLogger(f"{__name__}.wapi_webhook_debug")
 
 # Backend de WhatsApp totalmente via W-API (conexão, mensagens, webhooks,
 # conversas/contatos/grupos). O serviço legado foi removido.
@@ -91,17 +92,37 @@ WHATSAPP_RECENT_DAYS = max(1, min(90, int(os.getenv("WHATSAPP_RECENT_DAYS", "30"
 # para mapear os campos reais da W-API (status/visto e mensagens fromMe). Desligar
 # após capturar (env WHATSAPP_WEBHOOK_DEBUG).
 WHATSAPP_WEBHOOK_DEBUG = os.getenv("WHATSAPP_WEBHOOK_DEBUG", "").strip().lower() in {"1", "true", "yes"}
+if WHATSAPP_WEBHOOK_DEBUG:
+    # Um logger dedicado permite emitir o diagnóstico em INFO mesmo quando o
+    # logger geral da aplicação permanece em WARNING.
+    webhook_debug_logger.setLevel(logging.INFO)
 BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 
 
 def _mask_id(value: Any) -> str | None:
-    """Mascara um telefone/jid mantendo só os 4 últimos dígitos e o sufixo (@lid/@c.us)."""
+    """Remove o identificador local e preserva apenas o tipo de JID."""
     s = str(value or "").strip()
     if not s:
         return None
-    local, sep, suffix = s.partition("@")
-    tail = local[-4:] if len(local) > 4 else local
-    return f"...{tail}" + (f"@{suffix}" if sep else "")
+    _, sep, suffix = s.partition("@")
+    return "***" + (f"@{suffix}" if sep else "")
+
+
+def _debug_token(value: Any) -> str | int | float | bool | None:
+    """Mantém somente escalares curtos com formato de enum; redige o restante."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", value):
+        return value
+    return f"<{type(value).__name__}:redacted>"
+
+
+def _debug_keys(value: Dict[Any, Any]) -> list[str]:
+    """Expõe apenas nomes de campos com formato estrutural seguro."""
+    return sorted(
+        str(key) if isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", key) else "<redacted-key>"
+        for key in value
+    )
 
 
 def _webhook_debug_snapshot(data: Dict[str, Any], kind: str) -> Dict[str, Any]:
@@ -111,19 +132,19 @@ def _webhook_debug_snapshot(data: Dict[str, Any], kind: str) -> Dict[str, Any]:
     content = data.get("msgContent") if isinstance(data.get("msgContent"), dict) else None
     return {
         "classifiedAs": kind,
-        "event": data.get("event") or data.get("type"),
-        "topKeys": sorted(data.keys()),
-        "fromMe": data.get("fromMe"),
-        "isGroup": data.get("isGroup"),
+        "event": _debug_token(data.get("event") or data.get("type")),
+        "topKeys": _debug_keys(data),
+        "fromMe": data.get("fromMe") if isinstance(data.get("fromMe"), bool) else None,
+        "isGroup": data.get("isGroup") if isinstance(data.get("isGroup"), bool) else None,
         "chatIdMasked": _mask_id(data.get("chatId") or data.get("phone") or chat.get("id")),
         "senderIdMasked": _mask_id(sender.get("id") or data.get("senderId")),
         "senderLidMasked": _mask_id(sender.get("senderLid") or sender.get("lid")),
         "hasPushName": bool(sender.get("pushName") or data.get("pushName")),
-        "msgContentKeys": sorted(content.keys()) if content else None,
-        # Campos candidatos a status/visto (não são PII) — o que falta mapear.
-        "status": data.get("status"),
-        "ack": data.get("ack"),
-        "state": data.get("state"),
+        "msgContentKeys": _debug_keys(content) if content else None,
+        # Campos candidatos a status/visto, limitados a escalares tipo enum.
+        "status": _debug_token(data.get("status")),
+        "ack": _debug_token(data.get("ack")),
+        "state": _debug_token(data.get("state")),
     }
 UPLOAD_DIR = get_data_root() / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -509,12 +530,10 @@ async def webhook_whatsapp(
     #    messageId, entao a chave inclui o tipo para nao descartar o status.
     kind = wapi_webhook.classify_event(data)
     if WHATSAPP_WEBHOOK_DEBUG:
-        # WARNING (não INFO): o app não configura logging, então o nível efetivo é
-        # WARNING e um logger.info seria descartado (não apareceria no console).
         try:
-            logger.warning("WAPI_WEBHOOK_DEBUG %r", _webhook_debug_snapshot(data, kind))
+            webhook_debug_logger.info("WAPI_WEBHOOK_DEBUG %r", _webhook_debug_snapshot(data, kind))
         except Exception:  # diagnóstico nunca pode quebrar o webhook
-            logger.warning("WAPI_WEBHOOK_DEBUG <falha ao serializar>")
+            webhook_debug_logger.info("WAPI_WEBHOOK_DEBUG <falha ao serializar>")
     now = time.time()
     for expired in [eid for eid, expires_at in whatsapp_webhook_event_cache.items() if expires_at <= now]:
         whatsapp_webhook_event_cache.pop(expired, None)
@@ -590,16 +609,20 @@ async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str,
     if any(str(item.get("id") or "") == message_id for item in mensagens):
         return {"status": "duplicate"}
 
-    # Identidade do contato (nome/foto) só é atualizada por mensagens do PRÓPRIO
-    # contato. Em mensagens fromMe o remetente é você, então atualizar aqui
-    # apagaria/trocaria o nome e a foto do contato (bug: "sumiam ao enviar").
-    if not is_from_me:
-        if msg["isGroup"]:
-            nome_atual = conversa.get("contato")
-            if not nome_atual or nome_atual == phone:
-                grupo = await fetch_group_metadata(user_id, phone)
-                conversa["contato"] = (grupo or {}).get("nome") or nome_atual or phone
-        elif msg["chatName"]:
+    # Em grupos, nome/foto vêm dos metadados do próprio grupo e são seguros mesmo
+    # quando a mensagem é fromMe. Em chats diretos, o remetente de uma fromMe é o
+    # usuário — nunca deve substituir a identidade do contato.
+    if msg["isGroup"]:
+        nome_atual = conversa.get("contato")
+        if not nome_atual or nome_atual == phone:
+            grupo = await fetch_group_metadata(user_id, phone)
+            conversa["contato"] = (grupo or {}).get("nome") or nome_atual or phone
+            group_photo = (grupo or {}).get("photoUrl")
+            if group_photo:
+                conversa["photoUrl"] = group_photo
+                conversa.setdefault("metadados", {})["photoUrl"] = group_photo
+    elif not is_from_me:
+        if msg["chatName"]:
             conversa["contato"] = melhor_nome_contato(conversa.get("contato"), msg["chatName"], phone)
         if msg.get("photoUrl"):
             conversa["photoUrl"] = msg["photoUrl"]
@@ -689,11 +712,13 @@ def _wapi_handle_connection(user_id: str, kind: str) -> Dict[str, Any]:
     binding = wb.get_binding(user_id)
     if binding.exists:
         if kind == wapi_webhook.EVENT_CONNECTED:
+            previous_state = binding.state
             binding.state = "connected"
-            if binding.connected_at is None:
+            if previous_state != "connected" or binding.connected_at is None:
                 binding.connected_at = time.time()
         else:
             binding.state = "disconnected"
+            binding.connected_at = None
         wb.save_binding(user_id, binding)
     return {"status": "success", "event": kind}
 
@@ -709,6 +734,16 @@ async def obter_conversas(
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
     db = await load_conversations(resolved_user_id)
+    # Remove também conversas de Status já persistidas por versões anteriores.
+    status_conversation_ids = [
+        conversation_id
+        for conversation_id in db
+        if wapi_webhook.is_status_broadcast({"chatId": conversation_id})
+    ]
+    if status_conversation_ids:
+        for conversation_id in status_conversation_ids:
+            db.pop(conversation_id, None)
+        await save_conversations(db, resolved_user_id)
     catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
     whatsapp_status = await wapi_connect.status(resolved_user_id)
     if whatsapp_status.get("status") != "conectado":
@@ -798,6 +833,8 @@ async def obter_conversas(
         missing_photo_count = 0
         group_metadata_count = 0
         for chat in chats[:500]:
+            if wapi_webhook.is_status_broadcast(chat):
+                continue
             phone = chat.get("phone") or chat.get("id") or chat.get("jid")
             if not phone:
                 continue
@@ -1160,7 +1197,8 @@ async def obter_contatos_disponiveis(
                 "canal": "whatsapp",
             }
             for c in contatos
-            if c.get("name") or c.get("phone") or c.get("id")
+            if (c.get("name") or c.get("phone") or c.get("id"))
+            and not wapi_webhook.is_status_broadcast(c)
         ]
         return contatos_whatsapp
     except Exception:
@@ -1498,17 +1536,18 @@ def is_group_chat(phone: str, data: Dict[str, Any] | None = None) -> bool:
     return explicit or "@g.us" in lowered or lowered.endswith("-group")
 
 
-# Um id "cru" é o próprio jid do chat (ex.: "2194...@lid", "5511...@c.us") ou só
-# dígitos — nunca um nome de verdade. Com a migração do WhatsApp para @lid, os
+# Um id "cru" é o próprio jid do chat (ex.: "2194...@lid", "5511...@c.us") ou um
+# número com formato de telefone. Com a migração do WhatsApp para @lid, os
 # chats chegam com id @lid enquanto os nomes do fetch-contacts vêm por número,
 # então o nome resolvido frequentemente cai para o id. Estas funções evitam que
 # um nome real (ex.: pushName de um webhook) seja rebaixado de volta para o id.
-_JID_LIKE = re.compile(r"^[0-9]+(@|$)")
+_JID_LIKE = re.compile(r"^[0-9]+@[^@]+$")
+_PHONE_LIKE = re.compile(r"^\+?[0-9][0-9\s().-]{6,}$")
 
 
 def _is_id_like(value: str | None, phone: str) -> bool:
     v = (value or "").strip()
-    return (not v) or v == phone or bool(_JID_LIKE.match(v))
+    return (not v) or v == phone or bool(_JID_LIKE.fullmatch(v)) or bool(_PHONE_LIKE.fullmatch(v))
 
 
 def melhor_nome_contato(atual: str | None, novo: str | None, phone: str) -> str:

@@ -27,6 +27,10 @@ class ContactNameResolutionTests(unittest.TestCase):
         phone = "5511999999999@c.us"
         self.assertEqual("Maria", melhor_nome_contato("5511999999999", "Maria", phone))
 
+    def test_preserves_short_numeric_contact_name(self) -> None:
+        phone = "5511999999999@c.us"
+        self.assertEqual("123", melhor_nome_contato(phone, "123", phone))
+
     def test_contact_index_bridges_lid_to_name(self) -> None:
         # fetch-contacts indexado por número, mas com campo lid: o nome deve
         # ficar acessível também pela chave @lid usada pelos chats.

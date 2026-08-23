@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 from contextlib import ExitStack
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
@@ -102,6 +102,51 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("https://exemplo/maria.jpg", conv["metadados"]["photoUrl"])  # foto preservada
         self.assertTrue(conv["ultimaMensagemMinha"])  # mas a msg fromMe foi registrada
 
+    async def test_from_me_group_message_resolves_group_identity_from_metadata(self) -> None:
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "messageId": "GROUP-OUT1",
+            "fromMe": True,
+            "isGroup": True,
+            "chat": {"id": "120363000000000000@g.us"},
+            "sender": {"pushName": "Eu Mesmo", "profilePicture": "https://exemplo/eu.jpg"},
+            "msgContent": {"conversation": "oi grupo"},
+        }
+        group = {"nome": "Equipe", "photoUrl": "https://exemplo/equipe.jpg"}
+        with patch.object(chat_router, "fetch_group_metadata", return_value=group):
+            result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+
+        self.assertEqual("success", result["status"])
+        db = await load_conversations("user-a")
+        conv = db["120363000000000000@g.us"]
+        self.assertEqual("Equipe", conv["contato"])
+        self.assertEqual("https://exemplo/equipe.jpg", conv["photoUrl"])
+
+    async def test_whatsapp_status_text_image_and_video_are_ignored(self) -> None:
+        contents = {
+            "text": {"conversation": "status em texto"},
+            "image": {"imageMessage": {"caption": "status com imagem", "mimetype": "image/jpeg"}},
+            "video": {"videoMessage": {"caption": "status com video", "mimetype": "video/mp4"}},
+        }
+
+        for index, (media_type, content) in enumerate(contents.items(), start=1):
+            with self.subTest(media_type=media_type):
+                payload = {
+                    "event": "webhookReceived",
+                    "instanceId": "INST-A",
+                    "messageId": f"STATUS-{index}",
+                    "phone": "status@broadcast",
+                    "fromMe": False,
+                    "sender": {"id": "5511999998888", "pushName": "Contato"},
+                    "msgContent": content,
+                }
+                with patch.object(chat_router, "fetch_profile_picture", AsyncMock(return_value=None)):
+                    result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+
+                self.assertEqual("ignored", result["status"])
+                self.assertNotIn("status@broadcast", await load_conversations("user-a"))
+
     async def test_duplicate_received_is_ignored(self) -> None:
         await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))
         again = await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))
@@ -123,9 +168,41 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         msg = db2["5511999998888"]["mensagens"][0]
         self.assertEqual("lido", msg["status"])  # "READ" mapeado para o vocabulario interno
 
+    async def test_disconnected_webhook_clears_connected_timestamp(self) -> None:
+        binding = wb.get_binding("user-a")
+        binding.state = "connected"
+        binding.connected_at = 1_700_000_000.0
+        wb.save_binding("user-a", binding)
+
+        result = chat_router._wapi_handle_connection("user-a", "disconnected")
+
+        self.assertEqual("success", result["status"])
+        updated = wb.get_binding("user-a")
+        self.assertEqual("disconnected", updated.state)
+        self.assertIsNone(updated.connected_at)
+
 
 class WapiAdaptIncomingTests(unittest.TestCase):
     """Trava o parsing do payload real da W-API (grupo, nome, mídia, timestamp)."""
+
+    def test_status_markers_are_rejected_before_content_adaptation(self) -> None:
+        from app.services.wapi_webhook import adapt_incoming
+
+        variants = [
+            {"phone": "status@broadcast"},
+            {"chat": {"id": "status@broadcast"}},
+            {"phone": "5511999998888@c.us", "key": {"remoteJid": "status@broadcast"}},
+            {"phone": "5511999998888@c.us", "isStatus": True},
+        ]
+        for marker in variants:
+            with self.subTest(marker=marker):
+                payload = {
+                    "event": "webhookReceived",
+                    "messageId": "STATUS-MARKER",
+                    "msgContent": {"conversation": "não deve virar mensagem"},
+                    **marker,
+                }
+                self.assertIsNone(adapt_incoming(payload))
 
     def test_group_message_uses_group_id_and_no_sender_name(self) -> None:
         from app.services.wapi_webhook import adapt_incoming

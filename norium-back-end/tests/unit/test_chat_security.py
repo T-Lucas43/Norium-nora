@@ -52,7 +52,11 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
             wb.save_binding("user-a", InstanceBinding(instance_id="inst-a", token="t-a", state="connected"))
             wb.save_binding("user-b", InstanceBinding(instance_id="inst-b", token="t-b", state="connected"))
 
-            stores: dict[str, dict] = {"user-a": {}, "user-b": {}}
+            # Simula lixo persistido por uma versão antiga; a leitura deve limpar.
+            stores: dict[str, dict] = {
+                "user-a": {"status@broadcast": {"id": "status@broadcast"}},
+                "user-b": {"status@broadcast": {"id": "status@broadcast"}},
+            }
 
             async def load(user_id: str) -> dict:
                 return stores.setdefault(user_id, {})
@@ -62,19 +66,27 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
 
             async def fetch_chats(instance_id: str, token: str, **_kwargs):
                 # O catalogo depende da instancia (isolada por conta), nao do userId.
-                return {"chats": [{
-                    "id": f"chat-{instance_id}@c.us",
-                    "phone": f"chat-{instance_id}@c.us",
-                    "name": f"Contato {instance_id}",
-                    "timestamp": 1_787_000_000,
-                    "messages": [{
-                        "id": f"message-{instance_id}",
+                return {"chats": [
+                    {
+                        "id": f"chat-{instance_id}@c.us",
+                        "phone": f"chat-{instance_id}@c.us",
+                        "name": f"Contato {instance_id}",
                         "timestamp": 1_787_000_000,
-                        "content": "oi",
-                        "type": "chat",
-                        "fromMe": False,
-                    }],
-                }]}
+                        "messages": [{
+                            "id": f"message-{instance_id}",
+                            "timestamp": 1_787_000_000,
+                            "content": "oi",
+                            "type": "chat",
+                            "fromMe": False,
+                        }],
+                    },
+                    {
+                        "id": "status@broadcast",
+                        "phone": "status@broadcast",
+                        "name": "Status",
+                        "timestamp": 1_787_000_001,
+                    },
+                ]}
 
             async def fetch_contacts(instance_id: str, token: str, **_kwargs):
                 return {"contacts": []}
@@ -94,6 +106,8 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"chat-inst-b@c.us"}, {item["id"] for item in catalog_b})
         self.assertNotIn("chat-inst-b@c.us", stores["user-a"])
         self.assertNotIn("chat-inst-a@c.us", stores["user-b"])
+        self.assertNotIn("status@broadcast", stores["user-a"])
+        self.assertNotIn("status@broadcast", stores["user-b"])
 
     async def test_local_chat_upload_is_scoped_to_authenticated_user(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

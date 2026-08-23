@@ -24,6 +24,55 @@ EVENT_DISCONNECTED = "disconnected"
 EVENT_PRESENCE = "presence"
 EVENT_UNKNOWN = "unknown"
 
+_STATUS_BROADCAST_JID = "status@broadcast"
+_STATUS_FLAG_KEYS = ("isStatus", "isStatusMsg", "statusBroadcast", "isStatusBroadcast")
+
+
+def _is_true(value: Any) -> bool:
+    return value is True or (isinstance(value, str) and value.strip().lower() in {"1", "true", "yes"})
+
+
+def is_status_broadcast(data: dict[str, Any]) -> bool:
+    """Detecta publicações do Status do WhatsApp, não status de entrega.
+
+    A W-API pode expor o marcador como JID direto, dentro de ``chat``/``key``
+    (formato Baileys) ou como flag booleana. Não considera o campo genérico
+    ``status``, pois ele também representa ACK/entrega de mensagens normais.
+    """
+    if any(_is_true(data.get(key)) for key in _STATUS_FLAG_KEYS):
+        return True
+
+    candidates: list[Any] = [
+        data.get("chatId"),
+        data.get("phone"),
+        data.get("from"),
+        data.get("to"),
+        data.get("remoteJid"),
+        data.get("jid"),
+    ]
+    nested_containers = [data.get("chat"), data.get("key")]
+    message = data.get("message")
+    if isinstance(message, dict):
+        nested_containers.extend([message, message.get("key")])
+    wrapped = data.get("data")
+    if isinstance(wrapped, dict):
+        nested_containers.extend([wrapped, wrapped.get("chat"), wrapped.get("key")])
+
+    for container in nested_containers:
+        if not isinstance(container, dict):
+            continue
+        candidates.extend(
+            container.get(key)
+            for key in ("id", "chatId", "phone", "from", "to", "remoteJid", "jid")
+        )
+        if any(_is_true(container.get(key)) for key in _STATUS_FLAG_KEYS):
+            return True
+
+    return any(
+        isinstance(candidate, str) and candidate.strip().lower() == _STATUS_BROADCAST_JID
+        for candidate in candidates
+    )
+
 
 def classify_event(data: dict[str, Any]) -> str:
     """Mapeia o campo de evento da W-API para uma classe interna (tolerante)."""
@@ -88,6 +137,9 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
 
     Retorna ``None`` quando não há telefone/chat identificável.
     """
+    if is_status_broadcast(data):
+        return None
+
     chat_id = _first(data, "chatId", "phone", "from")
     chat = data.get("chat") if isinstance(data.get("chat"), dict) else None
     if not chat_id and chat:

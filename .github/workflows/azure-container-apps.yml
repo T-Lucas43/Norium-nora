@@ -3,12 +3,12 @@ name: Azure Container Apps
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
 
 env:
   REGISTRY: ghcr.io
@@ -72,7 +72,11 @@ jobs:
 
   publish-image:
     needs: validate
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       image: ${{ steps.image.outputs.reference }}
     steps:
@@ -110,6 +114,9 @@ jobs:
     needs: publish-image
     if: ${{ vars.AZURE_CONTAINER_APP_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Authenticate with Azure using OpenID Connect
         uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2

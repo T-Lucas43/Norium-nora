@@ -28,13 +28,16 @@ jobs:
         run: |
           set -euo pipefail
           echo "== Linhas WAPI_WEBHOOK_DEBUG (últimas 200) =="
-          az containerapp logs show \
+          logs="$(az containerapp logs show \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
             --type console \
             --follow false \
             --tail 300 \
-            --format text \
-            | grep -Eai 'WAPI_WEBHOOK_DEBUG' \
-            | tail -n 200 \
-            || echo "(nenhuma linha WAPI_WEBHOOK_DEBUG encontrada — confirme WHATSAPP_WEBHOOK_DEBUG=true e que houve tráfego de webhook)"
+            --format text)"
+          matches="$(grep -Eai 'WAPI_WEBHOOK_DEBUG' <<< "$logs" || true)"
+          if [[ -z "$matches" ]]; then
+            echo "(nenhuma linha WAPI_WEBHOOK_DEBUG encontrada — confirme WHATSAPP_WEBHOOK_DEBUG=true e que houve tráfego de webhook)"
+          else
+            tail -n 200 <<< "$matches"
+          fi

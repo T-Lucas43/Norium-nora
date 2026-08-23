@@ -14,6 +14,7 @@ atuam somente sobre o vínculo daquela conta.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -53,6 +54,7 @@ class WapiConnectService:
         # instance_id -> (qrcode, fetched_at). Estabiliza o QR entre polls para
         # não regenerar a sessão de pareamento a cada consulta de status.
         self._qr_cache: dict[str, tuple[str, float]] = {}
+        self._qr_locks: dict[str, asyncio.Lock] = {}
 
     @property
     def configured(self) -> bool:
@@ -183,9 +185,12 @@ class WapiConnectService:
     # ---- estado / QR -----------------------------------------------------
 
     def _apply_state(self, user_id: str, binding: InstanceBinding, status: str) -> None:
+        previous_state = binding.state
         binding.state = status
-        if status == "connected" and binding.connected_at is None:
+        if status == "connected" and (previous_state != "connected" or binding.connected_at is None):
             binding.connected_at = time.time()
+        elif status == "disconnected":
+            binding.connected_at = None
         wb.save_binding(user_id, binding)
 
     def _drop_qr_cache(self, instance_id: str) -> None:
@@ -199,20 +204,25 @@ class WapiConnectService:
         concluir a vinculação. ``force`` renova imediatamente — usado quando o
         usuário (re)inicia a conexão e quer um QR fresco para começar a escanear.
         """
-        now = time.time()
-        if not force:
+        requested_at = time.monotonic()
+        lock = self._qr_locks.setdefault(instance_id, asyncio.Lock())
+        async with lock:
+            now = time.monotonic()
             cached = self._qr_cache.get(instance_id)
-            if cached and now - cached[1] < _QR_CACHE_TTL_SECONDS:
+            if cached and (
+                (not force and now - cached[1] < _QR_CACHE_TTL_SECONDS)
+                or (force and cached[1] >= requested_at)
+            ):
                 return cached[0]
-        try:
-            qr = await self._client.qr_code(instance_id, token)
-        except WapiError:
+            try:
+                qr = await self._client.qr_code(instance_id, token)
+            except WapiError:
+                return None
+            qrcode = qr.get("qrcode") if isinstance(qr, dict) else None
+            if qrcode:
+                self._qr_cache[instance_id] = (qrcode, time.monotonic())
+                return qrcode
             return None
-        qrcode = qr.get("qrcode") if isinstance(qr, dict) else None
-        if qrcode:
-            self._qr_cache[instance_id] = (qrcode, now)
-            return qrcode
-        return None
 
     async def status(self, user_id: str) -> dict[str, Any]:
         if not self.configured:
@@ -226,13 +236,24 @@ class WapiConnectService:
                 "state": "none",
                 "consentRequired": not accepted,
             }
+        instance_id = binding.instance_id
+        token = binding.token
+        binding_version = binding.updated_at
         try:
-            live = await self._client.status(binding.instance_id, binding.token)
+            live = await self._client.status(instance_id, token)
         except WapiError as exc:
             return {"status": "erro", "qrcode": None, "state": "error", "detail": exc.message}
 
         connected = live.get("connected") is True
         device: dict[str, Any] | None = None
+        latest = wb.get_binding(user_id)
+        if not latest.exists or latest.instance_id != instance_id or latest.token != token:
+            return {"status": "iniciando", "qrcode": None, "state": "starting"}
+        binding = latest
+        # Um webhook `connected` recebido enquanto status-instance estava em voo
+        # é evidência mais nova e não pode ser sobrescrito pela resposta atrasada.
+        if binding.updated_at > binding_version and binding.state == "connected":
+            connected = True
 
         # A W-API às vezes reporta connected:false no status-instance mesmo com o
         # aparelho vinculado (segue em "Aparelhos conectados" no celular) logo
@@ -243,17 +264,28 @@ class WapiConnectService:
         # (só responde com connectedPhone quando realmente conectado) antes de
         # voltar a exibir QR.
         if not connected and (binding.state == "connected" or binding.connected_at is not None):
+            probe_version = binding.updated_at
             try:
                 device = await self._client.device(binding.instance_id, binding.token)
                 connected = bool(
                     device.get("connectedPhone") or device.get("phone") or device.get("number")
                 )
-            except WapiError:
+            except WapiError as exc:
                 device = None
                 connected = False
+                latest = wb.get_binding(user_id)
+                if latest.exists and latest.instance_id == instance_id:
+                    # Um webhook novo sempre vence a sondagem iniciada antes dele.
+                    if latest.updated_at > probe_version and latest.state == "connected":
+                        binding = latest
+                        connected = True
+                    elif exc.status in {401, 404}:
+                        binding = latest
+                        self._apply_state(user_id, binding, "disconnected")
 
         if connected:
             number = None
+            probe_version = binding.updated_at
             try:
                 if device is None:
                     device = await self._client.device(binding.instance_id, binding.token)
@@ -261,15 +293,27 @@ class WapiConnectService:
                 number = device.get("connectedPhone") or device.get("phone") or device.get("number")
             except WapiError:
                 number = None
-            self._drop_qr_cache(binding.instance_id)
-            self._apply_state(user_id, binding, "connected")
-            return {
-                "status": "conectado",
-                "qrcode": None,
-                "state": "connected",
-                "numero": number,
-                "conectadoEm": binding.connected_at,
-            }
+            latest = wb.get_binding(user_id)
+            if (
+                latest.exists
+                and latest.instance_id == instance_id
+                and latest.updated_at > probe_version
+                and latest.state == "disconnected"
+            ):
+                # Uma desconexão entregue enquanto o device estava em voo vence
+                # a resposta antiga e segue para o fluxo de QR abaixo.
+                binding = latest
+                connected = False
+            if connected:
+                self._drop_qr_cache(binding.instance_id)
+                self._apply_state(user_id, binding, "connected")
+                return {
+                    "status": "conectado",
+                    "qrcode": None,
+                    "state": "connected",
+                    "numero": number,
+                    "conectadoEm": binding.connected_at,
+                }
 
         # Desconectado: só oferece QR se houver aceite válido.
         if not wb.has_valid_consent(user_id):
@@ -280,6 +324,23 @@ class WapiConnectService:
         # QR é servido do cache dentro da janela de TTL para não regenerar a
         # sessão de pareamento a cada poll (senão o WhatsApp não vincula).
         qrcode = await self._stable_qr(binding.instance_id, binding.token)
+        latest = wb.get_binding(user_id)
+        if (
+            latest.exists
+            and latest.instance_id == instance_id
+            and latest.updated_at > binding.updated_at
+            and latest.state == "connected"
+        ):
+            self._drop_qr_cache(instance_id)
+            return {
+                "status": "conectado",
+                "qrcode": None,
+                "state": "connected",
+                "numero": None,
+                "conectadoEm": latest.connected_at,
+            }
+        if latest.exists and latest.instance_id == instance_id:
+            binding = latest
         if qrcode:
             self._apply_state(user_id, binding, "awaiting_qr")
             return {"status": "aguardando_qrcode", "qrcode": qrcode, "state": "qr"}

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
+import time
 import unittest
 from contextlib import ExitStack
 from unittest.mock import AsyncMock, patch
@@ -98,6 +100,71 @@ class WapiStatusDetectionTests(unittest.IsolatedAsyncioTestCase):
             result = await chat_router.wapi_connect.status(user["id"])
         self.assertEqual("aguardando_qrcode", result["status"])
         self.assertTrue(result["qrcode"])
+        self.assertIsNone(wb.get_binding(user["id"]).connected_at)
+
+    async def test_connected_webhook_wins_against_stale_status_response(self) -> None:
+        user = chat_user("user-race-status")
+        wb.record_consent(user["id"], origin="test")
+        await chat_router.wapi_connect.ensure_instance(user["id"])
+
+        async def stale_status(*_args, **_kwargs):
+            binding = wb.get_binding(user["id"])
+            binding.state = "connected"
+            binding.connected_at = time.time()
+            wb.save_binding(user["id"], binding)
+            return {"connected": False}
+
+        client = chat_router.wapi_connect._client
+        with (
+            patch.object(client, "status", AsyncMock(side_effect=stale_status)),
+            patch.object(client, "device", AsyncMock(return_value={"connectedPhone": "5511999999999"})),
+        ):
+            result = await chat_router.wapi_connect.status(user["id"])
+
+        self.assertEqual("conectado", result["status"])
+        self.assertEqual("connected", wb.get_binding(user["id"]).state)
+
+    async def test_connected_webhook_wins_while_qr_is_being_fetched(self) -> None:
+        user = chat_user("user-race-qr")
+        wb.record_consent(user["id"], origin="test")
+        await chat_router.wapi_connect.ensure_instance(user["id"])
+        client = chat_router.wapi_connect._client
+
+        async def qr_after_connected(*_args, **_kwargs):
+            binding = wb.get_binding(user["id"])
+            binding.state = "connected"
+            binding.connected_at = time.time()
+            wb.save_binding(user["id"], binding)
+            return {"qrcode": "QR-OBSOLETO"}
+
+        with patch.object(client, "qr_code", AsyncMock(side_effect=qr_after_connected)):
+            result = await chat_router.wapi_connect.status(user["id"])
+
+        self.assertEqual("conectado", result["status"])
+        self.assertIsNone(result["qrcode"])
+        self.assertEqual("connected", wb.get_binding(user["id"]).state)
+
+    async def test_concurrent_forced_qr_requests_share_one_generation(self) -> None:
+        client = chat_router.wapi_connect._client
+        release = asyncio.Event()
+        started = asyncio.Event()
+
+        async def delayed_qr(*_args, **_kwargs):
+            started.set()
+            await release.wait()
+            return {"qrcode": "QR-ESTAVEL"}
+
+        qr_mock = AsyncMock(side_effect=delayed_qr)
+        with patch.object(client, "qr_code", qr_mock):
+            first = asyncio.create_task(chat_router.wapi_connect._stable_qr("INST-RACE", "tok", force=True))
+            await started.wait()
+            second = asyncio.create_task(chat_router.wapi_connect._stable_qr("INST-RACE", "tok", force=True))
+            await asyncio.sleep(0)
+            release.set()
+            results = await asyncio.gather(first, second)
+
+        self.assertEqual(["QR-ESTAVEL", "QR-ESTAVEL"], results)
+        self.assertEqual(1, qr_mock.await_count)
 
     async def test_no_device_probe_without_prior_connection(self) -> None:
         # Sem sinal do webhook (connected_at None, state != connected) não deve

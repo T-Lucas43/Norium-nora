@@ -30,7 +30,29 @@ export type HistoryPage = {
   hasMore: boolean;
 };
 
+export type ConsentInfo = {
+  termVersion: string;
+  accepted: boolean;
+  acceptedVersion?: string | null;
+};
+
 export const whatsappApi = {
+  async consentStatus(signal?: AbortSignal) {
+    return apiRequest<ConsentInfo>("/api/chat/consentimento", {
+      cache: "no-store",
+      timeoutMs: 15_000,
+      signal,
+    });
+  },
+
+  async acceptConsent(termVersion?: string) {
+    return apiRequest<ConsentInfo>("/api/chat/consentimento", {
+      method: "POST",
+      body: JSON.stringify({ aceito: true, versao: termVersion ?? null }),
+      timeoutMs: 20_000,
+    });
+  },
+
   async status(signal?: AbortSignal) {
     const payload = await apiRequest<{ whatsapp: WhatsAppConnection }>("/api/chat/status-canais", {
       cache: "no-store",

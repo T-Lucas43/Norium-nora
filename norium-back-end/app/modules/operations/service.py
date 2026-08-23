@@ -561,7 +561,10 @@ def integration_health(user_id: str, events: list[dict[str, Any]], audits: list[
     profile = read_profile_db(user_id, {})
     gmail_connected = _token_connected(profile, "gmailToken")
     calendar_connected = _token_connected(profile, "calendarToken") and not bool(profile.get("calendarTokenRevoked"))
-    whatsapp_configured = bool(os.getenv("WHATSAPP_API_URL") and os.getenv("WHATSAPP_API_KEY"))
+    from app.services import wapi_binding as _wapi_binding
+
+    # Conectado quando a conta tem uma instancia W-API vinculada e conectada.
+    whatsapp_configured = _wapi_binding.get_binding(user_id).state == "connected"
 
     audits = audits or []
 

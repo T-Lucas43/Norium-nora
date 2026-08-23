@@ -1,0 +1,3672 @@
+{
+  "info": {
+    "name": "W-API",
+    "description": "Coleção completa da W-API — gerada pela documentação.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://api.w-api.app"
+    },
+    {
+      "key": "instanceId",
+      "value": "SEU_INSTANCE_ID"
+    },
+    {
+      "key": "token",
+      "value": "SEU_TOKEN"
+    }
+  ],
+  "item": [
+    {
+      "name": "Instância",
+      "item": [
+        {
+          "name": "Atualizar nome de perfil",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/profile-name?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "profile-name"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável por alterar o nome do seu perfil no WhatsApp."
+          }
+        },
+        {
+          "name": "Atualizar descrição do perfil",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/profile-description?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "profile-description"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Use esse método para editar e personalizar a descrição exibida no seu perfil do WhatsApp."
+          }
+        },
+        {
+          "name": "Atualizar foto de perfil",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/profile-picture?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "profile-picture"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com esse método, você pode atualizar ou modificar a foto do seu perfil no WhatsApp."
+          }
+        },
+        {
+          "name": "Rejeitar ligações",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/update-call-reject-auto?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "update-call-reject-auto"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Essa função habilita a opção de Rejeição Automática de Chamadas na sua instância. Quando ativada, todas as ligações recebidas pelo número vinculado à API serão automaticamente recusadas."
+          }
+        },
+        {
+          "name": "Mensagem de ligação",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/update-call-reject-message?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "update-call-reject-message"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com essa função, você pode personalizar a mensagem que será enviada logo após a API rejeitar uma chamada de voz ou de video."
+          }
+        },
+        {
+          "name": "Conectar com QR CODE",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/qr-code?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "qr-code"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com essa função, você pode gerar um QR code para autenticação no WhatsApp em dois formatos: Base64 ou PNG, prontos para exibição em qualquer componente de imagem da sua aplicação.\n\nExistem 2 formas de conexão disponíveis:\n\n**Via Painel Administrativo**\nUtilize a interface do nosso painel para gerar e ler o QR code.\n\n**Via Integração Direta na Sua Aplicação**\nIncorpore a experiência de autenticação diretamente no seu sistema, utilizando os métodos descritos nesta seção.\n\nVocê pode optar por qualquer um dos métodos para ler o QR code do WhatsApp"
+          }
+        },
+        {
+          "name": "Conectar por telefone",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/pairing-code?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "pairing-code"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método retorna um código para que seja possível conectar o número a API sem a necessidade de leitura de qr-code, apenas inserindo o código gerado.\n"
+          }
+        },
+        {
+          "name": "Reiniciar instância",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/restart?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "restart"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Se você pulou a introdução e ainda não entende o conceito de instância, sugiro que volte e leia essa parte para se situar.\n\nAgora que já sabe o que é uma instância, fica mais fácil de explicar:\n\nEste método funciona como o \"Reiniciar\" do seu sistema operacional. Quando as coisas não vão bem, a solução clássica é reiniciar, assim como um \"control+alt+del\"!"
+          }
+        },
+        {
+          "name": "Desconectar",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/disconnect?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "disconnect"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método desconecta seu número da API, exigindo que o QR Code seja lido novamente para restabelecer a conexão.\n"
+          }
+        },
+        {
+          "name": "Status da instância",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/status-instance?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "status-instance"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método permite verificar se sua instância está conectada a uma conta do WhatsApp ou não."
+          }
+        },
+        {
+          "name": "Dados do celular",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/device?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "device"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável por retornar informações sobre o device/celular conectado."
+          }
+        },
+        {
+          "name": "Renomear instância",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"instanceName\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/update-instance-name?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "update-instance-name"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Método utilizado para renomear uma instância."
+          }
+        },
+        {
+          "name": "Dados da instância",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/fetch-instance?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "fetch-instance"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método te permite obter os dados da instância."
+          }
+        },
+        {
+          "name": "Leitura automática",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/update-auto-read-message?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "update-auto-read-message"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método habilita a leitura automática de todas as mensagens recebidas pela API."
+          }
+        },
+        {
+          "name": "Ignorar grupos",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/update-ignore-groups?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "update-ignore-groups"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método habilita ou desabilita o processamento de eventos provenientes de grupos."
+          }
+        },
+        {
+          "name": "Atualizar Proxy",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"instanceId\": \"\",\n  \"useProxy\": true,\n  \"proxyProtocol\": \"\",\n  \"proxyHost\": \"\",\n  \"proxyPort\": \"\",\n  \"proxyUser\": \"\",\n  \"proxyPass\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/update-proxy?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "update-proxy"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Atualiza as configurações de proxy de uma instância existente. Requer que os campos obrigatórios sejam passados caso ative o uso do proxy."
+          }
+        },
+        {
+          "name": "Gerar Token de Extensão",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/extension-token?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "extension-token"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Gera um token temporário (válido por 5 minutos) para autenticar a extensão do Chrome de forma segura, sem expor o instanceId e o token."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Mensagens",
+      "item": [
+        {
+          "name": "Enviar texto",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"message\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-text?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-text"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Você pode enviar mensagens simples por aqui, mas também é possível enriquecê-las com formatação de texto e emojis.\n\nÉ possível adicionar quebras de linha em suas mensagens, mas o método pode variar dependendo da plataforma em que sua aplicação está rodando e da linguagem de programação em uso. As opções identificadas até agora incluem:\n\n* `\\n`\n* `\\r`\n* `\\r\\n`\n* `%0a`\n\nPara saber como formatar fontes no WhatsApp [clique aqui](https://faq.whatsapp.com/general/chats/how-to-format-your-messages/?lang=pt_br)"
+          }
+        },
+        {
+          "name": "Enviar reação",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"messageId\": \"\",\n  \"reaction\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-reaction?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-reaction"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com este método, você pode enviar reações a mensagens que foram enviadas ou recebidas. Basta fornecer o número do telefone do chat, escolher um emoji e indicar a mensagem à qual deseja reagir!"
+          }
+        },
+        {
+          "name": "Remover reação",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/remove-reaction?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "remove-reaction"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Usando este método, você pode remover reações de mensagens enviadas ou recebidas. Para isso, é necessário fornecer o número do telefone do chat e o messageId da mensagem!"
+          }
+        },
+        {
+          "name": "Enviar imagem",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"image\": \"\",\n  \"caption\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-image?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-image"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método permite o envio de imagens para seus chats de duas maneiras:\n\n* **Por Link**: Se a imagem estiver hospedada online, basta enviar o link direto.\n\n* **Por Base64**: Se optar por essa alternativa, você precisará de um método em sua aplicação para converter a imagem em Base64. Para verificar se a conversão foi bem-sucedida, copie o código Base64 gerado e cole na barra de endereços do seu navegador. Se a imagem for válida, ela será exibida; caso contrário, revise o método de conversão.\n\n**IMPORTANTE**: Se optar por usar Base64, lembre-se de adicionar a expressão **data:image/png;base64,** antes do código Base64 da imagem.\n\nO WhatsApp impõe limites ao tamanho de arquivos, e essas políticas podem mudar frequentemente. Por isso, é sempre aconselhável conferir as informações diretamente no site oficial do WhatsApp.\n\nNeste [link](https://developers.facebook.com/docs/whatsapp/api/media), você encontrará todas as informações necessárias sobre formatos e tamanhos de arquivos."
+          }
+        },
+        {
+          "name": "Enviar sticker",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"sticker\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-sticker?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-sticker"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Função responsável pelo envio de stickers estáticos ou animados para suas conversas, com duas opções de envio:\n\n* **Por Link**: forneça o link de um sticker hospedado na internet.\n\n* **Por Base64**: se optar por esta opção, será necessário converter o sticker para Base64 em sua aplicação. Para verificar a conversão, copie o código Base64 gerado e cole na barra de endereço do navegador; se o sticker for válido, ele será exibido. Caso contrário, revise o método de conversão.\n\n**IMPORTANTE**: Ao usar Base64, adicione a expressão data:image/png;base64, data:image/jpeg;base64 ou data:image/gif;base64 antes do código Base64.\n\nO WhatsApp impõe limites ao tamanho de arquivos, e essas políticas podem mudar frequentemente. Por isso, é sempre aconselhável conferir as informações diretamente no site oficial do WhatsApp.\n\nNeste [link](https://developers.facebook.com/docs/whatsapp/api/media), você encontrará todas as informações necessárias sobre formatos e tamanhos de arquivos."
+          }
+        },
+        {
+          "name": "Enviar GIF",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"gif\": \"\",\n  \"caption\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-gif?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-gif"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Função destinada ao envio de GIFs para seus chats utilizando a API (O arquivo deve estar no formato MP4 para ser enviado).\n\nO WhatsApp impõe limites ao tamanho de arquivos, e essas políticas podem mudar frequentemente. Por isso, é sempre aconselhável conferir as informações diretamente no site oficial do WhatsApp.\n\nNeste [link](https://developers.facebook.com/docs/whatsapp/api/media), você encontrará todas as informações necessárias sobre formatos e tamanhos de arquivos."
+          }
+        },
+        {
+          "name": "Enviar áudio",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"audio\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-audio?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-audio"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Função que permite o envio de áudios para suas conversas, com duas opções de envio:\n\n* **Via link**: basta fornecer o link de um áudio hospedado na internet.\n* **Via Base64**: caso escolha essa opção, será necessário ter em sua aplicação um método para converter o áudio para o formato Base64.\n\nO WhatsApp impõe limites ao tamanho de arquivos, e essas políticas podem mudar frequentemente. Por isso, é sempre aconselhável conferir as informações diretamente no site oficial do WhatsApp.\n\nNeste [link](https://developers.facebook.com/docs/whatsapp/api/media), você encontrará todas as informações necessárias sobre formatos e tamanhos de arquivos."
+          }
+        },
+        {
+          "name": "Enviar vídeo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"video\": \"\",\n  \"caption\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-video?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-video"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Função que permite o envio de vídeos para suas conversas, com duas opções de envio:\n\n* **Via link**: basta fornecer o link de um vídeo hospedado na internet.\n* **Via Base64**: caso escolha essa opção, será necessário ter em sua aplicação um método para converter o vídeo para o formato Base64.\n\nO WhatsApp impõe limites ao tamanho de arquivos, e essas políticas podem mudar frequentemente. Por isso, é sempre aconselhável conferir as informações diretamente no site oficial do WhatsApp.\n\nNeste [link](https://developers.facebook.com/docs/whatsapp/api/media), você encontrará todas as informações necessárias sobre formatos e tamanhos de arquivos."
+          }
+        },
+        {
+          "name": "Enviar PTV",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"ptv\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-ptv?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-ptv"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Esse método é utilizado para enviar PTV (Playable Video on Text) para seus chats. Você tem duas opções para trabalhar com as PTVs:\n\n1. **Por Link**: Basta fornecer o link de um vídeo já hospedado na internet.\n2. **Por Base64**: Se escolher essa opção, será necessário implementar em sua aplicação um processo para converter o vídeo em formato Base64 antes do envio.\n\nO WhatsApp impõe limites ao tamanho de arquivos, e essas políticas podem mudar frequentemente. Por isso, é sempre aconselhável conferir as informações diretamente no site oficial do WhatsApp.\n\nNeste [link](https://developers.facebook.com/docs/whatsapp/api/media), você encontrará todas as informações necessárias sobre formatos e tamanhos de arquivos."
+          }
+        },
+        {
+          "name": "Enviar documentos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"document\": \"\",\n  \"extension\": \"\",\n  \"fileName\": \"\",\n  \"caption\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-document?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-document"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com essa função, você pode enviar documentos diretamente para seus contatos de forma rápida e descomplicada.\n\n**Importante:** É necessário especificar a extensão do arquivo no campo \"*extension*\". Esse método é projetado para aceitar praticamente qualquer tipo de arquivo, desde que esteja dentro dos limites de tamanho permitidos pelo WhatsApp. Para saber mais sobre essas restrições, [confira aqui](https://developers.facebook.com/docs/whatsapp/api/media/#post-processing)."
+          }
+        },
+        {
+          "name": "Enviar link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"message\": \"\",\n  \"linkUrl\": \"\",\n  \"linkDescription\": \"\",\n  \"title\": \"\",\n  \"image\": \"\",\n  \"messageId\": \"\",\n  \"linkType\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-link?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-link"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Esse método é usado para enviar um link aos seus contatos, sendo uma ferramenta ideal para compartilhar URLs e direcionar usuários a um site específico."
+          }
+        },
+        {
+          "name": "Enviar localização",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"latitude\": \"\",\n  \"longitude\": \"\",\n  \"name\": \"\",\n  \"address\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-location?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-location"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com essa função, você pode enviar uma localização fixa para seus contatos, perfeito para indicar endereços ou locais importantes."
+          }
+        },
+        {
+          "name": "Enviar contato",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"contactName\": \"\",\n  \"contactPhone\": \"\",\n  \"contactBusinessDescription\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-contact?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-contact"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com esse método, você pode enviar um contato facilmente, sem precisar tê-lo salvo na sua agenda. É só preencher os dados necessários e realizar o envio."
+          }
+        },
+        {
+          "name": "Enviar vários contatos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"contacts\": [],\n  \"@group: Atributos do Contato\": \"\",\n  \"contactName\": \"\",\n  \"contactPhone\": \"\",\n  \"contactBusinessDescription\": \"\",\n  \"messageId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-contacts?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-contacts"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "De maneira simples e eficiente, esse método possibilita o envio de vários contatos. Você só precisa preencher os dados requeridos no método, sem precisar tê-los salvos em seus contatos."
+          }
+        },
+        {
+          "name": "Enviar texto com botões de ação",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"message\": \"\",\n  \"buttonActions\": [],\n  \"@group: buttonActions\": \"\",\n  \"type\": \"\",\n  \"buttonText\": \"\",\n  \"url\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-buttons-action?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-buttons-action"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com esta abordagem, é possível criar mensagens de texto que contenham botões interativos. Através desses botões, você pode direcionar o usuário para páginas web, iniciar uma ligação telefônica ou oferecer respostas automáticas predefinidas."
+          }
+        },
+        {
+          "name": "Enviar texto com botões",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"message\": \"\",\n  \"@group: buttons\": [],\n  \"buttonId\": \"\",\n  \"label\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-button-list?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-button-list"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com esta funcionalidade, é possível criar mensagens de texto acompanhadas de botões interativos, como \"SIM\" e \"NÃO\". O usuário poderá selecionar uma dessas opções, e a escolha será registrada como resposta à mensagem original enviada junto com os botões."
+          }
+        },
+        {
+          "name": "Enviar botão OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"message\": \"\",\n  \"buttonText\": \"\",\n  \"code\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-otp?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-otp"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com este recurso, você pode enviar mensagens de texto que incluem um botão especifico para que o usuário copie facilmente um determinado conteúdo ou valor."
+          }
+        },
+        {
+          "name": "Enviar botão PIX",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"merchantName\": \"\",\n  \"pixKey\": [],\n  \"type\": [],\n  \"amount\": 0,\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-pix?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-pix"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com este recurso, é possível enviar mensagens contendo uma chave Pix, acompanhada de um botão que permite ao usuário copiar facilmente essa informação."
+          }
+        },
+        {
+          "name": "Enviar carrossel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"message\": \"\",\n  \"cards\": [],\n  \"@group: carouselCard\": \"\",\n  \"text\": \"\",\n  \"image\": \"\",\n  \"@group: buttonActions\": \"\",\n  \"type\": \"\",\n  \"buttonText\": \"\",\n  \"url\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-carousel?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-carousel"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Neste método você poderá enviar mensagens de carrosel com imagens, texto e com botões de ação. A partir dos botões de ação, você conseguirá redirecionar para links, fazer chamadas, e também dar respostas padrões."
+          }
+        },
+        {
+          "name": "Enviar lista de opções",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"title\": \"\",\n  \"description\": \"\",\n  \"buttonText\": \"\",\n  \"footerText\": \"\",\n  \"sections\": [],\n  \"@group: options\": \"\",\n  \"@group: option\": \"\",\n  \"rowId\": \"\",\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-list?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-list"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Esse método permite o envio de mensagens de texto com opções, onde o destinatário pode selecionar uma das respostas disponíveis."
+          }
+        },
+        {
+          "name": "Deletar mensagem",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/delete-message?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "delete-message"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com essa função, você pode deletar mensagens em um chat, sejam elas enviadas por você ou por um contato. Tudo o que você precisa é do *messageId* da mensagem que deseja remover."
+          }
+        },
+        {
+          "name": "Editar mensagem",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"text\": \"\",\n  \"messageId\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/edit-message?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "edit-message"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Use este método para editar mensagens previamente enviadas. Passe o identificador da mensagem e o conteúdo revisado via JSON para aplicar as mudanças."
+          }
+        },
+        {
+          "name": "Ler mensagens",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"messageId\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/read-message?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "read-message"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Método utilizado para marcar uma mensagem em um chat como lida."
+          }
+        },
+        {
+          "name": "Enviar enquete",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"\",\n  \"message\": \"\",\n  \"poll\": [],\n  \"pollMaxOptions\": 0,\n  \"delayMessage\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/send-poll?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "send-poll"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Utilize esse método para enviar mensagens que contenham enquetes, permitindo interação direta com os usuários."
+          }
+        },
+        {
+          "name": "Baixar mídia",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"mediaKey\": \"\",\n  \"directPath\": \"\",\n  \"type\": \"\",\n  \"mimetype\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/message/download-media?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "message",
+                "download-media"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Com esse método é possível baixar a mídia de uma mensagem, o retorno será um link temporário."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Conversas",
+      "item": [
+        {
+          "name": "Pegar chats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/chats/fetch-chats?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "chats",
+                "fetch-chats"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Pegar chat",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/chats/chat?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "chats",
+                "chat"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável por retornar as informações do metadata de um chat."
+          }
+        },
+        {
+          "name": "Enviar presença",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"instanceId\": \"\",\n  \"phone\": \"\",\n  \"presence\": \"\",\n  \"delay\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/chats/send-presence?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "chats",
+                "send-presence"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável por enviar presenca no chat."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contatos",
+      "item": [
+        {
+          "name": "Número tem whatsapp?",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/contacts/contacts/phone-exists?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "contacts",
+                "contacts",
+                "phone-exists"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método verifica se o número informado está registrado no WhatsApp ou não."
+          }
+        },
+        {
+          "name": "Validar números em lote",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phones\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/contacts/contacts/check-numbers?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "contacts",
+                "contacts",
+                "check-numbers"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Ao contrário do método anterior, que valida individualmente se um número possui WhatsApp por meio de uma requisição GET, esta API realiza a verificação em lote."
+          }
+        },
+        {
+          "name": "Buscar contatos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/contacts/contacts/fetch-contacts?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "contacts",
+                "contacts",
+                "fetch-contacts"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é reponsavel por retornar todos os contatos do Whatsapp."
+          }
+        },
+        {
+          "name": "Pegar foto do contato",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/contacts/contacts/profile-picture?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "contacts",
+                "contacts",
+                "profile-picture"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável por fornecer a URL atualizada da imagem de perfil de um contato, no entanto, esse link possui uma validade limitada de 48 horas, após o qual é automaticamente removido pelo WhatsApp. Caso você precise manter a imagem do contato sempre atualizada em sua aplicação, recomendamos utilizar o método profile-picture, descrito mais adiante nesta documentação. Esse método permite que você baixe e armazene a versão mais recente da imagem do contato, garantindo que ela permaneça disponível mesmo após o período de validade do link original."
+          }
+        },
+        {
+          "name": "Bloquear contato",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"\",\n  \"blockStatus\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/contacts/contacts/block-contact?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "contacts",
+                "contacts",
+                "block-contact"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é reponsavel por bloquear ou desbloquear um contato."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Grupos",
+      "item": [
+        {
+          "name": "Criar grupo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupName\": \"\",\n  \"participants\": [],\n  \"profilePictureUrl\": \"\",\n  \"autoInvite\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/create-group?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "create-group"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável por criar um grupo com seus respectivos participantes."
+          }
+        },
+        {
+          "name": "Atualizar nome do grupo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"\",\n  \"groupName\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/update-group-name?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "update-group-name"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método permite atualizar o nome de um grupo que já foi criado."
+          }
+        },
+        {
+          "name": "Atualizar foto do grupo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"\",\n  \"groupPhoto\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/update-group-photo?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "update-group-photo"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável alterar a imagem de um grupo já existente."
+          }
+        },
+        {
+          "name": "Atualizar descrição do grupo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"\",\n  \"description\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/update-description?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "update-description"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método permite você alterar a descrição do grupo."
+          }
+        },
+        {
+          "name": "Adicionar participante",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"\",\n  \"phones\": [],\n  \"autoInvite\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/add-participant?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "add-participant"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é reponsável por adicionar novos participantes ao grupo."
+          }
+        },
+        {
+          "name": "Remover participante",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"\",\n  \"phones\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/remove-participant?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "remove-participant"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é reponsável por remover participantes do grupo."
+          }
+        },
+        {
+          "name": "Promover participante",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"\",\n  \"phones\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/add-admin?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "add-admin"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável por promover participamentes do grupo à administradores, você pode provomover um ou mais participamente à administrador."
+          }
+        },
+        {
+          "name": "Despromover participante",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"\",\n  \"phones\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/remove-admin?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "remove-admin"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável remover um ou mais admistradores de um grupo."
+          }
+        },
+        {
+          "name": "Sair do grupo",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/leave-group?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "leave-group"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método permite você sair de um grupo ao qual participa."
+          }
+        },
+        {
+          "name": "Dados do grupo",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/group-metadata?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "group-metadata"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método retorna o metadata do grupo com todas informações do grupo e de seus participantes."
+          }
+        },
+        {
+          "name": "Dados do grupo por convite",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/group-invitation-metadata?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "group-invitation-metadata"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método retorna o metadata do grupo com todas informações do grupo e de seus participantes."
+          }
+        },
+        {
+          "name": "Buscar participantes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/get-Participants?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "get-Participants"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método retorna a lista completa de participantes de um grupo específico."
+          }
+        },
+        {
+          "name": "Redefinir link de convite",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/revoke-invite?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "revoke-invite"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método revoga o link de convite atual do grupo e gera um novo código automaticamente."
+          }
+        },
+        {
+          "name": "Configurações do grupo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"\",\n  \"adminOnlyMessage\": true,\n  \"adminOnlySettings\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/update-group-settings?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "update-group-settings"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método permite você alterar as preferências do grupo."
+          }
+        },
+        {
+          "name": "Buscar grupos e comunidades",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/group/get-all-groups?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "group",
+                "get-all-groups"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método é responsável por retornar todos os grupos."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks",
+      "item": [
+        {
+          "name": "Ao conectar",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhook/update-webhook-connected?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhook",
+                "update-webhook-connected"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este webhook é responsável por acompanhar o status da conexão entre o dispositivo móvel e o W-API. Sua ativação ocorre sempre que o W-API estabelece vínculo com o WhatsApp, seja por meio da leitura do QR Code ou utilizando o código de emparelhamento.\n\nA alteração do endpoint desse webhook pode ser realizada tanto via API quanto através do painel de administração."
+          }
+        },
+        {
+          "name": "Ao desconectar",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhook/update-webhook-disconnected?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhook",
+                "update-webhook-disconnected"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este é o webhook que trata as respostas de eventos de desconexão.\n\nA alteração do endpoint desse webhook pode ser realizada tanto via API quanto através do painel de administração."
+          }
+        },
+        {
+          "name": "Ao enviar",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhook/update-webhook-delivery?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhook",
+                "update-webhook-delivery"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Esse é o webhook que retorna os dados das mensagens enviadas, fornecendo feedback sobre seu status.\n\nA alteração do endpoint desse webhook pode ser realizada tanto via API quanto através do painel de administração."
+          }
+        },
+        {
+          "name": "Ao receber",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhook/update-webhook-received?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhook",
+                "update-webhook-received"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Esse webhook é responsável por receber as mensagens enviadas para a sua instância.\n\nA alteração do endpoint desse webhook pode ser realizada tanto via API quanto através do painel de administração."
+          }
+        },
+        {
+          "name": "Atualização no status de mensagens",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhook/update-webhook-message-status?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhook",
+                "update-webhook-message-status"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Esse webhook atua como um canal de retorno, fornecendo o status atualizado das mensagens enviadas.\n\nA alteração do endpoint desse webhook pode ser realizada tanto via API quanto através do painel de administração."
+          }
+        },
+        {
+          "name": "Atualização no status do chat",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhook/update-webhook-chat-presence?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhook",
+                "update-webhook-chat-presence"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este é o webhook responsável por retornar o status do chat.\n\nA alteração do endpoint desse webhook pode ser realizada tanto via API quanto através do painel de administração."
+          }
+        },
+        {
+          "name": "Buscar webhook log por ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhook/get-webhook-log?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhook",
+                "get-webhook-log"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Responsável por buscar um webhook log por id. Os logs tem um prazo de 30 dias, após esse prazo o log é apagado do nosso banco de dados."
+          }
+        },
+        {
+          "name": "Buscar webhook logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/webhook/fetch-webhook-logs?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "webhook",
+                "fetch-webhook-logs"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Responsavel por buscar todos os webhook logs da instancia, os logs tem um prazo de 30 dias, após esse prazo os logs são apagados do nosso banco de dados."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Fila de mensagens",
+      "item": [
+        {
+          "name": "Ver fila",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/quere/quere?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "quere",
+                "quere"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Esse método retorna todas as mensagens que estão na fila, aguardando para serem processadas e enviadas."
+          }
+        },
+        {
+          "name": "Apagando uma fila",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/quere/delete-quere?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "quere",
+                "delete-quere"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método remove todos os registros que estão na fila de envio da instância."
+          }
+        },
+        {
+          "name": "Apagando mensagem da fila",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/instance/quere/delete-message?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "instance",
+                "quere",
+                "delete-message"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Este método permite remover uma mensagem específica da fila de envio."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Start",
+      "item": []
+    },
+    {
+      "name": "LITE vs PRO",
+      "item": []
+    },
+    {
+      "name": "ID e TOKEN",
+      "item": []
+    },
+    {
+      "name": "Banimentos",
+      "item": []
+    },
+    {
+      "name": "@lid",
+      "item": []
+    },
+    {
+      "name": "Coleção Postman",
+      "item": []
+    },
+    {
+      "name": "API Integration",
+      "item": [
+        {
+          "name": "Criar Nova Instância",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"apiKey\": \"\",\n  \"instanceName\": \"\",\n  \"lite\": true,\n  \"webhookConnectedUrl\": \"\",\n  \"webhookDeliveryUrl\": \"\",\n  \"webhookDisconnectedUrl\": \"\",\n  \"webhookStatusUrl\": \"\",\n  \"webhookPresenceUrl\": \"\",\n  \"webhookReceivedUrl\": \"\",\n  \"automaticReading\": true,\n  \"rejectCalls\": true,\n  \"callMessage\": \"\",\n  \"useProxy\": true,\n  \"proxyProtocol\": \"\",\n  \"proxyHost\": \"\",\n  \"proxyPort\": \"\",\n  \"proxyUser\": \"\",\n  \"proxyPass\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/client/create-instance?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "client",
+                "create-instance"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Cria uma nova instância e retorna as credenciais. A instância é criada inicialmente com 7 dias de teste gratuito."
+          }
+        },
+        {
+          "name": "Listar Todas Instâncias",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/client/list-instances?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "client",
+                "list-instances"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Retorna uma lista de todas as instâncias e informações criadas pelo seu usuário (Owner da API Key)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pagamento",
+      "item": [
+        {
+          "name": "Status do Pagamento",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payment/status?instanceId=INSTANCE_ID?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payment",
+                "status?instanceId=INSTANCE_ID"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Retorna o status financeiro completo da instância, incluindo o tipo de plano, vigência do vencimento e o estado da assinatura."
+          }
+        },
+        {
+          "name": "Criar Cobrança PIX",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payerEmail\": \"\",\n  \"webhookPaymentUrl\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/payment/pix/create?instanceId=INSTANCE_ID?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payment",
+                "pix",
+                "create?instanceId=INSTANCE_ID"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Gera um QR Code PIX ou Link de Pagamento no Mercado Pago para pagamento avulso."
+          }
+        },
+        {
+          "name": "Assinar via Cartão",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payerEmail\": \"\",\n  \"webhookPaymentUrl\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/payment/card/subscribe?instanceId=INSTANCE_ID?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payment",
+                "card",
+                "subscribe?instanceId=INSTANCE_ID"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Gera uma sessão segura de checkout na Stripe para assinar o plano recorrente usando cartão de crédito."
+          }
+        },
+        {
+          "name": "Ligar/Desligar Auto-Renovação",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/payment/auto-renew/toggle?instanceId=INSTANCE_ID?instanceId={{instanceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "payment",
+                "auto-renew",
+                "toggle?instanceId=INSTANCE_ID"
+              ],
+              "query": [
+                {
+                  "key": "instanceId",
+                  "value": "{{instanceId}}"
+                }
+              ]
+            },
+            "description": "Alterna (liga ou desliga) o status de renovação automática da assinatura via Cartão de Crédito (Stripe) para a instância especificada."
+          }
+        }
+      ]
+    }
+  ]
+}

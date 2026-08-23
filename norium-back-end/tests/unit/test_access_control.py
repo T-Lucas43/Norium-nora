@@ -119,11 +119,11 @@ class AccessControlTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_production_whatsapp_webhook_fails_closed_without_secret(self) -> None:
         with (
-            patch.object(chat_router, "WHATSAPP_WEBHOOK_SECRET", ""),
+            patch.object(chat_router, "WAPI_WEBHOOK_SECRET", ""),
             patch.dict("os.environ", {"ENVIRONMENT": "production"}),
         ):
             with self.assertRaises(HTTPException) as error:
-                await chat_router.webhook_whatsapp({}, None, None)
+                await chat_router.webhook_whatsapp({})
         self.assertEqual(503, error.exception.status_code)
 
     async def test_agent_draft_reads_only_the_authenticated_tenant(self) -> None:

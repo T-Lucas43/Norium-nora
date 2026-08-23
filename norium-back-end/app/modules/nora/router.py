@@ -55,14 +55,14 @@ from app.modules.operations.service import (
 )
 from app.modules.platform.service import conflict_scan, generate_handoff, quality_scan, query_knowledge
 from app.services.task_store import list_tasks
-from app.services.whatsapp import WhatsAppService
+from app.services.wapi_messaging import WapiMessagingService, MessagingUnavailable, WapiError
 from app.services.brainstorm_store import create_brainstorm_session, list_brainstorm_sessions
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/nora", tags=["Nora IA"])
 nora_service = NoraIAService()
-whatsapp_service = WhatsAppService()
+wapi_messaging = WapiMessagingService()
 agent_manager = AgentManager()
 email_agent = EmailAgent()
 ELEVENLABS_DEFAULT_VOICE_ID = "KHmfNHtEjHhLK9eER20w"
@@ -1290,11 +1290,14 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
                 "blocked_reason": "texto_envio_vazio",
             }
 
-        resultado_envio = await whatsapp_service.enviar_mensagem_texto(
-            resolved_user_id,
-            payload.conversa_id,
-            texto_envio,
-        )
+        try:
+            resultado_envio = await wapi_messaging.send_text(
+                resolved_user_id,
+                payload.conversa_id,
+                texto_envio,
+            )
+        except (MessagingUnavailable, WapiError):
+            resultado_envio = {"sent": False}
         sucesso_envio = bool(resultado_envio and resultado_envio.get("sent") is True)
 
         if sucesso_envio:

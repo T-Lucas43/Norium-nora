@@ -9,7 +9,7 @@ from app.services.conversation_store import (
     is_empty_history,
 )
 from app.services.nora import NoraIAService
-from app.services.whatsapp import WhatsAppService
+from app.services.wapi_messaging import WapiMessagingService, MessagingUnavailable, WapiError
 
 AgentStatus = Literal["ativo", "planejado"]
 
@@ -17,7 +17,7 @@ AgentStatus = Literal["ativo", "planejado"]
 class AgentManager:
     def __init__(self) -> None:
         self.nora_service = NoraIAService()
-        self.whatsapp_service = WhatsAppService()
+        self.wapi_messaging = WapiMessagingService()
         self._agents: List[Dict[str, Any]] = [
             {
                 "id": "mensagens",
@@ -115,7 +115,10 @@ class AgentManager:
                 "sent": False,
             }
 
-        result = await self.whatsapp_service.enviar_mensagem_texto(user_id, conversa_id, texto)
+        try:
+            result = await self.wapi_messaging.send_text(user_id, conversa_id, texto)
+        except (MessagingUnavailable, WapiError):
+            result = {"sent": False}
         success = bool(result and result.get("sent") is True)
 
         if success:

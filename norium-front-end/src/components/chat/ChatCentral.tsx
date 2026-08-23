@@ -8,7 +8,7 @@ import { apiBaseUrl } from "../../utils/api";
 import StatusBanner from "../shared/StatusBanner";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import Button from "../shared/Button";
-import { whatsappApi, type Contact, type WhatsAppConnection } from "./whatsappApi";
+import { whatsappApi, type Contact, type WhatsAppConnection, type ConsentInfo } from "./whatsappApi";
 import { apiBlobRequest } from "../../core/api/client";
 
 const BACKEND_URL = apiBaseUrl();
@@ -26,6 +26,9 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const [qrCodeString, setQrCodeString] = useState<string | null>(null);
   const [erroLogin, setErroLogin] = useState<string | null>(null);
   const [mensagemLogin, setMensagemLogin] = useState<string | null>(null);
+  const [consentInfo, setConsentInfo] = useState<ConsentInfo | null>(null);
+  const [consentChecked, setConsentChecked] = useState<boolean>(false);
+  const [aceitandoConsent, setAceitandoConsent] = useState<boolean>(false);
 
   const [conversas, setConversas] = useState<ChatConversa[]>([]);
   const [conversaSelecionada, setConversaSelecionada] = useState<string | null>(null);
@@ -707,8 +710,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     } catch (err) { mostrarAviso("error", err instanceof Error ? err.message : "Falha ao atualizar conversa."); }
   };
 
-  const handleIniciarLogin = async (canal: "whatsapp") => {
-    setCanalSelecionadoLogin(canal);
+  const iniciarQrCode = async (canal: "whatsapp") => {
     setQrCodeString(null);
     setErroLogin(null);
     setMensagemLogin(null);
@@ -724,7 +726,47 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
               : "Preparando uma conexao segura e gerando o QR Code..."
         );
       }
-    } catch (error) { setErroLogin(error instanceof Error ? error.message : "Erro de conexao."); }
+    } catch (error) {
+      // Defesa: se o backend recusou por falta de aceite, volta para a etapa de consentimento.
+      try {
+        const info = await whatsappApi.consentStatus();
+        if (!info.accepted) { setConsentInfo(info); return; }
+      } catch { /* mantém o erro original abaixo */ }
+      setErroLogin(error instanceof Error ? error.message : "Erro de conexao.");
+    }
+  };
+
+  const handleIniciarLogin = async (canal: "whatsapp") => {
+    setCanalSelecionadoLogin(canal);
+    setQrCodeString(null);
+    setErroLogin(null);
+    setMensagemLogin(null);
+    setConsentChecked(false);
+    try {
+      const info = await whatsappApi.consentStatus();
+      setConsentInfo(info);
+      // Sem aceite válido, o QR não é solicitado: exibe primeiro a etapa obrigatória.
+      if (!info.accepted) return;
+    } catch {
+      setConsentInfo({ termVersion: "", accepted: false });
+      return;
+    }
+    await iniciarQrCode(canal);
+  };
+
+  const handleAceitarConsentimento = async () => {
+    if (!consentChecked || aceitandoConsent) return;
+    setAceitandoConsent(true);
+    setErroLogin(null);
+    try {
+      const info = await whatsappApi.acceptConsent(consentInfo?.termVersion || undefined);
+      setConsentInfo(info);
+      await iniciarQrCode("whatsapp");
+    } catch (error) {
+      setErroLogin(error instanceof Error ? error.message : "Nao foi possivel registrar o aceite.");
+    } finally {
+      setAceitandoConsent(false);
+    }
   };
 
   const handleExcluirChat = (id: string, e: React.MouseEvent) => {
@@ -839,13 +881,68 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     );
   }
 
+  if (canalSelecionadoLogin === "whatsapp" && consentInfo && !consentInfo.accepted) {
+    return (
+      <div className="w-full h-full min-h-0 overflow-y-auto flex items-start sm:items-center justify-center bg-[var(--background)] p-4 sm:p-6 font-sans">
+        <div className="w-full max-w-[520px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 sm:p-7 space-y-4 text-xs font-bold text-[var(--text)] shadow-2xl">
+          <div className="text-center">
+            <h3 className="text-base font-extrabold text-[var(--primary)]">Uso responsavel e risco de banimento</h3>
+            <p className="mt-2 text-[var(--text-secondary)] leading-5">
+              Antes de conectar, leia e confirme as orientacoes de uso responsavel. Nenhuma integracao consegue garantir ausencia de bloqueio ou banimento da conta.
+            </p>
+          </div>
+          <ul className="list-disc space-y-1.5 pl-5 text-left font-semibold leading-5 text-[var(--text-secondary)]">
+            <li>Use a conta de forma gradual e com comportamento natural.</li>
+            <li>Evite disparos em massa, spam, automacoes agressivas e volumes anormais.</li>
+            <li>Envie mensagens apenas para pessoas que autorizaram o contato.</li>
+            <li>Respeite pedidos de descadastro e evite insistencia.</li>
+            <li>Evite conteudo enganoso, proibido ou que gere muitas denuncias e bloqueios.</li>
+            <li>Nao repita mensagens identicas nem inicie muitas conversas em sequencia.</li>
+            <li>Respeite os Termos de Servico e as politicas oficiais do WhatsApp.</li>
+          </ul>
+          <p className="text-left font-semibold leading-5 text-[var(--text-secondary)]">
+            Saiba mais:{" "}
+            <a href="https://docs.w-api.app/banimentos/intro" target="_blank" rel="noreferrer" className="text-[var(--primary)] underline">
+              orientacoes da W-API
+            </a>{" "}
+            e{" "}
+            <a href="https://www.whatsapp.com/legal" target="_blank" rel="noreferrer" className="text-[var(--primary)] underline">
+              Termos e politicas do WhatsApp
+            </a>.
+          </p>
+          {erroLogin && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-left font-semibold leading-5 text-red-400">{erroLogin}</p>}
+          <label className="flex items-start gap-2 text-left font-semibold leading-5 text-[var(--text)] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={consentChecked}
+              onChange={(e) => setConsentChecked(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
+            />
+            <span>
+              Li as orientacoes de uso responsavel, compreendo o risco de bloqueio ou banimento da conta e concordo com os Termos de Uso e politicas aplicaveis.
+            </span>
+          </label>
+          <Button
+            onClick={() => void handleAceitarConsentimento()}
+            className="w-full"
+            variant="primary"
+            disabled={!consentChecked || aceitandoConsent}
+          >
+            {aceitandoConsent ? "Registrando aceite..." : "Concordar e gerar QR Code"}
+          </Button>
+          <Button onClick={() => setCanalSelecionadoLogin(null)} className="w-full">Voltar</Button>
+        </div>
+      </div>
+    );
+  }
+
   if (canalSelecionadoLogin === "whatsapp") {
     return (
       <div className="w-full h-full min-h-0 overflow-y-auto flex items-start sm:items-center justify-center bg-[var(--background)] p-4 sm:p-6 font-sans">
         <div className="w-full max-w-[420px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 sm:p-7 text-center space-y-4 text-xs font-bold text-[var(--text)] shadow-2xl">
           <div>
             <h3 className="text-base font-extrabold text-[var(--primary)]">Conectar WhatsApp</h3>
-            <p className="mt-2 text-[var(--text-secondary)] leading-5">O QR Code e gerado pela API privada do Norium e atualizado automaticamente nesta tela.</p>
+            <p className="mt-2 text-[var(--text-secondary)] leading-5">O QR Code e gerado com seguranca e atualizado automaticamente nesta tela.</p>
           </div>
           <div className="aspect-square w-full max-w-[300px] bg-white mx-auto flex items-center justify-center rounded-2xl p-3 shadow-inner overflow-hidden">
             {erroLogin ? (

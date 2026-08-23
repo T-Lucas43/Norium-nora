@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 
 from app.modules.chat import router as chat_router
-from app.services.whatsapp import WhatsAppService
 
 
 def chat_user(user_id: str) -> dict:
@@ -30,87 +29,71 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
             await chat_router.media_proxy("https://example.invalid/private", chat_user("owner"))
         self.assertEqual(400, error.exception.status_code)
 
-    async def test_whatsapp_webhook_rejects_mismatched_user_session(self) -> None:
-        with (
-            patch.object(chat_router, "WHATSAPP_WEBHOOK_SECRET", ""),
-            patch.object(chat_router, "WHATSAPP_WEBHOOK_HMAC_SECRET", ""),
-            patch.object(chat_router.whatsapp_service, "session_id_for", return_value="wa-user-a"),
-        ):
+    async def test_whatsapp_webhook_rejects_unknown_instance(self) -> None:
+        # Modelo W-API: o dono e resolvido pelo instanceId (mapa seguro). Uma
+        # instancia desconhecida nao pode entregar eventos e nao revela existencia.
+        with patch.object(chat_router, "WAPI_WEBHOOK_SECRET", ""):
             with self.assertRaises(HTTPException) as error:
                 await chat_router.webhook_whatsapp(
                     {
-                        "event": "message",
-                        "userId": "user-a",
-                        "sessionId": "wa-user-b",
-                        "data": {"phone": "5511999999999@c.us"},
+                        "event": "webhookReceived",
+                        "instanceId": "INSTANCIA-DESCONHECIDA",
+                        "phone": "5511999999999@c.us",
                     },
                 )
-        self.assertEqual(403, error.exception.status_code)
-
-    def test_internal_headers_are_unique_and_signed_for_each_user(self) -> None:
-        api_key = "k" * 40
-        with patch.dict(
-            os.environ,
-            {
-                "WHATSAPP_API_URL": "https://whatsapp.example",
-                "WHATSAPP_API_KEY": api_key,
-                "WHATSAPP_LEGACY_OWNER_USER_ID": "legacy-owner",
-            },
-        ):
-            service = WhatsAppService()
-        headers_a = service.headers_for("user-a")
-        headers_b = service.headers_for("user-b")
-
-        self.assertNotEqual(headers_a["X-Norium-Session-Id"], headers_b["X-Norium-Session-Id"])
-        self.assertNotEqual(headers_a["X-Norium-Session-Signature"], headers_b["X-Norium-Session-Signature"])
-        expected = hmac.new(
-            api_key.encode("utf-8"),
-            f'user-a\n{headers_a["X-Norium-Session-Id"]}'.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
-        self.assertEqual(expected, headers_a["X-Norium-Session-Signature"])
-        self.assertEqual("norium", service.session_id_for("legacy-owner"))
+        self.assertEqual(404, error.exception.status_code)
 
     async def test_two_authenticated_users_receive_only_their_own_catalog(self) -> None:
-        stores: dict[str, dict] = {"user-a": {}, "user-b": {}}
+        from app.services import wapi_binding as wb
+        from app.services.wapi_binding import InstanceBinding
 
-        async def load(user_id: str) -> dict:
-            return stores[user_id]
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(os.environ, {"NORIUM_DATA_DIR": temp_dir}):
+            # Cada conta vinculada a sua propria instancia W-API.
+            wb.save_binding("user-a", InstanceBinding(instance_id="inst-a", token="t-a", state="connected"))
+            wb.save_binding("user-b", InstanceBinding(instance_id="inst-b", token="t-b", state="connected"))
 
-        async def save(payload: dict, user_id: str) -> None:
-            stores[user_id] = payload
+            stores: dict[str, dict] = {"user-a": {}, "user-b": {}}
 
-        async def api_get(user_id: str, endpoint: str, **_kwargs):
-            if endpoint == "/contacts":
-                return []
-            return [{
-                "id": f"chat-{user_id}@c.us",
-                "phone": f"chat-{user_id}@c.us",
-                "name": f"Contato {user_id}",
-                "photoUrl": "https://cdn.example/avatar.jpg",
-                "timestamp": 1_787_000_000,
-                "messages": [{
-                    "id": f"message-{user_id}",
+            async def load(user_id: str) -> dict:
+                return stores.setdefault(user_id, {})
+
+            async def save(payload: dict, user_id: str) -> None:
+                stores[user_id] = payload
+
+            async def fetch_chats(instance_id: str, token: str, **_kwargs):
+                # O catalogo depende da instancia (isolada por conta), nao do userId.
+                return {"chats": [{
+                    "id": f"chat-{instance_id}@c.us",
+                    "phone": f"chat-{instance_id}@c.us",
+                    "name": f"Contato {instance_id}",
                     "timestamp": 1_787_000_000,
-                    "content": f"Mensagem {user_id}",
-                    "type": "chat",
-                    "fromMe": False,
-                }],
-            }]
+                    "messages": [{
+                        "id": f"message-{instance_id}",
+                        "timestamp": 1_787_000_000,
+                        "content": "oi",
+                        "type": "chat",
+                        "fromMe": False,
+                    }],
+                }]}
 
-        with (
-            patch.object(chat_router.whatsapp_service, "consultar_instancia", AsyncMock(return_value={"status": "conectado"})),
-            patch.object(chat_router.whatsapp_service, "get", side_effect=api_get),
-            patch.object(chat_router, "load_conversations", side_effect=load),
-            patch.object(chat_router, "save_conversations", side_effect=save),
-        ):
-            catalog_a = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-a"))
-            catalog_b = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-b"))
+            async def fetch_contacts(instance_id: str, token: str, **_kwargs):
+                return {"contacts": []}
 
-        self.assertEqual({"chat-user-a@c.us"}, {item["id"] for item in catalog_a})
-        self.assertEqual({"chat-user-b@c.us"}, {item["id"] for item in catalog_b})
-        self.assertNotIn("chat-user-b@c.us", stores["user-a"])
-        self.assertNotIn("chat-user-a@c.us", stores["user-b"])
+            with (
+                patch.object(chat_router.wapi_connect, "status", AsyncMock(return_value={"status": "conectado"})),
+                patch.object(chat_router.wapi_client, "fetch_chats", side_effect=fetch_chats),
+                patch.object(chat_router.wapi_client, "fetch_contacts", side_effect=fetch_contacts),
+                patch.object(chat_router, "load_conversations", side_effect=load),
+                patch.object(chat_router, "save_conversations", side_effect=save),
+                patch.object(chat_router, "should_try_profile_picture", return_value=False),
+            ):
+                catalog_a = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-a"))
+                catalog_b = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-b"))
+
+        self.assertEqual({"chat-inst-a@c.us"}, {item["id"] for item in catalog_a})
+        self.assertEqual({"chat-inst-b@c.us"}, {item["id"] for item in catalog_b})
+        self.assertNotIn("chat-inst-b@c.us", stores["user-a"])
+        self.assertNotIn("chat-inst-a@c.us", stores["user-b"])
 
     async def test_local_chat_upload_is_scoped_to_authenticated_user(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

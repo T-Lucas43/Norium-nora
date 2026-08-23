@@ -425,8 +425,11 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
 async def desconectar_whatsapp(user: dict[str, Any] = Depends(current_user)):
     assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
-    if not await wapi_connect.disconnect(resolved_user_id):
-        raise HTTPException(status_code=502, detail="Nao foi possivel desconectar a sessao do WhatsApp.")
+    # Desconexão LOCAL: remove o WhatsApp apenas do Norium, SEM chamar o
+    # /instance/disconnect da W-API — esse endpoint desloga a conta inteira e
+    # derruba o celular e os demais aparelhos. Aqui limpamos só o vínculo e o
+    # cache locais; os outros dispositivos do usuário permanecem conectados.
+    wb.clear_binding(resolved_user_id)
     await save_conversations({}, resolved_user_id)
     await save_whatsapp_catalog_cache(resolved_user_id, {})
     status_conexoes.pop(resolved_user_id, None)

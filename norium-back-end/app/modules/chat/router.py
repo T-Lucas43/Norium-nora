@@ -1011,6 +1011,26 @@ async def obter_detalhes_conversa(
         channel="whatsapp",
         is_group=is_group_chat(conversa_id),
     )
+    catalog_enriched = False
+    if not is_group_chat(conversa_id, conversation):
+        catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
+        cached_contacts = catalog_cache.get("contacts")
+        contacts = [item for item in (cached_contacts or []) if isinstance(item, dict)]
+        contact_names, contact_photos, contact_metadata = build_contact_indexes(contacts)
+        catalog_name = contact_names.get(conversa_id)
+        catalog_photo = contact_photos.get(conversa_id)
+        catalog_meta = contact_metadata.get(conversa_id) or {}
+        if catalog_name:
+            conversation["contato"] = melhor_nome_contato(conversation.get("contato"), catalog_name, conversa_id)
+            catalog_enriched = True
+        if catalog_photo:
+            conversation["photoUrl"] = catalog_photo
+            catalog_enriched = True
+        if catalog_meta:
+            conversation.setdefault("metadados", {}).update({
+                key: value for key, value in catalog_meta.items() if value is not None
+            })
+            catalog_enriched = True
     creds = wapi_creds(resolved_user_id)
     details = None
     # Grupos: metadados via W-API. Contatos: sem endpoint de detalhe disponivel
@@ -1051,7 +1071,11 @@ async def obter_detalhes_conversa(
         await save_conversations(db, resolved_user_id)
         return db[conversa_id]
 
-    return normalize_conversation(conversa_id, conversation)
+    normalized = normalize_conversation(conversa_id, conversation)
+    if catalog_enriched:
+        db[conversa_id] = normalized
+        await save_conversations(db, resolved_user_id)
+    return normalized
 
 
 @router.get("/api/chat/midia/{message_id}")
@@ -1730,7 +1754,8 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
         if photo:
             for key in alt_keys:
                 fotos[key] = photo
-        metadata[jid] = {
+        contact_meta = {
+            "numeroCompleto": contato.get("phone") or contato.get("id") or contato.get("jid") or jid,
             "participantes": contato.get("participants") or contato.get("participantes") or [],
             "descricaoGrupo": contato.get("description") or contato.get("descricao") or "",
             "verifiedName": contato.get("verifiedName"),
@@ -1739,6 +1764,8 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
             "isMyContact": bool(contato.get("isMyContact")),
             "isBlocked": bool(contato.get("isBlocked")),
         }
+        for key in alt_keys:
+            metadata[key] = contact_meta
 
     return nomes, fotos, metadata
 

@@ -1634,6 +1634,7 @@ async def create_contract(
             "calendarEventsCreated": [],
             "metadata": {
                 "sourceProposalId": proposal_id,
+                "sourceProposalStatus": proposal.get("status"),
                 "templateId": (template or {}).get("id"),
                 "templateCategory": (template or {}).get("category"),
             },
@@ -1675,6 +1676,76 @@ async def update_contract(user: dict[str, Any], contract_id: str, payload: Contr
         store["contracts"][index] = updated
         await write_store(tenant_id, store)
     return updated
+
+
+async def cancel_contract(user: dict[str, Any], contract_id: str) -> dict[str, Any]:
+    tenant_id = collaboration_tenant_id(user)
+    async with _store_lock:
+        store = read_store(tenant_id)
+        index, current = contract_or_404(store, contract_id)
+        status = str(current.get("status") or "draft")
+        if status == "cancelled":
+            return current
+        if status == "completed":
+            raise HTTPException(status_code=409, detail="Contratos concluidos devem permanecer no historico e nao podem ser cancelados.")
+        timestamp = now_iso()
+        updated = {
+            **current,
+            "status": "cancelled",
+            "cancelledAt": timestamp,
+            "cancelledBy": str(user.get("id") or ""),
+            "revisions": [revision(current, user), *current.get("revisions", [])][:30],
+            "auditTrail": [
+                {
+                    "id": f"contract_audit_{uuid.uuid4().hex}",
+                    "action": "contract_cancelled",
+                    "actorId": str(user.get("id") or ""),
+                    "actorName": str(user.get("nome") or user.get("email") or "Operador"),
+                    "previousStatus": status,
+                    "timestamp": timestamp,
+                },
+                *current.get("auditTrail", []),
+            ][:100],
+            "version": int(current.get("version") or 1) + 1,
+            "updatedAt": timestamp,
+        }
+        store["contracts"][index] = updated
+        await write_store(tenant_id, store)
+    return updated
+
+
+async def delete_contract(user: dict[str, Any], contract_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    tenant_id = collaboration_tenant_id(user)
+    async with _store_lock:
+        store = read_store(tenant_id)
+        index, contract = contract_or_404(store, contract_id)
+        if contract.get("status") != "draft":
+            raise HTTPException(
+                status_code=409,
+                detail="Somente minutas podem ser excluidas. Cancele o contrato para preservar assinaturas e historico.",
+            )
+        if any(item.get("status") == "signed" or item.get("signedAt") for item in contract.get("signers", [])):
+            raise HTTPException(status_code=409, detail="Esta minuta ja possui assinatura e deve ser cancelada, nao excluida.")
+
+        removed = store["contracts"].pop(index)
+        restored_proposal: dict[str, Any] | None = None
+        proposal_id = str(removed.get("proposalId") or "")
+        for proposal_index, proposal in enumerate(store["proposals"]):
+            if str(proposal.get("id") or "") != proposal_id:
+                continue
+            source_status = str((removed.get("metadata") or {}).get("sourceProposalStatus") or "approved")
+            if source_status not in {"approved", "sent", "accepted"}:
+                source_status = "approved"
+            restored_proposal = {
+                **proposal,
+                "status": source_status,
+                "contractId": None,
+                "updatedAt": now_iso(),
+            }
+            store["proposals"][proposal_index] = restored_proposal
+            break
+        await write_store(tenant_id, store)
+    return removed, restored_proposal
 
 
 async def send_for_signature(user: dict[str, Any], contract_id: str) -> dict[str, Any]:

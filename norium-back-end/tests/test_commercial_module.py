@@ -20,6 +20,7 @@ from app.modules.commercial.schemas import (  # noqa: E402
     SignerInput,
 )
 from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
+from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
 from app.modules.commercial.repository import read_store, write_store  # noqa: E402
 from app.modules.commercial.service import (  # noqa: E402
     _briefing_sentence_count,
@@ -27,10 +28,12 @@ from app.modules.commercial.service import (  # noqa: E402
     _ensure_briefing_detail,
     _parse_briefing_response,
     _proposal_html_from_briefing,
+    cancel_contract,
     create_contract,
     create_proposal,
     decide_suggestion,
     decide_proposal,
+    delete_contract,
     instantiate_obligations,
     replace_visible_text,
     public_signature_data,
@@ -149,6 +152,52 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(instantiated["contract"]["status"], "active")
         self.assertEqual(len(instantiated["tasks"]), 1)
+
+    async def test_contract_draft_can_be_deleted_and_formal_contract_is_cancelled(self) -> None:
+        proposal = await create_proposal(
+            self.user,
+            ProposalCreate(
+                clientId=self.client_id,
+                title="Contrato com ciclo de vida",
+                contentHtml="<p>Escopo comercial aprovado.</p>",
+            ),
+        )
+        approved = await submit_proposal(self.user, proposal["id"], "Fluxo Solo")
+        draft, _ = await create_contract(self.user, approved["id"], None)
+
+        removed, restored = await delete_contract(self.user, draft["id"])
+        self.assertEqual(removed["status"], "draft")
+        self.assertEqual(restored["status"], "approved")
+        self.assertIsNone(restored["contractId"])
+
+        recreated, _ = await create_contract(self.user, approved["id"], None)
+        cancelled = await cancel_contract(self.user, recreated["id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertEqual(cancelled["auditTrail"][0]["action"], "contract_cancelled")
+        with self.assertRaisesRegex(Exception, "Somente minutas"):
+            await delete_contract(self.user, cancelled["id"])
+
+    async def test_nora_requires_confirmation_and_then_cancels_contract(self) -> None:
+        proposal = await create_proposal(
+            self.user,
+            ProposalCreate(
+                clientId=self.client_id,
+                title="Contrato cancelado pela Nora",
+                contentHtml="<p>Escopo aprovado.</p>",
+            ),
+        )
+        approved = await submit_proposal(self.user, proposal["id"], "Fluxo Solo")
+        contract, _ = await create_contract(self.user, approved["id"], None)
+
+        preview = await handle_commercial_agent(self.user, f"Cancele o contrato {contract['title']}")
+        self.assertEqual(preview["status"], "precisa_confirmacao")
+
+        executed = await handle_commercial_agent(
+            self.user,
+            f"Cancelar definitivamente o contrato {contract['title']}",
+        )
+        self.assertEqual(executed["status"], "cancelado")
+        self.assertEqual(executed["contract"]["status"], "cancelled")
 
     async def test_enterprise_requires_explicit_approval(self) -> None:
         enterprise_user = {**self.user, "plan": "enterprise"}

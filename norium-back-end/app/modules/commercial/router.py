@@ -35,6 +35,7 @@ from app.modules.commercial.schemas import (
 from app.modules.commercial.service import (
     analyze_with_nora,
     can_approve,
+    cancel_contract,
     collaboration_tenant_id,
     contract_or_404,
     create_brand_profile,
@@ -43,6 +44,7 @@ from app.modules.commercial.service import (
     create_template,
     decide_proposal,
     decide_suggestion,
+    delete_contract,
     delete_proposal,
     generate_proposal_draft,
     instantiate_obligations,
@@ -451,6 +453,36 @@ async def patch_contract(
         {"type": "DOCUMENT_UPDATED", "documentType": "contract", "document": contract, "actorId": str(user.get("id") or "")},
     )
     return {"contract": contract}
+
+
+@router.post("/contracts/{contract_id}/cancel")
+async def post_cancel_contract(
+    contract_id: str,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    contract = await cancel_contract(user, contract_id)
+    await audit(user, "contract_cancelled", f'Contrato "{contract["title"]}" cancelado e preservado no historico.', "contract", contract_id, "success")
+    await manager.broadcast(
+        collaboration_tenant_id(user),
+        contract_id,
+        {"type": "DOCUMENT_UPDATED", "documentType": "contract", "document": contract, "actorId": str(user.get("id") or "")},
+    )
+    return {"contract": contract}
+
+
+@router.delete("/contracts/{contract_id}")
+async def remove_contract(
+    contract_id: str,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    contract, proposal = await delete_contract(user, contract_id)
+    await audit(user, "contract_deleted", f'Minuta "{contract["title"]}" excluida.', "contract", contract_id, "success")
+    await manager.broadcast(
+        collaboration_tenant_id(user),
+        contract_id,
+        {"type": "DOCUMENT_DELETED", "documentType": "contract", "documentId": contract_id, "actorId": str(user.get("id") or "")},
+    )
+    return {"ok": True, "contract": contract, "proposal": proposal}
 
 
 @router.post("/contracts/{contract_id}/nora-write")

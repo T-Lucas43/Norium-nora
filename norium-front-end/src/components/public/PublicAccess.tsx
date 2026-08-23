@@ -271,7 +271,7 @@ export default function PublicAccess({ route }: { route: PublicRoute }) {
               })}
               {message && <SuccessMessage text={message} />}
               {error && <ErrorMessage text={error} />}
-              <button className="norium-platform-button w-full justify-center" disabled={submitting}>
+              <button type="submit" className="norium-platform-button w-full justify-center" disabled={submitting}>
                 {submitting ? "Enviando..." : "Enviar formulario"} <ArrowRight size={16} />
               </button>
             </form>
@@ -321,7 +321,7 @@ export default function PublicAccess({ route }: { route: PublicRoute }) {
                   </label>
                   {message && <SuccessMessage text={message} />}
                   {error && <ErrorMessage text={error} />}
-                  <button className="norium-platform-button w-full justify-center" disabled={submitting || !signatureConsent}>
+                  <button type="submit" className="norium-platform-button w-full justify-center" disabled={submitting || !signatureConsent}>
                     {submitting ? "Registrando..." : "Assinar documento"} <ArrowRight size={16} />
                   </button>
                 </form>
@@ -361,7 +361,7 @@ function PublicRequestForm(props: {
       </label>
       {props.message && <SuccessMessage text={props.message} />}
       {props.error && <ErrorMessage text={props.error} />}
-      <button className="norium-platform-button mt-5 w-full justify-center" disabled={props.submitting}>
+      <button type="submit" className="norium-platform-button mt-5 w-full justify-center" disabled={props.submitting}>
         {props.submitting ? "Enviando..." : "Enviar solicitacao"} <ArrowRight size={16} />
       </button>
     </form>

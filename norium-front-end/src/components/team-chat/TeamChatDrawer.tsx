@@ -420,7 +420,7 @@ async function fileToDataUrl(file: File) {
   });
 }
 
-export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenNora, variant = "drawer" }: TeamChatDrawerProps) {
+export default function TeamChatDrawer({ open, onClose, session, onUnread, variant = "drawer" }: TeamChatDrawerProps) {
   const [members, setMembers] = useState<NoriumUser[]>([]);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [scope, setScope] = useState<"team" | "direct">("team");
@@ -435,6 +435,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastScrolledThreadRef = useRef("");
 
   const recipientOptions = useMemo(
     () => members.filter((member) => member.id !== session.user.id && member.status === "ativo"),
@@ -525,16 +526,27 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   }, [onUnread, open, recipientId, scope, session.token, session.user.id]);
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages.length, open]);
+    if (!open || loading) return undefined;
+    const threadKey = scope === "team" ? "team" : `direct:${recipientId}`;
+    const initialForThread = lastScrolledThreadRef.current !== threadKey;
+    const frame = window.requestAnimationFrame(() => {
+      const list = listRef.current;
+      if (!list) return;
+      list.scrollTo({ top: list.scrollHeight, behavior: initialForThread ? "auto" : "smooth" });
+      lastScrolledThreadRef.current = threadKey;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, messages.length, open, recipientId, scope]);
 
-  async function sendMessage() {
-    if ((!text.trim() && files.length === 0) || sending) return;
+  async function sendMessage(overrideText?: string) {
+    const outgoingText = overrideText ?? text;
+    const outgoingFiles = overrideText === undefined ? files : [];
+    if ((!outgoingText.trim() && outgoingFiles.length === 0) || sending) return;
     setSending(true);
     setError("");
     try {
       const attachments = await Promise.all(
-        files.map(async (file) => ({
+        outgoingFiles.map(async (file) => ({
           fileName: file.name,
           mimeType: file.type || "application/octet-stream",
           dataUrl: await fileToDataUrl(file),
@@ -543,13 +555,15 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       const response = await fetch(`${API_URL}/messages`, {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }, session.token),
-        body: JSON.stringify({ scope, recipientId: scope === "direct" ? recipientId : null, text, attachments }),
+        body: JSON.stringify({ scope, recipientId: scope === "direct" ? recipientId : null, text: outgoingText, attachments }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || "Falha ao enviar mensagem.");
       setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
-      setText("");
-      setFiles([]);
+      if (overrideText === undefined) {
+        setText("");
+        setFiles([]);
+      }
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Falha ao enviar mensagem.");
     } finally {
@@ -581,7 +595,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           transition={{ type: "spring", stiffness: 260, damping: 28 }}
           className={variant === "drawer"
             ? "team-chat-drawer fixed right-4 top-20 z-[95] flex h-[min(760px,calc(100dvh-104px))] w-[390px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/50 backdrop-blur-2xl"
-            : "team-chat-drawer team-chat-page mx-4 mb-4 mt-3 min-h-[680px] overflow-hidden rounded-lg border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/35"
+            : "team-chat-drawer team-chat-page mx-4 mb-4 mt-3 min-h-0 overflow-hidden rounded-lg border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/35"
           }
         >
           <header className="team-chat-header flex h-16 shrink-0 items-center justify-between border-b border-[var(--border)] px-4">
@@ -769,7 +783,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                   <strong className="mt-1 block text-xl text-emerald-300">{onlineUserIds.length}</strong>
                 </div>
               </div>
-              {canUse(session.user, "nora") && (
+              {scope === "team" && canUse(session.user, "nora") && (
                 <section className="mt-5 rounded-lg border border-cyan-400/25 bg-cyan-400/8 p-4">
                   <div className="flex items-center gap-3">
                     <NoraAvatar className="h-10 w-10" />
@@ -777,10 +791,11 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                   </div>
                   <button
                     type="button"
-                    onClick={() => onOpenNora?.("Resuma a conversa recente do Chat da equipe e destaque decisoes, responsaveis e proximos passos.")}
+                    onClick={() => void sendMessage("@nora Resuma a conversa recente, destaque decisoes, responsaveis e proximos passos usando somente o historico deste chat.")}
+                    disabled={sending}
                     className="mt-3 flex h-10 w-full items-center justify-center rounded-lg border border-cyan-400/25 text-xs font-bold text-cyan-200 hover:bg-cyan-400/10"
                   >
-                    Resumir conversa com a Nora
+                    {sending ? "Enviando para a Nora..." : "Resumir conversa com a Nora"}
                   </button>
                 </section>
               )}

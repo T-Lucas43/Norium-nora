@@ -986,7 +986,7 @@ def extract_after(message: str, markers: list[str]) -> str:
 
 
 def extract_title_for_create(message: str) -> str:
-    cleaned = re.sub(r"\b(criar|crie|nova|novo|adicionar|cadastre|uma|tarefa|task)\b", "", message, flags=re.I)
+    cleaned = re.sub(r"\b(criar|crie|nova|novo|adicionar|cadastre|uma|tarefa|task|chamada|chamado|nomeada|nomeado)\b", "", message, flags=re.I)
     cleaned = re.sub(r"\b(?:no|na|para o|para a|do|da)\s+(?:projeto|lista)\s+[^,.;]+", " ", cleaned, flags=re.I)
     cleaned = re.split(r"\b(para hoje|para amanha|até|ate|com prioridade|prioridade|#)\b", cleaned, maxsplit=1, flags=re.I)[0]
     return cleaned.strip(" :-.,")[:160]
@@ -1090,6 +1090,8 @@ def normalize(value: str) -> str:
 
 
 def is_list_intent(value: str) -> bool:
+    if is_create_intent(value) or is_project_create_intent(value):
+        return False
     return any(
         word in value
         for word in [

@@ -67,7 +67,7 @@ class ConvertTaskPayload(StrictModel):
 
 
 class NoraBoardPayload(StrictModel):
-    action: Literal["resumir", "gerar_ideias", "proximos_passos"] = "resumir"
+    action: Literal["resumir", "gerar_ideias", "proximos_passos", "analisar_impacto"] = "resumir"
     instruction: str = Field(default="", max_length=1000)
 
 
@@ -240,6 +240,7 @@ async def brainstorm_with_nora(session_id: str, payload: NoraBoardPayload, user:
         "resumir": "Resuma os temas centrais, divergencias e consensos. Termine com tres proximos passos objetivos.",
         "gerar_ideias": "Gere seis ideias curtas, variadas e acionaveis para iniciar a sessao.",
         "proximos_passos": "Transforme as ideias em um plano de acao priorizado com responsaveis a definir.",
+        "analisar_impacto": "Analise o impacto potencial de cada ideia, destacando beneficio, esforco, risco e dependencia. Termine com uma ordem de prioridade justificada.",
     }[payload.action]
     prompt = (
         "Voce esta apoiando uma sessao de brainstorm do Norium. Use somente os dados reais informados; nao diga que salvou ou executou nada. "

@@ -17,9 +17,11 @@ from app.modules.commercial.schemas import (
 )
 from app.modules.commercial.service import (
     analyze_with_nora,
+    cancel_contract,
     collaboration_tenant_id,
     create_contract,
     create_proposal,
+    delete_contract,
     delete_proposal,
     generate_proposal_draft,
     list_commercial_data,
@@ -383,6 +385,34 @@ async def handle_commercial_agent(
             )
         removed = await delete_proposal(user, str(proposal["id"]))
         return _response("excluida", f"Proposta excluída: “{removed['title']}”.", proposal=removed)
+
+    if "contrato" in normalized and _contains_any(normalized, ("cancelar", "cancele", "cancelamento")):
+        contract = _find_named_document(contracts, message)
+        if not contract:
+            return _response("nao_encontrado", "Não encontrei o contrato que deve ser cancelado.")
+        if not _contains_any(normalized, ("confirmo", "confirmar cancelamento", "cancelar definitivamente")):
+            return _response(
+                "precisa_confirmacao",
+                f"Confirme com “cancelar definitivamente o contrato {contract['title']}”. O documento será preservado no histórico.",
+                contract=contract,
+            )
+        cancelled = await cancel_contract(user, str(contract["id"]))
+        return _response("cancelado", f"Contrato cancelado e preservado no histórico: “{cancelled['title']}”.", contract=cancelled)
+
+    if "excluir" in normalized and "contrato" in normalized:
+        contract = _find_named_document(contracts, message)
+        if not contract:
+            return _response("nao_encontrado", "Não encontrei a minuta que deve ser excluída.")
+        if contract.get("status") != "draft":
+            return _response("nao_permitido", "Somente minutas podem ser excluídas. Para contratos enviados ou assinados, peça o cancelamento para preservar o histórico.", contract=contract)
+        if not _contains_any(normalized, ("confirmo", "confirmar exclusao", "excluir definitivamente")):
+            return _response(
+                "precisa_confirmacao",
+                f"Confirme com “excluir definitivamente o contrato {contract['title']}”. A minuta será removida e a proposta vinculada será restaurada.",
+                contract=contract,
+            )
+        removed, proposal = await delete_contract(user, str(contract["id"]))
+        return _response("excluido", f"Minuta excluída: “{removed['title']}”. A proposta vinculada voltou a ficar disponível.", contract=removed, proposal=proposal)
 
     if _contains_any(normalized, ("analisar proposta", "revise a proposta", "revisar proposta")):
         proposal = _find_named_document(proposals, message)

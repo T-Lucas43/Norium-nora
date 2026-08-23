@@ -23,12 +23,15 @@ import {
   AlertTriangle,
   ArrowLeft,
   BarChart3,
+  BookOpen,
   Bot,
   Boxes,
   Check,
   Clock3,
   Copy,
   FileSignature,
+  FileText,
+  FolderOpen,
   Frame,
   LayoutGrid,
   Lightbulb,
@@ -37,7 +40,7 @@ import {
   Loader2,
   MessageSquareText,
   MousePointer2,
-  PanelRightOpen,
+  PanelLeftClose,
   Plus,
   Save,
   Search,
@@ -81,7 +84,10 @@ type IdeaData = Record<string, unknown> & {
   responsibleName?: string;
   comments?: IdeaComment[];
   votes?: string[];
+  file?: { name: string; mimeType: string; size: number; dataUrl: string };
 };
+
+type BrainstormPanel = "ideas" | "session" | "notes" | "participants" | "files" | "templates" | "reports" | "settings";
 
 type IdeaNode = Node<IdeaData, "idea">;
 
@@ -181,6 +187,15 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   throw lastError || new Error("Falha ao acessar o Brainstorm.");
 }
 
+async function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Falha ao ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
 function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; authSession: AuthSession; onBack: () => void }) {
   const [session, setSession] = useState<BrainstormSession | null>(null);
   const [nodes, setNodes] = useState<IdeaNode[]>([]);
@@ -195,6 +210,8 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   const [comment, setComment] = useState("");
   const [noraResult, setNoraResult] = useState("");
   const [noraLoading, setNoraLoading] = useState(false);
+  const [inspectorMode, setInspectorMode] = useState<BrainstormPanel>("session");
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
   const [timerNow, setTimerNow] = useState(Date.now());
   const [mobileInspectorOpen, setMobileInspectorOpen] = useState(true);
   const [endAlertOpen, setEndAlertOpen] = useState(false);
@@ -202,6 +219,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   const clientIdRef = useRef(`client_${crypto.randomUUID()}`);
   const remoteUpdateRef = useRef(false);
   const timerEndHandledRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedId) || null, [nodes, selectedId]);
   const boardLocked = useMemo(() => {
@@ -433,7 +451,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
     }
   }
 
-  async function askNora(action: "resumir" | "gerar_ideias" | "proximos_passos") {
+  async function askNora(action: "resumir" | "gerar_ideias" | "proximos_passos" | "analisar_impacto") {
     setNoraLoading(true);
     setNoraResult("");
     try {
@@ -444,6 +462,76 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
     } finally {
       setNoraLoading(false);
     }
+  }
+
+  function openInspector(mode: BrainstormPanel) {
+    setInspectorMode(mode);
+    setSelectedId(null);
+    setMobileInspectorOpen(true);
+  }
+
+  function addTemplate(template: "mapa-mental" | "swot" | "jornada" | "retrospectiva") {
+    if (boardLocked) return;
+    const presets: Record<typeof template, string[]> = {
+      "mapa-mental": ["Tema central", "Hipótese 1", "Hipótese 2", "Hipótese 3"],
+      swot: ["Forças", "Fraquezas", "Oportunidades", "Ameaças"],
+      jornada: ["Descoberta", "Consideração", "Decisão", "Adoção"],
+      retrospectiva: ["Funcionou bem", "Pode melhorar", "Aprendizados", "Próximas ações"],
+    };
+    const created = presets[template].map<IdeaNode>((label, index) => ({
+      id: `idea_${crypto.randomUUID()}`,
+      type: "idea",
+      position: { x: 150 + ((index % 2) * 330), y: 140 + (Math.floor(index / 2) * 210) },
+      data: { label, color: NOTE_COLORS[index % NOTE_COLORS.length], variant: "sticky", category: template, tags: ["modelo"], comments: [], votes: [] },
+    }));
+    const next = [...nodes, ...created];
+    setNodes(next);
+    setInspectorMode("ideas");
+    setMobileInspectorOpen(false);
+    void persistBoard(next, edges, `Modelo ${template} adicionado`);
+  }
+
+  async function importFiles(files: FileList | null) {
+    if (!files?.length || boardLocked) return;
+    const accepted = Array.from(files).filter((file) => file.size <= 2 * 1024 * 1024).slice(0, 5);
+    if (accepted.length !== files.length) setError("Cada arquivo do Brainstorm deve ter no maximo 2 MB; ate cinco arquivos sao aceitos por vez.");
+    const created = await Promise.all(accepted.map(async (file, index): Promise<IdeaNode> => ({
+      id: `idea_${crypto.randomUUID()}`,
+      type: "idea",
+      position: { x: 160 + ((nodes.length + index) % 3) * 280, y: 140 + Math.floor((nodes.length + index) / 3) * 190 },
+      data: {
+        label: file.name,
+        description: `${file.type || "Arquivo"} · ${(file.size / 1024).toFixed(1)} KB`,
+        color: "#BAE6FD",
+        variant: "sticky",
+        category: "arquivo",
+        tags: ["anexo"],
+        comments: [],
+        votes: [],
+        file: { name: file.name, mimeType: file.type || "application/octet-stream", size: file.size, dataUrl: await fileToDataUrl(file) },
+      },
+    })));
+    if (!created.length) return;
+    const next = [...nodes, ...created];
+    setNodes(next);
+    setSelectedId(created[0].id);
+    setInspectorMode("files");
+    void persistBoard(next, edges, `${created.length} arquivo(s) anexado(s)`);
+  }
+
+  function downloadBoardReport() {
+    const report = {
+      session: { title: session?.title, objective: session?.objective, responsible: session?.responsibleName },
+      generatedAt: new Date().toISOString(),
+      ideas: nodes.map((node) => ({ title: node.data.label, description: node.data.description, category: node.data.category, votes: node.data.votes?.length || 0, comments: node.data.comments?.length || 0, responsible: node.data.responsibleName || null })),
+      connections: edges.map((edge) => ({ source: edge.source, target: edge.target })),
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `brainstorm-${String(session?.title || "sessao").toLocaleLowerCase("pt-BR").replace(/[^a-z0-9]+/g, "-")}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   async function toggleTimer() {
@@ -513,16 +601,34 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
       {boardLocked && <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-300/25 bg-amber-300/10 px-4 py-3 text-center text-xs font-bold text-amber-100"><LockKeyhole size={16} /> Sessao encerrada. O quadro esta bloqueado para novas ideias, votos, comentarios e alteracoes.</div>}
 
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <aside className="brainstorm-toolbar flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] p-2">
-          <button onClick={() => { setSelectedId(null); setMobileInspectorOpen(false); }} className="brainstorm-tool active" title="Selecionar e fechar propriedades" aria-label="Selecionar e fechar propriedades"><MousePointer2 size={19} /></button>
-          <button disabled={boardLocked} onClick={() => addIdea("sticky")} className="brainstorm-tool disabled:cursor-not-allowed disabled:opacity-35" title="Adicionar post-it" aria-label="Adicionar post-it"><StickyNote size={19} /></button>
-          <button disabled={boardLocked} onClick={() => addIdea("text")} className="brainstorm-tool disabled:cursor-not-allowed disabled:opacity-35" title="Adicionar texto" aria-label="Adicionar texto"><TextCursorInput size={19} /></button>
-          <button disabled={boardLocked} onClick={() => addIdea("shape")} className="brainstorm-tool disabled:cursor-not-allowed disabled:opacity-35" title="Adicionar bloco" aria-label="Adicionar bloco"><Shapes size={19} /></button>
-          <button disabled={boardLocked} onClick={() => addIdea("frame")} className="brainstorm-tool disabled:cursor-not-allowed disabled:opacity-35" title="Adicionar seção" aria-label="Adicionar seção"><Frame size={19} /></button>
-          <span className="my-1 h-px w-8 bg-[var(--border)]" />
-          <button disabled={boardLocked} onClick={clusterIdeas} className="brainstorm-tool disabled:cursor-not-allowed disabled:opacity-35" title="Agrupar por categoria" aria-label="Agrupar por categoria"><LayoutGrid size={19} /></button>
-          <button onClick={() => { setMobileInspectorOpen(true); void askNora("resumir"); }} className="brainstorm-tool text-cyan-300" title="Abrir a Nora e resumir o quadro" aria-label="Abrir a Nora e resumir o quadro"><Bot size={19} /></button>
-          <button onClick={() => setMobileInspectorOpen((value) => !value)} className={`brainstorm-tool ${mobileInspectorOpen ? "active" : ""}`} title={mobileInspectorOpen ? "Recolher propriedades" : "Abrir propriedades"} aria-label={mobileInspectorOpen ? "Recolher propriedades" : "Abrir propriedades"}><PanelRightOpen size={19} /></button>
+        <aside className={`brainstorm-toolbar flex shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] py-2 transition-[width] ${toolbarCollapsed ? "w-[56px]" : "w-[82px]"}`}>
+          <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => { void importFiles(event.target.files); event.currentTarget.value = ""; }} />
+          {([
+            ["ideas", "Ideias", Lightbulb],
+            ["session", "Sessão", Boxes],
+            ["notes", "Notas", StickyNote],
+            ["participants", "Participantes", UsersRound],
+            ["files", "Arquivos", FolderOpen],
+            ["templates", "Modelos", BookOpen],
+            ["reports", "Relatórios", BarChart3],
+            ["settings", "Configurações", Settings2],
+          ] as Array<[BrainstormPanel, string, typeof Lightbulb]>).map(([mode, label, Icon]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => openInspector(mode)}
+              className={`brainstorm-nav-tool ${inspectorMode === mode && !selectedNode ? "active" : ""} ${toolbarCollapsed ? "collapsed" : ""}`}
+              title={label}
+              aria-label={label}
+            >
+              <Icon size={19} />
+              {!toolbarCollapsed && <span>{label}</span>}
+            </button>
+          ))}
+          <button type="button" onClick={() => setToolbarCollapsed((value) => !value)} className={`brainstorm-nav-tool mt-auto ${toolbarCollapsed ? "collapsed" : ""}`} title={toolbarCollapsed ? "Expandir barra" : "Recolher barra"} aria-label={toolbarCollapsed ? "Expandir barra" : "Recolher barra"}>
+            <PanelLeftClose size={19} className={toolbarCollapsed ? "rotate-180" : ""} />
+            {!toolbarCollapsed && <span>Recolher</span>}
+          </button>
         </aside>
 
         <section className="relative min-w-0 flex-1 bg-[#07142f]">
@@ -531,6 +637,13 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
               <Search size={15} className="text-cyan-300" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar ideia, categoria ou tag" className="min-w-0 bg-transparent text-xs font-semibold text-white outline-none placeholder:text-white/45" />
             </label>
             <span className="pointer-events-auto hidden items-center rounded-lg border border-white/15 bg-blue-950/85 px-3 text-xs font-bold text-white/70 sm:flex">{nodes.length} itens · {edges.length} conexões</span>
+            <div className="pointer-events-auto hidden items-center gap-1 rounded-lg border border-white/15 bg-blue-950/85 p-1 shadow-xl backdrop-blur-xl md:flex">
+              <button disabled={boardLocked} onClick={() => addIdea("sticky")} className="brainstorm-canvas-tool" title="Adicionar post-it" aria-label="Adicionar post-it"><StickyNote size={15} /></button>
+              <button disabled={boardLocked} onClick={() => addIdea("text")} className="brainstorm-canvas-tool" title="Adicionar texto" aria-label="Adicionar texto"><TextCursorInput size={15} /></button>
+              <button disabled={boardLocked} onClick={() => addIdea("shape")} className="brainstorm-canvas-tool" title="Adicionar bloco" aria-label="Adicionar bloco"><Shapes size={15} /></button>
+              <button disabled={boardLocked} onClick={() => addIdea("frame")} className="brainstorm-canvas-tool" title="Adicionar seção" aria-label="Adicionar seção"><Frame size={15} /></button>
+              <button disabled={boardLocked} onClick={clusterIdeas} className="brainstorm-canvas-tool" title="Agrupar por categoria" aria-label="Agrupar por categoria"><LayoutGrid size={15} /></button>
+            </div>
           </div>
           <ReactFlow<IdeaNode, Edge>
             nodes={nodes.map((node) => filteredNodeIds.size && filteredNodeIds.has(node.id) ? { ...node, className: "brainstorm-search-hit" } : node)}
@@ -541,6 +654,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
             onConnect={onConnect}
             onNodeClick={(_, node) => {
               setSelectedId(node.id);
+              setInspectorMode("ideas");
               setMobileInspectorOpen(true);
             }}
             onPaneClick={() => setSelectedId(null)}
@@ -572,14 +686,31 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
               <div><p className="mb-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Cor</p><div className="flex flex-wrap gap-2">{NOTE_COLORS.map((color) => <button key={color} onClick={() => updateSelected({ color }, true)} className={`h-8 w-8 rounded-full border-2 ${selectedNode.data.color === color ? "border-white" : "border-transparent"}`} style={{ background: color }} title={color}  aria-label={color} />)}</div></div>
               <label className="brainstorm-field"><span>Categoria</span><input value={selectedNode.data.category || ""} onChange={(event) => updateSelected({ category: event.target.value })} onBlur={() => void persistBoard(nodes, edges, "Categoria editada")} placeholder="Ex.: produto, marketing" /></label>
               <label className="brainstorm-field"><span>Responsável</span><select value={selectedNode.data.responsibleId || ""} onChange={(event) => { const member = members.find((item) => item.id === event.target.value); updateSelected({ responsibleId: member?.id || "", responsibleName: member?.nome || "" }, true); }}><option value="">A definir</option>{members.map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}</select></label>
+              {selectedNode.data.file && <a href={selectedNode.data.file.dataUrl} download={selectedNode.data.file.name} className="brainstorm-secondary-button"><FolderOpen size={15} /> Baixar {selectedNode.data.file.name}</a>}
               <div className="grid grid-cols-2 gap-2"><button onClick={toggleVote} className="brainstorm-secondary-button"><ThumbsUp size={15} /> Votar ({selectedNode.data.votes?.length || 0})</button><button onClick={() => void convertTask()} className="brainstorm-secondary-button"><ListChecks size={15} /> Virar tarefa</button></div>
               <section className="border-t border-[var(--border)] pt-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold"><MessageSquareText size={16} /> Comentários</h3><div className="space-y-2">{(selectedNode.data.comments || []).map((item) => <article key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="flex justify-between gap-2 text-xs font-bold"><span>{item.authorName}</span><time className="text-[var(--text-secondary)]">{formatDate(item.timestamp)}</time></div><p className="mt-1 whitespace-pre-wrap break-words text-xs font-semibold text-[var(--text-secondary)]">{item.text}</p></article>)}</div><div className="mt-2 flex gap-2"><input value={comment} onChange={(event) => setComment(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addComment(); }} placeholder="Comentar..." className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs outline-none" /><Button variant="primary" iconOnly onClick={addComment}><Plus size={16} /></Button></div></section>
             </fieldset>
           ) : (
             <div className="space-y-5">
-              <div><p className="text-xs font-bold uppercase text-cyan-300">Sessão</p><h2 className="text-lg font-black">{session.title}</h2><p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{session.objective || "Sem objetivo descrito."}</p></div>
-              <section className="rounded-lg border border-cyan-300/20 bg-cyan-400/5 p-4"><h3 className="flex items-center gap-2 font-black"><Sparkles size={17} className="text-cyan-300" /> Nora no quadro</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Resume fatos do quadro sem inventar decisões.</p><div className="mt-3 grid gap-2"><button onClick={() => void askNora("resumir")} className="brainstorm-secondary-button"><Bot size={15} /> Resumir ideias</button><button onClick={() => void askNora("gerar_ideias")} className="brainstorm-secondary-button"><Lightbulb size={15} /> Sugerir ideias</button><button onClick={() => void askNora("proximos_passos")} className="brainstorm-secondary-button"><ListChecks size={15} /> Próximos passos</button></div>{noraLoading && <Loader2 className="mx-auto mt-4 animate-spin text-cyan-300" />}{noraResult && <p className="mt-4 whitespace-pre-wrap break-words rounded-lg bg-[var(--background)] p-3 text-xs font-semibold leading-5 select-text">{noraResult}</p>}</section>
-              <section><h3 className="mb-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Histórico</h3><div className="space-y-2">{(session.history || []).slice().reverse().slice(0, 8).map((item) => <div key={item.id} className="rounded-lg border border-[var(--border)] p-3"><p className="text-xs font-bold">{item.detail}</p><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{item.actorName} · {formatDate(item.timestamp)}</p></div>)}</div></section>
+              {(inspectorMode === "session" || inspectorMode === "ideas") && <div><p className="text-xs font-bold uppercase text-cyan-300">Sessão</p><h2 className="text-lg font-black">{session.title}</h2><p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{session.objective || "Sem objetivo descrito."}</p></div>}
+
+              {inspectorMode === "ideas" && <section><h3 className="text-sm font-black">Ferramentas de ideias</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Adicione, conecte e organize elementos no quadro.</p><div className="mt-3 grid grid-cols-2 gap-2"><button disabled={boardLocked} onClick={() => addIdea("sticky")} className="brainstorm-secondary-button"><StickyNote size={15} /> Post-it</button><button disabled={boardLocked} onClick={() => addIdea("text")} className="brainstorm-secondary-button"><TextCursorInput size={15} /> Texto</button><button disabled={boardLocked} onClick={() => addIdea("shape")} className="brainstorm-secondary-button"><Shapes size={15} /> Bloco</button><button disabled={boardLocked} onClick={clusterIdeas} className="brainstorm-secondary-button"><LayoutGrid size={15} /> Agrupar</button></div></section>}
+
+              {inspectorMode === "notes" && <section><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase text-cyan-300">Notas</p><h2 className="text-lg font-black">{nodes.filter((node) => node.data.variant === "sticky").length} post-its</h2></div><Button variant="primary" size="sm" disabled={boardLocked} onClick={() => addIdea("sticky")}><Plus size={15} /> Nova</Button></div><div className="mt-4 space-y-2">{nodes.filter((node) => node.data.variant === "sticky").slice(0, 20).map((node) => <button key={node.id} onClick={() => { setSelectedId(node.id); setInspectorMode("notes"); }} className="w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left"><strong className="block truncate text-xs">{node.data.label}</strong><small className="mt-1 block text-[var(--text-secondary)]">{node.data.category || "geral"}</small></button>)}</div></section>}
+
+              {inspectorMode === "participants" && <section><p className="text-xs font-bold uppercase text-cyan-300">Participantes</p><h2 className="mt-1 text-lg font-black">Equipe da sessão</h2><div className="mt-4 space-y-2">{members.map((member) => { const online = Boolean(presence[member.id]); return <article key={member.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">{member.fotoUrl ? <img src={member.fotoUrl} className="h-9 w-9 rounded-full object-cover" /> : <span className="grid h-9 w-9 place-items-center rounded-full bg-cyan-600 text-xs font-black text-white">{avatarFallback(member.nome)}</span>}<span className="min-w-0"><strong className="block truncate text-xs">{member.nome}</strong><small className={online ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{online ? "Online no quadro" : "Offline"}</small></span></article>; })}</div></section>}
+
+              {inspectorMode === "files" && <section><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase text-cyan-300">Arquivos</p><h2 className="text-lg font-black">Anexos do quadro</h2></div><Button variant="primary" size="sm" disabled={boardLocked} onClick={() => fileInputRef.current?.click()}><Plus size={15} /> Anexar</Button></div><p className="mt-2 text-xs font-semibold text-[var(--text-secondary)]">Até 2 MB por arquivo. Os anexos ficam vinculados à sessão.</p><div className="mt-4 space-y-2">{nodes.filter((node) => node.data.file).map((node) => <button key={node.id} onClick={() => setSelectedId(node.id)} className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left"><FileText size={18} className="shrink-0 text-cyan-300" /><span className="min-w-0"><strong className="block truncate text-xs">{node.data.file?.name}</strong><small className="text-[var(--text-secondary)]">{((node.data.file?.size || 0) / 1024).toFixed(1)} KB</small></span></button>)}</div></section>}
+
+              {inspectorMode === "templates" && <section><p className="text-xs font-bold uppercase text-cyan-300">Modelos</p><h2 className="mt-1 text-lg font-black">Estruturas prontas</h2><p className="mt-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">Adicione uma estrutura sem apagar as ideias existentes.</p><div className="mt-4 grid gap-2">{([['mapa-mental', 'Mapa mental'], ['swot', 'Análise SWOT'], ['jornada', 'Jornada'], ['retrospectiva', 'Retrospectiva']] as const).map(([id, label]) => <button key={id} disabled={boardLocked} onClick={() => addTemplate(id)} className="brainstorm-secondary-button"><BookOpen size={15} /> {label}</button>)}</div></section>}
+
+              {inspectorMode === "reports" && <section><p className="text-xs font-bold uppercase text-cyan-300">Relatórios</p><h2 className="mt-1 text-lg font-black">Resultado da sessão</h2><div className="mt-4 grid grid-cols-2 gap-2">{[["Ideias", nodes.length], ["Conexões", edges.length], ["Votos", nodes.reduce((total, node) => total + (node.data.votes?.length || 0), 0)], ["Comentários", nodes.reduce((total, node) => total + (node.data.comments?.length || 0), 0)]].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><small className="font-bold text-[var(--text-secondary)]">{label}</small><strong className="mt-1 block text-xl">{value}</strong></div>)}</div><Button variant="secondary" className="mt-4 w-full" onClick={downloadBoardReport}><BarChart3 size={15} /> Exportar relatório JSON</Button></section>}
+
+              {inspectorMode === "settings" && <section><p className="text-xs font-bold uppercase text-cyan-300">Configurações</p><h2 className="mt-1 text-lg font-black">Quadro e sessão</h2><div className="mt-4 grid gap-2"><button disabled={boardLocked} onClick={toggleTimer} className="brainstorm-secondary-button"><Clock3 size={15} /> {session.timer?.running ? "Pausar timer" : "Iniciar timer"}</button><button disabled={boardLocked} onClick={clusterIdeas} className="brainstorm-secondary-button"><LayoutGrid size={15} /> Agrupar por categoria</button><button disabled={boardLocked} onClick={() => void persistBoard(nodes, edges)} className="brainstorm-secondary-button"><Save size={15} /> Salvar agora</button></div><div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold text-[var(--text-secondary)]">Status: <strong className="text-[var(--text)]">{session.status}</strong><br />Modelo: <strong className="text-[var(--text)]">{session.template}</strong><br />Responsável: <strong className="text-[var(--text)]">{session.responsibleName}</strong></div></section>}
+
+              <section className="rounded-lg border border-cyan-300/20 bg-cyan-400/5 p-4"><h3 className="flex items-center gap-2 font-black"><Sparkles size={17} className="text-cyan-300" /> Nora no quadro</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Usa somente o conteúdo real da sessão para apoiar a decisão.</p><div className="mt-3 grid gap-2"><button onClick={() => void askNora("resumir")} className="brainstorm-secondary-button"><Bot size={15} /> Resumir ideias</button><button onClick={() => void askNora("gerar_ideias")} className="brainstorm-secondary-button"><Lightbulb size={15} /> Sugerir ideias</button><button onClick={() => void askNora("proximos_passos")} className="brainstorm-secondary-button"><ListChecks size={15} /> Próximos passos</button><button onClick={() => void askNora("analisar_impacto")} className="brainstorm-secondary-button"><BarChart3 size={15} /> Analisar impacto</button></div>{noraLoading && <Loader2 className="mx-auto mt-4 animate-spin text-cyan-300" />}{noraResult && <p className="mt-4 whitespace-pre-wrap break-words rounded-lg bg-[var(--background)] p-3 text-xs font-semibold leading-5 select-text">{noraResult}</p>}</section>
+
+              {inspectorMode === "session" && <section><h3 className="mb-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Histórico</h3><div className="space-y-2">{(session.history || []).slice().reverse().slice(0, 8).map((item) => <div key={item.id} className="rounded-lg border border-[var(--border)] p-3"><p className="text-xs font-bold">{item.detail}</p><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{item.actorName} · {formatDate(item.timestamp)}</p></div>)}</div></section>}
             </div>
           )}
         </aside>

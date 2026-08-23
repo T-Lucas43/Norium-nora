@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  Ban,
   BadgeCheck,
   FileCheck2,
   FileClock,
@@ -11,6 +12,7 @@ import {
   Link2,
   LayoutTemplate,
   Palette,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -23,9 +25,11 @@ import {
 import { apiRequest, ApiError } from "../../core/api/client";
 import {
   analyzeProposal,
+  cancelContract,
   createBrandProfile,
   createProposal,
   createTemplate,
+  deleteContract,
   deleteProposal,
   decideProposal,
   decideSuggestion,
@@ -164,7 +168,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       setClients(clientResponse.items || []);
       setBrainstorms(brainstormResponse || []);
     } catch (requestError) {
-      if (requestError instanceof DOMException && requestError.name === "AbortError") return;
+      if (signal?.aborted || (requestError instanceof DOMException && requestError.name === "AbortError") || (requestError instanceof ApiError && requestError.status === 499)) return;
       setError(messageFromError(requestError, "Nao foi possivel carregar propostas e contratos."));
     } finally {
       if (!signal?.aborted) setLoading(false);
@@ -354,6 +358,36 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     }, "Proposta excluida.");
   }
 
+  async function handleCancelContract(contract: CommercialContract) {
+    const confirmed = await showConfirm({
+      title: "Cancelar contrato?",
+      description: `O contrato "${contract.title}" sera marcado como cancelado e permanecera no historico com sua trilha de auditoria.`,
+      confirmLabel: "Cancelar contrato",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    await runAction(async () => {
+      const response = await cancelContract(contract.id);
+      replaceDocument(response.contract);
+      setSelected(null);
+    }, "Contrato cancelado e preservado no historico.");
+  }
+
+  async function handleDeleteContract(contract: CommercialContract) {
+    const confirmed = await showConfirm({
+      title: "Excluir minuta?",
+      description: `A minuta "${contract.title}" sera removida e a proposta vinculada voltara a ficar disponivel. Esta acao nao pode ser desfeita.`,
+      confirmLabel: "Excluir minuta",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    await runAction(async () => {
+      await deleteContract(contract.id);
+      setSelected(null);
+      await load();
+    }, "Minuta excluida. A proposta vinculada foi restaurada.");
+  }
+
   if (selected) {
     return (
       <>
@@ -469,32 +503,36 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
               {(view === "proposals" || view === "contracts") && (
                 <div className="min-h-[480px]">
                   {currentItems.map((item) => (
-                    <article key={item.id} className="flex items-stretch border-b border-[var(--border)] transition hover:bg-[var(--surface-hover)]">
-                      <button type="button" onClick={() => setSelected(item)} className="grid min-w-0 flex-1 gap-3 p-4 text-left md:grid-cols-[48px_minmax(0,1fr)_140px_140px_110px] md:items-center xl:grid-cols-[48px_minmax(0,1fr)_140px_140px_110px_230px]">
-                        <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{isProposal(item) ? <FileSignature size={19} /> : <FileCheck2 size={19} />}</span>
-                        <span className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.client?.name || "Cliente nao informado"} {item.brainstormId ? "- vinculado ao Brainstorm" : ""}</small></span>
-                        <span className="text-xs font-bold">{formatMoney(item.amount, item.currency)}</span>
-                        <span><StatusChip status={item.status} /></span>
-                        <time className="text-xs font-bold text-[var(--text-secondary)]">{formatDate(item.updatedAt)}</time>
-                        <span className="hidden min-w-0 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 xl:flex">
-                          <span className="relative grid h-20 w-14 shrink-0 place-items-center overflow-hidden rounded border border-slate-300/20 bg-slate-100 text-center text-[5px] font-black uppercase leading-tight text-slate-700 shadow-lg">
-                            <span className="absolute left-0 top-0 h-1.5 w-full" style={{ background: item.branding?.primaryColor || "#1266f1" }} />
-                            <span className="px-1">{isProposal(item) ? "Proposta comercial" : "Contrato"}</span>
-                          </span>
-                          <span className="min-w-0"><strong className="block truncate text-xs">Pre-visualizacao</strong><small className="mt-1 block truncate text-[var(--text-secondary)]">Documento A4</small><span className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-300"><Eye size={13} /> Visualizar</span></span>
-                        </span>
+                    <article key={item.id} className="grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_148px] xl:items-center">
+                      <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{isProposal(item) ? <FileSignature size={19} /> : <FileCheck2 size={19} />}</span>
+                      <button type="button" onClick={() => setSelected(item)} className="min-w-0 text-left">
+                        <strong className="block truncate text-sm">{item.title}</strong>
+                        <small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.client?.name || "Cliente nao informado"} {item.brainstormId ? "- vinculado ao Brainstorm" : ""}</small>
                       </button>
-                      {isProposal(item) && !item.contractId && (
-                        <Button variant="danger" iconOnly
-                         
-                          onClick={() => void handleDeleteProposal(item)}
-                          className="m-3 self-center border-red-400/20 text-red-400 hover:bg-red-500/10"
-                          aria-label={`Excluir proposta ${item.title}`}
-                          title="Excluir proposta"
-                        >
-                          <Trash2 size={16} />
-                        </Button>
-                      )}
+                      <span className="col-start-2 text-xs font-bold xl:col-auto">{formatMoney(item.amount, item.currency)}</span>
+                      <span className="col-start-2 xl:col-auto"><StatusChip status={item.status} /></span>
+                      <time className="col-start-2 text-xs font-bold text-[var(--text-secondary)] xl:col-auto">{formatDate(item.updatedAt)}</time>
+                      <DocumentPreviewButton
+                        title={item.title}
+                        label={isProposal(item) ? "Proposta comercial" : "Contrato"}
+                        primaryColor={item.branding?.primaryColor}
+                        onClick={() => setSelected(item)}
+                        className="col-span-2 xl:col-auto"
+                      />
+                      <div className="col-span-2 flex min-h-10 flex-wrap items-center gap-2 xl:col-auto xl:justify-end">
+                        {!isProposal(item) && !["signed", "active", "completed", "cancelled"].includes(item.status) && (
+                          <Button variant="secondary" iconOnly onClick={() => setSelected(item)} aria-label={`Editar contrato ${item.title}`} title="Editar contrato"><Pencil size={16} /></Button>
+                        )}
+                        {isProposal(item) && !item.contractId && (
+                          <Button variant="danger" iconOnly onClick={() => void handleDeleteProposal(item)} className="border-red-400/20 text-red-400 hover:bg-red-500/10" aria-label={`Excluir proposta ${item.title}`} title="Excluir proposta"><Trash2 size={16} /></Button>
+                        )}
+                        {!isProposal(item) && item.status !== "cancelled" && item.status !== "completed" && (
+                          <Button variant="danger" iconOnly onClick={() => void handleCancelContract(item)} className="border-amber-400/20 text-amber-300 hover:bg-amber-500/10" aria-label={`Cancelar contrato ${item.title}`} title="Cancelar contrato"><Ban size={16} /></Button>
+                        )}
+                        {!isProposal(item) && item.status === "draft" && (
+                          <Button variant="danger" iconOnly onClick={() => void handleDeleteContract(item)} className="border-red-400/20 text-red-400 hover:bg-red-500/10" aria-label={`Excluir minuta ${item.title}`} title="Excluir minuta"><Trash2 size={16} /></Button>
+                        )}
+                      </div>
                     </article>
                   ))}
                   {!currentItems.length && <EmptyState title="Nenhum documento encontrado" description="Crie uma proposta ou ajuste os filtros." icon={FilePlus2} className="min-h-[430px] border-none" />}
@@ -506,7 +544,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                   title="Modelos inteligentes"
                   description="Reutilize estruturas comerciais pessoais ou compartilhadas pela empresa."
                   icon={LayoutTemplate}
-                  items={data.templates.map((item) => ({ id: item.id, title: item.name, description: item.description || (item.shared ? "Modelo compartilhado" : "Modelo pessoal") }))}
+                  items={data.templates.map((item) => ({ id: item.id, title: item.name, description: item.description || (item.shared ? "Modelo compartilhado" : "Modelo pessoal"), template: item }))}
                   actionLabel="Salvar modelo"
                   onAction={() => setTemplateOpen(true)}
                   onItemClick={(id) => setTemplatePreview(data.templates.find((item) => item.id === id) || null)}
@@ -1019,6 +1057,45 @@ function StatusChip({ status }: { status: string }) {
   return <span className="inline-flex rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-xs font-bold uppercase text-blue-300">{statusLabels[status] || status}</span>;
 }
 
+function DocumentCover({ label, primaryColor = "#1266f1" }: { label: string; primaryColor?: string }) {
+  return (
+    <span className="relative grid aspect-[210/297] h-20 shrink-0 place-items-center overflow-hidden rounded border border-slate-300/25 bg-slate-100 text-center text-[5px] font-black uppercase leading-tight text-slate-700 shadow-lg">
+      <span className="absolute left-0 top-0 h-1.5 w-full" style={{ background: primaryColor }} />
+      <span className="px-1">{label}</span>
+    </span>
+  );
+}
+
+function DocumentPreviewButton({
+  title,
+  label,
+  primaryColor,
+  onClick,
+  className = "",
+}: {
+  title: string;
+  label: string;
+  primaryColor?: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex min-w-0 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-left transition hover:border-blue-400/35 hover:bg-blue-500/5 ${className}`}
+      aria-label={`Visualizar pre-visualizacao de ${title}`}
+    >
+      <DocumentCover label={label} primaryColor={primaryColor} />
+      <span className="min-w-0">
+        <strong className="block truncate text-xs">Pre-visualizacao</strong>
+        <small className="mt-1 block truncate text-[var(--text-secondary)]">Documento A4</small>
+        <span className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-300"><Eye size={13} /> Visualizar</span>
+      </span>
+    </button>
+  );
+}
+
 function LibraryView({
   title,
   description,
@@ -1031,12 +1108,12 @@ function LibraryView({
   title: string;
   description: string;
   icon: typeof Palette;
-  items: Array<{ id: string; title: string; description: string }>;
+  items: Array<{ id: string; title: string; description: string; template?: CommercialTemplate }>;
   actionLabel: string;
   onAction: () => void;
   onItemClick?: (id: string) => void;
 }) {
-  return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span><strong className="mt-4 block text-sm">{item.title}</strong><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)}>Visualizar em A4</Button>}</article>)}</div>{!items.length && <EmptyState title="Biblioteca vazia" description={`Use "${actionLabel}" para criar o primeiro item.`} icon={Icon} className="mt-5 min-h-72" />}</div>;
+  return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="grid min-h-48 grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><button type="button" disabled={!onItemClick} onClick={() => onItemClick?.(item.id)} className="self-start disabled:cursor-default" aria-label={onItemClick ? `Pre-visualizar ${item.title}` : undefined}>{item.template ? <DocumentCover label={item.template.documentType === "contract" ? "Contrato" : "Proposta comercial"} /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span>}</button><div className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong><p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)} icon={<Eye size={14} />}>Visualizar em A4</Button>}</div></article>)}</div>{!items.length && <EmptyState title="Biblioteca vazia" description={`Use "${actionLabel}" para criar o primeiro item.`} icon={Icon} className="mt-5 min-h-72" />}</div>;
 }
 
 function TemplatePreviewDialog({ template, onClose }: { template: CommercialTemplate; onClose: () => void }) {

@@ -142,6 +142,18 @@ export function shareCommercialDocument(
   );
 }
 
+export function cancelContract(id: string) {
+  return apiRequest<{ contract: CommercialContract }>(`/api/comercial/contracts/${id}/cancel`, {
+    method: "POST",
+  });
+}
+
+export function deleteContract(id: string) {
+  return apiRequest<{ ok: boolean; contract: CommercialContract; proposal?: CommercialProposal | null }>(`/api/comercial/contracts/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export function exportCommercialDocumentPdf(documentType: "proposal" | "contract", id: string) {
   const collection = documentType === "proposal" ? "proposals" : "contracts";
   return apiBlobRequest(`/api/comercial/${collection}/${id}/pdf`, { timeoutMs: 60_000 });

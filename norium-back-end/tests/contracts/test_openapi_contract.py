@@ -30,6 +30,7 @@ INTENTIONAL_PARAMETER_DESCRIPTION_CHANGES = {
     ("GET /api/chat/media-proxy", ("url", "query")),
 }
 INTENTIONAL_SCHEMA_CHANGES = {
+    "components.schemas.NoraBoardPayload.properties.action.enum",
     "components.schemas.ComentarioPayload.properties.author.default",
     "components.schemas.PerfilOperador.properties.nome.default",
     "components.schemas.ProjetoPayload.properties.owner.default",

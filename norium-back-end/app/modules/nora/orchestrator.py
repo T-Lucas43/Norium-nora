@@ -9,10 +9,12 @@ from app.routers.automacoes_router import handle_automation_agent
 from app.routers.financeiro_router import handle_finance_agent
 from app.routers.tarefas_router import handle_task_agent
 from app.routers.team_chat_router import append_team_message_for_user
+from app.modules.commercial.nora_agent import handle_commercial_agent
+from app.services.brainstorm_store import create_brainstorm_session, list_brainstorm_sessions
 from app.services.email_agent import EmailAgent
 
 
-SUPPORTED_AGENTS = ("financeiro", "tarefas", "email", "agenda", "automacoes", "equipe")
+SUPPORTED_AGENTS = ("financeiro", "tarefas", "email", "agenda", "automacoes", "equipe", "comercial", "brainstorm")
 
 AGENT_SIGNALS: dict[str, tuple[str, ...]] = {
     "financeiro": (
@@ -73,6 +75,20 @@ AGENT_SIGNALS: dict[str, tuple[str, ...]] = {
         "avisar o time",
         "avise o time",
     ),
+    "comercial": (
+        "proposta",
+        "propostas",
+        "contrato",
+        "contratos",
+        "minuta",
+        "assinatura",
+    ),
+    "brainstorm": (
+        "brainstorm",
+        "sessao de ideias",
+        "quadro de ideias",
+        "mapa mental",
+    ),
 }
 
 
@@ -101,7 +117,8 @@ def is_compound_request(message: str) -> bool:
     action_verbs = re.findall(
         r"\b(?:crie|criar|registre|registrar|lance|lancar|envie|enviar|responda|"
         r"agende|agendar|marque|marcar|avise|avisar|execute|executar|automatize|"
-        r"me lembre|lembre|adicione|adicionar)\b",
+        r"me lembre|lembre|adicione|adicionar|cancele|cancelar|exclua|excluir|"
+        r"converta|converter|analise|analisar)\b",
         normalized,
     )
     return len(action_verbs) >= 2 or any(
@@ -120,13 +137,14 @@ def _split_clauses(message: str) -> list[str]:
     prepared = re.sub(
         r"\s+e\s+(?=(?:crie|criar|registre|registrar|lance|lancar|envie|enviar|"
         r"responda|agende|agendar|marque|marcar|avise|avisar|execute|executar|"
-        r"automatize|me\s+lembre|adicione|adicionar)\b)",
+        r"automatize|me\s+lembre|adicione|adicionar|cancele|cancelar|exclua|excluir|"
+        r"converta|converter|analise|analisar)\b)",
         " || ",
         prepared,
         flags=re.I,
     )
     prepared = re.sub(
-        r",\s*(?=(?:crie|registre|lance|envie|responda|agende|marque|avise|execute|automatize|me lembre)\b)",
+        r",\s*(?=(?:crie|registre|lance|envie|responda|agende|marque|avise|execute|automatize|me lembre|cancele|exclua|converta|analise)\b)",
         " || ",
         prepared,
         flags=re.I,
@@ -191,6 +209,31 @@ async def _execute_team_step(user: dict[str, Any], instruction: str) -> dict[str
     return {"status": "enviado", "response": "Mensagem enviada ao chat da equipe.", "message": item}
 
 
+async def _execute_brainstorm_step(user: dict[str, Any], instruction: str) -> dict[str, Any]:
+    normalized = normalize_text(instruction)
+    tenant_id = str(user.get("teamOwnerId") or user.get("id") or "lucas123")
+    if any(term in normalized for term in ("criar", "crie", "nova sessao", "novo brainstorm")):
+        match = re.search(
+            r"(?:brain\s*storm|sessao\s+de\s+ideias)(?:\s+(?:para|sobre|chamado|chamada))?\s+(.+)",
+            instruction,
+            flags=re.I,
+        )
+        title = match.group(1).strip(" .") if match else ""
+        if not title:
+            return {"status": "precisa_dados", "response": "Informe o tema ou titulo do brainstorm para eu criar a sessao."}
+        session = await create_brainstorm_session(
+            tenant_id,
+            {"title": title[:160], "objective": "Criada pela Nora a partir de linguagem natural.", "template": "livre", "durationMinutes": 15},
+            user,
+        )
+        return {"status": "criada", "response": f"Sessao de brainstorm criada: {session['title']}.", "session": session}
+    sessions = await list_brainstorm_sessions(tenant_id)
+    if not sessions:
+        return {"status": "vazio", "response": "Nao ha sessoes de brainstorm registradas."}
+    lines = "\n".join(f"- {item.get('title')} ({item.get('nodeCount', 0)} ideias)" for item in sessions[:8])
+    return {"status": "consulta", "response": f"Sessoes de brainstorm:\n{lines}", "sessions": sessions[:8]}
+
+
 async def execute_agent_step(user: dict[str, Any], step: dict[str, Any]) -> dict[str, Any]:
     user_id = str(user.get("id") or "lucas123")
     agent = str(step.get("agent") or "")
@@ -209,6 +252,10 @@ async def execute_agent_step(user: dict[str, Any], step: dict[str, Any]) -> dict
         return await handle_automation_agent(user_id, instruction, str(user.get("nome") or "Nora"))
     if agent == "equipe":
         return await _execute_team_step(user, instruction)
+    if agent == "comercial":
+        return await handle_commercial_agent(user, instruction, None)
+    if agent == "brainstorm":
+        return await _execute_brainstorm_step(user, instruction)
     return {"status": "nao_suportado", "response": f"Agente nao suportado: {agent}."}
 
 

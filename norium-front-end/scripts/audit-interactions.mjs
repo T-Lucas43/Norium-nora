@@ -92,11 +92,13 @@ for (const file of files.filter((candidate) => candidate.endsWith(".tsx"))) {
       const type = attributeText(attributes.get("type"));
       const action = attributes.get("onClick");
       const actionText = attributeText(action);
+      const delegatesButtonProps = node.attributes.properties.some(ts.isJsxSpreadAttribute);
       const hasAction =
         attributes.has("onClick") ||
         attributes.has("onPointerDown") ||
         attributes.has("onMouseDown") ||
         attributes.has("formAction") ||
+        delegatesButtonProps ||
         type === "submit" ||
         type === "reset";
       const emptyAction = actionText === "() => {}" || actionText === "() => undefined";

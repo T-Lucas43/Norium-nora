@@ -101,15 +101,9 @@ export default function SidebarEsquerda({
     });
   }, [busca, conversaSelecionada, filtroTipo, sorted]);
 
-  const sections = useMemo(() => {
-    if (filtroTipo !== "todos") return [{ label: "", items: filtradas }];
-    const direct = filtradas.filter((chat) => !chat.esGrupo);
-    const groups = filtradas.filter((chat) => chat.esGrupo);
-    return [
-      { label: "Conversas", items: direct },
-      { label: "Grupos", items: groups },
-    ].filter((section) => section.items.length > 0);
-  }, [filtradas, filtroTipo]);
+  // Lista unificada: contatos e grupos juntos, em ordem de atividade/tempo
+  // (fixadas no topo — ver `sorted`). Sem seções separadas de "Conversas"/"Grupos".
+  const sections = useMemo(() => [{ label: "", items: filtradas }], [filtradas]);
 
   const counts = {
     unread: conversas.filter((chat) => !chat.arquivada && Number(chat.naoLidasCount || 0) > 0).length,

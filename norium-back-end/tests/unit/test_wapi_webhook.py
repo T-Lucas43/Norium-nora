@@ -74,6 +74,34 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         db_b = await load_conversations("user-b")
         self.assertEqual({}, db_b)
 
+    async def test_from_me_message_preserves_contact_identity(self) -> None:
+        # Conversa já tem nome e foto do contato.
+        db = await load_conversations("user-a")
+        conversa = new_conversation("5511999998888", contato="Maria", channel="whatsapp")
+        conversa["metadados"]["photoUrl"] = "https://exemplo/maria.jpg"
+        conversa["photoUrl"] = "https://exemplo/maria.jpg"
+        db["5511999998888"] = conversa
+        await save_conversations(db, "user-a")
+
+        # Mensagem enviada por MIM (fromMe) — sender sou eu; não pode virar o contato.
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "messageId": "OUT1",
+            "phone": "5511999998888",
+            "fromMe": True,
+            "momment": 1700000100,
+            "sender": {"pushName": "Eu Mesmo", "profilePicture": "https://exemplo/eu.jpg"},
+            "msgContent": {"conversation": "oi"},
+        }
+        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+        self.assertEqual("success", result["status"])
+        db2 = await load_conversations("user-a")
+        conv = db2["5511999998888"]
+        self.assertEqual("Maria", conv["contato"])  # nome do contato preservado
+        self.assertEqual("https://exemplo/maria.jpg", conv["metadados"]["photoUrl"])  # foto preservada
+        self.assertTrue(conv["ultimaMensagemMinha"])  # mas a msg fromMe foi registrada
+
     async def test_duplicate_received_is_ignored(self) -> None:
         await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))
         again = await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))

@@ -7,6 +7,7 @@ import {
   CornerUpRight,
   FileText,
   Languages,
+  Maximize2,
   Mic,
   MoreVertical,
   Paperclip,
@@ -218,11 +219,61 @@ function AudioMessage({ src, outgoing }: { src: string; outgoing: boolean }) {
   );
 }
 
+function MediaLightbox({ src, kind, onClose }: { src: string; kind: "image" | "video"; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Fechar"
+        className="absolute right-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/15 text-white transition hover:bg-white/25"
+      >
+        <X size={20} />
+      </button>
+      {kind === "video" ? (
+        <video
+          src={src}
+          controls
+          autoPlay
+          className="max-h-[92vh] max-w-[92vw]"
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <img
+          src={src}
+          alt="Midia em tela cheia"
+          className="max-h-[92vh] max-w-[92vw] object-contain"
+          onClick={(e) => e.stopPropagation()}
+        />
+      )}
+    </div>
+  );
+}
+
 function MessageMedia({ msg, outgoing }: { msg: MsgConteudo; outgoing: boolean }) {
   const mime = msg.arquivoMime || "";
   const fileName = msg.nomeArquivo || "Arquivo";
   const looksVideo = mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(fileName);
   const mediaUrl = useAuthenticatedMedia(msg.arquivoUrl);
+  const [telaCheia, setTelaCheia] = useState(false);
 
   if (!msg.arquivoUrl) {
     return <p className="text-sm font-medium">{msg.texto || "Midia sem URL disponivel"}</p>;
@@ -252,16 +303,38 @@ function MessageMedia({ msg, outgoing }: { msg: MsgConteudo; outgoing: boolean }
   if (looksVideo) {
     return (
       <div className="max-w-[420px] overflow-hidden rounded-lg">
-        {mediaUrl ? <video src={mediaUrl} controls className="max-h-[320px] w-full bg-black" /> : null}
+        {mediaUrl ? (
+          <div className="group relative">
+            <video src={mediaUrl} controls className="max-h-[320px] w-full bg-black" />
+            <button
+              type="button"
+              onClick={() => setTelaCheia(true)}
+              aria-label="Abrir em tela cheia"
+              title="Tela cheia"
+              className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
+            >
+              <Maximize2 size={15} />
+            </button>
+          </div>
+        ) : null}
         {msg.texto && msg.texto !== "[Video]" && <p className="mt-2 text-sm font-medium">{msg.texto}</p>}
+        {telaCheia && mediaUrl && <MediaLightbox src={mediaUrl} kind="video" onClose={() => setTelaCheia(false)} />}
       </div>
     );
   }
 
   return (
     <div className="max-w-[420px] overflow-hidden rounded-lg">
-      {mediaUrl ? <img src={mediaUrl} alt={msg.texto || "Imagem"} className="max-h-[320px] w-full object-contain bg-black/5" /> : null}
+      {mediaUrl ? (
+        <img
+          src={mediaUrl}
+          alt={msg.texto || "Imagem"}
+          onClick={() => setTelaCheia(true)}
+          className="max-h-[320px] w-full cursor-zoom-in object-contain bg-black/5"
+        />
+      ) : null}
       {msg.texto && msg.texto !== "[Imagem]" && <p className="mt-2 text-sm font-medium">{msg.texto}</p>}
+      {telaCheia && mediaUrl && <MediaLightbox src={mediaUrl} kind="image" onClose={() => setTelaCheia(false)} />}
     </div>
   );
 }

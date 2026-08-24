@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { FilePenLine, ListCollapse, LoaderCircle, MessageSquareText, Sparkles, X } from "lucide-react";
+import { Copy, FilePenLine, ListCollapse, LoaderCircle, MessageSquareText, Sparkles, X } from "lucide-react";
 
 import NoraAvatar from "../layout/NoraAvatar";
 import Button from "../shared/Button";
 import { noraChatApi } from "./noraChatApi";
+import { noraDraftForInsertion } from "./noraDraft";
 
 type NoraAction = "suggest" | "summary" | "custom";
 
@@ -29,6 +30,7 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
   const [improvement, setImprovement] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [summaryCopied, setSummaryCopied] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const requestIdRef = useRef(0);
   const busyRef = useRef(false);
@@ -40,6 +42,7 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
     setError("");
     setDraft("");
     setImprovement("");
+    setSummaryCopied(false);
   };
 
   const cancelPendingRequestAndClose = () => {
@@ -127,12 +130,19 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
   };
 
   const acceptDraft = () => {
-    const reviewedDraft = draft.trim();
-    if (!reviewedDraft) return;
+    const reviewedDraft = noraDraftForInsertion(draft);
+    if (!reviewedDraft || action === "summary") return;
     onInsertDraft(reviewedDraft);
     closePanels();
     setDraft("");
     setImprovement("");
+  };
+
+  const copySummary = async () => {
+    const summary = draft.trim();
+    if (!summary || action !== "summary") return;
+    await navigator.clipboard?.writeText(summary);
+    setSummaryCopied(true);
   };
 
   return (
@@ -197,8 +207,8 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
         <section role="dialog" aria-modal="false" aria-labelledby="nora-review-title" className="absolute bottom-full right-0 z-[80] mb-2 w-[430px] max-w-[calc(100vw-24px)] rounded-2xl border border-cyan-400/25 bg-[#05080d] p-4 text-[var(--text)] shadow-2xl shadow-black/70">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p id="nora-review-title" className="flex items-center gap-2 text-sm font-black"><Sparkles size={16} className="text-cyan-300" /> Revisão obrigatória</p>
-              <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{ACTION_LABELS[action]}. Edite e confirme antes de colocar no campo de mensagem.</p>
+              <p id="nora-review-title" className="flex items-center gap-2 text-sm font-black"><Sparkles size={16} className="text-cyan-300" /> {action === "summary" ? "Resumo para consulta" : "Revisão obrigatória"}</p>
+              <p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{action === "summary" ? "O resumo é somente para leitura e nunca será colocado no campo de mensagem." : `${ACTION_LABELS[action]}. Edite e confirme antes de colocar no campo de mensagem.`}</p>
             </div>
             <button type="button" onClick={closePanels} disabled={loading} aria-label="Fechar revisão da Nora" className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/[0.06] disabled:opacity-50"><X size={15} /></button>
           </div>
@@ -208,32 +218,37 @@ export default function NoraChatComposer({ conversationId, disabled = false, onI
 
           {draft && (
             <>
-              <label htmlFor="nora-reviewed-draft" className="mt-4 block text-xs font-bold text-cyan-200">Texto sugerido</label>
+              <label htmlFor="nora-reviewed-draft" className="mt-4 block text-xs font-bold text-cyan-200">{action === "summary" ? "Resumo da conversa" : "Texto sugerido"}</label>
               <textarea
                 id="nora-reviewed-draft"
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
+                onChange={(event) => { if (action !== "summary") setDraft(event.target.value); }}
+                readOnly={action === "summary"}
                 disabled={loading}
                 className="mt-2 h-36 w-full resize-y rounded-xl border border-[var(--border)] bg-black/50 p-3 text-sm font-medium leading-6 outline-none focus:border-cyan-400/60 disabled:opacity-60"
               />
-              <label htmlFor="nora-improvement" className="mt-3 block text-xs font-bold">Pedir melhoria à Nora</label>
-              <div className="mt-2 flex gap-2">
-                <input
-                  id="nora-improvement"
-                  value={improvement}
-                  onChange={(event) => setImprovement(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Enter" && improvement.trim() && !loading) void improveDraft(); }}
-                  placeholder="Ex.: deixe mais curto e acolhedor"
-                  disabled={loading}
-                  className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-black/50 px-3 text-xs font-semibold outline-none focus:border-cyan-400/60"
-                />
-                <Button loading={loading} disabled={!improvement.trim()} onClick={() => void improveDraft()}>Melhorar</Button>
-              </div>
+              {action !== "summary" && <>
+                <label htmlFor="nora-improvement" className="mt-3 block text-xs font-bold">Pedir melhoria à Nora</label>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    id="nora-improvement"
+                    value={improvement}
+                    onChange={(event) => setImprovement(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === "Enter" && improvement.trim() && !loading) void improveDraft(); }}
+                    placeholder="Ex.: deixe mais curto e acolhedor"
+                    disabled={loading}
+                    className="h-10 min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-black/50 px-3 text-xs font-semibold outline-none focus:border-cyan-400/60"
+                  />
+                  <Button loading={loading} disabled={!improvement.trim()} onClick={() => void improveDraft()}>Melhorar</Button>
+                </div>
+              </>}
               <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-white/[0.07] pt-3">
                 <Button variant="ghost" onClick={closePanels} disabled={loading}>Descartar</Button>
-                <Button onClick={acceptDraft} disabled={loading || !draft.trim()} className="bg-cyan-600 hover:bg-cyan-500">Confirmar e inserir</Button>
+                {action === "summary"
+                  ? <Button onClick={() => void copySummary()} disabled={loading || !draft.trim()} className="bg-cyan-600 hover:bg-cyan-500"><Copy size={14} /> {summaryCopied ? "Resumo copiado" : "Copiar resumo"}</Button>
+                  : <Button onClick={acceptDraft} disabled={loading || !draft.trim()} className="bg-cyan-600 hover:bg-cyan-500">Confirmar e inserir</Button>}
               </div>
-              <p className="mt-2 text-right text-[10px] font-semibold text-[var(--text-secondary)]">A mensagem não será enviada automaticamente.</p>
+              <p className="mt-2 text-right text-[10px] font-semibold text-[var(--text-secondary)]">{action === "summary" ? "O resumo não altera nem prepara uma mensagem." : "A mensagem não será enviada automaticamente."}</p>
             </>
           )}
         </section>

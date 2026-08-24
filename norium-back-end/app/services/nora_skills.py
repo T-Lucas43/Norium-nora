@@ -31,6 +31,26 @@ class SkillResolution:
 
 SKILLS: tuple[NoraSkill, ...] = (
     NoraSkill(
+        id="whatsapp",
+        name="WhatsApp",
+        description=(
+            "Prepara mensagens para contatos e grupos do WhatsApp e exige revisao e aprovacao antes do envio."
+        ),
+        examples=(
+            "mande no WhatsApp para Maria dizendo que chego as 18h",
+            "envie uma mensagem para o grupo Comercial com o texto Reuniao confirmada",
+            "fala pro Carlos no zap dizendo que vou atrasar",
+        ),
+        strong_patterns=(
+            r"\b(?:whats\s*app|wpp|zap)\b",
+        ),
+        supporting_terms=("mensagem", "contato", "grupo", "enviar", "mandar", "responder"),
+        conflict_patterns=(
+            r"\bchat\s+(?:da|do)\s+(?:equipe|time)\b",
+            r"\b(?:e-?mail|gmail)\b",
+        ),
+    ),
+    NoraSkill(
         id="comercial",
         name="Propostas e contratos",
         description="Cria, revisa, lista, exclui e converte propostas em contratos e prepara links de assinatura.",
@@ -243,6 +263,8 @@ def _score_skill(skill: NoraSkill, text: str) -> tuple[float, tuple[str, ...]]:
 
     if skill.id == "equipe" and re.search(r"\b(?:equipe|time)\b", text) and re.search(r"\b(?:mande|envie|avise|avisar|notifique|mensagem)\b", text):
         score += 7.0
+    if skill.id == "whatsapp" and re.search(r"\b(?:whats\s*app|wpp|zap)\b", text) and re.search(r"\b(?:mande|manda|envie|envia|enviar|fale|fala|diga|avise|mensagem)\b", text):
+        score += 10.0
     if skill.id == "automacoes" and re.search(r"\b(?:sempre\s+que|quando|ao\s+receber|ao\s+criar)\b", text) and re.search(r"\b(?:enviar|envie|avisar|avise|notificar|notifique|criar|crie|registrar|registre|resumir|resuma|classificar|classifique)\b", text):
         score += 12.0
     if skill.id == "email" and re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", text):
@@ -344,13 +366,14 @@ def semantic_routing_prompt(message: str, resolution: SkillResolution, context: 
     )
     return (
         "Voce e o roteador de skills da Nora. Escolha a skill que representa a ACAO principal pedida pelo usuario. "
-        "Diferencie o canal de destino do assunto: 'avise a equipe sobre tarefas' usa equipe; "
+        "Diferencie o canal de destino do assunto: 'mande no WhatsApp para Maria' usa whatsapp; "
+        "'avise a equipe sobre tarefas' usa equipe; "
         "'quando chegar e-mail crie tarefa' usa automacoes; 'caixa de entrada' usa email, nunca financeiro. "
         "'quero criar uma proposta' e 'gerar contrato' usam comercial, nunca brainstorm ou tarefas. "
         "Se a mensagem nao pedir nenhuma acao das skills especificas e for so conversa, pergunta geral ou "
         "curiosidade, use chat -- nao chute uma skill especifica so porque ela existe na lista. "
         "Responda SOMENTE JSON valido: "
-        '{"intent":"comercial|equipe|automacoes|brainstorm|operacoes|email|financeiro|tarefas|agenda|chat","confidence":0.0,"reason":"curto"}.\n\n'
+        '{"intent":"whatsapp|comercial|equipe|automacoes|brainstorm|operacoes|email|financeiro|tarefas|agenda|chat","confidence":0.0,"reason":"curto"}.\n\n'
         f"Skills disponiveis:\n{catalog}\n\n"
         f"Ranking deterministico: {alternatives}\n"
         f"Contexto recente: {context[-1200:] if context else 'nenhum'}\n"

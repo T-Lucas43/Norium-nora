@@ -17,6 +17,8 @@ export interface MsgConteudo {
   reacoes?: Array<{ emoji: string; count: number; fromMe?: boolean; senders?: string[] }>;
   citada?: { id?: string; content?: string; senderName?: string; type?: string } | null;
   midiaMeta?: Record<string, unknown> | null;
+  edited?: boolean;
+  forwarded?: boolean;
   canal?: ChatChannel;
   channel?: ChatChannel;
 }

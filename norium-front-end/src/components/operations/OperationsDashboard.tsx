@@ -285,6 +285,7 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
     [overview?.approvals],
   );
   const timeline = timelineMode === "receipts" ? overview?.receipts || [] : overview?.audit || [];
+  const editingWhatsAppApproval = editingApproval?.source === "whatsapp" && editingApproval.action === "nora_whatsapp_execute";
 
   function closeApprovalDialog() {
     setApprovalOpen(false);
@@ -811,12 +812,12 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
         <div className="fixed inset-0 z-[80] grid place-items-center bg-black/65 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
             <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
-              <div><h2 className="font-black">{editingApproval ? "Editar solicitacao" : "Nova solicitacao de aprovacao"}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{editingApproval ? "Ajuste o plano antes de aprovar ou rejeitar." : "Registre a decisao antes de executar uma acao sensivel."}</p></div>
+              <div><h2 className="font-black">{editingApproval ? "Editar solicitacao" : "Nova solicitacao de aprovacao"}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{editingWhatsAppApproval ? "Revise a mensagem. O destinatario permanece protegido e nao pode ser alterado aqui." : editingApproval ? "Ajuste o plano antes de aprovar ou rejeitar." : "Registre a decisao antes de executar uma acao sensivel."}</p></div>
               <Button variant="ghost" size="sm" iconOnly onClick={closeApprovalDialog} aria-label="Fechar"><X size={18} /></Button>
             </header>
             <div className="space-y-4 p-5">
-              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">O que precisa ser aprovado?<input value={approvalTitle} onChange={(event) => setApprovalTitle(event.target.value)} maxLength={180} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Ex.: autorizar envio para toda a base" /></label>
-              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">Contexto<textarea value={approvalDescription} onChange={(event) => setApprovalDescription(event.target.value)} maxLength={1200} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-semibold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder="Explique o impacto e o motivo da solicitacao." /></label>
+              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">{editingWhatsAppApproval ? "Destinatario protegido" : "O que precisa ser aprovado?"}<input value={approvalTitle} onChange={(event) => { if (!editingWhatsAppApproval) setApprovalTitle(event.target.value); }} readOnly={editingWhatsAppApproval} aria-readonly={editingWhatsAppApproval} maxLength={180} className={`mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold normal-case text-[var(--text)] outline-none ${editingWhatsAppApproval ? "cursor-not-allowed opacity-70" : "focus:border-blue-500"}`} placeholder="Ex.: autorizar envio para toda a base" /></label>
+              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">{editingWhatsAppApproval ? "Mensagem que sera enviada" : "Contexto"}<textarea value={approvalDescription} onChange={(event) => setApprovalDescription(event.target.value)} maxLength={1200} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-semibold normal-case text-[var(--text)] outline-none focus:border-blue-500" placeholder={editingWhatsAppApproval ? "Revise o texto exato antes de aprovar." : "Explique o impacto e o motivo da solicitacao."} /></label>
             </div>
             <footer className="flex justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
               <Button onClick={closeApprovalDialog}>Cancelar</Button>

@@ -7,7 +7,7 @@ import WhatsAppProfileView from "./WhatsAppProfileView";
 import WhatsAppRail, { type WhatsAppSection } from "./WhatsAppRail";
 import WhatsAppStatusView from "./WhatsAppStatusView";
 import { Menu, X, Search, User, Send } from "lucide-react";
-import type { AnexoPendente, ChatConversa, MsgConteudo } from "./types";
+import type { AnexoPendente, ChatConversa, MsgConteudo, ParticipanteGrupo } from "./types";
 import { apiBaseUrl } from "../../utils/api";
 import StatusBanner from "../shared/StatusBanner";
 import ConfirmDialog from "../shared/ConfirmDialog";
@@ -33,6 +33,7 @@ import {
   mergeConversationCatalog,
   mergeConversationDetails,
   mergeMessages,
+  whatsappIdentifierKeys,
 } from "./contactPicker";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
@@ -135,9 +136,9 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
   const participants = participantSource.map((participant: Record<string, any>) => ({
     id: String(participant.id || participant.phone || participant.jid || ""),
     phone: String(participant.phone || participant.id || participant.jid || ""),
-    name: participant.name || participant.notify || participant.pushname,
-    isAdmin: normalizarBooleanWhatsApp(participant.isAdmin ?? participant.admin),
-    isSuperAdmin: normalizarBooleanWhatsApp(participant.isSuperAdmin ?? participant.superAdmin),
+    name: participant.name || participant.savedName || participant.contactName || participant.notify || participant.pushname || participant.displayName || participant.verifiedName,
+    isAdmin: normalizarBooleanWhatsApp(participant.isAdmin ?? participant.admin) || ["admin", "superadmin"].includes(String(participant.admin || participant.role || "").toLowerCase()),
+    isSuperAdmin: normalizarBooleanWhatsApp(participant.isSuperAdmin ?? participant.superAdmin) || String(participant.admin || participant.role || "").toLowerCase() === "superadmin",
     photoUrl: participant.photoUrl || participant.profilePictureUrl,
   })).filter((participant: { id: string }) => Boolean(participant.id));
   const name = String(raw.contato || raw.name || raw.subject || metadata.verifiedName || "Grupo do WhatsApp");
@@ -811,12 +812,25 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     }
     setCriandoGrupo(true);
     try {
-      await whatsappApi.createGroup(nomeNovoGrupo.trim(), contatosSelecionadosGrupo);
+      const payload = await whatsappApi.createGroup(nomeNovoGrupo.trim(), contatosSelecionadosGrupo);
+      const created = normalizarGrupoWhatsApp(payload.group);
+      if (created) {
+        const now = Date.now();
+        created.timestampUltimaMsg = Math.max(Number(created.timestampUltimaMsg || 0), Math.floor(now / 1000));
+        created.horario = created.horario || new Date(now).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        created.ultimoTexto = created.ultimoTexto || "Grupo criado agora";
+        setGrupos((current) => [created, ...current.filter((group) => group.id !== created.id)]);
+        setConversas((current) => [created, ...current.filter((conversation) => conversation.id !== created.id)]);
+      }
       mostrarAviso("success", `Grupo "${nomeNovoGrupo}" criado no WhatsApp.`);
       setModalGrupoAberto(false);
       setNomeNovoGrupo("");
       setContatosSelecionadosGrupo([]);
       await Promise.all([carregarConversasDoBackend(), carregarGruposDoBackend(false)]);
+      if (created) {
+        setGrupos((current) => [created, ...current.filter((group) => group.id !== created.id)]);
+        setConversas((current) => [created, ...current.filter((conversation) => conversation.id !== created.id)]);
+      }
     } catch (error) {
       mostrarAviso("error", error instanceof Error ? error.message : "Nao foi possivel criar o grupo.");
     } finally {
@@ -850,6 +864,20 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     setModalContatosAberto(false);
     setSecaoWhatsApp("conversations");
     void selecionarConversa(conversation.id, abrirPerfil);
+  };
+
+  const iniciarConversaMembroGrupo = (member: ParticipanteGrupo) => {
+    const memberKeys = new Set([...whatsappIdentifierKeys(member.id), ...whatsappIdentifierKeys(member.phone)]);
+    const known = listaContatos.find((contact) => [contact.id, contact.phone, contact.lid, ...(contact.aliases || [])]
+      .some((value) => whatsappIdentifierKeys(value).some((key) => memberKeys.has(key))));
+    const contact: Contact = known || {
+      id: member.id || member.phone,
+      phone: member.phone || member.id,
+      name: member.name,
+      photoUrl: member.photoUrl,
+    };
+    iniciarConversaContato(contact);
+    setPainelPerfilAberto(false);
   };
 
   const abrirGrupo = async (group: ChatConversa) => {
@@ -919,6 +947,34 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(arquivo);
     });
+
+  const destinoStatus = (item: WhatsAppStatusItem) => {
+    const raw = String(item.contactId || "").trim();
+    if (!raw) throw new Error("O WhatsApp não informou o contato deste Status.");
+    const statusKeys = new Set(whatsappIdentifierKeys(raw));
+    const known = listaContatos.find((contact) => [contact.id, contact.phone, contact.lid, ...(contact.aliases || [])]
+      .some((value) => whatsappIdentifierKeys(value).some((key) => statusKeys.has(key))));
+    return known?.id || raw;
+  };
+
+  const responderStatusTexto = async (item: WhatsAppStatusItem, text: string) => {
+    const destination = destinoStatus(item);
+    await whatsappApi.sendText(destination, text, item.id);
+    mostrarAviso("success", `Resposta enviada para ${item.name}.`);
+  };
+
+  const responderStatusAudio = async (item: WhatsAppStatusItem, audio: Blob, mimeType: string) => {
+    const destination = destinoStatus(item);
+    const extension = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "m4a" : "webm";
+    await whatsappApi.sendMedia({
+      conversationId: destination,
+      fileName: `resposta-status-${Date.now()}.${extension}`,
+      mimeType,
+      dataUrl: await arquivoParaDataUrl(audio),
+      quotedId: item.id,
+    });
+    mostrarAviso("success", `Resposta de áudio enviada para ${item.name}.`);
+  };
 
   const enviarArquivoOuAudio = async (arquivo: File | Blob, nomeArquivo: string, mimeType: string, legenda?: string, asSticker = false) => {
     if (!conversaSelecionada) {
@@ -1219,14 +1275,29 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     }
   };
 
-  const handleApagarMensagensMassa = async (mensagensIds: string[]) => {
+  const handleApagarMensagensMassa = async (mensagensIds: string[], paraTodos = false) => {
     if (!conversaSelecionada) return;
     for (const msgId of mensagensIds) {
       try {
-        await whatsappApi.deleteMessage(conversaSelecionada, msgId);
+        await whatsappApi.deleteMessage(conversaSelecionada, msgId, paraTodos);
       } catch (err) { mostrarAviso("error", err instanceof Error ? err.message : "Falha ao apagar mensagem."); }
     }
     carregarConversasDoBackend();
+  };
+
+  const handleEditarMensagem = async (messageId: string, text: string) => {
+    if (!conversaSelecionada) return;
+    try {
+      await whatsappApi.editMessage(conversaSelecionada, messageId, text);
+      setConversas((current) => current.map((conversation) => conversation.id !== conversaSelecionada ? conversation : {
+        ...conversation,
+        mensagens: conversation.mensagens.map((message) => message.id === messageId ? { ...message, texto: text, edited: true } : message),
+        ultimoTexto: conversation.mensagens.at(-1)?.id === messageId ? text : conversation.ultimoTexto,
+      }));
+    } catch (error) {
+      mostrarAviso("error", error instanceof Error ? error.message : "Não foi possível editar a mensagem.");
+      throw error;
+    }
   };
 
   const handleAcaoChat = async (id: string, acao: "lida" | "fixada" | "favorita" | "silenciada" | "arquivada", valor: boolean) => {
@@ -1348,7 +1419,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
   const confirmarEncaminhamento = async () => {
     if (!destinoEncaminhar || !conversaAtiva) return;
-    const destino = conversas.find((c) => c.id === destinoEncaminhar);
+    const destino = [...conversas, ...grupos].find((c) => c.id === destinoEncaminhar);
     if (!destino) return;
     if (mensagensParaEncaminhar.length === 0) {
       mostrarAviso("error", "Selecione ao menos uma mensagem para encaminhar.");
@@ -1385,6 +1456,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
   const conversaAtiva = conversas.find(c => c.id === conversaSelecionada);
   const gruposDisponiveis = grupos.length > 0 ? grupos : conversas.filter((conversation) => conversation.esGrupo);
+  const destinosEncaminhamento = [...new Map([...conversas, ...gruposDisponiveis].map((conversation) => [conversation.id, conversation])).values()];
   const totalNaoLidas = conversas.reduce((total, conversation) => total + Number(conversation.naoLidasCount || 0), 0);
   const totalStatusNaoVisualizados = statusWhatsApp.filter((item) => !item.mine && !item.viewed).length;
   const contatosFiltrados = listaContatos.filter((contact) => contactMatchesSearch(contact, filtroContatoNome));
@@ -1574,6 +1646,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
             onLimparAnexos={limparAnexosPendentes}
             onApagarMensagensEmMassa={handleApagarMensagensMassa}
             onEncaminharMensagens={handleAbrirEncaminhar}
+            onEditarMensagem={handleEditarMensagem}
+            onFeedback={(tone, text) => mostrarAviso(tone, text)}
             onReagirMensagem={handleReagirMensagem}
             onEscolherFigurinha={() => figurinhaInputRef.current?.click()}
             figurinhasRecentes={figurinhasRecentes}
@@ -1611,6 +1685,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           onSelect={(item) => void selecionarStatusWhatsApp(item)}
           onRefresh={() => void carregarStatusDoBackend()}
           onCreateUnavailable={() => mostrarAviso("info", "A W-API ainda nao oferece publicacao de Status. Publique no celular; o feed recebido aparece aqui automaticamente.")}
+          onReplyText={responderStatusTexto}
+          onReplyAudio={responderStatusAudio}
         />
       )}
 
@@ -1668,10 +1744,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              {conversas.filter((c) => c.id !== conversaSelecionada).length === 0 ? (
+              {destinosEncaminhamento.filter((c) => c.id !== conversaSelecionada).length === 0 ? (
                 <p className="p-4 text-[var(--text-secondary)]">Nenhuma outra conversa disponivel.</p>
               ) : (
-                conversas
+                destinosEncaminhamento
                   .filter((c) => c.id !== conversaSelecionada)
                   .map((c) => (
                     <button
@@ -1700,7 +1776,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       )}
 
       {secaoWhatsApp === "conversations" && painelPerfilAberto && (
-        <PainelDireito modo={abaDireitaModo} conversaAtiva={conversaAtiva} onFechar={() => setPainelPerfilAberto(false)} onContinuarConversa={() => setPainelPerfilAberto(false)} onAskNora={onOpenNora} />
+        <PainelDireito modo={abaDireitaModo} conversaAtiva={conversaAtiva} onFechar={() => setPainelPerfilAberto(false)} onContinuarConversa={() => setPainelPerfilAberto(false)} onStartMemberConversation={iniciarConversaMembroGrupo} onAskNora={onOpenNora} />
       )}
 
       {modalContatosAberto && (

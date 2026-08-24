@@ -526,6 +526,15 @@ def _extract_content(data: dict[str, Any]) -> tuple[str, str | None, dict[str, A
             node = content.get(media_key)
             if isinstance(node, dict):
                 caption = node.get("caption")
+                if not isinstance(caption, str) or not caption.strip():
+                    # Em alguns envelopes a W-API mantém a legenda no nível do
+                    # evento (``caption``/``body``) e a mídia dentro de
+                    # ``msgContent``. Ela pertence à mesma publicação de Status
+                    # e não deve virar uma mensagem de texto separada.
+                    outer_caption = _first(data, "caption", "body", "text", "content")
+                    if isinstance(outer_caption, dict):
+                        outer_caption = _first(outer_caption, "message", "body", "text")
+                    caption = outer_caption if isinstance(outer_caption, str) else ""
                 meta = {
                     "mediaKey": node.get("mediaKey") or "",
                     "directPath": node.get("directPath") or "",

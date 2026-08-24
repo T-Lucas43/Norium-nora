@@ -14,9 +14,16 @@ from app.services.brainstorm_store import create_brainstorm_session, list_brains
 from app.services.email_agent import EmailAgent
 
 
-SUPPORTED_AGENTS = ("financeiro", "tarefas", "email", "agenda", "automacoes", "equipe", "comercial", "brainstorm")
+SUPPORTED_AGENTS = ("whatsapp", "financeiro", "tarefas", "email", "agenda", "automacoes", "equipe", "comercial", "brainstorm")
 
 AGENT_SIGNALS: dict[str, tuple[str, ...]] = {
+    "whatsapp": (
+        "whatsapp",
+        "whats app",
+        "wpp",
+        "no zap",
+        "pelo zap",
+    ),
     "financeiro": (
         "gasto",
         "gastei",
@@ -240,6 +247,14 @@ async def execute_agent_step(user: dict[str, Any], step: dict[str, Any]) -> dict
     instruction = str(step.get("instruction") or "").strip()
     if not instruction:
         return {"status": "precisa_dados", "response": "A etapa nao possui uma instrucao valida."}
+    if agent == "whatsapp":
+        return {
+            "status": "requer_aprovacao_individual",
+            "response": (
+                "A etapa de WhatsApp precisa ser preparada separadamente para exibir e validar "
+                "destinatario e texto exatos antes da aprovacao. Nada foi enviado."
+            ),
+        }
     if agent == "financeiro":
         return await handle_finance_agent(user_id, instruction)
     if agent == "tarefas":

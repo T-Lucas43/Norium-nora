@@ -41,6 +41,12 @@ from app.services.task_store import delete_task, list_tasks, restore_task
 
 
 LOCAL_TZ = timezone(timedelta(hours=-3))
+approval_decision_locks: dict[tuple[int, str, str], asyncio.Lock] = {}
+
+
+def approval_decision_lock(user_id: str, approval_id: str) -> asyncio.Lock:
+    loop_key = id(asyncio.get_running_loop())
+    return approval_decision_locks.setdefault((loop_key, user_id, approval_id), asyncio.Lock())
 
 
 def now_iso() -> str:
@@ -376,12 +382,33 @@ async def decide_approval(
     payload: ApprovalDecision,
 ) -> dict[str, Any] | None:
     user_id = str(user.get("id") or "lucas123")
+    async with approval_decision_lock(user_id, approval_id):
+        return await _decide_approval_unlocked(user, approval_id, payload)
+
+
+async def _decide_approval_unlocked(
+    user: dict[str, Any],
+    approval_id: str,
+    payload: ApprovalDecision,
+) -> dict[str, Any] | None:
+    user_id = str(user.get("id") or "lucas123")
+    current_items = await list_items(user_id, APPROVAL_DB)
+    current = next((item for item in current_items if str(item.get("id")) == approval_id), None)
+    if current is None:
+        return None
+    # A decisão é uma transição única. Retry, duplo clique e duas requisições
+    # concorrentes recebem o estado já persistido e nunca repetem a execução.
+    if str(current.get("status") or "") != "pending":
+        return current
+
+    approved = payload.decision == "approved"
+    should_execute = approved and str(current.get("action") or "") != "manual_review"
     approval = await replace_item(
         user_id,
         APPROVAL_DB,
         approval_id,
         {
-            "status": payload.decision,
+            "status": "executing" if should_execute else payload.decision,
             "updatedAt": now_iso(),
             "decidedAt": now_iso(),
             "decidedBy": actor_payload(user),
@@ -391,7 +418,6 @@ async def decide_approval(
     if approval is None:
         return None
 
-    approved = payload.decision == "approved"
     await record_audit(
         user,
         AuditCreate(
@@ -410,7 +436,7 @@ async def decide_approval(
         description=f'{approval.get("title")}: {payload.decision}.',
         metadata={"userId": user_id, "action": "approval_decided", "approvalId": approval_id},
     )
-    if approved and str(approval.get("action") or "") != "manual_review":
+    if should_execute:
         execution = await execute_approved_action(user, approval)
         execution_status = "executed" if execution.get("ok") else "failed"
         approval = await replace_item(
@@ -466,18 +492,71 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
             from app.routers.automacoes_router import handle_automation_agent
 
             result = await handle_automation_agent(user_id, message, str(user.get("nome") or "Nora"))
+        elif source == "whatsapp":
+            from app.routers.auth_router import effective_permissions
+            from app.services.agent_manager import AgentManager
+            from app.services import wapi_binding as wb
+
+            permissions = effective_permissions(user)
+            if not permissions.get("chat") or not permissions.get("integracao_whatsapp"):
+                raise PermissionError("A conta nao possui permissao para enviar mensagens pelo WhatsApp.")
+
+            conversation_id = str(payload.get("conversationId") or "").strip()
+            recipient_name = str(payload.get("recipientName") or conversation_id).strip()
+            message_text = str(payload.get("messageText") or "").strip()
+            expected_instance_id = str(payload.get("instanceId") or "").strip()
+            if not conversation_id:
+                raise ValueError("A aprovacao do WhatsApp nao possui destinatario validado.")
+            if not message_text or len(message_text) > 1200:
+                raise ValueError("A aprovacao do WhatsApp nao possui uma mensagem valida.")
+            current_binding = wb.get_binding(user_id)
+            if (
+                not expected_instance_id
+                or not current_binding.exists
+                or current_binding.state != "connected"
+                or current_binding.instance_id != expected_instance_id
+            ):
+                raise ValueError(
+                    "A conexao do WhatsApp mudou ou foi desconectada depois da preparacao. "
+                    "Prepare uma nova aprovacao antes de enviar."
+                )
+
+            send_result = await AgentManager().execute_message(
+                conversation_id,
+                message_text,
+                canal="whatsapp",
+                autorizado=True,
+                sender_label=None,
+                user_id=user_id,
+            )
+            sent = bool(send_result.get("sent"))
+            result = {
+                **send_result,
+                "status": "enviado" if sent else "falha_gateway",
+                "response": (
+                    f"Mensagem enviada no WhatsApp para {recipient_name}."
+                    if sent
+                    else f"O WhatsApp nao confirmou o envio para {recipient_name}."
+                ),
+                "conversationId": conversation_id,
+                "recipientName": recipient_name,
+            }
         elif source == "compound":
             from app.modules.nora.orchestrator import execute_compound_plan
 
             steps = payload.get("steps") if isinstance(payload.get("steps"), list) else []
             if not steps:
                 raise ValueError("O plano aprovado nao possui etapas executaveis.")
+            if any(str(step.get("agent") or "") == "whatsapp" for step in steps if isinstance(step, dict)):
+                raise ValueError(
+                    "Planos compostos com WhatsApp exigem uma aprovacao individual com destinatario e texto exatos."
+                )
             result = await execute_compound_plan(user, steps)
         else:
             raise ValueError(f"Agente de aprovacao nao suportado: {source or 'indefinido'}.")
 
         status = str(result.get("status") or "").casefold()
-        not_executed = status.startswith(("precisa", "aguardando", "nao_")) or status in {
+        not_executed = status.startswith(("precisa", "aguardando", "nao_", "falha")) or status in {
             "ajuda",
             "consulta",
             "resumo",
@@ -527,11 +606,29 @@ async def edit_approval(
     current = next((item for item in current_items if str(item.get("id")) == approval_id), None)
     if current is None or current.get("status") != "pending":
         return None
+    update: dict[str, Any] = {
+        "title": payload.title,
+        "description": payload.description,
+        "updatedAt": now_iso(),
+    }
+    if (
+        str(current.get("source") or "").casefold() == "whatsapp"
+        and str(current.get("action") or "") == "nora_whatsapp_execute"
+    ):
+        message_text = payload.description.strip()
+        if not message_text:
+            raise ValueError("A mensagem do WhatsApp nao pode ficar vazia.")
+        current_payload = current.get("payload") if isinstance(current.get("payload"), dict) else {}
+        # Somente o texto é editável nesta tela. O destino validado permanece
+        # imutável e continua vindo do payload original da aprovação.
+        update["payload"] = {**current_payload, "messageText": message_text}
+        recipient_name = str(current_payload.get("recipientName") or current_payload.get("conversationId") or "destinatario").strip()
+        update["title"] = f"Enviar mensagem no WhatsApp para {recipient_name}"[:180]
     approval = await replace_item(
         user_id,
         APPROVAL_DB,
         approval_id,
-        {"title": payload.title, "description": payload.description, "updatedAt": now_iso()},
+        update,
     )
     if approval is not None:
         await record_audit(

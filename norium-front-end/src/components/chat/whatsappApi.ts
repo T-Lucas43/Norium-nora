@@ -187,6 +187,8 @@ export function normalizeWhatsAppMessage(value: unknown, index = 0): MsgConteudo
     reacoes: Array.isArray(raw.reacoes) ? raw.reacoes : Array.isArray(raw.reactions) ? raw.reactions : [],
     citada: raw.citada || raw.quoted || null,
     midiaMeta: raw.midiaMeta && typeof raw.midiaMeta === "object" ? raw.midiaMeta : null,
+    edited: booleanFlag(raw.edited ?? raw.editada ?? raw.isEdited),
+    forwarded: booleanFlag(raw.forwarded ?? raw.encaminhada ?? raw.isForwarded) || Number(raw.forwardingScore || 0) > 0,
     canal: "whatsapp",
     channel: "whatsapp",
   };
@@ -429,6 +431,7 @@ export const whatsappApi = {
     dataUrl: string;
     caption?: string;
     asSticker?: boolean;
+    quotedId?: string;
   }) {
     return apiRequest<{ status: string }>("/api/chat/enviar-arquivo", {
       method: "POST",
@@ -440,6 +443,7 @@ export const whatsappApi = {
         data_url: payload.dataUrl,
         legenda: payload.caption,
         como_figurinha: Boolean(payload.asSticker),
+        ...(payload.quotedId ? { responder_a: payload.quotedId } : {}),
       }),
       timeoutMs: 110_000,
     });
@@ -457,6 +461,14 @@ export const whatsappApi = {
     return apiRequest<{ status: string }>("/api/chat/apagar-mensagem", {
       method: "POST",
       body: JSON.stringify({ conversa_id: conversationId, mensagem_id: messageId, para_todos: forEveryone }),
+      timeoutMs: 45_000,
+    });
+  },
+
+  async editMessage(conversationId: string, messageId: string, text: string) {
+    return apiRequest<{ status: string }>("/api/chat/editar-mensagem", {
+      method: "PATCH",
+      body: JSON.stringify({ conversa_id: conversationId, mensagem_id: messageId, texto: text.trim() }),
       timeoutMs: 45_000,
     });
   },

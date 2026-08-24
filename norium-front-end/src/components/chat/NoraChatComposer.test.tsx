@@ -61,6 +61,21 @@ describe("Nora no compositor do WhatsApp", () => {
     expect(onInsertDraft).toHaveBeenCalledWith("Texto revisado pelo operador");
   });
 
+  it("remove a apresentação da Nora e insere somente o corpo revisado", async () => {
+    const user = userEvent.setup();
+    const onInsertDraft = vi.fn();
+    mockedApi.suggestReply.mockResolvedValueOnce("Segue a mensagem que você pode enviar para o Nando:\n\nOi, Nando! Tudo bem?");
+    render(<NoraChatComposer conversationId="chat-1" onInsertDraft={onInsertDraft} />);
+
+    await user.click(screen.getByRole("button", { name: /abrir ações da nora/i }));
+    await user.click(screen.getByRole("menuitem", { name: /sugerir resposta/i }));
+    expect(await screen.findByLabelText(/texto sugerido/i)).toHaveValue("Segue a mensagem que você pode enviar para o Nando:\n\nOi, Nando! Tudo bem?");
+    await user.click(screen.getByRole("button", { name: /confirmar e inserir/i }));
+
+    expect(onInsertDraft).toHaveBeenCalledOnce();
+    expect(onInsertDraft).toHaveBeenCalledWith("Oi, Nando! Tudo bem?");
+  });
+
   it("permite pedir melhoria à Nora e exige nova confirmação", async () => {
     const user = userEvent.setup();
     const onInsertDraft = vi.fn();
@@ -112,15 +127,29 @@ describe("Nora no compositor do WhatsApp", () => {
     expect(screen.getByRole("button", { name: /abrir ações da nora/i })).not.toBeDisabled();
   });
 
-  it("resume a conversa sem inserir automaticamente", async () => {
+  it("exibe o resumo somente para leitura e nunca o insere no compositor", async () => {
     const user = userEvent.setup();
     const onInsertDraft = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const originalClipboard = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     render(<NoraChatComposer conversationId="chat-1" onInsertDraft={onInsertDraft} />);
     await user.click(screen.getByRole("button", { name: /abrir ações da nora/i }));
     await user.click(screen.getByRole("menuitem", { name: /resumir conversa/i }));
 
-    expect(await screen.findByDisplayValue("Resumo da conversa")).toBeInTheDocument();
+    const summary = await screen.findByLabelText("Resumo da conversa");
+    expect(summary).toHaveValue("Resumo da conversa");
+    expect(summary).toHaveAttribute("readonly");
+    expect(screen.getByText(/somente para leitura e nunca será colocado/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /confirmar e inserir/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/pedir melhoria/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /copiar resumo/i }));
+    expect(writeText).toHaveBeenCalledWith("Resumo da conversa");
     expect(onInsertDraft).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /descartar/i }));
+    expect(onInsertDraft).not.toHaveBeenCalled();
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: originalClipboard });
   });
 
   it("bloqueia novas ações enquanto a Nora ainda está respondendo", async () => {

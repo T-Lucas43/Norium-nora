@@ -168,7 +168,10 @@ async def edit_pending_approval(
     payload: ApprovalUpdate,
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    item = await edit_approval(user, approval_id, payload)
+    try:
+        item = await edit_approval(user, approval_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="Aprovacao pendente nao encontrada.")
     return {"item": item}

@@ -384,9 +384,13 @@ class WapiClient:
         return result if isinstance(result, dict) else {}
 
     async def delete_message(self, instance_id: str, token: str, phone: str, message_id: str) -> dict[str, Any]:
-        body = {"phone": phone, "messageId": message_id}
         result = await self._request(
-            "DELETE", "/message/delete-message", token=token, instance_id=instance_id, json_body=body, timeout=25.0
+            "DELETE",
+            "/message/delete-message",
+            token=token,
+            instance_id=instance_id,
+            params={"phone": phone, "messageId": message_id},
+            timeout=25.0,
         )
         return result if isinstance(result, dict) else {}
 
@@ -480,6 +484,23 @@ class WapiClient:
         result = await self._request(
             "GET", "/group/group-metadata", token=token, instance_id=instance_id,
             params={"groupId": group_id}, timeout=25.0, retriable=True,
+        )
+        return result if isinstance(result, dict) else {}
+
+    async def group_participants(self, instance_id: str, token: str, group_id: str) -> dict[str, Any]:
+        """Busca os participantes pelo caminho publicado na coleção oficial.
+
+        A capitalização de ``get-Participants`` é mantida porque faz parte do
+        contrato atual da W-API.
+        """
+        result = await self._request(
+            "GET",
+            "/group/get-Participants",
+            token=token,
+            instance_id=instance_id,
+            params={"groupId": group_id},
+            timeout=25.0,
+            retriable=True,
         )
         return result if isinstance(result, dict) else {}
 

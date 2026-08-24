@@ -49,6 +49,11 @@ describe("normalização dos dados do WhatsApp", () => {
     })?.midiaMeta).toEqual({ mediaKey: "key", directPath: "/media", type: "image" });
   });
 
+  it("preserva indicadores de mensagem editada e encaminhada após recarregar", () => {
+    expect(normalizeWhatsAppMessage({ id: "edited", fromMe: true, body: "Corrigida", editada: true, timestamp: 1_800_000_001 })).toMatchObject({ edited: true });
+    expect(normalizeWhatsAppMessage({ id: "forwarded", body: "Encaminhada", forwardingScore: 2, timestamp: 1_800_000_002 })).toMatchObject({ forwarded: true });
+  });
+
   it("lê nomes salvos, aliases LID e fotos retornados em contratos alternativos", () => {
     expect(normalizeWhatsAppContact({
       jid: "5591999999999@s.whatsapp.net",

@@ -11,6 +11,7 @@ interface PainelDireitoProps {
   conversaAtiva: ChatConversa | undefined;
   onFechar: () => void;
   onContinuarConversa?: () => void;
+  onStartMemberConversation?: (member: ParticipanteGrupo) => void;
   onAskNora?: (prompt?: string) => void;
 }
 
@@ -59,7 +60,14 @@ function MemberAvatar({ member }: { member: ParticipanteGrupo }) {
   );
 }
 
-export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinuarConversa, onAskNora }: PainelDireitoProps) {
+function memberDisplayName(member: ParticipanteGrupo) {
+  const name = String(member.name || "").trim();
+  return name && !isTechnicalWhatsAppLabel(name)
+    ? name
+    : formatWhatsAppPhone(member.phone || member.id) || "Participante do WhatsApp";
+}
+
+export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinuarConversa, onStartMemberConversation, onAskNora }: PainelDireitoProps) {
   const midiasGaleria = conversaAtiva?.mensagens.filter((mensagem) => mensagem.tipo === "midia") || [];
   const participantes = conversaAtiva?.metadados?.participantes || [];
   const createdValue = conversaAtiva?.metadados?.criadoEm;
@@ -133,16 +141,12 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
               <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
                 {participantes.length > 0 ? (
                   participantes.map((membro) => (
-                    <div key={membro.id} className="flex items-center justify-between gap-2 text-xs font-medium py-1.5 border-b border-[var(--border)]/50 last:border-0">
-                      <div className="flex items-center gap-2 min-w-0">
+                    <div key={membro.id} className="flex items-center justify-between gap-2 border-b border-[var(--border)]/50 py-1.5 text-xs font-medium last:border-0">
+                      <button type="button" onClick={() => onStartMemberConversation?.(membro)} disabled={!onStartMemberConversation} className="flex min-w-0 flex-1 items-center gap-2 rounded-lg text-left transition hover:bg-[var(--surface-hover)] disabled:cursor-default disabled:hover:bg-transparent" aria-label={`Iniciar conversa com ${memberDisplayName(membro)}`}>
                         <MemberAvatar member={membro} />
-                        <span className="truncate">{membro.name || membro.phone}</span>
-                      </div>
-                      {membro.isAdmin && (
-                        <span className="h-5 inline-flex items-center gap-1 shrink-0 rounded-md border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-1.5 text-xs font-extrabold text-[var(--primary)]">
-                          <ShieldAlert size={10} /> Adm
-                        </span>
-                      )}
+                        <span className="min-w-0 flex-1"><span className="block truncate">{memberDisplayName(membro)}</span><span className="block truncate text-[10px] text-[var(--text-secondary)]">{formatWhatsAppPhone(membro.phone || membro.id)}</span></span>
+                      </button>
+                      {(membro.isAdmin || membro.isSuperAdmin) && <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-1.5 text-[10px] font-extrabold text-[var(--primary)]"><ShieldAlert size={10} /> {membro.isSuperAdmin ? "Superadmin" : "Admin"}</span>}
                     </div>
                   ))
                 ) : (

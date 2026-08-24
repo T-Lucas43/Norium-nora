@@ -62,11 +62,16 @@ class WapiMessagingService:
     async def send_media(
         self, user_id: str, conversa_id: str, kind: str, data: str, *,
         caption: str = "", file_name: str = "", extension: str = "", timeout: float = 90.0,
+        quoted_message_id: str = "",
     ) -> dict[str, Any]:
         instance_id, token = self._creds(user_id)
         res = await self._client.send_media(
             instance_id, token, kind, wapi_phone(conversa_id), data,
-            caption=caption, file_name=file_name, extension=extension, timeout=timeout,
+            caption=caption,
+            file_name=file_name,
+            extension=extension,
+            timeout=timeout,
+            quoted_message_id=quoted_message_id,
         )
         message_id = str(res.get("messageId") or "")
         return {"sent": bool(message_id), "messageId": message_id}
@@ -85,9 +90,9 @@ class WapiMessagingService:
         return {"edited": True}
 
     async def delete(self, user_id: str, conversa_id: str, message_id: str, for_everyone: bool = True) -> dict[str, Any]:
-        instance_id, token = self._creds(user_id)
         # A W-API apaga para todos; a exclusão "somente local" é tratada no store.
         if for_everyone:
+            instance_id, token = self._creds(user_id)
             await self._client.delete_message(instance_id, token, wapi_phone(conversa_id), message_id)
         return {"deleted": True}
 

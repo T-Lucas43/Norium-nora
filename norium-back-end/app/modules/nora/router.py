@@ -24,7 +24,7 @@ from app.shared.schemas import StrictModel
 
 from app.routers.agenda_router import agenda_agent
 from app.routers.automacoes_router import handle_automation_agent
-from app.routers.auth_router import current_user
+from app.routers.auth_router import current_user, effective_permissions
 from app.routers.financeiro_router import handle_finance_agent
 from app.routers.tarefas_router import handle_task_agent
 from app.routers.team_chat_router import append_team_message_for_user
@@ -34,6 +34,7 @@ from app.services.conversation_store import (
     append_outgoing_message,
     build_conversation_history,
     is_empty_history,
+    whatsapp_conversation_mutation_lock,
 )
 
 from app.services.email_agent import EmailAgent
@@ -56,6 +57,12 @@ from app.modules.operations.service import (
 from app.modules.platform.service import conflict_scan, generate_handoff, quality_scan, query_knowledge
 from app.services.task_store import list_tasks
 from app.services.wapi_messaging import WapiMessagingService, MessagingUnavailable, WapiError
+from app.services import wapi_binding as wb
+from app.services.nora_whatsapp_action import (
+    is_whatsapp_send_request,
+    prepare_whatsapp_action,
+    resolve_whatsapp_recipient,
+)
 from app.services.brainstorm_store import create_brainstorm_session, list_brainstorm_sessions
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
 
@@ -219,6 +226,98 @@ async def request_sensitive_approval(
                 "A acao ainda nao foi executada. Revise, edite ou aprove na Central de aprovacoes."
             ),
             "approval": approval,
+        },
+        resolution=resolution,
+    )
+
+
+async def request_whatsapp_approval(
+    user: dict[str, Any],
+    message: str,
+    resolution: SkillResolution,
+) -> dict[str, Any]:
+    """Prepara um envio exato e o submete a decisao humana; nunca envia aqui."""
+
+    permissions = effective_permissions(user)
+    if not permissions.get("chat") or not permissions.get("integracao_whatsapp"):
+        return resposta_agente(
+            "whatsapp",
+            {
+                "status": "sem_permissao",
+                "response": "Sua conta nao tem permissao para enviar mensagens pelo WhatsApp.",
+            },
+            resolution=resolution,
+        )
+
+    resolved_user_id = tenant_id(user)
+    binding = wb.get_binding(resolved_user_id)
+    if not binding.exists or str(getattr(binding, "state", "")) != "connected":
+        return resposta_agente(
+            "whatsapp",
+            {
+                "status": "whatsapp_desconectado",
+                "response": "Conecte o WhatsApp desta conta antes de pedir um envio pela Nora.",
+            },
+            resolution=resolution,
+        )
+
+    prepared = await prepare_whatsapp_action(resolved_user_id, message)
+    if prepared.get("status") != "pronto_para_aprovacao":
+        return resposta_agente("whatsapp", prepared, resolution=resolution)
+
+    action = prepared.get("action") if isinstance(prepared.get("action"), dict) else {}
+    conversation_id = str(action.get("conversationId") or "").strip()
+    recipient_name = str(action.get("recipientName") or "").strip()
+    message_text = str(action.get("messageText") or "").strip()
+    if not conversation_id or not recipient_name or not message_text:
+        return resposta_agente(
+            "whatsapp",
+            {
+                "status": "validacao_falhou",
+                "response": "Nao consegui validar destinatario e texto. Nada foi enviado.",
+            },
+            resolution=resolution,
+        )
+
+    approval = await create_approval(
+        user,
+        ApprovalCreate(
+            title=f"Enviar mensagem no WhatsApp para {recipient_name}"[:180],
+            # A Central já mostra o destinatário no título. A descrição é o
+            # campo editável que representa exatamente o texto a enviar.
+            description=message_text,
+            action="nora_whatsapp_execute",
+            source="whatsapp",
+            payload={
+                "originalMessage": message,
+                "conversationId": conversation_id,
+                "recipientName": recipient_name,
+                "messageText": message_text,
+                "isGroup": bool(action.get("isGroup")),
+                "instanceId": str(getattr(binding, "instance_id", "")),
+            },
+            metadata={
+                "requestedBy": "nora",
+                "requiresExplicitDecision": True,
+                "channel": "whatsapp",
+            },
+        ),
+    )
+    return resposta_agente(
+        "whatsapp",
+        {
+            "status": "aguardando_aprovacao",
+            "response": (
+                f"Preparei a mensagem para {recipient_name}:\n\n{message_text}\n\n"
+                "Nada foi enviado ainda. Revise e aprove ou rejeite na Central de aprovacoes."
+            ),
+            "approval": approval,
+            "preview": {
+                "conversationId": conversation_id,
+                "recipientName": recipient_name,
+                "messageText": message_text,
+                "isGroup": bool(action.get("isGroup")),
+            },
         },
         resolution=resolution,
     )
@@ -544,7 +643,7 @@ async def classificar_intencao_com_nora(
         confidence = max(0.0, min(float(data.get("confidence") or 0.0), 1.0))
     except (TypeError, ValueError):
         confidence = 0.0
-    valid = {"comercial", "financeiro", "tarefas", "email", "agenda", "automacoes", "brainstorm", "operacoes", "equipe", "chat"}
+    valid = {"whatsapp", "comercial", "financeiro", "tarefas", "email", "agenda", "automacoes", "brainstorm", "operacoes", "equipe", "chat"}
     return (intent, confidence) if intent in valid else (resolution.skill_id, resolution.confidence)
 
 
@@ -858,6 +957,22 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
 
         if not payload.email_session_id and not payload.agenda_session_id and is_compound_request(texto):
             steps = build_compound_plan(texto)
+            if any(str(step.get("agent") or "") == "whatsapp" for step in steps):
+                response = (
+                    "Pedidos compostos com WhatsApp nao sao executados nem agrupados em uma aprovacao generica. "
+                    "Envie primeiro o pedido individual de WhatsApp; assim a Central exibira destinatario e texto "
+                    "exatos para sua revisao. Depois, envie as demais etapas."
+                )
+                return {
+                    "intent": "whatsapp",
+                    "skill": "whatsapp",
+                    "routing": routing_payload(resolution, "whatsapp"),
+                    "session_kind": None,
+                    "session_id": None,
+                    "status": "requer_aprovacao_individual",
+                    "response": response,
+                    "speech_text": texto_para_voz(response),
+                }
             approval = await create_approval(
                 user,
                 ApprovalCreate(
@@ -939,6 +1054,23 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             )
             if semantic_confidence >= 0.55:
                 intent = semantic_intent
+
+        # O canal explicito tem precedencia sobre o assunto da mensagem. Sem
+        # "WhatsApp/zap/wpp", a forma curta "mande uma mensagem para Ana" so
+        # assume WhatsApp quando o roteador nao identificou outro modulo. Isso
+        # preserva "avise a equipe" no chat interno e pedidos de e-mail.
+        explicit_whatsapp = bool(re.search(r"\b(?:whats\s*app|zap|wpp)\b", normalizar_intencao(texto)))
+        team_target = bool(re.search(r"\b(?:equipe|time|chat interno)\b", normalizar_intencao(texto)))
+        weak_generic_route = intent == "chat" or (
+            resolution.score <= 2.5
+            and not team_target
+            and intent not in {"email", "automacoes"}
+        )
+        if is_whatsapp_send_request(texto) and (explicit_whatsapp or weak_generic_route):
+            intent = "whatsapp"
+
+        if intent == "whatsapp":
+            return await request_whatsapp_approval(user, texto, resolution)
 
         approval_response = await request_sensitive_approval(
             user,
@@ -1264,6 +1396,77 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
     historico_whats = await buscar_historico_whats(payload.conversa_id, resolved_user_id)
     empty_context = is_empty_history(historico_whats)
 
+    if payload.enviar_direto_whatsapp:
+        permissions = effective_permissions(user)
+        if not permissions.get("chat") or not permissions.get("integracao_whatsapp"):
+            raise HTTPException(status_code=403, detail="Sua conta nao pode enviar mensagens pelo WhatsApp.")
+        binding = wb.get_binding(resolved_user_id)
+        if not binding.exists or str(getattr(binding, "state", "")) != "connected":
+            raise HTTPException(status_code=409, detail="WhatsApp nao esta conectado nesta conta.")
+        if empty_context and not parece_ordem_de_envio(payload.texto_usuario):
+            return {
+                "response": "Nao ha historico real suficiente para preparar este envio com seguranca.",
+                "whatsapp_enviado": False,
+                "status": "validacao_falhou",
+                "blocked_reason": "historico_vazio",
+            }
+
+        recipient = await resolve_whatsapp_recipient(resolved_user_id, payload.conversa_id)
+        if recipient.get("status") != "resolved":
+            return {
+                "response": "Nao consegui validar esta conversa entre os contatos do seu WhatsApp. Nada foi enviado.",
+                "whatsapp_enviado": False,
+                "status": "validacao_falhou",
+                "blocked_reason": "destinatario_nao_validado",
+            }
+        texto_envio = await gerar_texto_de_envio_whatsapp(payload, historico_whats, empty_context)
+        if not texto_envio:
+            return {
+                "response": "Nao consegui extrair um texto seguro para revisao. Nada foi enviado.",
+                "whatsapp_enviado": False,
+                "status": "validacao_falhou",
+                "blocked_reason": "texto_envio_vazio",
+            }
+
+        conversation_id = str(recipient.get("conversation_id") or "").strip()
+        recipient_name = str(recipient.get("display_name") or conversation_id).strip()
+        approval = await create_approval(
+            user,
+            ApprovalCreate(
+                title=f"Enviar mensagem no WhatsApp para {recipient_name}"[:180],
+                description=texto_envio,
+                action="nora_whatsapp_execute",
+                source="whatsapp",
+                payload={
+                    "originalMessage": payload.texto_usuario,
+                    "conversationId": conversation_id,
+                    "recipientName": recipient_name,
+                    "messageText": texto_envio,
+                    "isGroup": bool(recipient.get("is_group")),
+                    "instanceId": str(getattr(binding, "instance_id", "")),
+                },
+                metadata={
+                    "requestedBy": "nora_chat_whatsapp",
+                    "requiresExplicitDecision": True,
+                    "channel": "whatsapp",
+                },
+            ),
+        )
+        return {
+            "response": (
+                f"Preparei a mensagem para {recipient_name}:\n\n{texto_envio}\n\n"
+                "Nada foi enviado. Revise e aprove na Central de aprovacoes."
+            ),
+            "whatsapp_enviado": False,
+            "status": "aguardando_aprovacao",
+            "approval": approval,
+            "preview": {
+                "conversationId": conversation_id,
+                "recipientName": recipient_name,
+                "messageText": texto_envio,
+            },
+        }
+
     prompt_contexto = (
         f"Historico extraido em tempo real do banco local para a conversa '{payload.conversa_id}':\n\n"
         f"{historico_whats or EMPTY_HISTORY_MARKER}\n\n"
@@ -1273,50 +1476,6 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
     )
 
     resposta_ia = await nora_service.perguntar_nora([{"role": "user", "content": prompt_contexto}])
-
-    if payload.enviar_direto_whatsapp:
-        if empty_context and not parece_ordem_de_envio(payload.texto_usuario):
-            return {
-                "response": resposta_ia,
-                "whatsapp_enviado": False,
-                "blocked_reason": "historico_vazio",
-            }
-
-        texto_envio = await gerar_texto_de_envio_whatsapp(payload, historico_whats, empty_context)
-        if not texto_envio:
-            return {
-                "response": "Nao enviei porque o comando nao tinha um texto seguro para mandar. Sem historico e sem conteudo, eu nao vou inventar moda.",
-                "whatsapp_enviado": False,
-                "blocked_reason": "texto_envio_vazio",
-            }
-
-        try:
-            resultado_envio = await wapi_messaging.send_text(
-                resolved_user_id,
-                payload.conversa_id,
-                texto_envio,
-            )
-        except (MessagingUnavailable, WapiError):
-            resultado_envio = {"sent": False}
-        sucesso_envio = bool(resultado_envio and resultado_envio.get("sent") is True)
-
-        if sucesso_envio:
-            await append_outgoing_message(
-                payload.conversa_id,
-                texto_envio,
-                channel=payload.canal,
-                sender_label="Nora",
-                status="enviado",
-                message_id=str(resultado_envio.get("messageId") or "") or None,
-                user_id=resolved_user_id,
-            )
-            return {"response": f"Enviei no WhatsApp:\n\n{texto_envio}", "whatsapp_enviado": True}
-
-        return {
-            "response": f"{texto_envio}\n\n[API privada do WhatsApp]: falha ao tentar disparar automaticamente para o cliente.",
-            "whatsapp_enviado": False,
-            "blocked_reason": "falha_gateway",
-        }
 
     return {"response": resposta_ia, "whatsapp_enviado": False}
 

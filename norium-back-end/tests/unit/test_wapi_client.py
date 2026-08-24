@@ -92,6 +92,23 @@ class WapiClientContactContractTests(unittest.IsolatedAsyncioTestCase):
             self._request.await_args.kwargs["json_body"],
         )
 
+    async def test_delete_message_uses_official_query_contract(self) -> None:
+        await self.client.delete_message("INST", "tok", "5511999999999", "MSG-1")
+        args = self._request.await_args.args
+        kwargs = self._request.await_args.kwargs
+        self.assertEqual("DELETE", args[0])
+        self.assertEqual("/message/delete-message", args[1])
+        self.assertEqual({"phone": "5511999999999", "messageId": "MSG-1"}, kwargs["params"])
+        self.assertNotIn("json_body", kwargs)
+
+    async def test_group_participants_uses_published_case_sensitive_path(self) -> None:
+        await self.client.group_participants("INST", "tok", "120363000000000000@g.us")
+        args = self._request.await_args.args
+        kwargs = self._request.await_args.kwargs
+        self.assertEqual("GET", args[0])
+        self.assertEqual("/group/get-Participants", args[1])
+        self.assertEqual({"groupId": "120363000000000000@g.us"}, kwargs["params"])
+
     async def test_message_status_webhook_uses_official_put_contract(self) -> None:
         await self.client.set_webhook(
             "INST",

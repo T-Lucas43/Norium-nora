@@ -16,6 +16,13 @@ JSON_FILE = BACKEND_ROOT / "conversas_db.json"
 
 EMPTY_HISTORY_MARKER = "[Nenhuma mensagem recente registrada no sistema ainda]"
 BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+whatsapp_conversation_mutation_locks: Dict[tuple[int, str], asyncio.Lock] = {}
+
+
+def whatsapp_conversation_mutation_lock(user_id: str) -> asyncio.Lock:
+    """Serializa read/modify/write do histórico WhatsApp por loop e tenant."""
+    loop_key = id(asyncio.get_running_loop())
+    return whatsapp_conversation_mutation_locks.setdefault((loop_key, user_id), asyncio.Lock())
 
 
 def _now_payload() -> tuple[str, int]:
@@ -93,9 +100,16 @@ def normalize_conversation(conversa_id: str, conversa: Dict[str, Any]) -> Dict[s
         # vez, multiplicando latência e rate-limit.
         "photoFetchedAt": metadados.get("photoFetchedAt"),
         "participantes": _normalize_participants(metadados.get("participantes")),
+        "participantesCount": int(
+            metadados.get("participantesCount")
+            or len(metadados.get("participantes") or [])
+        ),
         "descricaoGrupo": metadados.get("descricaoGrupo") or "",
         "criadoPor": metadados.get("criadoPor"),
         "criadoEm": metadados.get("criadoEm"),
+        "inviteLink": metadados.get("inviteLink"),
+        "isCommunity": bool(metadados.get("isCommunity", False)),
+        "recentlyCreatedAt": metadados.get("recentlyCreatedAt"),
         "historicoSincronizadoEm": metadados.get("historicoSincronizadoEm"),
         "historicoCursor": metadados.get("historicoCursor"),
         "historicoTemMais": bool(metadados.get("historicoTemMais", False)),
@@ -171,6 +185,9 @@ def normalize_message(mensagem: Dict[str, Any], channel: ChatChannel) -> Dict[st
         "reacoes": _normalize_reactions(mensagem.get("reacoes") or mensagem.get("reactions")),
         "citada": mensagem.get("citada") if isinstance(mensagem.get("citada"), dict) else None,
         "midiaMeta": mensagem.get("midiaMeta") if isinstance(mensagem.get("midiaMeta"), dict) else None,
+        "editada": bool(mensagem.get("editada", False)),
+        "editadoEm": mensagem.get("editadoEm"),
+        "encaminhada": bool(mensagem.get("encaminhada", False)),
         "canal": channel,
         "channel": channel,
     }
@@ -356,14 +373,24 @@ def _normalize_participants(value: Any) -> List[Dict[str, Any]]:
         phone = item.get("phone") or item.get("id") or item.get("jid")
         if not phone:
             continue
+        raw_admin = item.get("admin")
+        if isinstance(raw_admin, bool):
+            admin_role = "admin" if raw_admin else None
+        else:
+            admin_role = str(raw_admin or "").strip().lower() or None
         participants.append(
             {
                 "id": str(item.get("id") or phone),
                 "phone": str(phone),
                 "name": item.get("name") or item.get("pushname") or item.get("shortName"),
                 "photoUrl": item.get("photoUrl") or item.get("pic"),
-                "isAdmin": bool(item.get("isAdmin") or item.get("admin")),
-                "isSuperAdmin": bool(item.get("isSuperAdmin") or item.get("superAdmin")),
+                "admin": admin_role,
+                "isAdmin": bool(item.get("isAdmin") or admin_role in {"admin", "superadmin", "owner"}),
+                "isSuperAdmin": bool(
+                    item.get("isSuperAdmin")
+                    or item.get("superAdmin")
+                    or admin_role in {"superadmin", "owner"}
+                ),
             }
         )
     return participants

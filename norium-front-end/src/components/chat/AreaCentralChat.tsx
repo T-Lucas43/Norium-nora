@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  Bot,
   Check,
   CheckCheck,
   Clock3,
@@ -12,6 +13,7 @@ import {
   Mic,
   MoreVertical,
   Paperclip,
+  PencilLine,
   Pause,
   Play,
   Search,
@@ -27,6 +29,7 @@ import Button from "../shared/Button";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 import { conversationDisplayName, formatWhatsAppPhone, isTechnicalWhatsAppLabel } from "./contactPicker";
 import NoraChatComposer from "./NoraChatComposer";
+import MessageNoraActions, { type MessageNoraRequest } from "./MessageNoraActions";
 
 interface AreaCentralProps {
   conversaAtiva: ChatConversa | undefined;
@@ -43,8 +46,10 @@ interface AreaCentralProps {
   statusMicrofone: "idle" | "solicitando" | "liberado" | "negado";
   onRemoverAnexo: (id: string) => void;
   onLimparAnexos: () => void;
-  onApagarMensagensEmMassa: (mensagensIds: string[]) => void;
+  onApagarMensagensEmMassa: (mensagensIds: string[], paraTodos?: boolean) => void;
   onEncaminharMensagens: (mensagensIds: string[]) => void;
+  onEditarMensagem: (messageId: string, text: string) => void | Promise<void>;
+  onFeedback?: (tone: "error" | "success", text: string) => void;
   onCarregarMensagensAntigas: () => Promise<void>;
   temMaisMensagens: boolean;
   carregandoMensagens: boolean;
@@ -461,6 +466,8 @@ export default function AreaCentralChat({
   onLimparAnexos,
   onApagarMensagensEmMassa,
   onEncaminharMensagens,
+  onEditarMensagem,
+  onFeedback,
   onCarregarMensagensAntigas,
   temMaisMensagens,
   carregandoMensagens,
@@ -480,6 +487,10 @@ export default function AreaCentralChat({
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
   const [mostrarPainelEmojis, setMostrarPainelEmojis] = useState(false);
   const [modoPainelEmojis, setModoPainelEmojis] = useState<"emoji" | "figurinha">("emoji");
+  const [editandoMensagem, setEditandoMensagem] = useState<MsgConteudo | null>(null);
+  const [textoEdicao, setTextoEdicao] = useState("");
+  const [salvandoEdicao, setSalvandoEdicao] = useState(false);
+  const [noraRequest, setNoraRequest] = useState<MessageNoraRequest | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const previousHeightRef = useRef<number | null>(null);
@@ -525,7 +536,8 @@ export default function AreaCentralChat({
     if (container.scrollTop <= 80) carregarAnterioresPreservandoPosicao();
   };
 
-  const alternarMenuMensagem = (event: React.MouseEvent<HTMLButtonElement>, messageId: string) => {
+  const alternarMenuMensagem = (event: React.MouseEvent<HTMLElement>, messageId: string) => {
+    event.preventDefault();
     event.stopPropagation();
     if (menuMensagemId === messageId) {
       setMenuMensagemId(null);
@@ -533,7 +545,7 @@ export default function AreaCentralChat({
     }
     const anchor = event.currentTarget.getBoundingClientRect();
     const menuWidth = 192;
-    const menuHeight = 224;
+    const menuHeight = 510;
     const gutter = 8;
     const preferredLeft = anchor.right - menuWidth;
     const left = Math.max(gutter, Math.min(window.innerWidth - menuWidth - gutter, preferredLeft));
@@ -611,6 +623,40 @@ export default function AreaCentralChat({
     setSelecionadas((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
+  const abrirEdicao = (message: MsgConteudo) => {
+    setEditandoMensagem(message);
+    setTextoEdicao(message.texto || "");
+    setMenuMensagemId(null);
+  };
+
+  const salvarEdicao = async () => {
+    const text = textoEdicao.trim();
+    if (!editandoMensagem || !text || salvandoEdicao) return;
+    setSalvandoEdicao(true);
+    try {
+      await onEditarMensagem(editandoMensagem.id, text);
+      setEditandoMensagem(null);
+      onFeedback?.("success", "Mensagem editada no WhatsApp.");
+    } catch (editError) {
+      onFeedback?.("error", editError instanceof Error ? editError.message : "Não foi possível editar a mensagem.");
+    } finally {
+      setSalvandoEdicao(false);
+    }
+  };
+
+  const abrirAcaoNora = (mode: MessageNoraRequest["mode"], message: MsgConteudo) => {
+    setNoraRequest({ mode, message });
+    setMenuMensagemId(null);
+  };
+
+  const usarRespostaNora = (message: MsgConteudo, draft: string) => {
+    setRespondendoA(message);
+    setResposta(draft);
+  };
+
+  const mensagensSelecionadas = conversaAtiva.mensagens.filter((message) => selecionadas.includes(message.id));
+  const podeApagarSelecionadasParaTodos = mensagensSelecionadas.length > 0 && mensagensSelecionadas.every((message) => message.remetente === "usuario");
+
   return (
     <section onPaste={handlePasteAttachments} className="norium-chat-thread flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--background)]">
       {!modoSelecao ? (
@@ -649,8 +695,11 @@ export default function AreaCentralChat({
             <Button size="sm" onClick={() => { onEncaminharMensagens(selecionadas); setModoSelecao(false); setSelecionadas([]); }}>
               <CornerUpRight size={14} /> Encaminhar
             </Button>
-            <Button variant="danger" size="sm" onClick={() => { onApagarMensagensEmMassa(selecionadas); setModoSelecao(false); setSelecionadas([]); }} className="bg-red-600">
-              <Trash2 size={14} /> Apagar
+            {podeApagarSelecionadasParaTodos && <Button variant="danger" size="sm" onClick={() => { onApagarMensagensEmMassa(selecionadas, true); setModoSelecao(false); setSelecionadas([]); }} className="bg-red-600">
+              <Trash2 size={14} /> Apagar para todos
+            </Button>}
+            <Button variant="danger" size="sm" onClick={() => { onApagarMensagensEmMassa(selecionadas, false); setModoSelecao(false); setSelecionadas([]); }} className="border-red-500/40 text-red-300">
+              <Trash2 size={14} /> Apagar para mim
             </Button>
           </div>
         </div>
@@ -720,6 +769,7 @@ export default function AreaCentralChat({
               <div
                 className={`norium-message-bubble relative max-w-[min(66%,620px)] rounded-xl px-3 py-2 shadow-sm ${outgoing ? "norium-message-outgoing text-white" : "norium-message-incoming text-[var(--text)]"} ${estaSelecionada ? "ring-2 ring-[var(--primary)]" : ""}`}
                 data-message-menu-root
+                onContextMenu={(event) => { if (!modoSelecao) alternarMenuMensagem(event, msg.id); }}
               >
                 {!modoSelecao && (
                   <button type="button" aria-label="Ações da mensagem" onClick={(event) => alternarMenuMensagem(event, msg.id)} className="absolute top-1 right-1 h-7 w-7 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 transition hover:bg-black/20">
@@ -731,7 +781,7 @@ export default function AreaCentralChat({
                   <div
                     data-message-menu-root
                     role="menu"
-                    className="fixed z-[210] w-48 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] py-1 text-xs font-bold text-[var(--text)] shadow-2xl"
+                    className="fixed z-[210] max-h-[min(520px,80vh)] w-56 overflow-y-auto rounded-xl border border-[var(--border)] bg-[#080b0f] py-1 text-xs font-bold text-[var(--text)] shadow-2xl"
                     style={{ top: menuMensagemPosicao.top, left: menuMensagemPosicao.left }}
                   >
                     <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5">
@@ -742,14 +792,35 @@ export default function AreaCentralChat({
                     <button onClick={() => { setRespondendoA(msg); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
                       <CornerUpRight size={13} /> Responder
                     </button>
+                    {outgoing && msg.tipo === "texto" && Boolean(msg.texto?.trim()) && <button onClick={() => abrirEdicao(msg)} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
+                      <PencilLine size={13} /> Editar mensagem
+                    </button>}
+                    <button onClick={() => { onEncaminharMensagens([msg.id]); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
+                      <CornerUpRight size={13} /> Encaminhar
+                    </button>
                     <button onClick={() => { if (msg.texto) void navigator.clipboard.writeText(msg.texto); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
                       <Copy size={13} /> Copiar
                     </button>
                     <button onClick={() => { setModoSelecao(true); setSelecionadas([msg.id]); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-left">
                       <Check size={13} /> Selecionar
                     </button>
-                    <button onClick={() => { onApagarMensagensEmMassa([msg.id]); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-red-500 text-left">
-                      <Trash2 size={13} /> Apagar
+                    <div className="my-1 border-t border-[var(--border)]" />
+                    <p className="px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-cyan-300">Nora</p>
+                    <button onClick={() => abrirAcaoNora("reply", msg)} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-cyan-400/10 text-left">
+                      <Bot size={13} className="text-cyan-300" /> Responder com a Nora
+                    </button>
+                    <button onClick={() => abrirAcaoNora("summary", msg)} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-cyan-400/10 text-left">
+                      <Bot size={13} className="text-cyan-300" /> Resumir com a Nora
+                    </button>
+                    <button onClick={() => abrirAcaoNora("task", msg)} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-cyan-400/10 text-left">
+                      <Bot size={13} className="text-cyan-300" /> Transformar em tarefa
+                    </button>
+                    <div className="my-1 border-t border-[var(--border)]" />
+                    {outgoing && <button onClick={() => { onApagarMensagensEmMassa([msg.id], true); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-red-500/10 text-red-400 text-left">
+                      <Trash2 size={13} /> Apagar para todos
+                    </button>}
+                    <button onClick={() => { onApagarMensagensEmMassa([msg.id], false); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-red-500/10 text-red-400 text-left">
+                      <Trash2 size={13} /> Apagar para mim
                     </button>
                   </div>,
                   document.body,
@@ -763,6 +834,13 @@ export default function AreaCentralChat({
                   <div className="mb-1.5 rounded-md border-l-2 border-[var(--primary)] bg-black/10 px-2 py-1 text-xs opacity-80">
                     {msg.citada.senderName && <span className="block font-bold text-[var(--primary)]">{msg.citada.senderName}</span>}
                     <span className="line-clamp-2">{msg.citada.content}</span>
+                  </div>
+                )}
+
+                {(msg.forwarded || msg.edited) && (
+                  <div className="mb-1 flex items-center gap-2 pr-6 text-[10px] font-semibold italic opacity-60">
+                    {msg.forwarded && <span>Encaminhada</span>}
+                    {msg.edited && <span>Editada</span>}
                   </div>
                 )}
 
@@ -905,6 +983,18 @@ export default function AreaCentralChat({
           </button>
         </div>
       </div>
+
+      {editandoMensagem && (
+        <div className="fixed inset-0 z-[225] flex items-center justify-center bg-black/75 p-4" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="edit-message-title" className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[#080b0f] p-5 text-[var(--text)] shadow-2xl">
+            <div className="flex items-center justify-between"><div><h3 id="edit-message-title" className="text-sm font-extrabold">Editar mensagem enviada</h3><p className="mt-1 text-xs text-[var(--text-secondary)]">A alteração será sincronizada com o WhatsApp.</p></div><button type="button" onClick={() => setEditandoMensagem(null)} disabled={salvandoEdicao} aria-label="Fechar edição" className="grid h-8 w-8 place-items-center rounded-lg hover:bg-white/10 disabled:opacity-40"><X size={16} /></button></div>
+            <textarea autoFocus value={textoEdicao} onChange={(event) => setTextoEdicao(event.target.value)} rows={5} className="mt-4 w-full resize-y rounded-xl border border-[var(--border)] bg-black p-3 text-sm leading-6 outline-none focus:border-[var(--primary)]" />
+            <div className="mt-4 flex justify-end gap-2"><Button variant="ghost" onClick={() => setEditandoMensagem(null)} disabled={salvandoEdicao}>Cancelar</Button><Button onClick={() => void salvarEdicao()} loading={salvandoEdicao} disabled={!textoEdicao.trim()}>Salvar edição</Button></div>
+          </section>
+        </div>
+      )}
+
+      <MessageNoraActions conversationId={conversaAtiva.id} request={noraRequest} onClose={() => setNoraRequest(null)} onUseReply={usarRespostaNora} onFeedback={onFeedback} />
     </section>
   );
 }

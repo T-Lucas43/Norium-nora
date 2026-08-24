@@ -164,6 +164,48 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual("5511999998888", stored["contactId"])
                 if media_type in {"image", "video"}:
                     self.assertIn("/api/chat/midia/", stored["arquivoUrl"])
+                    self.assertEqual(
+                        "status com imagem" if media_type == "image" else "status com video",
+                        stored["texto"],
+                    )
+
+    async def test_status_media_uses_outer_caption_in_the_same_feed_item(self) -> None:
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "messageId": "STATUS-OUTER-CAPTION",
+            "phone": "status@broadcast",
+            "sender": {"id": "5511999998888", "pushName": "Contato"},
+            "caption": "legenda fora do node",
+            "msgContent": {
+                "imageMessage": {
+                    "mimetype": "image/jpeg",
+                    "mediaKey": "img-key",
+                    "directPath": "/status/image",
+                }
+            },
+        }
+
+        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+
+        self.assertEqual("success", result["status"])
+        feed = await chat_router.load_whatsapp_status_feed("user-a")
+        stored = next(item for item in feed["items"] if item["id"] == "STATUS-OUTER-CAPTION")
+        self.assertEqual("legenda fora do node", stored["texto"])
+        self.assertEqual("midia", stored["tipo"])
+        self.assertEqual(1, sum(item["id"] == "STATUS-OUTER-CAPTION" for item in feed["items"]))
+        listed = await chat_router.listar_status_whatsapp(
+            user={
+                "id": "user-a",
+                "role": "owner",
+                "plan": "enterprise",
+                "status": "ativo",
+                "permissions": {"chat": True, "integracao_whatsapp": True},
+            }
+        )
+        serialized = next(item for item in listed["items"] if item["id"] == "STATUS-OUTER-CAPTION")
+        self.assertEqual("legenda fora do node", serialized["text"])
+        self.assertEqual("image", serialized["type"])
 
     async def test_wrapped_baileys_status_is_routed_only_to_tenant_feed(self) -> None:
         payload = {

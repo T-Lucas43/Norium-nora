@@ -1,5 +1,5 @@
-import { Camera, CircleDot, Eye, Pencil, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { Camera, ChevronLeft, ChevronRight, CircleDot, Eye, Mic, Pencil, RefreshCw, SendHorizontal, Square } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { WhatsAppProfile, WhatsAppStatusItem, WhatsAppSyncProgress } from "./whatsappApi";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
@@ -13,6 +13,8 @@ interface WhatsAppStatusViewProps {
   onSelect: (item: WhatsAppStatusItem) => void;
   onRefresh: () => void;
   onCreateUnavailable: () => void;
+  onReplyText?: (item: WhatsAppStatusItem, text: string) => void | Promise<void>;
+  onReplyAudio?: (item: WhatsAppStatusItem, audio: Blob, mimeType: string) => void | Promise<void>;
 }
 
 function formatTime(timestamp: number) {
@@ -35,8 +37,14 @@ function StatusAvatar({ name, photoUrl, viewed = false }: { name: string; photoU
 
 function StatusMedia({ item }: { item: WhatsAppStatusItem }) {
   const source = useAuthenticatedMedia(item.mediaUrl);
-  if (item.type === "video" && source) return <video src={source} controls autoPlay className="max-h-[72vh] max-w-full rounded-2xl object-contain" />;
-  if (item.type === "image" && source) return <img src={source} alt={`Status de ${item.name}`} className="max-h-[72vh] max-w-full rounded-2xl object-contain" />;
+  if ((item.type === "video" || item.type === "image") && source) return (
+    <figure className="relative max-h-[72vh] max-w-full overflow-hidden rounded-2xl bg-black shadow-2xl">
+      {item.type === "video"
+        ? <video src={source} controls autoPlay className="max-h-[72vh] max-w-full object-contain" />
+        : <img src={source} alt={`Status de ${item.name}`} className="max-h-[72vh] max-w-full object-contain" />}
+      {item.text?.trim() && <figcaption className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent px-5 pb-5 pt-12 text-center text-sm font-semibold leading-6 text-white drop-shadow">{item.text}</figcaption>}
+    </figure>
+  );
   return (
     <div className="flex min-h-[360px] w-full max-w-[660px] items-center justify-center rounded-3xl px-12 py-20 text-center text-3xl font-semibold leading-normal text-white shadow-2xl" style={{ background: item.color || "linear-gradient(145deg, #0759f5, #07265d)" }}>
       {item.text || "Status sem legenda"}
@@ -44,17 +52,130 @@ function StatusMedia({ item }: { item: WhatsAppStatusItem }) {
   );
 }
 
-export default function WhatsAppStatusView({ items, selectedId, profile, loading, error, sync, onSelect, onRefresh, onCreateUnavailable }: WhatsAppStatusViewProps) {
+export default function WhatsAppStatusView({ items, selectedId, profile, loading, error, sync, onSelect, onRefresh, onCreateUnavailable, onReplyText, onReplyAudio }: WhatsAppStatusViewProps) {
   const selected = items.find((item) => item.id === selectedId) || null;
+  const selectedIndex = selected ? items.findIndex((item) => item.id === selected.id) : -1;
   const recent = items.filter((item) => !item.viewed && !item.mine);
   const viewed = items.filter((item) => item.viewed && !item.mine);
   const mine = items.filter((item) => item.mine);
+  const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [preparingRecording, setPreparingRecording] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const canceledRef = useRef(false);
+  const swipeStartRef = useRef<number | null>(null);
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const navigationLocked = recording || preparingRecording;
+
+  const goTo = (offset: number) => {
+    if (navigationLocked) return;
+    const next = items[selectedIndex + offset];
+    if (next) onSelect(next);
+  };
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (!selected || event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.key === "ArrowLeft") goTo(-1);
+      if (event.key === "ArrowRight") goTo(1);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  });
+
+  useEffect(() => () => {
+    canceledRef.current = true;
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const sendTextReply = async () => {
+    const text = reply.trim();
+    if (!selected || selected.mine || !text || !onReplyText || sending || navigationLocked) return;
+    setSending(true);
+    setReplyError(null);
+    try {
+      await onReplyText(selected, text);
+      setReply("");
+    } catch (sendError) {
+      setReplyError(sendError instanceof Error ? sendError.message : "Não foi possível responder ao Status.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const toggleRecording = async () => {
+    if (!selected || selected.mine || !onReplyAudio || sending || preparingRecording) return;
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+      setRecording(false);
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setReplyError("Seu navegador não liberou a gravação de áudio.");
+      return;
+    }
+    let pendingStream: MediaStream | null = null;
+    try {
+      setReplyError(null);
+      canceledRef.current = false;
+      const target = selected;
+      setPreparingRecording(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      pendingStream = stream;
+      if (canceledRef.current || selectedIdRef.current !== target.id) {
+        stream.getTracks().forEach((track) => track.stop());
+        pendingStream = null;
+        if (!canceledRef.current) setPreparingRecording(false);
+        return;
+      }
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type)) || "";
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      streamRef.current = stream;
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+      recorder.ondataavailable = (event) => { if (event.data.size > 0) chunksRef.current.push(event.data); };
+      recorder.onstop = async () => {
+        const resolvedMime = (recorder.mimeType || mimeType || "audio/webm").split(";")[0];
+        const audio = new Blob(chunksRef.current, { type: resolvedMime });
+        chunksRef.current = [];
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        recorderRef.current = null;
+        setRecording(false);
+        if (canceledRef.current || audio.size === 0) return;
+        setSending(true);
+        try {
+          await onReplyAudio(target, audio, resolvedMime);
+        } catch (sendError) {
+          setReplyError(sendError instanceof Error ? sendError.message : "Não foi possível responder com áudio.");
+        } finally {
+          setSending(false);
+        }
+      };
+      recorder.start(250);
+      pendingStream = null;
+      setPreparingRecording(false);
+      setRecording(true);
+    } catch (recordError) {
+      pendingStream?.getTracks().forEach((track) => track.stop());
+      if (streamRef.current === pendingStream) streamRef.current = null;
+      if (recorderRef.current?.state !== "recording") recorderRef.current = null;
+      setPreparingRecording(false);
+      setReplyError(recordError instanceof Error ? recordError.message : "Não foi possível acessar o microfone.");
+    }
+  };
 
   const renderItems = (sectionItems: WhatsAppStatusItem[], label: string) => sectionItems.length ? (
     <section className="pb-2">
       <h3 className="px-4 pb-2 pt-4 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{label}</h3>
       {sectionItems.map((item) => (
-        <button key={item.id} type="button" onClick={() => onSelect(item)} className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-[var(--surface-hover)] ${item.id === selectedId ? "bg-[color-mix(in_srgb,var(--primary)_14%,transparent)]" : ""}`}>
+        <button key={item.id} type="button" disabled={navigationLocked} onClick={() => onSelect(item)} className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 ${item.id === selectedId ? "bg-[color-mix(in_srgb,var(--primary)_14%,transparent)]" : ""}`}>
           <StatusAvatar name={item.name} photoUrl={item.photoUrl} viewed={item.viewed} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-bold text-[var(--text)]">{item.name}</span>
@@ -119,7 +240,36 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
               <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-bold">{selected.name}</h3><p className="text-xs text-[var(--text-secondary)]">{formatTime(selected.timestamp)}</p></div>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"><Eye size={13} /> Visualizado</span>
             </header>
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6"><StatusMedia item={selected} /></div>
+            <div
+              className="relative flex min-h-0 flex-1 touch-pan-y items-center justify-center overflow-auto p-6"
+              onPointerDown={(event) => { swipeStartRef.current = navigationLocked ? null : event.clientX; }}
+              onPointerCancel={() => { swipeStartRef.current = null; }}
+              onPointerUp={(event) => {
+                const start = swipeStartRef.current;
+                swipeStartRef.current = null;
+                if (start === null) return;
+                const delta = event.clientX - start;
+                if (Math.abs(delta) < 48) return;
+                goTo(delta < 0 ? 1 : -1);
+              }}
+              data-testid="status-swipe-area"
+            >
+              <button type="button" onClick={() => goTo(-1)} disabled={navigationLocked || selectedIndex <= 0} className="absolute left-5 z-10 grid h-11 w-11 place-items-center rounded-full border border-white/15 bg-black/70 text-white shadow-xl disabled:invisible" aria-label="Status anterior"><ChevronLeft size={24} /></button>
+              <StatusMedia item={selected} />
+              <button type="button" onClick={() => goTo(1)} disabled={navigationLocked || selectedIndex < 0 || selectedIndex >= items.length - 1} className="absolute right-5 z-10 grid h-11 w-11 place-items-center rounded-full border border-white/15 bg-black/70 text-white shadow-xl disabled:invisible" aria-label="Próximo Status"><ChevronRight size={24} /></button>
+            </div>
+            {!selected.mine && (onReplyText || onReplyAudio) && (
+              <div className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3">
+                {replyError && <p className="mb-2 text-xs font-semibold text-red-400" role="alert">{replyError}</p>}
+                {preparingRecording && <p className="mb-2 text-xs font-semibold text-amber-300" role="status">Solicitando acesso ao microfone. Aguarde antes de mudar de Status.</p>}
+                {recording && <p className="mb-2 text-xs font-semibold text-amber-300" role="status">Gravação em andamento. Finalize o áudio antes de mudar de Status.</p>}
+                <div className="flex items-center gap-2">
+                  <input value={reply} onChange={(event) => setReply(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void sendTextReply(); }} disabled={sending || navigationLocked} placeholder={`Responder ao Status de ${selected.name}`} className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-black px-4 text-sm text-[var(--text)] outline-none focus:border-[var(--primary)] disabled:opacity-60" />
+                  {onReplyAudio && <button type="button" onClick={() => void toggleRecording()} disabled={sending || preparingRecording} aria-label={preparingRecording ? "Preparando gravação de áudio" : recording ? "Parar e enviar áudio" : "Responder com áudio"} className={`grid h-11 w-11 place-items-center rounded-xl border transition ${recording ? "animate-pulse border-red-500 bg-red-500 text-white" : "border-[var(--border)] bg-black text-[var(--text)] hover:border-[var(--primary)]"} disabled:opacity-50`}>{recording ? <Square size={16} fill="currentColor" /> : <Mic size={19} />}</button>}
+                  {onReplyText && <button type="button" onClick={() => void sendTextReply()} disabled={sending || navigationLocked || !reply.trim()} aria-label="Enviar resposta ao Status" className="grid h-11 w-11 place-items-center rounded-xl bg-[var(--primary)] text-white disabled:opacity-40"><SendHorizontal size={18} /></button>}
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center p-8 text-center">

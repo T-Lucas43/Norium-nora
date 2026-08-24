@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { apiRequest } from "../../core/api/client";
 import { authToken } from "../../core/api/config";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
 import { apiBaseUrl } from "../../utils/api";
@@ -970,25 +971,20 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
   );
 }
 
-async function askNoraWhatsAppBackend(message: string, conversaId: string, sendDirect: boolean) {
-  const res = await fetch(`${BACKEND_URL}/api/nora/chat-whatsapp`, {
+async function askNoraWhatsAppBackend(message: string, conversaId: string, prepareForApproval: boolean) {
+  const data = await apiRequest<Record<string, unknown>>("/api/nora/chat-whatsapp", {
     method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
+    timeoutMs: 60_000,
     body: JSON.stringify({
       conversa_id: conversaId,
       texto_usuario: message,
-      enviar_direto_whatsapp: sendDirect,
+      enviar_direto_whatsapp: prepareForApproval,
     }),
   });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.detail || "Erro inesperado no servidor da Nora.");
   return {
-    text: data?.response || "Nao consegui gerar resposta.",
+    text: String(data?.response || "Nao consegui gerar resposta."),
     sent: Boolean(data?.whatsapp_enviado),
+    approvalPending: Boolean(data?.approval || data?.approval_id || data?.awaiting_approval || data?.status === "aguardando_aprovacao"),
     blockedReason: data?.blocked_reason as string | undefined,
   };
 }
@@ -1175,7 +1171,7 @@ async function askNaturalNora(
   const data = await res.json();
   if (!res.ok) throw new Error(data?.detail || "Erro no entendimento natural da Nora.");
   return data as {
-    intent: "financeiro" | "tarefas" | "email" | "agenda" | "comercial" | "automacoes" | "operacoes" | "equipe" | "chat";
+    intent: "whatsapp" | "financeiro" | "tarefas" | "email" | "agenda" | "comercial" | "automacoes" | "operacoes" | "equipe" | "chat";
     session_kind: "email" | "agenda" | "commercial" | null;
     session_id: string | null;
     status: string;
@@ -1269,7 +1265,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   const [runState, setRunState] = useState<NoraRunState>("idle");
   const loading = ACTIVE_NORA_STATES.has(runState);
   const [showSuggestions, setShowSuggestions] = useState(true);
-  const [sendDirect, setSendDirect] = useState(false);
+  const [prepareWhatsAppApproval, setPrepareWhatsAppApproval] = useState(false);
   const [agentDraft, setAgentDraft] = useState<string | null>(null);
   const [agendaSessionId, setAgendaSessionId] = useState<string | null>(null);
   const [agendaAgentActive, setAgendaAgentActive] = useState(false);
@@ -1379,7 +1375,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     setMessages([]);
     setShowSuggestions(true);
     setAgentDraft(null);
-    setSendDirect(false);
+    setPrepareWhatsAppApproval(false);
     setAgendaSessionId(null);
     setAgendaAgentActive(false);
     setEmailSessionId(null);
@@ -1508,6 +1504,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   }
 
   function naturalIntentToAgent(intent: Awaited<ReturnType<typeof askNaturalNora>>["intent"]): NoraAgentKind {
+    if (intent === "whatsapp") return "whatsapp";
     if (intent === "email") return "email";
     if (intent === "agenda") return "agenda";
     if (intent === "tarefas") return "tarefas";
@@ -1575,7 +1572,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       }
       const shouldUseWhatsAppContext =
         conversaId &&
-        (sendDirect || isWhatsAppConversationIntent(finalText)) &&
+        (prepareWhatsAppApproval || isWhatsAppConversationIntent(finalText)) &&
         !emailAgentActive &&
         !agendaAgentActive &&
         !commercialAgentActive &&
@@ -1612,12 +1609,14 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
         response = result.response;
       } else if (shouldUseWhatsAppContext) {
         setCycleState(cycleId, "analyzing");
-        const result = await askNoraWhatsAppBackend(finalText, conversaId, sendDirect);
+        const result = await askNoraWhatsAppBackend(finalText, conversaId, prepareWhatsAppApproval);
         if (activeCycleRef.current !== cycleId) return;
         responseAgent = "whatsapp";
-        responseStatus = result.sent ? "enviado" : result.blockedReason || "";
-        response = result.sent
-          ? `${result.text}\n\nEnviado no WhatsApp. A Nora apertou o botao sem inventar moda.`
+        responseStatus = result.approvalPending ? "aguardando aprovação" : result.sent ? "enviado" : result.blockedReason || "";
+        response = result.approvalPending
+          ? `${result.text}\n\nEnvio preparado e aguardando sua aprovação no Centro de aprovações.`
+          : result.sent
+            ? `${result.text}\n\nA execução foi registrada pelo Norium.`
           : result.blockedReason === "historico_vazio"
             ? `${result.text}\n\nEnvio bloqueado porque o historico esta vazio. Muito sensato da minha parte, diga-se.`
             : result.text;
@@ -2224,12 +2223,12 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             {controlsOpen && (
             <div className="nora-drawer-controls border-b border-[var(--border)] p-3">
               <label className={`flex items-center justify-between gap-3 rounded-lg border border-cyan-400/20 bg-[var(--surface)] px-3 py-2 text-xs font-bold ${conversaId ? "text-[var(--text)]" : "text-[var(--text-secondary)]"}`}>
-                <span>Enviar direto no WhatsApp</span>
+                <span>Preparar envio para aprovação</span>
                 <input
                   type="checkbox"
-                  checked={sendDirect}
+                  checked={prepareWhatsAppApproval}
                   disabled={!conversaId}
-                  onChange={(event) => setSendDirect(event.target.checked)}
+                  onChange={(event) => setPrepareWhatsAppApproval(event.target.checked)}
                   className="h-4 w-4 accent-cyan-500"
                 />
               </label>

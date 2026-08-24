@@ -36,6 +36,7 @@ const baseProps = {
   onLimparAnexos: vi.fn(),
   onApagarMensagensEmMassa: vi.fn(),
   onEncaminharMensagens: vi.fn(),
+  onEditarMensagem: vi.fn(),
   onCarregarMensagensAntigas: vi.fn().mockResolvedValue(undefined),
   temMaisMensagens: false,
   carregandoMensagens: false,
@@ -54,13 +55,13 @@ describe("renderização das mensagens", () => {
     expect(screen.getByText("Mensagem visível")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Ações da mensagem" }));
-    const reply = screen.getByRole("button", { name: /Responder/ });
+    const reply = screen.getByRole("button", { name: /^Responder$/ });
     expect(reply.parentElement).toHaveClass("fixed");
     expect(reply.parentElement).toHaveAttribute("data-message-menu-root");
     expect(reply.parentElement).toHaveStyle({ left: "8px" });
 
     fireEvent(window, new Event("resize"));
-    expect(screen.queryByRole("button", { name: /Responder/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Responder$/ })).not.toBeInTheDocument();
   });
 
   it("encaminha arquivos colados com Ctrl+V para o fluxo de anexos", () => {
@@ -73,5 +74,42 @@ describe("renderização das mensagens", () => {
     });
 
     expect(onColarAnexos).toHaveBeenCalledWith([image]);
+  });
+
+  it("abre as ações pelo botão direito, edita apenas mensagem própria e permite encaminhar ou apagar para todos", async () => {
+    const user = userEvent.setup();
+    const onEditarMensagem = vi.fn().mockResolvedValue(undefined);
+    const onEncaminharMensagens = vi.fn();
+    const onApagarMensagensEmMassa = vi.fn();
+    const withOutgoing: ChatConversa = {
+      ...conversation,
+      mensagens: [
+        ...conversation.mensagens,
+        { id: "mine", remetente: "usuario", tipo: "texto", texto: "Texto enviado", horario: "10:14" },
+      ],
+    };
+    render(<AreaCentralChat {...baseProps} conversaAtiva={withOutgoing} onEditarMensagem={onEditarMensagem} onEncaminharMensagens={onEncaminharMensagens} onApagarMensagensEmMassa={onApagarMensagensEmMassa} />);
+
+    fireEvent.contextMenu(screen.getByText("Texto enviado").closest("[data-message-menu-root]") as HTMLElement, { clientX: 500, clientY: 300 });
+    await user.click(screen.getByRole("button", { name: "Editar mensagem" }));
+    const editor = screen.getByRole("dialog").querySelector("textarea") as HTMLTextAreaElement;
+    await user.clear(editor);
+    await user.type(editor, "Texto corrigido");
+    await user.click(screen.getByRole("button", { name: "Salvar edição" }));
+    expect(onEditarMensagem).toHaveBeenCalledWith("mine", "Texto corrigido");
+
+    fireEvent.contextMenu(screen.getByText("Texto enviado").closest("[data-message-menu-root]") as HTMLElement, { clientX: 500, clientY: 300 });
+    await user.click(screen.getByRole("button", { name: "Encaminhar" }));
+    expect(onEncaminharMensagens).toHaveBeenCalledWith(["mine"]);
+
+    fireEvent.contextMenu(screen.getByText("Texto enviado").closest("[data-message-menu-root]") as HTMLElement, { clientX: 500, clientY: 300 });
+    await user.click(screen.getByRole("button", { name: "Apagar para todos" }));
+    expect(onApagarMensagensEmMassa).toHaveBeenCalledWith(["mine"], true);
+
+    fireEvent.contextMenu(screen.getByText("Mensagem visível").closest("[data-message-menu-root]") as HTMLElement, { clientX: 500, clientY: 300 });
+    expect(screen.queryByRole("button", { name: "Editar mensagem" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Responder com a Nora" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resumir com a Nora" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Transformar em tarefa" })).toBeInTheDocument();
   });
 });

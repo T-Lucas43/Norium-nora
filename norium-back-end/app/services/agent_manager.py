@@ -7,6 +7,7 @@ from app.services.conversation_store import (
     append_outgoing_message,
     build_conversation_history,
     is_empty_history,
+    whatsapp_conversation_mutation_lock,
 )
 from app.services.nora import NoraIAService
 from app.services.wapi_messaging import WapiMessagingService, MessagingUnavailable, WapiError
@@ -106,6 +107,7 @@ class AgentManager:
         *,
         canal: Literal["whatsapp"] = "whatsapp",
         autorizado: bool = False,
+        sender_label: Optional[str] = "Agente de Mensagens",
         user_id: str,
     ) -> Dict[str, Any]:
         if not autorizado:
@@ -122,15 +124,16 @@ class AgentManager:
         success = bool(result and result.get("sent") is True)
 
         if success:
-            await append_outgoing_message(
-                conversa_id,
-                texto,
-                channel=canal,
-                sender_label="Agente de Mensagens",
-                status="enviado",
-                message_id=str(result.get("messageId") or "") or None,
-                user_id=user_id,
-            )
+            async with whatsapp_conversation_mutation_lock(user_id):
+                await append_outgoing_message(
+                    conversa_id,
+                    texto,
+                    channel=canal,
+                    sender_label=sender_label,
+                    status="enviado",
+                    message_id=str(result.get("messageId") or "") or None,
+                    user_id=user_id,
+                )
 
         return {
             "agent_id": "mensagens",

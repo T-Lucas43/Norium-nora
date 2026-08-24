@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from app.modules.chat.router import build_contact_indexes, melhor_nome_contato, normalize_profile_phone
+from app.modules.chat.router import (
+    build_contact_indexes,
+    melhor_nome_contato,
+    normalize_group_participants,
+    normalize_profile_phone,
+    parse_whatsapp_collection,
+)
 
 
 class ContactNameResolutionTests(unittest.TestCase):
@@ -63,6 +69,44 @@ class ContactNameResolutionTests(unittest.TestCase):
         self.assertEqual("5511999999999", normalize_profile_phone("5511999999999@c.us"))
         self.assertEqual("5511999999999", normalize_profile_phone("+55 (11) 99999-9999"))
         self.assertEqual("219451387551856@lid", normalize_profile_phone("219451387551856@lid"))
+
+    def test_group_participant_uses_cached_name_and_admin_role(self) -> None:
+        names, photos, _meta = build_contact_indexes(
+            [
+                {
+                    "id": "5511999999999@s.whatsapp.net",
+                    "savedName": "Maria da agenda",
+                    "profilePictureUrl": "https://cdn.example/maria.jpg",
+                }
+            ]
+        )
+        participants = normalize_group_participants(
+            [{"id": "5511999999999@s.whatsapp.net", "admin": "superadmin"}],
+            names,
+            photos,
+        )
+        self.assertEqual("Maria da agenda", participants[0]["name"])
+        self.assertEqual("superadmin", participants[0]["admin"])
+        self.assertTrue(participants[0]["isAdmin"])
+        self.assertTrue(participants[0]["isSuperAdmin"])
+        self.assertEqual("https://cdn.example/maria.jpg", participants[0]["photoUrl"])
+
+    def test_group_participant_names_are_indexed_as_contact_fallback(self) -> None:
+        names, _photos, _meta = build_contact_indexes(
+            [
+                {
+                    "id": "120363000000000000@g.us",
+                    "participants": [
+                        {"id": "5511888887777@s.whatsapp.net", "pushName": "Ana"}
+                    ],
+                }
+            ]
+        )
+        self.assertEqual("Ana", names["5511888887777@s.whatsapp.net"])
+
+    def test_nested_catalog_wrapper_is_unwrapped(self) -> None:
+        payload = {"data": {"contacts": [{"id": "5511999999999", "name": "Maria"}]}}
+        self.assertEqual("Maria", parse_whatsapp_collection(payload)[0]["name"])
 
 
 if __name__ == "__main__":

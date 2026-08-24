@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import type { ChatConversa } from "./types";
 import PainelDireito from "./PainelDireito";
 
@@ -32,5 +33,24 @@ describe("dados do contato", () => {
     expect(screen.getAllByText("+55 (11) 99999-9999")).toHaveLength(2);
     expect(screen.queryByText(/@c\.us/)).not.toBeInTheDocument();
     expect(screen.queryByText("Identificador JID")).not.toBeInTheDocument();
+  });
+
+  it("mostra nome e administração dos membros e inicia conversa direta", async () => {
+    const user = userEvent.setup();
+    const onStartMemberConversation = vi.fn();
+    const member = { id: "5511888888888@s.whatsapp.net", phone: "5511888888888", name: "Marina Silva", isAdmin: true };
+    const group: ChatConversa = {
+      ...conversation,
+      id: "120363000000@g.us",
+      contato: "Equipe Norium",
+      esGrupo: true,
+      metadados: { numeroCompleto: "120363000000@g.us", statusOnline: false, participantes: [member] },
+    };
+    render(<PainelDireito modo="perfil" conversaAtiva={group} onFechar={() => undefined} onStartMemberConversation={onStartMemberConversation} />);
+
+    expect(screen.getByText("Marina Silva")).toBeInTheDocument();
+    expect(screen.getByText("Admin")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Iniciar conversa com Marina Silva" }));
+    expect(onStartMemberConversation).toHaveBeenCalledWith(member);
   });
 });

@@ -206,11 +206,78 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         ):
             response = await chat_router.obter_midia_whatsapp(
                 "STATUS-MEDIA",
-                conversa_id="status@broadcast",
+                conversa_id="status",
                 user=chat_user(),
             )
         self.assertEqual(image, response.body)
         self.assertEqual("image/jpeg", response.media_type)
+
+    async def test_marking_status_viewed_does_not_drop_concurrent_status(self) -> None:
+        now = int(time.time())
+        await chat_router.save_whatsapp_status_feed(
+            "user-a",
+            {
+                "items": [
+                    {
+                        "id": "STATUS-A",
+                        "contactId": "5511000000001",
+                        "contactName": "Ana",
+                        "timestamp": now,
+                        "texto": "Primeiro",
+                        "tipo": "texto",
+                        "visualizado": False,
+                    }
+                ]
+            },
+        )
+        original_load = chat_router.load_whatsapp_status_feed
+        first_load_started = asyncio.Event()
+        release_first_load = asyncio.Event()
+        load_count = 0
+
+        async def controlled_load(user_id: str):
+            nonlocal load_count
+            payload = await original_load(user_id)
+            load_count += 1
+            if load_count == 1:
+                first_load_started.set()
+                await release_first_load.wait()
+            return payload
+
+        async def add_second_status() -> None:
+            async with chat_router.whatsapp_conversation_mutation_lock("user-a"):
+                await chat_router._store_status_items_unlocked(
+                    "user-a",
+                    [
+                        {
+                            "id": "STATUS-B",
+                            "contactId": "5511000000002",
+                            "contactName": "Bia",
+                            "timestamp": now,
+                            "texto": "Segundo",
+                            "tipo": "texto",
+                        }
+                    ],
+                )
+
+        with (
+            patch.object(chat_router, "load_whatsapp_status_feed", controlled_load),
+            patch.object(chat_router.wapi_client, "read_message", AsyncMock(return_value={})),
+        ):
+            mark_task = asyncio.create_task(
+                chat_router.visualizar_status_whatsapp("STATUS-A", user=chat_user())
+            )
+            await first_load_started.wait()
+            add_task = asyncio.create_task(add_second_status())
+            await asyncio.sleep(0)
+            self.assertFalse(add_task.done())
+            release_first_load.set()
+            await asyncio.gather(mark_task, add_task)
+
+        stored = await original_load("user-a")
+        by_id = {item["id"]: item for item in stored["items"]}
+        self.assertEqual({"STATUS-A", "STATUS-B"}, set(by_id))
+        self.assertTrue(by_id["STATUS-A"]["visualizado"])
 
     async def test_groups_list_returns_chat_conversations(self) -> None:
         payload = {

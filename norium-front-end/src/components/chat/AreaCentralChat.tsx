@@ -26,12 +26,14 @@ import type { AnexoPendente, ChatConversa, MsgConteudo } from "./types";
 import Button from "../shared/Button";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 import { conversationDisplayName, formatWhatsAppPhone, isTechnicalWhatsAppLabel } from "./contactPicker";
+import NoraChatComposer from "./NoraChatComposer";
 
 interface AreaCentralProps {
   conversaAtiva: ChatConversa | undefined;
   onEnviar: (texto: string, responderA?: string) => void | Promise<void>;
   onAbrirDadosPerfil: () => void;
   onAnexarArquivo: () => void;
+  onColarAnexos: (files: File[]) => void;
   onGravarAudio: () => void;
   gravando: boolean;
   tempoGravacao: number;
@@ -447,6 +449,7 @@ export default function AreaCentralChat({
   onEnviar,
   onAbrirDadosPerfil,
   onAnexarArquivo,
+  onColarAnexos,
   onGravarAudio,
   gravando,
   tempoGravacao,
@@ -593,12 +596,23 @@ export default function AreaCentralChat({
     setRespondendoA(null);
   };
 
+  const handlePasteAttachments = (event: React.ClipboardEvent<HTMLElement>) => {
+    const itemFiles = Array.from(event.clipboardData.items || [])
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    const files = itemFiles.length > 0 ? itemFiles : Array.from(event.clipboardData.files || []);
+    if (files.length === 0) return;
+    event.preventDefault();
+    onColarAnexos(files);
+  };
+
   const alternarSelecaoMensagem = (id: string) => {
     setSelecionadas((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
   return (
-    <section className="norium-chat-thread flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--background)]">
+    <section onPaste={handlePasteAttachments} className="norium-chat-thread flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--background)]">
       {!modoSelecao ? (
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-4">
           <button className="min-w-0 flex items-center gap-3 text-left" onClick={onAbrirDadosPerfil}>
@@ -872,6 +886,11 @@ export default function AreaCentralChat({
             onKeyDown={(event) => { if (event.key === "Enter") acionarEnviar(); }}
             placeholder={gravando ? `Gravando audio: ${formatarTempo(tempoGravacao)}` : "Digite uma mensagem"}
             className="h-11 min-w-0 flex-1 bg-[var(--background)] border border-[var(--border)] rounded-lg px-4 text-sm outline-none focus:border-[var(--primary)] text-[var(--text)]"
+          />
+          <NoraChatComposer
+            conversationId={conversaAtiva.id}
+            disabled={gravando || enviandoAnexos}
+            onInsertDraft={setResposta}
           />
           <button onClick={onGravarAudio} disabled={enviandoAnexos} title="Audio" className={`h-11 w-11 border rounded-lg flex items-center justify-center ${gravando ? "bg-red-500 text-white animate-pulse border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"} ${enviandoAnexos ? "opacity-50" : ""}`} aria-label="Audio">
             <Mic size={19} />

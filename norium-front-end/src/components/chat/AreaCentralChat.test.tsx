@@ -24,6 +24,7 @@ const baseProps = {
   onEnviar: vi.fn(),
   onAbrirDadosPerfil: vi.fn(),
   onAnexarArquivo: vi.fn(),
+  onColarAnexos: vi.fn(),
   onGravarAudio: vi.fn(),
   gravando: false,
   tempoGravacao: 0,
@@ -60,5 +61,17 @@ describe("renderização das mensagens", () => {
 
     fireEvent(window, new Event("resize"));
     expect(screen.queryByRole("button", { name: /Responder/ })).not.toBeInTheDocument();
+  });
+
+  it("encaminha arquivos colados com Ctrl+V para o fluxo de anexos", () => {
+    const onColarAnexos = vi.fn();
+    render(<AreaCentralChat {...baseProps} onColarAnexos={onColarAnexos} conversaAtiva={conversation} />);
+    const image = new File(["imagem"], "captura.png", { type: "image/png" });
+
+    fireEvent.paste(screen.getByPlaceholderText("Digite uma mensagem"), {
+      clipboardData: { items: [], files: [image] },
+    });
+
+    expect(onColarAnexos).toHaveBeenCalledWith([image]);
   });
 });

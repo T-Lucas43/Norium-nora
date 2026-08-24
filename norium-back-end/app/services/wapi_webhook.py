@@ -25,6 +25,14 @@ EVENT_PRESENCE = "presence"
 EVENT_UNKNOWN = "unknown"
 
 _STATUS_BROADCAST_JID = "status@broadcast"
+_STATUS_IDENTIFIER_ALIASES = {
+    _STATUS_BROADCAST_JID,
+    "status",
+    "statuses",
+    "broadcast",
+    "status_v3",
+    "status-v3",
+}
 _STATUS_FLAG_KEYS = (
     "isStatus",
     "isStatusMsg",
@@ -33,16 +41,99 @@ _STATUS_FLAG_KEYS = (
     "statusBroadcast",
     "isStatusBroadcast",
 )
+_WRAPPER_KEYS = ("data", "payload", "body", "eventData", "messageData")
+_IDENTIFIER_KEYS = (
+    "id",
+    "chatId",
+    "chatJid",
+    "phone",
+    "phoneNumber",
+    "from",
+    "to",
+    "remoteJid",
+    "remoteJidAlt",
+    "jid",
+    "wid",
+)
+_IDENTIFIER_CONTAINER_KEYS = (
+    *_WRAPPER_KEYS,
+    "chat",
+    "key",
+    "message",
+    "msg",
+    "info",
+    "sender",
+    "recipient",
+    "source",
+)
 
 
 def _is_true(value: Any) -> bool:
     return value is True or (isinstance(value, str) and value.strip().lower() in {"1", "true", "yes"})
 
 
+def _payload_layers(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Retorna envelopes conhecidos do webhook, do externo ao mais interno."""
+    layers: list[dict[str, Any]] = []
+    queue: list[dict[str, Any]] = [data]
+    seen: set[int] = set()
+    while queue:
+        current = queue.pop(0)
+        marker = id(current)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        layers.append(current)
+        for key in _WRAPPER_KEYS:
+            nested = current.get(key)
+            if isinstance(nested, dict):
+                queue.append(nested)
+    return layers
+
+
 def _payload(data: dict[str, Any]) -> dict[str, Any]:
-    """Achata o envelope opcional ``data`` sem perder metadados externos."""
-    wrapped = data.get("data")
-    return {**data, **wrapped} if isinstance(wrapped, dict) else data
+    """Achata envelopes opcionais sem perder metadados externos."""
+    flattened: dict[str, Any] = {}
+    for layer in _payload_layers(data):
+        flattened.update(layer)
+    return flattened
+
+
+def _identifier_token(value: Any) -> str:
+    """Normaliza JID string ou objeto Wid/Baileys para comparação segura."""
+    if isinstance(value, dict):
+        serialized = value.get("_serialized") or value.get("serialized")
+        if serialized:
+            return str(serialized).strip()
+        user = str(value.get("user") or "").strip()
+        server = str(value.get("server") or "").strip()
+        if user and server:
+            return f"{user}@{server}"
+        for key in _IDENTIFIER_KEYS:
+            nested = value.get(key)
+            if nested is value:
+                continue
+            token = _identifier_token(nested)
+            if token:
+                return token
+        return ""
+    return str(value or "").strip()
+
+
+def _is_status_identifier(value: Any) -> bool:
+    return _identifier_token(value).lower() in _STATUS_IDENTIFIER_ALIASES
+
+
+def instance_id(data: dict[str, Any]) -> str:
+    """Obtém a instância mesmo quando o gateway adiciona envelopes."""
+    for layer in _payload_layers(data):
+        value = _first(layer, "instanceId", "instanceID", "connectionKey", "instance")
+        if isinstance(value, dict):
+            value = _first(value, "id", "instanceId", "connectionKey")
+        token = str(value or "").strip()
+        if token:
+            return token
+    return ""
 
 
 def is_outgoing_delivery(data: dict[str, Any]) -> bool:
@@ -83,50 +174,62 @@ def is_status_broadcast(data: dict[str, Any]) -> bool:
     (formato Baileys) ou como flag booleana. Não considera o campo genérico
     ``status``, pois ele também representa ACK/entrega de mensagens normais.
     """
-    if any(_is_true(data.get(key)) for key in _STATUS_FLAG_KEYS):
-        return True
-
-    candidates: list[Any] = [
-        data.get("chatId"),
-        data.get("phone"),
-        data.get("from"),
-        data.get("to"),
-        data.get("remoteJid"),
-        data.get("jid"),
-    ]
-    nested_containers = [data.get("chat"), data.get("key")]
-    message = data.get("message")
-    if isinstance(message, dict):
-        nested_containers.extend([message, message.get("key")])
-    wrapped = data.get("data")
-    if isinstance(wrapped, dict):
-        nested_containers.extend([wrapped, wrapped.get("chat"), wrapped.get("key")])
-        wrapped_message = wrapped.get("message")
-        if isinstance(wrapped_message, dict):
-            nested_containers.extend([wrapped_message, wrapped_message.get("key")])
-
-    for container in nested_containers:
-        if not isinstance(container, dict):
+    queue: list[dict[str, Any]] = [data]
+    seen: set[int] = set()
+    while queue:
+        container = queue.pop(0)
+        marker = id(container)
+        if marker in seen:
             continue
-        candidates.extend(
-            container.get(key)
-            for key in ("id", "chatId", "phone", "from", "to", "remoteJid", "jid")
-        )
-        if any(_is_true(container.get(key)) for key in _STATUS_FLAG_KEYS):
+        seen.add(marker)
+        for key in _STATUS_FLAG_KEYS:
+            marker_value = container.get(key)
+            if _is_true(marker_value) or _is_status_identifier(marker_value):
+                return True
+        if any(_is_status_identifier(container.get(key)) for key in _IDENTIFIER_KEYS):
             return True
+        for key in _IDENTIFIER_CONTAINER_KEYS:
+            nested = container.get(key)
+            if isinstance(nested, dict):
+                queue.append(nested)
+    return False
 
-    return any(
-        isinstance(candidate, str) and candidate.strip().lower() == _STATUS_BROADCAST_JID
-        for candidate in candidates
-    )
+
+def status_broadcast_payloads(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Expande um pseudo-chat de catálogo em publicações individuais de Status."""
+    payload = _payload(data)
+    record_is_status = is_status_broadcast(data)
+    messages: list[dict[str, Any]] = []
+    for key in ("messages", "msgs"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            messages.extend(item for item in value if isinstance(item, dict))
+    last_message = payload.get("lastMessage")
+    if isinstance(last_message, dict):
+        messages.append(last_message)
+
+    if record_is_status and messages:
+        base = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"messages", "msgs", "lastMessage"}
+        }
+        return [
+            {**base, **message, "chatId": _STATUS_BROADCAST_JID}
+            for message in messages
+        ]
+    if record_is_status:
+        return [payload]
+    return [message for message in messages if is_status_broadcast(message)]
 
 
 def classify_event(data: dict[str, Any]) -> str:
     """Mapeia o campo de evento da W-API para uma classe interna (tolerante)."""
-    raw = str(data.get("event") or data.get("type") or "").strip().lower()
+    payload = _payload(data)
+    raw = str(payload.get("event") or payload.get("type") or "").strip().lower()
     if not raw:
         # Sem nome de evento: se traz conteúdo de mensagem, trata como recebido.
-        return EVENT_RECEIVED if _first(data, "msgcontent", "message", "text", "body") is not None else EVENT_UNKNOWN
+        return EVENT_RECEIVED if _first(payload, "msgcontent", "message", "text", "body") is not None else EVENT_UNKNOWN
     if "disconnect" in raw:
         return EVENT_DISCONNECTED
     if "connect" in raw:
@@ -142,16 +245,22 @@ def classify_event(data: dict[str, Any]) -> str:
 
 def event_id(data: dict[str, Any]) -> str:
     """Identificador para deduplicação (id da mensagem/evento)."""
-    wrapped = data.get("data") if isinstance(data.get("data"), dict) else {}
-    key = data.get("key") if isinstance(data.get("key"), dict) else {}
-    wrapped_key = wrapped.get("key") if isinstance(wrapped.get("key"), dict) else {}
-    return str(
-        _first(data, "messageId", "id", "eventId", "zaid")
-        or _first(wrapped, "messageId", "id", "eventId", "zaid")
-        or _first(key, "id", "messageId")
-        or _first(wrapped_key, "id", "messageId")
-        or ""
-    )
+    for layer in _payload_layers(data):
+        direct = _first(layer, "messageId", "eventId", "zaid")
+        if direct:
+            return str(direct)
+        for container_key in ("key", "message", "msg", "info"):
+            container = layer.get(container_key)
+            if not isinstance(container, dict):
+                continue
+            key = container.get("key") if isinstance(container.get("key"), dict) else container
+            nested = _first(key, "messageId", "eventId", "zaid", "id")
+            if nested and not _is_status_identifier(nested):
+                return str(nested)
+        direct_id = layer.get("id")
+        if direct_id and not isinstance(direct_id, dict) and not _is_status_identifier(direct_id):
+            return str(direct_id)
+    return ""
 
 
 # Mapeia os status da W-API para o vocabulário interno aceito por
@@ -183,10 +292,10 @@ def map_status(raw: str) -> str:
 
 def extract_status_update(data: dict[str, Any]) -> tuple[str, str]:
     """Retorna (message_id, status_interno) para eventos de status/entrega."""
-    wrapped = data.get("data") if isinstance(data.get("data"), dict) else {}
-    message_id = str(_first(data, "messageId", "id") or _first(wrapped, "messageId", "id") or "")
+    payload = _payload(data)
+    message_id = event_id(data)
     status = map_status(
-        str(_first(data, "status", "ack", "state") or _first(wrapped, "status", "ack", "state") or "")
+        str(_first(payload, "status", "ack", "state") or "")
     )
     return message_id, status
 
@@ -199,41 +308,33 @@ def extract_chat_status_update(data: dict[str, Any]) -> tuple[str, bool | None, 
     formatos plano, ``chat`` e ``data`` sem confundir ``READ`` de uma mensagem
     enviada (que traz ``messageId``) com a leitura da conversa no celular.
     """
-    nested = data.get("data") if isinstance(data.get("data"), dict) else {}
-    chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
-    if not chat and isinstance(nested.get("chat"), dict):
-        chat = nested["chat"]
-    key = data.get("key") if isinstance(data.get("key"), dict) else {}
-    chat_id = str(
-        _first(data, "chatId", "phone", "remoteJid", "jid")
-        or _first(nested, "chatId", "phone", "remoteJid", "jid")
-        or _first(chat, "id", "chatId", "phone", "remoteJid", "jid")
-        or _first(key, "remoteJid", "chatId", "phone")
-        or ""
+    payload = _payload(data)
+    chat = payload.get("chat") if isinstance(payload.get("chat"), dict) else {}
+    key = payload.get("key") if isinstance(payload.get("key"), dict) else {}
+    chat_id = _identifier_token(
+        _first(payload, "chatId", "phone", "remoteJid", "remoteJidAlt", "jid")
+        or _first(chat, "id", "chatId", "phone", "remoteJid", "remoteJidAlt", "jid")
+        or _first(key, "remoteJid", "remoteJidAlt", "chatId", "phone")
     )
     if not chat_id or is_status_broadcast({"chatId": chat_id}):
         return "", None, None
 
     unread_raw = (
-        _first(data, "unreadCount", "unreadMessages", "unread")
-        if _first(data, "unreadCount", "unreadMessages", "unread") is not None
-        else _first(nested, "unreadCount", "unreadMessages", "unread")
+        _first(payload, "unreadCount", "unreadMessages", "unread")
     )
     try:
         unread_count = max(0, int(unread_raw)) if unread_raw is not None else None
     except (TypeError, ValueError):
         unread_count = None
 
-    explicit_read = _first(data, "isRead", "read", "viewed")
-    if explicit_read is None:
-        explicit_read = _first(nested, "isRead", "read", "viewed")
+    explicit_read = _first(payload, "isRead", "read", "viewed")
     read: bool | None = None
     if explicit_read is not None:
         read = _is_true(explicit_read)
     elif unread_count is not None:
         read = unread_count == 0
     else:
-        raw_state = str(_first(data, "chatStatus", "state", "status") or "").strip().lower()
+        raw_state = str(_first(payload, "chatStatus", "state", "status") or "").strip().lower()
         if raw_state in {"read", "viewed", "seen", "opened", "read_all", "read-all"}:
             read = True
         elif raw_state in {"unread", "unseen", "new_message", "new-message"}:
@@ -248,10 +349,13 @@ def adapt_status_broadcast(data: dict[str, Any]) -> dict[str, Any] | None:
     payload = _payload(data)
     sender = payload.get("sender") if isinstance(payload.get("sender"), dict) else {}
     key = payload.get("key") if isinstance(payload.get("key"), dict) else {}
+    message_node = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+    if not key and isinstance(message_node.get("key"), dict):
+        key = message_node["key"]
     texto, tipo, midia_meta, _reaction_target = _extract_content(payload)
     if tipo is None:
         return None
-    contact_id = str(
+    contact_id = _identifier_token(
         sender.get("phoneNumber")
         or sender.get("phone")
         or sender.get("id")
@@ -259,7 +363,6 @@ def adapt_status_broadcast(data: dict[str, Any]) -> dict[str, Any] | None:
         or sender.get("lid")
         or _first(payload, "participant", "senderId", "author", "keyParticipant")
         or _first(key, "participant", "senderId", "author")
-        or ""
     )
     if not contact_id:
         return None
@@ -281,7 +384,7 @@ def adapt_status_broadcast(data: dict[str, Any]) -> dict[str, Any] | None:
     else:
         color = None
     return {
-        "id": str(_first(payload, "messageId", "id", "zaid") or _first(key, "id", "messageId") or ""),
+        "id": event_id(data),
         "contactId": contact_id,
         "contactName": str(
             sender.get("notify")
@@ -310,18 +413,22 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
 
     payload = _payload(data)
     key = payload.get("key") if isinstance(payload.get("key"), dict) else {}
-    chat_id = _first(payload, "chatId", "phone", "from", "remoteJid", "jid") or _first(
-        key, "remoteJid", "chatId", "phone", "jid"
+    message_node = payload.get("message") if isinstance(payload.get("message"), dict) else {}
+    if not key and isinstance(message_node.get("key"), dict):
+        key = message_node["key"]
+    chat_id = _identifier_token(
+        _first(payload, "chatId", "phone", "from", "remoteJid", "remoteJidAlt", "jid")
+        or _first(key, "remoteJid", "remoteJidAlt", "chatId", "phone", "jid")
     )
     chat = payload.get("chat") if isinstance(payload.get("chat"), dict) else None
     if not chat_id and chat:
-        chat_id = chat.get("id") or chat.get("phone")
+        chat_id = _identifier_token(chat.get("id") or chat.get("phone"))
     if not chat_id:
         return None
 
     sender = payload.get("sender") if isinstance(payload.get("sender"), dict) else {}
     from_me = message_from_me(payload)
-    is_group = bool(_first(payload, "isGroup", "isGroupMsg") or (str(chat_id).endswith("@g.us")))
+    is_group = _is_true(_first(payload, "isGroup", "isGroupMsg")) or chat_id.endswith("@g.us")
     sender_name = str(
         _first(payload, "senderName", "pushName", "notifyName", "notify", "verifiedName")
         or sender.get("notify")
@@ -354,13 +461,15 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
     photo_url = (chat.get("profilePicture") if chat else None) or sender.get("profilePicture")
 
     return {
-        "messageId": str(_first(payload, "messageId", "id", "zaid") or _first(key, "id", "messageId") or ""),
-        "chatId": str(chat_id),
+        "messageId": event_id(data),
+        "chatId": chat_id,
         "fromMe": from_me,
         "isGroup": is_group,
         "senderName": sender_name,
         "chatName": chat_name,
-        "senderId": sender.get("id") if sender else _first(payload, "senderId", "participant", "keyParticipant"),
+        "senderId": _identifier_token(
+            sender.get("id") if sender else _first(payload, "senderId", "participant", "keyParticipant")
+        ) or None,
         "photoUrl": photo_url if isinstance(photo_url, str) and photo_url.startswith("http") else None,
         "timestamp": timestamp_int,
         "texto": texto,
@@ -400,6 +509,9 @@ def _extract_content(data: dict[str, Any]) -> tuple[str, str | None, dict[str, A
             # ``message`` em vez de ``msgContent``.
             return _extract_content({**data, "msgContent": message})
     if isinstance(content, dict):
+        nested_message = content.get("message")
+        if isinstance(nested_message, dict):
+            return _extract_content({**data, "msgContent": nested_message})
         # Reação recebida: {reactionMessage: {key:{id,...}, text}}
         reaction = content.get("reactionMessage")
         if isinstance(reaction, dict):

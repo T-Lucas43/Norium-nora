@@ -240,6 +240,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const audioMimeRef = useRef<string>("audio/webm");
   const cancelarEnvioAudioRef = useRef<boolean>(false);
   const carregandoConversasRef = useRef(false);
+  const carregandoStatusRef = useRef(false);
   const cursorConversasRef = useRef(0);
   const whatsappConectadoRef = useRef(false);
   const conversasRef = useRef<ChatConversa[]>([]);
@@ -262,7 +263,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const carregarConversasDoBackend = useCallback(async (incremental = false, refresh = false) => {
+  const carregarConversasDoBackend = useCallback(async (
+    incremental = false,
+    refresh = false,
+    mostrarErro = true,
+  ) => {
     if (carregandoConversasRef.current) return null;
     carregandoConversasRef.current = true;
     try {
@@ -278,14 +283,15 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         : Number(payload.cursor || cursorConversasRef.current);
       cursorConversasRef.current = Math.max(cursorConversasRef.current, nextCursor);
       setConversas((current) => {
-        if (!data.length) return current;
         return mergeConversationCatalog(current, data, contatosRef.current).sort(
           (left, right) => Number(right.timestampUltimaMsg || 0) - Number(left.timestampUltimaMsg || 0),
         );
       });
       return data;
     } catch (err) {
-      mostrarAviso("error", err instanceof Error ? err.message : "Falha ao carregar conversas.");
+      if (mostrarErro) {
+        mostrarAviso("error", err instanceof Error ? err.message : "Falha ao carregar conversas.");
+      }
       return null;
     } finally {
       carregandoConversasRef.current = false;
@@ -352,6 +358,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   }, [canaisStatus.whatsapp?.numero]);
 
   const carregarStatusDoBackend = useCallback(async (mostrarErro = true, background = false) => {
+    if (carregandoStatusRef.current) return null;
+    carregandoStatusRef.current = true;
     if (!background) setCarregandoStatusWhatsApp(true);
     if (!background) setErroStatusWhatsApp(null);
     try {
@@ -368,6 +376,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     } finally {
       setStatusWhatsAppCarregados(true);
       if (!background) setCarregandoStatusWhatsApp(false);
+      carregandoStatusRef.current = false;
     }
   }, [mostrarAviso]);
 
@@ -441,7 +450,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     }
   }, [mostrarAviso, recarregarCatalogosAposSync]);
 
-  const carregarHistorico = useCallback(async (conversationId: string, older = false) => {
+  const carregarHistorico = useCallback(async (
+    conversationId: string,
+    older = false,
+    mostrarErro = true,
+  ) => {
     if (historicoCarregandoId === conversationId) return;
     const currentPage = historicoRef.current.get(conversationId);
     if (older && currentPage?.hasMore === false) return;
@@ -457,7 +470,9 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       }));
       historicoRef.current.set(conversationId, { cursor: page.cursor, hasMore: page.hasMore });
     } catch (error) {
-      mostrarAviso("error", error instanceof Error ? error.message : "Falha ao carregar o historico do WhatsApp.");
+      if (mostrarErro) {
+        mostrarAviso("error", error instanceof Error ? error.message : "Falha ao carregar o historico do WhatsApp.");
+      }
     } finally {
       setHistoricoCarregandoId((current) => current === conversationId ? null : current);
     }
@@ -537,8 +552,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
 
     async function checarAutenticacao() {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const whatsapp = await whatsappApi.status();
         if (!active) return;
@@ -575,6 +593,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           }));
         }
       } finally {
+        inFlight = false;
         if (active) setLoadingStatus(false);
       }
     }
@@ -590,8 +609,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   useEffect(() => {
     if (canalSelecionadoLogin !== "whatsapp") return;
     let active = true;
+    let inFlight = false;
 
     const atualizarQrCode = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const whatsapp = await whatsappApi.status();
         if (!active) return;
@@ -619,6 +641,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           setErroLogin(error instanceof Error ? error.message : "API do WhatsApp indisponivel.");
           setMensagemLogin("Nao foi possivel consultar a sessao. Tente novamente.");
         }
+      } finally {
+        inFlight = false;
       }
     };
 
@@ -633,7 +657,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   useEffect(() => {
     const atualizarSeVisivel = () => {
       if (!document.hidden && !canalSelecionadoLogin && canaisStatus.whatsapp?.conectado) {
-        void carregarConversasDoBackend(true);
+        void carregarConversasDoBackend(true, false, false);
       }
     };
     const intervaloChats = window.setInterval(atualizarSeVisivel, 3_000);
@@ -647,11 +671,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   useEffect(() => {
     const atualizarEmTempoReal = () => {
       if (!whatsappConectadoRef.current) return;
-      void carregarConversasDoBackend(true);
+      void carregarConversasDoBackend(true, false, false);
       void carregarStatusDoBackend(false, true);
       if (conversaSelecionada) {
         historicoRef.current.delete(conversaSelecionada);
-        void carregarHistorico(conversaSelecionada);
+        void carregarHistorico(conversaSelecionada, false, false);
       }
     };
     window.addEventListener("norium:whatsapp-event", atualizarEmTempoReal);
@@ -663,7 +687,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     const atualizarStatusVisivel = () => {
       if (!document.hidden) void carregarStatusDoBackend(false, true);
     };
-    const interval = window.setInterval(atualizarStatusVisivel, 15_000);
+    void atualizarStatusVisivel();
+    const interval = window.setInterval(atualizarStatusVisivel, 3_000);
     return () => window.clearInterval(interval);
   }, [canaisStatus.whatsapp?.conectado, carregarStatusDoBackend, secaoWhatsApp]);
 
@@ -1086,6 +1111,24 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         nomeArquivo: arquivo.name,
         mimeType: arquivo.type || "application/octet-stream",
       }))
+    );
+  };
+
+  const handleColarAnexos = (arquivos: File[]) => {
+    if (!conversaSelecionada || arquivos.length === 0) return;
+    const timestamp = Date.now();
+    adicionarAnexosPendentes(
+      arquivos.map((arquivo, index) => {
+        const mimeType = arquivo.type || "application/octet-stream";
+        const extension = mimeType.startsWith("image/")
+          ? mimeType.split("/")[1]?.replace("jpeg", "jpg") || "png"
+          : "bin";
+        return {
+          arquivo,
+          nomeArquivo: arquivo.name || `anexo-colado-${timestamp}-${index + 1}.${extension}`,
+          mimeType,
+        };
+      }),
     );
   };
 
@@ -1522,7 +1565,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
             key={conversaAtiva?.id || "vazio"}
             conversaAtiva={conversaAtiva} onEnviar={handleEnviarMensagem}
             onAbrirDadosPerfil={() => void abrirDadosPerfil()}
-            onAnexarArquivo={handleAnexarArquivo} onGravarAudio={handleGravarAudio}
+            onAnexarArquivo={handleAnexarArquivo} onColarAnexos={handleColarAnexos} onGravarAudio={handleGravarAudio}
             gravando={gravando} tempoGravacao={tempoGravacao} formatarTempo={formatarTempo}
             anexosPendentes={anexosPendentes}
             enviandoAnexos={enviandoAnexos}

@@ -187,6 +187,205 @@ class WapiRuntimeSyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("contatos em cache/chats", cache["catalogWarnings"])
         self.assertGreater(float(cache["contactSyncAttemptedAt"]), 0)
 
+    async def test_catalog_status_alias_is_saved_to_feed_not_conversations_or_cache(self) -> None:
+        now = int(time.time())
+        with (
+            patch.object(chat_router, "fetch_all_wapi_contacts", AsyncMock(return_value=[])),
+            patch.object(
+                chat_router,
+                "fetch_all_wapi_chats",
+                AsyncMock(
+                    return_value=[
+                        {
+                            "id": "status",
+                            "messages": [
+                                {
+                                    "messageId": "CATALOG-STATUS-1",
+                                    "moment": now,
+                                    "sender": {"id": "5511666665555"},
+                                    "msgContent": {
+                                        "imageMessage": {
+                                            "caption": "status pelo catálogo",
+                                            "mimetype": "image/jpeg",
+                                            "mediaKey": "catalog-key",
+                                            "directPath": "/catalog/status",
+                                        }
+                                    },
+                                }
+                            ],
+                        },
+                        {
+                            "id": "5511666665555@s.whatsapp.net",
+                            "notify": "Bia",
+                        },
+                        {
+                            "id": "5511999990000@s.whatsapp.net",
+                            "notify": "Contato normal",
+                        },
+                    ]
+                ),
+            ),
+        ):
+            result = await chat_router._run_contact_sync("user-runtime")
+
+        self.assertEqual("complete", result["status"])
+        conversations = await load_conversations("user-runtime")
+        self.assertNotIn("status", conversations)
+        self.assertIn("5511999990000@s.whatsapp.net", conversations)
+        feed = await chat_router.load_whatsapp_status_feed("user-runtime")
+        stored = next(item for item in feed["items"] if item["id"] == "CATALOG-STATUS-1")
+        self.assertEqual("Bia", stored["contactName"])
+        self.assertEqual("status pelo catálogo", stored["texto"])
+        self.assertIn("/api/chat/midia/", stored["arquivoUrl"])
+        cache = await chat_router.load_whatsapp_catalog_cache("user-runtime")
+        self.assertNotIn("status", {str(item.get("id") or "") for item in cache["chats"]})
+
+    async def test_contact_sync_enriches_existing_status_without_new_status_payload(self) -> None:
+        now = int(time.time())
+        await chat_router.save_whatsapp_status_feed(
+            "user-runtime",
+            {
+                "items": [
+                    {
+                        "id": "STATUS-BEFORE-CONTACTS",
+                        "contactId": "5511666665555",
+                        "contactName": "5511666665555",
+                        "timestamp": now,
+                        "texto": "chegou antes do catálogo",
+                        "tipo": "texto",
+                        "visualizado": False,
+                    }
+                ]
+            },
+        )
+
+        with (
+            patch.object(
+                chat_router,
+                "fetch_all_wapi_contacts",
+                AsyncMock(
+                    return_value=[
+                        {
+                            "id": "5511666665555@s.whatsapp.net",
+                            "notify": "Bia da agenda",
+                            "profilePictureUrl": "https://cdn.example/bia.jpg",
+                        }
+                    ]
+                ),
+            ),
+            patch.object(chat_router, "fetch_all_wapi_chats", AsyncMock(return_value=[])),
+        ):
+            result = await chat_router._run_contact_sync("user-runtime")
+
+        self.assertEqual("complete", result["status"])
+        feed = await chat_router.load_whatsapp_status_feed("user-runtime")
+        stored = next(item for item in feed["items"] if item["id"] == "STATUS-BEFORE-CONTACTS")
+        self.assertEqual("Bia da agenda", stored["contactName"])
+        self.assertEqual("https://cdn.example/bia.jpg", stored["photoUrl"])
+
+    async def test_legacy_status_conversation_migrates_before_removal_without_name_false_positive(self) -> None:
+        now = int(time.time())
+        technical = new_conversation("status", contato="T", channel="whatsapp")
+        technical["lida"] = False
+        technical["mensagens"] = [
+            {
+                "id": "LEGACY-STATUS-1",
+                "remetente": "contato",
+                "remetenteId": "5511555554444",
+                "remetenteNome": "Tarcísia",
+                "texto": "legado preservado",
+                "tipo": "midia",
+                "arquivoUrl": "/api/chat/midia/LEGACY-STATUS-1?conversa_id=status",
+                "arquivoMime": "image/jpeg",
+                "midiaMeta": {
+                    "mediaKey": "legacy-key",
+                    "directPath": "/legacy/status",
+                    "type": "image",
+                    "mimetype": "image/jpeg",
+                },
+                "timestamp": now,
+                "horario": "15:00",
+                "canal": "whatsapp",
+                "channel": "whatsapp",
+            }
+        ]
+        human = new_conversation(
+            "5511444443333@s.whatsapp.net",
+            contato="Status",
+            channel="whatsapp",
+        )
+        human["timestampUltimaMsg"] = now
+        human["horario"] = "15:01"
+        await save_conversations(
+            {"status": technical, "5511444443333@s.whatsapp.net": human},
+            "user-runtime",
+        )
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-runtime",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "authenticatedAt": time.time(),
+                "catalogSyncedAt": time.time(),
+                "contactsSyncedAt": time.time(),
+                "contacts": [],
+                "chats": [],
+            },
+        )
+
+        with patch.object(
+            chat_router.wapi_connect,
+            "status",
+            AsyncMock(return_value={"status": "conectado"}),
+        ):
+            conversations = await chat_router.obter_conversas(
+                since=None,
+                limit=100,
+                refresh=False,
+                user=chat_user(),
+            )
+
+        self.assertNotIn("status", {item["id"] for item in conversations})
+        self.assertIn("5511444443333@s.whatsapp.net", {item["id"] for item in conversations})
+        stored_db = await load_conversations("user-runtime")
+        self.assertNotIn("status", stored_db)
+        self.assertEqual("Status", stored_db["5511444443333@s.whatsapp.net"]["contato"])
+        feed = await chat_router.load_whatsapp_status_feed("user-runtime")
+        migrated = next(item for item in feed["items"] if item["id"] == "LEGACY-STATUS-1")
+        self.assertEqual("Tarcísia", migrated["contactName"])
+        self.assertEqual("5511555554444", migrated["contactId"])
+        self.assertEqual("legado preservado", migrated["texto"])
+        self.assertEqual("/api/chat/midia/LEGACY-STATUS-1?conversa_id=status", migrated["arquivoUrl"])
+        self.assertEqual("image/jpeg", migrated["arquivoMime"])
+        self.assertFalse(migrated["visualizado"])
+
+    async def test_conversation_delta_never_waits_for_remote_connection_status(self) -> None:
+        now = int(time.time())
+        conversation_id = "5511333332222@s.whatsapp.net"
+        conversation = new_conversation(conversation_id, contato="Contato delta", channel="whatsapp")
+        conversation["timestampUltimaMsg"] = now
+        conversation["horario"] = "15:10"
+        await save_conversations({conversation_id: conversation}, "user-runtime")
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-runtime",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "conversationUpdates": {conversation_id: now},
+            },
+        )
+        remote_status = AsyncMock(side_effect=AssertionError("delta abriu consulta remota"))
+
+        with patch.object(chat_router.wapi_connect, "status", remote_status):
+            result = await chat_router.obter_conversas(
+                since=now - 1,
+                limit=100,
+                refresh=False,
+                user=chat_user(),
+            )
+
+        self.assertEqual([conversation_id], [item["id"] for item in result["items"]])
+        self.assertEqual(now, result["cursor"])
+        remote_status.assert_not_awaited()
+
     async def test_whole_chat_catalog_failure_is_partial_and_preserves_cache(self) -> None:
         await chat_router.save_whatsapp_catalog_cache(
             "user-runtime",

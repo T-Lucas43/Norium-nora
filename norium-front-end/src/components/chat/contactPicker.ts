@@ -1,5 +1,5 @@
 import type { ChatConversa, MsgConteudo } from "./types";
-import type { Contact } from "./whatsappApi";
+import { isWhatsAppStatusIdentifier, type Contact } from "./whatsappApi";
 
 function normalizeSearch(value: string) {
   return value
@@ -244,8 +244,13 @@ export function enrichConversationsWithContacts(conversations: ChatConversa[], c
 }
 
 export function mergeConversationCatalog(current: ChatConversa[], incoming: ChatConversa[], contacts: Contact[] = []) {
-  const currentById = new Map(current.map((conversation) => [conversation.id, conversation]));
-  const merged = incoming.map((conversation) => {
+  const isStatusConversation = (conversation: ChatConversa) => (
+    [conversation.id, conversation.metadados?.numeroCompleto].some(isWhatsAppStatusIdentifier)
+  );
+  const safeCurrent = current.filter((conversation) => !isStatusConversation(conversation));
+  const safeIncoming = incoming.filter((conversation) => !isStatusConversation(conversation));
+  const currentById = new Map(safeCurrent.map((conversation) => [conversation.id, conversation]));
+  const merged = safeIncoming.map((conversation) => {
     const previous = currentById.get(conversation.id);
     if (!previous) return conversation;
     const incomingName = conversationDisplayName(conversation);
@@ -263,8 +268,8 @@ export function mergeConversationCatalog(current: ChatConversa[], incoming: Chat
       },
     };
   });
-  const incomingIds = new Set(incoming.map((conversation) => conversation.id));
-  current.forEach((conversation) => {
+  const incomingIds = new Set(safeIncoming.map((conversation) => conversation.id));
+  safeCurrent.forEach((conversation) => {
     if (!incomingIds.has(conversation.id)) merged.push(conversation);
   });
   return enrichConversationsWithContacts(merged, contacts);

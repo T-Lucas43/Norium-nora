@@ -121,6 +121,19 @@ def whatsapp_conversation_mutation_lock(user_id: str) -> asyncio.Lock:
     return whatsapp_conversation_mutation_locks.setdefault((loop_key, user_id), asyncio.Lock())
 
 
+def _webhook_binding_is_current(user_id: str, data: Dict[str, Any]) -> bool:
+    """Reconfirma o vínculo depois de o webhook adquirir o lock do tenant.
+
+    O endpoint resolve o dono antes de aguardar o lock. Se o usuário desconectar
+    nesse intervalo, o índice já terá sido removido e o evento em voo precisa ser
+    descartado para não recriar conversas, Status ou o estado de conexão local.
+    Chamadas internas sem ``instanceId`` continuam permitidas para reaproveitar os
+    handlers em testes e rotinas locais; o endpoint público sempre exige a instância.
+    """
+    instance_id = wapi_webhook.instance_id(data)
+    return not instance_id or wb.owner_of_instance(instance_id) == user_id
+
+
 def _mask_id(value: Any) -> str | None:
     """Remove o identificador local e preserva apenas o tipo de JID."""
     s = str(value or "").strip()
@@ -654,8 +667,8 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
     )
     try:
         cache = await load_whatsapp_catalog_cache(user_id)
-        cached_contacts = [item for item in (cache.get("contacts") or []) if isinstance(item, dict)]
-        cached_chats = [item for item in (cache.get("chats") or []) if isinstance(item, dict)]
+        raw_cached_contacts = [item for item in (cache.get("contacts") or []) if isinstance(item, dict)]
+        raw_cached_chats = [item for item in (cache.get("chats") or []) if isinstance(item, dict)]
 
         # Contatos e chats são catálogos independentes. Rodam juntos; se a rota
         # PRO de contatos falhar, nomes já conhecidos e nomes presentes nos
@@ -665,15 +678,29 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
             fetch_all_wapi_chats(user_id),
             return_exceptions=True,
         )
+        raw_fresh_contacts = contacts_result if isinstance(contacts_result, list) else []
+        raw_fresh_chats = chats_result if isinstance(chats_result, list) else []
+        status_catalog_payloads = [
+            payload
+            for record in [
+                *raw_cached_contacts,
+                *raw_cached_chats,
+                *raw_fresh_contacts,
+                *raw_fresh_chats,
+            ]
+            for payload in wapi_webhook.status_broadcast_payloads(record)
+        ]
+        cached_contacts = [
+            item for item in raw_cached_contacts if not wapi_webhook.is_status_broadcast(item)
+        ]
+        cached_chats = [
+            item for item in raw_cached_chats if not wapi_webhook.is_status_broadcast(item)
+        ]
         fresh_contacts = (
-            [item for item in contacts_result if not wapi_webhook.is_status_broadcast(item)]
-            if isinstance(contacts_result, list)
-            else []
+            [item for item in raw_fresh_contacts if not wapi_webhook.is_status_broadcast(item)]
         )
         fresh_chats = (
-            [item for item in chats_result if not wapi_webhook.is_status_broadcast(item)]
-            if isinstance(chats_result, list)
-            else []
+            [item for item in raw_fresh_chats if not wapi_webhook.is_status_broadcast(item)]
         )
         contacts_partial = bool(getattr(contacts_result, "partial", False))
         chats_partial = bool(getattr(chats_result, "partial", False))
@@ -730,7 +757,15 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         # deste merge ou espera o merge terminar; nunca é apagada por snapshot antigo.
         async with whatsapp_conversation_mutation_lock(user_id):
             db = await load_conversations(user_id)
-            changed = False
+            # Mesmo sem Status novos, aplica nomes/fotos recém-sincronizados aos
+            # itens que já estavam no feed (muitos chegam primeiro apenas com JID).
+            await _store_status_payloads_unlocked(
+                user_id,
+                status_catalog_payloads,
+                contact_names=contact_names,
+                contact_photos=contact_photos,
+            )
+            changed = await _migrate_legacy_status_conversations_unlocked(user_id, db)
             for index, chat in enumerate(chats):
                 conversation_id = _contact_primary_id(chat)
                 if not conversation_id:
@@ -1150,6 +1185,10 @@ async def iniciar_sincronizacao_whatsapp(user: dict[str, Any] = Depends(current_
 async def listar_status_whatsapp(user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
+    async with whatsapp_conversation_mutation_lock(resolved_user_id):
+        db = await load_conversations(resolved_user_id)
+        if await _migrate_legacy_status_conversations_unlocked(resolved_user_id, db):
+            await save_conversations(db, resolved_user_id)
     feed = await load_whatsapp_status_feed(resolved_user_id)
     cutoff = int(time.time()) - 24 * 60 * 60
     items = [
@@ -1206,14 +1245,18 @@ async def visualizar_status_whatsapp(
 ):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
-    feed = await load_whatsapp_status_feed(resolved_user_id)
-    items = [item for item in (feed.get("items") or []) if isinstance(item, dict)]
-    target = next((item for item in items if str(item.get("id") or "") == status_id), None)
-    if not target:
-        raise HTTPException(status_code=404, detail="Status nao encontrado ou expirado.")
-    target["visualizado"] = True
-    target["visualizadoEm"] = time.time()
-    await save_whatsapp_status_feed(resolved_user_id, {**feed, "items": items, "updatedAt": time.time()})
+    async with whatsapp_conversation_mutation_lock(resolved_user_id):
+        feed = await load_whatsapp_status_feed(resolved_user_id)
+        items = [item for item in (feed.get("items") or []) if isinstance(item, dict)]
+        target = next((item for item in items if str(item.get("id") or "") == status_id), None)
+        if not target:
+            raise HTTPException(status_code=404, detail="Status nao encontrado ou expirado.")
+        target["visualizado"] = True
+        target["visualizadoEm"] = time.time()
+        await save_whatsapp_status_feed(
+            resolved_user_id,
+            {**feed, "items": items, "updatedAt": time.time()},
+        )
 
     synced = False
     creds = wapi_creds(resolved_user_id)
@@ -1322,14 +1365,18 @@ async def desconectar_whatsapp(user: dict[str, Any] = Depends(current_user)):
     # /instance/disconnect da W-API — esse endpoint desloga a conta inteira e
     # derruba o celular e os demais aparelhos. Aqui limpamos só o vínculo e o
     # cache locais; os outros dispositivos do usuário permanecem conectados.
-    wb.clear_binding(resolved_user_id)
-    await save_conversations({}, resolved_user_id)
-    await save_whatsapp_catalog_cache(resolved_user_id, {})
-    await save_whatsapp_status_feed(resolved_user_id, {"items": []})
     sync_task = whatsapp_contact_sync_tasks.pop(resolved_user_id, None)
     if sync_task and not sync_task.done():
         sync_task.cancel()
-    whatsapp_contact_sync_states.pop(resolved_user_id, None)
+    # Compartilha o lock com sincronização e webhooks. O vínculo é removido antes
+    # dos caches para que qualquer evento que já resolveu o tenant, mas ainda
+    # aguardava o lock, falhe na reconfirmação e não grave dados após a limpeza.
+    async with whatsapp_conversation_mutation_lock(resolved_user_id):
+        wb.clear_binding(resolved_user_id)
+        await save_conversations({}, resolved_user_id)
+        await save_whatsapp_catalog_cache(resolved_user_id, {})
+        await save_whatsapp_status_feed(resolved_user_id, {"items": []})
+        whatsapp_contact_sync_states.pop(resolved_user_id, None)
     for cache_key in [key for key in profile_photo_attempt_cache if key.startswith(f"{resolved_user_id}:")]:
         profile_photo_attempt_cache.pop(cache_key, None)
     status_conexoes.pop(resolved_user_id, None)
@@ -1361,7 +1408,7 @@ async def webhook_whatsapp(
         raise HTTPException(status_code=403, detail="Webhook WhatsApp nao autorizado.")
 
     # 2) Dono resolvido pela instancia (mapa seguro). Nunca confia em userId do payload.
-    instance_id = str(data.get("instanceId") or data.get("instanceID") or "").strip()
+    instance_id = wapi_webhook.instance_id(data)
     owner_user_id = wb.owner_of_instance(instance_id) if instance_id else None
     if not owner_user_id:
         # Nao revela a existencia de instancias de terceiros.
@@ -1437,7 +1484,7 @@ async def webhook_whatsapp(
         elif kind == wapi_webhook.EVENT_PRESENCE:
             result = await _wapi_handle_status(owner_user_id, data)
         elif kind in (wapi_webhook.EVENT_CONNECTED, wapi_webhook.EVENT_DISCONNECTED):
-            result = _wapi_handle_connection(owner_user_id, kind)
+            result = await _wapi_handle_connection_event(owner_user_id, kind, data)
         else:
             result = {"status": "ignored", "event": kind}
 
@@ -1487,6 +1534,8 @@ async def _wapi_apply_reaction(user_id: str, msg: Dict[str, Any]) -> Dict[str, A
 
 async def _wapi_handle_received(user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     async with whatsapp_conversation_mutation_lock(user_id):
+        if not _webhook_binding_is_current(user_id, data):
+            return {"status": "ignored", "event": "stale_binding"}
         return await _wapi_handle_received_unlocked(user_id, data)
 
 
@@ -1587,54 +1636,217 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
     return {"status": "success"}
 
 
-async def _wapi_handle_status_broadcast(user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    """Armazena Status em feed próprio, nunca no banco de conversas."""
-    item = wapi_webhook.adapt_status_broadcast(data)
-    if not item:
-        return {"status": "ignored", "event": "status_broadcast"}
-    _, current_ts = current_clock()
-    item["timestamp"] = int(item.get("timestamp") or current_ts)
-    item["id"] = str(item.get("id") or f"status_{item['timestamp']}_{uuid.uuid4().hex[:8]}")
-    item["horario"] = format_whatsapp_time(item["timestamp"])
-    item["visualizado"] = bool(item.get("fromMe"))
-    item["visualizadoEm"] = item["timestamp"] if item.get("fromMe") else None
-
-    catalog = await load_whatsapp_catalog_cache(user_id)
-    cached_contacts = [entry for entry in (catalog.get("contacts") or []) if isinstance(entry, dict)]
-    names, photos, _metadata = build_contact_indexes(cached_contacts)
-    contact_id = str(item.get("contactId") or "")
-    item["contactName"] = melhor_nome_contato(
-        item.get("contactName"),
-        names.get(contact_id),
-        contact_id,
-    )
-    item["photoUrl"] = item.get("photoUrl") or photos.get(contact_id)
-    if item.get("photoUrl"):
-        item["photoFetchedAt"] = time.time()
-
-    # O conteúdo de Status é separado. Imagem/vídeo pode ser baixado sob
-    # demanda; figurinha nunca recebe URL nem metadados de mídia.
-    if item.get("midiaMeta") and item.get("tipo") != "sticker":
-        item["arquivoUrl"] = whatsapp_media_url(item["id"], "status@broadcast")
-        item["arquivoMime"] = item["midiaMeta"].get("mimetype")
+async def _store_status_items_unlocked(
+    user_id: str,
+    incoming_items: list[Dict[str, Any]],
+    *,
+    contact_names: Dict[str, str] | None = None,
+    contact_photos: Dict[str, str] | None = None,
+) -> Dict[str, int]:
+    """Mescla Status no feed do tenant sem tocar no banco de conversas."""
+    if contact_names is None or contact_photos is None:
+        catalog = await load_whatsapp_catalog_cache(user_id)
+        cached_contacts = [entry for entry in (catalog.get("contacts") or []) if isinstance(entry, dict)]
+        cached_chats = [entry for entry in (catalog.get("chats") or []) if isinstance(entry, dict)]
+        names, photos, _metadata = build_contact_indexes([*cached_contacts, *cached_chats])
     else:
-        item["midiaMeta"] = None
-        item["arquivoUrl"] = None
-
+        names, photos = contact_names, contact_photos
     feed = await load_whatsapp_status_feed(user_id)
     items = [entry for entry in (feed.get("items") or []) if isinstance(entry, dict)]
-    if any(str(entry.get("id") or "") == item["id"] for entry in items):
-        return {"status": "duplicate", "event": "status_broadcast"}
+    _, current_ts = current_clock()
+    added = 0
+    updated = 0
+
+    # Um Status pode chegar antes do catálogo de contatos. Reprocessa o feed
+    # existente sempre que há índices mais ricos, sem exigir um novo payload.
+    for index, existing in enumerate(items):
+        contact_id = str(existing.get("contactId") or "")
+        enriched = dict(existing)
+        enriched["contactName"] = melhor_nome_contato(
+            existing.get("contactName"),
+            names.get(contact_id),
+            contact_id,
+        )
+        enriched["photoUrl"] = existing.get("photoUrl") or photos.get(contact_id)
+        if enriched.get("photoUrl") and not enriched.get("photoFetchedAt"):
+            enriched["photoFetchedAt"] = time.time()
+        if enriched != existing:
+            items[index] = enriched
+            updated += 1
+
+    by_id = {str(entry.get("id") or ""): index for index, entry in enumerate(items)}
+
+    for raw_item in incoming_items:
+        if not isinstance(raw_item, dict):
+            continue
+        item = dict(raw_item)
+        item["timestamp"] = int(item.get("timestamp") or current_ts)
+        item["id"] = str(item.get("id") or f"status_{item['timestamp']}_{uuid.uuid4().hex[:8]}")
+        item["horario"] = item.get("horario") or format_whatsapp_time(item["timestamp"])
+        item["visualizado"] = bool(item.get("visualizado", item.get("fromMe")))
+        item["visualizadoEm"] = (
+            item.get("visualizadoEm") or item["timestamp"]
+            if item["visualizado"]
+            else None
+        )
+        contact_id = str(item.get("contactId") or "")
+        item["contactName"] = melhor_nome_contato(
+            item.get("contactName"),
+            names.get(contact_id),
+            contact_id,
+        )
+        item["photoUrl"] = item.get("photoUrl") or photos.get(contact_id)
+        if item.get("photoUrl"):
+            item["photoFetchedAt"] = item.get("photoFetchedAt") or time.time()
+
+        # Imagem/vídeo é baixado sob demanda. Figurinha continua sem URL nem
+        # metadados de mídia, para não poluir a galeria de Status.
+        if item.get("midiaMeta") and item.get("tipo") != "sticker":
+            item["arquivoUrl"] = item.get("arquivoUrl") or whatsapp_media_url(
+                item["id"], "status@broadcast"
+            )
+            item["arquivoMime"] = item.get("arquivoMime") or item["midiaMeta"].get("mimetype")
+        elif item.get("tipo") == "sticker":
+            item["midiaMeta"] = None
+            item["arquivoUrl"] = None
+
+        existing_index = by_id.get(item["id"])
+        if existing_index is None:
+            by_id[item["id"]] = len(items)
+            items.append(item)
+            added += 1
+            continue
+        existing = items[existing_index]
+        merged = {
+            **existing,
+            **{key: value for key, value in item.items() if value not in (None, "")},
+        }
+        if existing.get("visualizado"):
+            merged["visualizado"] = True
+            merged["visualizadoEm"] = existing.get("visualizadoEm") or merged.get("visualizadoEm")
+        if merged != existing:
+            items[existing_index] = merged
+            updated += 1
+
     cutoff = int(time.time()) - 48 * 60 * 60
-    items = [entry for entry in items if int(entry.get("timestamp") or 0) >= cutoff]
-    items.append(item)
-    items.sort(key=lambda entry: int(entry.get("timestamp") or 0))
-    await save_whatsapp_status_feed(user_id, {"items": items[-500:], "updatedAt": time.time()})
-    return {"status": "success", "event": "status_broadcast"}
+    filtered = [entry for entry in items if int(entry.get("timestamp") or 0) >= cutoff]
+    filtered.sort(key=lambda entry: int(entry.get("timestamp") or 0))
+    if added or updated or len(filtered) != len(items):
+        await save_whatsapp_status_feed(
+            user_id,
+            {"items": filtered[-500:], "updatedAt": time.time()},
+        )
+    return {"added": added, "updated": updated}
+
+
+async def _store_status_payloads_unlocked(
+    user_id: str,
+    payloads: list[Dict[str, Any]],
+    *,
+    contact_names: Dict[str, str] | None = None,
+    contact_photos: Dict[str, str] | None = None,
+) -> Dict[str, int]:
+    adapted = [
+        item
+        for item in (wapi_webhook.adapt_status_broadcast(payload) for payload in payloads)
+        if item is not None
+    ]
+    return await _store_status_items_unlocked(
+        user_id,
+        adapted,
+        contact_names=contact_names,
+        contact_photos=contact_photos,
+    )
+
+
+def _is_technical_status_conversation(
+    conversation_id: str,
+    conversation: Dict[str, Any],
+) -> bool:
+    """Reconhece IDs técnicos sem usar o nome humano do contato como prova."""
+    metadata = conversation.get("metadados") if isinstance(conversation.get("metadados"), dict) else {}
+    identifiers = (
+        conversation_id,
+        conversation.get("id"),
+        metadata.get("numeroCompleto"),
+        metadata.get("chatId"),
+        metadata.get("remoteJid"),
+        metadata.get("jid"),
+    )
+    return any(wapi_webhook.is_status_broadcast({"chatId": value}) for value in identifiers if value)
+
+
+async def _migrate_legacy_status_conversations_unlocked(
+    user_id: str,
+    db: Dict[str, Any],
+) -> bool:
+    """Move Status persistidos por versões antigas ao feed antes de removê-los."""
+    technical_ids = [
+        conversation_id
+        for conversation_id, conversation in db.items()
+        if isinstance(conversation, dict)
+        and _is_technical_status_conversation(conversation_id, conversation)
+    ]
+    if not technical_ids:
+        return False
+
+    migrated_items: list[Dict[str, Any]] = []
+    for conversation_id in technical_ids:
+        conversation = db[conversation_id]
+        metadata = conversation.get("metadados") if isinstance(conversation.get("metadados"), dict) else {}
+        contact_name = str(conversation.get("contato") or "").strip()
+        if wapi_webhook.is_status_broadcast({"chatId": contact_name}):
+            contact_name = "Status do WhatsApp"
+        for message in conversation.get("mensagens") or []:
+            if not isinstance(message, dict):
+                continue
+            message_id = str(message.get("id") or "")
+            sender_id = str(message.get("remetenteId") or "").strip()
+            migrated_items.append(
+                {
+                    "id": message_id or f"legacy_status_{uuid.uuid4().hex[:12]}",
+                    "contactId": sender_id or contact_name or f"legacy:{conversation_id}",
+                    "contactName": message.get("remetenteNome") or contact_name or "Status do WhatsApp",
+                    "photoUrl": conversation.get("photoUrl") or metadata.get("photoUrl"),
+                    "fromMe": message.get("remetente") == "usuario",
+                    "timestamp": int(message.get("timestamp") or conversation.get("timestampUltimaMsg") or 0),
+                    "horario": message.get("horario"),
+                    "texto": message.get("texto") or "",
+                    "tipo": message.get("tipo") or "texto",
+                    "midiaMeta": message.get("midiaMeta"),
+                    "arquivoUrl": message.get("arquivoUrl"),
+                    "arquivoMime": message.get("arquivoMime"),
+                    "visualizado": bool(message.get("remetente") == "usuario" or conversation.get("lida")),
+                }
+            )
+
+    # Só remove o legado depois que a gravação do feed concluiu sem exceção.
+    await _store_status_items_unlocked(user_id, migrated_items)
+    for conversation_id in technical_ids:
+        db.pop(conversation_id, None)
+    return True
+
+
+async def _wapi_handle_status_broadcast(user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Armazena Status em feed próprio, nunca no banco de conversas."""
+    payloads = wapi_webhook.status_broadcast_payloads(data)
+    if not payloads:
+        return {"status": "ignored", "event": "status_broadcast"}
+    async with whatsapp_conversation_mutation_lock(user_id):
+        if not _webhook_binding_is_current(user_id, data):
+            return {"status": "ignored", "event": "stale_binding"}
+        result = await _store_status_payloads_unlocked(user_id, payloads)
+    if result["added"]:
+        return {"status": "success", "event": "status_broadcast"}
+    if result["updated"]:
+        return {"status": "success", "event": "status_broadcast"}
+    return {"status": "duplicate", "event": "status_broadcast"}
 
 
 async def _wapi_handle_status(user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     async with whatsapp_conversation_mutation_lock(user_id):
+        if not _webhook_binding_is_current(user_id, data):
+            return {"status": "ignored", "event": "stale_binding"}
         return await _wapi_handle_status_unlocked(user_id, data)
 
 
@@ -1724,6 +1936,18 @@ def _wapi_handle_connection(user_id: str, kind: str) -> Dict[str, Any]:
     return {"status": "success", "event": kind}
 
 
+async def _wapi_handle_connection_event(
+    user_id: str,
+    kind: str,
+    data: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Aplica conexão/desconexão apenas se a instância ainda pertence ao tenant."""
+    async with whatsapp_conversation_mutation_lock(user_id):
+        if not _webhook_binding_is_current(user_id, data):
+            return {"status": "ignored", "event": "stale_binding"}
+        return _wapi_handle_connection(user_id, kind)
+
+
 @router.get("/api/chat/conversas")
 async def obter_conversas(
     user_id: str | None = Query(default=None, deprecated=True),
@@ -1734,23 +1958,13 @@ async def obter_conversas(
 ):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
-    db = await load_conversations(resolved_user_id)
-    # Remove também conversas de Status já persistidas por versões anteriores.
-    status_conversation_ids = [
-        conversation_id
-        for conversation_id in db
-        if wapi_webhook.is_status_broadcast({"chatId": conversation_id})
-    ]
-    if status_conversation_ids:
-        for conversation_id in status_conversation_ids:
-            db.pop(conversation_id, None)
-        await save_conversations(db, resolved_user_id)
+    async with whatsapp_conversation_mutation_lock(resolved_user_id):
+        db = await load_conversations(resolved_user_id)
+        # Versões antigas gravavam o pseudo-chat ``status`` junto das conversas.
+        # Migra primeiro ao feed exclusivo e só então remove o registro técnico.
+        if await _migrate_legacy_status_conversations_unlocked(resolved_user_id, db):
+            await save_conversations(db, resolved_user_id)
     catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
-    whatsapp_status = await wapi_connect.status(resolved_user_id)
-    if whatsapp_status.get("status") != "conectado":
-        if since is None and db and catalog_cache.get("authenticatedAt"):
-            return sorted_conversations(db)
-        return {"items": [], "cursor": since or 0, "hasMore": False} if since is not None else []
 
     if since is not None:
         # O webhook/evento em tempo real ja atualiza o cache. Um delta nunca
@@ -1808,6 +2022,15 @@ async def obter_conversas(
         # duplica a mesma varredura no request da lista; o frontend recebe o
         # snapshot local imediatamente e o próximo delta traz o catálogo.
         return sorted_conversations(db)
+
+    # A conectividade é consultada somente quando o snapshot local realmente
+    # precisa de atualização. Polling incremental e cache fresco não podem
+    # ficar bloqueados por tentativas/retries da API externa.
+    whatsapp_status = await wapi_connect.status(resolved_user_id)
+    if whatsapp_status.get("status") != "conectado":
+        if db and catalog_cache.get("authenticatedAt"):
+            return sorted_conversations(db)
+        return []
 
     # A listagem é um caminho interativo e não pode aguardar paginação remota,
     # fotos ou metadados. O worker atualiza o store/cache em background; o
@@ -1991,7 +2214,10 @@ async def obter_midia_whatsapp(
             if str(item.get("id") or "") == message_id and isinstance(item.get("midiaMeta"), dict):
                 media_meta = item["midiaMeta"]
                 break
-    if not media_meta and (resolved_conversation_id == "status@broadcast" or not resolved_conversation_id):
+    if not media_meta and (
+        not resolved_conversation_id
+        or wapi_webhook.is_status_broadcast({"chatId": resolved_conversation_id})
+    ):
         status_feed = await load_whatsapp_status_feed(resolved_user_id)
         for item in status_feed.get("items") or []:
             if str(item.get("id") or "") == message_id and isinstance(item.get("midiaMeta"), dict):
@@ -2258,7 +2484,11 @@ async def obter_contatos_disponiveis(
                 "isBlocked": (conversation.get("metadados") or {}).get("isBlocked"),
             }
             for conversation_id, conversation in db.items()
-            if isinstance(conversation, dict) and not conversation.get("esGrupo")
+            if (
+                isinstance(conversation, dict)
+                and not conversation.get("esGrupo")
+                and not _is_technical_status_conversation(conversation_id, conversation)
+            )
         ]
         # Esta rota é de interação e precisa responder imediatamente. Atualiza o
         # catálogo em background; nunca abre dezenas de páginas da W-API no
@@ -2772,7 +3002,7 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
         message_id = wapi_webhook.event_id(raw_message).strip()
         if not message_id or not timestamp:
             continue
-        chat_id = str(chat.get("id") or chat.get("phone") or chat.get("jid") or "") or None
+        chat_id = _contact_primary_id(chat) or None
         adapted = wapi_webhook.adapt_incoming(
             {
                 **raw_message,
@@ -2882,7 +3112,7 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
         adapted_last = wapi_webhook.adapt_incoming(
             {
                 **raw_last_message,
-                "chatId": chat.get("id") or chat.get("phone") or chat.get("jid"),
+                "chatId": _contact_primary_id(chat),
                 "messageId": last_message_id,
             }
         )

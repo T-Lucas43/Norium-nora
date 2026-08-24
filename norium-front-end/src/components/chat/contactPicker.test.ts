@@ -9,6 +9,7 @@ import {
   enrichConversationsWithContacts,
   formatWhatsAppPhone,
   mergeContactCatalog,
+  mergeConversationCatalog,
   mergeConversationDetails,
   mergeMessages,
 } from "./contactPicker";
@@ -83,6 +84,17 @@ describe("contact picker", () => {
 
     expect(merged[0].name).toBe("Joao salvo no WhatsApp");
     expect(enrichConversationsWithContacts([{ ...conversation, contato: conversation.id }], merged)[0].contato).toBe("Joao salvo no WhatsApp");
+  });
+
+  it("remove pseudo-chat de Status mesmo quando o delta recebido está vazio", () => {
+    const technicalStatus = {
+      ...contactToConversation({ id: "status", phone: "", name: "T" }),
+      id: "status",
+      contato: "T",
+      metadados: { numeroCompleto: "status", statusOnline: false },
+    };
+
+    expect(mergeConversationCatalog([technicalStatus], [], [])).toEqual([]);
   });
 
   it("formata o telefone sem expor o domínio técnico do JID", () => {

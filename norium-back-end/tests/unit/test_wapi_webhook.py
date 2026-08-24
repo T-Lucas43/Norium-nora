@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import time
 import unittest
 from contextlib import ExitStack
 from unittest.mock import AsyncMock, patch
@@ -164,6 +165,35 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
                 if media_type in {"image", "video"}:
                     self.assertIn("/api/chat/midia/", stored["arquivoUrl"])
 
+    async def test_wrapped_baileys_status_is_routed_only_to_tenant_feed(self) -> None:
+        payload = {
+            "body": {
+                "event": "webhookReceived",
+                "instanceId": "INST-A",
+                "message": {
+                    "key": {
+                        "id": "STATUS-WRAPPED-1",
+                        "remoteJid": {"user": "status", "server": "broadcast"},
+                        "participant": "5511888887777@s.whatsapp.net",
+                    },
+                    "message": {"extendedTextMessage": {"text": "status em envelope"}},
+                },
+                "sender": {"id": "5511888887777", "pushName": "Ana"},
+                "messageTimestamp": int(time.time()),
+            }
+        }
+
+        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+
+        self.assertEqual("success", result["status"])
+        self.assertEqual({}, await load_conversations("user-a"))
+        self.assertEqual({}, await load_conversations("user-b"))
+        feed_a = await chat_router.load_whatsapp_status_feed("user-a")
+        self.assertEqual(["STATUS-WRAPPED-1"], [item["id"] for item in feed_a["items"]])
+        self.assertEqual("status em envelope", feed_a["items"][0]["texto"])
+        self.assertEqual("Ana", feed_a["items"][0]["contactName"])
+        self.assertEqual({"items": []}, await chat_router.load_whatsapp_status_feed("user-b"))
+
     async def test_duplicate_received_is_ignored(self) -> None:
         await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))
         again = await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))
@@ -209,6 +239,35 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("success", first_result["status"])
         self.assertEqual("duplicate", second_result["status"])
         self.assertEqual(1, handler.await_count)
+
+    async def test_webhook_waiting_for_lock_is_ignored_after_binding_is_cleared(self) -> None:
+        payload = self._received("STALE-AFTER-DISCONNECT", "não deve reaparecer")
+        lock = chat_router.whatsapp_conversation_mutation_lock("user-a")
+        await lock.acquire()
+        task: asyncio.Task[dict] | None = None
+        try:
+            task = asyncio.create_task(
+                chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+            )
+            for _ in range(20):
+                if chat_router.whatsapp_webhook_inflight:
+                    break
+                await asyncio.sleep(0)
+            self.assertTrue(chat_router.whatsapp_webhook_inflight)
+            self.assertFalse(task.done())
+
+            # Simula a parte atômica da desconexão enquanto o webhook, que já
+            # resolveu o tenant, ainda espera o mesmo lock.
+            wb.clear_binding("user-a")
+            await save_conversations({}, "user-a")
+        finally:
+            lock.release()
+
+        self.assertIsNotNone(task)
+        result = await task
+        self.assertEqual("ignored", result["status"])
+        self.assertEqual("stale_binding", result["event"])
+        self.assertEqual({}, await load_conversations("user-a"))
 
     async def test_status_update_not_deduped_against_received(self) -> None:
         # pre-semeia uma mensagem enviada
@@ -343,6 +402,57 @@ class WapiAdaptIncomingTests(unittest.TestCase):
                     **marker,
                 }
                 self.assertIsNone(adapt_incoming(payload))
+
+    def test_status_detection_accepts_catalog_aliases_objects_and_wrappers(self) -> None:
+        from app.services.wapi_webhook import is_status_broadcast
+
+        variants = [
+            {"id": "status@broadcast"},
+            {"id": "status"},
+            {"id": "statuses"},
+            {"chatId": "broadcast"},
+            {"chatId": "status_v3"},
+            {"chatId": "status-v3"},
+            {"id": {"_serialized": "status@broadcast"}},
+            {"wid": {"user": "status", "server": "broadcast"}},
+            {"payload": {"chat": {"id": "status"}}},
+            {"body": {"message": {"key": {"remoteJid": "status@broadcast"}}}},
+            {"eventData": {"isStatusMessage": "true"}},
+            {"messageData": {"statusBroadcast": "status@broadcast"}},
+        ]
+        for variant in variants:
+            with self.subTest(variant=variant):
+                self.assertTrue(is_status_broadcast(variant))
+
+        normal_variants = [
+            {"id": "5511999998888@s.whatsapp.net", "name": "Status"},
+            {"chatId": "5511999998888", "status": "READ"},
+            {"chatId": "5511999998888", "text": "status@broadcast"},
+            {"message": {"conversation": "broadcast"}, "phone": "5511999998888"},
+        ]
+        for variant in normal_variants:
+            with self.subTest(normal_variant=variant):
+                self.assertFalse(is_status_broadcast(variant))
+
+    def test_catalog_status_expands_messages_with_forced_broadcast_chat(self) -> None:
+        from app.services.wapi_webhook import status_broadcast_payloads
+
+        expanded = status_broadcast_payloads(
+            {
+                "id": {"user": "status", "server": "broadcast"},
+                "messages": [
+                    {
+                        "messageId": "CATALOG-STATUS-1",
+                        "sender": {"id": "5511777776666", "pushName": "Bia"},
+                        "msgContent": {"conversation": "do catálogo"},
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(1, len(expanded))
+        self.assertEqual("status@broadcast", expanded[0]["chatId"])
+        self.assertEqual("CATALOG-STATUS-1", expanded[0]["messageId"])
 
     def test_group_message_uses_group_id_and_no_sender_name(self) -> None:
         from app.services.wapi_webhook import adapt_incoming

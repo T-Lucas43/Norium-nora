@@ -94,6 +94,11 @@ function firstText(...values: unknown[]) {
   return "";
 }
 
+export function isWhatsAppStatusIdentifier(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return ["status", "statuses", "status@broadcast", "broadcast", "status_v3", "status-v3"].includes(normalized);
+}
+
 function booleanFlag(value: unknown) {
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return value === 1;
@@ -137,7 +142,7 @@ export function normalizeWhatsAppMessage(value: unknown, index = 0): MsgConteudo
   const sticker = record(nested.stickerMessage || raw.stickerMessage);
   const mediaRecord = Object.keys(image).length ? image : Object.keys(video).length ? video : Object.keys(documentMessage).length ? documentMessage : Object.keys(audio).length ? audio : sticker;
   const chatId = firstText(raw.chatId, raw.conversationId, raw.remoteJid, key.remoteJid);
-  if (/status@broadcast|@newsletter$/i.test(chatId)) return null;
+  if (isWhatsAppStatusIdentifier(chatId) || /@newsletter$/i.test(chatId)) return null;
 
   const rawType = firstText(raw.tipo, raw.type, raw.messageType, raw.kind, mediaRecord.mimetype ? "media" : "text");
   if (/protocol|sender.?key|notification|call.?log|reaction|poll.?update|revok/i.test(rawType)) return null;
@@ -191,7 +196,9 @@ export function normalizeWhatsAppConversation(value: unknown): ChatConversa | nu
   const raw = record(value);
   const metadata = record(raw.metadados || raw.metadata);
   const id = firstText(raw.id, raw.chatId, raw.jid, raw.phone, raw.remoteJid);
-  if (!id || /status@broadcast|@newsletter$/i.test(id)) return null;
+  const isStatusConversation = [id, raw.chatId, raw.jid, raw.phone, raw.remoteJid, metadata.numeroCompleto]
+    .some(isWhatsAppStatusIdentifier);
+  if (!id || isStatusConversation || /@newsletter$/i.test(id)) return null;
   const rawMessages = Array.isArray(raw.mensagens) ? raw.mensagens : Array.isArray(raw.messages) ? raw.messages : [];
   const mensagens = rawMessages.map(normalizeWhatsAppMessage).filter((item): item is MsgConteudo => Boolean(item));
   const timestamp = timestampSeconds(raw.timestampUltimaMsg ?? raw.timestamp ?? raw.lastMessageTime);
@@ -227,7 +234,7 @@ export function normalizeWhatsAppConversation(value: unknown): ChatConversa | nu
 export function normalizeWhatsAppContact(value: unknown): Contact | null {
   const raw = record(value);
   const id = firstText(raw.id, raw.jid, raw.lid, raw.phone, raw.phoneNumber, raw.number);
-  if (!id || /status@broadcast|@g\.us$|@newsletter$/i.test(id)) return null;
+  if (!id || [id, raw.jid, raw.phone, raw.phoneNumber, raw.number].some(isWhatsAppStatusIdentifier) || /@g\.us$|@newsletter$/i.test(id)) return null;
   const phone = firstText(raw.phone, raw.phoneNumber, raw.number, id);
   const aliases = [raw.id, raw.jid, raw.lid, raw.senderLid, raw.phone, raw.phoneNumber, ...(Array.isArray(raw.aliases) ? raw.aliases : [])]
     .map((item) => firstText(item)).filter(Boolean);

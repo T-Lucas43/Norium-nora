@@ -61,12 +61,27 @@ describe("status do WhatsApp", () => {
     render(<ChatCentral />);
 
     expect(await screen.findByRole("button", { name: "Status, 1 nao visualizados" })).toBeInTheDocument();
+    const statusCallsBeforeOpening = api.statuses.mock.calls.length;
     await user.click(await screen.findByRole("button", { name: /^Status/ }));
+    await waitFor(() => expect(api.statuses.mock.calls.length).toBeGreaterThan(statusCallsBeforeOpening));
     await user.click(await screen.findByRole("button", { name: /Maria/ }));
 
     expect(api.statuses).toHaveBeenCalled();
     expect(api.markStatusViewed).toHaveBeenCalledWith("status-1");
     expect(await screen.findByText("Bom dia")).toBeInTheDocument();
+  });
+
+  it("nao exibe timeout de atualizacoes automaticas como alerta para o usuario", async () => {
+    render(<ChatCentral />);
+
+    await waitFor(() => expect(api.conversations).toHaveBeenCalled());
+    const previousCalls = api.conversations.mock.calls.length;
+    api.conversations.mockRejectedValueOnce(new Error("A operacao demorou mais que o esperado."));
+
+    window.dispatchEvent(new Event("norium:whatsapp-event"));
+
+    await waitFor(() => expect(api.conversations.mock.calls.length).toBeGreaterThan(previousCalls));
+    expect(screen.queryByText("A operacao demorou mais que o esperado.")).not.toBeInTheDocument();
   });
 
   it("trata sincronizacao parcial como terminal e recarrega o cache disponível", async () => {

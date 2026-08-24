@@ -26,6 +26,12 @@ describe("normalização dos dados do WhatsApp", () => {
     expect(normalizeWhatsAppMessage({ id: "empty", type: "chat", timestamp: 1_800_000_000 })).toBeNull();
     expect(normalizeWhatsAppMessage({ id: "protocol", type: "protocolMessage", body: "evento", timestamp: 1_800_000_000 })).toBeNull();
     expect(normalizeWhatsAppMessage({ id: "status", chatId: "status@broadcast", body: "status", timestamp: 1_800_000_000 })).toBeNull();
+    expect(normalizeWhatsAppMessage({ id: "status-short", chatId: "status", body: "status", timestamp: 1_800_000_000 })).toBeNull();
+    expect(normalizeWhatsAppConversation({ id: "contato-tecnico", metadados: { numeroCompleto: "status" }, contato: "T", mensagens: [] })).toBeNull();
+    expect(normalizeWhatsAppContact({ id: "status", name: "T" })).toBeNull();
+    for (const alias of ["statuses", "broadcast", "status_v3", "status-v3"]) {
+      expect(normalizeWhatsAppConversation({ id: alias, contato: "T", mensagens: [] })).toBeNull();
+    }
   });
 
   it("não interpreta a string false como mensagem enviada", () => {

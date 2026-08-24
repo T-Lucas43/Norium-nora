@@ -4644,10 +4644,29 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
    propria rolagem. As regras ficam no fim para neutralizar offsets legados. */
 .norium-chat{
   isolation:isolate;
+  /* O WhatsApp mantém a base preta do Norium mesmo quando o restante do app
+     usa a superfície azul translúcida do tema escuro. */
+  --background:#05070a;
+  --surface:#090d12;
+  --surface-hover:#101720;
+  --border:#1b2635;
   min-width:0;
   min-height:0;
   max-height:100%;
   overflow:hidden!important;
+}
+
+/* O tema escuro global aplica uma camada azul às classes de superfície. Dentro
+   do WhatsApp, a referência visual é preta; mantenha a hierarquia por tons de
+   preto sem perder os realces azuis do Norium. */
+.dark .norium-chat,
+.dark .norium-chat [class*="bg-[var(--background)]"]{
+  background-color:var(--background)!important;
+}
+
+.dark .norium-chat [class*="bg-[var(--surface)]"],
+.dark .norium-chat header{
+  background-color:var(--surface)!important;
 }
 
 .norium-chat-sidebar,
@@ -6901,6 +6920,64 @@ html.mail-fullscreen-open body{
     min-height:0!important;
     max-height:none!important;
     flex:1 1 0!important;
+  }
+}
+
+/* Navegacao interna do WhatsApp. No desktop reproduz o rail do WhatsApp Web;
+   no celular vira uma barra inferior sem cobrir a conversa/compositor. */
+.norium-whatsapp-rail{
+  box-shadow:1px 0 0 color-mix(in srgb,var(--primary) 7%,transparent);
+}
+
+@media (max-width:900px){
+  .norium-chat{
+    padding-bottom:60px;
+  }
+
+  .norium-chat > .norium-whatsapp-rail{
+    position:absolute!important;
+    inset:auto 0 0 0!important;
+    z-index:55!important;
+    width:100%!important;
+    height:60px!important;
+    padding:6px 10px!important;
+    flex-direction:row!important;
+    justify-content:center!important;
+    border-width:1px 0 0!important;
+    background:#080a0d!important;
+    box-shadow:0 -14px 36px rgba(0,0,0,.28);
+  }
+
+  .norium-chat > .norium-whatsapp-rail > div:first-child{
+    display:none!important;
+  }
+
+  .norium-chat > .norium-whatsapp-rail > div:nth-child(2){
+    width:min(360px,calc(100% - 58px));
+    margin:0!important;
+    flex-direction:row!important;
+    justify-content:space-around!important;
+    gap:2px!important;
+  }
+
+  .norium-chat > .norium-whatsapp-rail > div:last-child{
+    margin:0 0 0 4px!important;
+  }
+
+  .norium-chat > .norium-whatsapp-rail button{
+    width:42px!important;
+    height:42px!important;
+  }
+
+  .norium-chat > aside.norium-chat-sidebar,
+  .norium-chat > aside.norium-chat-details{
+    bottom:60px!important;
+    height:calc(100% - 60px)!important;
+    max-height:calc(100% - 60px)!important;
+  }
+
+  .norium-chat .mobile-sidebar-backdrop{
+    bottom:60px!important;
   }
 }
 

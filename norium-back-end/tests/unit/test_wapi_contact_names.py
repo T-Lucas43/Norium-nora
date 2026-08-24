@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from app.modules.chat.router import build_contact_indexes, melhor_nome_contato
+from app.modules.chat.router import build_contact_indexes, melhor_nome_contato, normalize_profile_phone
 
 
 class ContactNameResolutionTests(unittest.TestCase):
@@ -40,6 +40,29 @@ class ContactNameResolutionTests(unittest.TestCase):
         nomes, _fotos, _meta = build_contact_indexes(contacts)
         self.assertEqual("João", nomes.get("219451387551856@lid"))
         self.assertEqual("João", nomes.get("5511999999999@c.us"))
+
+    def test_official_notify_field_is_used_as_saved_name(self) -> None:
+        contacts = [
+            {
+                "id": "5511999999999",
+                "lid": "219451387551856@lid",
+                "notify": "Maria salva",
+                "verifiedName": "Empresa Maria LTDA",
+            }
+        ]
+        nomes, _fotos, _meta = build_contact_indexes(contacts)
+        self.assertEqual("Maria salva", nomes["5511999999999"])
+        self.assertEqual("Maria salva", nomes["219451387551856@lid"])
+
+    def test_group_subject_wins_over_group_jid(self) -> None:
+        groups = [{"id": "120363000000000000@g.us", "subject": "Familia"}]
+        nomes, _fotos, _meta = build_contact_indexes(groups)
+        self.assertEqual("Familia", nomes["120363000000000000@g.us"])
+
+    def test_profile_phone_uses_plain_international_number(self) -> None:
+        self.assertEqual("5511999999999", normalize_profile_phone("5511999999999@c.us"))
+        self.assertEqual("5511999999999", normalize_profile_phone("+55 (11) 99999-9999"))
+        self.assertEqual("219451387551856@lid", normalize_profile_phone("219451387551856@lid"))
 
 
 if __name__ == "__main__":

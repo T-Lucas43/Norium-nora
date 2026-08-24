@@ -11,10 +11,48 @@ export type WhatsAppConnection = {
   conectadoEm?: string | null;
 };
 
+export type WhatsAppSyncProgress = {
+  status: "idle" | "syncing" | "complete" | "error";
+  phase?: string;
+  progress: number;
+  current?: number;
+  total?: number;
+  message?: string;
+  contactsSynced?: number;
+  photosSynced?: number;
+};
+
+export type WhatsAppStatusItem = {
+  id: string;
+  contactId?: string;
+  name: string;
+  photoUrl?: string;
+  type: "text" | "image" | "video";
+  text?: string;
+  mediaUrl?: string;
+  timestamp: number;
+  viewed?: boolean;
+  mine?: boolean;
+  color?: string;
+};
+
+export type WhatsAppProfile = {
+  name: string;
+  phone?: string;
+  photoUrl?: string;
+  bio?: string;
+};
+
+export type WhatsAppStatusFeed = {
+  items: WhatsAppStatusItem[];
+  cursor?: number | null;
+};
+
 export type Contact = {
   id: string;
   phone: string;
   name?: string;
+  notify?: string;
   pushname?: string;
   photoUrl?: string;
   verifiedName?: string;
@@ -107,6 +145,61 @@ export const whatsappApi = {
 
   async contacts() {
     return apiRequest<Contact[]>("/api/chat/contatos-disponiveis", { timeoutMs: 30_000 });
+  },
+
+  async syncStatus(signal?: AbortSignal) {
+    return apiRequest<WhatsAppSyncProgress>("/api/chat/sincronizacao", {
+      cache: "no-store",
+      timeoutMs: 20_000,
+      signal,
+    });
+  },
+
+  async startSync() {
+    return apiRequest<WhatsAppSyncProgress>("/api/chat/sincronizacao", {
+      method: "POST",
+      body: JSON.stringify({}),
+      timeoutMs: 90_000,
+    });
+  },
+
+  async statuses(signal?: AbortSignal) {
+    return apiRequest<WhatsAppStatusFeed>("/api/chat/status-whatsapp", {
+      cache: "no-store",
+      timeoutMs: 30_000,
+      signal,
+    });
+  },
+
+  async markStatusViewed(statusId: string) {
+    return apiRequest<{ status: string }>(`/api/chat/status-whatsapp/${encodeURIComponent(statusId)}/visualizar`, {
+      method: "POST",
+      body: JSON.stringify({}),
+      timeoutMs: 30_000,
+    });
+  },
+
+  async profile(signal?: AbortSignal) {
+    return apiRequest<WhatsAppProfile | { profile: WhatsAppProfile }>("/api/chat/perfil-whatsapp", {
+      cache: "no-store",
+      timeoutMs: 30_000,
+      signal,
+    });
+  },
+
+  async groups(signal?: AbortSignal) {
+    return apiRequest<{ items: unknown[] } | unknown[]>("/api/chat/grupos", {
+      cache: "no-store",
+      timeoutMs: 35_000,
+      signal,
+    });
+  },
+
+  async groupDetails(groupId: string) {
+    return apiRequest<ChatConversa | { group: unknown }>(`/api/chat/grupos/${encodeURIComponent(groupId)}`, {
+      cache: "no-store",
+      timeoutMs: 35_000,
+    });
   },
 
   async markConversation(conversationId: string, action: "lida" | "fixada" | "favorita" | "silenciada" | "arquivada", value: boolean) {

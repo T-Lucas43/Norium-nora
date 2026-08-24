@@ -11,6 +11,7 @@ function normalizeSearch(value: string) {
 
 export function contactDisplayName(contact: Contact) {
   return contact.name?.trim()
+    || contact.notify?.trim()
     || contact.verifiedName?.trim()
     || contact.pushname?.trim()
     || contact.phone
@@ -22,10 +23,17 @@ export function contactConversationId(contact: Contact) {
   return contact.id || contact.phone;
 }
 
+export function contactGroupPhone(contact: Contact) {
+  const raw = String(contact.phone || "").trim();
+  if (!raw || /@lid\b/i.test(raw)) return null;
+  const digits = raw.split("@")[0].replace(/\D/g, "");
+  return digits.length >= 8 ? digits : null;
+}
+
 export function contactMatchesSearch(contact: Contact, search: string) {
   const query = normalizeSearch(search);
   if (!query) return true;
-  return [contact.name, contact.verifiedName, contact.pushname, contact.phone, contact.id]
+  return [contact.name, contact.notify, contact.verifiedName, contact.pushname, contact.phone, contact.id]
     .some((value) => normalizeSearch(value || "").includes(query));
 }
 

@@ -1,13 +1,15 @@
-import { BadgeCheck, Building2, CalendarDays, Image as ImageIcon, MessageSquareText, Phone, ShieldAlert, Sparkles, User, Users, X } from "lucide-react";
+import { BadgeCheck, Building2, CalendarDays, Image as ImageIcon, MessageCircle, MessageSquareText, Phone, ShieldAlert, Sparkles, Users, X } from "lucide-react";
 import { useState } from "react";
 import type { ChatConversa } from "./types";
 import Button from "../shared/Button";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+import type { ParticipanteGrupo } from "./types";
 
 interface PainelDireitoProps {
   modo: "nora" | "perfil" | "config-propria";
   conversaAtiva: ChatConversa | undefined;
   onFechar: () => void;
+  onContinuarConversa?: () => void;
   onAskNora?: (prompt?: string) => void;
 }
 
@@ -42,7 +44,18 @@ function PrivateMediaThumbnail({ source }: { source?: string }) {
   return mediaUrl ? <img src={mediaUrl} alt="Midia" className="h-full w-full object-cover" /> : <ImageIcon size={16} className="mx-auto opacity-50" />;
 }
 
-export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora }: PainelDireitoProps) {
+function MemberAvatar({ member }: { member: ParticipanteGrupo }) {
+  const [failed, setFailed] = useState(false);
+  const source = useAuthenticatedMedia(member.photoUrl);
+  const label = member.name || member.phone;
+  return (
+    <span className="grid h-8 w-8 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)] text-[10px] font-bold text-[var(--text-secondary)]">
+      {source && !failed ? <img src={source} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} /> : initials(label)}
+    </span>
+  );
+}
+
+export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinuarConversa, onAskNora }: PainelDireitoProps) {
   const midiasGaleria = conversaAtiva?.mensagens.filter((mensagem) => mensagem.tipo === "midia") || [];
   const participantes = conversaAtiva?.metadados?.participantes || [];
   const createdValue = conversaAtiva?.metadados?.criadoEm;
@@ -51,7 +64,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
     : null;
 
   return (
-    <aside className="norium-chat-details flex h-full min-h-0 w-[360px] shrink-0 select-none flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--text)]">
+    <aside className="norium-chat-details flex h-full min-h-0 w-[440px] shrink-0 select-none flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--text)]">
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--border)]">
         <h4 className="text-xs font-bold uppercase tracking-wide">
           {modo === "perfil" && (conversaAtiva?.esGrupo ? "Dados do grupo" : "Dados do contato")}
@@ -75,6 +88,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
               {conversaAtiva.metadados?.verifiedName && <span className="inline-flex h-6 items-center gap-1 rounded-full border border-[var(--primary)]/30 px-2 text-xs font-bold text-[var(--primary)]"><BadgeCheck size={12} /> Verificado</span>}
               {conversaAtiva.metadados?.isBusiness && <span className="inline-flex h-6 items-center gap-1 rounded-full border border-[var(--border)] px-2 text-xs font-bold"><Building2 size={12} /> Empresa</span>}
             </div>
+            <Button variant="primary" size="sm" className="mt-3 inline-flex items-center gap-2" onClick={onContinuarConversa || onFechar}><MessageCircle size={14} /> Continuar conversa</Button>
           </div>
 
           <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs">
@@ -115,7 +129,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onAskNora
                   participantes.map((membro) => (
                     <div key={membro.id} className="flex items-center justify-between gap-2 text-xs font-medium py-1.5 border-b border-[var(--border)]/50 last:border-0">
                       <div className="flex items-center gap-2 min-w-0">
-                        <User size={13} className="text-[var(--text-secondary)] shrink-0" />
+                        <MemberAvatar member={membro} />
                         <span className="truncate">{membro.name || membro.phone}</span>
                       </div>
                       {membro.isAdmin && (

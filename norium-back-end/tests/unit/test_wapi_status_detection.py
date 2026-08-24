@@ -42,6 +42,8 @@ class WapiStatusDetectionTests(unittest.IsolatedAsyncioTestCase):
                     "NORIUM_DATA_DIR": temp_dir,
                     "WAPI_TEST_INSTANCE_ID": "TEST-INSTANCE",
                     "WAPI_TEST_INSTANCE_TOKEN": "test-token",
+                    "BACKEND_PUBLIC_URL": "",
+                    "API_PUBLIC_URL": "",
                 },
             )
         )

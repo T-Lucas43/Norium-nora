@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import html
+import ipaddress
 import json
 import logging
 import mimetypes
@@ -15,7 +16,7 @@ from email.message import EmailMessage
 from email.utils import formatdate, make_msgid, parseaddr
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
@@ -24,6 +25,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
 from app.core.tenant import (
+    is_production,
     public_api_url,
     read_account_db,
     read_profile_db,
@@ -49,6 +51,9 @@ OAUTH_STATE_PATH = BASE_DIR / "gmail_oauth_state.json"
 SYNC_STATE_PATH = BASE_DIR / "gmail_sync_state.json"
 PROFILE_CACHE_PATH = BASE_DIR / "gmail_profile_cache.json"
 DEFAULT_REDIRECT_URI = "http://localhost:8000/api/auth/callback/gmail"
+GMAIL_CALLBACK_PATH = "/api/auth/callback/gmail"
+MAX_OAUTH_USER_ID_LENGTH = 64
+OAUTH_USER_ID_PATTERN = re.compile(r"(?:lucas123|usr_[0-9a-f]{16})")
 LOCAL_TZ = timezone(timedelta(hours=-3))
 MAX_ATTACHMENT_BYTES = 24 * 1024 * 1024
 PROFILE_CACHE_TTL_SECONDS = 600
@@ -86,11 +91,15 @@ class GmailService:
     def user_id_from_state(state: str | None) -> str | None:
         if not state:
             return None
+        if len(state) > MAX_OAUTH_USER_ID_LENGTH + 33:
+            return None
         parts = state.split(":", 1)
         if len(parts) != 2 or not re.fullmatch(r"[0-9a-f]{32}", parts[1]):
             return None
         user_id = parts[0].strip()
-        return user_id or None
+        if len(user_id) > MAX_OAUTH_USER_ID_LENGTH or not OAUTH_USER_ID_PATTERN.fullmatch(user_id):
+            return None
+        return user_id
 
     def status(self) -> dict[str, Any]:
         configured = bool(self._client_config())
@@ -124,11 +133,18 @@ class GmailService:
         }
 
     def authorization_url(self) -> dict[str, str]:
-        state_value = f"{self._safe_user_id()}:{uuid.uuid4().hex}"
+        oauth_user_id = str(self.user_id or "").strip()
+        if len(oauth_user_id) > MAX_OAUTH_USER_ID_LENGTH or not OAUTH_USER_ID_PATTERN.fullmatch(oauth_user_id):
+            raise GmailConfigError("Identificador de usuario invalido para iniciar a conexao do Gmail.")
+        state_value = f"{oauth_user_id}:{uuid.uuid4().hex}"
         flow = self._flow(state=state_value)
         auth_url, state = flow.authorization_url(
             access_type="offline",
-            prompt="consent",
+            # Em dispositivos compartilhados, ``select_account`` impede que a
+            # conta Google usada pelo primeiro usuario seja reutilizada sem que
+            # o proximo membro possa escolher a propria conta.
+            prompt="consent select_account",
+            include_granted_scopes="true",
         )
         attempts = active_oauth_attempts(
             self._read_profile_section("gmailOauthState", {}),
@@ -570,7 +586,66 @@ class GmailService:
         }
 
     def _redirect_uri(self) -> str:
-        return os.getenv("GMAIL_REDIRECT_URI") or DEFAULT_REDIRECT_URI
+        explicit_redirect = str(os.getenv("GMAIL_REDIRECT_URI") or "").strip()
+        has_public_runtime_url = any(
+            str(os.getenv(name) or "").strip()
+            for name in (
+                "BACKEND_PUBLIC_URL",
+                "API_PUBLIC_URL",
+                "VERCEL_PROJECT_PRODUCTION_URL",
+                "VERCEL_URL",
+            )
+        )
+        callback_url = public_api_url(GMAIL_CALLBACK_PATH) if has_public_runtime_url else ""
+        production_runtime = is_production() or str(os.getenv("VERCEL") or "").strip() == "1"
+
+        if production_runtime:
+            public_callback = callback_url if self._is_public_https_callback(callback_url) else ""
+            if explicit_redirect and self._is_public_https_callback(explicit_redirect):
+                return explicit_redirect
+            if public_callback:
+                if explicit_redirect:
+                    logger.warning(
+                        "GMAIL_REDIRECT_URI invalido para producao; usando callback publico derivado."
+                    )
+                return public_callback
+            if explicit_redirect and self._is_loopback_callback(explicit_redirect):
+                raise GmailConfigError(
+                    "GMAIL_REDIRECT_URI aponta para localhost em producao. "
+                    "Configure BACKEND_PUBLIC_URL com a URL HTTPS publica do backend."
+                )
+            raise GmailConfigError(
+                "Callback OAuth do Gmail invalido em producao. "
+                "Configure GMAIL_REDIRECT_URI ou BACKEND_PUBLIC_URL com uma URL HTTPS publica."
+            )
+
+        if explicit_redirect:
+            return explicit_redirect
+        if callback_url.startswith(("https://", "http://")):
+            return callback_url
+        return DEFAULT_REDIRECT_URI
+
+    @staticmethod
+    def _is_loopback_callback(url: str) -> bool:
+        try:
+            hostname = (urlsplit(url).hostname or "").strip().casefold().rstrip(".")
+            if hostname == "localhost" or hostname.endswith(".localhost"):
+                return True
+            return bool(hostname and ipaddress.ip_address(hostname).is_loopback)
+        except ValueError:
+            return False
+
+    @classmethod
+    def _is_public_https_callback(cls, url: str) -> bool:
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            return False
+        return bool(
+            parsed.scheme.casefold() == "https"
+            and parsed.hostname
+            and not cls._is_loopback_callback(url)
+        )
 
     def _profile(self) -> dict[str, Any]:
         gmail_profile: dict[str, Any] = {}

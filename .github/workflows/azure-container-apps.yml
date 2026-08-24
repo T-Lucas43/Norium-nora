@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# Uma revisão antiga nunca deve terminar depois de uma revisão mais nova e
+# recolocar uma imagem obsoleta em produção.
+concurrency:
+  group: azure-container-apps-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: t-lucas43/norium-nora
@@ -159,6 +165,20 @@ jobs:
           WAPI_MASTER_API_KEY=secretref:wapi-master-api-key
           WAPI_WEBHOOK_SECRET=secretref:wapi-webhook-secret
           --output none
+
+      - name: Verify deployed image reference
+        shell: bash
+        run: |
+          expected_image="${{ needs.publish-image.outputs.image }}"
+          active_image="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query 'properties.template.containers[0].image' \
+            --output tsv)"
+          if [[ "${active_image}" != "${expected_image}" ]]; then
+            echo "Expected ${expected_image}, but Azure reports ${active_image}." >&2
+            exit 1
+          fi
 
       - name: Verify health endpoint
         shell: bash

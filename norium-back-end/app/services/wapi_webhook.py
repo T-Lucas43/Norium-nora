@@ -95,7 +95,12 @@ def classify_event(data: dict[str, Any]) -> str:
 
 def event_id(data: dict[str, Any]) -> str:
     """Identificador para deduplicação (id da mensagem/evento)."""
-    return str(_first(data, "messageId", "id", "eventId", "zaid") or "")
+    wrapped = data.get("data") if isinstance(data.get("data"), dict) else {}
+    return str(
+        _first(data, "messageId", "id", "eventId", "zaid")
+        or _first(wrapped, "messageId", "id", "eventId", "zaid")
+        or ""
+    )
 
 
 # Mapeia os status da W-API para o vocabulário interno aceito por
@@ -127,9 +132,122 @@ def map_status(raw: str) -> str:
 
 def extract_status_update(data: dict[str, Any]) -> tuple[str, str]:
     """Retorna (message_id, status_interno) para eventos de status/entrega."""
-    message_id = str(_first(data, "messageId", "id") or "")
-    status = map_status(str(_first(data, "status", "ack", "state") or ""))
+    wrapped = data.get("data") if isinstance(data.get("data"), dict) else {}
+    message_id = str(_first(data, "messageId", "id") or _first(wrapped, "messageId", "id") or "")
+    status = map_status(
+        str(_first(data, "status", "ack", "state") or _first(wrapped, "status", "ack", "state") or "")
+    )
     return message_id, status
+
+
+def extract_chat_status_update(data: dict[str, Any]) -> tuple[str, bool | None, int | None]:
+    """Extrai a leitura/contador de um evento de status do chat.
+
+    A W-API possui um webhook separado para atualizações do chat. Como versões
+    diferentes do gateway usam nomes de campos distintos, o parser aceita os
+    formatos plano, ``chat`` e ``data`` sem confundir ``READ`` de uma mensagem
+    enviada (que traz ``messageId``) com a leitura da conversa no celular.
+    """
+    nested = data.get("data") if isinstance(data.get("data"), dict) else {}
+    chat = data.get("chat") if isinstance(data.get("chat"), dict) else {}
+    if not chat and isinstance(nested.get("chat"), dict):
+        chat = nested["chat"]
+    key = data.get("key") if isinstance(data.get("key"), dict) else {}
+    chat_id = str(
+        _first(data, "chatId", "phone", "remoteJid", "jid")
+        or _first(nested, "chatId", "phone", "remoteJid", "jid")
+        or _first(chat, "id", "chatId", "phone", "remoteJid", "jid")
+        or _first(key, "remoteJid", "chatId", "phone")
+        or ""
+    )
+    if not chat_id or is_status_broadcast({"chatId": chat_id}):
+        return "", None, None
+
+    unread_raw = (
+        _first(data, "unreadCount", "unreadMessages", "unread")
+        if _first(data, "unreadCount", "unreadMessages", "unread") is not None
+        else _first(nested, "unreadCount", "unreadMessages", "unread")
+    )
+    try:
+        unread_count = max(0, int(unread_raw)) if unread_raw is not None else None
+    except (TypeError, ValueError):
+        unread_count = None
+
+    explicit_read = _first(data, "isRead", "read", "viewed")
+    if explicit_read is None:
+        explicit_read = _first(nested, "isRead", "read", "viewed")
+    read: bool | None = None
+    if explicit_read is not None:
+        read = _is_true(explicit_read)
+    elif unread_count is not None:
+        read = unread_count == 0
+    else:
+        raw_state = str(_first(data, "chatStatus", "state", "status") or "").strip().lower()
+        if raw_state in {"read", "viewed", "seen", "opened", "read_all", "read-all"}:
+            read = True
+        elif raw_state in {"unread", "unseen", "new_message", "new-message"}:
+            read = False
+    return chat_id, read, unread_count
+
+
+def adapt_status_broadcast(data: dict[str, Any]) -> dict[str, Any] | None:
+    """Normaliza uma publicação de Status para o feed separado do Norium."""
+    if not is_status_broadcast(data):
+        return None
+    sender = data.get("sender") if isinstance(data.get("sender"), dict) else {}
+    wrapped = data.get("data") if isinstance(data.get("data"), dict) else {}
+    if not sender and isinstance(wrapped.get("sender"), dict):
+        sender = wrapped["sender"]
+    texto, tipo, midia_meta, _reaction_target = _extract_content(data)
+    if tipo is None:
+        return None
+    contact_id = str(
+        sender.get("phoneNumber")
+        or sender.get("phone")
+        or sender.get("id")
+        or sender.get("jid")
+        or sender.get("lid")
+        or _first(data, "participant", "senderId", "author")
+        or _first(wrapped, "participant", "senderId", "author")
+        or ""
+    )
+    if not contact_id:
+        return None
+    timestamp = _first(data, "moment", "momment", "timestamp", "messageTimestamp", "t")
+    try:
+        timestamp_int = int(float(timestamp or 0))
+        if timestamp_int > 10_000_000_000:
+            timestamp_int //= 1000
+    except (TypeError, ValueError):
+        timestamp_int = 0
+    photo_url = sender.get("profilePicture") or sender.get("profilePictureUrl") or sender.get("photoUrl")
+    content = data.get("msgContent") if isinstance(data.get("msgContent"), dict) else {}
+    extended = content.get("extendedTextMessage") if isinstance(content.get("extendedTextMessage"), dict) else {}
+    raw_color = data.get("backgroundColor") or data.get("color") or extended.get("backgroundArgb")
+    if isinstance(raw_color, int):
+        color: str | None = f"#{raw_color & 0xFFFFFF:06x}"
+    elif isinstance(raw_color, str) and raw_color.startswith("#"):
+        color = raw_color
+    else:
+        color = None
+    return {
+        "id": str(_first(data, "messageId", "id", "zaid") or ""),
+        "contactId": contact_id,
+        "contactName": str(
+            sender.get("notify")
+            or sender.get("pushName")
+            or sender.get("name")
+            or _first(data, "senderName", "pushName", "notifyName")
+            or contact_id
+        ),
+        "photoUrl": photo_url if isinstance(photo_url, str) and photo_url.startswith("http") else None,
+        "fromMe": bool(_first(data, "fromMe", "isFromMe") or False),
+        "timestamp": timestamp_int,
+        "texto": texto,
+        "tipo": tipo,
+        "midiaMeta": midia_meta,
+        "color": color,
+    }
 
 
 def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
@@ -151,8 +269,10 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
     from_me = bool(_first(data, "fromMe", "isFromMe") or False)
     is_group = bool(_first(data, "isGroup", "isGroupMsg") or (str(chat_id).endswith("@g.us")))
     sender_name = str(
-        _first(data, "senderName", "pushName", "notifyName")
+        _first(data, "senderName", "pushName", "notifyName", "notify", "verifiedName")
+        or sender.get("notify")
         or sender.get("pushName")
+        or sender.get("verifiedName")
         or sender.get("name")
         or chat_id
     )
@@ -191,7 +311,7 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
         "tipo": tipo or "texto",
         "midiaMeta": midia_meta,
         "reactionTargetId": reaction_target,
-        "status": str(_first(data, "status") or "") or None,
+        "status": map_status(str(_first(data, "status") or "")) or None,
     }
 
 

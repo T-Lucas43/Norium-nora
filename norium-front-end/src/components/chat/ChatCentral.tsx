@@ -2,15 +2,27 @@ import { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import SidebarEsquerda from "./SidebarEsquerda";
 import AreaCentralChat from "./AreaCentralChat";
 import PainelDireito from "./PainelDireito";
+import WhatsAppDirectory from "./WhatsAppDirectory";
+import WhatsAppProfileView from "./WhatsAppProfileView";
+import WhatsAppRail, { type WhatsAppSection } from "./WhatsAppRail";
+import WhatsAppStatusView from "./WhatsAppStatusView";
 import { Menu, X, Search, User, Send } from "lucide-react";
 import type { AnexoPendente, ChatConversa, MsgConteudo } from "./types";
 import { apiBaseUrl } from "../../utils/api";
 import StatusBanner from "../shared/StatusBanner";
 import ConfirmDialog from "../shared/ConfirmDialog";
 import Button from "../shared/Button";
-import { whatsappApi, type Contact, type WhatsAppConnection, type ConsentInfo } from "./whatsappApi";
+import {
+  whatsappApi,
+  type Contact,
+  type ConsentInfo,
+  type WhatsAppConnection,
+  type WhatsAppProfile,
+  type WhatsAppStatusItem,
+  type WhatsAppSyncProgress,
+} from "./whatsappApi";
 import { apiBlobRequest } from "../../core/api/client";
-import { contactConversationId, contactDisplayName, contactMatchesSearch, contactToConversation, mergeConversationDetails } from "./contactPicker";
+import { contactConversationId, contactDisplayName, contactGroupPhone, contactMatchesSearch, contactToConversation, mergeConversationDetails } from "./contactPicker";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
 const BACKEND_URL = apiBaseUrl();
@@ -40,6 +52,113 @@ function ContactAvatar({ contact }: { contact: Contact }) {
   );
 }
 
+function normalizarProgressoSincronizacao(value?: Partial<WhatsAppSyncProgress> | null): WhatsAppSyncProgress {
+  const raw = (value || {}) as Partial<WhatsAppSyncProgress> & Record<string, any>;
+  const rawStatus = String(raw.status || raw.situacao || "syncing").toLowerCase();
+  const status: WhatsAppSyncProgress["status"] = ["complete", "completed", "concluido", "concluído", "completo"].includes(rawStatus)
+    ? "complete"
+    : ["error", "erro", "failed", "falha"].includes(rawStatus)
+      ? "error"
+      : ["idle", "ocioso"].includes(rawStatus) ? "idle" : "syncing";
+  return {
+    status,
+    phase: raw.phase || raw.etapa,
+    progress: Math.max(0, Math.min(100, Number(raw.progress ?? raw.progresso ?? raw.percentual ?? (status === "complete" ? 100 : 0)))),
+    current: raw.current ?? raw.atual,
+    total: raw.total,
+    message: raw.message || raw.mensagem,
+    contactsSynced: raw.contactsSynced ?? raw.contatosSincronizados,
+    photosSynced: raw.photosSynced ?? raw.fotosSincronizadas,
+  };
+}
+
+function normalizarStatusWhatsApp(value: unknown): WhatsAppStatusItem | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, any>;
+  const id = String(raw.id || raw.statusId || raw.messageId || "").trim();
+  if (!id) return null;
+  const rawType = String(raw.type || raw.kind || raw.mediaType || "text").toLowerCase();
+  const type: WhatsAppStatusItem["type"] = rawType.includes("video") ? "video" : rawType.includes("image") || rawType.includes("photo") ? "image" : "text";
+  const fallbackName = raw.contactId || raw.chatId ? "Contato do WhatsApp" : "Status do WhatsApp";
+  const rawTimestamp = raw.timestamp || raw.createdAt || Date.now();
+  const numericTimestamp = Number(rawTimestamp);
+  const timestamp = Number.isFinite(numericTimestamp) ? numericTimestamp : new Date(rawTimestamp).getTime();
+  return {
+    id,
+    contactId: raw.contactId || raw.chatId,
+    name: String(raw.name || raw.contactName || raw.notify || raw.verifiedName || fallbackName),
+    photoUrl: raw.photoUrl || raw.profilePictureUrl,
+    type,
+    text: raw.text || raw.caption || raw.body,
+    mediaUrl: raw.mediaUrl || raw.fileUrl || raw.url,
+    timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+    viewed: Boolean(raw.viewed ?? raw.visualizado),
+    mine: Boolean(raw.mine ?? raw.fromMe),
+    color: raw.color || raw.backgroundColor,
+  };
+}
+
+function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, any>;
+  const metadata = raw.metadados && typeof raw.metadados === "object" ? raw.metadados : {};
+  const id = String(raw.id || raw.groupId || raw.jid || "").trim();
+  if (!id) return null;
+  const participantSource = Array.isArray(metadata.participantes)
+    ? metadata.participantes
+    : Array.isArray(raw.participants) ? raw.participants : [];
+  const participants = participantSource.map((participant: Record<string, any>) => ({
+    id: String(participant.id || participant.phone || participant.jid || ""),
+    phone: String(participant.phone || participant.id || participant.jid || ""),
+    name: participant.name || participant.notify || participant.pushname,
+    isAdmin: Boolean(participant.isAdmin || participant.admin),
+    isSuperAdmin: Boolean(participant.isSuperAdmin || participant.superAdmin),
+    photoUrl: participant.photoUrl || participant.profilePictureUrl,
+  })).filter((participant: { id: string }) => Boolean(participant.id));
+  const name = String(raw.contato || raw.name || raw.subject || metadata.verifiedName || "Grupo do WhatsApp");
+  return {
+    id,
+    contato: name,
+    canal: "whatsapp",
+    channel: "whatsapp",
+    ultimoTexto: String(raw.ultimoTexto || raw.lastMessage?.text || raw.lastMessage?.body || ""),
+    horario: String(raw.horario || ""),
+    timestampUltimaMsg: Number(raw.timestampUltimaMsg || raw.timestamp || raw.lastMessage?.timestamp || 0),
+    lida: raw.lida !== false,
+    naoLidasCount: Number(raw.naoLidasCount || raw.unreadCount || 0),
+    fixada: Boolean(raw.fixada),
+    favorita: Boolean(raw.favorita),
+    silenciada: Boolean(raw.silenciada),
+    arquivada: Boolean(raw.arquivada),
+    esGrupo: true,
+    mensagens: Array.isArray(raw.mensagens) ? raw.mensagens : [],
+    photoUrl: raw.photoUrl || raw.profilePictureUrl || metadata.photoUrl,
+    metadados: {
+      ...metadata,
+      numeroCompleto: String(metadata.numeroCompleto || id),
+      statusOnline: false,
+      photoUrl: metadata.photoUrl || raw.photoUrl || raw.profilePictureUrl,
+      participantes: participants,
+      descricaoGrupo: metadata.descricaoGrupo || raw.description || raw.desc,
+      criadoPor: metadata.criadoPor || raw.owner || raw.createdBy,
+      criadoEm: metadata.criadoEm || raw.createdAt || raw.creation,
+    },
+  };
+}
+
+function chatIdentifierKeys(value?: string | null) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return [];
+  const local = raw.split("@")[0];
+  const digits = local.replace(/\D/g, "");
+  return [...new Set([raw, local, digits].filter(Boolean))];
+}
+
+function isTechnicalChatLabel(value?: string | null) {
+  const label = String(value || "").trim();
+  return !label || label.includes("@") || /^\+?[\d\s().-]{7,}$/.test(label);
+}
+
 export default function ChatCentral({ userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [canaisStatus, setCanaisStatus] = useState<{ whatsapp?: WhatsAppConnection }>({});
@@ -52,6 +171,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const [aceitandoConsent, setAceitandoConsent] = useState<boolean>(false);
 
   const [conversas, setConversas] = useState<ChatConversa[]>([]);
+  const [secaoWhatsApp, setSecaoWhatsApp] = useState<WhatsAppSection>("conversations");
   const [conversaSelecionada, setConversaSelecionada] = useState<string | null>(null);
   const [painelPerfilAberto, setPainelPerfilAberto] = useState<boolean>(false);
   const [abaDireitaModo, setAbaDireitaModo] = useState<"nora" | "perfil" | "config-propria">("nora");
@@ -63,10 +183,23 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const [listaContatos, setListaContatos] = useState<Contact[]>([]);
   const [filtroContatoNome, setFiltroContatoNome] = useState<string>("");
   const [carregandoContatos, setCarregandoContatos] = useState(false);
+  const [contatosCarregados, setContatosCarregados] = useState(false);
   const [erroContatos, setErroContatos] = useState<string | null>(null);
+  const [grupos, setGrupos] = useState<ChatConversa[]>([]);
+  const [carregandoGrupos, setCarregandoGrupos] = useState(false);
+  const [gruposCarregados, setGruposCarregados] = useState(false);
+  const [erroGrupos, setErroGrupos] = useState<string | null>(null);
+  const [perfilWhatsApp, setPerfilWhatsApp] = useState<WhatsAppProfile | null>(null);
+  const [progressoSincronizacao, setProgressoSincronizacao] = useState<WhatsAppSyncProgress | null>(null);
+  const [statusWhatsApp, setStatusWhatsApp] = useState<WhatsAppStatusItem[]>([]);
+  const [statusSelecionado, setStatusSelecionado] = useState<string | null>(null);
+  const [carregandoStatusWhatsApp, setCarregandoStatusWhatsApp] = useState(false);
+  const [statusWhatsAppCarregados, setStatusWhatsAppCarregados] = useState(false);
+  const [erroStatusWhatsApp, setErroStatusWhatsApp] = useState<string | null>(null);
 
   const [nomeNovoGrupo, setNomeNovoGrupo] = useState("");
   const [contatosSelecionadosGrupo, setContatosSelecionadosGrupo] = useState<string[]>([]);
+  const [criandoGrupo, setCriandoGrupo] = useState(false);
 
   const [gravando, setGravando] = useState<boolean>(false);
   const [tempoGravacao, setTempoGravacao] = useState<number>(0);
@@ -96,6 +229,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const carregandoConversasRef = useRef(false);
   const cursorConversasRef = useRef(0);
   const whatsappConectadoRef = useRef(false);
+  const conversasRef = useRef<ChatConversa[]>([]);
+  const syncStatusRef = useRef<WhatsAppSyncProgress["status"]>("idle");
+  const syncCompletionHandledRef = useRef(false);
+  const syncShowSuccessRef = useRef(false);
   const catalogoInicialTentadoRef = useRef(false);
   const historicoRef = useRef(new Map<string, { cursor: number | null; hasMore: boolean }>());
 
@@ -142,7 +279,165 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     } finally {
       carregandoConversasRef.current = false;
     }
-  }, [mostrarAviso, userId]);
+  }, [mostrarAviso]);
+
+  const carregarContatosDoBackend = useCallback(async (mostrarErro = true) => {
+    setCarregandoContatos(true);
+    setErroContatos(null);
+    try {
+      const contacts = await whatsappApi.contacts();
+      setListaContatos(contacts);
+      const contactIndex = new Map<string, Contact>();
+      contacts.forEach((contact) => {
+        [...chatIdentifierKeys(contact.id), ...chatIdentifierKeys(contact.phone)].forEach((key) => contactIndex.set(key, contact));
+      });
+      setConversas((current) => current.map((conversation) => {
+        const matched = chatIdentifierKeys(conversation.id).map((key) => contactIndex.get(key)).find(Boolean);
+        if (!matched) return conversation;
+        const name = contactDisplayName(matched);
+        const photoUrl = matched.photoUrl || conversation.metadados?.photoUrl || conversation.photoUrl;
+        return {
+          ...conversation,
+          contato: isTechnicalChatLabel(conversation.contato) && !isTechnicalChatLabel(name) ? name : conversation.contato,
+          photoUrl,
+          metadados: {
+            ...conversation.metadados,
+            numeroCompleto: matched.phone || conversation.metadados.numeroCompleto,
+            verifiedName: matched.verifiedName || conversation.metadados.verifiedName,
+            bioRecado: matched.bio || conversation.metadados.bioRecado,
+            isBusiness: matched.isBusiness ?? conversation.metadados.isBusiness,
+            isMyContact: matched.isMyContact ?? conversation.metadados.isMyContact,
+            isBlocked: matched.isBlocked ?? conversation.metadados.isBlocked,
+            photoUrl,
+          },
+        };
+      }));
+      return contacts;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao carregar contatos.";
+      setErroContatos(message);
+      if (mostrarErro) mostrarAviso("error", message);
+      return null;
+    } finally {
+      setContatosCarregados(true);
+      setCarregandoContatos(false);
+    }
+  }, [mostrarAviso]);
+
+  const carregarGruposDoBackend = useCallback(async (mostrarErro = true) => {
+    setCarregandoGrupos(true);
+    setErroGrupos(null);
+    try {
+      const payload = await whatsappApi.groups();
+      const rawItems = Array.isArray(payload) ? payload : payload.items;
+      const items = (rawItems || []).map(normalizarGrupoWhatsApp).filter((item): item is ChatConversa => Boolean(item));
+      setGrupos(items);
+      return items;
+    } catch (error) {
+      const cachedGroups = conversasRef.current.filter((conversation) => conversation.esGrupo);
+      setGrupos(cachedGroups);
+      if (cachedGroups.length === 0) {
+        const message = error instanceof Error ? error.message : "Falha ao carregar grupos.";
+        setErroGrupos(message);
+        if (mostrarErro) mostrarAviso("error", message);
+      }
+      return cachedGroups;
+    } finally {
+      setGruposCarregados(true);
+      setCarregandoGrupos(false);
+    }
+  }, [mostrarAviso]);
+
+  const carregarPerfilWhatsApp = useCallback(async () => {
+    try {
+      const payload = await whatsappApi.profile();
+      const profile = "profile" in payload ? payload.profile : payload;
+      setPerfilWhatsApp(profile);
+      return profile;
+    } catch {
+      const phone = canaisStatus.whatsapp?.numero || undefined;
+      const fallback = { name: phone || "Meu WhatsApp", phone };
+      setPerfilWhatsApp((current) => current || fallback);
+      return fallback;
+    }
+  }, [canaisStatus.whatsapp?.numero]);
+
+  const carregarStatusDoBackend = useCallback(async (mostrarErro = true, background = false) => {
+    if (!background) setCarregandoStatusWhatsApp(true);
+    if (!background) setErroStatusWhatsApp(null);
+    try {
+      const payload = await whatsappApi.statuses();
+      const rawItems = Array.isArray(payload) ? payload : payload.items;
+      const items = (rawItems || []).map(normalizarStatusWhatsApp).filter((item): item is WhatsAppStatusItem => Boolean(item));
+      setStatusWhatsApp(items);
+      return items;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao carregar os status do WhatsApp.";
+      if (!background) setErroStatusWhatsApp(message);
+      if (mostrarErro) mostrarAviso("error", message);
+      return null;
+    } finally {
+      setStatusWhatsAppCarregados(true);
+      if (!background) setCarregandoStatusWhatsApp(false);
+    }
+  }, [mostrarAviso]);
+
+  const recarregarCatalogosAposSync = useCallback(async () => {
+    await carregarConversasDoBackend(false, true);
+    const [contacts, loadedGroups] = await Promise.all([
+      carregarContatosDoBackend(false),
+      carregarGruposDoBackend(false),
+      carregarPerfilWhatsApp(),
+      carregarStatusDoBackend(false, true),
+    ]);
+    return { contacts: contacts || [], groups: loadedGroups || [] };
+  }, [carregarContatosDoBackend, carregarConversasDoBackend, carregarGruposDoBackend, carregarPerfilWhatsApp, carregarStatusDoBackend]);
+
+  const forcarSincronizacaoCatalogo = useCallback(async (mostrarSucesso = false) => {
+    setSincronizandoCatalogo(true);
+    syncShowSuccessRef.current = mostrarSucesso;
+    syncCompletionHandledRef.current = false;
+    setProgressoSincronizacao({ status: "syncing", phase: "Preparando", progress: 1, message: "Preparando a sincronização do WhatsApp" });
+    try {
+      if (typeof whatsappApi.startSync !== "function") {
+        const loaded = await recarregarCatalogosAposSync();
+        const complete: WhatsAppSyncProgress = {
+          status: "complete",
+          phase: "Concluído",
+          progress: 100,
+          message: "Contatos, fotos e conversas sincronizados",
+          contactsSynced: loaded.contacts.length,
+          photosSynced: loaded.contacts.filter((contact) => Boolean(contact.photoUrl)).length,
+        };
+        syncStatusRef.current = "complete";
+        syncCompletionHandledRef.current = true;
+        setProgressoSincronizacao(complete);
+        setSincronizandoCatalogo(false);
+        if (mostrarSucesso) mostrarAviso("success", `${loaded.contacts.length} contatos e ${loaded.groups.length} grupos atualizados.`);
+        return true;
+      }
+
+      const started = normalizarProgressoSincronizacao(await whatsappApi.startSync());
+      syncStatusRef.current = started.status;
+      setProgressoSincronizacao(started);
+      if (started.status === "complete") {
+        const loaded = await recarregarCatalogosAposSync();
+        syncCompletionHandledRef.current = true;
+        setSincronizandoCatalogo(false);
+        if (mostrarSucesso) mostrarAviso("success", `${loaded.contacts.length} contatos e ${loaded.groups.length} grupos atualizados.`);
+      } else if (started.status === "error") {
+        setSincronizandoCatalogo(false);
+      }
+      return started.status !== "error";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Falha ao sincronizar o WhatsApp.";
+      syncStatusRef.current = "error";
+      setProgressoSincronizacao((current) => ({ ...normalizarProgressoSincronizacao(current), status: "error", message }));
+      setSincronizandoCatalogo(false);
+      mostrarAviso("error", message);
+      return false;
+    }
+  }, [mostrarAviso, recarregarCatalogosAposSync]);
 
   const carregarHistorico = useCallback(async (conversationId: string, older = false) => {
     if (historicoCarregandoId === conversationId) return;
@@ -184,6 +479,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   }, [anexosPendentes]);
 
   useEffect(() => {
+    conversasRef.current = conversas;
+  }, [conversas]);
+
+  useEffect(() => {
     return () => {
       cancelarEnvioAudioRef.current = true;
       if (mediaRecorderRef.current?.state === "recording") {
@@ -201,9 +500,22 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   useEffect(() => {
     whatsappConectadoRef.current = false;
     catalogoInicialTentadoRef.current = false;
+    syncStatusRef.current = "idle";
+    syncCompletionHandledRef.current = false;
+    syncShowSuccessRef.current = false;
     cursorConversasRef.current = 0;
     historicoRef.current.clear();
     setConversas([]);
+    setGrupos([]);
+    setListaContatos([]);
+    setContatosCarregados(false);
+    setGruposCarregados(false);
+    setStatusWhatsAppCarregados(false);
+    setStatusWhatsApp([]);
+    setStatusSelecionado(null);
+    setPerfilWhatsApp(null);
+    setProgressoSincronizacao(null);
+    setSecaoWhatsApp("conversations");
     setConversaSelecionada(null);
     setQrCodeString(null);
     setCanalSelecionadoLogin(null);
@@ -235,6 +547,9 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           setQrCodeString(null);
           setErroLogin(null);
           if (!estavaConectado) {
+            // status-canais ja agenda a sincronizacao quando o cache esta ausente
+            // ou expirado. Na montagem/reconexao, consome primeiro o cache sem
+            // transformar toda abertura do modulo em um force remoto.
             await carregarConversasDoBackend();
             catalogoInicialTentadoRef.current = true;
           }
@@ -285,6 +600,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           setQrCodeString(null);
           setErroLogin(null);
           setMensagemLogin("WhatsApp conectado com sucesso.");
+          // A consulta de status acima ja deixa o backend decidir pelo TTL se
+          // precisa sincronizar. Aqui apenas abre o catalogo disponivel.
           await carregarConversasDoBackend();
           if (active) setCanalSelecionadoLogin(null);
           return;
@@ -331,6 +648,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     const atualizarEmTempoReal = () => {
       if (!whatsappConectadoRef.current) return;
       void carregarConversasDoBackend(true);
+      void carregarStatusDoBackend(false, true);
       if (conversaSelecionada) {
         historicoRef.current.delete(conversaSelecionada);
         void carregarHistorico(conversaSelecionada);
@@ -338,29 +656,99 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     };
     window.addEventListener("norium:whatsapp-event", atualizarEmTempoReal);
     return () => window.removeEventListener("norium:whatsapp-event", atualizarEmTempoReal);
-  }, [carregarConversasDoBackend, carregarHistorico, conversaSelecionada]);
+  }, [carregarConversasDoBackend, carregarHistorico, carregarStatusDoBackend, conversaSelecionada]);
+
+  useEffect(() => {
+    if (secaoWhatsApp !== "status" || !canaisStatus.whatsapp?.conectado) return;
+    const atualizarStatusVisivel = () => {
+      if (!document.hidden) void carregarStatusDoBackend(false, true);
+    };
+    const interval = window.setInterval(atualizarStatusVisivel, 15_000);
+    return () => window.clearInterval(interval);
+  }, [canaisStatus.whatsapp?.conectado, carregarStatusDoBackend, secaoWhatsApp]);
+
+  useEffect(() => {
+    if (!canaisStatus.whatsapp?.conectado || typeof whatsappApi.syncStatus !== "function") return;
+    let active = true;
+    const controller = new AbortController();
+    const consultarProgresso = async () => {
+      try {
+        const progress = normalizarProgressoSincronizacao(await whatsappApi.syncStatus(controller.signal));
+        if (!active) return;
+        const previousStatus = syncStatusRef.current;
+        syncStatusRef.current = progress.status;
+        setProgressoSincronizacao(progress);
+        if (progress.status === "syncing") {
+          setSincronizandoCatalogo(true);
+          syncCompletionHandledRef.current = false;
+          return;
+        }
+        if (progress.status === "error") {
+          setSincronizandoCatalogo(false);
+          return;
+        }
+        if (progress.status === "complete" && previousStatus === "syncing" && !syncCompletionHandledRef.current) {
+          syncCompletionHandledRef.current = true;
+          const loaded = await recarregarCatalogosAposSync();
+          if (!active) return;
+          setSincronizandoCatalogo(false);
+          if (syncShowSuccessRef.current) {
+            mostrarAviso("success", `${loaded.contacts.length} contatos e ${loaded.groups.length} grupos atualizados.`);
+            syncShowSuccessRef.current = false;
+          }
+        }
+      } catch {
+        // O painel continua utilizavel mesmo quando uma versao anterior do
+        // backend ainda nao oferece o acompanhamento detalhado.
+      }
+    };
+    void consultarProgresso();
+    const interval = window.setInterval(() => void consultarProgresso(), 2_500);
+    return () => {
+      active = false;
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [canaisStatus.whatsapp?.conectado, mostrarAviso, recarregarCatalogosAposSync]);
+
+  useEffect(() => {
+    if (!canaisStatus.whatsapp?.conectado) return;
+    if (secaoWhatsApp === "contacts" && !contatosCarregados && !carregandoContatos && !erroContatos) void carregarContatosDoBackend(false);
+    if (secaoWhatsApp === "groups" && !gruposCarregados && !carregandoGrupos && !erroGrupos) void carregarGruposDoBackend(false);
+    if (secaoWhatsApp === "status" && !statusWhatsAppCarregados && !carregandoStatusWhatsApp && !erroStatusWhatsApp) void carregarStatusDoBackend(false);
+    if (secaoWhatsApp === "profile" && !perfilWhatsApp) void carregarPerfilWhatsApp();
+  }, [
+    canaisStatus.whatsapp?.conectado,
+    carregandoContatos,
+    carregandoGrupos,
+    carregandoStatusWhatsApp,
+    contatosCarregados,
+    gruposCarregados,
+    statusWhatsAppCarregados,
+    carregarContatosDoBackend,
+    carregarGruposDoBackend,
+    carregarPerfilWhatsApp,
+    carregarStatusDoBackend,
+    grupos.length,
+    erroContatos,
+    erroGrupos,
+    erroStatusWhatsApp,
+    listaContatos.length,
+    perfilWhatsApp,
+    secaoWhatsApp,
+    statusWhatsApp.length,
+  ]);
 
   const abrirAgendaContatos = async () => {
     setModalContatosAberto(true);
     setFiltroContatoNome("");
-    setErroContatos(null);
-    setCarregandoContatos(true);
-    try {
-      setListaContatos(await whatsappApi.contacts());
-    } catch (err) {
-      const mensagem = err instanceof Error ? err.message : "Falha ao carregar contatos.";
-      setErroContatos(mensagem);
-      mostrarAviso("error", mensagem);
-    } finally {
-      setCarregandoContatos(false);
-    }
+    await carregarContatosDoBackend();
   };
 
   const abrirModalGrupo = async () => {
     setModalGrupoAberto(true);
-    try {
-      setListaContatos(await whatsappApi.contacts());
-    } catch (err) { mostrarAviso("error", err instanceof Error ? err.message : "Falha ao carregar contatos."); }
+    setFiltroContatoNome("");
+    await carregarContatosDoBackend();
   };
 
   const gerenciarSelecaoContatoGrupo = (id: string) => {
@@ -374,21 +762,26 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       mostrarAviso("error", "Preencha o nome e selecione ao menos um contato.");
       return;
     }
+    setCriandoGrupo(true);
     try {
       await whatsappApi.createGroup(nomeNovoGrupo.trim(), contatosSelecionadosGrupo);
       mostrarAviso("success", `Grupo "${nomeNovoGrupo}" criado no WhatsApp.`);
       setModalGrupoAberto(false);
       setNomeNovoGrupo("");
       setContatosSelecionadosGrupo([]);
-      await carregarConversasDoBackend();
+      await Promise.all([carregarConversasDoBackend(), carregarGruposDoBackend(false)]);
     } catch (error) {
       mostrarAviso("error", error instanceof Error ? error.message : "Nao foi possivel criar o grupo.");
+    } finally {
+      setCriandoGrupo(false);
     }
   };
 
-  const selecionarConversa = async (id: string) => {
+  const selecionarConversa = async (id: string, abrirPerfil = false) => {
+    setSecaoWhatsApp("conversations");
     setConversaSelecionada(id);
-    setPainelPerfilAberto(false);
+    setPainelPerfilAberto(abrirPerfil);
+    if (abrirPerfil) setAbaDireitaModo("perfil");
     setMobileSidebarOpen(false);
     const selected = conversas.find((conversation) => conversation.id === id);
     if (!historicoRef.current.has(id) || !selected?.mensagens.length) void carregarHistorico(id);
@@ -401,25 +794,59 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     } catch (error) { mostrarAviso("error", error instanceof Error ? error.message : "Falha ao marcar conversa como lida."); }
   };
 
-  const iniciarConversaContato = (contact: Contact) => {
+  const iniciarConversaContato = (contact: Contact, abrirPerfil = false) => {
     const conversation = contactToConversation(contact);
     if (!conversation.id) return;
     setConversas((current) => current.some((item) => item.id === conversation.id)
       ? current
       : [conversation, ...current]);
     setModalContatosAberto(false);
-    void selecionarConversa(conversation.id);
+    setSecaoWhatsApp("conversations");
+    void selecionarConversa(conversation.id, abrirPerfil);
+  };
+
+  const abrirGrupo = async (group: ChatConversa) => {
+    setSecaoWhatsApp("conversations");
+    setConversas((current) => current.some((item) => item.id === group.id) ? current : [group, ...current]);
+    setConversaSelecionada(group.id);
+    setPainelPerfilAberto(true);
+    setAbaDireitaModo("perfil");
+    setMobileSidebarOpen(false);
+    try {
+      const payload = await whatsappApi.groupDetails(group.id);
+      const rawDetails = "group" in payload ? payload.group : payload;
+      const details = normalizarGrupoWhatsApp(rawDetails);
+      if (details) setConversas((current) => mergeConversationDetails(current, details));
+    } catch {
+      // O grupo ja veio com dados suficientes do catalogo. Detalhes adicionais
+      // sao carregados novamente ao abrir o cabecalho da conversa.
+    }
+    void carregarHistorico(group.id);
+    void whatsappApi.markConversation(group.id, "lida", true).catch(() => undefined);
+  };
+
+  const selecionarStatusWhatsApp = async (item: WhatsAppStatusItem) => {
+    setStatusSelecionado(item.id);
+    setMobileSidebarOpen(false);
+    if (item.viewed || item.mine) return;
+    setStatusWhatsApp((current) => current.map((status) => status.id === item.id ? { ...status, viewed: true } : status));
+    try {
+      await whatsappApi.markStatusViewed(item.id);
+    } catch (error) {
+      setStatusWhatsApp((current) => current.map((status) => status.id === item.id ? { ...status, viewed: false } : status));
+      mostrarAviso("error", error instanceof Error ? error.message : "Nao foi possivel marcar o status como visualizado.");
+    }
+  };
+
+  const selecionarSecaoWhatsApp = (section: WhatsAppSection) => {
+    setSecaoWhatsApp(section);
+    setPainelPerfilAberto(false);
+    if (section !== "conversations") setMobileSidebarOpen(true);
   };
 
   const atualizarCatalogo = useCallback(async () => {
-    setSincronizandoCatalogo(true);
-    try {
-      const result = await carregarConversasDoBackend(false, true);
-      if (result) mostrarAviso("success", "Conversas, contatos e grupos atualizados.");
-    } finally {
-      setSincronizandoCatalogo(false);
-    }
-  }, [carregarConversasDoBackend, mostrarAviso]);
+    await forcarSincronizacaoCatalogo(true);
+  }, [forcarSincronizacaoCatalogo]);
 
   const abrirDadosPerfil = useCallback(async () => {
     if (!conversaSelecionada) return;
@@ -896,6 +1323,9 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   }, [conversas]);
 
   const conversaAtiva = conversas.find(c => c.id === conversaSelecionada);
+  const gruposDisponiveis = grupos.length > 0 ? grupos : conversas.filter((conversation) => conversation.esGrupo);
+  const totalNaoLidas = conversas.reduce((total, conversation) => total + Number(conversation.naoLidasCount || 0), 0);
+  const totalStatusNaoVisualizados = statusWhatsApp.filter((item) => !item.mine && !item.viewed).length;
   const contatosFiltrados = listaContatos.filter((contact) => contactMatchesSearch(contact, filtroContatoNome));
   const paginaHistoricoAtiva = conversaSelecionada ? historicoRef.current.get(conversaSelecionada) : undefined;
   const nenhumConectado = !canaisStatus.whatsapp?.conectado;
@@ -995,6 +1425,12 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
             )}
           </div>
           <p className="min-h-10 text-[var(--text-secondary)] leading-5">{mensagemLogin}</p>
+          {sincronizandoCatalogo && progressoSincronizacao && (
+            <div className="rounded-xl border border-[var(--primary)]/30 bg-[color-mix(in_srgb,var(--primary)_9%,transparent)] p-3 text-left" role="status" aria-live="polite">
+              <div className="flex items-center justify-between gap-3 text-[11px]"><span className="truncate">{progressoSincronizacao.message || "Sincronizando contatos e fotos"}</span><span className="text-[var(--primary)]">{Math.round(progressoSincronizacao.progress)}%</span></div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/45"><div className="h-full rounded-full bg-[var(--primary)] transition-[width]" style={{ width: `${progressoSincronizacao.progress}%` }} /></div>
+            </div>
+          )}
           {erroLogin && (
             <Button onClick={() => void handleIniciarLogin("whatsapp")} className="w-full" variant="primary">
               Tentar novamente
@@ -1041,38 +1477,92 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         className="hidden"
         onChange={handleFigurinhaSelecionada}
       />
-      <SidebarEsquerda 
-        conversas={conversas} conversaSelecionada={conversaSelecionada} 
-        onSelecionar={selecionarConversa} onAcao={handleAcaoChat} onExcluir={handleExcluirChat}
-        onAbrirConfigPropria={() => setModalConfigAberto(true)}
-        onAbrirModalContatos={abrirAgendaContatos}
-        onAbrirModalCriarGrupo={abrirModalGrupo}
-        onAtualizar={() => void atualizarCatalogo()}
-        sincronizando={sincronizandoCatalogo}
-        onClose={() => setMobileSidebarOpen(false)}
+      <WhatsAppRail
+        section={secaoWhatsApp}
+        unreadCount={totalNaoLidas}
+        statusUnreadCount={totalStatusNaoVisualizados}
+        online={Boolean(canaisStatus.whatsapp?.conectado)}
+        profile={perfilWhatsApp}
+        onSelect={selecionarSecaoWhatsApp}
       />
-      
-      <AreaCentralChat 
-        key={conversaAtiva?.id || "vazio"}
-        conversaAtiva={conversaAtiva} onEnviar={handleEnviarMensagem} 
-        onAbrirDadosPerfil={() => void abrirDadosPerfil()}
-        onAnexarArquivo={handleAnexarArquivo} onGravarAudio={handleGravarAudio}
-        gravando={gravando} tempoGravacao={tempoGravacao} formatarTempo={formatarTempo}
-        anexosPendentes={anexosPendentes}
-        enviandoAnexos={enviandoAnexos}
-        statusMicrofone={statusMicrofone}
-        onRemoverAnexo={removerAnexoPendente}
-        onLimparAnexos={limparAnexosPendentes}
-        onApagarMensagensEmMassa={handleApagarMensagensMassa}
-        onEncaminharMensagens={handleAbrirEncaminhar}
-        onReagirMensagem={handleReagirMensagem}
-        onEscolherFigurinha={() => figurinhaInputRef.current?.click()}
-        figurinhasRecentes={figurinhasRecentes}
-        onEnviarFigurinhaExistente={handleEnviarFigurinhaExistente}
-        onCarregarMensagensAntigas={carregarMensagensAntigas}
-        temMaisMensagens={paginaHistoricoAtiva?.hasMore ?? true}
-        carregandoMensagens={historicoCarregandoId === conversaSelecionada}
-      />
+
+      {secaoWhatsApp === "conversations" && (
+        <>
+          <SidebarEsquerda
+            conversas={conversas} conversaSelecionada={conversaSelecionada}
+            onSelecionar={selecionarConversa} onAcao={handleAcaoChat} onExcluir={handleExcluirChat}
+            onAbrirConfigPropria={() => setModalConfigAberto(true)}
+            onAbrirModalContatos={abrirAgendaContatos}
+            onAbrirModalCriarGrupo={abrirModalGrupo}
+            onAtualizar={() => void atualizarCatalogo()}
+            sincronizando={sincronizandoCatalogo}
+            syncProgress={progressoSincronizacao}
+            onClose={() => setMobileSidebarOpen(false)}
+          />
+
+          <AreaCentralChat
+            key={conversaAtiva?.id || "vazio"}
+            conversaAtiva={conversaAtiva} onEnviar={handleEnviarMensagem}
+            onAbrirDadosPerfil={() => void abrirDadosPerfil()}
+            onAnexarArquivo={handleAnexarArquivo} onGravarAudio={handleGravarAudio}
+            gravando={gravando} tempoGravacao={tempoGravacao} formatarTempo={formatarTempo}
+            anexosPendentes={anexosPendentes}
+            enviandoAnexos={enviandoAnexos}
+            statusMicrofone={statusMicrofone}
+            onRemoverAnexo={removerAnexoPendente}
+            onLimparAnexos={limparAnexosPendentes}
+            onApagarMensagensEmMassa={handleApagarMensagensMassa}
+            onEncaminharMensagens={handleAbrirEncaminhar}
+            onReagirMensagem={handleReagirMensagem}
+            onEscolherFigurinha={() => figurinhaInputRef.current?.click()}
+            figurinhasRecentes={figurinhasRecentes}
+            onEnviarFigurinhaExistente={handleEnviarFigurinhaExistente}
+            onCarregarMensagensAntigas={carregarMensagensAntigas}
+            temMaisMensagens={paginaHistoricoAtiva?.hasMore ?? true}
+            carregandoMensagens={historicoCarregandoId === conversaSelecionada}
+          />
+        </>
+      )}
+
+      {(secaoWhatsApp === "contacts" || secaoWhatsApp === "groups") && (
+        <WhatsAppDirectory
+          mode={secaoWhatsApp}
+          contacts={listaContatos}
+          groups={gruposDisponiveis}
+          loading={secaoWhatsApp === "contacts" ? carregandoContatos : carregandoGrupos}
+          error={secaoWhatsApp === "contacts" ? erroContatos : erroGrupos}
+          sync={progressoSincronizacao}
+          onOpenContact={(contact) => iniciarConversaContato(contact, true)}
+          onOpenGroup={(group) => void abrirGrupo(group)}
+          onCreateGroup={() => void abrirModalGrupo()}
+          onRefresh={() => void (secaoWhatsApp === "contacts" ? carregarContatosDoBackend() : carregarGruposDoBackend())}
+        />
+      )}
+
+      {secaoWhatsApp === "status" && (
+        <WhatsAppStatusView
+          items={statusWhatsApp}
+          selectedId={statusSelecionado}
+          profile={perfilWhatsApp}
+          loading={carregandoStatusWhatsApp}
+          error={erroStatusWhatsApp}
+          onSelect={(item) => void selecionarStatusWhatsApp(item)}
+          onRefresh={() => void carregarStatusDoBackend()}
+          onCreateUnavailable={() => mostrarAviso("info", "A W-API ainda nao oferece publicacao de Status. Publique no celular; o feed recebido aparece aqui automaticamente.")}
+        />
+      )}
+
+      {secaoWhatsApp === "profile" && (
+        <WhatsAppProfileView
+          profile={perfilWhatsApp}
+          connected={Boolean(canaisStatus.whatsapp?.conectado)}
+          onDisconnect={() => setConfirmarDesconexaoAberta(true)}
+          onUnavailableSetting={(label) => {
+            if (label === "Conta") setModalConfigAberto(true);
+            else mostrarAviso("info", `${label}: altere esta configuracao no WhatsApp do celular; o Norium sincroniza os dados permitidos pela W-API.`);
+          }}
+        />
+      )}
 
       {aviso && (
         <div className="absolute left-1/2 top-4 z-[80] w-[min(420px,90%)] -translate-x-1/2">
@@ -1147,8 +1637,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         </div>
       )}
 
-      {painelPerfilAberto && (
-        <PainelDireito modo={abaDireitaModo} conversaAtiva={conversaAtiva} onFechar={() => setPainelPerfilAberto(false)} onAskNora={onOpenNora} />
+      {secaoWhatsApp === "conversations" && painelPerfilAberto && (
+        <PainelDireito modo={abaDireitaModo} conversaAtiva={conversaAtiva} onFechar={() => setPainelPerfilAberto(false)} onContinuarConversa={() => setPainelPerfilAberto(false)} onAskNora={onOpenNora} />
       )}
 
       {modalContatosAberto && (
@@ -1206,27 +1696,32 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
             
             <div className="p-4 space-y-3 bg-[var(--background)] border-b border-[var(--border)]">
               <input type="text" placeholder="Nome do grupo..." value={nomeNovoGrupo} onChange={(e) => setNomeNovoGrupo(e.target.value)} className="w-full h-10 border border-[var(--border)] bg-[var(--surface)] px-3 rounded-xl outline-none font-semibold text-xs text-[var(--text)] focus:border-[var(--primary)]"/>
+              <label className="flex h-10 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 focus-within:border-[var(--primary)]">
+                <Search size={14} className="text-[var(--text-secondary)]" />
+                <input type="search" aria-label="Buscar participantes" placeholder="Buscar participantes" value={filtroContatoNome} onChange={(e) => setFiltroContatoNome(e.target.value)} className="min-w-0 flex-1 bg-transparent text-xs font-semibold text-[var(--text)] outline-none" />
+              </label>
               <div className="rounded-xl border border-[var(--primary)]/30 bg-[color-mix(in_srgb,var(--primary)_12%,transparent)] px-3 py-2 text-center text-[var(--primary)]">Grupo do WhatsApp</div>
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-[var(--border)]/30">
-              {listaContatos.map((c) => {
-                const jid = c.phone || c.id;
-                const marcado = contatosSelecionadosGrupo.includes(jid);
+              {contatosFiltrados.map((c) => {
+                const phone = contactGroupPhone(c);
+                const rowId = contactConversationId(c);
+                const marcado = Boolean(phone && contatosSelecionadosGrupo.includes(phone));
                 return (
-                  <div key={jid} onClick={() => gerenciarSelecaoContatoGrupo(jid)} className="p-3 flex items-center justify-between hover:bg-[var(--surface-hover)] cursor-pointer">
+                  <button type="button" key={rowId} disabled={!phone} onClick={() => phone && gerenciarSelecaoContatoGrupo(phone)} className="p-3 flex w-full items-center justify-between text-left hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-55">
                     <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-neutral-700 flex items-center justify-center text-neutral-300"><User size={14}/></div>
-                      <span className="font-bold text-sm truncate">{c.name || c.pushname || "Sem Nome"}</span>
+                      <ContactAvatar contact={c} />
+                      <span className="min-w-0"><span className="block truncate text-sm font-bold">{contactDisplayName(c)}</span>{!phone && <span className="mt-0.5 block text-[10px] font-semibold text-amber-400">Número indisponível para grupo</span>}</span>
                     </div>
-                    <input type="checkbox" checked={marcado} readOnly className="rounded border-zinc-700 h-4 w-4 text-[var(--primary)] focus:ring-0"/>
-                  </div>
+                    <span aria-hidden="true" className={`grid h-4 w-4 shrink-0 place-items-center rounded border text-[10px] ${marcado ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-[var(--border)]"}`}>{marcado ? "✓" : ""}</span>
+                  </button>
                 );
               })}
             </div>
 
             <div className="p-4 bg-[var(--background)] border-t border-[var(--border)]">
-              <button onClick={executarCriacaoGrupo} className="w-full h-11 bg-[var(--primary)] text-white rounded-xl shadow-md font-bold text-xs transition hover:opacity-95">Concluir Criação</button>
+              <button onClick={executarCriacaoGrupo} disabled={criandoGrupo} className="w-full h-11 bg-[var(--primary)] text-white rounded-xl shadow-md font-bold text-xs transition hover:opacity-95 disabled:cursor-wait disabled:opacity-60">{criandoGrupo ? "Criando grupo..." : `Concluir criação (${contatosSelecionadosGrupo.length})`}</button>
             </div>
           </div>
         </div>

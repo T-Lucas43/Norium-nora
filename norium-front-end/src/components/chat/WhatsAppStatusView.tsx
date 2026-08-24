@@ -1,0 +1,123 @@
+import { Camera, CircleDot, Eye, Pencil, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import type { WhatsAppProfile, WhatsAppStatusItem } from "./whatsappApi";
+import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+
+interface WhatsAppStatusViewProps {
+  items: WhatsAppStatusItem[];
+  selectedId: string | null;
+  profile?: WhatsAppProfile | null;
+  loading?: boolean;
+  error?: string | null;
+  onSelect: (item: WhatsAppStatusItem) => void;
+  onRefresh: () => void;
+  onCreateUnavailable: () => void;
+}
+
+function formatTime(timestamp: number) {
+  const value = timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Agora";
+  return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function StatusAvatar({ name, photoUrl, viewed = false }: { name: string; photoUrl?: string; viewed?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  const source = useAuthenticatedMedia(photoUrl);
+  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
+  return (
+    <span className={`grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full border-[3px] bg-[var(--background)] text-xs font-extrabold ${viewed ? "border-[var(--border)] text-[var(--text-secondary)]" : "border-[var(--primary)] text-[var(--text)]"}`}>
+      {source && !failed ? <img src={source} alt="" className="h-full w-full rounded-full object-cover" onError={() => setFailed(true)} /> : initials}
+    </span>
+  );
+}
+
+function StatusMedia({ item }: { item: WhatsAppStatusItem }) {
+  const source = useAuthenticatedMedia(item.mediaUrl);
+  if (item.type === "video" && source) return <video src={source} controls autoPlay className="max-h-[72vh] max-w-full rounded-2xl object-contain" />;
+  if (item.type === "image" && source) return <img src={source} alt={`Status de ${item.name}`} className="max-h-[72vh] max-w-full rounded-2xl object-contain" />;
+  return (
+    <div className="flex min-h-[360px] w-full max-w-[660px] items-center justify-center rounded-3xl px-12 py-20 text-center text-3xl font-semibold leading-normal text-white shadow-2xl" style={{ background: item.color || "linear-gradient(145deg, #0759f5, #07265d)" }}>
+      {item.text || "Status sem legenda"}
+    </div>
+  );
+}
+
+export default function WhatsAppStatusView({ items, selectedId, profile, loading, error, onSelect, onRefresh, onCreateUnavailable }: WhatsAppStatusViewProps) {
+  const selected = items.find((item) => item.id === selectedId) || null;
+  const recent = items.filter((item) => !item.viewed && !item.mine);
+  const viewed = items.filter((item) => item.viewed && !item.mine);
+  const mine = items.filter((item) => item.mine);
+
+  const renderItems = (sectionItems: WhatsAppStatusItem[], label: string) => sectionItems.length ? (
+    <section className="pb-2">
+      <h3 className="px-4 pb-2 pt-4 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{label}</h3>
+      {sectionItems.map((item) => (
+        <button key={item.id} type="button" onClick={() => onSelect(item)} className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-[var(--surface-hover)] ${item.id === selectedId ? "bg-[color-mix(in_srgb,var(--primary)_14%,transparent)]" : ""}`}>
+          <StatusAvatar name={item.name} photoUrl={item.photoUrl} viewed={item.viewed} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-bold text-[var(--text)]">{item.name}</span>
+            <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">{formatTime(item.timestamp)}</span>
+          </span>
+          {!item.viewed && <span className="h-2 w-2 rounded-full bg-[var(--primary)]" />}
+        </button>
+      ))}
+    </section>
+  ) : null;
+
+  return (
+    <>
+      <aside className="norium-chat-sidebar flex h-full min-h-0 w-[380px] min-w-[320px] flex-col overflow-hidden border-r border-[var(--border)] bg-[var(--surface)] text-[var(--text)]">
+        <header className="flex h-[72px] shrink-0 items-center justify-between border-b border-[var(--border)] px-4">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold"><CircleDot size={20} className="text-[var(--primary)]" /> Status</h2>
+            <p className="mt-0.5 text-[11px] text-[var(--text-secondary)]">Atualizações recebidas pelo WhatsApp</p>
+          </div>
+          <button type="button" onClick={onRefresh} disabled={loading} className="grid h-9 w-9 place-items-center rounded-xl border border-[var(--border)] hover:border-[var(--primary)] disabled:opacity-50" aria-label="Atualizar status"><RefreshCw size={16} className={loading ? "animate-spin" : ""} /></button>
+        </header>
+
+        <div className="border-b border-[var(--border)] px-4 py-4">
+          <div className="flex items-center gap-3">
+            <StatusAvatar name={profile?.name || "Meu status"} photoUrl={profile?.photoUrl} viewed />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold">Meu status</p>
+              <p className="mt-0.5 text-xs text-[var(--text-secondary)]">Publique pelo WhatsApp no celular</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="norium-chat-list min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {loading && <p className="p-8 text-center text-sm font-semibold text-[var(--text-secondary)]">Atualizando status...</p>}
+          {!loading && error && <div className="p-8 text-center"><p className="text-sm font-semibold text-red-400">{error}</p><button type="button" onClick={onRefresh} className="mt-3 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold">Tentar novamente</button></div>}
+          {!loading && !error && items.length === 0 && <div className="grid place-items-center gap-2 p-10 text-center text-[var(--text-secondary)]"><CircleDot size={28} /><p className="text-sm font-semibold">Nenhum status recente.</p></div>}
+          {!loading && !error && renderItems(mine, "Meus status")}
+          {!loading && !error && renderItems(recent, "Recentes")}
+          {!loading && !error && renderItems(viewed, "Visualizados")}
+        </div>
+      </aside>
+
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#090b0d] text-[var(--text)]">
+        {selected ? (
+          <>
+            <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-5">
+              <StatusAvatar name={selected.name} photoUrl={selected.photoUrl} viewed={selected.viewed} />
+              <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-bold">{selected.name}</h3><p className="text-xs text-[var(--text-secondary)]">{formatTime(selected.timestamp)}</p></div>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"><Eye size={13} /> Visualizado</span>
+            </header>
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-6"><StatusMedia item={selected} /></div>
+          </>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+            <div className="grid h-28 w-28 place-items-center rounded-full border border-[var(--primary)]/25 bg-[color-mix(in_srgb,var(--primary)_10%,transparent)] text-[var(--primary)]"><CircleDot size={48} strokeWidth={1.25} /></div>
+            <h3 className="mt-6 text-xl font-semibold">Status do WhatsApp</h3>
+            <p className="mt-2 max-w-md text-sm leading-6 text-[var(--text-secondary)]">Visualize aqui as atualizações recebidas. Elas ficam separadas das mensagens e não poluem sua caixa de conversas.</p>
+            <div className="mt-6 flex gap-3">
+              <button type="button" onClick={onCreateUnavailable} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2.5 text-sm font-semibold hover:border-[var(--primary)]"><Pencil size={16} /> Status de texto</button>
+              <button type="button" onClick={onCreateUnavailable} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2.5 text-sm font-semibold hover:border-[var(--primary)]"><Camera size={16} /> Foto e vídeo</button>
+            </div>
+          </div>
+        )}
+      </main>
+    </>
+  );
+}

@@ -104,6 +104,50 @@ def gmail_event_timestamp(message: dict[str, Any]) -> str | None:
         return None
 
 
+def gmail_oauth_error_message(error: str, error_description: str | None) -> str:
+    """Traduz falhas de configuracao sem confundi-las com cancelamento."""
+    error_key = str(error or "").strip().casefold()
+    description_key = str(error_description or "").strip().casefold()
+    testing_markers = (
+        "test user",
+        "test users",
+        "being tested",
+        "modo de teste",
+        "unverified",
+        "not verified",
+        "verification",
+        "developer hasn't given you access",
+        "developer has not given you access",
+    )
+    if error_key == "access_denied" and any(marker in description_key for marker in testing_markers):
+        return (
+            "O Google bloqueou esta conta porque o cliente OAuth do Norium ainda está em modo de teste "
+            "ou aguardando verificação. Inclua a conta em Test users para homologação ou publique e "
+            "verifique o app no Google Cloud para liberar os demais usuários."
+        )
+    if error_key == "redirect_uri_mismatch":
+        return (
+            "O endereço de retorno do Gmail não coincide com o URI autorizado no Google Cloud. "
+            "Cadastre exatamente o callback público do Norium, incluindo https e sem alterar a barra final."
+        )
+    if error_key == "org_internal":
+        return (
+            "Este cliente Google está configurado como interno e só aceita contas da organização autorizada. "
+            "Use uma conta desse domínio ou altere o público do app no Google Cloud."
+        )
+    if error_key == "access_denied":
+        return "A autorização foi cancelada na Conta do Google. Nenhum acesso foi concedido."
+    return "O Google não conseguiu autorizar esta conta. Gere um novo link e tente novamente."
+
+
+def cancel_gmail_oauth_attempt(user_id: str, state: str | None) -> None:
+    """Cancela state valido sem deixar uma falha de persistencia quebrar o callback."""
+    try:
+        GmailService(user_id).cancel_oauth(state)
+    except Exception:
+        logger.exception("Falha ao cancelar uma tentativa OAuth do Gmail")
+
+
 async def record_gmail_messages_for_central(messages: list[dict[str, Any]], folder: str, user_id: str) -> int:
     count = 0
     for message in messages:
@@ -195,14 +239,9 @@ async def gmail_callback(
             status_code=400,
         )
     if error:
-        GmailService(resolved_user_id).cancel_oauth(state)
-        message = (
-            "A autorização foi cancelada na Conta do Google. Nenhum acesso foi concedido."
-            if error == "access_denied"
-            else "O Google não conseguiu autorizar esta conta. Gere um novo link e tente novamente."
-        )
-        if error_description and error != "access_denied":
-            logger.warning("Google recusou OAuth do Gmail: %s", error)
+        cancel_gmail_oauth_attempt(resolved_user_id, state)
+        message = gmail_oauth_error_message(error, error_description)
+        logger.warning("Google recusou OAuth do Gmail: %s", error)
         return HTMLResponse(
             oauth_result_html(
                 provider="Gmail",
@@ -213,7 +252,7 @@ async def gmail_callback(
             status_code=400,
         )
     if not code:
-        GmailService(resolved_user_id).cancel_oauth(state)
+        cancel_gmail_oauth_attempt(resolved_user_id, state)
         return HTMLResponse(
             oauth_result_html(
                 provider="Gmail",

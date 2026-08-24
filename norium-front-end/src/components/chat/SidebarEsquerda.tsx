@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import type { ChatConversa } from "./types";
+import type { WhatsAppSyncProgress } from "./whatsappApi";
 import Button from "../shared/Button";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
@@ -33,6 +34,7 @@ interface SidebarProps {
   onAbrirModalCriarGrupo: () => void;
   onAtualizar: () => void;
   sincronizando?: boolean;
+  syncProgress?: WhatsAppSyncProgress | null;
   onClose?: () => void;
 }
 
@@ -65,6 +67,7 @@ export default function SidebarEsquerda({
   onAbrirModalCriarGrupo,
   onAtualizar,
   sincronizando = false,
+  syncProgress,
   onClose,
 }: SidebarProps) {
   const [filtroTipo, setFiltroTipo] = useState<Filter>("todos");
@@ -194,6 +197,18 @@ export default function SidebarEsquerda({
           ))}
         </div>
       </div>
+
+      {syncProgress && syncProgress.status !== "idle" && (sincronizando || syncProgress.status === "error") && (
+        <div className={`shrink-0 border-b px-4 py-2.5 ${syncProgress.status === "error" ? "border-red-500/25 bg-red-500/10" : "border-[var(--primary)]/20 bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]"}`} role="status" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-[10px] font-bold">
+            <span className="truncate text-[var(--text)]">{syncProgress.message || syncProgress.phase || "Sincronizando contatos e fotos"}</span>
+            <span className="shrink-0 text-[var(--primary)]">{Math.round(Math.max(0, Math.min(100, syncProgress.progress || 0)))}%</span>
+          </div>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-black/50">
+            <div className="h-full rounded-full bg-[var(--primary)] transition-[width] duration-300" style={{ width: `${Math.max(0, Math.min(100, syncProgress.progress || 0))}%` }} />
+          </div>
+        </div>
+      )}
 
       <div className="norium-chat-list min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {sections.map((section) => (

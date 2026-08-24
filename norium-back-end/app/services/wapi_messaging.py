@@ -21,6 +21,10 @@ class MessagingUnavailable(Exception):
     """Não há instância WhatsApp vinculada/conectada para a conta."""
 
 
+class InvalidGroupParticipants(ValueError):
+    """Nenhum participante de grupo possui número internacional utilizável."""
+
+
 def wapi_phone(conversa_id: str) -> str:
     """Normaliza o id de conversa do Norium para o campo ``phone`` da W-API."""
     cid = str(conversa_id or "").strip()
@@ -92,10 +96,43 @@ class WapiMessagingService:
         await self._client.read_message(instance_id, token, wapi_phone(conversa_id), message_id)
         return {"read": True}
 
-    async def create_group(self, user_id: str, name: str, participants: list[str]) -> dict[str, Any]:
+    async def create_group(
+        self,
+        user_id: str,
+        name: str,
+        participants: list[str],
+        *,
+        profile_picture_url: str = "",
+        auto_invite: bool = True,
+    ) -> dict[str, Any]:
         instance_id, token = self._creds(user_id)
-        numbers = [wapi_phone(p) for p in participants if p]
-        return await self._client.create_group(instance_id, token, name, numbers)
+        numbers: list[str] = []
+        for participant in participants:
+            raw = str(participant or "").strip()
+            if not raw or raw.lower().endswith(("@lid", "@g.us", "@newsletter")):
+                continue
+            local = raw.split("@", 1)[0]
+            digits = re.sub(r"\D", "", local)
+            if len(digits) >= 8 and digits not in numbers:
+                numbers.append(digits)
+        if not numbers:
+            raise InvalidGroupParticipants(
+                "Informe ao menos um contato com numero internacional (DDI, DDD e telefone)."
+            )
+        return await self._client.create_group(
+            instance_id,
+            token,
+            name,
+            numbers,
+            profile_picture_url=profile_picture_url,
+            auto_invite=auto_invite,
+        )
 
 
-__all__ = ["WapiMessagingService", "MessagingUnavailable", "WapiError", "wapi_phone"]
+__all__ = [
+    "WapiMessagingService",
+    "MessagingUnavailable",
+    "InvalidGroupParticipants",
+    "WapiError",
+    "wapi_phone",
+]

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Contact } from "./whatsappApi";
-import { contactMatchesSearch, contactToConversation, mergeConversationDetails } from "./contactPicker";
+import { contactGroupPhone, contactMatchesSearch, contactToConversation, mergeConversationDetails } from "./contactPicker";
 
 const contact: Contact = {
   id: "5511999999999@c.us",
@@ -15,6 +15,20 @@ describe("contact picker", () => {
     expect(contactMatchesSearch(contact, "joao")).toBe(true);
     expect(contactMatchesSearch(contact, "9999-9999")).toBe(true);
     expect(contactMatchesSearch(contact, "maria")).toBe(false);
+  });
+
+  it("prioriza notify retornado pelo WhatsApp antes de identificadores tecnicos", () => {
+    expect(contactToConversation({
+      id: "120363400000000000@g.us",
+      phone: "120363400000000000",
+      notify: "Equipe Norium",
+      verifiedName: "Norium LTDA",
+    }).contato).toBe("Equipe Norium");
+  });
+
+  it("nao envia LID sem telefone para criacao de grupo", () => {
+    expect(contactGroupPhone({ id: "1044754458590371@lid", phone: "" })).toBeNull();
+    expect(contactGroupPhone({ id: "1044754458590371@lid", phone: "5511999999999" })).toBe("5511999999999");
   });
 
   it("cria uma conversa utilizavel antes de carregar os detalhes", () => {

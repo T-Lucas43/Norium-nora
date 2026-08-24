@@ -15,11 +15,12 @@ atuam somente sobre o vínculo daquela conta.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
 import time
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from app.services import wapi_binding as wb
 from app.services.wapi_binding import InstanceBinding, CONSENT_TERM_VERSION
@@ -37,6 +38,16 @@ class ConsentRequiredError(Exception):
 # Mapeia os 6 tipos de webhook da W-API para o endpoint público único do Norium.
 _WEBHOOK_PATH = "/api/whatsapp/webhook"
 _WEBHOOK_EVENTS = ("connected", "disconnected", "delivery", "received", "status", "presence")
+_WEBHOOK_UPDATE_EVENTS = {
+    "connected": "connected",
+    "disconnected": "disconnected",
+    "delivery": "delivery",
+    "received": "received",
+    "status": "message-status",
+    "presence": "chat-presence",
+}
+_RETRIABLE_WEBHOOK_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
+_WEBHOOK_REFRESH_TIMEOUT_SECONDS = 20.0
 
 # A W-API gera um QR NOVO a cada chamada de /instance/qr-code (verificado ao
 # vivo: chamadas consecutivas retornam QRs distintos), e cada QR é uma sessão de
@@ -85,14 +96,77 @@ class WapiConnectService:
 
     def _webhook_urls(self) -> dict[str, str]:
         url = public_api_url(_WEBHOOK_PATH)
-        # Sem URL pública configurada não adianta registrar webhook.
-        if not url.startswith("http"):
+        # A W-API precisa alcançar o callback pela Internet. Nunca registra o
+        # fallback local de desenvolvimento como se fosse uma URL pública.
+        try:
+            parsed = urlparse(url)
+            hostname = (parsed.hostname or "").strip().casefold().rstrip(".")
+        except ValueError:
+            return {}
+        if (
+            # O contrato W-API rejeita webhooks HTTP, mesmo fora de localhost.
+            parsed.scheme != "https"
+            or not hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or hostname == "localhost"
+            or hostname.endswith((".localhost", ".local", ".internal", ".lan"))
+        ):
+            return {}
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            address = None
+        if address is not None and not address.is_global:
             return {}
         # O segredo viaja na URL registrada para autenticar cada entrega recebida.
         secret = self._client.config.webhook_secret
         if secret:
             url = f"{url}?secret={quote(secret)}"
         return {event: url for event in _WEBHOOK_EVENTS}
+
+    async def _refresh_existing_webhooks(self, binding: InstanceBinding) -> None:
+        """Reaplica callbacks oficiais em uma instância já provisionada.
+
+        Instâncias antigas podem ter sido criadas antes de algum webhook ser
+        habilitado. A falha de um callback não invalida o vínculo/QR; ela fica
+        registrada e uma nova inicialização tentará novamente.
+        """
+        urls = self._webhook_urls()
+        if not binding.exists or not urls:
+            return
+        async def _set_one(event: str, url: str) -> None:
+            endpoint_event = _WEBHOOK_UPDATE_EVENTS[event]
+            for attempt in range(2):
+                try:
+                    await self._client.set_webhook(
+                        binding.instance_id,
+                        binding.token,
+                        endpoint_event,
+                        url,
+                    )
+                    return
+                except WapiError as exc:
+                    can_retry = exc.status is None or exc.status in _RETRIABLE_WEBHOOK_STATUSES
+                    if attempt == 0 and can_retry:
+                        await asyncio.sleep(0.4)
+                        continue
+                    logger.warning(
+                        "Nao foi possivel atualizar o webhook W-API %s: status=%s.",
+                        endpoint_event,
+                        exc.status,
+                    )
+                    return
+
+        try:
+            # Os seis PUTs são independentes e idempotentes. Executá-los em
+            # paralelo evita bloquear o onboarding por até seis timeouts.
+            await asyncio.wait_for(
+                asyncio.gather(*(_set_one(event, url) for event, url in urls.items())),
+                timeout=_WEBHOOK_REFRESH_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning("Tempo limite ao atualizar os webhooks da instancia W-API existente.")
 
     def _homolog_instance(self) -> tuple[str, str]:
         return (
@@ -125,8 +199,14 @@ class WapiConnectService:
             # painel). Se sumiu, limpa o vínculo e recria/reutiliza abaixo.
             try:
                 await self._client.status(binding.instance_id, binding.token)
+                await self._refresh_existing_webhooks(binding)
                 return binding
-            except WapiError:
+            except WapiError as exc:
+                if exc.status not in {401, 404}:
+                    # Rate limit/5xx/rede não provam que a instância sumiu.
+                    # Preservar o vínculo evita criar outra sessão e derrubar o
+                    # WhatsApp já conectado em uma indisponibilidade transitória.
+                    raise
                 logger.info("Vínculo aponta para instância inexistente; recriando.")
                 wb.clear_binding(user_id)
                 binding = wb.get_binding(user_id)
@@ -140,7 +220,9 @@ class WapiConnectService:
             binding.state = "awaiting_qr"
             binding.created_at = time.time()
             logger.info("Instância de homologação vinculada à conta autenticada.")
-            return wb.save_binding(user_id, binding)
+            binding = wb.save_binding(user_id, binding)
+            await self._refresh_existing_webhooks(binding)
+            return binding
 
         if not allow_create:
             raise WapiError("Nenhuma instância de WhatsApp vinculada.", code="no_instance")
@@ -160,7 +242,9 @@ class WapiConnectService:
             binding.state = "awaiting_qr"
             binding.created_at = time.time()
             if binding.exists:
-                return wb.save_binding(user_id, binding)
+                binding = wb.save_binding(user_id, binding)
+                await self._refresh_existing_webhooks(binding)
+                return binding
 
         # Plano da instância criada: PRO por padrão (LITE bloqueia reações,
         # figurinhas, listagem e sync de enviadas). Override por WAPI_INSTANCE_LITE.

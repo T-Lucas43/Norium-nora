@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from app.modules.chat import router as chat_router
 from app.services import wapi_binding as wb
 from app.services.wapi_binding import InstanceBinding
-from app.services.wapi_messaging import wapi_phone
+from app.services.wapi_messaging import wapi_phone, InvalidGroupParticipants
 
 
 def chat_user(user_id: str) -> dict:
@@ -81,6 +81,33 @@ class WapiMessagingRouteTests(unittest.IsolatedAsyncioTestCase):
             await chat_router.enviar_mensagem(payload, chat_user("user-b"))
         self.assertEqual(409, error.exception.status_code)
         self._send_text.assert_not_awaited()
+
+    async def test_group_creation_sends_only_numeric_participants(self) -> None:
+        bind("user-a", "INST-A", "tok-a")
+        create_group = AsyncMock(return_value={"group": {"id": "120363000000000000@g.us"}})
+        with patch.object(chat_router.wapi_messaging._client, "create_group", create_group):
+            await chat_router.wapi_messaging.create_group(
+                "user-a",
+                "Equipe",
+                ["5511999998888@c.us", "219451387551856@lid", "123@newsletter"],
+            )
+        self.assertEqual(["5511999998888"], create_group.await_args.args[3])
+
+    async def test_group_creation_rejects_only_lid_participants(self) -> None:
+        bind("user-a", "INST-A", "tok-a")
+        with self.assertRaises(InvalidGroupParticipants):
+            await chat_router.wapi_messaging.create_group(
+                "user-a",
+                "Equipe",
+                ["219451387551856@lid"],
+            )
+
+    async def test_group_route_returns_422_for_only_lid_participants(self) -> None:
+        bind("user-a", "INST-A", "tok-a")
+        payload = chat_router.CriarGrupoPayload(nome="Equipe", participantes=["219451387551856@lid"])
+        with self.assertRaises(HTTPException) as error:
+            await chat_router.criar_grupo(payload, chat_user("user-a"))
+        self.assertEqual(422, error.exception.status_code)
 
 
 if __name__ == "__main__":

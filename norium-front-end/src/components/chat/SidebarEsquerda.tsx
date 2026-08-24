@@ -19,6 +19,7 @@ import type { ChatConversa } from "./types";
 import type { WhatsAppSyncProgress } from "./whatsappApi";
 import Button from "../shared/Button";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+import { conversationDisplayName, isTechnicalWhatsAppLabel } from "./contactPicker";
 
 type ChatAction = "lida" | "fixada" | "favorita" | "silenciada" | "arquivada";
 type Filter = "todos" | "nao-lidas" | "favoritos" | "grupos" | "arquivados";
@@ -45,12 +46,13 @@ function getInitials(name: string) {
 function ChatAvatar({ chat }: { chat: ChatConversa }) {
   const [failed, setFailed] = useState(false);
   const photoUrl = useAuthenticatedMedia(chat.metadados?.photoUrl || chat.photoUrl);
+  const displayName = conversationDisplayName(chat);
   return (
     <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--background)] text-[var(--text-secondary)]">
       {photoUrl && !failed ? (
-        <img src={photoUrl} alt={chat.contato} className="h-full w-full object-cover" onError={() => setFailed(true)} />
-      ) : chat.esGrupo ? <Users size={17} /> : chat.contato ? (
-        <span className="text-xs font-extrabold">{getInitials(chat.contato)}</span>
+        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      ) : chat.esGrupo ? <Users size={17} /> : displayName && !isTechnicalWhatsAppLabel(displayName) ? (
+        <span className="text-xs font-extrabold">{getInitials(displayName)}</span>
       ) : <User size={17} />}
     </div>
   );
@@ -118,6 +120,7 @@ export default function SidebarEsquerda({
   const renderChat = (chat: ChatConversa) => {
     const unread = Number(chat.naoLidasCount || 0);
     const selected = conversaSelecionada === chat.id;
+    const displayName = conversationDisplayName(chat);
     return (
       <div
         key={chat.id}
@@ -127,7 +130,7 @@ export default function SidebarEsquerda({
         <ChatAvatar chat={chat} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <span className={`truncate text-sm text-[var(--text)] ${unread > 0 ? "font-extrabold" : "font-semibold"}`}>{chat.contato}</span>
+            <span className={`truncate text-sm text-[var(--text)] ${unread > 0 ? "font-extrabold" : "font-semibold"}`}>{displayName}</span>
             <span className={`shrink-0 text-[11px] ${unread > 0 ? "font-bold text-[var(--primary)]" : "text-[var(--text-secondary)]"}`}>{chat.horario}</span>
           </div>
           <div className="mt-1 flex min-w-0 items-center gap-1.5">
@@ -140,7 +143,7 @@ export default function SidebarEsquerda({
         {unread > 0 && <span className="absolute bottom-2.5 right-10 grid h-5 min-w-5 place-items-center rounded-full bg-[var(--primary)] px-1.5 text-[10px] font-extrabold text-white">{unread > 99 ? "99+" : unread}</span>}
 
         <div className="relative" data-chat-menu-root>
-          <Button variant="ghost" size="sm" iconOnly aria-label={`Acoes de ${chat.contato}`} onClick={(event) => { event.stopPropagation(); setMenuAbertoId(menuAbertoId === chat.id ? null : chat.id); }} className="text-[var(--text-secondary)] opacity-40 transition group-hover/chat:opacity-100">
+          <Button variant="ghost" size="sm" iconOnly aria-label={`Acoes de ${displayName}`} onClick={(event) => { event.stopPropagation(); setMenuAbertoId(menuAbertoId === chat.id ? null : chat.id); }} className="text-[var(--text-secondary)] opacity-40 transition group-hover/chat:opacity-100">
             <MoreVertical size={16} />
           </Button>
           {menuAbertoId === chat.id && (
@@ -198,7 +201,55 @@ export default function SidebarEsquerda({
         </div>
       </div>
 
-      {syncProgress && syncProgress.status !== "idle" && (sincronizando || syncProgress.status === "error") && (
+      {syncProgress?.requiresPro && (
+        <div className="shrink-0 border-b border-amber-400/25 bg-amber-400/10 px-4 py-3 text-amber-100" role="alert">
+          <p className="text-[11px] font-extrabold">A agenda completa exige uma instância W-API PRO.</p>
+          <p className="mt-1 text-[10px] font-medium leading-4 text-amber-100/80">
+            {syncProgress.reconnectRequired
+              ? "Abra as configurações, desconecte e conecte o WhatsApp novamente para o Norium criar a instância PRO."
+              : "Reconecte a integração com uma instância PRO para liberar todos os nomes e contatos."}
+          </p>
+          <button
+            type="button"
+            onClick={onAbrirConfigPropria}
+            className="mt-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-3 py-1.5 text-[10px] font-extrabold text-amber-100 transition hover:bg-amber-300/20"
+          >
+            Abrir configurações para reconectar
+          </button>
+          {syncProgress.status === "partial" && (
+            <button
+              type="button"
+              onClick={onAtualizar}
+              className="ml-2 mt-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-3 py-1.5 text-[10px] font-extrabold text-amber-100 transition hover:bg-amber-300/20"
+            >
+              Atualizar novamente
+            </button>
+          )}
+        </div>
+      )}
+
+      {syncProgress?.status === "partial" && !syncProgress.requiresPro && (
+        <div className="shrink-0 border-b border-amber-400/25 bg-amber-400/10 px-4 py-3 text-amber-100" role="alert">
+          <p className="text-[11px] font-extrabold">Sincronização parcial do WhatsApp</p>
+          <p className="mt-1 text-[10px] font-medium leading-4 text-amber-100/80">
+            {syncProgress.message || "O Norium carregou o cache disponível, mas parte do catálogo ainda precisa ser atualizada."}
+          </p>
+          {Boolean(syncProgress.catalogWarnings?.length) && (
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[10px] text-amber-100/75">
+              {syncProgress.catalogWarnings?.slice(0, 3).map((warning) => <li key={warning}>{warning}</li>)}
+            </ul>
+          )}
+          <button
+            type="button"
+            onClick={onAtualizar}
+            className="mt-2 rounded-lg border border-amber-300/35 bg-amber-300/10 px-3 py-1.5 text-[10px] font-extrabold text-amber-100 transition hover:bg-amber-300/20"
+          >
+            Atualizar novamente
+          </button>
+        </div>
+      )}
+
+      {syncProgress && !syncProgress.requiresPro && syncProgress.status !== "idle" && (sincronizando || syncProgress.status === "error") && (
         <div className={`shrink-0 border-b px-4 py-2.5 ${syncProgress.status === "error" ? "border-red-500/25 bg-red-500/10" : "border-[var(--primary)]/20 bg-[color-mix(in_srgb,var(--primary)_8%,transparent)]"}`} role="status" aria-live="polite">
           <div className="flex items-center justify-between gap-3 text-[10px] font-bold">
             <span className="truncate text-[var(--text)]">{syncProgress.message || syncProgress.phase || "Sincronizando contatos e fotos"}</span>

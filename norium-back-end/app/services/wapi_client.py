@@ -167,7 +167,19 @@ class WapiClient:
 
         # A W-API sinaliza erro lógico com ``error: true`` em resposta 200.
         if isinstance(data, dict) and data.get("error") is True:
-            raise WapiError(str(data.get("message") or "Erro na W-API."), status=response.status_code)
+            message = str(data.get("message") or data.get("errorMessage") or "Erro na W-API.")
+            logical_status: int | None = None
+            for candidate in (data.get("statusCode"), data.get("httpStatus"), data.get("code")):
+                try:
+                    numeric = int(candidate)
+                except (TypeError, ValueError):
+                    continue
+                if 400 <= numeric <= 599:
+                    logical_status = numeric
+                    break
+            if "acesso negado" in message.casefold() or "access denied" in message.casefold():
+                logical_status = logical_status or 403
+            raise WapiError(message, status=logical_status or response.status_code)
         return data
 
     # ---- conta / instâncias (API Key Mestra) -----------------------------
@@ -222,18 +234,42 @@ class WapiClient:
         )
         return result if isinstance(result, dict) else {}
 
-    async def qr_code(self, instance_id: str, token: str) -> dict[str, Any]:
+    async def qr_code(
+        self,
+        instance_id: str,
+        token: str,
+        *,
+        sync_contacts: bool = True,
+    ) -> dict[str, Any]:
+        # O contrato oficial expõe ``syncContacts=enable|disable`` no momento
+        # do pareamento. Sem ele a sessão Web pode nascer apenas com JIDs e
+        # números, impossibilitando que fetch-contacts devolva o catálogo que o
+        # aparelho disponibilizou ao WhatsApp Web.
         result = await self._request(
-            "GET", "/instance/qr-code", token=token, instance_id=instance_id, timeout=15.0
+            "GET",
+            "/instance/qr-code",
+            token=token,
+            instance_id=instance_id,
+            params={"syncContacts": "enable" if sync_contacts else "disable"},
+            timeout=15.0,
         )
         return result if isinstance(result, dict) else {}
 
-    async def pairing_code(self, instance_id: str, token: str, phone: str) -> dict[str, Any]:
-        # NÃO VERIFICADO ao vivo: a coleção Postman não mostra o parâmetro `phone`.
-        # Confirmar o nome/necessidade do parâmetro antes de usar em produção.
+    async def pairing_code(
+        self,
+        instance_id: str,
+        token: str,
+        phone: str,
+        *,
+        sync_contacts: bool = True,
+    ) -> dict[str, Any]:
         result = await self._request(
             "GET", "/instance/pairing-code", token=token, instance_id=instance_id,
-            params={"phone": phone}, timeout=15.0,
+            params={
+                "phoneNumber": phone,
+                "syncContacts": "enable" if sync_contacts else "disable",
+            },
+            timeout=15.0,
         )
         return result if isinstance(result, dict) else {}
 
@@ -379,7 +415,13 @@ class WapiClient:
 
     async def fetch_chat(self, instance_id: str, token: str, phone: str) -> Any:
         return await self._request(
-            "GET", "/chats/chat", token=token, instance_id=instance_id, params={"phone": phone}, timeout=25.0, retriable=True
+            "GET",
+            "/chats/chat",
+            token=token,
+            instance_id=instance_id,
+            params={"phoneNumber": phone},
+            timeout=25.0,
+            retriable=True,
         )
 
     async def send_presence(self, instance_id: str, token: str, phone: str, presence: str, *, delay: int = 0) -> dict[str, Any]:

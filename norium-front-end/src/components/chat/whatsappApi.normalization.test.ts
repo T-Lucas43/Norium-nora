@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  normalizeWhatsAppContact,
+  normalizeWhatsAppConversation,
+  normalizeWhatsAppMessage,
+} from "./whatsappApi";
+
+describe("normalização dos dados do WhatsApp", () => {
+  it("mantém juntas mensagens recebidas e enviadas pelo celular", () => {
+    const conversation = normalizeWhatsAppConversation({
+      id: "5591999999999@s.whatsapp.net",
+      chatName: "Alexandre",
+      messages: [
+        { id: "received", fromMe: false, content: "Oi", type: "chat", timestamp: 1_800_000_000 },
+        { key: { id: "sent", fromMe: true }, message: { conversation: "Já respondi" }, timestamp: 1_800_000_001 },
+      ],
+    });
+
+    expect(conversation?.mensagens).toHaveLength(2);
+    expect(conversation?.mensagens[0]).toMatchObject({ id: "received", remetente: "contato", texto: "Oi" });
+    expect(conversation?.mensagens[1]).toMatchObject({ id: "sent", remetente: "usuario", texto: "Já respondi" });
+  });
+
+  it("remove eventos técnicos e mensagens vazias que virariam balões só com horário", () => {
+    expect(normalizeWhatsAppMessage({ id: "empty", type: "chat", timestamp: 1_800_000_000 })).toBeNull();
+    expect(normalizeWhatsAppMessage({ id: "protocol", type: "protocolMessage", body: "evento", timestamp: 1_800_000_000 })).toBeNull();
+    expect(normalizeWhatsAppMessage({ id: "status", chatId: "status@broadcast", body: "status", timestamp: 1_800_000_000 })).toBeNull();
+  });
+
+  it("não interpreta a string false como mensagem enviada", () => {
+    expect(normalizeWhatsAppMessage({ id: "received", fromMe: "false", body: "Recebida", timestamp: 1_800_000_000 })).toMatchObject({ remetente: "contato" });
+    expect(normalizeWhatsAppMessage({ id: "sent", fromMe: "true", body: "Enviada", timestamp: 1_800_000_001 })).toMatchObject({ remetente: "usuario" });
+  });
+
+  it("mantém metadados privados de mídia para merges incrementais", () => {
+    expect(normalizeWhatsAppMessage({
+      id: "media",
+      type: "image",
+      body: "Imagem",
+      timestamp: 1_800_000_001,
+      midiaMeta: { mediaKey: "key", directPath: "/media", type: "image" },
+    })?.midiaMeta).toEqual({ mediaKey: "key", directPath: "/media", type: "image" });
+  });
+
+  it("lê nomes salvos, aliases LID e fotos retornados em contratos alternativos", () => {
+    expect(normalizeWhatsAppContact({
+      jid: "5591999999999@s.whatsapp.net",
+      senderLid: "123456789@lid",
+      phoneNumber: "5591999999999",
+      savedName: "Alexandre da Agenda",
+      profilePicUrl: "https://example.test/alexandre.jpg",
+    })).toMatchObject({
+      id: "5591999999999@s.whatsapp.net",
+      phone: "5591999999999",
+      lid: "123456789@lid",
+      name: "Alexandre da Agenda",
+      photoUrl: "https://example.test/alexandre.jpg",
+      aliases: expect.arrayContaining(["123456789@lid", "5591999999999@s.whatsapp.net"]),
+    });
+  });
+});

@@ -22,7 +22,18 @@ import {
   type WhatsAppSyncProgress,
 } from "./whatsappApi";
 import { apiBlobRequest } from "../../core/api/client";
-import { contactConversationId, contactDisplayName, contactGroupPhone, contactMatchesSearch, contactToConversation, mergeConversationDetails } from "./contactPicker";
+import {
+  contactConversationId,
+  contactDisplayName,
+  contactGroupPhone,
+  contactMatchesSearch,
+  contactToConversation,
+  enrichConversationsWithContacts,
+  mergeContactCatalog,
+  mergeConversationCatalog,
+  mergeConversationDetails,
+  mergeMessages,
+} from "./contactPicker";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
 const BACKEND_URL = apiBaseUrl();
@@ -57,6 +68,8 @@ function normalizarProgressoSincronizacao(value?: Partial<WhatsAppSyncProgress> 
   const rawStatus = String(raw.status || raw.situacao || "syncing").toLowerCase();
   const status: WhatsAppSyncProgress["status"] = ["complete", "completed", "concluido", "concluído", "completo"].includes(rawStatus)
     ? "complete"
+    : ["partial", "parcial", "completed_with_warnings", "concluido_com_avisos"].includes(rawStatus)
+      ? "partial"
     : ["error", "erro", "failed", "falha"].includes(rawStatus)
       ? "error"
       : ["idle", "ocioso"].includes(rawStatus) ? "idle" : "syncing";
@@ -69,7 +82,19 @@ function normalizarProgressoSincronizacao(value?: Partial<WhatsAppSyncProgress> 
     message: raw.message || raw.mensagem,
     contactsSynced: raw.contactsSynced ?? raw.contatosSincronizados,
     photosSynced: raw.photosSynced ?? raw.fotosSincronizadas,
+    requiresPro: normalizarBooleanWhatsApp(raw.requiresPro ?? raw.requires_pro ?? raw.exigePro),
+    reconnectRequired: normalizarBooleanWhatsApp(raw.reconnectRequired ?? raw.reconnect_required ?? raw.requerReconexao),
+    catalogWarnings: Array.isArray(raw.catalogWarnings ?? raw.catalog_warnings ?? raw.warnings ?? raw.avisosCatalogo)
+      ? (raw.catalogWarnings ?? raw.catalog_warnings ?? raw.warnings ?? raw.avisosCatalogo).map((warning: unknown) => String(warning)).filter(Boolean)
+      : [],
   };
+}
+
+function normalizarBooleanWhatsApp(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") return ["1", "true", "yes", "sim"].includes(value.trim().toLowerCase());
+  return false;
 }
 
 function normalizarStatusWhatsApp(value: unknown): WhatsAppStatusItem | null {
@@ -92,8 +117,8 @@ function normalizarStatusWhatsApp(value: unknown): WhatsAppStatusItem | null {
     text: raw.text || raw.caption || raw.body,
     mediaUrl: raw.mediaUrl || raw.fileUrl || raw.url,
     timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
-    viewed: Boolean(raw.viewed ?? raw.visualizado),
-    mine: Boolean(raw.mine ?? raw.fromMe),
+    viewed: normalizarBooleanWhatsApp(raw.viewed ?? raw.visualizado),
+    mine: normalizarBooleanWhatsApp(raw.mine ?? raw.fromMe),
     color: raw.color || raw.backgroundColor,
   };
 }
@@ -111,8 +136,8 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
     id: String(participant.id || participant.phone || participant.jid || ""),
     phone: String(participant.phone || participant.id || participant.jid || ""),
     name: participant.name || participant.notify || participant.pushname,
-    isAdmin: Boolean(participant.isAdmin || participant.admin),
-    isSuperAdmin: Boolean(participant.isSuperAdmin || participant.superAdmin),
+    isAdmin: normalizarBooleanWhatsApp(participant.isAdmin ?? participant.admin),
+    isSuperAdmin: normalizarBooleanWhatsApp(participant.isSuperAdmin ?? participant.superAdmin),
     photoUrl: participant.photoUrl || participant.profilePictureUrl,
   })).filter((participant: { id: string }) => Boolean(participant.id));
   const name = String(raw.contato || raw.name || raw.subject || metadata.verifiedName || "Grupo do WhatsApp");
@@ -126,10 +151,10 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
     timestampUltimaMsg: Number(raw.timestampUltimaMsg || raw.timestamp || raw.lastMessage?.timestamp || 0),
     lida: raw.lida !== false,
     naoLidasCount: Number(raw.naoLidasCount || raw.unreadCount || 0),
-    fixada: Boolean(raw.fixada),
-    favorita: Boolean(raw.favorita),
-    silenciada: Boolean(raw.silenciada),
-    arquivada: Boolean(raw.arquivada),
+    fixada: normalizarBooleanWhatsApp(raw.fixada),
+    favorita: normalizarBooleanWhatsApp(raw.favorita),
+    silenciada: normalizarBooleanWhatsApp(raw.silenciada),
+    arquivada: normalizarBooleanWhatsApp(raw.arquivada),
     esGrupo: true,
     mensagens: Array.isArray(raw.mensagens) ? raw.mensagens : [],
     photoUrl: raw.photoUrl || raw.profilePictureUrl || metadata.photoUrl,
@@ -144,19 +169,6 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
       criadoEm: metadata.criadoEm || raw.createdAt || raw.creation,
     },
   };
-}
-
-function chatIdentifierKeys(value?: string | null) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (!raw) return [];
-  const local = raw.split("@")[0];
-  const digits = local.replace(/\D/g, "");
-  return [...new Set([raw, local, digits].filter(Boolean))];
-}
-
-function isTechnicalChatLabel(value?: string | null) {
-  const label = String(value || "").trim();
-  return !label || label.includes("@") || /^\+?[\d\s().-]{7,}$/.test(label);
 }
 
 export default function ChatCentral({ userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
@@ -215,6 +227,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const [encaminhando, setEncaminhando] = useState(false);
   const [historicoCarregandoId, setHistoricoCarregandoId] = useState<string | null>(null);
   const [sincronizandoCatalogo, setSincronizandoCatalogo] = useState(false);
+  const [syncPollVersion, setSyncPollVersion] = useState(0);
   const [confirmarDesconexaoAberta, setConfirmarDesconexaoAberta] = useState(false);
   const [desconectando, setDesconectando] = useState(false);
   const avisoTimeoutRef = useRef<number | null>(null);
@@ -230,6 +243,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const cursorConversasRef = useRef(0);
   const whatsappConectadoRef = useRef(false);
   const conversasRef = useRef<ChatConversa[]>([]);
+  const contatosRef = useRef<Contact[]>([]);
   const syncStatusRef = useRef<WhatsAppSyncProgress["status"]>("idle");
   const syncCompletionHandledRef = useRef(false);
   const syncShowSuccessRef = useRef(false);
@@ -264,11 +278,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         : Number(payload.cursor || cursorConversasRef.current);
       cursorConversasRef.current = Math.max(cursorConversasRef.current, nextCursor);
       setConversas((current) => {
-        if (Array.isArray(payload)) return data;
         if (!data.length) return current;
-        const merged = new Map(current.map((item) => [item.id, item]));
-        data.forEach((item) => merged.set(item.id, item));
-        return [...merged.values()].sort(
+        return mergeConversationCatalog(current, data, contatosRef.current).sort(
           (left, right) => Number(right.timestampUltimaMsg || 0) - Number(left.timestampUltimaMsg || 0),
         );
       });
@@ -286,33 +297,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     setErroContatos(null);
     try {
       const contacts = await whatsappApi.contacts();
-      setListaContatos(contacts);
-      const contactIndex = new Map<string, Contact>();
-      contacts.forEach((contact) => {
-        [...chatIdentifierKeys(contact.id), ...chatIdentifierKeys(contact.phone)].forEach((key) => contactIndex.set(key, contact));
-      });
-      setConversas((current) => current.map((conversation) => {
-        const matched = chatIdentifierKeys(conversation.id).map((key) => contactIndex.get(key)).find(Boolean);
-        if (!matched) return conversation;
-        const name = contactDisplayName(matched);
-        const photoUrl = matched.photoUrl || conversation.metadados?.photoUrl || conversation.photoUrl;
-        return {
-          ...conversation,
-          contato: isTechnicalChatLabel(conversation.contato) && !isTechnicalChatLabel(name) ? name : conversation.contato,
-          photoUrl,
-          metadados: {
-            ...conversation.metadados,
-            numeroCompleto: matched.phone || conversation.metadados.numeroCompleto,
-            verifiedName: matched.verifiedName || conversation.metadados.verifiedName,
-            bioRecado: matched.bio || conversation.metadados.bioRecado,
-            isBusiness: matched.isBusiness ?? conversation.metadados.isBusiness,
-            isMyContact: matched.isMyContact ?? conversation.metadados.isMyContact,
-            isBlocked: matched.isBlocked ?? conversation.metadados.isBlocked,
-            photoUrl,
-          },
-        };
-      }));
-      return contacts;
+      const mergedContacts = mergeContactCatalog(contatosRef.current, contacts, conversasRef.current);
+      contatosRef.current = mergedContacts;
+      setListaContatos(mergedContacts);
+      setConversas((current) => enrichConversationsWithContacts(current, mergedContacts));
+      return mergedContacts;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Falha ao carregar contatos.";
       setErroContatos(message);
@@ -382,19 +371,25 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     }
   }, [mostrarAviso]);
 
-  const recarregarCatalogosAposSync = useCallback(async () => {
-    await carregarConversasDoBackend(false, true);
-    const [contacts, loadedGroups] = await Promise.all([
+  const recarregarCatalogosAposSync = useCallback(async (refreshConversations = true) => {
+    const [loadedConversations, contacts, loadedGroups] = await Promise.all([
+      carregarConversasDoBackend(false, refreshConversations),
       carregarContatosDoBackend(false),
       carregarGruposDoBackend(false),
       carregarPerfilWhatsApp(),
       carregarStatusDoBackend(false, true),
     ]);
+    const currentConversations = loadedConversations?.length ? loadedConversations : conversasRef.current;
+    const mergedContacts = mergeContactCatalog(contatosRef.current, contacts || [], currentConversations);
+    contatosRef.current = mergedContacts;
+    setListaContatos(mergedContacts);
+    setConversas((current) => enrichConversationsWithContacts(current, mergedContacts));
     return { contacts: contacts || [], groups: loadedGroups || [] };
   }, [carregarContatosDoBackend, carregarConversasDoBackend, carregarGruposDoBackend, carregarPerfilWhatsApp, carregarStatusDoBackend]);
 
   const forcarSincronizacaoCatalogo = useCallback(async (mostrarSucesso = false) => {
     setSincronizandoCatalogo(true);
+    setSyncPollVersion((current) => current + 1);
     syncShowSuccessRef.current = mostrarSucesso;
     syncCompletionHandledRef.current = false;
     setProgressoSincronizacao({ status: "syncing", phase: "Preparando", progress: 1, message: "Preparando a sincronização do WhatsApp" });
@@ -420,11 +415,18 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       const started = normalizarProgressoSincronizacao(await whatsappApi.startSync());
       syncStatusRef.current = started.status;
       setProgressoSincronizacao(started);
-      if (started.status === "complete") {
-        const loaded = await recarregarCatalogosAposSync();
+      if (started.status === "complete" || started.status === "partial") {
+        const loaded = await recarregarCatalogosAposSync(started.status === "complete");
         syncCompletionHandledRef.current = true;
         setSincronizandoCatalogo(false);
-        if (mostrarSucesso) mostrarAviso("success", `${loaded.contacts.length} contatos e ${loaded.groups.length} grupos atualizados.`);
+        if (mostrarSucesso) {
+          mostrarAviso(
+            started.status === "partial" ? "info" : "success",
+            started.status === "partial"
+              ? started.message || "O cache disponível foi carregado, mas parte do catálogo precisa ser atualizada novamente."
+              : `${loaded.contacts.length} contatos e ${loaded.groups.length} grupos atualizados.`,
+          );
+        }
       } else if (started.status === "error") {
         setSincronizandoCatalogo(false);
       }
@@ -448,13 +450,9 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       const page = await whatsappApi.history(conversationId, older ? currentPage?.cursor : undefined);
       setConversas((current) => current.map((conversation) => {
         if (conversation.id !== conversationId) return conversation;
-        const merged = new Map<string, MsgConteudo>();
-        for (const message of [...conversation.mensagens, ...page.items]) merged.set(message.id, message);
         return {
           ...conversation,
-          mensagens: [...merged.values()].sort(
-            (left, right) => Number(left.timestamp || 0) - Number(right.timestamp || 0),
-          ),
+          mensagens: mergeMessages(conversation.mensagens, page.items),
         };
       }));
       historicoRef.current.set(conversationId, { cursor: page.cursor, hasMore: page.hasMore });
@@ -483,6 +481,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   }, [conversas]);
 
   useEffect(() => {
+    contatosRef.current = listaContatos;
+  }, [listaContatos]);
+
+  useEffect(() => {
     return () => {
       cancelarEnvioAudioRef.current = true;
       if (mediaRecorderRef.current?.state === "recording") {
@@ -508,6 +510,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     setConversas([]);
     setGrupos([]);
     setListaContatos([]);
+    contatosRef.current = [];
     setContatosCarregados(false);
     setGruposCarregados(false);
     setStatusWhatsAppCarregados(false);
@@ -547,10 +550,9 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           setQrCodeString(null);
           setErroLogin(null);
           if (!estavaConectado) {
-            // status-canais ja agenda a sincronizacao quando o cache esta ausente
-            // ou expirado. Na montagem/reconexao, consome primeiro o cache sem
-            // transformar toda abertura do modulo em um force remoto.
-            await carregarConversasDoBackend();
+            // Abre todos os catalogos em paralelo: a interface pode usar o
+            // cache imediatamente enquanto o backend atualiza a agenda.
+            void recarregarCatalogosAposSync(false);
             catalogoInicialTentadoRef.current = true;
           }
         } else {
@@ -583,7 +585,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       active = false;
       window.clearInterval(intervalo);
     };
-  }, [carregarConversasDoBackend, userId]);
+  }, [recarregarCatalogosAposSync, userId]);
 
   useEffect(() => {
     if (canalSelecionadoLogin !== "whatsapp") return;
@@ -600,9 +602,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           setQrCodeString(null);
           setErroLogin(null);
           setMensagemLogin("WhatsApp conectado com sucesso.");
-          // A consulta de status acima ja deixa o backend decidir pelo TTL se
-          // precisa sincronizar. Aqui apenas abre o catalogo disponivel.
-          await carregarConversasDoBackend();
+          void recarregarCatalogosAposSync(false);
           if (active) setCanalSelecionadoLogin(null);
           return;
         }
@@ -628,7 +628,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       active = false;
       window.clearInterval(interval);
     };
-  }, [canalSelecionadoLogin, carregarConversasDoBackend, userId]);
+  }, [canalSelecionadoLogin, recarregarCatalogosAposSync, userId]);
 
   useEffect(() => {
     const atualizarSeVisivel = () => {
@@ -671,6 +671,13 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     if (!canaisStatus.whatsapp?.conectado || typeof whatsappApi.syncStatus !== "function") return;
     let active = true;
     const controller = new AbortController();
+    let interval: number | undefined;
+    const stopPolling = () => {
+      if (interval !== undefined) {
+        window.clearInterval(interval);
+        interval = undefined;
+      }
+    };
     const consultarProgresso = async () => {
       try {
         const progress = normalizarProgressoSincronizacao(await whatsappApi.syncStatus(controller.signal));
@@ -685,6 +692,21 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         }
         if (progress.status === "error") {
           setSincronizandoCatalogo(false);
+          stopPolling();
+          return;
+        }
+        if (progress.status === "partial") {
+          setSincronizandoCatalogo(false);
+          stopPolling();
+          if (!syncCompletionHandledRef.current) {
+            syncCompletionHandledRef.current = true;
+            await recarregarCatalogosAposSync(false);
+            if (!active) return;
+            if (syncShowSuccessRef.current) {
+              mostrarAviso("info", progress.message || "O cache disponível foi carregado; tente atualizar o catálogo novamente.");
+              syncShowSuccessRef.current = false;
+            }
+          }
           return;
         }
         if (progress.status === "complete" && previousStatus === "syncing" && !syncCompletionHandledRef.current) {
@@ -703,13 +725,13 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       }
     };
     void consultarProgresso();
-    const interval = window.setInterval(() => void consultarProgresso(), 2_500);
+    interval = window.setInterval(() => void consultarProgresso(), 2_500);
     return () => {
       active = false;
       controller.abort();
-      window.clearInterval(interval);
+      stopPolling();
     };
-  }, [canaisStatus.whatsapp?.conectado, mostrarAviso, recarregarCatalogosAposSync]);
+  }, [canaisStatus.whatsapp?.conectado, mostrarAviso, recarregarCatalogosAposSync, syncPollVersion]);
 
   useEffect(() => {
     if (!canaisStatus.whatsapp?.conectado) return;
@@ -854,11 +876,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     setAbaDireitaModo("perfil");
     try {
       const details = await whatsappApi.details(conversaSelecionada);
-      setConversas((current) => current.map((conversation) => (
-        conversation.id === conversaSelecionada
-          ? { ...conversation, ...details, mensagens: details.mensagens?.length ? details.mensagens : conversation.mensagens }
-          : conversation
-      )));
+      setConversas((current) => mergeConversationDetails(current, details));
     } catch (error) {
       mostrarAviso("error", error instanceof Error ? error.message : "Falha ao carregar os dados do contato.");
     }
@@ -1546,6 +1564,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           profile={perfilWhatsApp}
           loading={carregandoStatusWhatsApp}
           error={erroStatusWhatsApp}
+          sync={progressoSincronizacao}
           onSelect={(item) => void selecionarStatusWhatsApp(item)}
           onRefresh={() => void carregarStatusDoBackend()}
           onCreateUnavailable={() => mostrarAviso("info", "A W-API ainda nao oferece publicacao de Status. Publique no celular; o feed recebido aparece aqui automaticamente.")}

@@ -25,11 +25,55 @@ EVENT_PRESENCE = "presence"
 EVENT_UNKNOWN = "unknown"
 
 _STATUS_BROADCAST_JID = "status@broadcast"
-_STATUS_FLAG_KEYS = ("isStatus", "isStatusMsg", "statusBroadcast", "isStatusBroadcast")
+_STATUS_FLAG_KEYS = (
+    "isStatus",
+    "isStatusMsg",
+    "isStatusMessage",
+    "isStatusV3",
+    "statusBroadcast",
+    "isStatusBroadcast",
+)
 
 
 def _is_true(value: Any) -> bool:
     return value is True or (isinstance(value, str) and value.strip().lower() in {"1", "true", "yes"})
+
+
+def _payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Achata o envelope opcional ``data`` sem perder metadados externos."""
+    wrapped = data.get("data")
+    return {**data, **wrapped} if isinstance(wrapped, dict) else data
+
+
+def is_outgoing_delivery(data: dict[str, Any]) -> bool:
+    """Identifica o webhook oficial "Ao enviar".
+
+    Há payloads reais/legados em que ``webhookDelivery`` chega com
+    ``fromMe:false``. O tipo do callback é a fonte confiável: todo conteúdo
+    entregue por esse endpoint representa uma mensagem enviada pela conta
+    conectada, seja pelo celular, WhatsApp Web ou API.
+    """
+    payload = _payload(data)
+    raw = str(payload.get("event") or payload.get("type") or "").strip().lower()
+    return "delivery" in raw or raw in {"webhooksent", "sentcallback"}
+
+
+def message_from_me(data: dict[str, Any]) -> bool:
+    """Lê ``fromMe`` nos formatos plano/Baileys e corrige delivery legado."""
+    payload = _payload(data)
+    if is_outgoing_delivery(payload):
+        return True
+    candidates: list[Any] = [
+        _first(payload, "fromMe", "isFromMe", "keyFromMe"),
+    ]
+    for container in (
+        payload.get("key"),
+        payload.get("message"),
+        payload.get("message", {}).get("key") if isinstance(payload.get("message"), dict) else None,
+    ):
+        if isinstance(container, dict):
+            candidates.append(_first(container, "fromMe", "isFromMe", "keyFromMe"))
+    return any(_is_true(value) for value in candidates)
 
 
 def is_status_broadcast(data: dict[str, Any]) -> bool:
@@ -57,6 +101,9 @@ def is_status_broadcast(data: dict[str, Any]) -> bool:
     wrapped = data.get("data")
     if isinstance(wrapped, dict):
         nested_containers.extend([wrapped, wrapped.get("chat"), wrapped.get("key")])
+        wrapped_message = wrapped.get("message")
+        if isinstance(wrapped_message, dict):
+            nested_containers.extend([wrapped_message, wrapped_message.get("key")])
 
     for container in nested_containers:
         if not isinstance(container, dict):
@@ -96,9 +143,13 @@ def classify_event(data: dict[str, Any]) -> str:
 def event_id(data: dict[str, Any]) -> str:
     """Identificador para deduplicação (id da mensagem/evento)."""
     wrapped = data.get("data") if isinstance(data.get("data"), dict) else {}
+    key = data.get("key") if isinstance(data.get("key"), dict) else {}
+    wrapped_key = wrapped.get("key") if isinstance(wrapped.get("key"), dict) else {}
     return str(
         _first(data, "messageId", "id", "eventId", "zaid")
         or _first(wrapped, "messageId", "id", "eventId", "zaid")
+        or _first(key, "id", "messageId")
+        or _first(wrapped_key, "id", "messageId")
         or ""
     )
 
@@ -194,11 +245,10 @@ def adapt_status_broadcast(data: dict[str, Any]) -> dict[str, Any] | None:
     """Normaliza uma publicação de Status para o feed separado do Norium."""
     if not is_status_broadcast(data):
         return None
-    sender = data.get("sender") if isinstance(data.get("sender"), dict) else {}
-    wrapped = data.get("data") if isinstance(data.get("data"), dict) else {}
-    if not sender and isinstance(wrapped.get("sender"), dict):
-        sender = wrapped["sender"]
-    texto, tipo, midia_meta, _reaction_target = _extract_content(data)
+    payload = _payload(data)
+    sender = payload.get("sender") if isinstance(payload.get("sender"), dict) else {}
+    key = payload.get("key") if isinstance(payload.get("key"), dict) else {}
+    texto, tipo, midia_meta, _reaction_target = _extract_content(payload)
     if tipo is None:
         return None
     contact_id = str(
@@ -207,13 +257,13 @@ def adapt_status_broadcast(data: dict[str, Any]) -> dict[str, Any] | None:
         or sender.get("id")
         or sender.get("jid")
         or sender.get("lid")
-        or _first(data, "participant", "senderId", "author")
-        or _first(wrapped, "participant", "senderId", "author")
+        or _first(payload, "participant", "senderId", "author", "keyParticipant")
+        or _first(key, "participant", "senderId", "author")
         or ""
     )
     if not contact_id:
         return None
-    timestamp = _first(data, "moment", "momment", "timestamp", "messageTimestamp", "t")
+    timestamp = _first(payload, "moment", "momment", "timestamp", "messageTimestamp", "t")
     try:
         timestamp_int = int(float(timestamp or 0))
         if timestamp_int > 10_000_000_000:
@@ -221,9 +271,9 @@ def adapt_status_broadcast(data: dict[str, Any]) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         timestamp_int = 0
     photo_url = sender.get("profilePicture") or sender.get("profilePictureUrl") or sender.get("photoUrl")
-    content = data.get("msgContent") if isinstance(data.get("msgContent"), dict) else {}
+    content = payload.get("msgContent") if isinstance(payload.get("msgContent"), dict) else {}
     extended = content.get("extendedTextMessage") if isinstance(content.get("extendedTextMessage"), dict) else {}
-    raw_color = data.get("backgroundColor") or data.get("color") or extended.get("backgroundArgb")
+    raw_color = payload.get("backgroundColor") or payload.get("color") or extended.get("backgroundArgb")
     if isinstance(raw_color, int):
         color: str | None = f"#{raw_color & 0xFFFFFF:06x}"
     elif isinstance(raw_color, str) and raw_color.startswith("#"):
@@ -231,17 +281,17 @@ def adapt_status_broadcast(data: dict[str, Any]) -> dict[str, Any] | None:
     else:
         color = None
     return {
-        "id": str(_first(data, "messageId", "id", "zaid") or ""),
+        "id": str(_first(payload, "messageId", "id", "zaid") or _first(key, "id", "messageId") or ""),
         "contactId": contact_id,
         "contactName": str(
             sender.get("notify")
             or sender.get("pushName")
             or sender.get("name")
-            or _first(data, "senderName", "pushName", "notifyName")
+            or _first(payload, "senderName", "pushName", "notifyName")
             or contact_id
         ),
         "photoUrl": photo_url if isinstance(photo_url, str) and photo_url.startswith("http") else None,
-        "fromMe": bool(_first(data, "fromMe", "isFromMe") or False),
+        "fromMe": message_from_me(payload),
         "timestamp": timestamp_int,
         "texto": texto,
         "tipo": tipo,
@@ -258,18 +308,22 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
     if is_status_broadcast(data):
         return None
 
-    chat_id = _first(data, "chatId", "phone", "from")
-    chat = data.get("chat") if isinstance(data.get("chat"), dict) else None
+    payload = _payload(data)
+    key = payload.get("key") if isinstance(payload.get("key"), dict) else {}
+    chat_id = _first(payload, "chatId", "phone", "from", "remoteJid", "jid") or _first(
+        key, "remoteJid", "chatId", "phone", "jid"
+    )
+    chat = payload.get("chat") if isinstance(payload.get("chat"), dict) else None
     if not chat_id and chat:
         chat_id = chat.get("id") or chat.get("phone")
     if not chat_id:
         return None
 
-    sender = data.get("sender") if isinstance(data.get("sender"), dict) else {}
-    from_me = bool(_first(data, "fromMe", "isFromMe") or False)
-    is_group = bool(_first(data, "isGroup", "isGroupMsg") or (str(chat_id).endswith("@g.us")))
+    sender = payload.get("sender") if isinstance(payload.get("sender"), dict) else {}
+    from_me = message_from_me(payload)
+    is_group = bool(_first(payload, "isGroup", "isGroupMsg") or (str(chat_id).endswith("@g.us")))
     sender_name = str(
-        _first(data, "senderName", "pushName", "notifyName", "notify", "verifiedName")
+        _first(payload, "senderName", "pushName", "notifyName", "notify", "verifiedName")
         or sender.get("notify")
         or sender.get("pushName")
         or sender.get("verifiedName")
@@ -282,13 +336,15 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
     chat_name = "" if is_group else sender_name
 
     # Timestamp em segundos: campo real "moment".
-    timestamp = _first(data, "moment", "momment", "timestamp", "messageTimestamp", "t")
+    timestamp = _first(payload, "moment", "momment", "timestamp", "messageTimestamp", "t")
     try:
-        timestamp_int = int(timestamp) if timestamp is not None else 0
+        timestamp_int = int(float(timestamp)) if timestamp is not None else 0
+        if timestamp_int > 10_000_000_000:
+            timestamp_int //= 1000
     except (TypeError, ValueError):
         timestamp_int = 0
 
-    texto, tipo, midia_meta, reaction_target = _extract_content(data)
+    texto, tipo, midia_meta, reaction_target = _extract_content(payload)
     # Conteúdo não exibível (protocolo, enquete, apenas contextInfo) → ignora,
     # para não criar "mensagens em branco".
     if tipo is None and not reaction_target:
@@ -298,20 +354,20 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
     photo_url = (chat.get("profilePicture") if chat else None) or sender.get("profilePicture")
 
     return {
-        "messageId": str(_first(data, "messageId", "id", "zaid") or ""),
+        "messageId": str(_first(payload, "messageId", "id", "zaid") or _first(key, "id", "messageId") or ""),
         "chatId": str(chat_id),
         "fromMe": from_me,
         "isGroup": is_group,
         "senderName": sender_name,
         "chatName": chat_name,
-        "senderId": sender.get("id") if sender else _first(data, "senderId", "participant"),
+        "senderId": sender.get("id") if sender else _first(payload, "senderId", "participant", "keyParticipant"),
         "photoUrl": photo_url if isinstance(photo_url, str) and photo_url.startswith("http") else None,
         "timestamp": timestamp_int,
         "texto": texto,
         "tipo": tipo or "texto",
         "midiaMeta": midia_meta,
         "reactionTargetId": reaction_target,
-        "status": map_status(str(_first(data, "status") or "")) or None,
+        "status": map_status(str(_first(payload, "status") or "")) or None,
     }
 
 
@@ -332,6 +388,17 @@ def _extract_content(data: dict[str, Any]) -> tuple[str, str | None, dict[str, A
     - ``tipo`` == None: conteúdo não exibível (protocolo/enquete/etc.) → ignorar.
     """
     content = data.get("msgContent")
+    if not isinstance(content, dict):
+        wrapped = data.get("data")
+        if isinstance(wrapped, dict):
+            flattened = {key: value for key, value in data.items() if key != "data"}
+            flattened.update(wrapped)
+            return _extract_content(flattened)
+        message = data.get("message")
+        if isinstance(message, dict):
+            # Alguns adaptadores mantêm o conteúdo Baileys dentro de
+            # ``message`` em vez de ``msgContent``.
+            return _extract_content({**data, "msgContent": message})
     if isinstance(content, dict):
         # Reação recebida: {reactionMessage: {key:{id,...}, text}}
         reaction = content.get("reactionMessage")
@@ -361,7 +428,7 @@ def _extract_content(data: dict[str, Any]) -> tuple[str, str | None, dict[str, A
                 return "", tipo, None, None
         # msgContent presente, mas sem conteúdo exibível reconhecido → ignora.
         return "", None, None, None
-    for key in ("text", "body", "message", "caption"):
+    for key in ("text", "body", "message", "caption", "content"):
         value = data.get(key)
         if isinstance(value, str):
             return value, "texto", None, None

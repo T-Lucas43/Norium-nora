@@ -82,11 +82,16 @@ def normalize_conversation(conversa_id: str, conversa: Dict[str, Any]) -> Dict[s
         "username": metadados.get("username"),
         "bioRecado": metadados.get("bioRecado"),
         "verifiedName": metadados.get("verifiedName"),
+        "notify": metadados.get("notify"),
         "isBusiness": bool(metadados.get("isBusiness", False)),
         "isMyContact": bool(metadados.get("isMyContact", False)),
         "isBlocked": bool(metadados.get("isBlocked", False)),
         "statusOnline": bool(metadados.get("statusOnline", False)),
         "photoUrl": photo_url,
+        # A URL da W-API expira e o instante precisa sobreviver à normalização;
+        # sem isso cada leitura do catálogo tentava baixar a mesma foto outra
+        # vez, multiplicando latência e rate-limit.
+        "photoFetchedAt": metadados.get("photoFetchedAt"),
         "participantes": _normalize_participants(metadados.get("participantes")),
         "descricaoGrupo": metadados.get("descricaoGrupo") or "",
         "criadoPor": metadados.get("criadoPor"),

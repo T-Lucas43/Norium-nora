@@ -107,7 +107,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("https://exemplo/maria.jpg", conv["metadados"]["photoUrl"])  # foto preservada
         self.assertTrue(conv["ultimaMensagemMinha"])  # mas a msg fromMe foi registrada
 
-    async def test_from_me_group_message_resolves_group_identity_from_metadata(self) -> None:
+    async def test_from_me_group_message_persists_before_remote_metadata(self) -> None:
         payload = {
             "event": "webhookReceived",
             "instanceId": "INST-A",
@@ -118,15 +118,16 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
             "sender": {"pushName": "Eu Mesmo", "profilePicture": "https://exemplo/eu.jpg"},
             "msgContent": {"conversation": "oi grupo"},
         }
-        group = {"nome": "Equipe", "photoUrl": "https://exemplo/equipe.jpg"}
-        with patch.object(chat_router, "fetch_group_metadata", return_value=group):
+        group_metadata = AsyncMock(return_value={"nome": "Equipe", "photoUrl": "https://exemplo/equipe.jpg"})
+        with patch.object(chat_router, "fetch_group_metadata", group_metadata):
             result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
 
         self.assertEqual("success", result["status"])
         db = await load_conversations("user-a")
         conv = db["120363000000000000@g.us"]
-        self.assertEqual("Equipe", conv["contato"])
-        self.assertEqual("https://exemplo/equipe.jpg", conv["photoUrl"])
+        self.assertEqual("120363000000000000@g.us", conv["contato"])
+        self.assertEqual("oi grupo", conv["mensagens"][0]["texto"])
+        group_metadata.assert_not_awaited()
 
     async def test_whatsapp_status_text_image_and_video_use_separate_feed(self) -> None:
         contents = {
@@ -289,7 +290,9 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
             "instanceId": "INST-A",
             "messageId": "PHONE-OUT-1",
             "phone": "5511999998888",
-            "fromMe": True,
+            # O callback oficial de delivery pode trazer fromMe=false; o tipo
+            # do webhook continua representando mensagem enviada pela conta.
+            "fromMe": False,
             "momment": 1700000300,
             "status": "SENT",
             "sender": {"pushName": "Eu"},

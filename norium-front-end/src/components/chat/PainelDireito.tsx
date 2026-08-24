@@ -1,9 +1,10 @@
-import { BadgeCheck, Building2, CalendarDays, Image as ImageIcon, MessageCircle, MessageSquareText, Phone, ShieldAlert, Sparkles, Users, X } from "lucide-react";
+import { BadgeCheck, Building2, CalendarDays, Image as ImageIcon, MessageCircle, MessageSquareText, Phone, ShieldAlert, Sparkles, User, Users, X } from "lucide-react";
 import { useState } from "react";
 import type { ChatConversa } from "./types";
 import Button from "../shared/Button";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 import type { ParticipanteGrupo } from "./types";
+import { conversationDisplayName, formatWhatsAppPhone, isTechnicalWhatsAppLabel } from "./contactPicker";
 
 interface PainelDireitoProps {
   modo: "nora" | "perfil" | "config-propria";
@@ -25,15 +26,18 @@ function initials(name: string) {
 function ProfileAvatar({ conversa }: { conversa: ChatConversa }) {
   const [failed, setFailed] = useState(false);
   const photoUrl = useAuthenticatedMedia(conversa.metadados?.photoUrl || conversa.photoUrl);
+  const displayName = conversationDisplayName(conversa);
 
   return (
     <div className="h-20 w-20 rounded-full bg-[var(--surface)] border border-[var(--border)] overflow-hidden flex items-center justify-center font-bold text-lg text-[var(--text-secondary)]">
       {photoUrl && !failed ? (
-        <img src={photoUrl} alt={conversa.contato} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : conversa.esGrupo ? (
         <Users size={24} />
+      ) : !isTechnicalWhatsAppLabel(displayName) ? (
+        initials(displayName)
       ) : (
-        initials(conversa.contato)
+        <User size={24} />
       )}
     </div>
   );
@@ -62,6 +66,8 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
   const createdDate = createdValue
     ? new Date(typeof createdValue === "number" && createdValue < 10_000_000_000 ? createdValue * 1000 : createdValue)
     : null;
+  const displayName = conversaAtiva ? conversationDisplayName(conversaAtiva) : "";
+  const phoneLabel = conversaAtiva ? formatWhatsAppPhone(conversaAtiva.metadados?.numeroCompleto || conversaAtiva.id) : "";
 
   return (
     <aside className="norium-chat-details flex h-full min-h-0 w-[440px] shrink-0 select-none flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--text)]">
@@ -82,7 +88,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
         <div className="space-y-4">
           <div className="flex flex-col items-center py-5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-center">
             <ProfileAvatar conversa={conversaAtiva} />
-            <h3 className="mt-3 font-bold text-sm px-2 truncate w-full">{conversaAtiva.contato}</h3>
+            <h3 className="mt-3 font-bold text-sm px-2 truncate w-full">{displayName}</h3>
             <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 px-2">
               <span className="inline-flex h-6 items-center rounded-full bg-[color-mix(in_srgb,var(--primary)_14%,transparent)] px-2 text-xs font-extrabold text-[var(--primary)]">WhatsApp</span>
               {conversaAtiva.metadados?.verifiedName && <span className="inline-flex h-6 items-center gap-1 rounded-full border border-[var(--primary)]/30 px-2 text-xs font-bold text-[var(--primary)]"><BadgeCheck size={12} /> Verificado</span>}
@@ -92,7 +98,7 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
           </div>
 
           <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs">
-            <p className="flex items-center gap-2 font-medium"><Phone size={13} className="text-[var(--primary)]" /> <span className="break-all">{conversaAtiva.metadados?.numeroCompleto || conversaAtiva.id}</span></p>
+            {!conversaAtiva.esGrupo && phoneLabel && <p className="flex items-center gap-2 font-medium"><Phone size={13} className="text-[var(--primary)]" /> <span>{phoneLabel}</span></p>}
             {conversaAtiva.esGrupo && <p className="flex items-center gap-2 font-medium"><Users size={13} className="text-[var(--primary)]" /> {participantes.length} integrante(s)</p>}
             {createdDate && !Number.isNaN(createdDate.getTime()) && <p className="flex items-center gap-2 font-medium"><CalendarDays size={13} className="text-[var(--primary)]" /> Criado em {createdDate.toLocaleDateString("pt-BR")}</p>}
           </div>
@@ -146,10 +152,6 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
             </div>
           )}
 
-          <div className="bg-[var(--background)] p-3 rounded-lg border border-[var(--border)]">
-            <p className="text-xs text-[var(--text-secondary)] uppercase font-bold">Identificador JID</p>
-            <p className="font-mono text-xs break-all select-all opacity-80">{conversaAtiva.id}</p>
-          </div>
         </div>
       )}
 
@@ -159,26 +161,26 @@ export default function PainelDireito({ modo, conversaAtiva, onFechar, onContinu
           {conversaAtiva ? (
             <>
               <p className="text-[var(--text-secondary)] text-center">
-                Analise contextual da conversa com {conversaAtiva.contato}.
+                Analise contextual da conversa com {displayName}.
               </p>
               <div className="space-y-2">
                 <button
                   type="button"
-                  onClick={() => onAskNora?.(`Resuma a conversa com ${conversaAtiva.contato} no Chat e destaque os pontos principais.`)}
+                  onClick={() => onAskNora?.(`Resuma a conversa com ${displayName} no Chat e destaque os pontos principais.`)}
                   className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-left transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 >
                   <MessageSquareText size={14} className="shrink-0" /> Resumir esta conversa
                 </button>
                 <button
                   type="button"
-                  onClick={() => onAskNora?.(`Sugira uma resposta adequada para a ultima mensagem de ${conversaAtiva.contato} no Chat.`)}
+                  onClick={() => onAskNora?.(`Sugira uma resposta adequada para a ultima mensagem de ${displayName} no Chat.`)}
                   className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-left transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 >
                   <Sparkles size={14} className="shrink-0" /> Sugerir resposta
                 </button>
                 <button
                   type="button"
-                  onClick={() => onAskNora?.(`Analise o tom e o sentimento da conversa com ${conversaAtiva.contato} e diga se preciso de atencao especial.`)}
+                  onClick={() => onAskNora?.(`Analise o tom e o sentimento da conversa com ${displayName} e diga se preciso de atencao especial.`)}
                   className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-left transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
                 >
                   <ShieldAlert size={14} className="shrink-0" /> Analisar tom da conversa

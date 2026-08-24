@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import type { Contact } from "./whatsappApi";
-import { contactGroupPhone, contactMatchesSearch, contactToConversation, mergeConversationDetails } from "./contactPicker";
+import type { MsgConteudo } from "./types";
+import {
+  contactGroupPhone,
+  contactMatchesSearch,
+  contactToConversation,
+  enrichConversationsWithContacts,
+  formatWhatsAppPhone,
+  mergeContactCatalog,
+  mergeConversationDetails,
+  mergeMessages,
+} from "./contactPicker";
 
 const contact: Contact = {
   id: "5511999999999@c.us",
@@ -57,5 +67,56 @@ describe("contact picker", () => {
     };
 
     expect(mergeConversationDetails([optimistic], generic)[0].contato).toBe("Joao da Silva");
+  });
+
+  it("não rebaixa um nome já conhecido para o número em uma atualização", () => {
+    const existing = { ...contact, name: "Joao salvo", pushname: undefined };
+    const numeric = { ...contact, name: "5511999999999", pushname: undefined };
+
+    expect(mergeContactCatalog([existing], [numeric])[0].name).toBe("Joao salvo");
+  });
+
+  it("usa o nome humano da conversa para completar um contato numérico", () => {
+    const numeric = { ...contact, name: "5511999999999", pushname: undefined };
+    const conversation = { ...contactToConversation(contact), contato: "Joao salvo no WhatsApp" };
+    const merged = mergeContactCatalog([], [numeric], [conversation]);
+
+    expect(merged[0].name).toBe("Joao salvo no WhatsApp");
+    expect(enrichConversationsWithContacts([{ ...conversation, contato: conversation.id }], merged)[0].contato).toBe("Joao salvo no WhatsApp");
+  });
+
+  it("formata o telefone sem expor o domínio técnico do JID", () => {
+    expect(formatWhatsAppPhone("5591991550553@s.whatsapp.net")).toBe("+55 (91) 99155-0553");
+  });
+
+  it("não rebaixa estado rico da mensagem ao mesclar um snapshot parcial", () => {
+    const previous: MsgConteudo = {
+      id: "message-1",
+      remetente: "usuario",
+      texto: "Mensagem",
+      tipo: "midia",
+      arquivoUrl: "/api/chat/midia/message-1",
+      horario: "10:00",
+      timestamp: 1_800_000_000,
+      status: "lido",
+      reacoes: [{ emoji: "❤️", count: 1, fromMe: true }],
+      citada: { id: "quoted", content: "Contexto" },
+      midiaMeta: { mediaKey: "key", directPath: "/media" },
+    };
+    const sparse: MsgConteudo = {
+      ...previous,
+      status: "enviado",
+      reacoes: [],
+      citada: null,
+      midiaMeta: null,
+    };
+
+    expect(mergeMessages([previous], [sparse])[0]).toMatchObject({
+      status: "lido",
+      reacoes: previous.reacoes,
+      citada: previous.citada,
+      midiaMeta: previous.midiaMeta,
+      arquivoUrl: previous.arquivoUrl,
+    });
   });
 });

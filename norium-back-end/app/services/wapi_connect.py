@@ -174,7 +174,34 @@ class WapiConnectService:
             os.getenv("WAPI_TEST_INSTANCE_TOKEN", "").strip(),
         )
 
-    async def _find_instance_by_name(self, name: str) -> dict[str, Any] | None:
+    @staticmethod
+    def _instance_declares_lite(item: dict[str, Any]) -> bool:
+        """Reconhece apenas metadados explícitos de plano LITE.
+
+        A listagem da W-API variou de shape ao longo do tempo. Não adivinhamos
+        o plano quando o campo não existe; porém uma instância que declara
+        ``lite=true``/plano LITE nunca deve ser reutilizada quando o fluxo exige
+        os catálogos PRO.
+        """
+        for key in ("lite", "isLite", "instanceLite"):
+            value = item.get(key)
+            if value is True or (isinstance(value, str) and value.strip().lower() in {"1", "true", "yes"}):
+                return True
+        for key in ("plan", "planName", "tier", "type", "instanceType"):
+            value = item.get(key)
+            if isinstance(value, dict):
+                value = value.get("name") or value.get("type") or value.get("slug")
+            normalized = str(value or "").strip().lower()
+            if normalized == "lite" or normalized.startswith("lite_") or normalized.startswith("lite-"):
+                return True
+        return False
+
+    async def _find_instance_by_name(
+        self,
+        name: str,
+        *,
+        require_pro: bool = False,
+    ) -> dict[str, Any] | None:
         """Procura na conta uma instância já criada com este nome (idempotência)."""
         try:
             listing = await self._client.list_instances()
@@ -188,6 +215,8 @@ class WapiConnectService:
                 and item.get("instanceId")
                 and item.get("token")
             ):
+                if require_pro and self._instance_declares_lite(item):
+                    continue
                 return item
         return None
 
@@ -230,11 +259,25 @@ class WapiConnectService:
         # Produção: cria a instância pela API Key Mestra, já com os webhooks.
         binding.state = "creating"
         wb.save_binding(user_id, binding)
-        instance_name = f"norium-{user_id}"[:60]
+        legacy_instance_name = f"norium-{user_id}"[:60]
+        lite = os.getenv("WAPI_INSTANCE_LITE", "false").strip().lower() in {"1", "true", "yes"}
+        # Instâncias PRO usam um nome próprio para que uma reconexão local não
+        # volte a capturar uma instância LITE antiga com o nome legado.
+        instance_name = (
+            legacy_instance_name
+            if lite
+            else f"norium-{user_id}-pro"[:60]
+        )
 
         # Idempotência: se já existe uma instância deste usuário, reutiliza — evita
         # criar duplicatas que religam o mesmo número e derrubam outras sessões.
-        existing = await self._find_instance_by_name(instance_name)
+        existing = await self._find_instance_by_name(instance_name, require_pro=not lite)
+        if not existing and not lite and legacy_instance_name != instance_name:
+            # Compatibilidade com instâncias PRO criadas antes do sufixo. Se a
+            # listagem declarar LITE, ela é preservada na W-API, mas não vinculada.
+            existing = await self._find_instance_by_name(legacy_instance_name, require_pro=True)
+            if existing:
+                instance_name = legacy_instance_name
         if existing:
             binding.instance_id = str(existing.get("instanceId") or "")
             binding.token = str(existing.get("token") or "")
@@ -248,7 +291,6 @@ class WapiConnectService:
 
         # Plano da instância criada: PRO por padrão (LITE bloqueia reações,
         # figurinhas, listagem e sync de enviadas). Override por WAPI_INSTANCE_LITE.
-        lite = os.getenv("WAPI_INSTANCE_LITE", "false").strip().lower() in {"1", "true", "yes"}
         created = await self._client.create_instance(
             instance_name=instance_name,
             lite=lite,

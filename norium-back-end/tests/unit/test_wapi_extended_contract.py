@@ -84,7 +84,7 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("5511999999999", contacts[0]["phone"])
         self.assertEqual("5511999999999@s.whatsapp.net", contacts[0]["id"])
 
-    async def test_expired_profile_url_is_refreshed_during_sync(self) -> None:
+    async def test_contact_sync_does_not_block_on_profile_picture_refresh(self) -> None:
         expired = {
             "id": "5511999999999",
             "notify": "Maria",
@@ -94,13 +94,14 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         profile = AsyncMock(return_value="https://cdn.example/fresh.jpg")
         with (
             patch.object(chat_router, "fetch_all_wapi_contacts", AsyncMock(return_value=[expired])),
+            patch.object(chat_router, "fetch_all_wapi_chats", AsyncMock(return_value=[])),
             patch.object(chat_router, "fetch_profile_picture", profile),
         ):
             result = await chat_router._run_contact_sync("user-a")
         self.assertEqual("complete", result["status"])
-        profile.assert_awaited_once_with("user-a", "5511999999999")
+        profile.assert_not_awaited()
         cache = await chat_router.load_whatsapp_catalog_cache("user-a")
-        self.assertEqual("https://cdn.example/fresh.jpg", cache["contacts"][0]["photoUrl"])
+        self.assertEqual("https://cdn.example/expired.jpg", cache["contacts"][0]["photoUrl"])
 
     async def test_contact_sync_does_not_overwrite_message_arriving_concurrently(self) -> None:
         conversation_id = "5511999999999"
@@ -132,6 +133,7 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         }
         with (
             patch.object(chat_router, "fetch_all_wapi_contacts", AsyncMock(return_value=[contact])),
+            patch.object(chat_router, "fetch_all_wapi_chats", AsyncMock(return_value=[])),
             patch.object(chat_router, "fetch_profile_picture", AsyncMock(return_value=None)),
             patch.object(chat_router, "save_conversations", side_effect=delayed_save),
         ):

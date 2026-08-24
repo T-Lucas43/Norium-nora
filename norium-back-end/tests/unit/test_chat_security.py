@@ -124,6 +124,11 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
                 patch.object(chat_router, "save_conversations", side_effect=save),
                 patch.object(chat_router, "should_try_profile_picture", return_value=False),
             ):
+                # A listagem interativa agora e cache-first e nunca espera a
+                # W-API. Executa os dois workers, como ocorreria em background,
+                # antes de validar que cada conta recebeu apenas seu catalogo.
+                await chat_router._run_contact_sync("user-a")
+                await chat_router._run_contact_sync("user-b")
                 catalog_a = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-a"))
                 catalog_b = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-b"))
 

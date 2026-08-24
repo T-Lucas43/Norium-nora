@@ -33,7 +33,7 @@ describe("status do WhatsApp", () => {
     api.profile.mockResolvedValue({ name: "Tarcisio", phone: "5511999999999" });
     api.startSync.mockResolvedValue({ status: "complete", progress: 100 });
     api.syncStatus.mockResolvedValue({ status: "complete", progress: 100 });
-    api.statuses.mockResolvedValue({ items: [{ id: "status-1", name: "Maria", type: "text", text: "Bom dia", timestamp: 1_800_000_000, viewed: false }] });
+    api.statuses.mockResolvedValue({ items: [{ id: "status-1", name: "Maria", type: "text", text: "Bom dia", timestamp: 1_800_000_000, viewed: "false", mine: "false" }] });
     api.markStatusViewed.mockResolvedValue({ status: "visualizado" });
   });
 
@@ -42,6 +42,13 @@ describe("status do WhatsApp", () => {
     render(<ChatCentral />);
 
     await waitFor(() => expect(api.conversations).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(api.contacts).toHaveBeenCalled();
+      expect(api.groups).toHaveBeenCalled();
+      expect(api.profile).toHaveBeenCalled();
+      expect(api.statuses).toHaveBeenCalled();
+    });
+    expect(api.conversations).toHaveBeenCalledWith(undefined, false);
     expect(api.startSync).not.toHaveBeenCalled();
 
     await user.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
@@ -53,11 +60,32 @@ describe("status do WhatsApp", () => {
     const user = userEvent.setup();
     render(<ChatCentral />);
 
+    expect(await screen.findByRole("button", { name: "Status, 1 nao visualizados" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /^Status/ }));
     await user.click(await screen.findByRole("button", { name: /Maria/ }));
 
     expect(api.statuses).toHaveBeenCalled();
     expect(api.markStatusViewed).toHaveBeenCalledWith("status-1");
     expect(await screen.findByText("Bom dia")).toBeInTheDocument();
+  });
+
+  it("trata sincronizacao parcial como terminal e recarrega o cache disponível", async () => {
+    api.syncStatus.mockResolvedValue({
+      status: "partial",
+      progress: 99,
+      message: "Catálogo carregado parcialmente.",
+      warnings: ["Agenda PRO indisponível"],
+    });
+
+    render(<ChatCentral />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Catálogo carregado parcialmente.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Agenda PRO indisponível");
+    await waitFor(() => expect(api.contacts.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByRole("button", { name: "Sincronizar agora" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Atualizar novamente" })).toBeInTheDocument();
+    const terminalPollCount = api.syncStatus.mock.calls.length;
+    await new Promise((resolve) => window.setTimeout(resolve, 2_700));
+    expect(api.syncStatus).toHaveBeenCalledTimes(terminalPollCount);
   });
 });

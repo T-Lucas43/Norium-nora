@@ -1,6 +1,6 @@
 import { Camera, CircleDot, Eye, Pencil, RefreshCw } from "lucide-react";
 import { useState } from "react";
-import type { WhatsAppProfile, WhatsAppStatusItem } from "./whatsappApi";
+import type { WhatsAppProfile, WhatsAppStatusItem, WhatsAppSyncProgress } from "./whatsappApi";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
 interface WhatsAppStatusViewProps {
@@ -9,6 +9,7 @@ interface WhatsAppStatusViewProps {
   profile?: WhatsAppProfile | null;
   loading?: boolean;
   error?: string | null;
+  sync?: WhatsAppSyncProgress | null;
   onSelect: (item: WhatsAppStatusItem) => void;
   onRefresh: () => void;
   onCreateUnavailable: () => void;
@@ -43,7 +44,7 @@ function StatusMedia({ item }: { item: WhatsAppStatusItem }) {
   );
 }
 
-export default function WhatsAppStatusView({ items, selectedId, profile, loading, error, onSelect, onRefresh, onCreateUnavailable }: WhatsAppStatusViewProps) {
+export default function WhatsAppStatusView({ items, selectedId, profile, loading, error, sync, onSelect, onRefresh, onCreateUnavailable }: WhatsAppStatusViewProps) {
   const selected = items.find((item) => item.id === selectedId) || null;
   const recent = items.filter((item) => !item.viewed && !item.mine);
   const viewed = items.filter((item) => item.viewed && !item.mine);
@@ -84,12 +85,26 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
               <p className="mt-0.5 text-xs text-[var(--text-secondary)]">Publique pelo WhatsApp no celular</p>
             </div>
           </div>
+          {sync?.status === "syncing" && (
+            <div className="mt-3 rounded-xl border border-[var(--primary)]/25 bg-[color-mix(in_srgb,var(--primary)_9%,transparent)] px-3 py-2" role="status" aria-live="polite">
+              <div className="flex items-center justify-between gap-3 text-[10px] font-bold"><span className="truncate">{sync.message || "Recebendo contatos e Status"}</span><span className="text-[var(--primary)]">{Math.round(sync.progress || 0)}%</span></div>
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-black/60"><div className="h-full rounded-full bg-[var(--primary)] transition-[width]" style={{ width: `${Math.max(0, Math.min(100, sync.progress || 0))}%` }} /></div>
+            </div>
+          )}
         </div>
 
         <div className="norium-chat-list min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {loading && <p className="p-8 text-center text-sm font-semibold text-[var(--text-secondary)]">Atualizando status...</p>}
           {!loading && error && <div className="p-8 text-center"><p className="text-sm font-semibold text-red-400">{error}</p><button type="button" onClick={onRefresh} className="mt-3 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold">Tentar novamente</button></div>}
-          {!loading && !error && items.length === 0 && <div className="grid place-items-center gap-2 p-10 text-center text-[var(--text-secondary)]"><CircleDot size={28} /><p className="text-sm font-semibold">Nenhum status recente.</p></div>}
+          {!loading && !error && items.length === 0 && (
+            <div className="grid place-items-center gap-2 p-10 text-center text-[var(--text-secondary)]">
+              <CircleDot size={28} />
+              <p className="text-sm font-semibold">Nenhum Status recebido ainda.</p>
+              <p className="text-xs leading-5">A W-API não disponibilizou Status recentes para esta sessão. Novos eventos aparecerão aqui se forem entregues pela integração.</p>
+              {sync?.status === "error" && <p className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">A sincronização da agenda falhou, mas o Norium continuará aguardando novos Status.</p>}
+              <button type="button" onClick={onRefresh} className="mt-1 rounded-xl border border-[var(--border)] px-4 py-2 text-xs font-bold text-[var(--text)] hover:border-[var(--primary)]">Atualizar Status</button>
+            </div>
+          )}
           {!loading && !error && renderItems(mine, "Meus status")}
           {!loading && !error && renderItems(recent, "Recentes")}
           {!loading && !error && renderItems(viewed, "Visualizados")}
@@ -110,7 +125,7 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
           <div className="flex h-full flex-col items-center justify-center p-8 text-center">
             <div className="grid h-28 w-28 place-items-center rounded-full border border-[var(--primary)]/25 bg-[color-mix(in_srgb,var(--primary)_10%,transparent)] text-[var(--primary)]"><CircleDot size={48} strokeWidth={1.25} /></div>
             <h3 className="mt-6 text-xl font-semibold">Status do WhatsApp</h3>
-            <p className="mt-2 max-w-md text-sm leading-6 text-[var(--text-secondary)]">Visualize aqui as atualizações recebidas. Elas ficam separadas das mensagens e não poluem sua caixa de conversas.</p>
+            <p className="mt-2 max-w-md text-sm leading-6 text-[var(--text-secondary)]">{loading ? "Buscando as atualizações mais recentes do WhatsApp..." : items.length === 0 ? "A W-API não disponibilizou Status recentes para esta sessão. Novos eventos aparecerão aqui se forem entregues pela integração." : "Visualize aqui as atualizações recebidas. Elas ficam separadas das mensagens e não poluem sua caixa de conversas."}</p>
             <div className="mt-6 flex gap-3">
               <button type="button" onClick={onCreateUnavailable} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2.5 text-sm font-semibold hover:border-[var(--primary)]"><Pencil size={16} /> Status de texto</button>
               <button type="button" onClick={onCreateUnavailable} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2.5 text-sm font-semibold hover:border-[var(--primary)]"><Camera size={16} /> Foto e vídeo</button>

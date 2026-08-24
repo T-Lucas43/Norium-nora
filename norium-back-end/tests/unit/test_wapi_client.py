@@ -29,6 +29,19 @@ class WapiClientContactContractTests(unittest.IsolatedAsyncioTestCase):
         await self.client.fetch_contacts("INST", "tok")
         self.assertEqual("/contacts/fetch-contacts", self._request.await_args.args[1])
 
+    async def test_qr_code_enables_contact_sync(self) -> None:
+        await self.client.qr_code("INST", "tok")
+        self.assertEqual("/instance/qr-code", self._request.await_args.args[1])
+        self.assertEqual({"syncContacts": "enable"}, self._request.await_args.kwargs["params"])
+
+    async def test_pairing_code_uses_phone_number_and_enables_contact_sync(self) -> None:
+        await self.client.pairing_code("INST", "tok", "5511999998888")
+        self.assertEqual("/instance/pairing-code", self._request.await_args.args[1])
+        self.assertEqual(
+            {"phoneNumber": "5511999998888", "syncContacts": "enable"},
+            self._request.await_args.kwargs["params"],
+        )
+
     async def test_profile_picture_path_and_param(self) -> None:
         await self.client.contact_profile_picture("INST", "tok", "5511999998888")
         args = self._request.await_args.args

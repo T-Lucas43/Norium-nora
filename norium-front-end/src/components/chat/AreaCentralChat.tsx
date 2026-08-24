@@ -25,6 +25,7 @@ import {
 import type { AnexoPendente, ChatConversa, MsgConteudo } from "./types";
 import Button from "../shared/Button";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+import { conversationDisplayName, formatWhatsAppPhone, isTechnicalWhatsAppLabel } from "./contactPicker";
 
 interface AreaCentralProps {
   conversaAtiva: ChatConversa | undefined;
@@ -63,15 +64,16 @@ function initials(name: string) {
 function HeaderAvatar({ conversa }: { conversa: ChatConversa }) {
   const [failed, setFailed] = useState(false);
   const photoUrl = useAuthenticatedMedia(conversa.metadados?.photoUrl || conversa.photoUrl);
+  const displayName = conversationDisplayName(conversa);
 
   return (
     <div className="h-10 w-10 rounded-full bg-[var(--background)] border border-[var(--border)] flex items-center justify-center overflow-hidden shrink-0 text-[var(--text-secondary)]">
       {photoUrl && !failed ? (
-        <img src={photoUrl} alt={conversa.contato} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : conversa.esGrupo ? (
         <Users size={17} />
-      ) : conversa.contato ? (
-        <span className="text-xs font-extrabold">{initials(conversa.contato)}</span>
+      ) : displayName && !isTechnicalWhatsAppLabel(displayName) ? (
+        <span className="text-xs font-extrabold">{initials(displayName)}</span>
       ) : (
         <User size={17} />
       )}
@@ -470,6 +472,7 @@ export default function AreaCentralChat({
   const [termoPesquisa, setTermoPesquisa] = useState("");
   const [traduzirChat, setTraduzirChat] = useState(false);
   const [menuMensagemId, setMenuMensagemId] = useState<string | null>(null);
+  const [menuMensagemPosicao, setMenuMensagemPosicao] = useState({ top: 8, left: 8 });
   const [modoSelecao, setModoSelecao] = useState(false);
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
   const [mostrarPainelEmojis, setMostrarPainelEmojis] = useState(false);
@@ -515,7 +518,28 @@ export default function AreaCentralChat({
     const container = scrollRef.current;
     if (!container) return;
     nearBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+    if (menuMensagemId) setMenuMensagemId(null);
     if (container.scrollTop <= 80) carregarAnterioresPreservandoPosicao();
+  };
+
+  const alternarMenuMensagem = (event: React.MouseEvent<HTMLButtonElement>, messageId: string) => {
+    event.stopPropagation();
+    if (menuMensagemId === messageId) {
+      setMenuMensagemId(null);
+      return;
+    }
+    const anchor = event.currentTarget.getBoundingClientRect();
+    const menuWidth = 192;
+    const menuHeight = 224;
+    const gutter = 8;
+    const preferredLeft = anchor.right - menuWidth;
+    const left = Math.max(gutter, Math.min(window.innerWidth - menuWidth - gutter, preferredLeft));
+    const preferredTop = anchor.bottom + 4;
+    const top = preferredTop + menuHeight <= window.innerHeight - gutter
+      ? preferredTop
+      : Math.max(gutter, anchor.top - menuHeight - 4);
+    setMenuMensagemPosicao({ top, left });
+    setMenuMensagemId(messageId);
   };
 
   useEffect(() => {
@@ -533,6 +557,17 @@ export default function AreaCentralChat({
     return () => document.removeEventListener("mousedown", fecharFlutuantes);
   }, []);
 
+  useEffect(() => {
+    if (!menuMensagemId) return;
+    const closeFloatingMenu = () => setMenuMensagemId(null);
+    window.addEventListener("resize", closeFloatingMenu);
+    window.addEventListener("scroll", closeFloatingMenu, true);
+    return () => {
+      window.removeEventListener("resize", closeFloatingMenu);
+      window.removeEventListener("scroll", closeFloatingMenu, true);
+    };
+  }, [menuMensagemId]);
+
   if (!conversaAtiva) {
     return (
       <div className="norium-chat-thread flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[var(--background)] text-sm font-semibold text-[var(--text-secondary)]">
@@ -541,7 +576,11 @@ export default function AreaCentralChat({
     );
   }
 
+  const displayName = conversationDisplayName(conversaAtiva);
+  const phoneLabel = formatWhatsAppPhone(conversaAtiva.metadados?.numeroCompleto || conversaAtiva.id);
   const mensagensFiltradas = conversaAtiva.mensagens.filter((mensagem) => {
+    const hasVisibleContent = Boolean(mensagem.texto?.trim() || mensagem.arquivoUrl);
+    if (!hasVisibleContent) return false;
     if (!termoPesquisa) return true;
     return mensagem.texto?.toLowerCase().includes(termoPesquisa.toLowerCase());
   });
@@ -565,9 +604,9 @@ export default function AreaCentralChat({
           <button className="min-w-0 flex items-center gap-3 text-left" onClick={onAbrirDadosPerfil}>
             <HeaderAvatar conversa={conversaAtiva} />
             <div className="min-w-0">
-              <h3 className="font-semibold text-sm truncate text-[var(--text)]">{conversaAtiva.contato}</h3>
+              <h3 className="font-semibold text-sm truncate text-[var(--text)]">{displayName}</h3>
               <p className="text-xs text-[var(--text-secondary)] truncate">
-                {conversaAtiva.esGrupo ? `${conversaAtiva.metadados?.participantes?.length || 0} participantes` : conversaAtiva.metadados?.numeroCompleto || conversaAtiva.id}
+                {conversaAtiva.esGrupo ? `${conversaAtiva.metadados?.participantes?.length || 0} participantes` : phoneLabel || "WhatsApp"}
               </p>
             </div>
           </button>
@@ -641,6 +680,11 @@ export default function AreaCentralChat({
             </Button>
           </div>
         )}
+        {!carregandoMensagens && mensagensFiltradas.length === 0 && (
+          <div className="flex min-h-40 items-center justify-center text-center text-sm font-medium text-[var(--text-secondary)]">
+            {termoPesquisa ? "Nenhuma mensagem corresponde à busca." : "Nenhuma mensagem disponível nesta conversa."}
+          </div>
+        )}
         {mensagensFiltradas.map((msg) => {
           const outgoing = msg.remetente === "usuario";
           const estaSelecionada = selecionadas.includes(msg.id);
@@ -664,13 +708,18 @@ export default function AreaCentralChat({
                 data-message-menu-root
               >
                 {!modoSelecao && (
-                  <button onClick={(event) => { event.stopPropagation(); setMenuMensagemId(menuMensagemId === msg.id ? null : msg.id); }} className="absolute top-1 right-1 h-7 w-7 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 transition hover:bg-black/20">
+                  <button type="button" aria-label="Ações da mensagem" onClick={(event) => alternarMenuMensagem(event, msg.id)} className="absolute top-1 right-1 h-7 w-7 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 focus:opacity-100 transition hover:bg-black/20">
                     <MoreVertical size={14} />
                   </button>
                 )}
 
-                {menuMensagemId === msg.id && (
-                  <div className="absolute right-1 top-8 z-50 w-48 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] py-1 text-xs font-bold text-[var(--text)] shadow-xl">
+                {menuMensagemId === msg.id && createPortal(
+                  <div
+                    data-message-menu-root
+                    role="menu"
+                    className="fixed z-[210] w-48 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] py-1 text-xs font-bold text-[var(--text)] shadow-2xl"
+                    style={{ top: menuMensagemPosicao.top, left: menuMensagemPosicao.left }}
+                  >
                     <div className="flex items-center justify-between border-b border-[var(--border)] px-2 py-1.5">
                       {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((emoji) => (
                         <button key={emoji} className="grid h-7 w-7 place-items-center rounded-full text-base hover:bg-[var(--surface-hover)]" onClick={() => { void onReagirMensagem(msg.id, emoji); setMenuMensagemId(null); }} aria-label={`Reagir com ${emoji}`}>{emoji}</button>
@@ -688,7 +737,8 @@ export default function AreaCentralChat({
                     <button onClick={() => { onApagarMensagensEmMassa([msg.id]); setMenuMensagemId(null); }} className="flex items-center gap-2 px-3 py-2 w-full hover:bg-[var(--surface-hover)] text-red-500 text-left">
                       <Trash2 size={13} /> Apagar
                     </button>
-                  </div>
+                  </div>,
+                  document.body,
                 )}
 
                 {msg.remetenteNome && !outgoing && (

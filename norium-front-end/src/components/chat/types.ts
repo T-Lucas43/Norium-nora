@@ -16,6 +16,7 @@ export interface MsgConteudo {
   status?: "erro" | "pendente" | "enviado" | "entregue" | "lido" | "reproduzido";
   reacoes?: Array<{ emoji: string; count: number; fromMe?: boolean; senders?: string[] }>;
   citada?: { id?: string; content?: string; senderName?: string; type?: string } | null;
+  midiaMeta?: Record<string, unknown> | null;
   canal?: ChatChannel;
   channel?: ChatChannel;
 }
@@ -41,6 +42,7 @@ export interface ParticipanteGrupo {
 
 export interface PerfilMetadados {
   numeroCompleto: string;
+  notify?: string;
   username?: string;
   bioRecado?: string;
   verifiedName?: string;

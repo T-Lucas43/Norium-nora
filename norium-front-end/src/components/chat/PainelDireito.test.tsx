@@ -25,4 +25,12 @@ describe("dados do contato", () => {
     expect(screen.getByText("Arquivos e midias (1)")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Visualizar midia" })).toHaveLength(1);
   });
+
+  it("mostra telefone legível e não expõe JID nos dados do contato", () => {
+    render(<PainelDireito modo="perfil" conversaAtiva={{ ...conversation, contato: conversation.id, metadados: { ...conversation.metadados, numeroCompleto: conversation.id } }} onFechar={() => undefined} />);
+
+    expect(screen.getAllByText("+55 (11) 99999-9999")).toHaveLength(2);
+    expect(screen.queryByText(/@c\.us/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Identificador JID")).not.toBeInTheDocument();
+  });
 });

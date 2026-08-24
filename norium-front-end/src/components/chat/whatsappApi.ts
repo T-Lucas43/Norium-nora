@@ -12,7 +12,7 @@ export type WhatsAppConnection = {
 };
 
 export type WhatsAppSyncProgress = {
-  status: "idle" | "syncing" | "complete" | "error";
+  status: "idle" | "syncing" | "complete" | "partial" | "error";
   phase?: string;
   progress: number;
   current?: number;
@@ -20,6 +20,9 @@ export type WhatsAppSyncProgress = {
   message?: string;
   contactsSynced?: number;
   photosSynced?: number;
+  requiresPro?: boolean;
+  reconnectRequired?: boolean;
+  catalogWarnings?: string[];
 };
 
 export type WhatsAppStatusItem = {
@@ -51,6 +54,8 @@ export type WhatsAppStatusFeed = {
 export type Contact = {
   id: string;
   phone: string;
+  lid?: string;
+  aliases?: string[];
   name?: string;
   notify?: string;
   pushname?: string;
@@ -73,6 +78,175 @@ export type ConsentInfo = {
   accepted: boolean;
   acceptedVersion?: string | null;
 };
+
+type UnknownRecord = Record<string, any>;
+
+function record(value: unknown): UnknownRecord {
+  return value && typeof value === "object" ? value as UnknownRecord : {};
+}
+
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+
+function booleanFlag(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") return ["1", "true", "yes", "sim"].includes(value.trim().toLowerCase());
+  return false;
+}
+
+function timestampSeconds(value: unknown) {
+  const parsed = typeof value === "string" && !/^\d+(?:\.\d+)?$/.test(value)
+    ? new Date(value).getTime()
+    : Number(value || 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return parsed > 10_000_000_000 ? Math.floor(parsed / 1000) : Math.floor(parsed);
+}
+
+function timeLabel(timestamp: number, provided?: unknown) {
+  const explicit = firstText(provided);
+  if (explicit) return explicit;
+  if (!timestamp) return "";
+  return new Date(timestamp * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function normalizeMessageType(rawType: unknown, mime: string, mediaUrl: string): MsgConteudo["tipo"] {
+  const value = String(rawType || "").toLowerCase();
+  if (value.includes("sticker")) return "sticker";
+  if (value.includes("audio") || value === "ptt" || mime.startsWith("audio/")) return "audio";
+  if (value.includes("document") || value.includes("file") || (!mime.startsWith("image/") && !mime.startsWith("video/") && Boolean(mime))) return "documento";
+  if (value.includes("image") || value.includes("video") || value.includes("media") || mime.startsWith("image/") || mime.startsWith("video/") || mediaUrl) return "midia";
+  return "texto";
+}
+
+export function normalizeWhatsAppMessage(value: unknown, index = 0): MsgConteudo | null {
+  const raw = record(value);
+  const key = record(raw.key);
+  const nested = record(raw.message);
+  const extended = record(nested.extendedTextMessage || raw.extendedTextMessage);
+  const image = record(nested.imageMessage || raw.imageMessage);
+  const video = record(nested.videoMessage || raw.videoMessage);
+  const documentMessage = record(nested.documentMessage || raw.documentMessage);
+  const audio = record(nested.audioMessage || raw.audioMessage);
+  const sticker = record(nested.stickerMessage || raw.stickerMessage);
+  const mediaRecord = Object.keys(image).length ? image : Object.keys(video).length ? video : Object.keys(documentMessage).length ? documentMessage : Object.keys(audio).length ? audio : sticker;
+  const chatId = firstText(raw.chatId, raw.conversationId, raw.remoteJid, key.remoteJid);
+  if (/status@broadcast|@newsletter$/i.test(chatId)) return null;
+
+  const rawType = firstText(raw.tipo, raw.type, raw.messageType, raw.kind, mediaRecord.mimetype ? "media" : "text");
+  if (/protocol|sender.?key|notification|call.?log|reaction|poll.?update|revok/i.test(rawType)) return null;
+  const text = firstText(
+    raw.texto,
+    raw.text,
+    raw.body,
+    raw.content,
+    raw.caption,
+    raw.messageText,
+    typeof raw.message === "string" ? raw.message : "",
+    nested.conversation,
+    nested.text,
+    extended.text,
+    image.caption,
+    video.caption,
+    documentMessage.caption,
+  );
+  const mediaUrl = firstText(raw.arquivoUrl, raw.mediaUrl, raw.fileUrl, raw.downloadUrl, raw.url, mediaRecord.url);
+  const mime = firstText(raw.arquivoMime, raw.mimetype, raw.mimeType, mediaRecord.mimetype);
+  const tipo = normalizeMessageType(rawType, mime, mediaUrl);
+  if (!text && !mediaUrl && tipo === "texto") return null;
+
+  const timestamp = timestampSeconds(raw.timestamp ?? raw.createdAt ?? raw.messageTimestamp ?? key.timestamp);
+  const fromMe = raw.remetente === "usuario" || booleanFlag(raw.fromMe ?? raw.isFromMe ?? key.fromMe);
+  const id = firstText(raw.id, raw.messageId, raw.msgId, key.id) || `whatsapp-${timestamp || Date.now()}-${index}`;
+  const placeholder = tipo === "midia" ? "Mídia indisponível" : tipo === "audio" ? "Áudio indisponível" : tipo === "documento" ? "Documento indisponível" : tipo === "sticker" ? "Figurinha indisponível" : "";
+  return {
+    id,
+    remetente: fromMe ? "usuario" : "contato",
+    remetenteNome: firstText(raw.remetenteNome, raw.senderName, raw.notify, raw.pushName) || undefined,
+    remetenteId: firstText(raw.remetenteId, raw.senderId, raw.participant, key.participant) || undefined,
+    texto: text || placeholder,
+    tipo,
+    arquivoUrl: mediaUrl || undefined,
+    arquivoMime: mime || undefined,
+    duracaoAudio: firstText(raw.duracaoAudio, raw.duration, audio.seconds) || undefined,
+    nomeArquivo: firstText(raw.nomeArquivo, raw.filename, raw.fileName, documentMessage.fileName) || undefined,
+    horario: timeLabel(timestamp, raw.horario),
+    timestamp,
+    status: raw.status,
+    reacoes: Array.isArray(raw.reacoes) ? raw.reacoes : Array.isArray(raw.reactions) ? raw.reactions : [],
+    citada: raw.citada || raw.quoted || null,
+    midiaMeta: raw.midiaMeta && typeof raw.midiaMeta === "object" ? raw.midiaMeta : null,
+    canal: "whatsapp",
+    channel: "whatsapp",
+  };
+}
+
+export function normalizeWhatsAppConversation(value: unknown): ChatConversa | null {
+  const raw = record(value);
+  const metadata = record(raw.metadados || raw.metadata);
+  const id = firstText(raw.id, raw.chatId, raw.jid, raw.phone, raw.remoteJid);
+  if (!id || /status@broadcast|@newsletter$/i.test(id)) return null;
+  const rawMessages = Array.isArray(raw.mensagens) ? raw.mensagens : Array.isArray(raw.messages) ? raw.messages : [];
+  const mensagens = rawMessages.map(normalizeWhatsAppMessage).filter((item): item is MsgConteudo => Boolean(item));
+  const timestamp = timestampSeconds(raw.timestampUltimaMsg ?? raw.timestamp ?? raw.lastMessageTime);
+  const contactName = firstText(raw.contato, raw.name, raw.chatName, raw.notify, raw.subject, metadata.notify, metadata.verifiedName, id);
+  return {
+    id,
+    contato: contactName,
+    canal: "whatsapp",
+    channel: "whatsapp",
+    ultimoTexto: firstText(raw.ultimoTexto, raw.lastMessage?.text, raw.lastMessage?.body, raw.lastMessage, mensagens[mensagens.length - 1]?.texto),
+    horario: timeLabel(timestamp, raw.horario),
+    timestampUltimaMsg: timestamp,
+    lida: (raw.lida === undefined || booleanFlag(raw.lida)) && Number(raw.naoLidasCount ?? raw.unreadCount ?? 0) === 0,
+    naoLidasCount: Number(raw.naoLidasCount ?? raw.unreadCount ?? 0),
+    fixada: booleanFlag(raw.fixada ?? raw.pinned),
+    favorita: booleanFlag(raw.favorita ?? raw.favorite),
+    silenciada: booleanFlag(raw.silenciada ?? raw.muted),
+    arquivada: booleanFlag(raw.arquivada ?? raw.archived),
+    esGrupo: booleanFlag(raw.esGrupo ?? raw.isGroup) || /@g\.us$/i.test(id),
+    mensagens,
+    photoUrl: firstText(raw.photoUrl, raw.profilePictureUrl, metadata.photoUrl) || undefined,
+    metadados: {
+      ...metadata,
+      numeroCompleto: firstText(metadata.numeroCompleto, raw.phone, raw.phoneNumber, id),
+      notify: firstText(metadata.notify, raw.notify) || undefined,
+      verifiedName: firstText(metadata.verifiedName, raw.verifiedName) || undefined,
+      statusOnline: booleanFlag(metadata.statusOnline),
+      photoUrl: firstText(metadata.photoUrl, raw.photoUrl, raw.profilePictureUrl) || undefined,
+    },
+  };
+}
+
+export function normalizeWhatsAppContact(value: unknown): Contact | null {
+  const raw = record(value);
+  const id = firstText(raw.id, raw.jid, raw.lid, raw.phone, raw.phoneNumber, raw.number);
+  if (!id || /status@broadcast|@g\.us$|@newsletter$/i.test(id)) return null;
+  const phone = firstText(raw.phone, raw.phoneNumber, raw.number, id);
+  const aliases = [raw.id, raw.jid, raw.lid, raw.senderLid, raw.phone, raw.phoneNumber, ...(Array.isArray(raw.aliases) ? raw.aliases : [])]
+    .map((item) => firstText(item)).filter(Boolean);
+  return {
+    id,
+    phone,
+    lid: firstText(raw.lid, raw.senderLid) || undefined,
+    aliases: [...new Set(aliases)],
+    name: firstText(raw.name, raw.contactName, raw.displayName, raw.savedName, raw.fullName, raw.shortName) || undefined,
+    notify: firstText(raw.notify, raw.subject) || undefined,
+    pushname: firstText(raw.pushname, raw.pushName) || undefined,
+    photoUrl: firstText(raw.photoUrl, raw.profilePictureUrl, raw.profilePicUrl, raw.imgUrl) || undefined,
+    verifiedName: firstText(raw.verifiedName, raw.businessName) || undefined,
+    bio: firstText(raw.bio, raw.status, raw.about) || undefined,
+    isBusiness: booleanFlag(raw.isBusiness),
+    isMyContact: booleanFlag(raw.isMyContact ?? raw.isContact),
+    isBlocked: booleanFlag(raw.isBlocked),
+  };
+}
 
 export const whatsappApi = {
   async consentStatus(signal?: AbortSignal) {
@@ -122,29 +296,40 @@ export const whatsappApi = {
     if (since && since > 0) params.set("since", String(since));
     if (refresh) params.set("refresh", "true");
     const query = params.size ? `?${params.toString()}` : "";
-    return apiRequest<ChatConversa[] | { items: ChatConversa[]; cursor: number; hasMore: boolean }>(
+    const payload = await apiRequest<unknown[] | { items: unknown[]; cursor: number; hasMore: boolean }>(
       `/api/chat/conversas${query}`,
       { timeoutMs: 35_000 },
     );
+    const normalizeItems = (items: unknown[]) => items.map(normalizeWhatsAppConversation).filter((item): item is ChatConversa => Boolean(item));
+    return Array.isArray(payload) ? normalizeItems(payload) : { ...payload, items: normalizeItems(payload.items || []) };
   },
 
   async details(conversationId: string) {
-    return apiRequest<ChatConversa>(`/api/chat/conversas/${encodeURIComponent(conversationId)}/detalhes`, {
+    const payload = await apiRequest<unknown>(`/api/chat/conversas/${encodeURIComponent(conversationId)}/detalhes`, {
       timeoutMs: 30_000,
     });
+    const normalized = normalizeWhatsAppConversation(payload);
+    if (!normalized) throw new Error("Os detalhes retornados pelo WhatsApp são inválidos.");
+    return normalized;
   },
 
   async history(conversationId: string, before?: number | null, limit = 50) {
     const params = new URLSearchParams({ limit: String(limit) });
     if (before) params.set("before", String(before));
-    return apiRequest<HistoryPage>(
+    const payload = await apiRequest<{ items?: unknown[]; cursor?: number | null; hasMore?: boolean }>(
       `/api/chat/conversas/${encodeURIComponent(conversationId)}/mensagens?${params.toString()}`,
       { timeoutMs: 30_000 },
     );
+    return {
+      items: (payload.items || []).map(normalizeWhatsAppMessage).filter((item): item is MsgConteudo => Boolean(item)),
+      cursor: payload.cursor ?? null,
+      hasMore: Boolean(payload.hasMore),
+    };
   },
 
   async contacts() {
-    return apiRequest<Contact[]>("/api/chat/contatos-disponiveis", { timeoutMs: 30_000 });
+    const payload = await apiRequest<unknown[]>("/api/chat/contatos-disponiveis", { timeoutMs: 30_000 });
+    return payload.map(normalizeWhatsAppContact).filter((item): item is Contact => Boolean(item));
   },
 
   async syncStatus(signal?: AbortSignal) {

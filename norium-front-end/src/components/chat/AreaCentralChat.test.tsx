@@ -47,6 +47,17 @@ const baseProps = {
 };
 
 describe("renderização das mensagens", () => {
+  it("aplica a imagem personalizada somente ao painel rolável de mensagens", () => {
+    const wallpaperUrl = "data:image/png;base64,AAAA";
+    const { container } = render(<AreaCentralChat {...baseProps} conversaAtiva={conversation} wallpaperUrl={wallpaperUrl} />);
+
+    const thread = container.querySelector(".norium-chat-thread") as HTMLElement;
+    const messageArea = container.querySelector(".norium-chat-message-scroll") as HTMLElement;
+    expect(messageArea).toHaveStyle({ backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "scroll" });
+    expect(messageArea.style.backgroundImage).toContain(wallpaperUrl);
+    expect(thread.style.backgroundImage).toBe("");
+  });
+
   it("não cria balão vazio e mantém o menu da mensagem recebida dentro da área visível", async () => {
     const user = userEvent.setup();
     render(<AreaCentralChat {...baseProps} conversaAtiva={conversation} />);

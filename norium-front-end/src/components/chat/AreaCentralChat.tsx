@@ -57,6 +57,7 @@ interface AreaCentralProps {
   onEscolherFigurinha: () => void;
   figurinhasRecentes: MsgConteudo[];
   onEnviarFigurinhaExistente: (figurinha: MsgConteudo) => void | Promise<void>;
+  wallpaperUrl?: string | null;
 }
 
 function initials(name: string) {
@@ -475,6 +476,7 @@ export default function AreaCentralChat({
   onEscolherFigurinha,
   figurinhasRecentes,
   onEnviarFigurinhaExistente,
+  wallpaperUrl,
 }: AreaCentralProps) {
   const [resposta, setResposta] = useState("");
   const [respondendoA, setRespondendoA] = useState<MsgConteudo | null>(null);
@@ -725,9 +727,13 @@ export default function AreaCentralChat({
         onScroll={handleMessageScroll}
         className="norium-chat-message-scroll norium-chat-wallpaper min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-8 py-6"
         style={{
-          backgroundImage:
-            "radial-gradient(circle at 20px 20px, rgba(255,255,255,0.035) 1px, transparent 1.4px), radial-gradient(circle at 70px 60px, rgba(255,255,255,0.025) 1.4px, transparent 1.8px)",
-          backgroundSize: "96px 96px",
+          backgroundImage: wallpaperUrl
+            ? `linear-gradient(var(--chat-wallpaper-overlay), var(--chat-wallpaper-overlay)), url("${wallpaperUrl}")`
+            : "radial-gradient(circle at 20px 20px, rgba(255,255,255,0.035) 1px, transparent 1.4px), radial-gradient(circle at 70px 60px, rgba(255,255,255,0.025) 1.4px, transparent 1.8px)",
+          backgroundPosition: wallpaperUrl ? "center" : undefined,
+          backgroundRepeat: wallpaperUrl ? "no-repeat" : undefined,
+          backgroundSize: wallpaperUrl ? "cover" : "96px 96px",
+          backgroundAttachment: wallpaperUrl ? "scroll" : undefined,
         }}
       >
         {(temMaisMensagens || carregandoMensagens) && (

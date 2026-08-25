@@ -40,6 +40,7 @@
   --motion-stream:
     linear-gradient(112deg, transparent 0%, rgba(255,255,255,.30) 18%, transparent 36%),
     linear-gradient(68deg, transparent 0%, rgba(125,211,252,.18) 28%, transparent 54%);
+  --chat-wallpaper-overlay:rgba(255,255,255,.20);
 }
 
 .dark{
@@ -81,6 +82,7 @@
   --motion-stream:
     linear-gradient(112deg, transparent 0%, rgba(56,189,248,.20) 18%, transparent 36%),
     linear-gradient(68deg, transparent 0%, rgba(168,85,247,.18) 28%, transparent 54%);
+  --chat-wallpaper-overlay:rgba(3,7,12,.58);
 }
 
 html,
@@ -4471,7 +4473,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-module-coach__ask {
   border-color: color-mix(in srgb, var(--primary) 50%, var(--border));
   color: white;
-  background: linear-gradient(135deg, var(--primary-strong), var(--accent));
+  background: linear-gradient(135deg, var(--primary-strong), var(--accent, var(--primary)));
 }
 
 .norium-module-coach-compact {
@@ -6981,15 +6983,21 @@ html.mail-fullscreen-open body{
   }
 }
 
-/* Cabecalho contextual compartilhado: preto Norium com trama azul discreta. */
+/* Cabecalho contextual compartilhado: a trama azul acompanha o tema ativo. */
 .norium-module-coach{
   overflow:visible;
   border-color:color-mix(in srgb, var(--primary) 48%, var(--border));
-  color:#f4f6f8;
+  color:var(--text);
   background:
-    radial-gradient(circle at 72% 28%, color-mix(in srgb, var(--primary) 22%, transparent) 0 1px, transparent 2px),
-    radial-gradient(circle at 83% 66%, color-mix(in srgb, var(--primary) 18%, transparent) 0 1px, transparent 2px),
-    linear-gradient(118deg, #070a0e 0%, #080d17 52%, #071735 78%, #080c13 100%);
+    radial-gradient(circle at 72% 28%, color-mix(in srgb, var(--primary) 18%, transparent) 0 1px, transparent 2px),
+    radial-gradient(circle at 83% 66%, color-mix(in srgb, var(--primary) 14%, transparent) 0 1px, transparent 2px),
+    linear-gradient(
+      118deg,
+      color-mix(in srgb, var(--surface) 98%, var(--primary) 2%) 0%,
+      color-mix(in srgb, var(--surface) 95%, var(--primary) 5%) 52%,
+      color-mix(in srgb, var(--surface) 87%, var(--primary) 13%) 78%,
+      color-mix(in srgb, var(--surface) 96%, var(--primary) 4%) 100%
+    );
 }
 
 .norium-module-coach::before,
@@ -7020,8 +7028,23 @@ html.mail-fullscreen-open body{
   filter:blur(8px);
 }
 
-.norium-module-coach__intro small{ color:#9ca7b5; }
-.norium-module-coach__details summary{ color:#f4f6f8; background:#090c10; }
+.norium-module-coach__intro small{ color:var(--text-secondary); }
+.norium-module-coach__details summary{
+  color:var(--text);
+  background:color-mix(in srgb, var(--surface-hover) 94%, var(--primary) 6%);
+}
+
+.dark .norium-module-coach{
+  color:#f4f6f8;
+  background:
+    radial-gradient(circle at 72% 28%, color-mix(in srgb, var(--primary) 22%, transparent) 0 1px, transparent 2px),
+    radial-gradient(circle at 83% 66%, color-mix(in srgb, var(--primary) 18%, transparent) 0 1px, transparent 2px),
+    linear-gradient(118deg, #070a0e 0%, #080d17 52%, #071735 78%, #080c13 100%);
+}
+
+.dark .norium-module-coach__intro small{ color:#9ca7b5; }
+.dark .norium-module-coach__details summary{ color:#f4f6f8; background:#090c10; }
+.dark .norium-module-coach__ask{ background:#090c10; }
 
 /* A tela completa reutiliza exatamente o motor do drawer, sem duplicar chat. */
 .team-chat-page{

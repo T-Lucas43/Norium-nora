@@ -487,7 +487,92 @@ _MEDIA_TYPES = {
     "audioMessage": ("audio", "audio"),
     "documentMessage": ("documento", "document"),
     "stickerMessage": ("sticker", "sticker"),
+    "image": ("midia", "image"),
+    "photo": ("midia", "image"),
+    "video": ("midia", "video"),
+    "audio": ("audio", "audio"),
+    "ptt": ("audio", "audio"),
+    "document": ("documento", "document"),
+    "sticker": ("sticker", "sticker"),
 }
+
+_FLAT_MEDIA_TYPES = {
+    "image": ("midia", "image"),
+    "photo": ("midia", "image"),
+    "video": ("midia", "video"),
+    "audio": ("audio", "audio"),
+    "ptt": ("audio", "audio"),
+    "document": ("documento", "document"),
+    "sticker": ("sticker", "sticker"),
+}
+
+
+def _media_meta(node: dict[str, Any], dtype: str, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Preserva o discriminador mesmo quando o catálogo não traz a chave completa.
+
+    Webhooks ao vivo normalmente incluem ``mediaKey`` + ``directPath``. O
+    catálogo da W-API também pode devolver registros planos, às vezes só com
+    uma URL/miniatura. Manter o metadado impede que uma mídia seja reclassificada
+    como texto e permite que a rota de download use o melhor fallback disponível.
+    """
+    merged = dict(fallback or {})
+    merged.update(node)
+    media_key = str(_first(merged, "mediaKey", "media_key") or "")
+    direct_path = str(_first(merged, "directPath", "direct_path") or "")
+    meta: dict[str, Any] = {
+        "mediaKey": media_key,
+        "directPath": direct_path,
+        "type": dtype,
+        "mimetype": str(_first(merged, "mimetype", "mimeType", "mime") or ""),
+    }
+    # Esses campos também precisam sobreviver quando mediaKey/directPath estão
+    # presentes: se o link decriptado expirar ou o endpoint de download falhar,
+    # ainda podemos usar um fileLink alternativo ou a miniatura de uma imagem.
+    for source_field in (
+        "fileLink", "downloadUrl", "mediaUrl", "fileUrl",
+        f"{dtype}Url", "url", "URL",
+    ):
+        candidate = _first(merged, source_field)
+        if isinstance(candidate, str) and candidate.startswith(("https://", "data:")):
+            meta["sourceUrl"] = candidate
+            meta["sourceField"] = source_field.lower()
+            break
+    thumbnail = _first(merged, "jpegThumbnail", "thumbnail", "thumbnailData", "thumbnailUrl")
+    if isinstance(thumbnail, str) and thumbnail and len(thumbnail) <= 4_000_000:
+        meta["thumbnail"] = thumbnail
+    return meta
+
+
+def _flat_media_descriptor(data: dict[str, Any]) -> tuple[str, str] | None:
+    """Lê ``type/messageType`` do catálogo sem confundir ``type=chat``."""
+    for key in ("messageType", "mediaType", "kind", "type"):
+        raw = _first(data, key)
+        if not isinstance(raw, str):
+            continue
+        normalized = raw.strip().lower().replace("_message", "").replace("-message", "")
+        if normalized.endswith("message"):
+            normalized = normalized[:-7]
+        if normalized in _FLAT_MEDIA_TYPES:
+            return _FLAT_MEDIA_TYPES[normalized]
+    return None
+
+
+def _extract_flat_media(data: dict[str, Any]) -> tuple[str, str | None, dict[str, Any] | None, str | None] | None:
+    descriptor = _flat_media_descriptor(data)
+    if descriptor is None:
+        return None
+    tipo, dtype = descriptor
+    nested = _first(data, dtype, f"{dtype}Message")
+    node = nested if isinstance(nested, dict) else data
+    caption = _first(node, "caption", "message", "text", "body", "content")
+    if not isinstance(caption, str):
+        caption = _first(data, "caption", "body", "text", "content")
+    return (
+        caption if isinstance(caption, str) else "",
+        tipo,
+        _media_meta(node, dtype, data),
+        None,
+    )
 
 
 def _extract_content(data: dict[str, Any]) -> tuple[str, str | None, dict[str, Any] | None, str | None]:
@@ -509,23 +594,24 @@ def _extract_content(data: dict[str, Any]) -> tuple[str, str | None, dict[str, A
             # ``message`` em vez de ``msgContent``.
             return _extract_content({**data, "msgContent": message})
     if isinstance(content, dict):
-        nested_message = content.get("message")
+        nested_message = _first(content, "message")
         if isinstance(nested_message, dict):
             return _extract_content({**data, "msgContent": nested_message})
         # Reação recebida: {reactionMessage: {key:{id,...}, text}}
-        reaction = content.get("reactionMessage")
+        reaction = _first(content, "reactionMessage")
         if isinstance(reaction, dict):
             key = reaction.get("key") if isinstance(reaction.get("key"), dict) else {}
             return (reaction.get("text") or ""), "reaction", None, str(key.get("id") or "")
-        if isinstance(content.get("conversation"), str):
-            return content["conversation"], "texto", None, None
-        ext = content.get("extendedTextMessage")
+        conversation = _first(content, "conversation")
+        if isinstance(conversation, str):
+            return conversation, "texto", None, None
+        ext = _first(content, "extendedTextMessage")
         if isinstance(ext, dict) and isinstance(ext.get("text"), str):
             return ext["text"], "texto", None, None
         for media_key, (tipo, dtype) in _MEDIA_TYPES.items():
-            node = content.get(media_key)
+            node = _first(content, media_key)
             if isinstance(node, dict):
-                caption = node.get("caption")
+                caption = _first(node, "caption", "message", "text", "body", "content")
                 if not isinstance(caption, str) or not caption.strip():
                     # Em alguns envelopes a W-API mantém a legenda no nível do
                     # evento (``caption``/``body``) e a mídia dentro de
@@ -535,20 +621,19 @@ def _extract_content(data: dict[str, Any]) -> tuple[str, str | None, dict[str, A
                     if isinstance(outer_caption, dict):
                         outer_caption = _first(outer_caption, "message", "body", "text")
                     caption = outer_caption if isinstance(outer_caption, str) else ""
-                meta = {
-                    "mediaKey": node.get("mediaKey") or "",
-                    "directPath": node.get("directPath") or "",
-                    "type": dtype,
-                    "mimetype": node.get("mimetype") or "",
-                }
-                if not (meta["mediaKey"] and meta["directPath"]):
-                    meta = None
+                meta = _media_meta(node, dtype, data)
                 return (caption if isinstance(caption, str) else ""), tipo, meta, None
         for loc_key, tipo in (("locationMessage", "localizacao"), ("contactMessage", "contato")):
-            if isinstance(content.get(loc_key), dict):
+            if isinstance(_first(content, loc_key), dict):
                 return "", tipo, None, None
+        flat_media = _extract_flat_media(data)
+        if flat_media is not None:
+            return flat_media
         # msgContent presente, mas sem conteúdo exibível reconhecido → ignora.
         return "", None, None, None
+    flat_media = _extract_flat_media(data)
+    if flat_media is not None:
+        return flat_media
     for key in ("text", "body", "message", "caption", "content"):
         value = data.get(key)
         if isinstance(value, str):

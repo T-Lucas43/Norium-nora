@@ -20,6 +20,7 @@ import {
   type WhatsAppProfile,
   type WhatsAppStatusItem,
   type WhatsAppSyncProgress,
+  normalizeWhatsAppStatusItem,
 } from "./whatsappApi";
 import { apiBlobRequest } from "../../core/api/client";
 import {
@@ -36,6 +37,8 @@ import {
   whatsappIdentifierKeys,
 } from "./contactPicker";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+import ChatWallpaperSettings from "./ChatWallpaperSettings";
+import { useChatWallpaper } from "./chatWallpaper";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -98,32 +101,6 @@ function normalizarBooleanWhatsApp(value: unknown) {
   return false;
 }
 
-function normalizarStatusWhatsApp(value: unknown): WhatsAppStatusItem | null {
-  if (!value || typeof value !== "object") return null;
-  const raw = value as Record<string, any>;
-  const id = String(raw.id || raw.statusId || raw.messageId || "").trim();
-  if (!id) return null;
-  const rawType = String(raw.type || raw.kind || raw.mediaType || "text").toLowerCase();
-  const type: WhatsAppStatusItem["type"] = rawType.includes("video") ? "video" : rawType.includes("image") || rawType.includes("photo") ? "image" : "text";
-  const fallbackName = raw.contactId || raw.chatId ? "Contato do WhatsApp" : "Status do WhatsApp";
-  const rawTimestamp = raw.timestamp || raw.createdAt || Date.now();
-  const numericTimestamp = Number(rawTimestamp);
-  const timestamp = Number.isFinite(numericTimestamp) ? numericTimestamp : new Date(rawTimestamp).getTime();
-  return {
-    id,
-    contactId: raw.contactId || raw.chatId,
-    name: String(raw.name || raw.contactName || raw.notify || raw.verifiedName || fallbackName),
-    photoUrl: raw.photoUrl || raw.profilePictureUrl,
-    type,
-    text: raw.text || raw.caption || raw.body,
-    mediaUrl: raw.mediaUrl || raw.fileUrl || raw.url,
-    timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
-    viewed: normalizarBooleanWhatsApp(raw.viewed ?? raw.visualizado),
-    mine: normalizarBooleanWhatsApp(raw.mine ?? raw.fromMe),
-    color: raw.color || raw.backgroundColor,
-  };
-}
-
 function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, any>;
@@ -173,6 +150,7 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
 }
 
 export default function ChatCentral({ userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
+  const chatWallpaper = useChatWallpaper(userId);
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [canaisStatus, setCanaisStatus] = useState<{ whatsapp?: WhatsAppConnection }>({});
   const [canalSelecionadoLogin, setCanalSelecionadoLogin] = useState<"whatsapp" | null>(null);
@@ -251,6 +229,8 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const syncShowSuccessRef = useRef(false);
   const catalogoInicialTentadoRef = useRef(false);
   const historicoRef = useRef(new Map<string, { cursor: number | null; hasMore: boolean }>());
+  const configDialogRef = useRef<HTMLDivElement>(null);
+  const configCloseButtonRef = useRef<HTMLButtonElement>(null);
 
   const mostrarAviso = useCallback((tone: "error" | "info" | "success", texto: string) => {
     if (avisoTimeoutRef.current) window.clearTimeout(avisoTimeoutRef.current);
@@ -366,7 +346,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     try {
       const payload = await whatsappApi.statuses();
       const rawItems = Array.isArray(payload) ? payload : payload.items;
-      const items = (rawItems || []).map(normalizarStatusWhatsApp).filter((item): item is WhatsAppStatusItem => Boolean(item));
+      const items = (rawItems || []).map(normalizeWhatsAppStatusItem).filter((item): item is WhatsAppStatusItem => Boolean(item));
       setStatusWhatsApp(items);
       return items;
     } catch (error) {
@@ -487,6 +467,44 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     }
     return () => clearInterval(intervalo);
   }, [gravando]);
+
+  useEffect(() => {
+    if (!modalConfigAberto) return;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusFrame = window.requestAnimationFrame(() => configCloseButtonRef.current?.focus());
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      previouslyFocused?.focus();
+    };
+  }, [modalConfigAberto]);
+
+  const handleConfigDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setModalConfigAberto(false);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const dialog = configDialogRef.current;
+    if (!dialog) return;
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]):not([type="file"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).filter((element) => window.getComputedStyle(element).display !== "none" && window.getComputedStyle(element).visibility !== "hidden");
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialog.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   useEffect(() => {
     anexosPendentesRef.current = anexosPendentes;
@@ -1652,6 +1670,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
             onEscolherFigurinha={() => figurinhaInputRef.current?.click()}
             figurinhasRecentes={figurinhasRecentes}
             onEnviarFigurinhaExistente={handleEnviarFigurinhaExistente}
+            wallpaperUrl={chatWallpaper.preference?.dataUrl}
             onCarregarMensagensAntigas={carregarMensagensAntigas}
             temMaisMensagens={paginaHistoricoAtiva?.hasMore ?? true}
             carregandoMensagens={historicoCarregandoId === conversaSelecionada}
@@ -1867,13 +1886,39 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
 
       {modalConfigAberto && (
         <div className="absolute inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="w-[450px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl flex flex-col shadow-2xl overflow-hidden text-xs font-bold text-[var(--text)]">
+          <div
+            ref={configDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="whatsapp-settings-dialog-title"
+            tabIndex={-1}
+            onKeyDown={handleConfigDialogKeyDown}
+            className="max-h-[90vh] w-[450px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl flex flex-col shadow-2xl overflow-hidden text-xs font-bold text-[var(--text)]"
+          >
             <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--background)]">
-              <h3 className="text-sm font-extrabold">Configurações Gerais do Painel</h3>
-              <button onClick={() => setModalConfigAberto(false)} className="hover:opacity-70"><X size={16}/></button>
+              <h3 id="whatsapp-settings-dialog-title" className="text-sm font-extrabold">Configurações Gerais do Painel</h3>
+              <button ref={configCloseButtonRef} type="button" aria-label="Fechar configurações" onClick={() => setModalConfigAberto(false)} className="hover:opacity-70"><X size={16}/></button>
             </div>
             
-            <div className="p-5 space-y-4 flex-1">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+              <ChatWallpaperSettings
+                preference={chatWallpaper.preference}
+                saving={chatWallpaper.saving}
+                error={chatWallpaper.error}
+                onSelect={async (file) => {
+                  try {
+                    await chatWallpaper.selectFile(file);
+                    mostrarAviso("success", "Imagem aplicada ao fundo das conversas.");
+                  } catch {
+                    // O componente exibe a mensagem específica do processamento.
+                  }
+                }}
+                onRestoreDefault={() => {
+                  chatWallpaper.restoreDefault();
+                  mostrarAviso("success", "Fundo padrão das conversas restaurado.");
+                }}
+              />
+
               <div className="space-y-1.5">
                 <label className="opacity-60 block text-xs uppercase tracking-wider">Endereço da API Backend (URL)</label>
                 <input type="text" readOnly value={BACKEND_URL} className="w-full h-10 border border-[var(--border)] bg-[var(--background)] px-3 rounded-xl outline-none font-semibold text-xs text-[var(--text)] opacity-70"/>

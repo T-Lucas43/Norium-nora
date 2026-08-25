@@ -4,6 +4,7 @@ import {
   normalizeWhatsAppContact,
   normalizeWhatsAppConversation,
   normalizeWhatsAppMessage,
+  normalizeWhatsAppStatusItem,
 } from "./whatsappApi";
 
 describe("normalização dos dados do WhatsApp", () => {
@@ -47,6 +48,50 @@ describe("normalização dos dados do WhatsApp", () => {
       timestamp: 1_800_000_001,
       midiaMeta: { mediaKey: "key", directPath: "/media", type: "image" },
     })?.midiaMeta).toEqual({ mediaKey: "key", directPath: "/media", type: "image" });
+  });
+
+  it("preserva os aliases internos de foto, vídeo e áudio no feed de Status", () => {
+    expect(normalizeWhatsAppStatusItem({
+      id: "status-image",
+      contactName: "Maria",
+      tipo: "midia",
+      texto: "Legenda da foto",
+      arquivoMime: "image/jpeg",
+      arquivoUrl: "/api/chat/midia/status-image",
+      timestamp: 1_800_000_001,
+    })).toMatchObject({
+      type: "image",
+      text: "Legenda da foto",
+      mediaUrl: "/api/chat/midia/status-image",
+    });
+
+    expect(normalizeWhatsAppStatusItem({
+      id: "status-video",
+      contactName: "João",
+      tipo: "midia",
+      texto: "Legenda do vídeo",
+      arquivoUrl: "/api/chat/midia/status-video",
+      midiaMeta: { type: "video", mimetype: "video/mp4" },
+      timestamp: 1_800_000_002,
+    })).toMatchObject({
+      type: "video",
+      text: "Legenda do vídeo",
+      mediaUrl: "/api/chat/midia/status-video",
+    });
+
+    expect(normalizeWhatsAppStatusItem({
+      id: "status-audio",
+      contactName: "Ana",
+      tipo: "audio",
+      texto: "Áudio",
+      arquivoUrl: "/api/chat/midia/status-audio",
+      midiaMeta: { type: "audio", mimetype: "audio/ogg" },
+      timestamp: 1_800_000_003,
+    })).toMatchObject({
+      type: "audio",
+      text: "Áudio",
+      mediaUrl: "/api/chat/midia/status-audio",
+    });
   });
 
   it("preserva indicadores de mensagem editada e encaminhada após recarregar", () => {

@@ -2,6 +2,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const mediaApi = vi.hoisted(() => ({ apiBlobRequest: vi.fn() }));
+vi.mock("../../core/api/client", () => ({ apiBlobRequest: mediaApi.apiBlobRequest }));
+
 import WhatsAppStatusView from "./WhatsAppStatusView";
 
 const originalMediaDevices = navigator.mediaDevices;
@@ -144,5 +147,75 @@ describe("estado vazio do Status", () => {
     const caption = screen.getByText("Legenda da foto");
     expect(caption.tagName).toBe("FIGCAPTION");
     expect(caption.closest("figure")?.querySelector("img")).toHaveAttribute("alt", "Status de Maria");
+  });
+
+  it("mantém o estado de carregamento de uma mídia privada sem convertê-la em Status de texto", () => {
+    mediaApi.apiBlobRequest.mockReturnValue(new Promise(() => {}));
+    const item = {
+      id: "media-loading",
+      contactId: "5511999999999@s.whatsapp.net",
+      name: "Maria",
+      type: "image" as const,
+      text: "Legenda que não é um Status de texto",
+      mediaUrl: "/api/chat/midia/media-loading",
+      timestamp: 1,
+    };
+
+    render(<WhatsAppStatusView items={[item]} selectedId={item.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Carregando mídia do Status...");
+    expect(screen.queryByText(item.text)).not.toBeInTheDocument();
+  });
+
+  it("mostra a falha e permite tentar a mídia novamente sem convertê-la em Status de texto", async () => {
+    const user = userEvent.setup();
+    mediaApi.apiBlobRequest.mockRejectedValue(new Error("arquivo indisponível"));
+    const item = {
+      id: "media-error",
+      contactId: "5511999999999@s.whatsapp.net",
+      name: "Maria",
+      type: "video" as const,
+      text: "Legenda do vídeo indisponível",
+      mediaUrl: "/api/chat/midia/media-error",
+      timestamp: 1,
+    };
+
+    render(<WhatsAppStatusView items={[item]} selectedId={item.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+
+    expect(await screen.findByText("Mídia do Status indisponível")).toBeInTheDocument();
+    expect(screen.getByText(/reconhecida como vídeo/)).toBeInTheDocument();
+    const retry = screen.getByRole("button", { name: "Tentar novamente" });
+    await user.click(retry);
+    await waitFor(() => expect(mediaApi.apiBlobRequest).toHaveBeenCalledTimes(2));
+  });
+
+  it("descarta a mídia anterior ao trocar de Status e permite repetir uma URL pública", async () => {
+    const user = userEvent.setup();
+    const first = {
+      id: "first-image",
+      contactId: "5511999999999@s.whatsapp.net",
+      name: "Maria",
+      type: "image" as const,
+      mediaUrl: "https://example.test/first.jpg",
+      timestamp: 1,
+    };
+    const second = {
+      id: "second-image",
+      contactId: "5511888888888@s.whatsapp.net",
+      name: "João",
+      type: "image" as const,
+      mediaUrl: "https://example.test/second.jpg",
+      timestamp: 2,
+    };
+    const view = render(<WhatsAppStatusView items={[first, second]} selectedId={first.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+
+    fireEvent.error(screen.getByAltText("Status de Maria"));
+    expect(screen.getByText("Mídia do Status indisponível")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    expect(screen.getByAltText("Status de Maria")).toHaveAttribute("src", first.mediaUrl);
+
+    view.rerender(<WhatsAppStatusView items={[first, second]} selectedId={second.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+    expect(screen.getByAltText("Status de João")).toHaveAttribute("src", second.mediaUrl);
+    expect(screen.queryByText("Mídia do Status indisponível")).not.toBeInTheDocument();
   });
 });

@@ -17,7 +17,10 @@ const api = vi.hoisted(() => ({
   markConversation: vi.fn(),
 }));
 
-vi.mock("./whatsappApi", () => ({ whatsappApi: api }));
+vi.mock("./whatsappApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./whatsappApi")>();
+  return { ...actual, whatsappApi: api };
+});
 vi.mock("./AreaCentralChat", () => ({ default: () => <div>Conversa</div> }));
 vi.mock("./PainelDireito", () => ({ default: () => null }));
 

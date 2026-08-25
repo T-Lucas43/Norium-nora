@@ -1,7 +1,7 @@
 import { Camera, ChevronLeft, ChevronRight, CircleDot, Eye, Mic, Pencil, RefreshCw, SendHorizontal, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { WhatsAppProfile, WhatsAppStatusItem, WhatsAppSyncProgress } from "./whatsappApi";
-import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+import { useAuthenticatedMedia, useAuthenticatedMediaState } from "./useAuthenticatedMedia";
 
 interface WhatsAppStatusViewProps {
   items: WhatsAppStatusItem[];
@@ -36,19 +36,51 @@ function StatusAvatar({ name, photoUrl, viewed = false }: { name: string; photoU
 }
 
 function StatusMedia({ item }: { item: WhatsAppStatusItem }) {
-  const source = useAuthenticatedMedia(item.mediaUrl);
-  if ((item.type === "video" || item.type === "image") && source) return (
-    <figure className="relative max-h-[72vh] max-w-full overflow-hidden rounded-2xl bg-black shadow-2xl">
-      {item.type === "video"
-        ? <video src={source} controls autoPlay className="max-h-[72vh] max-w-full object-contain" />
-        : <img src={source} alt={`Status de ${item.name}`} className="max-h-[72vh] max-w-full object-contain" />}
-      {item.text?.trim() && <figcaption className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent px-5 pb-5 pt-12 text-center text-sm font-semibold leading-6 text-white drop-shadow">{item.text}</figcaption>}
-    </figure>
-  );
-  return (
+  const { source, loading, error, retry } = useAuthenticatedMediaState(item.mediaUrl);
+  const [elementError, setElementError] = useState(false);
+  useEffect(() => setElementError(false), [item.id, source]);
+  const retryMedia = () => {
+    setElementError(false);
+    retry();
+  };
+
+  if (item.type === "text") return (
     <div className="flex min-h-[360px] w-full max-w-[660px] items-center justify-center rounded-3xl px-12 py-20 text-center text-3xl font-semibold leading-normal text-white shadow-2xl" style={{ background: item.color || "linear-gradient(145deg, #0759f5, #07265d)" }}>
       {item.text || "Status sem legenda"}
     </div>
+  );
+
+  if (loading) return (
+    <div className="grid min-h-[360px] w-full max-w-[660px] animate-pulse place-items-center rounded-3xl border border-white/10 bg-black/70 text-sm font-semibold text-white/70" role="status">
+      Carregando mídia do Status...
+    </div>
+  );
+
+  if ((!source || error || elementError)) return (
+    <div className="grid min-h-[360px] w-full max-w-[660px] place-items-center rounded-3xl border border-amber-400/25 bg-black/80 px-8 text-center text-white" role="alert">
+      <div>
+        <p className="text-base font-bold">Mídia do Status indisponível</p>
+        <p className="mt-2 text-sm text-white/60">A publicação foi reconhecida como {item.type === "audio" ? "áudio" : item.type === "video" ? "vídeo" : "imagem"}, mas o arquivo não pôde ser carregado.</p>
+        {item.mediaUrl && <button type="button" onClick={retryMedia} className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm font-bold hover:border-[var(--primary)]"><RefreshCw size={15} /> Tentar novamente</button>}
+        {item.text?.trim() && <p className="mt-5 text-sm font-semibold text-white/80">{item.text}</p>}
+      </div>
+    </div>
+  );
+
+  if (item.type === "audio") return (
+    <figure className="w-full max-w-[660px] rounded-3xl border border-white/10 bg-black/80 px-8 py-12 text-white shadow-2xl">
+      <audio src={source} controls autoPlay className="w-full" onError={() => setElementError(true)} />
+      {item.text?.trim() && <figcaption className="mt-5 text-center text-sm font-semibold leading-6 text-white/85">{item.text}</figcaption>}
+    </figure>
+  );
+
+  return (
+    <figure className="relative max-h-[72vh] max-w-full overflow-hidden rounded-2xl bg-black shadow-2xl">
+      {item.type === "video"
+        ? <video src={source} controls autoPlay className="max-h-[72vh] max-w-full object-contain" onError={() => setElementError(true)} />
+        : <img src={source} alt={`Status de ${item.name}`} className="max-h-[72vh] max-w-full object-contain" onError={() => setElementError(true)} />}
+      {item.text?.trim() && <figcaption className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/80 to-transparent px-5 pb-5 pt-12 text-center text-sm font-semibold leading-6 text-white drop-shadow">{item.text}</figcaption>}
+    </figure>
   );
 }
 
@@ -255,7 +287,7 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
               data-testid="status-swipe-area"
             >
               <button type="button" onClick={() => goTo(-1)} disabled={navigationLocked || selectedIndex <= 0} className="absolute left-5 z-10 grid h-11 w-11 place-items-center rounded-full border border-white/15 bg-black/70 text-white shadow-xl disabled:invisible" aria-label="Status anterior"><ChevronLeft size={24} /></button>
-              <StatusMedia item={selected} />
+              <StatusMedia key={`${selected.id}:${selected.mediaUrl || ""}:${selected.type}`} item={selected} />
               <button type="button" onClick={() => goTo(1)} disabled={navigationLocked || selectedIndex < 0 || selectedIndex >= items.length - 1} className="absolute right-5 z-10 grid h-11 w-11 place-items-center rounded-full border border-white/15 bg-black/70 text-white shadow-xl disabled:invisible" aria-label="Próximo Status"><ChevronRight size={24} /></button>
             </div>
             {!selected.mine && (onReplyText || onReplyAudio) && (

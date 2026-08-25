@@ -30,7 +30,7 @@ export type WhatsAppStatusItem = {
   contactId?: string;
   name: string;
   photoUrl?: string;
-  type: "text" | "image" | "video";
+  type: "text" | "image" | "video" | "audio";
   text?: string;
   mediaUrl?: string;
   timestamp: number;
@@ -50,6 +50,66 @@ export type WhatsAppStatusFeed = {
   items: WhatsAppStatusItem[];
   cursor?: number | null;
 };
+
+function firstStatusString(...values: unknown[]) {
+  const value = values.find((candidate) => typeof candidate === "string" && candidate.trim());
+  return typeof value === "string" ? value : undefined;
+}
+
+function statusBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") return ["1", "true", "yes", "sim"].includes(value.trim().toLowerCase());
+  return false;
+}
+
+/**
+ * Aceita tanto o contrato público do feed quanto registros persistidos por
+ * versões anteriores. Isso evita rebaixar foto, vídeo ou áudio para texto
+ * quando o backend ainda devolve os aliases internos em português.
+ */
+export function normalizeWhatsAppStatusItem(value: unknown): WhatsAppStatusItem | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const mediaMeta = raw.midiaMeta && typeof raw.midiaMeta === "object"
+    ? raw.midiaMeta as Record<string, unknown>
+    : raw.mediaMeta && typeof raw.mediaMeta === "object"
+      ? raw.mediaMeta as Record<string, unknown>
+      : {};
+  const id = firstStatusString(raw.id, raw.statusId, raw.messageId)?.trim();
+  if (!id) return null;
+
+  const mime = firstStatusString(raw.mediaMime, raw.arquivoMime, raw.mimetype, mediaMeta.mimetype)?.toLowerCase() || "";
+  const typeEvidence = [raw.type, raw.kind, raw.mediaType, raw.tipo, mediaMeta.type, mime]
+    .filter((candidate): candidate is string => typeof candidate === "string")
+    .join(" ")
+    .toLowerCase();
+  const type: WhatsAppStatusItem["type"] = typeEvidence.includes("video")
+    ? "video"
+    : typeEvidence.includes("audio") || mime.startsWith("audio/")
+      ? "audio"
+      : typeEvidence.includes("image") || typeEvidence.includes("photo") || typeEvidence.includes("foto") || mime.startsWith("image/") || String(raw.tipo || "").toLowerCase() === "midia"
+        ? "image"
+        : "text";
+  const fallbackName = raw.contactId || raw.chatId ? "Contato do WhatsApp" : "Status do WhatsApp";
+  const rawTimestamp = raw.timestamp ?? raw.createdAt ?? Date.now();
+  const numericTimestamp = Number(rawTimestamp);
+  const timestamp = Number.isFinite(numericTimestamp) ? numericTimestamp : new Date(String(rawTimestamp)).getTime();
+
+  return {
+    id,
+    contactId: firstStatusString(raw.contactId, raw.chatId),
+    name: firstStatusString(raw.name, raw.contactName, raw.notify, raw.verifiedName) || fallbackName,
+    photoUrl: firstStatusString(raw.photoUrl, raw.profilePictureUrl),
+    type,
+    text: firstStatusString(raw.text, raw.caption, raw.body, raw.texto),
+    mediaUrl: firstStatusString(raw.mediaUrl, raw.fileUrl, raw.arquivoUrl, raw.url),
+    timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+    viewed: statusBoolean(raw.viewed ?? raw.visualizado),
+    mine: statusBoolean(raw.mine ?? raw.fromMe),
+    color: firstStatusString(raw.color, raw.backgroundColor),
+  };
+}
 
 export type Contact = {
   id: string;

@@ -6,8 +6,12 @@ import os
 import tempfile
 import time
 import unittest
+import uuid
 from contextlib import ExitStack
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+
+from fastapi import HTTPException
 
 from app.modules.chat import router as chat_router
 from app.services import wapi_binding as wb
@@ -211,6 +215,287 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(image, response.body)
         self.assertEqual("image/jpeg", response.media_type)
+
+    def test_download_media_response_accepts_official_link_inside_envelopes(self) -> None:
+        inline, link = chat_router.unpack_wapi_media_response(
+            {"data": {"result": {"fileLink": "https://api.w-api.app/media/status.jpeg"}}}
+        )
+
+        self.assertIsNone(inline)
+        self.assertEqual("https://api.w-api.app/media/status.jpeg", link)
+
+    def test_external_media_url_rejects_local_and_private_destinations(self) -> None:
+        blocked = (
+            "https://localhost/status",
+            "https://service.internal/status",
+            "https://127.0.0.1/status",
+            "https://10.0.0.8/status",
+            "https://169.254.169.254/latest/meta-data",
+            "https://192.168.1.20/status",
+            "https://[::1]/status",
+        )
+
+        for url in blocked:
+            with self.subTest(url=url), self.assertRaises(HTTPException) as error:
+                chat_router.validate_external_media_url(url)
+            self.assertEqual(400, error.exception.status_code)
+
+    async def test_external_media_redirect_is_validated_before_following(self) -> None:
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.__aexit__.return_value = None
+        client.get = AsyncMock(
+            return_value=SimpleNamespace(
+                status_code=302,
+                headers={"Location": "https://127.0.0.1/private"},
+                content=b"",
+            )
+        )
+
+        public_dns = [
+            (
+                chat_router.socket.AF_INET,
+                chat_router.socket.SOCK_STREAM,
+                6,
+                "",
+                ("93.184.216.34", 443),
+            )
+        ]
+        with (
+            patch.object(chat_router.socket, "getaddrinfo", return_value=public_dns),
+            patch.object(chat_router.httpx, "AsyncClient", return_value=client),
+        ):
+            with self.assertRaises(HTTPException) as error:
+                await chat_router.fetch_external_whatsapp_media(
+                    "https://api.w-api.app/media/status.jpeg",
+                    timeout=10.0,
+                )
+
+        self.assertEqual(400, error.exception.status_code)
+        client.get.assert_awaited_once_with(
+            "https://api.w-api.app/media/status.jpeg",
+            timeout=10.0,
+        )
+
+    async def test_external_media_allows_valid_https_wapi_redirect(self) -> None:
+        client = AsyncMock()
+        client.__aenter__.return_value = client
+        client.__aexit__.return_value = None
+        client.get = AsyncMock(
+            side_effect=[
+                SimpleNamespace(
+                    status_code=302,
+                    headers={"Location": "https://cdn.w-api.app/media/status.jpeg"},
+                    content=b"",
+                ),
+                SimpleNamespace(
+                    status_code=200,
+                    headers={"Content-Type": "image/jpeg"},
+                    content=b"\xff\xd8\xffstatus",
+                ),
+            ]
+        )
+
+        public_dns = [
+            (
+                chat_router.socket.AF_INET,
+                chat_router.socket.SOCK_STREAM,
+                6,
+                "",
+                ("93.184.216.34", 443),
+            )
+        ]
+        with (
+            patch.object(chat_router.socket, "getaddrinfo", return_value=public_dns),
+            patch.object(chat_router.httpx, "AsyncClient", return_value=client),
+        ):
+            response = await chat_router.fetch_external_whatsapp_media(
+                "https://api.w-api.app/media/status.jpeg",
+                timeout=10.0,
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(
+            [
+                "https://api.w-api.app/media/status.jpeg",
+                "https://cdn.w-api.app/media/status.jpeg",
+            ],
+            [call.args[0] for call in client.get.await_args_list],
+        )
+
+    async def test_external_media_rejects_hostname_resolving_to_private_ip(self) -> None:
+        private_dns = [
+            (
+                chat_router.socket.AF_INET,
+                chat_router.socket.SOCK_STREAM,
+                6,
+                "",
+                ("10.20.30.40", 443),
+            )
+        ]
+
+        with patch.object(chat_router.socket, "getaddrinfo", return_value=private_dns):
+            with self.assertRaises(HTTPException) as error:
+                await chat_router.fetch_external_whatsapp_media(
+                    "https://media.example.test/status.jpeg",
+                    timeout=10.0,
+                )
+
+        self.assertEqual(400, error.exception.status_code)
+
+    async def test_flat_status_url_is_used_as_safe_media_fallback(self) -> None:
+        message_id = f"STATUS-FLAT-URL-{uuid.uuid4().hex}"
+        await chat_router.save_whatsapp_status_feed(
+            "user-a",
+            {
+                "items": [
+                    {
+                        "id": message_id,
+                        "midiaMeta": {
+                            "mediaKey": "",
+                            "directPath": "",
+                            "type": "image",
+                            "mimetype": "image/jpeg",
+                            "sourceUrl": "https://cdn.w-api.app/media/status.jpeg",
+                            "sourceField": "url",
+                        },
+                        "timestamp": 9_999_999_999,
+                    }
+                ]
+            },
+        )
+        image = b"\xff\xd8\xffflat-status"
+        response_payload = SimpleNamespace(
+            status_code=200,
+            headers={"Content-Type": "image/jpeg"},
+            content=image,
+        )
+        safe_fetch = AsyncMock(return_value=response_payload)
+
+        with patch.object(chat_router, "fetch_external_whatsapp_media", safe_fetch):
+            response = await chat_router.obter_midia_whatsapp(
+                message_id,
+                conversa_id="status@broadcast",
+                user=chat_user(),
+            )
+
+        self.assertEqual(image, response.body)
+        safe_fetch.assert_awaited_once_with(
+            "https://cdn.w-api.app/media/status.jpeg",
+            timeout=60.0,
+        )
+
+    async def test_status_image_uses_embedded_thumbnail_when_full_media_is_unavailable(self) -> None:
+        thumbnail = b"\xff\xd8\xffthumbnail"
+        await chat_router.save_whatsapp_status_feed(
+            "user-a",
+            {
+                "items": [
+                    {
+                        "id": "STATUS-THUMBNAIL",
+                        "midiaMeta": {
+                            "mediaKey": "",
+                            "directPath": "",
+                            "type": "image",
+                            "mimetype": "image/jpeg",
+                            "thumbnail": base64.b64encode(thumbnail).decode(),
+                        },
+                        "timestamp": 9_999_999_999,
+                    }
+                ]
+            },
+        )
+
+        response = await chat_router.obter_midia_whatsapp(
+            "STATUS-THUMBNAIL",
+            conversa_id="status@broadcast",
+            user=chat_user(),
+        )
+
+        self.assertEqual(thumbnail, response.body)
+        self.assertEqual("image/jpeg", response.media_type)
+
+    async def test_status_image_continues_from_expired_links_to_embedded_thumbnail(self) -> None:
+        thumbnail = b"\xff\xd8\xffthumbnail-chain"
+        message_id = f"STATUS-FALLBACK-CHAIN-{uuid.uuid4().hex}"
+        await chat_router.save_whatsapp_status_feed(
+            "user-a",
+            {
+                "items": [
+                    {
+                        "id": message_id,
+                        "midiaMeta": {
+                            "mediaKey": "key",
+                            "directPath": "/status/image",
+                            "type": "image",
+                            "mimetype": "image/jpeg",
+                            "sourceUrl": "https://cdn.w-api.app/media/expired-source.jpeg",
+                            "sourceField": "filelink",
+                            "thumbnail": base64.b64encode(thumbnail).decode(),
+                        },
+                        "timestamp": 9_999_999_999,
+                    }
+                ]
+            },
+        )
+        safe_fetch = AsyncMock(
+            side_effect=[
+                HTTPException(status_code=404, detail="link expirado"),
+                HTTPException(status_code=404, detail="source expirado"),
+            ]
+        )
+
+        with (
+            patch.object(
+                chat_router.wapi_client,
+                "download_media",
+                AsyncMock(return_value={"fileLink": "https://api.w-api.app/media/expired.jpeg"}),
+            ),
+            patch.object(chat_router, "fetch_external_whatsapp_media", safe_fetch),
+        ):
+            response = await chat_router.obter_midia_whatsapp(
+                message_id,
+                conversa_id="status@broadcast",
+                user=chat_user(),
+            )
+
+        self.assertEqual(thumbnail, response.body)
+        self.assertEqual("image/jpeg", response.media_type)
+        self.assertEqual(2, safe_fetch.await_count)
+
+    async def test_video_and_audio_status_do_not_serve_image_thumbnail_as_media(self) -> None:
+        thumbnail = base64.b64encode(b"\xff\xd8\xffthumbnail").decode()
+
+        for media_type, mimetype in (("video", "video/mp4"), ("audio", "audio/ogg")):
+            with self.subTest(media_type=media_type):
+                message_id = f"STATUS-{media_type.upper()}-THUMBNAIL"
+                await chat_router.save_whatsapp_status_feed(
+                    "user-a",
+                    {
+                        "items": [
+                            {
+                                "id": message_id,
+                                "midiaMeta": {
+                                    "mediaKey": "",
+                                    "directPath": "",
+                                    "type": media_type,
+                                    "mimetype": mimetype,
+                                    "thumbnail": thumbnail,
+                                },
+                                "timestamp": 9_999_999_999,
+                            }
+                        ]
+                    },
+                )
+
+                with self.assertRaises(HTTPException) as error:
+                    await chat_router.obter_midia_whatsapp(
+                        message_id,
+                        conversa_id="status@broadcast",
+                        user=chat_user(),
+                    )
+
+                self.assertEqual(404, error.exception.status_code)
 
     async def test_marking_status_viewed_does_not_drop_concurrent_status(self) -> None:
         now = int(time.time())

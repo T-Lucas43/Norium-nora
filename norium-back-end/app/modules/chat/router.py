@@ -6,19 +6,21 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import ipaddress
 import mimetypes
 import logging
 import os
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Literal
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -1076,6 +1078,128 @@ def write_whatsapp_media_cache(user_id: str, message_id: str, file_bytes: bytes,
     temp_mime.replace(mime_path)
 
 
+def unpack_wapi_media_response(payload: Any) -> tuple[str | None, str | None]:
+    """Extrai base64/data URI e fileLink mesmo em envelopes data/result/payload."""
+    inline: str | None = None
+    link: str | None = None
+    queue = [payload]
+    seen: set[int] = set()
+    while queue:
+        current = queue.pop(0)
+        if not isinstance(current, dict) or id(current) in seen:
+            continue
+        seen.add(id(current))
+        for key in ("fileLink", "url", "link", "downloadUrl"):
+            candidate = current.get(key)
+            if isinstance(candidate, str) and candidate.startswith("https://"):
+                link = link or candidate
+        for key in ("base64", "media", "data"):
+            candidate = current.get(key)
+            if isinstance(candidate, str) and candidate:
+                if candidate.startswith("https://"):
+                    link = link or candidate
+                else:
+                    inline = inline or candidate
+        for key in ("data", "payload", "result", "response", "media"):
+            nested = current.get(key)
+            if isinstance(nested, dict):
+                queue.append(nested)
+    return inline, link
+
+
+_WHATSAPP_MEDIA_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+_WHATSAPP_MEDIA_MAX_REDIRECTS = 4
+
+
+def validate_external_media_url(url: str) -> str:
+    """Aceita apenas HTTPS público, sem credenciais nem endereços locais.
+
+    A W-API pode devolver um ``fileLink`` em host próprio ou em um CDN público.
+    Por isso a política não limita o domínio a uma lista fixa, mas bloqueia os
+    destinos que permitem SSRF (localhost, sufixos internos e IPs não globais).
+    Cada redirecionamento passa novamente por esta função antes do próximo GET.
+    """
+    try:
+        parsed = urlparse(str(url or "").strip())
+        hostname = (parsed.hostname or "").strip().casefold().rstrip(".")
+        # Acessar ``port`` também valida portas malformadas no URL.
+        _ = parsed.port
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.") from exc
+    if (
+        parsed.scheme != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or hostname == "localhost"
+        or hostname.endswith((".localhost", ".local", ".internal", ".lan"))
+    ):
+        raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        # Host público por nome, incluindo os CDNs legítimos usados pela W-API.
+        # Formas numéricas alternativas de IPv4 não devem cair na resolução DNS.
+        if hostname.replace(".", "").isdigit() or hostname.startswith("0x"):
+            raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
+    else:
+        if not address.is_global:
+            raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
+    return parsed.geturl()
+
+
+async def validate_external_media_destination(url: str) -> str:
+    """Valida também todos os endereços retornados pelo DNS do hostname.
+
+    A checagem ocorre imediatamente antes de cada GET. Se o DNS devolver uma
+    combinação pública/privada, a política conservadora rejeita o destino.
+    """
+    normalized = validate_external_media_url(url)
+    parsed = urlparse(normalized)
+    hostname = (parsed.hostname or "").strip().casefold().rstrip(".")
+    try:
+        literal = ipaddress.ip_address(hostname)
+    except ValueError:
+        try:
+            addresses = await asyncio.to_thread(
+                socket.getaddrinfo,
+                hostname,
+                parsed.port or 443,
+                type=socket.SOCK_STREAM,
+            )
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.") from exc
+        if not addresses:
+            raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+        for address_info in addresses:
+            raw_address = str(address_info[4][0]).split("%", 1)[0]
+            try:
+                resolved = ipaddress.ip_address(raw_address)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.") from exc
+            if not resolved.is_global:
+                raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
+    else:
+        if not literal.is_global:
+            raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
+    return normalized
+
+
+async def fetch_external_whatsapp_media(url: str, *, timeout: float) -> httpx.Response:
+    """Baixa mídia validando o destino inicial e todos os redirects manualmente."""
+    current_url = await validate_external_media_destination(url)
+    async with httpx.AsyncClient(follow_redirects=False) as media_client:
+        for redirect_count in range(_WHATSAPP_MEDIA_MAX_REDIRECTS + 1):
+            response = await media_client.get(current_url, timeout=timeout)
+            if response.status_code not in _WHATSAPP_MEDIA_REDIRECT_STATUSES:
+                return response
+            location = response.headers.get("Location")
+            if not location or redirect_count >= _WHATSAPP_MEDIA_MAX_REDIRECTS:
+                raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+            current_url = await validate_external_media_destination(urljoin(current_url, location))
+    raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+
+
 @router.get("/api/chat/foto-perfil")
 async def obter_foto_perfil(
     phone: str = Query(..., description="ID ou numero do contato/grupo"),
@@ -1098,20 +1222,19 @@ async def media_proxy(
     if parsed.scheme != "https" or not parsed.hostname or parsed.hostname.lower() not in allowed_hosts:
         raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
     try:
-        async with httpx.AsyncClient(follow_redirects=False) as client:
-            res_media = await client.get(url, timeout=25.0)
-            if res_media.status_code != 200:
-                raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
-            if len(res_media.content) > MAX_UPLOAD_BYTES:
-                raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
-            content_type = res_media.headers.get("Content-Type", "application/octet-stream")
-            if content_type.split(";", 1)[0].lower() in {"text/html", "image/svg+xml"}:
-                raise HTTPException(status_code=415, detail="Tipo de midia nao permitido.")
-            return Response(
-                content=res_media.content,
-                media_type=content_type,
-                headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"},
-            )
+        res_media = await fetch_external_whatsapp_media(url, timeout=25.0)
+        if res_media.status_code != 200:
+            raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+        if len(res_media.content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
+        content_type = res_media.headers.get("Content-Type", "application/octet-stream")
+        if content_type.split(";", 1)[0].lower() in {"text/html", "image/svg+xml"}:
+            raise HTTPException(status_code=415, detail="Tipo de midia nao permitido.")
+        return Response(
+            content=res_media.content,
+            media_type=content_type,
+            headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"},
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -1245,11 +1368,13 @@ async def listar_status_whatsapp(user: dict[str, Any] = Depends(current_user)):
     for item in items:
         media_type = str((item.get("midiaMeta") or {}).get("type") or "").lower()
         status_type = "text"
-        if media_type in {"image", "video"}:
+        if media_type in {"image", "video", "audio"}:
             status_type = media_type
         elif item.get("tipo") == "midia":
             mime = str(item.get("arquivoMime") or "")
             status_type = "video" if mime.startswith("video/") else "image"
+        elif item.get("tipo") == "audio":
+            status_type = "audio"
         serialized_items.append(
             {
                 **item,
@@ -2300,23 +2425,27 @@ async def obter_midia_whatsapp(
                 media_meta = item["midiaMeta"]
                 resolved_conversation_id = "status@broadcast"
                 break
-    if not creds or not media_meta:
+    if not media_meta:
         raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
-    try:
-        payload = await wapi_client.download_media(
-            creds[0], creds[1],
-            media_key=str(media_meta.get("mediaKey") or ""),
-            direct_path=str(media_meta.get("directPath") or ""),
-            media_type=str(media_meta.get("type") or ""),
-            mimetype=str(media_meta.get("mimetype") or ""),
-        )
-    except WapiError as exc:
-        raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.") from exc
-    inline = link = None
-    if isinstance(payload, dict):
-        inline = payload.get("data") or payload.get("base64") or payload.get("media")
-        link = payload.get("fileLink") or payload.get("url") or payload.get("link")
+    media_key = str(media_meta.get("mediaKey") or "")
+    direct_path = str(media_meta.get("directPath") or "")
+    payload: Dict[str, Any] = {}
+    if creds and media_key and direct_path:
+        try:
+            payload = await wapi_client.download_media(
+                creds[0], creds[1],
+                media_key=media_key,
+                direct_path=direct_path,
+                media_type=str(media_meta.get("type") or ""),
+                mimetype=str(media_meta.get("mimetype") or ""),
+            )
+        except WapiError:
+            # Miniatura/link de catálogo ainda pode manter o Status visível.
+            payload = {}
+    inline, link = unpack_wapi_media_response(payload)
     fallback_mime = str(media_meta.get("mimetype") or "application/octet-stream")
+    file_bytes: bytes | None = None
+    mime_type = fallback_mime
     if isinstance(inline, str) and inline:
         # base64 / data URI
         if inline.startswith("data:"):
@@ -2324,18 +2453,71 @@ async def obter_midia_whatsapp(
         else:
             try:
                 file_bytes = base64.b64decode(inline, validate=True)
-            except Exception as exc:
-                raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.") from exc
+            except Exception:
+                file_bytes = None
             mime_type = fallback_mime
     elif isinstance(link, str) and link.startswith("https://"):
         # A W-API entrega a midia decriptada por uma URL temporaria (fileLink).
-        async with httpx.AsyncClient(follow_redirects=True) as media_client:
-            res_link = await media_client.get(link, timeout=60.0)
-        if res_link.status_code != 200:
-            raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
-        file_bytes = res_link.content
-        mime_type = res_link.headers.get("Content-Type", fallback_mime)
-    else:
+        try:
+            res_link = await fetch_external_whatsapp_media(link, timeout=60.0)
+            if res_link.status_code == 200:
+                file_bytes = res_link.content
+                mime_type = res_link.headers.get("Content-Type", fallback_mime)
+        except HTTPException as exc:
+            if exc.status_code == 400:
+                raise
+            file_bytes = None
+        except httpx.HTTPError:
+            file_bytes = None
+
+    source_url = media_meta.get("sourceUrl")
+    if file_bytes is None and isinstance(source_url, str) and source_url:
+        if source_url.startswith("data:"):
+            try:
+                file_bytes, mime_type = decode_data_url(source_url, fallback_mime)
+            except HTTPException:
+                file_bytes = None
+        elif source_url.startswith("https://"):
+            try:
+                res_source = await fetch_external_whatsapp_media(source_url, timeout=60.0)
+                if res_source.status_code == 200:
+                    file_bytes = res_source.content
+                    mime_type = res_source.headers.get("Content-Type", fallback_mime)
+            except HTTPException as exc:
+                if exc.status_code == 400:
+                    raise
+                file_bytes = None
+            except httpx.HTTPError:
+                file_bytes = None
+
+    thumbnail = media_meta.get("thumbnail")
+    media_type = str(media_meta.get("type") or "").strip().lower()
+    if file_bytes is None and media_type == "image" and isinstance(thumbnail, str) and thumbnail:
+        if thumbnail.startswith("data:"):
+            try:
+                file_bytes, mime_type = decode_data_url(thumbnail, "image/jpeg")
+            except HTTPException:
+                file_bytes = None
+        elif thumbnail.startswith("https://"):
+            try:
+                res_thumbnail = await fetch_external_whatsapp_media(thumbnail, timeout=25.0)
+                if res_thumbnail.status_code == 200:
+                    file_bytes = res_thumbnail.content
+                    mime_type = res_thumbnail.headers.get("Content-Type", "image/jpeg")
+            except HTTPException as exc:
+                if exc.status_code == 400:
+                    raise
+                file_bytes = None
+            except httpx.HTTPError:
+                file_bytes = None
+        else:
+            try:
+                file_bytes = base64.b64decode(thumbnail, validate=True)
+                mime_type = "image/jpeg"
+            except Exception:
+                file_bytes = None
+
+    if not file_bytes:
         raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
     if len(file_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")

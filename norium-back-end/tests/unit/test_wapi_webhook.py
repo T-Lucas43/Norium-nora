@@ -207,6 +207,79 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("legenda fora do node", serialized["text"])
         self.assertEqual("image", serialized["type"])
 
+    def test_flat_status_media_type_aliases_are_not_downgraded_to_text(self) -> None:
+        from app.services.wapi_webhook import adapt_status_broadcast
+
+        mime_by_type = {
+            "image": "image/jpeg",
+            "video": "video/mp4",
+            "audio": "audio/ogg",
+        }
+        internal_type_by_media = {
+            "image": "midia",
+            "video": "midia",
+            "audio": "audio",
+        }
+
+        for discriminator in ("type", "messageType"):
+            for media_type, mimetype in mime_by_type.items():
+                with self.subTest(discriminator=discriminator, media_type=media_type):
+                    payload = {
+                        "event": "webhookReceived",
+                        "instanceId": "INST-A",
+                        "messageId": f"STATUS-FLAT-{discriminator}-{media_type}",
+                        "chatId": "status@broadcast",
+                        "sender": {"id": "5511999998888", "pushName": "Contato"},
+                        discriminator: media_type,
+                        "mimetype": mimetype,
+                        "caption": f"legenda {media_type}",
+                        "url": f"https://media.example.test/{media_type}",
+                    }
+
+                    adapted = adapt_status_broadcast(payload)
+
+                    self.assertIsNotNone(adapted)
+                    assert adapted is not None
+                    self.assertEqual(internal_type_by_media[media_type], adapted["tipo"])
+                    self.assertEqual(f"legenda {media_type}", adapted["texto"])
+                    self.assertEqual(media_type, adapted["midiaMeta"]["type"])
+                    self.assertEqual(mimetype, adapted["midiaMeta"]["mimetype"])
+                    self.assertEqual(
+                        f"https://media.example.test/{media_type}",
+                        adapted["midiaMeta"]["sourceUrl"],
+                    )
+
+    def test_status_media_preserves_url_and_thumbnail_with_download_keys(self) -> None:
+        from app.services.wapi_webhook import adapt_status_broadcast
+
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "messageId": "STATUS-WITH-FALLBACKS",
+            "chatId": "status@broadcast",
+            "sender": {"id": "5511999998888", "pushName": "Contato"},
+            "msgContent": {
+                "imageMessage": {
+                    "caption": "imagem com fallback",
+                    "mimetype": "image/jpeg",
+                    "mediaKey": "media-key",
+                    "directPath": "/status/image",
+                    "url": "https://mmg.whatsapp.net/status/image",
+                    "jpegThumbnail": "dGh1bWJuYWls",
+                }
+            },
+        }
+
+        adapted = adapt_status_broadcast(payload)
+
+        self.assertIsNotNone(adapted)
+        assert adapted is not None
+        self.assertEqual("media-key", adapted["midiaMeta"]["mediaKey"])
+        self.assertEqual("/status/image", adapted["midiaMeta"]["directPath"])
+        self.assertEqual("https://mmg.whatsapp.net/status/image", adapted["midiaMeta"]["sourceUrl"])
+        self.assertEqual("url", adapted["midiaMeta"]["sourceField"])
+        self.assertEqual("dGh1bWJuYWls", adapted["midiaMeta"]["thumbnail"])
+
     async def test_wrapped_baileys_status_is_routed_only_to_tenant_feed(self) -> None:
         payload = {
             "body": {
@@ -544,7 +617,14 @@ class WapiAdaptIncomingTests(unittest.TestCase):
         self.assertEqual("midia", msg["tipo"])
         self.assertEqual("olha isso", msg["texto"])
         self.assertEqual(
-            {"mediaKey": "abc", "directPath": "/v/t62...", "type": "image", "mimetype": "image/jpeg"},
+            {
+                "mediaKey": "abc",
+                "directPath": "/v/t62...",
+                "type": "image",
+                "mimetype": "image/jpeg",
+                "sourceUrl": "https://mmg.whatsapp.net/enc",
+                "sourceField": "url",
+            },
             msg["midiaMeta"],
         )
 

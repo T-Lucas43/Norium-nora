@@ -88,6 +88,135 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("5511999999999", contacts[0]["phone"])
         self.assertEqual("5511999999999@s.whatsapp.net", contacts[0]["id"])
 
+    async def test_channels_list_returns_only_cached_newsletters_in_frontend_shape(self) -> None:
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "channelsSyncedAt": time.time(),
+                "channels": [
+                    {
+                        "id": "120363400000000001@newsletter",
+                        "subject": "Noticias da Norium",
+                        "description": "Atualizacoes do produto",
+                        "profilePictureUrl": "https://cdn.example/norium.jpg",
+                        "isVerified": True,
+                        "unreadCount": "4",
+                        "lastMessageTime": 1_725_000_123,
+                    },
+                    {"newsletter": {"id": "120363400000000001@newsletter", "subject": "Noticias duplicadas"}},
+                    {"id": "5511999999999@s.whatsapp.net", "notify": "Maria"},
+                ],
+            },
+        )
+
+        result = await chat_router.listar_canais_whatsapp(user=chat_user())
+
+        self.assertEqual(
+            {
+                "items": [
+                    {
+                        "id": "120363400000000001@newsletter",
+                        "name": "Noticias da Norium",
+                        "description": "Atualizacoes do produto",
+                        "photoUrl": "https://cdn.example/norium.jpg",
+                        "verified": True,
+                        "unreadCount": 4,
+                        "timestamp": 1_725_000_123,
+                    }
+                ]
+            },
+            result,
+        )
+
+    async def test_stale_channels_list_schedules_catalog_sync_without_remote_request(self) -> None:
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "channelsSyncedAt": 0,
+                "channels": [{"id": "120363400000000002@newsletter", "name": "Ofertas"}],
+            },
+        )
+
+        with (
+            patch.object(chat_router, "schedule_contact_sync", return_value={"status": "syncing"}) as schedule,
+            patch.object(chat_router.wapi_client, "fetch_contacts", AsyncMock()) as fetch_contacts,
+            patch.object(chat_router.wapi_client, "fetch_chats", AsyncMock()) as fetch_chats,
+        ):
+            result = await chat_router.listar_canais_whatsapp(user=chat_user())
+
+        self.assertEqual("Ofertas", result["items"][0]["name"])
+        schedule.assert_called_once_with("user-a", force=True)
+        fetch_contacts.assert_not_awaited()
+        fetch_chats.assert_not_awaited()
+
+    async def test_channels_list_reads_legacy_newsletter_until_catalog_migration(self) -> None:
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "channelsSyncedAt": time.time(),
+                "contacts": [
+                    {
+                        "id": "120363400000000009@newsletter",
+                        "notify": "Canal legado",
+                    }
+                ],
+            },
+        )
+
+        result = await chat_router.listar_canais_whatsapp(user=chat_user())
+
+        self.assertEqual(
+            ["120363400000000009@newsletter"],
+            [item["id"] for item in result["items"]],
+        )
+
+    async def test_catalog_sync_keeps_newsletters_out_of_contacts_and_conversations(self) -> None:
+        now = int(time.time())
+        contacts_payload = [
+            {"id": "5511999999999@s.whatsapp.net", "notify": "Maria"},
+            {"id": "120363400000000003@newsletter", "notify": "Canal Norium"},
+        ]
+        chats_payload = [
+            {
+                "id": "5511999999999@s.whatsapp.net",
+                "notify": "Maria",
+                "lastMessageTime": now,
+            },
+            {
+                "id": "120363400000000003@newsletter",
+                "subject": "Canal Norium",
+                "description": "Novidades semanais",
+                "lastMessageTime": now,
+            },
+        ]
+        with (
+            patch.object(chat_router, "fetch_all_wapi_contacts", AsyncMock(return_value=contacts_payload)),
+            patch.object(chat_router, "fetch_all_wapi_chats", AsyncMock(return_value=chats_payload)),
+            patch.object(chat_router, "schedule_contact_sync", return_value={"status": "syncing"}),
+        ):
+            await chat_router._run_contact_sync("user-a")
+            channels = await chat_router.listar_canais_whatsapp(user=chat_user())
+            conversations = await chat_router.obter_conversas(
+                since=None, limit=100, refresh=False, user=chat_user()
+            )
+            contacts = await chat_router.obter_contatos_disponiveis(user=chat_user())
+
+        self.assertEqual(
+            ["120363400000000003@newsletter"],
+            [item["id"] for item in channels["items"]],
+        )
+        self.assertEqual(
+            ["5511999999999@s.whatsapp.net"],
+            [item["id"] for item in conversations],
+        )
+        self.assertEqual(
+            ["5511999999999@s.whatsapp.net"],
+            [item["id"] for item in contacts],
+        )
+
     async def test_contact_sync_does_not_block_on_profile_picture_refresh(self) -> None:
         expired = {
             "id": "5511999999999",
@@ -571,6 +700,7 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
                     "id": "120363000000000000@g.us",
                     "subject": "Familia",
                     "description": "Grupo da familia",
+                    "profilePicUrl": "https://cdn.example/group-photo.jpg",
                     "participants": [{"id": "5511999999999"}],
                 }
             ]
@@ -582,6 +712,8 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("Familia", group["contato"])
         self.assertTrue(group["esGrupo"])
         self.assertEqual("Grupo da familia", group["metadados"]["descricaoGrupo"])
+        self.assertEqual("https://cdn.example/group-photo.jpg", group["photoUrl"])
+        self.assertEqual("https://cdn.example/group-photo.jpg", group["metadados"]["photoUrl"])
 
     async def test_connected_event_starts_sync_progress(self) -> None:
         with patch.object(chat_router, "schedule_contact_sync", return_value={"status": "syncing"}) as schedule:

@@ -295,6 +295,40 @@ class WapiMessagingRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status_id, stored["citada"]["id"])
         self.assertTrue(stored["citada"]["status"])
 
+
+    async def test_media_view_once_reaches_wapi_without_persisting_local_copy(self) -> None:
+        bind("user-a", "INST-A", "tok-a")
+        send_media = AsyncMock(return_value={"messageId": "VIEW-ONCE-1"})
+        payload = chat_router.EnviarArquivoPayload(
+            conversa_id="5511999998888@s.whatsapp.net",
+            nome_arquivo="privada.jpg",
+            mime_type="image/jpeg",
+            data_url="data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xffprivate-image").decode(),
+            visualizacao_unica=True,
+        )
+
+        with (
+            patch.object(chat_router.wapi_messaging._client, "send_media", send_media),
+            patch.object(
+                chat_router,
+                "save_upload_file",
+                return_value=("/api/chat/uploads/private-copy.jpg", "privada.jpg"),
+            ) as save_upload,
+        ):
+            await chat_router.enviar_arquivo(payload, chat_user("user-a"))
+
+        self.assertIs(send_media.await_args.kwargs["view_once"], True)
+        save_upload.assert_not_called()
+        stored = (await load_conversations("user-a"))[payload.conversa_id]["mensagens"][-1]
+        self.assertIs(stored["visualizacaoUnica"], True)
+        self.assertIsNone(stored["arquivoUrl"])
+
+    async def test_view_once_rejects_documents(self) -> None:
+        with self.assertRaises(ValueError):
+            chat_router.EnviarArquivoPayload(
+                conversa_id="5511999998888@s.whatsapp.net", nome_arquivo="contrato.pdf",
+                mime_type="application/pdf", data_url="data:application/pdf;base64,AAAA", visualizacao_unica=True,
+            )
     async def test_group_details_resolve_member_name_and_admin(self) -> None:
         bind("user-a", "INST-A", "tok-a")
         group_id = "120363000000000000@g.us"

@@ -33,6 +33,7 @@ const baseProps = {
   enviandoAnexos: false,
   statusMicrofone: "idle" as const,
   onRemoverAnexo: vi.fn(),
+  onAlternarVisualizacaoUnica: vi.fn(),
   onLimparAnexos: vi.fn(),
   onApagarMensagensEmMassa: vi.fn(),
   onEncaminharMensagens: vi.fn(),
@@ -87,6 +88,47 @@ describe("renderização das mensagens", () => {
     expect(onColarAnexos).toHaveBeenCalledWith([image]);
   });
 
+  it("exibe a menção ao participante do grupo pelo nome, preservando o restante da mensagem", () => {
+    const groupConversation: ChatConversa = {
+      ...conversation,
+      id: "120363000000000000@g.us",
+      contato: "Grupo de amigos",
+      esGrupo: true,
+      ultimoTexto: "@158127978729593 sem nuds aqui mn",
+      mensagens: [
+        {
+          id: "mention",
+          remetente: "contato",
+          remetenteId: "5511999999999@s.whatsapp.net",
+          remetenteNome: "Paulo C.",
+          tipo: "texto",
+          texto: "@158127978729593 sem nuds aqui mn",
+          horario: "20:39",
+        },
+      ],
+      metadados: {
+        numeroCompleto: "120363000000000000@g.us",
+        statusOnline: false,
+        participantes: [
+          {
+            id: "158127978729593@lid",
+            phone: "",
+            name: "Vinícius",
+            isAdmin: false,
+          },
+        ],
+      },
+    };
+
+    const { container } = render(<AreaCentralChat {...baseProps} conversaAtiva={groupConversation} />);
+
+    const mention = screen.getByText("@Vinícius");
+    expect(mention).toHaveClass("text-[var(--primary)]");
+    const bubble = container.querySelector(".norium-message-bubble");
+    expect(bubble).toHaveTextContent("@Vinícius sem nuds aqui mn");
+    expect(bubble).not.toHaveTextContent("@158127978729593");
+  });
+
   it("abre as ações pelo botão direito, edita apenas mensagem própria e permite encaminhar ou apagar para todos", async () => {
     const user = userEvent.setup();
     const onEditarMensagem = vi.fn().mockResolvedValue(undefined);
@@ -122,5 +164,78 @@ describe("renderização das mensagens", () => {
     expect(screen.getByRole("button", { name: "Responder com a Nora" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resumir com a Nora" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Transformar em tarefa" })).toBeInTheDocument();
+  });
+
+  it("permite marcar foto, audio ou video para visualizacao unica", async () => {
+    const user = userEvent.setup();
+    const onAlternarVisualizacaoUnica = vi.fn();
+    render(
+      <AreaCentralChat
+        {...baseProps}
+        conversaAtiva={conversation}
+        onAlternarVisualizacaoUnica={onAlternarVisualizacaoUnica}
+        anexosPendentes={[
+          {
+            id: "attachment-image",
+            arquivo: new Blob(["image"], { type: "image/jpeg" }),
+            nomeArquivo: "foto.jpg",
+            mimeType: "image/jpeg",
+            tamanho: 5,
+            tipo: "image",
+            urlPreview: "blob:foto",
+            viewOnce: false,
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Enviar foto.jpg para visualizar uma vez" }));
+    expect(onAlternarVisualizacaoUnica).toHaveBeenCalledWith("attachment-image");
+  });
+
+  it("oculta midia view-once recebida e enviada atras de um placeholder 1x", () => {
+    const viewOnceConversation: ChatConversa = {
+      ...conversation,
+      mensagens: [
+        {
+          id: "view-once-image",
+          remetente: "contato",
+          tipo: "midia",
+          texto: "[Imagem]",
+          arquivoUrl: "https://example.test/private-image.jpg",
+          arquivoMime: "image/jpeg",
+          nomeArquivo: "private-image.jpg",
+          horario: "10:14",
+          viewOnce: true,
+        },
+        {
+          id: "view-once-audio",
+          remetente: "usuario",
+          tipo: "audio",
+          texto: "[Audio]",
+          arquivoUrl: "https://example.test/private-audio.ogg",
+          arquivoMime: "audio/ogg",
+          nomeArquivo: "private-audio.ogg",
+          horario: "10:15",
+          viewOnce: true,
+        },
+        {
+          id: "view-once-video",
+          remetente: "usuario",
+          tipo: "midia",
+          texto: "[Video]",
+          arquivoUrl: "https://example.test/private-video.mp4",
+          arquivoMime: "video/mp4",
+          nomeArquivo: "private-video.mp4",
+          horario: "10:16",
+          viewOnce: true,
+        },
+      ],
+    };
+
+    const { container } = render(<AreaCentralChat {...baseProps} conversaAtiva={viewOnceConversation} />);
+
+    expect(container.querySelector('[src*="private-"]')).not.toBeInTheDocument();
+    expect(screen.getAllByText("1x")).toHaveLength(3);
   });
 });

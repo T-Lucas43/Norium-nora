@@ -19,6 +19,7 @@ export interface MsgConteudo {
   midiaMeta?: Record<string, unknown> | null;
   edited?: boolean;
   forwarded?: boolean;
+  viewOnce?: boolean;
   canal?: ChatChannel;
   channel?: ChatChannel;
 }
@@ -31,6 +32,7 @@ export interface AnexoPendente {
   tamanho: number;
   tipo: "audio" | "image" | "video" | "document";
   urlPreview: string;
+  viewOnce?: boolean;
 }
 
 export interface ParticipanteGrupo {

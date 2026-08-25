@@ -188,6 +188,7 @@ def normalize_message(mensagem: Dict[str, Any], channel: ChatChannel) -> Dict[st
         "editada": bool(mensagem.get("editada", False)),
         "editadoEm": mensagem.get("editadoEm"),
         "encaminhada": bool(mensagem.get("encaminhada", False)),
+        "visualizacaoUnica": bool(mensagem.get("visualizacaoUnica") or mensagem.get("viewOnce") or mensagem.get("view_once")),
         "canal": channel,
         "channel": channel,
     }

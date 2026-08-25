@@ -1,4 +1,4 @@
-import { Camera, ChevronLeft, ChevronRight, CircleDot, Eye, Mic, Pencil, RefreshCw, SendHorizontal, Square } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, CircleDot, Eye, Image as ImageIcon, Mic, Pencil, RefreshCw, SendHorizontal, Square, Video, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { WhatsAppProfile, WhatsAppStatusItem, WhatsAppSyncProgress } from "./whatsappApi";
 import { useAuthenticatedMedia, useAuthenticatedMediaState } from "./useAuthenticatedMedia";
@@ -24,6 +24,47 @@ function formatTime(timestamp: number) {
   return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+type StatusContactGroup = {
+  key: string;
+  items: WhatsAppStatusItem[];
+  latest: WhatsAppStatusItem;
+  latestMedia?: WhatsAppStatusItem;
+  photoUrl?: string;
+};
+
+function statusContactKey(item: WhatsAppStatusItem) {
+  const contactId = item.contactId?.trim().toLocaleLowerCase();
+  const name = item.name.trim().toLocaleLowerCase("pt-BR");
+  const identity = contactId ? `contact:${contactId}` : name ? `name:${name}` : `id:${item.id}`;
+  return `${item.mine ? "mine" : "contact"}:${identity}`;
+}
+
+function groupStatusesByContact(items: WhatsAppStatusItem[]) {
+  const grouped = new Map<string, StatusContactGroup>();
+
+  items.forEach((item) => {
+    const key = statusContactKey(item);
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, {
+        key,
+        items: [item],
+        latest: item,
+        latestMedia: item.type !== "text" ? item : undefined,
+        photoUrl: item.photoUrl,
+      });
+      return;
+    }
+
+    current.items.push(item);
+    if (item.timestamp >= current.latest.timestamp) current.latest = item;
+    if (item.type !== "text" && (!current.latestMedia || item.timestamp >= current.latestMedia.timestamp)) current.latestMedia = item;
+    if (item.photoUrl && (!current.photoUrl || item.timestamp >= current.latest.timestamp)) current.photoUrl = item.photoUrl;
+  });
+
+  return Array.from(grouped.values()).sort((left, right) => right.latest.timestamp - left.latest.timestamp);
+}
+
 function StatusAvatar({ name, photoUrl, viewed = false }: { name: string; photoUrl?: string; viewed?: boolean }) {
   const [failed, setFailed] = useState(false);
   const source = useAuthenticatedMedia(photoUrl);
@@ -31,6 +72,35 @@ function StatusAvatar({ name, photoUrl, viewed = false }: { name: string; photoU
   return (
     <span className={`grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full border-[3px] bg-[var(--background)] text-xs font-extrabold ${viewed ? "border-[var(--border)] text-[var(--text-secondary)]" : "border-[var(--primary)] text-[var(--text)]"}`}>
       {source && !failed ? <img src={source} alt="" className="h-full w-full rounded-full object-cover" onError={() => setFailed(true)} /> : initials}
+    </span>
+  );
+}
+
+function StatusPreview({ item, name }: { item?: WhatsAppStatusItem; name: string }) {
+  const source = useAuthenticatedMedia(item?.mediaUrl);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [item?.id, source]);
+
+  if (!item) return null;
+
+  if (item.type === "image") return (
+    <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl border border-[var(--border)] bg-black text-[var(--text-secondary)]">
+      {source && !failed
+        ? <img src={source} alt={`Pr\u00e9via do Status de ${name}`} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+        : <ImageIcon size={17} aria-hidden="true" />}
+    </span>
+  );
+
+  if (item.type === "video") return (
+    <span className="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl border border-[var(--border)] bg-black text-white" role="img" aria-label={`Pr\u00e9via em v\u00eddeo do Status de ${name}`}>
+      {source && !failed && <video src={source} muted playsInline preload="metadata" className="h-full w-full object-cover opacity-70" onError={() => setFailed(true)} />}
+      <span className="absolute inset-0 grid place-items-center bg-black/25"><Video size={17} aria-hidden="true" /></span>
+    </span>
+  );
+
+  return (
+    <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-black ${source ? "text-[var(--primary)]" : "text-[var(--text-secondary)]"}`} role="img" aria-label={`Pr\u00e9via em \u00e1udio do Status de ${name}`}>
+      <Volume2 size={18} aria-hidden="true" />
     </span>
   );
 }
@@ -87,9 +157,10 @@ function StatusMedia({ item }: { item: WhatsAppStatusItem }) {
 export default function WhatsAppStatusView({ items, selectedId, profile, loading, error, sync, onSelect, onRefresh, onCreateUnavailable, onReplyText, onReplyAudio }: WhatsAppStatusViewProps) {
   const selected = items.find((item) => item.id === selectedId) || null;
   const selectedIndex = selected ? items.findIndex((item) => item.id === selected.id) : -1;
-  const recent = items.filter((item) => !item.viewed && !item.mine);
-  const viewed = items.filter((item) => item.viewed && !item.mine);
-  const mine = items.filter((item) => item.mine);
+  const contactGroups = groupStatusesByContact(items);
+  const mine = contactGroups.filter((group) => group.latest.mine);
+  const recent = contactGroups.filter((group) => !group.latest.mine && group.items.some((item) => !item.viewed));
+  const viewed = contactGroups.filter((group) => !group.latest.mine && group.items.every((item) => item.viewed));
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -203,19 +274,27 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
     }
   };
 
-  const renderItems = (sectionItems: WhatsAppStatusItem[], label: string) => sectionItems.length ? (
+  const renderItems = (sectionItems: StatusContactGroup[], label: string) => sectionItems.length ? (
     <section className="pb-2">
       <h3 className="px-4 pb-2 pt-4 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{label}</h3>
-      {sectionItems.map((item) => (
-        <button key={item.id} type="button" disabled={navigationLocked} onClick={() => onSelect(item)} className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 ${item.id === selectedId ? "bg-[color-mix(in_srgb,var(--primary)_14%,transparent)]" : ""}`}>
-          <StatusAvatar name={item.name} photoUrl={item.photoUrl} viewed={item.viewed} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-bold text-[var(--text)]">{item.name}</span>
-            <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">{formatTime(item.timestamp)}</span>
-          </span>
-          {!item.viewed && <span className="h-2 w-2 rounded-full bg-[var(--primary)]" />}
-        </button>
-      ))}
+      {sectionItems.map((group) => {
+        const item = group.latest;
+        const count = group.items.length;
+        const countLabel = `${count} ${count === 1 ? "atualiza\u00e7\u00e3o" : "atualiza\u00e7\u00f5es"}`;
+        const hasUnviewed = !item.mine && group.items.some((status) => !status.viewed);
+        const active = group.items.some((status) => status.id === selectedId);
+        return (
+          <button key={group.key} type="button" disabled={navigationLocked} onClick={() => onSelect(item)} aria-label={`${item.name}, ${countLabel}, ${formatTime(item.timestamp)}`} aria-current={active ? "true" : undefined} className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 ${active ? "bg-[color-mix(in_srgb,var(--primary)_14%,transparent)]" : ""}`}>
+            <StatusAvatar name={item.name} photoUrl={group.photoUrl} viewed={!hasUnviewed} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-bold text-[var(--text)]">{item.name}</span>
+              <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">{formatTime(item.timestamp)} - {countLabel}</span>
+            </span>
+            <StatusPreview item={group.latestMedia} name={item.name} />
+            {hasUnviewed && <span className="h-2 w-2 rounded-full bg-[var(--primary)]" />}
+          </button>
+        );
+      })}
     </section>
   ) : null;
 

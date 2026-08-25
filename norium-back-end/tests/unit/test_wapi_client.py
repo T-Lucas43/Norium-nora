@@ -137,5 +137,19 @@ class WapiClientContactContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("/webhook/update-webhook-chat-presence", self._request.await_args.args[1])
 
 
+    async def test_media_view_once_uses_wapi_boolean_contract(self) -> None:
+        await self.client.send_media(
+            "INST",
+            "tok",
+            "image",
+            "5511999999999",
+            "data:image/png;base64,AAAA",
+            view_once=True,
+        )
+
+        body = self._request.await_args.kwargs["json_body"]
+        self.assertIs(body["viewOnce"], True)
+
+
 if __name__ == "__main__":
     unittest.main()

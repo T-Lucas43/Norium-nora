@@ -324,7 +324,7 @@ class WapiClient:
     async def send_media(
         self, instance_id: str, token: str, kind: str, phone: str, data: str, *,
         caption: str = "", file_name: str = "", extension: str = "",
-        quoted_message_id: str = "", delay: int = 0, timeout: float = 90.0,
+        quoted_message_id: str = "", delay: int = 0, timeout: float = 90.0, view_once: bool = False,
     ) -> dict[str, Any]:
         """Envia mídia. ``kind`` ∈ {image, audio, video, sticker, gif, ptv, document}.
 
@@ -337,6 +337,8 @@ class WapiClient:
             "messageId": quoted_message_id,
             "delayMessage": delay,
         }
+        if view_once and kind in {"image", "audio", "video"}:
+            body["viewOnce"] = True
         if kind in {"image", "video", "gif", "document"}:
             body["caption"] = caption
         if kind == "document":

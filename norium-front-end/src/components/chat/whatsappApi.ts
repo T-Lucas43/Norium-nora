@@ -50,6 +50,20 @@ export type WhatsAppStatusFeed = {
   items: WhatsAppStatusItem[];
   cursor?: number | null;
 };
+export type WhatsAppChannel = {
+  id: string;
+  name: string;
+  description?: string;
+  photoUrl?: string;
+  verified?: boolean;
+  unreadCount?: number;
+  timestamp?: number;
+};
+
+export type WhatsAppChannelFeed = {
+  items: WhatsAppChannel[];
+};
+
 
 function firstStatusString(...values: unknown[]) {
   const value = values.find((candidate) => typeof candidate === "string" && candidate.trim());
@@ -249,6 +263,7 @@ export function normalizeWhatsAppMessage(value: unknown, index = 0): MsgConteudo
     midiaMeta: raw.midiaMeta && typeof raw.midiaMeta === "object" ? raw.midiaMeta : null,
     edited: booleanFlag(raw.edited ?? raw.editada ?? raw.isEdited),
     forwarded: booleanFlag(raw.forwarded ?? raw.encaminhada ?? raw.isForwarded) || Number(raw.forwardingScore || 0) > 0,
+    viewOnce: booleanFlag(raw.viewOnce ?? raw.view_once ?? raw.visualizacaoUnica),
     canal: "whatsapp",
     channel: "whatsapp",
   };
@@ -281,14 +296,14 @@ export function normalizeWhatsAppConversation(value: unknown): ChatConversa | nu
     arquivada: booleanFlag(raw.arquivada ?? raw.archived),
     esGrupo: booleanFlag(raw.esGrupo ?? raw.isGroup) || /@g\.us$/i.test(id),
     mensagens,
-    photoUrl: firstText(raw.photoUrl, raw.profilePictureUrl, metadata.photoUrl) || undefined,
+    photoUrl: firstText(raw.photoUrl, raw.profilePictureUrl, raw.profilePicUrl, raw.imgUrl, metadata.photoUrl) || undefined,
     metadados: {
       ...metadata,
       numeroCompleto: firstText(metadata.numeroCompleto, raw.phone, raw.phoneNumber, id),
       notify: firstText(metadata.notify, raw.notify) || undefined,
       verifiedName: firstText(metadata.verifiedName, raw.verifiedName) || undefined,
       statusOnline: booleanFlag(metadata.statusOnline),
-      photoUrl: firstText(metadata.photoUrl, raw.photoUrl, raw.profilePictureUrl) || undefined,
+      photoUrl: firstText(metadata.photoUrl, raw.photoUrl, raw.profilePictureUrl, raw.profilePicUrl, raw.imgUrl) || undefined,
     },
   };
 }
@@ -441,6 +456,14 @@ export const whatsappApi = {
     });
   },
 
+  async channels(signal?: AbortSignal) {
+    return apiRequest<WhatsAppChannelFeed>("/api/chat/canais", {
+      cache: "no-store",
+      timeoutMs: 30_000,
+      signal,
+    });
+  },
+
   async groups(signal?: AbortSignal) {
     return apiRequest<{ items: unknown[] } | unknown[]>("/api/chat/grupos", {
       cache: "no-store",
@@ -492,6 +515,7 @@ export const whatsappApi = {
     caption?: string;
     asSticker?: boolean;
     quotedId?: string;
+    viewOnce?: boolean;
   }) {
     return apiRequest<{ status: string }>("/api/chat/enviar-arquivo", {
       method: "POST",
@@ -503,6 +527,7 @@ export const whatsappApi = {
         data_url: payload.dataUrl,
         legenda: payload.caption,
         como_figurinha: Boolean(payload.asSticker),
+        visualizacao_unica: Boolean(payload.viewOnce),
         ...(payload.quotedId ? { responder_a: payload.quotedId } : {}),
       }),
       timeoutMs: 110_000,

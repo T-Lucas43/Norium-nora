@@ -1,9 +1,9 @@
-import { CircleDot, ContactRound, MessageCircle, UsersRound } from "lucide-react";
+import { CircleDot, ContactRound, MessageCircle, RadioTower, UsersRound } from "lucide-react";
 import { useState } from "react";
 import type { WhatsAppProfile } from "./whatsappApi";
 import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 
-export type WhatsAppSection = "conversations" | "status" | "contacts" | "groups" | "profile";
+export type WhatsAppSection = "conversations" | "status" | "contacts" | "groups" | "channels" | "profile";
 
 interface WhatsAppRailProps {
   section: WhatsAppSection;
@@ -48,6 +48,7 @@ export default function WhatsAppRail({ section, unreadCount, statusUnreadCount =
     { id: "status", label: "Status", icon: CircleDot, badge: statusUnreadCount },
     { id: "contacts", label: "Contatos", icon: ContactRound },
     { id: "groups", label: "Grupos", icon: UsersRound },
+    { id: "channels", label: "Canais", icon: RadioTower },
   ];
 
   return (

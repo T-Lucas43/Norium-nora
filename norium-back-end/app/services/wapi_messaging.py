@@ -62,7 +62,7 @@ class WapiMessagingService:
     async def send_media(
         self, user_id: str, conversa_id: str, kind: str, data: str, *,
         caption: str = "", file_name: str = "", extension: str = "", timeout: float = 90.0,
-        quoted_message_id: str = "",
+        quoted_message_id: str = "", view_once: bool = False,
     ) -> dict[str, Any]:
         instance_id, token = self._creds(user_id)
         res = await self._client.send_media(
@@ -72,6 +72,7 @@ class WapiMessagingService:
             extension=extension,
             timeout=timeout,
             quoted_message_id=quoted_message_id,
+            view_once=view_once,
         )
         message_id = str(res.get("messageId") or "")
         return {"sent": bool(message_id), "messageId": message_id}

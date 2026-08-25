@@ -60,6 +60,38 @@ describe("estado vazio do Status", () => {
     await waitFor(() => expect(onReplyText).toHaveBeenCalledWith(items[0], "Obrigado!"));
   });
 
+
+  it("agrupa as atualiza\u00e7\u00f5es por contato e usa a m\u00eddia mais recente como pr\u00e9via", () => {
+    const items = [
+      { id: "maria-text", contactId: "5511999999999@s.whatsapp.net", name: "Maria", type: "text" as const, text: "Primeiro", timestamp: 1 },
+      { id: "maria-image", contactId: "5511999999999@s.whatsapp.net", name: "Maria", type: "image" as const, mediaUrl: "https://example.test/maria-status.jpg", timestamp: 2 },
+      { id: "joao-text", contactId: "5511888888888@s.whatsapp.net", name: "Jo\u00e3o", type: "text" as const, text: "Outro contato", timestamp: 3 },
+    ];
+
+    render(<WhatsAppStatusView items={items} selectedId={null} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+
+    expect(screen.getAllByRole("button", { name: /Maria/ })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Maria/ })).toHaveAccessibleName(/2 atualiza\u00e7\u00f5es/);
+    expect(screen.getByAltText("Pr\u00e9via do Status de Maria")).toHaveAttribute("src", items[1].mediaUrl);
+  });
+
+  it("agrupa por nome quando o contato n\u00e3o tem ID e indica v\u00eddeo e \u00e1udio", () => {
+    const items = [
+      { id: "ana-video", name: "Ana", type: "video" as const, mediaUrl: "https://example.test/ana.mp4", timestamp: 1 },
+      { id: "ana-text", name: "Ana", type: "text" as const, text: "Depois", timestamp: 4 },
+      { id: "bia-audio", name: "Bia", type: "audio" as const, mediaUrl: "https://example.test/bia.ogg", timestamp: 3 },
+      { id: "fallback-one", name: "", type: "text" as const, text: "Sem contato", timestamp: 2 },
+      { id: "fallback-two", name: " ", type: "text" as const, text: "Outro sem contato", timestamp: 1 },
+    ];
+
+    render(<WhatsAppStatusView items={items} selectedId={null} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+
+    expect(screen.getAllByRole("button", { name: /Ana/ })).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "Pr\u00e9via em v\u00eddeo do Status de Ana" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Pr\u00e9via em \u00e1udio do Status de Bia" })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /1 atualiza\u00e7\u00e3o/ })).toHaveLength(3);
+  });
+
   it("bloqueia a navegação durante a gravação e envia o áudio somente ao Status selecionado", async () => {
     const onReplyAudio = vi.fn().mockResolvedValue(undefined);
     const onSelect = vi.fn();
@@ -185,8 +217,9 @@ describe("estado vazio do Status", () => {
     expect(await screen.findByText("Mídia do Status indisponível")).toBeInTheDocument();
     expect(screen.getByText(/reconhecida como vídeo/)).toBeInTheDocument();
     const retry = screen.getByRole("button", { name: "Tentar novamente" });
+    const callsBeforeRetry = mediaApi.apiBlobRequest.mock.calls.length;
     await user.click(retry);
-    await waitFor(() => expect(mediaApi.apiBlobRequest).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mediaApi.apiBlobRequest).toHaveBeenCalledTimes(callsBeforeRetry + 1));
   });
 
   it("descarta a mídia anterior ao trocar de Status e permite repetir uma URL pública", async () => {

@@ -7,6 +7,7 @@ import {
   Clock3,
   Copy,
   CornerUpRight,
+  Eye,
   FileText,
   Languages,
   Maximize2,
@@ -45,6 +46,7 @@ interface AreaCentralProps {
   enviandoAnexos: boolean;
   statusMicrofone: "idle" | "solicitando" | "liberado" | "negado";
   onRemoverAnexo: (id: string) => void;
+  onAlternarVisualizacaoUnica: (id: string) => void;
   onLimparAnexos: () => void;
   onApagarMensagensEmMassa: (mensagensIds: string[], paraTodos?: boolean) => void;
   onEncaminharMensagens: (mensagensIds: string[]) => void;
@@ -97,6 +99,45 @@ function ParticipantAvatar({ conversa, message }: { conversa: ChatConversa; mess
       {photoUrl ? <img src={photoUrl} alt={message.remetenteNome || "Participante"} className="h-full w-full object-cover" /> : initials(message.remetenteNome || "?")}
     </div>
   );
+}
+
+const GROUP_MENTION_PATTERN = /@(\d{5,})(?:@(lid|c\.us|s\.whatsapp\.net))?(?![\w])/gi;
+
+function MessageText({ conversa, text }: { conversa: ChatConversa; text: string }) {
+  if (!conversa.esGrupo) return text;
+
+  const participantNames = new Map<string, string>();
+  for (const participant of conversa.metadados?.participantes || []) {
+    const name = participant.name?.trim();
+    if (!name) continue;
+    const aliases = (participant as typeof participant & { aliases?: string[] }).aliases || [];
+    for (const identifier of [participant.id, participant.phone, ...aliases]) {
+      const localId = String(identifier || "").trim().replace(/^@/, "").split("@", 1)[0];
+      const digits = localId.replace(/\D/g, "");
+      if (digits.length >= 5) participantNames.set(digits, name);
+    }
+  }
+
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let foundMention = false;
+  for (const match of text.matchAll(GROUP_MENTION_PATTERN)) {
+    const participantName = participantNames.get(match[1]);
+    if (!participantName) continue;
+    const matchIndex = match.index ?? 0;
+    if (matchIndex > lastIndex) parts.push(text.slice(lastIndex, matchIndex));
+    parts.push(
+      <span key={`${matchIndex}-${match[1]}`} className="font-extrabold text-[var(--primary)]">
+        @{participantName}
+      </span>,
+    );
+    lastIndex = matchIndex + match[0].length;
+    foundMention = true;
+  }
+
+  if (!foundMention) return text;
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
 }
 
 function MessageStatus({ status }: { status?: MsgConteudo["status"] }) {
@@ -286,8 +327,20 @@ function MessageMedia({ msg, outgoing }: { msg: MsgConteudo; outgoing: boolean }
   const mime = msg.arquivoMime || "";
   const fileName = msg.nomeArquivo || "Arquivo";
   const looksVideo = mime.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(fileName);
-  const mediaUrl = useAuthenticatedMedia(msg.arquivoUrl);
+  const mediaUrl = useAuthenticatedMedia(msg.viewOnce ? undefined : msg.arquivoUrl);
   const [telaCheia, setTelaCheia] = useState(false);
+
+  if (msg.viewOnce) {
+    return (
+      <div className="flex min-w-52 items-center gap-3 rounded-lg border border-white/15 bg-black/10 px-3 py-2.5">
+        <span className="inline-flex items-center gap-1 rounded-full bg-[var(--primary)] px-2 py-1 text-xs font-black text-white">
+          <Eye size={14} />
+          1x
+        </span>
+        <span className="text-xs font-semibold">{outgoing ? "M\u00eddia enviada para visualiza\u00e7\u00e3o \u00fanica" : "M\u00eddia de visualiza\u00e7\u00e3o \u00fanica"}</span>
+      </div>
+    );
+  }
 
   if (!msg.arquivoUrl) {
     return <p className="text-sm font-medium">{msg.texto || "Midia sem URL disponivel"}</p>;
@@ -380,7 +433,8 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AttachmentPreviewCard({ anexo, onRemover }: { anexo: AnexoPendente; onRemover: (id: string) => void }) {
+function AttachmentPreviewCard({ anexo, onRemover, onToggleViewOnce }: { anexo: AnexoPendente; onRemover: (id: string) => void; onToggleViewOnce: (id: string) => void }) {
+  const canViewOnce = anexo.tipo === "image" || anexo.tipo === "audio" || anexo.tipo === "video";
   return (
     <div className={`relative h-32 shrink-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--text)] ${anexo.tipo === "audio" ? "w-[340px]" : "w-44"}`}>
       <Button variant="ghost" iconOnly
@@ -390,6 +444,18 @@ function AttachmentPreviewCard({ anexo, onRemover }: { anexo: AnexoPendente; onR
        aria-label="Remover anexo">
         <X size={14} />
       </Button>
+      {canViewOnce && (
+        <button
+          type="button"
+          onClick={() => onToggleViewOnce(anexo.id)}
+          aria-pressed={Boolean(anexo.viewOnce)}
+          aria-label={anexo.viewOnce ? `Desativar visualiza\u00e7\u00e3o \u00fanica de ${anexo.nomeArquivo}` : `Enviar ${anexo.nomeArquivo} para visualizar uma vez`}
+          title={"Visualiza\u00e7\u00e3o \u00fanica"}
+          className={`absolute left-1.5 top-1.5 z-10 inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[10px] font-black shadow ${anexo.viewOnce ? "border-[var(--primary)] bg-[var(--primary)] text-white" : "border-white/20 bg-black/65 text-white hover:border-[var(--primary)]"}`}
+        >
+          <Eye size={13} /> 1x
+        </button>
+      )}
 
       {anexo.tipo === "image" && (
         <img src={anexo.urlPreview} alt={anexo.nomeArquivo} className="h-full w-full object-cover" />
@@ -426,10 +492,12 @@ function AttachmentPreviewTray({
   anexos,
   onRemover,
   onLimpar,
+  onToggleViewOnce,
 }: {
   anexos: AnexoPendente[];
   onRemover: (id: string) => void;
   onLimpar: () => void;
+  onToggleViewOnce: (id: string) => void;
 }) {
   if (anexos.length === 0) return null;
 
@@ -443,7 +511,7 @@ function AttachmentPreviewTray({
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {anexos.map((anexo) => (
-          <AttachmentPreviewCard key={anexo.id} anexo={anexo} onRemover={onRemover} />
+          <AttachmentPreviewCard key={anexo.id} anexo={anexo} onRemover={onRemover} onToggleViewOnce={onToggleViewOnce} />
         ))}
       </div>
     </div>
@@ -464,6 +532,7 @@ export default function AreaCentralChat({
   enviandoAnexos,
   statusMicrofone,
   onRemoverAnexo,
+  onAlternarVisualizacaoUnica,
   onLimparAnexos,
   onApagarMensagensEmMassa,
   onEncaminharMensagens,
@@ -851,7 +920,9 @@ export default function AreaCentralChat({
                 )}
 
                 {msg.tipo === "texto" ? (
-                  <p className="whitespace-pre-wrap break-words pr-6 text-sm leading-relaxed font-medium">{msg.texto}</p>
+                  <p className="whitespace-pre-wrap break-words pr-6 text-sm leading-relaxed font-medium">
+                    <MessageText conversa={conversaAtiva} text={msg.texto || ""} />
+                  </p>
                 ) : (
                   <MessageMedia msg={msg} outgoing={outgoing} />
                 )}
@@ -919,7 +990,7 @@ export default function AreaCentralChat({
           </div>
         )}
 
-        <AttachmentPreviewTray anexos={anexosPendentes} onRemover={onRemoverAnexo} onLimpar={onLimparAnexos} />
+        <AttachmentPreviewTray anexos={anexosPendentes} onRemover={onRemoverAnexo} onLimpar={onLimparAnexos} onToggleViewOnce={onAlternarVisualizacaoUnica} />
 
         {(gravando || statusMicrofone === "solicitando" || statusMicrofone === "negado") && (
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-xs font-bold text-[var(--text)]">

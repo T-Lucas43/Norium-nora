@@ -6,6 +6,7 @@ import WhatsAppDirectory from "./WhatsAppDirectory";
 import WhatsAppProfileView from "./WhatsAppProfileView";
 import WhatsAppRail, { type WhatsAppSection } from "./WhatsAppRail";
 import WhatsAppStatusView from "./WhatsAppStatusView";
+import WhatsAppChannelsView from "./WhatsAppChannelsView";
 import { Menu, X, Search, User, Send } from "lucide-react";
 import type { AnexoPendente, ChatConversa, MsgConteudo, ParticipanteGrupo } from "./types";
 import { apiBaseUrl } from "../../utils/api";
@@ -17,6 +18,7 @@ import {
   type Contact,
   type ConsentInfo,
   type WhatsAppConnection,
+  type WhatsAppChannel,
   type WhatsAppProfile,
   type WhatsAppStatusItem,
   type WhatsAppSyncProgress,
@@ -116,7 +118,7 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
     name: participant.name || participant.savedName || participant.contactName || participant.notify || participant.pushname || participant.displayName || participant.verifiedName,
     isAdmin: normalizarBooleanWhatsApp(participant.isAdmin ?? participant.admin) || ["admin", "superadmin"].includes(String(participant.admin || participant.role || "").toLowerCase()),
     isSuperAdmin: normalizarBooleanWhatsApp(participant.isSuperAdmin ?? participant.superAdmin) || String(participant.admin || participant.role || "").toLowerCase() === "superadmin",
-    photoUrl: participant.photoUrl || participant.profilePictureUrl,
+    photoUrl: participant.photoUrl || participant.profilePictureUrl || participant.profilePicUrl || participant.imgUrl,
   })).filter((participant: { id: string }) => Boolean(participant.id));
   const name = String(raw.contato || raw.name || raw.subject || metadata.verifiedName || "Grupo do WhatsApp");
   return {
@@ -135,12 +137,12 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
     arquivada: normalizarBooleanWhatsApp(raw.arquivada),
     esGrupo: true,
     mensagens: Array.isArray(raw.mensagens) ? raw.mensagens : [],
-    photoUrl: raw.photoUrl || raw.profilePictureUrl || metadata.photoUrl,
+    photoUrl: raw.photoUrl || raw.profilePictureUrl || raw.profilePicUrl || raw.imgUrl || metadata.photoUrl,
     metadados: {
       ...metadata,
       numeroCompleto: String(metadata.numeroCompleto || id),
       statusOnline: false,
-      photoUrl: metadata.photoUrl || raw.photoUrl || raw.profilePictureUrl,
+      photoUrl: metadata.photoUrl || raw.photoUrl || raw.profilePictureUrl || raw.profilePicUrl || raw.imgUrl,
       participantes: participants,
       descricaoGrupo: metadata.descricaoGrupo || raw.description || raw.desc,
       criadoPor: metadata.criadoPor || raw.owner || raw.createdBy,
@@ -187,6 +189,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const [carregandoStatusWhatsApp, setCarregandoStatusWhatsApp] = useState(false);
   const [statusWhatsAppCarregados, setStatusWhatsAppCarregados] = useState(false);
   const [erroStatusWhatsApp, setErroStatusWhatsApp] = useState<string | null>(null);
+  const [canaisWhatsApp, setCanaisWhatsApp] = useState<WhatsAppChannel[]>([]);
+  const [carregandoCanaisWhatsApp, setCarregandoCanaisWhatsApp] = useState(false);
+  const [canaisWhatsAppCarregados, setCanaisWhatsAppCarregados] = useState(false);
+  const [erroCanaisWhatsApp, setErroCanaisWhatsApp] = useState<string | null>(null);
 
   const [nomeNovoGrupo, setNomeNovoGrupo] = useState("");
   const [contatosSelecionadosGrupo, setContatosSelecionadosGrupo] = useState<string[]>([]);
@@ -220,6 +226,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const cancelarEnvioAudioRef = useRef<boolean>(false);
   const carregandoConversasRef = useRef(false);
   const carregandoStatusRef = useRef(false);
+  const canaisRequestGenerationRef = useRef(0);
   const cursorConversasRef = useRef(0);
   const whatsappConectadoRef = useRef(false);
   const conversasRef = useRef<ChatConversa[]>([]);
@@ -361,6 +368,30 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     }
   }, [mostrarAviso]);
 
+
+  const carregarCanaisDoBackend = useCallback(async (mostrarErro = true) => {
+    const requestGeneration = canaisRequestGenerationRef.current;
+    setCarregandoCanaisWhatsApp(true);
+    setErroCanaisWhatsApp(null);
+    try {
+      const payload = await whatsappApi.channels();
+      if (requestGeneration !== canaisRequestGenerationRef.current) return null;
+      const items = payload.items || [];
+      setCanaisWhatsApp(items);
+      return items;
+    } catch (error) {
+      if (requestGeneration !== canaisRequestGenerationRef.current) return null;
+      const message = error instanceof Error ? error.message : "Falha ao carregar os canais do WhatsApp.";
+      setErroCanaisWhatsApp(message);
+      if (mostrarErro) mostrarAviso("error", message);
+      return null;
+    } finally {
+      if (requestGeneration === canaisRequestGenerationRef.current) {
+        setCanaisWhatsAppCarregados(true);
+        setCarregandoCanaisWhatsApp(false);
+      }
+    }
+  }, [mostrarAviso]);
   const recarregarCatalogosAposSync = useCallback(async (refreshConversations = true) => {
     const [loadedConversations, contacts, loadedGroups] = await Promise.all([
       carregarConversasDoBackend(false, refreshConversations),
@@ -368,6 +399,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       carregarGruposDoBackend(false),
       carregarPerfilWhatsApp(),
       carregarStatusDoBackend(false, true),
+      canaisWhatsAppCarregados ? carregarCanaisDoBackend(false) : Promise.resolve(null),
     ]);
     const currentConversations = loadedConversations?.length ? loadedConversations : conversasRef.current;
     const mergedContacts = mergeContactCatalog(contatosRef.current, contacts || [], currentConversations);
@@ -375,7 +407,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     setListaContatos(mergedContacts);
     setConversas((current) => enrichConversationsWithContacts(current, mergedContacts));
     return { contacts: contacts || [], groups: loadedGroups || [] };
-  }, [carregarContatosDoBackend, carregarConversasDoBackend, carregarGruposDoBackend, carregarPerfilWhatsApp, carregarStatusDoBackend]);
+  }, [canaisWhatsAppCarregados, carregarCanaisDoBackend, carregarContatosDoBackend, carregarConversasDoBackend, carregarGruposDoBackend, carregarPerfilWhatsApp, carregarStatusDoBackend]);
 
   const forcarSincronizacaoCatalogo = useCallback(async (mostrarSucesso = false) => {
     setSincronizandoCatalogo(true);
@@ -549,6 +581,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     setGruposCarregados(false);
     setStatusWhatsAppCarregados(false);
     setStatusWhatsApp([]);
+    canaisRequestGenerationRef.current += 1;
+    setCanaisWhatsApp([]);
+    setCanaisWhatsAppCarregados(false);
+    setCarregandoCanaisWhatsApp(false);
+    setErroCanaisWhatsApp(null);
     setStatusSelecionado(null);
     setPerfilWhatsApp(null);
     setProgressoSincronizacao(null);
@@ -782,6 +819,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     if (secaoWhatsApp === "contacts" && !contatosCarregados && !carregandoContatos && !erroContatos) void carregarContatosDoBackend(false);
     if (secaoWhatsApp === "groups" && !gruposCarregados && !carregandoGrupos && !erroGrupos) void carregarGruposDoBackend(false);
     if (secaoWhatsApp === "status" && !statusWhatsAppCarregados && !carregandoStatusWhatsApp && !erroStatusWhatsApp) void carregarStatusDoBackend(false);
+    if (secaoWhatsApp === "channels" && !canaisWhatsAppCarregados && !carregandoCanaisWhatsApp && !erroCanaisWhatsApp) void carregarCanaisDoBackend(false);
     if (secaoWhatsApp === "profile" && !perfilWhatsApp) void carregarPerfilWhatsApp();
   }, [
     canaisStatus.whatsapp?.conectado,
@@ -791,17 +829,21 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     contatosCarregados,
     gruposCarregados,
     statusWhatsAppCarregados,
+    carregandoCanaisWhatsApp,
     carregarContatosDoBackend,
     carregarGruposDoBackend,
     carregarPerfilWhatsApp,
+    canaisWhatsAppCarregados,
     carregarStatusDoBackend,
     grupos.length,
     erroContatos,
     erroGrupos,
+    carregarCanaisDoBackend,
     erroStatusWhatsApp,
     listaContatos.length,
     perfilWhatsApp,
     secaoWhatsApp,
+    erroCanaisWhatsApp,
     statusWhatsApp.length,
   ]);
 
@@ -994,7 +1036,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     mostrarAviso("success", `Resposta de áudio enviada para ${item.name}.`);
   };
 
-  const enviarArquivoOuAudio = async (arquivo: File | Blob, nomeArquivo: string, mimeType: string, legenda?: string, asSticker = false) => {
+  const enviarArquivoOuAudio = async (arquivo: File | Blob, nomeArquivo: string, mimeType: string, legenda?: string, asSticker = false, viewOnce = false) => {
     if (!conversaSelecionada) {
       throw new Error("Selecione uma conversa antes de enviar.");
     }
@@ -1010,6 +1052,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       dataUrl,
       caption: legenda,
       asSticker,
+      viewOnce,
     });
   };
 
@@ -1108,6 +1151,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         tamanho: item.arquivo.size,
         tipo: classificarArquivo(mimeType, item.nomeArquivo),
         urlPreview: URL.createObjectURL(item.arquivo),
+        viewOnce: false,
       });
     });
 
@@ -1125,6 +1169,14 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       if (alvo) URL.revokeObjectURL(alvo.urlPreview);
       return prev.filter((anexo) => anexo.id !== id);
     });
+  };
+
+  const alternarVisualizacaoUnica = (id: string) => {
+    setAnexosPendentes((prev) => prev.map((anexo) => (
+      anexo.id === id && anexo.tipo !== "document"
+        ? { ...anexo, viewOnce: !anexo.viewOnce }
+        : anexo
+    )));
   };
 
   const limparAnexosPendentes = () => {
@@ -1147,7 +1199,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       }
 
       for (const anexo of anexosParaEnviar) {
-        await enviarArquivoOuAudio(anexo.arquivo, anexo.nomeArquivo, anexo.mimeType);
+        await enviarArquivoOuAudio(anexo.arquivo, anexo.nomeArquivo, anexo.mimeType, undefined, false, Boolean(anexo.viewOnce));
         anexosEnviados.add(anexo.id);
       }
 
@@ -1661,6 +1713,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
             enviandoAnexos={enviandoAnexos}
             statusMicrofone={statusMicrofone}
             onRemoverAnexo={removerAnexoPendente}
+            onAlternarVisualizacaoUnica={alternarVisualizacaoUnica}
             onLimparAnexos={limparAnexosPendentes}
             onApagarMensagensEmMassa={handleApagarMensagensMassa}
             onEncaminharMensagens={handleAbrirEncaminhar}
@@ -1706,6 +1759,15 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           onCreateUnavailable={() => mostrarAviso("info", "A W-API ainda nao oferece publicacao de Status. Publique no celular; o feed recebido aparece aqui automaticamente.")}
           onReplyText={responderStatusTexto}
           onReplyAudio={responderStatusAudio}
+        />
+      )}
+
+      {secaoWhatsApp === "channels" && (
+        <WhatsAppChannelsView
+          items={canaisWhatsApp}
+          loading={carregandoCanaisWhatsApp}
+          error={erroCanaisWhatsApp}
+          onRefresh={() => void carregarCanaisDoBackend()}
         />
       )}
 

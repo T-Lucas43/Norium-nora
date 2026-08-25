@@ -27,7 +27,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.shared.schemas import StrictModel
 
@@ -216,6 +216,15 @@ class EnviarArquivoPayload(StrictModel):
     legenda: str | None = None
     como_figurinha: bool = False
     responder_a: str | None = Field(default=None, min_length=1, max_length=128)
+    visualizacao_unica: bool = False
+
+    @model_validator(mode="after")
+    def validate_visualizacao_unica(self) -> "EnviarArquivoPayload":
+        media_kind = classify_media(self.mime_type, self.nome_arquivo)
+        if self.visualizacao_unica and (self.como_figurinha or media_kind not in {"image", "audio", "video"}):
+            raise ValueError("Visualizacao unica esta disponivel somente para fotos, audios e videos.")
+        return self
+
 
 
 class ReagirMensagemPayload(StrictModel):
@@ -620,6 +629,18 @@ def _contact_primary_id(contact: Dict[str, Any]) -> str:
     return ""
 
 
+def _newsletter_catalog_id(record: Dict[str, Any]) -> str:
+    wrapped = record.get("newsletter") if isinstance(record.get("newsletter"), dict) else record
+    candidate = _identifier_value(
+        wrapped.get("id")
+        or wrapped.get("jid")
+        or wrapped.get("chatId")
+        or wrapped.get("newsletterId")
+        or wrapped.get("channelId")
+    )
+    return candidate if candidate.lower().endswith("@newsletter") else ""
+
+
 def _contact_display_name(contact: Dict[str, Any], reference_id: str = "") -> str | None:
     """Extrai nomes de contatos/chats nos shapes conhecidos sem aceitar JID."""
     nested = contact.get("contact") if isinstance(contact.get("contact"), dict) else {}
@@ -707,6 +728,7 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         cache = await load_whatsapp_catalog_cache(user_id)
         raw_cached_contacts = [item for item in (cache.get("contacts") or []) if isinstance(item, dict)]
         raw_cached_chats = [item for item in (cache.get("chats") or []) if isinstance(item, dict)]
+        raw_cached_channels = [item for item in (cache.get("channels") or []) if isinstance(item, dict)]
 
         # Contatos e chats são catálogos independentes. Rodam juntos; se a rota
         # PRO de contatos falhar, nomes já conhecidos e nomes presentes nos
@@ -723,23 +745,38 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
             for record in [
                 *raw_cached_contacts,
                 *raw_cached_chats,
+                *raw_cached_channels,
                 *raw_fresh_contacts,
                 *raw_fresh_chats,
             ]
             for payload in wapi_webhook.status_broadcast_payloads(record)
         ]
+        cached_channels = [
+            item
+            for item in [*raw_cached_channels, *raw_cached_contacts, *raw_cached_chats]
+            if _newsletter_catalog_id(item)
+        ]
+        fresh_channels = [
+            item
+            for item in [*raw_fresh_contacts, *raw_fresh_chats]
+            if _newsletter_catalog_id(item)
+        ]
         cached_contacts = [
-            item for item in raw_cached_contacts if not wapi_webhook.is_status_broadcast(item)
+            item for item in raw_cached_contacts
+            if not wapi_webhook.is_status_broadcast(item) and not _newsletter_catalog_id(item)
         ]
         cached_chats = [
-            item for item in raw_cached_chats if not wapi_webhook.is_status_broadcast(item)
+            item for item in raw_cached_chats
+            if not wapi_webhook.is_status_broadcast(item) and not _newsletter_catalog_id(item)
         ]
-        fresh_contacts = (
-            [item for item in raw_fresh_contacts if not wapi_webhook.is_status_broadcast(item)]
-        )
-        fresh_chats = (
-            [item for item in raw_fresh_chats if not wapi_webhook.is_status_broadcast(item)]
-        )
+        fresh_contacts = [
+            item for item in raw_fresh_contacts
+            if not wapi_webhook.is_status_broadcast(item) and not _newsletter_catalog_id(item)
+        ]
+        fresh_chats = [
+            item for item in raw_fresh_chats
+            if not wapi_webhook.is_status_broadcast(item) and not _newsletter_catalog_id(item)
+        ]
         contacts_partial = bool(getattr(contacts_result, "partial", False))
         chats_partial = bool(getattr(chats_result, "partial", False))
         contacts_failed = isinstance(contacts_result, Exception)
@@ -758,6 +795,7 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
             warnings.append(f"paginas de conversas indisponiveis: {failed}")
         contacts = merge_catalog_items(cached_contacts, fresh_contacts)
         chats = merge_catalog_items(cached_chats, fresh_chats)
+        channels = merge_catalog_items(cached_channels, fresh_channels)
         contacts_requires_pro = (
             isinstance(contacts_result, WapiError) and contacts_result.status == 403
         )
@@ -765,7 +803,7 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
             raise contacts_result
 
         total = len(contacts)
-        catalog_total = len(_dedupe_catalog_items([*contacts, *chats]))
+        catalog_total = len(_dedupe_catalog_items([*contacts, *chats, *channels]))
         photos_available = sum(1 for item in contacts if extract_photo_url(item))
         update_contact_sync_state(
             user_id,
@@ -895,14 +933,29 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         # snapshot final, e uma atualização posterior parte do cache já salvo.
         async with whatsapp_conversation_mutation_lock(user_id):
             latest_cache = await load_whatsapp_catalog_cache(user_id)
-            latest_contacts = [
+            latest_raw_contacts = [
                 item for item in (latest_cache.get("contacts") or []) if isinstance(item, dict)
             ]
-            latest_chats = [
+            latest_raw_chats = [
                 item for item in (latest_cache.get("chats") or []) if isinstance(item, dict)
+            ]
+            latest_raw_channels = [
+                item for item in (latest_cache.get("channels") or []) if isinstance(item, dict)
+            ]
+            latest_channels = [
+                item
+                for item in [*latest_raw_channels, *latest_raw_contacts, *latest_raw_chats]
+                if _newsletter_catalog_id(item)
+            ]
+            latest_contacts = [
+                item for item in latest_raw_contacts if not _newsletter_catalog_id(item)
+            ]
+            latest_chats = [
+                item for item in latest_raw_chats if not _newsletter_catalog_id(item)
             ]
             contacts = merge_catalog_items(latest_contacts, contacts)
             chats = merge_catalog_items(latest_chats, chats)
+            channels = merge_catalog_items(latest_channels, channels)
             await save_whatsapp_catalog_cache(
                 user_id,
                 {
@@ -922,8 +975,14 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
                         if not contacts_failed and not contacts_partial
                         else latest_cache.get("contactsSyncedAt") or cache.get("contactsSyncedAt")
                     ),
+                    "channelsSyncedAt": (
+                        now
+                        if not contacts_failed and not contacts_partial and not chats_failed and not chats_partial
+                        else latest_cache.get("channelsSyncedAt") or cache.get("channelsSyncedAt")
+                    ),
                     "contacts": contacts,
                     "chats": chats,
+                    "channels": channels,
                     "requiresPro": contacts_requires_pro,
                     "reconnectRequired": contacts_requires_pro,
                     "catalogPartial": partial,
@@ -931,7 +990,7 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
                 },
             )
         total = len(contacts)
-        catalog_total = len(_dedupe_catalog_items([*contacts, *chats]))
+        catalog_total = len(_dedupe_catalog_items([*contacts, *chats, *channels]))
         photos_available = sum(1 for item in contacts if extract_photo_url(item))
         suffix = f" ({', '.join(warnings)})" if warnings else ""
         return update_contact_sync_state(
@@ -950,7 +1009,7 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
             message=(
                 f"Sincronizacao parcial; dados conhecidos preservados{suffix}."
                 if partial
-                else f"{total} contato(s) e {len(chats)} conversa(s) sincronizados{suffix}."
+                else f"{total} contato(s), {len(chats)} conversa(s) e {len(channels)} canal(is) sincronizados{suffix}."
             ),
         )
     except (MessagingUnavailable, WapiError) as exc:
@@ -2615,6 +2674,104 @@ def normalize_group_payload(
     }
 
 
+def normalize_channel_payload(channel: Dict[str, Any]) -> Dict[str, Any] | None:
+    wrapped = channel.get("newsletter") if isinstance(channel.get("newsletter"), dict) else channel
+    channel_id = _identifier_value(
+        wrapped.get("id")
+        or wrapped.get("jid")
+        or wrapped.get("chatId")
+        or wrapped.get("newsletterId")
+        or wrapped.get("channelId")
+    )
+    if not channel_id.lower().endswith("@newsletter"):
+        return None
+    name = _contact_display_name(wrapped, channel_id) or channel_id
+    description = str(
+        wrapped.get("description")
+        or wrapped.get("desc")
+        or wrapped.get("about")
+        or wrapped.get("bio")
+        or ""
+    ).strip()
+    verified_value = (
+        wrapped.get("verified")
+        or wrapped.get("isVerified")
+        or wrapped.get("verifiedName")
+        or wrapped.get("verifiedBusinessName")
+    )
+    normalized: Dict[str, Any] = {
+        "id": channel_id,
+        "name": name,
+        "description": description,
+        "photoUrl": extract_photo_url(wrapped),
+        "verified": bool(verified_value),
+    }
+    unread_count = wrapped.get("unreadCount")
+    if unread_count is None:
+        unread_count = wrapped.get("unread")
+    if unread_count is not None:
+        try:
+            normalized["unreadCount"] = max(0, int(float(unread_count)))
+        except (TypeError, ValueError):
+            pass
+    timestamp_value = (
+        wrapped.get("lastMessageTime")
+        or wrapped.get("timestamp")
+        or wrapped.get("updatedAt")
+    )
+    timestamp = normalize_whatsapp_timestamp(timestamp_value)
+    if timestamp:
+        normalized["timestamp"] = timestamp
+    return normalized
+
+
+@router.get("/api/chat/canais")
+async def listar_canais_whatsapp(user: dict[str, Any] = Depends(current_user)):
+    resolved_user_id = tenant_id(user)
+    assert_channel_permission(user, "whatsapp")
+    cache = await load_whatsapp_catalog_cache(resolved_user_id)
+    if (
+        not catalog_cache_is_fresh(cache, "channelsSyncedAt")
+        and contact_sync_retry_due(cache)
+        and wapi_creds(resolved_user_id)
+    ):
+        schedule_contact_sync(resolved_user_id, force=True)
+
+    dedicated_channels = [
+        item for item in (cache.get("channels") or []) if isinstance(item, dict)
+    ]
+    legacy_channels = [
+        item
+        for key in ("contacts", "chats")
+        for item in (cache.get(key) or [])
+        if isinstance(item, dict) and _newsletter_catalog_id(item)
+    ]
+    channel_records = merge_catalog_items(legacy_channels, dedicated_channels)
+    items_by_id: Dict[str, Dict[str, Any]] = {}
+    for item in channel_records:
+        normalized = normalize_channel_payload(item)
+        if normalized is None:
+            continue
+        channel_id = str(normalized["id"])
+        current = items_by_id.get(channel_id)
+        if current is None:
+            items_by_id[channel_id] = dict(normalized)
+            continue
+        for key, value in normalized.items():
+            if value in (None, "", [], {}):
+                continue
+            if key == "verified" and value is True:
+                current[key] = True
+            elif current.get(key) in (None, "") or (key == "name" and current.get(key) == channel_id):
+                current[key] = value
+    items = list(items_by_id.values())
+    items.sort(
+        key=lambda item: (int(item.get("timestamp") or 0), str(item.get("name") or "").lower()),
+        reverse=True,
+    )
+    return {"items": items}
+
+
 @router.get("/api/chat/grupos")
 async def listar_grupos(user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
@@ -3137,7 +3294,11 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
         payload.responder_a,
     )
     file_bytes, mime_type = decode_data_url(payload.data_url, payload.mime_type)
-    local_url, safe_file_name = save_upload_file(resolved_user_id, payload.nome_arquivo, mime_type, file_bytes)
+    if payload.visualizacao_unica:
+        safe_file_name = safe_upload_name(payload.nome_arquivo, mime_type)
+        local_url = None
+    else:
+        local_url, safe_file_name = save_upload_file(resolved_user_id, payload.nome_arquivo, mime_type, file_bytes)
     media_kind = classify_media(mime_type, safe_file_name)
     extension = file_extension(safe_file_name, mime_type)
     legenda = (payload.legenda or "").strip() or None
@@ -3174,6 +3335,7 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
             extension=extension,
             timeout=110.0,
             quoted_message_id=payload.responder_a or "",
+            view_once=payload.visualizacao_unica,
         )
     except (MessagingUnavailable, WapiError) as exc:
         raise _messaging_http_error(exc, "A API do WhatsApp recusou o envio do arquivo.") from exc
@@ -3192,6 +3354,7 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
                 "arquivoUrl": local_url,
                 "arquivoMime": mime_type,
                 "nomeArquivo": safe_file_name,
+                "visualizacaoUnica": payload.visualizacao_unica,
                 "citada": citada,
                 "horario": hora,
                 "timestamp": timestamp,
@@ -3212,6 +3375,7 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
             "channel": "whatsapp",
             "tipo": tipo,
             "arquivoUrl": local_url,
+            "visualizacaoUnica": payload.visualizacao_unica,
             "userId": resolved_user_id,
         },
     )
@@ -3222,6 +3386,7 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
         "tipo": tipo,
         "arquivoUrl": local_url,
         "nomeArquivo": safe_file_name,
+        "visualizacaoUnica": payload.visualizacao_unica,
     }
 
 
@@ -3907,6 +4072,8 @@ def extract_photo_url(data: Dict[str, Any]) -> str | None:
     candidates = [
         data.get("photoUrl"),
         data.get("profilePictureUrl"),
+        data.get("profilePicUrl"),
+        data.get("imgUrl"),
         data.get("link"),
         data.get("senderPhoto"),
         data.get("chatPhoto"),
@@ -3916,7 +4083,7 @@ def extract_photo_url(data: Dict[str, Any]) -> str | None:
 
     contact = data.get("contact")
     if isinstance(contact, dict):
-        candidates.extend([contact.get("photoUrl"), contact.get("profilePictureUrl"), contact.get("avatar")])
+        candidates.extend([contact.get("photoUrl"), contact.get("profilePictureUrl"), contact.get("profilePicUrl"), contact.get("imgUrl"), contact.get("avatar")])
 
     for value in candidates:
         if isinstance(value, str) and value.startswith(("http://", "https://", "data:image")):
@@ -3952,7 +4119,7 @@ async def fetch_profile_picture(user_id: str, phone: str) -> str | None:
     try:
         data = await wapi_client.contact_profile_picture(creds[0], creds[1], query_phone)
         if isinstance(data, dict):
-            return data.get("profilePictureUrl") or data.get("photoUrl") or data.get("link") or data.get("value")
+            return data.get("profilePictureUrl") or data.get("profilePicUrl") or data.get("photoUrl") or data.get("imgUrl") or data.get("link") or data.get("value")
     except WapiError:
         logger.warning("Falha ao buscar foto de perfil W-API.")
     return None

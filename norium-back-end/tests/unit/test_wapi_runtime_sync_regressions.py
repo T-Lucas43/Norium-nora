@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import time
@@ -91,6 +92,34 @@ class WapiRuntimeSyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("contato", by_id["MSG-CONTENT"]["remetente"])
         self.assertEqual("usuario", by_id["MSG-TEXT"]["remetente"])
         self.assertNotIn("", [message["texto"] for message in conversation["mensagens"]])
+
+    def test_catalog_accepts_last_messages_as_minimum_preconnection_history(self) -> None:
+        conversation = new_conversation(
+            "5511999990000@s.whatsapp.net",
+            contato="Maria",
+            channel="whatsapp",
+        )
+
+        changed = chat_router.sync_catalog_messages(
+            conversation,
+            {
+                "id": "5511999990000@s.whatsapp.net",
+                "lastMessages": [
+                    {
+                        "messageId": "CATALOG-PRECONNECTION",
+                        "moment": 1_699_999_900,
+                        "fromMe": False,
+                        "msgContent": {"conversation": "mensagem anterior via catálogo"},
+                    }
+                ],
+            },
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            ["CATALOG-PRECONNECTION"],
+            [message["id"] for message in conversation["mensagens"]],
+        )
 
     def test_sparse_last_message_does_not_downgrade_rich_existing_state(self) -> None:
         conversation = new_conversation("5511999990000@s.whatsapp.net", contato="Maria", channel="whatsapp")
@@ -186,6 +215,272 @@ class WapiRuntimeSyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(cache["catalogPartial"])
         self.assertIn("contatos em cache/chats", cache["catalogWarnings"])
         self.assertGreater(float(cache["contactSyncAttemptedAt"]), 0)
+
+    async def test_history_loads_messages_from_provider_chat_created_before_connection(self) -> None:
+        conversation_id = "5511999990000@s.whatsapp.net"
+        conversation = new_conversation(conversation_id, contato="Maria", channel="whatsapp")
+        await save_conversations({conversation_id: conversation}, "user-runtime")
+        provider_history = AsyncMock(
+            return_value={
+                "chat": {
+                    "id": conversation_id,
+                    "messages": [
+                        {
+                            "messageId": "HISTORY-BEFORE-CONNECTION",
+                            "moment": 1_699_999_999,
+                            "fromMe": False,
+                            "msgContent": {
+                                "conversation": "mensagem anterior à conexão da instância"
+                            },
+                        }
+                    ],
+                }
+            }
+        )
+
+        with patch.object(chat_router.wapi_client, "fetch_chat", provider_history):
+            page = await chat_router.obter_historico_conversa(
+                conversation_id,
+                before=None,
+                limit=50,
+                user=chat_user(),
+            )
+
+        self.assertEqual(
+            ["HISTORY-BEFORE-CONNECTION"],
+            [message["id"] for message in page["items"]],
+        )
+        provider_history.assert_awaited_once_with(
+            "INST-RUNTIME",
+            "tok-runtime",
+            conversation_id,
+        )
+
+    async def test_metadata_only_history_response_is_cached_without_repeated_calls(self) -> None:
+        conversation_id = "5511888880000@s.whatsapp.net"
+        conversation = new_conversation(conversation_id, contato="Sem histórico", channel="whatsapp")
+        await save_conversations({conversation_id: conversation}, "user-runtime")
+        metadata_only = AsyncMock(
+            return_value={
+                "data": {
+                    "chat": {
+                        "id": conversation_id,
+                        "name": "Sem histórico",
+                    }
+                }
+            }
+        )
+
+        with patch.object(chat_router.wapi_client, "fetch_chat", metadata_only):
+            first = await chat_router.obter_historico_conversa(
+                conversation_id,
+                before=None,
+                limit=50,
+                user=chat_user(),
+            )
+            second = await chat_router.obter_historico_conversa(
+                conversation_id,
+                before=None,
+                limit=50,
+                user=chat_user(),
+            )
+
+        self.assertEqual([], first["items"])
+        self.assertEqual([], second["items"])
+        metadata_only.assert_awaited_once_with(
+            "INST-RUNTIME",
+            "tok-runtime",
+            conversation_id,
+        )
+        stored = await load_conversations("user-runtime")
+        self.assertEqual(
+            chat_router.WHATSAPP_HISTORY_SCHEMA_VERSION,
+            stored[conversation_id]["metadados"]["historicoSchema"],
+        )
+        self.assertGreater(
+            float(stored[conversation_id]["metadados"]["historicoSincronizadoEm"]),
+            0,
+        )
+
+    async def test_history_deduplicates_and_pages_persisted_provider_messages(self) -> None:
+        conversation_id = "5511777770000@s.whatsapp.net"
+        conversation = new_conversation(conversation_id, contato="Histórico", channel="whatsapp")
+        conversation["mensagens"] = [
+            {
+                "id": "HISTORY-2",
+                "texto": "cópia local",
+                "timestamp": 1_700_000_002,
+                "remetente": "contato",
+                "tipo": "texto",
+                "canal": "whatsapp",
+                "channel": "whatsapp",
+            }
+        ]
+        await save_conversations({conversation_id: conversation}, "user-runtime")
+        provider_history = AsyncMock(
+            return_value={
+                "chat": {
+                    "id": conversation_id,
+                    "messages": [
+                        {
+                            "messageId": f"HISTORY-{index}",
+                            "moment": 1_700_000_000 + index,
+                            "fromMe": False,
+                            "msgContent": {"conversation": f"mensagem {index}"},
+                        }
+                        for index in range(1, 5)
+                    ],
+                }
+            }
+        )
+
+        with patch.object(chat_router.wapi_client, "fetch_chat", provider_history):
+            recent = await chat_router.obter_historico_conversa(
+                conversation_id,
+                before=None,
+                limit=2,
+                user=chat_user(),
+            )
+            older = await chat_router.obter_historico_conversa(
+                conversation_id,
+                before=recent["cursor"],
+                limit=2,
+                user=chat_user(),
+            )
+
+        self.assertEqual(["HISTORY-3", "HISTORY-4"], [item["id"] for item in recent["items"]])
+        self.assertTrue(recent["hasMore"])
+        self.assertEqual(["HISTORY-1", "HISTORY-2"], [item["id"] for item in older["items"]])
+        self.assertFalse(older["hasMore"])
+        provider_history.assert_awaited_once()
+        stored = await load_conversations("user-runtime")
+        ids = [item["id"] for item in stored[conversation_id]["mensagens"]]
+        self.assertEqual(["HISTORY-1", "HISTORY-2", "HISTORY-3", "HISTORY-4"], ids)
+
+    def test_history_record_ignores_other_chat_and_routes_alias_to_requested_id(self) -> None:
+        requested_id = "5511777770000@s.whatsapp.net"
+        selected = chat_router.whatsapp_history_chat_record(
+            {
+                "data": [
+                    {
+                        "id": "5511666660000@s.whatsapp.net",
+                        "messages": [{"messageId": "WRONG-CHAT"}],
+                    },
+                    {
+                        "id": "5511777770000",
+                        "messages": [{"messageId": "RIGHT-CHAT"}],
+                    },
+                ]
+            },
+            requested_id,
+        )
+
+        self.assertEqual(requested_id, chat_router._contact_primary_id(selected))
+        self.assertEqual(
+            ["RIGHT-CHAT"],
+            [message["messageId"] for message in selected["messages"]],
+        )
+
+    async def test_history_discards_provider_payload_after_disconnect(self) -> None:
+        conversation_id = "5511555550000@s.whatsapp.net"
+        original_binding = wb.get_binding("user-runtime")
+        await save_conversations(
+            {
+                conversation_id: new_conversation(
+                    conversation_id,
+                    contato="Histórico em voo",
+                    channel="whatsapp",
+                )
+            },
+            "user-runtime",
+        )
+        fetch_started = asyncio.Event()
+        release_fetch = asyncio.Event()
+
+        async def delayed_history(*_args):
+            fetch_started.set()
+            await release_fetch.wait()
+            return {
+                "chat": {
+                    "id": conversation_id,
+                    "messages": [
+                        {
+                            "messageId": "STALE-HISTORY",
+                            "moment": 1_700_000_100,
+                            "fromMe": False,
+                            "msgContent": {"conversation": "não deve reaparecer"},
+                        }
+                    ],
+                }
+            }
+
+        with patch.object(
+            chat_router.wapi_client,
+            "fetch_chat",
+            AsyncMock(side_effect=delayed_history),
+        ):
+            history_task = asyncio.create_task(
+                chat_router.obter_historico_conversa(
+                    conversation_id,
+                    before=None,
+                    limit=50,
+                    user=chat_user(),
+                )
+            )
+            await asyncio.wait_for(fetch_started.wait(), timeout=1)
+            await chat_router.desconectar_whatsapp(user=chat_user())
+            wb.save_binding(
+                "user-runtime",
+                wb.InstanceBinding(
+                    instance_id=original_binding.instance_id,
+                    token=original_binding.token,
+                    state="connected",
+                    created_at=original_binding.created_at + 1,
+                ),
+            )
+            release_fetch.set()
+            page = await asyncio.wait_for(history_task, timeout=1)
+
+        self.assertEqual([], page["items"])
+        self.assertEqual({}, await load_conversations("user-runtime"))
+
+    async def test_history_error_backoff_coalesces_concurrent_failures_without_marking_complete(self) -> None:
+        conversation_id = "5511444440000@s.whatsapp.net"
+        await save_conversations(
+            {
+                conversation_id: new_conversation(
+                    conversation_id,
+                    contato="Sem endpoint de histórico",
+                    channel="whatsapp",
+                )
+            },
+            "user-runtime",
+        )
+        provider = AsyncMock(side_effect=WapiError("Acesso negado", status=403))
+
+        with patch.object(chat_router.wapi_client, "fetch_chat", provider):
+            first, second = await asyncio.gather(
+                chat_router.obter_historico_conversa(
+                    conversation_id,
+                    before=None,
+                    limit=50,
+                    user=chat_user(),
+                ),
+                chat_router.obter_historico_conversa(
+                    conversation_id,
+                    before=None,
+                    limit=50,
+                    user=chat_user(),
+                ),
+            )
+
+        self.assertEqual([], first["items"])
+        self.assertEqual([], second["items"])
+        provider.assert_awaited_once()
+        stored = await load_conversations("user-runtime")
+        self.assertIsNone(
+            stored[conversation_id]["metadados"].get("historicoSincronizadoEm")
+        )
 
     async def test_catalog_status_alias_is_saved_to_feed_not_conversations_or_cache(self) -> None:
         now = int(time.time())

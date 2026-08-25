@@ -58,6 +58,7 @@ export type WhatsAppChannel = {
   verified?: boolean;
   unreadCount?: number;
   timestamp?: number;
+  messages?: MsgConteudo[];
 };
 
 export type WhatsAppChannelFeed = {
@@ -85,6 +86,16 @@ function statusBoolean(value: unknown) {
 export function normalizeWhatsAppStatusItem(value: unknown): WhatsAppStatusItem | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
+  const contact = raw.contact && typeof raw.contact === "object"
+    ? raw.contact as Record<string, unknown>
+    : {};
+  const sender = raw.sender && typeof raw.sender === "object"
+    ? raw.sender as Record<string, unknown>
+    : {};
+  const senderContact = sender.contact && typeof sender.contact === "object"
+    ? sender.contact as Record<string, unknown>
+    : {};
+  const identitySources = [raw, contact, sender, senderContact];
   const mediaMeta = raw.midiaMeta && typeof raw.midiaMeta === "object"
     ? raw.midiaMeta as Record<string, unknown>
     : raw.mediaMeta && typeof raw.mediaMeta === "object"
@@ -92,6 +103,34 @@ export function normalizeWhatsAppStatusItem(value: unknown): WhatsAppStatusItem 
       : {};
   const id = firstStatusString(raw.id, raw.statusId, raw.messageId)?.trim();
   if (!id) return null;
+  const contactId = firstStatusString(
+    raw.contactId,
+    raw.chatId,
+    contact.id,
+    contact.contactId,
+    contact.chatId,
+    contact.jid,
+    contact.lid,
+    contact.phone,
+    contact.phoneNumber,
+    contact.number,
+    sender.id,
+    sender.contactId,
+    sender.chatId,
+    sender.jid,
+    sender.lid,
+    sender.phone,
+    sender.phoneNumber,
+    sender.number,
+    senderContact.id,
+    senderContact.contactId,
+    senderContact.chatId,
+    senderContact.jid,
+    senderContact.lid,
+    senderContact.phone,
+    senderContact.phoneNumber,
+    senderContact.number,
+  );
 
   const mime = firstStatusString(raw.mediaMime, raw.arquivoMime, raw.mimetype, mediaMeta.mimetype)?.toLowerCase() || "";
   const typeEvidence = [raw.type, raw.kind, raw.mediaType, raw.tipo, mediaMeta.type, mime]
@@ -105,16 +144,26 @@ export function normalizeWhatsAppStatusItem(value: unknown): WhatsAppStatusItem 
       : typeEvidence.includes("image") || typeEvidence.includes("photo") || typeEvidence.includes("foto") || mime.startsWith("image/") || String(raw.tipo || "").toLowerCase() === "midia"
         ? "image"
         : "text";
-  const fallbackName = raw.contactId || raw.chatId ? "Contato do WhatsApp" : "Status do WhatsApp";
+  const fallbackName = contactId ? "Contato do WhatsApp" : "Status do WhatsApp";
   const rawTimestamp = raw.timestamp ?? raw.createdAt ?? Date.now();
   const numericTimestamp = Number(rawTimestamp);
   const timestamp = Number.isFinite(numericTimestamp) ? numericTimestamp : new Date(String(rawTimestamp)).getTime();
+  const photoUrl = firstStatusString(
+    ...identitySources.flatMap((source) => [
+      source.photoUrl,
+      source.profilePicture,
+      source.profilePictureUrl,
+      source.profilePicUrl,
+      source.imgUrl,
+      source.avatar,
+    ]),
+  );
 
   return {
     id,
-    contactId: firstStatusString(raw.contactId, raw.chatId),
+    contactId,
     name: firstStatusString(raw.name, raw.contactName, raw.notify, raw.verifiedName) || fallbackName,
-    photoUrl: firstStatusString(raw.photoUrl, raw.profilePictureUrl),
+    photoUrl,
     type,
     text: firstStatusString(raw.text, raw.caption, raw.body, raw.texto),
     mediaUrl: firstStatusString(raw.mediaUrl, raw.fileUrl, raw.arquivoUrl, raw.url),

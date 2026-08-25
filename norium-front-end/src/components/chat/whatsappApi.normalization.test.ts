@@ -94,6 +94,18 @@ describe("normalização dos dados do WhatsApp", () => {
     });
   });
 
+  it.each([
+    ["contact", { contact: { jid: "5511000000001@s.whatsapp.net" } }, "5511000000001@s.whatsapp.net"],
+    ["sender", { sender: { id: "5511000000002@s.whatsapp.net" } }, "5511000000002@s.whatsapp.net"],
+    ["sender.contact", { sender: { contact: { phoneNumber: "5511000000003" } } }, "5511000000003"],
+  ])("lê o ID aninhado de %s no Status", (_source, identity, expectedContactId) => {
+    expect(normalizeWhatsAppStatusItem({
+      id: `status-${expectedContactId}`,
+      ...identity,
+      timestamp: 1_800_000_004,
+    })).toMatchObject({ contactId: expectedContactId });
+  });
+
   it("preserva indicadores de mensagem editada e encaminhada após recarregar", () => {
     expect(normalizeWhatsAppMessage({ id: "edited", fromMe: true, body: "Corrigida", editada: true, timestamp: 1_800_000_001 })).toMatchObject({ edited: true });
     expect(normalizeWhatsAppMessage({ id: "forwarded", body: "Encaminhada", forwardingScore: 2, timestamp: 1_800_000_002 })).toMatchObject({ forwarded: true });

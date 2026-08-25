@@ -15,6 +15,7 @@ import secrets
 import shutil
 import socket
 import subprocess
+import weakref
 import time
 import uuid
 from datetime import datetime
@@ -93,6 +94,10 @@ whatsapp_webhook_event_cache: Dict[str, float] = {}
 whatsapp_webhook_inflight: Dict[str, asyncio.Future[bool]] = {}
 whatsapp_contact_sync_states: Dict[str, Dict[str, Any]] = {}
 whatsapp_contact_sync_tasks: Dict[str, asyncio.Task[Any]] = {}
+whatsapp_history_sync_locks: weakref.WeakValueDictionary[
+    tuple[int, str, str], asyncio.Lock
+] = weakref.WeakValueDictionary()
+whatsapp_history_error_attempt_cache: Dict[tuple[str, str, str], float] = {}
 WHATSAPP_CATALOG_CACHE_TTL_SECONDS = max(60, int(os.getenv("WHATSAPP_CATALOG_CACHE_TTL_SECONDS", "300")))
 WHATSAPP_CONTACT_SYNC_TTL_SECONDS = max(
     60 * 60,
@@ -104,6 +109,10 @@ WHATSAPP_CONTACT_SYNC_RETRY_SECONDS = max(
 )
 WHATSAPP_CATALOG_SCHEMA_VERSION = 3
 WHATSAPP_HISTORY_CACHE_TTL_SECONDS = max(30, int(os.getenv("WHATSAPP_HISTORY_CACHE_TTL_SECONDS", "120")))
+WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS = max(
+    5,
+    int(os.getenv("WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS", "15")),
+)
 WHATSAPP_HISTORY_SCHEMA_VERSION = 2
 WHATSAPP_PROFILE_PHOTO_TTL_SECONDS = max(
     3600,
@@ -1265,7 +1274,20 @@ async def obter_foto_perfil(
     user: dict[str, Any] = Depends(current_user),
 ):
     assert_channel_permission(user, "whatsapp")
-    photo_url = await fetch_profile_picture(tenant_id(user), phone)
+    resolved_user_id = tenant_id(user)
+    photo_url: str | None = None
+    if is_group_chat(phone):
+        creds = wapi_creds(resolved_user_id)
+        if creds:
+            try:
+                details = await wapi_client.group_metadata(creds[0], creds[1], phone)
+            except WapiError:
+                details = None
+            if isinstance(details, dict) and not details.get("error"):
+                wrapped = details.get("group") if isinstance(details.get("group"), dict) else details
+                photo_url = extract_photo_url(wrapped)
+    if not photo_url:
+        photo_url = await fetch_profile_picture(resolved_user_id, phone)
     return {"photoUrl": photo_url, "fetchedAt": time.time() if photo_url else None}
 
 
@@ -1412,10 +1434,27 @@ async def iniciar_sincronizacao_whatsapp(user: dict[str, Any] = Depends(current_
 async def listar_status_whatsapp(user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
+    catalog = await load_whatsapp_catalog_cache(resolved_user_id)
+    catalog_records = [
+        *[item for item in (catalog.get("contacts") or []) if isinstance(item, dict)],
+        *[item for item in (catalog.get("chats") or []) if isinstance(item, dict)],
+    ]
     async with whatsapp_conversation_mutation_lock(resolved_user_id):
         db = await load_conversations(resolved_user_id)
         if await _migrate_legacy_status_conversations_unlocked(resolved_user_id, db):
             await save_conversations(db, resolved_user_id)
+        contact_names, contact_photos, _contact_metadata = build_contact_indexes(
+            [
+                *catalog_records,
+                *contact_records_from_conversations(db),
+            ]
+        )
+        await _store_status_items_unlocked(
+            resolved_user_id,
+            [],
+            contact_names=contact_names,
+            contact_photos=contact_photos,
+        )
     feed = await load_whatsapp_status_feed(resolved_user_id)
     cutoff = int(time.time()) - 24 * 60 * 60
     items = [
@@ -1893,10 +1932,10 @@ async def _store_status_items_unlocked(
         enriched = dict(existing)
         enriched["contactName"] = melhor_nome_contato(
             existing.get("contactName"),
-            names.get(contact_id),
+            _lookup_contact_index(names, contact_id),
             contact_id,
         )
-        enriched["photoUrl"] = existing.get("photoUrl") or photos.get(contact_id)
+        enriched["photoUrl"] = existing.get("photoUrl") or _lookup_contact_index(photos, contact_id)
         if enriched.get("photoUrl") and not enriched.get("photoFetchedAt"):
             enriched["photoFetchedAt"] = time.time()
         if enriched != existing:
@@ -1921,10 +1960,10 @@ async def _store_status_items_unlocked(
         contact_id = str(item.get("contactId") or "")
         item["contactName"] = melhor_nome_contato(
             item.get("contactName"),
-            names.get(contact_id),
+            _lookup_contact_index(names, contact_id),
             contact_id,
         )
-        item["photoUrl"] = item.get("photoUrl") or photos.get(contact_id)
+        item["photoUrl"] = item.get("photoUrl") or _lookup_contact_index(photos, contact_id)
         if item.get("photoUrl"):
             item["photoFetchedAt"] = item.get("photoFetchedAt") or time.time()
 
@@ -2194,6 +2233,11 @@ async def obter_conversas(
         if await _migrate_legacy_status_conversations_unlocked(resolved_user_id, db):
             await save_conversations(db, resolved_user_id)
     catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
+    conversation_list_db = {
+        conversation_id: conversation
+        for conversation_id, conversation in db.items()
+        if not conversation_id.lower().endswith("@newsletter")
+    }
 
     if since is not None:
         # O webhook/evento em tempo real ja atualiza o cache. Um delta nunca
@@ -2205,7 +2249,7 @@ async def obter_conversas(
             else {}
         )
         changed_items: list[Dict[str, Any]] = []
-        for conversation_id, conversation in db.items():
+        for conversation_id, conversation in conversation_list_db.items():
             update_timestamp = int(conversation_updates.get(conversation_id) or 0)
             message_timestamp = max(
                 [
@@ -2244,13 +2288,13 @@ async def obter_conversas(
         }
 
     if db and not refresh and catalog_cache_is_fresh(catalog_cache):
-        return sorted_conversations(db)
+        return sorted_conversations(conversation_list_db)
     running_sync = whatsapp_contact_sync_tasks.get(resolved_user_id)
     if running_sync and not running_sync.done():
         # O bootstrap já está buscando todas as páginas em background. Não
         # duplica a mesma varredura no request da lista; o frontend recebe o
         # snapshot local imediatamente e o próximo delta traz o catálogo.
-        return sorted_conversations(db)
+        return sorted_conversations(conversation_list_db)
 
     # A conectividade é consultada somente quando o snapshot local realmente
     # precisa de atualização. Polling incremental e cache fresco não podem
@@ -2258,7 +2302,7 @@ async def obter_conversas(
     whatsapp_status = await wapi_connect.status(resolved_user_id)
     if whatsapp_status.get("status") != "conectado":
         if db and catalog_cache.get("authenticatedAt"):
-            return sorted_conversations(db)
+            return sorted_conversations(conversation_list_db)
         return []
 
     # A listagem é um caminho interativo e não pode aguardar paginação remota,
@@ -2266,7 +2310,197 @@ async def obter_conversas(
     # frontend recebe imediatamente o snapshot local e depois consulta o delta.
     if refresh or contact_sync_retry_due(catalog_cache):
         schedule_contact_sync(resolved_user_id, force=refresh)
-    return sorted_conversations(db)
+    return sorted_conversations(conversation_list_db)
+
+
+def whatsapp_history_sync_lock(user_id: str, conversation_id: str) -> asyncio.Lock:
+    """Serializa o backfill best-effort por conversa sem bloquear webhooks."""
+    loop_key = id(asyncio.get_running_loop())
+    return whatsapp_history_sync_locks.setdefault(
+        (loop_key, user_id, conversation_id),
+        asyncio.Lock(),
+    )
+def whatsapp_history_error_key(
+    user_id: str,
+    conversation_id: str,
+    instance_id: str,
+) -> tuple[str, str, str]:
+    return user_id, conversation_id, instance_id
+
+
+def whatsapp_history_error_backoff_active(
+    user_id: str,
+    conversation_id: str,
+    instance_id: str,
+) -> bool:
+    key = whatsapp_history_error_key(user_id, conversation_id, instance_id)
+    attempted_at = whatsapp_history_error_attempt_cache.get(key)
+    if attempted_at is None:
+        return False
+    if time.monotonic() - attempted_at < WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS:
+        return True
+    whatsapp_history_error_attempt_cache.pop(key, None)
+    return False
+
+
+def remember_whatsapp_history_error(
+    user_id: str,
+    conversation_id: str,
+    instance_id: str,
+) -> None:
+    now = time.monotonic()
+    cutoff = now - WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS
+    for key, attempted_at in list(whatsapp_history_error_attempt_cache.items()):
+        if attempted_at <= cutoff:
+            whatsapp_history_error_attempt_cache.pop(key, None)
+    whatsapp_history_error_attempt_cache[
+        whatsapp_history_error_key(user_id, conversation_id, instance_id)
+    ] = now
+
+
+
+
+def whatsapp_history_cache_is_fresh(conversation: Dict[str, Any] | None) -> bool:
+    metadata = (
+        conversation.get("metadados")
+        if isinstance(conversation, dict) and isinstance(conversation.get("metadados"), dict)
+        else {}
+    )
+    if metadata.get("historicoSchema") != WHATSAPP_HISTORY_SCHEMA_VERSION:
+        return False
+    try:
+        synced_at = float(metadata.get("historicoSincronizadoEm") or 0)
+    except (TypeError, ValueError):
+        return False
+    return synced_at > 0 and time.time() - synced_at < WHATSAPP_HISTORY_CACHE_TTL_SECONDS
+
+
+def whatsapp_history_page(
+    conversation: Dict[str, Any] | None,
+    *,
+    before: int | None,
+    limit: int,
+) -> Dict[str, Any]:
+    messages = sorted(
+        (
+            message
+            for message in ((conversation or {}).get("mensagens") or [])
+            if isinstance(message, dict)
+        ),
+        key=lambda message: int(message.get("timestamp") or 0),
+    )
+    if before is not None:
+        messages = [
+            message
+            for message in messages
+            if int(message.get("timestamp") or 0) < int(before)
+        ]
+    page = messages[-limit:]
+    return {
+        "items": page,
+        "cursor": min(
+            (int(message.get("timestamp") or 0) for message in page),
+            default=None,
+        ),
+        "hasMore": len(messages) > len(page),
+    }
+
+
+def whatsapp_history_candidate_aliases(candidate: Dict[str, Any]) -> set[str]:
+    aliases = _contact_aliases(candidate)
+    nested_chat = candidate.get("chat")
+    if isinstance(nested_chat, dict):
+        aliases.update(_contact_aliases(nested_chat))
+    return {alias.lower() for alias in aliases if alias}
+
+
+def route_whatsapp_history_chat(
+    candidate: Dict[str, Any],
+    conversation_id: str,
+) -> Dict[str, Any]:
+    routed = dict(candidate)
+    for key in (
+        "phone", "phoneNumber", "number", "id", "jid", "lid",
+        "senderLid", "serialized", "wid",
+    ):
+        routed.pop(key, None)
+    routed["id"] = conversation_id
+    routed["chatId"] = conversation_id
+
+    for key in ("messages", "msgs", "lastMessages"):
+        raw_messages = routed.get(key)
+        if isinstance(raw_messages, list):
+            routed[key] = [
+                {**message, "chatId": conversation_id}
+                for message in raw_messages
+                if isinstance(message, dict)
+            ]
+    if isinstance(routed.get("lastMessage"), dict):
+        routed["lastMessage"] = {
+            **routed["lastMessage"],
+            "chatId": conversation_id,
+        }
+    return routed
+
+
+def whatsapp_history_chat_record(payload: Any, conversation_id: str) -> Dict[str, Any]:
+    """Seleciona somente o chat pedido e força suas mensagens para esse destino."""
+    target_aliases = {
+        alias.lower()
+        for alias in (_contact_aliases({"id": conversation_id}) or {conversation_id})
+        if alias
+    }
+    queue: list[Any] = [payload]
+    fallback: Dict[str, Any] | None = None
+    while queue:
+        candidate = queue.pop(0)
+        if isinstance(candidate, list):
+            queue.extend(candidate)
+            continue
+        if not isinstance(candidate, dict):
+            continue
+
+        aliases_match = bool(
+            target_aliases.intersection(
+                whatsapp_history_candidate_aliases(candidate)
+            )
+        )
+        has_messages = any(
+            key in candidate
+            for key in ("messages", "msgs", "lastMessage", "lastMessages")
+        )
+        if aliases_match and has_messages:
+            return route_whatsapp_history_chat(candidate, conversation_id)
+        if aliases_match:
+            fallback = route_whatsapp_history_chat(candidate, conversation_id)
+
+        for key in ("chat", "data", "result", "item"):
+            nested = candidate.get(key)
+            if isinstance(nested, (dict, list)):
+                queue.append(nested)
+    return fallback or {"id": conversation_id}
+
+
+def whatsapp_history_payload_has_more(payload: Any) -> bool:
+    queue: list[Any] = [payload]
+    while queue:
+        candidate = queue.pop(0)
+        if isinstance(candidate, list):
+            queue.extend(candidate)
+            continue
+        if not isinstance(candidate, dict):
+            continue
+        for key in ("hasMore", "has_more"):
+            if key in candidate:
+                value = candidate.get(key)
+                if isinstance(value, str):
+                    return value.strip().lower() in {"1", "true", "yes"}
+                return bool(value)
+        for key in ("chat", "data", "result", "item", "pagination"):
+            nested = candidate.get(key)
+            if isinstance(nested, (dict, list)):
+                queue.append(nested)
+    return False
 
 
 @router.get("/api/chat/conversas/{conversa_id}/mensagens")
@@ -2280,43 +2514,105 @@ async def obter_historico_conversa(
     resolved_user_id = tenant_id(user)
     db = await load_conversations(resolved_user_id)
     conversation = db.get(conversa_id)
-    history_synced_at = (conversation or {}).get("metadados", {}).get("historicoSincronizadoEm")
-    history_schema = (conversation or {}).get("metadados", {}).get("historicoSchema")
-    try:
-        history_cache_fresh = bool(history_synced_at) and time.time() - float(history_synced_at) < WHATSAPP_HISTORY_CACHE_TTL_SECONDS
-    except (TypeError, ValueError):
-        history_cache_fresh = False
-    if (
-        before is None
-        and conversation
-        and conversation.get("mensagens")
-        and history_cache_fresh
-        and history_schema == WHATSAPP_HISTORY_SCHEMA_VERSION
-    ):
-        cached_messages = list(conversation.get("mensagens") or [])[-limit:]
-        cached_messages.sort(key=lambda item: int(item.get("timestamp") or 0))
-        return {
-            "items": cached_messages,
-            "cursor": conversation.get("metadados", {}).get("historicoCursor")
-            or min((int(item.get("timestamp") or 0) for item in cached_messages), default=None),
-            "hasMore": bool(conversation.get("metadados", {}).get("historicoTemMais")),
-        }
-    # A W-API nao expoe endpoint de historico de mensagens: o historico e
-    # construido pelo store alimentado pelos webhooks. Servimos o que ja temos,
-    # paginado por ``before``/``limit``.
-    conversation = db.get(conversa_id) or new_conversation(conversa_id, channel="whatsapp")
-    todas = sorted(
-        (m for m in (conversation.get("mensagens") or []) if isinstance(m, dict)),
-        key=lambda m: int(m.get("timestamp") or 0),
-    )
-    if before:
-        todas = [m for m in todas if int(m.get("timestamp") or 0) < int(before)]
-    page = todas[-limit:]
-    return {
-        "items": page,
-        "cursor": min((int(m.get("timestamp") or 0) for m in page), default=None),
-        "hasMore": len(todas) > len(page),
-    }
+
+    # Páginas antigas sempre vêm do snapshot já persistido. A W-API não
+    # oferece cursor de mensagens; repetir uma chamada remota para cada página
+    # não acrescentaria dados e quebraria a paginação determinística.
+    if before is not None:
+        return whatsapp_history_page(conversation, before=before, limit=limit)
+    if whatsapp_history_cache_is_fresh(conversation):
+        return whatsapp_history_page(conversation, before=None, limit=limit)
+
+    async with whatsapp_history_sync_lock(resolved_user_id, conversa_id):
+        # Outra abertura da mesma conversa pode ter concluído o backfill enquanto
+        # esta requisição aguardava. Releia antes de consultar o provedor.
+        db = await load_conversations(resolved_user_id)
+        conversation = db.get(conversa_id)
+        if whatsapp_history_cache_is_fresh(conversation):
+            return whatsapp_history_page(conversation, before=None, limit=limit)
+
+        creds = wapi_creds(resolved_user_id)
+        binding_created_at = (
+            wb.get_binding(resolved_user_id).created_at if creds else None
+        )
+        if creds and whatsapp_history_error_backoff_active(
+            resolved_user_id,
+            conversa_id,
+            creds[0],
+        ):
+            return whatsapp_history_page(conversation, before=None, limit=limit)
+        provider_payload: Any = None
+        provider_succeeded = False
+        if creds:
+            try:
+                provider_payload = await wapi_client.fetch_chat(
+                    creds[0],
+                    creds[1],
+                    conversa_id,
+                )
+                provider_succeeded = True
+            except WapiError:
+                # Sem endpoint oficial de histórico, indisponibilidade ou plano
+                # sem acesso degradam para o store alimentado pelos webhooks.
+                provider_payload = None
+                remember_whatsapp_history_error(
+                    resolved_user_id,
+                    conversa_id,
+                    creds[0],
+                )
+
+        if provider_succeeded:
+            async with whatsapp_conversation_mutation_lock(resolved_user_id):
+                latest_db = await load_conversations(resolved_user_id)
+                if (
+                    wapi_creds(resolved_user_id) != creds
+                    or wb.get_binding(resolved_user_id).created_at != binding_created_at
+                ):
+                    conversation = latest_db.get(conversa_id)
+                    return whatsapp_history_page(
+                        conversation,
+                        before=None,
+                        limit=limit,
+                    )
+                whatsapp_history_error_attempt_cache.pop(
+                    whatsapp_history_error_key(
+                        resolved_user_id,
+                        conversa_id,
+                        creds[0],
+                    ),
+                    None,
+                )
+                latest = latest_db.get(conversa_id) or new_conversation(
+                    conversa_id,
+                    channel="whatsapp",
+                    is_group=is_group_chat(conversa_id),
+                )
+                provider_chat = whatsapp_history_chat_record(
+                    provider_payload,
+                    conversa_id,
+                )
+                if not _contact_primary_id(provider_chat):
+                    provider_chat = {**provider_chat, "id": conversa_id}
+                sync_catalog_messages(latest, provider_chat)
+                metadata = latest.setdefault("metadados", {})
+                metadata["historicoSincronizadoEm"] = time.time()
+                metadata["historicoSchema"] = WHATSAPP_HISTORY_SCHEMA_VERSION
+                metadata["historicoCursor"] = min(
+                    (
+                        int(message.get("timestamp") or 0)
+                        for message in latest.get("mensagens") or []
+                        if isinstance(message, dict)
+                    ),
+                    default=None,
+                )
+                metadata["historicoTemMais"] = whatsapp_history_payload_has_more(
+                    provider_payload
+                )
+                latest_db[conversa_id] = normalize_conversation(conversa_id, latest)
+                await save_conversations(latest_db, resolved_user_id)
+                conversation = latest_db[conversa_id]
+
+    return whatsapp_history_page(conversation, before=None, limit=limit)
 
 
 @router.get("/api/chat/conversas/{conversa_id}/detalhes")
@@ -2484,6 +2780,17 @@ async def obter_midia_whatsapp(
                 media_meta = item["midiaMeta"]
                 resolved_conversation_id = "status@broadcast"
                 break
+    if (
+        not media_meta
+        and resolved_conversation_id
+        and resolved_conversation_id.lower().endswith("@newsletter")
+    ):
+        catalog = await load_whatsapp_catalog_cache(resolved_user_id)
+        media_meta = channel_catalog_media_meta(
+            catalog,
+            resolved_conversation_id,
+            message_id,
+        )
     if not media_meta:
         raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
     media_key = str(media_meta.get("mediaKey") or "")
@@ -2640,7 +2947,7 @@ def normalize_group_payload(
     contact_photos: Dict[str, str] | None = None,
 ) -> Dict[str, Any]:
     wrapped = group.get("group") if isinstance(group.get("group"), dict) else group
-    group_id = str(
+    group_id = _identifier_value(
         wrapped.get("id")
         or wrapped.get("groupId")
         or wrapped.get("jid")
@@ -2662,7 +2969,7 @@ def normalize_group_payload(
             or group_id
         ),
         "description": wrapped.get("description") or wrapped.get("desc") or "",
-        "photoUrl": extract_photo_url(wrapped),
+        "photoUrl": extract_photo_url(wrapped) or _lookup_contact_index(contact_photos or {}, group_id),
         "participants": participants,
         "participantsCount": int(
             wrapped.get("participantsCount") or wrapped.get("size") or len(participants)
@@ -2722,7 +3029,66 @@ def normalize_channel_payload(channel: Dict[str, Any]) -> Dict[str, Any] | None:
     timestamp = normalize_whatsapp_timestamp(timestamp_value)
     if timestamp:
         normalized["timestamp"] = timestamp
+
+    # O catalogo de chats da W-API pode embutir publicacoes anteriores no
+    # proprio registro @newsletter. Reutiliza o mesmo normalizador das conversas
+    # para manter texto, midia, remetente e ordenacao em um unico contrato.
+    message_source = dict(channel)
+    if wrapped is not channel:
+        message_source.update(wrapped)
+    message_source["id"] = channel_id
+    conversation = new_conversation(channel_id, contato=name, channel="whatsapp")
+    sync_catalog_messages(conversation, message_source)
+    messages = [
+        dict(message)
+        for message in (conversation.get("mensagens") or [])
+        if isinstance(message, dict)
+    ]
+    if messages:
+        normalized["messages"] = messages
+        normalized["timestamp"] = max(
+            int(normalized.get("timestamp") or 0),
+            max(int(message.get("timestamp") or 0) for message in messages),
+        )
     return normalized
+
+
+def merge_channel_messages(
+    existing: list[Dict[str, Any]],
+    incoming: list[Dict[str, Any]],
+) -> list[Dict[str, Any]]:
+    messages_by_id = {
+        str(message.get("id") or ""): dict(message)
+        for message in existing
+        if isinstance(message, dict) and message.get("id")
+    }
+    for message in incoming:
+        if isinstance(message, dict) and message.get("id"):
+            messages_by_id[str(message["id"])] = dict(message)
+    return sorted(
+        messages_by_id.values(),
+        key=lambda message: int(message.get("timestamp") or 0),
+    )[-250:]
+
+
+def channel_catalog_media_meta(
+    cache: Dict[str, Any],
+    channel_id: str,
+    message_id: str,
+) -> Dict[str, Any] | None:
+    """Resolve metadados de uma publicação sem transformar o GET em gravação."""
+    for key in ("channels", "contacts", "chats"):
+        for record in cache.get(key) or []:
+            if not isinstance(record, dict) or _newsletter_catalog_id(record) != channel_id:
+                continue
+            normalized = normalize_channel_payload(record)
+            for message in (normalized or {}).get("messages") or []:
+                if (
+                    str(message.get("id") or "") == message_id
+                    and isinstance(message.get("midiaMeta"), dict)
+                ):
+                    return dict(message["midiaMeta"])
+    return None
 
 
 @router.get("/api/chat/canais")
@@ -2762,8 +3128,53 @@ async def listar_canais_whatsapp(user: dict[str, Any] = Depends(current_user)):
                 continue
             if key == "verified" and value is True:
                 current[key] = True
+            elif key == "messages" and isinstance(value, list):
+                current["messages"] = merge_channel_messages(
+                    current.get("messages") or [],
+                    value,
+                )
             elif current.get(key) in (None, "") or (key == "name" and current.get(key) == channel_id):
                 current[key] = value
+    # Webhooks podem chegar depois do snapshot e ficam no store local. Canais
+    # nao entram na lista comum de conversas, mas suas publicacoes precisam
+    # compor este feed sem duplicar as mensagens ja presentes no catalogo.
+    db = await load_conversations(resolved_user_id)
+    for conversation_id, conversation in db.items():
+        if not isinstance(conversation, dict) or not _newsletter_catalog_id({"id": conversation_id}):
+            continue
+        metadata = conversation.get("metadados") if isinstance(conversation.get("metadados"), dict) else {}
+        local_channel = normalize_channel_payload(
+            {
+                "id": conversation_id,
+                "name": conversation.get("contato") or conversation_id,
+                "description": metadata.get("description") or metadata.get("bioRecado") or "",
+                "photoUrl": conversation.get("photoUrl") or metadata.get("photoUrl"),
+                "verified": metadata.get("verified"),
+                "unreadCount": conversation.get("naoLidasCount"),
+                "timestamp": conversation.get("timestampUltimaMsg"),
+            }
+        )
+        if local_channel is None:
+            continue
+        current = items_by_id.setdefault(conversation_id, local_channel)
+        for key, value in local_channel.items():
+            if value not in (None, "", [], {}) and current.get(key) in (None, ""):
+                current[key] = value
+        stored_messages = [
+            normalize_message(message, "whatsapp")
+            for message in (conversation.get("mensagens") or [])
+            if isinstance(message, dict) and message.get("id")
+        ]
+        if stored_messages:
+            current["messages"] = merge_channel_messages(
+                current.get("messages") or [],
+                stored_messages,
+            )
+            current["timestamp"] = max(
+                int(current.get("timestamp") or 0),
+                max(int(message.get("timestamp") or 0) for message in stored_messages),
+            )
+
     items = list(items_by_id.values())
     items.sort(
         key=lambda item: (int(item.get("timestamp") or 0), str(item.get("name") or "").lower()),
@@ -3716,6 +4127,8 @@ def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) ->
     raw_messages = chat.get("messages") if isinstance(chat.get("messages"), list) else []
     if not raw_messages and isinstance(chat.get("msgs"), list):
         raw_messages = chat["msgs"]
+    if isinstance(chat.get("lastMessages"), list):
+        raw_messages = [*raw_messages, *chat["lastMessages"]]
     if isinstance(chat.get("lastMessage"), dict):
         raw_messages = [*raw_messages, chat["lastMessage"]]
     type_map = {
@@ -4069,21 +4482,34 @@ def default_file_name(tipo: str, mime: Any) -> str | None:
 
 
 def extract_photo_url(data: Dict[str, Any]) -> str | None:
-    candidates = [
-        data.get("photoUrl"),
-        data.get("profilePictureUrl"),
-        data.get("profilePicUrl"),
-        data.get("imgUrl"),
-        data.get("link"),
-        data.get("senderPhoto"),
-        data.get("chatPhoto"),
-        data.get("picture"),
-        data.get("avatar"),
-    ]
+    photo_aliases = (
+        "photoUrl",
+        "profilePicture",
+        "profilePictureUrl",
+        "profilePicUrl",
+        "imgUrl",
+        "avatar",
+    )
+    candidates = [data.get(alias) for alias in photo_aliases]
+    candidates.extend(
+        [
+            data.get("link"),
+            data.get("senderPhoto"),
+            data.get("chatPhoto"),
+            data.get("picture"),
+        ]
+    )
 
     contact = data.get("contact")
     if isinstance(contact, dict):
-        candidates.extend([contact.get("photoUrl"), contact.get("profilePictureUrl"), contact.get("profilePicUrl"), contact.get("imgUrl"), contact.get("avatar")])
+        candidates.extend(contact.get(alias) for alias in photo_aliases)
+
+    sender = data.get("sender")
+    if isinstance(sender, dict):
+        candidates.extend(sender.get(alias) for alias in photo_aliases)
+        sender_contact = sender.get("contact")
+        if isinstance(sender_contact, dict):
+            candidates.extend(sender_contact.get(alias) for alias in photo_aliases)
 
     for value in candidates:
         if isinstance(value, str) and value.startswith(("http://", "https://", "data:image")):
@@ -4119,7 +4545,7 @@ async def fetch_profile_picture(user_id: str, phone: str) -> str | None:
     try:
         data = await wapi_client.contact_profile_picture(creds[0], creds[1], query_phone)
         if isinstance(data, dict):
-            return data.get("profilePictureUrl") or data.get("profilePicUrl") or data.get("photoUrl") or data.get("imgUrl") or data.get("link") or data.get("value")
+            return extract_photo_url(data) or data.get("value")
     except WapiError:
         logger.warning("Falha ao buscar foto de perfil W-API.")
     return None

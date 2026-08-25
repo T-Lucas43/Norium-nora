@@ -226,6 +226,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const cancelarEnvioAudioRef = useRef<boolean>(false);
   const carregandoConversasRef = useRef(false);
   const carregandoStatusRef = useRef(false);
+  const statusRequestGenerationRef = useRef(0);
   const canaisRequestGenerationRef = useRef(0);
   const cursorConversasRef = useRef(0);
   const whatsappConectadoRef = useRef(false);
@@ -346,25 +347,30 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   }, [canaisStatus.whatsapp?.numero]);
 
   const carregarStatusDoBackend = useCallback(async (mostrarErro = true, background = false) => {
+    const requestGeneration = statusRequestGenerationRef.current;
     if (carregandoStatusRef.current) return null;
     carregandoStatusRef.current = true;
     if (!background) setCarregandoStatusWhatsApp(true);
     if (!background) setErroStatusWhatsApp(null);
     try {
       const payload = await whatsappApi.statuses();
+      if (requestGeneration !== statusRequestGenerationRef.current) return null;
       const rawItems = Array.isArray(payload) ? payload : payload.items;
       const items = (rawItems || []).map(normalizeWhatsAppStatusItem).filter((item): item is WhatsAppStatusItem => Boolean(item));
       setStatusWhatsApp(items);
       return items;
     } catch (error) {
+      if (requestGeneration !== statusRequestGenerationRef.current) return null;
       const message = error instanceof Error ? error.message : "Falha ao carregar os status do WhatsApp.";
       if (!background) setErroStatusWhatsApp(message);
       if (mostrarErro) mostrarAviso("error", message);
       return null;
     } finally {
-      setStatusWhatsAppCarregados(true);
-      if (!background) setCarregandoStatusWhatsApp(false);
-      carregandoStatusRef.current = false;
+      if (requestGeneration === statusRequestGenerationRef.current) {
+        setStatusWhatsAppCarregados(true);
+        if (!background) setCarregandoStatusWhatsApp(false);
+        carregandoStatusRef.current = false;
+      }
     }
   }, [mostrarAviso]);
 
@@ -579,7 +585,11 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     contatosRef.current = [];
     setContatosCarregados(false);
     setGruposCarregados(false);
+    statusRequestGenerationRef.current += 1;
+    carregandoStatusRef.current = false;
     setStatusWhatsAppCarregados(false);
+    setCarregandoStatusWhatsApp(false);
+    setErroStatusWhatsApp(null);
     setStatusWhatsApp([]);
     canaisRequestGenerationRef.current += 1;
     setCanaisWhatsApp([]);

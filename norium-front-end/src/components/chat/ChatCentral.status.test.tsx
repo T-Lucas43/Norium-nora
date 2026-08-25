@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -73,6 +73,28 @@ describe("status do WhatsApp", () => {
     expect(api.markStatusViewed).toHaveBeenCalledWith("status-1");
     expect(await screen.findByText("Bom dia")).toBeInTheDocument();
   });
+  it("exibe a foto do contato quando o Status traz profilePicUrl aninhada", async () => {
+    const user = userEvent.setup();
+    const photoUrl = "https://cdn.example/maria-status.jpg";
+    api.statuses.mockResolvedValue({
+      items: [{
+        id: "status-com-foto",
+        contactId: "5511999999999@s.whatsapp.net",
+        contactName: "Maria",
+        contact: { profilePicUrl: photoUrl },
+        type: "text",
+        text: "Bom dia com foto",
+        timestamp: 1_800_000_000,
+      }],
+    });
+
+    render(<ChatCentral />);
+
+    await user.click(await screen.findByRole("button", { name: /^Status/ }));
+    const contactRow = await screen.findByRole("button", { name: /Maria/ });
+    await waitFor(() => expect(contactRow.querySelector("img")).toHaveAttribute("src", photoUrl));
+  });
+
 
   it("nao exibe timeout de atualizacoes automaticas como alerta para o usuario", async () => {
     render(<ChatCentral />);
@@ -85,6 +107,33 @@ describe("status do WhatsApp", () => {
 
     await waitFor(() => expect(api.conversations.mock.calls.length).toBeGreaterThan(previousCalls));
     expect(screen.queryByText("A operacao demorou mais que o esperado.")).not.toBeInTheDocument();
+  });
+
+  it("ignora a resposta de Status do usuário anterior depois da troca", async () => {
+    const user = userEvent.setup();
+    let resolveOld!: (value: { items: unknown[] }) => void;
+    api.statuses
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockResolvedValue({
+        items: [{ id: "status-new", name: "Contato novo", type: "text", text: "Feed novo", timestamp: 1_800_000_100 }],
+      });
+    const view = render(<ChatCentral userId="usuario-a" />);
+    await waitFor(() => expect(api.statuses).toHaveBeenCalledTimes(1));
+
+    view.rerender(<ChatCentral userId="usuario-b" />);
+    await waitFor(() => expect(api.statuses.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await user.click(await screen.findByRole("button", { name: /^Status/ }));
+    expect(await screen.findByRole("button", { name: /Contato novo/ })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveOld({
+        items: [{ id: "status-old", name: "Contato antigo", type: "text", text: "Feed antigo", timestamp: 1_800_000_000 }],
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole("button", { name: /Contato antigo/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Contato novo/ })).toBeInTheDocument();
   });
 
   it("trata sincronizacao parcial como terminal e recarrega o cache disponível", async () => {

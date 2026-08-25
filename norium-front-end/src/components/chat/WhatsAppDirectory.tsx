@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import type { ChatConversa } from "./types";
 import { contactDisplayName, contactMatchesSearch } from "./contactPicker";
 import type { Contact, WhatsAppSyncProgress } from "./whatsappApi";
-import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+import { useWhatsAppProfilePhoto } from "./useAuthenticatedMedia";
 
 interface WhatsAppDirectoryProps {
   mode: "contacts" | "groups";
@@ -18,14 +18,13 @@ interface WhatsAppDirectoryProps {
   onRefresh: () => void;
 }
 
-function DirectoryAvatar({ name, photoUrl, group = false }: { name: string; photoUrl?: string; group?: boolean }) {
-  const [failed, setFailed] = useState(false);
-  const source = useAuthenticatedMedia(photoUrl);
+function DirectoryAvatar({ identifier, name, photoUrl, group = false }: { identifier?: string; name: string; photoUrl?: string; group?: boolean }) {
+  const { source, onError } = useWhatsAppProfilePhoto(identifier, photoUrl);
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
   return (
     <span className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--background)] text-xs font-extrabold text-[var(--text-secondary)]">
-      {source && !failed
-        ? <img src={source} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      {source
+        ? <img src={source} alt="" className="h-full w-full object-cover" onError={onError} />
         : group ? <UsersRound size={19} /> : initials}
     </span>
   );
@@ -92,7 +91,7 @@ export default function WhatsAppDirectory({ mode, contacts, groups, loading, err
             const name = contactDisplayName(contact);
             return (
               <button key={contact.id || contact.phone} type="button" onClick={() => onOpenContact(contact)} className="group flex w-full items-center gap-3 border-b border-[var(--border)]/55 px-4 py-3 text-left transition hover:bg-[var(--surface-hover)]">
-                <DirectoryAvatar name={name} photoUrl={contact.photoUrl} />
+                <DirectoryAvatar identifier={contact.id || contact.phone} name={name} photoUrl={contact.photoUrl} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-bold">{name}</span>
                   <span className="mt-0.5 block truncate text-xs text-[var(--text-secondary)]">{contact.bio || contact.phone || contact.id}</span>
@@ -103,7 +102,7 @@ export default function WhatsAppDirectory({ mode, contacts, groups, loading, err
           })}
           {!loading && !error && mode === "groups" && filteredGroups.map((group) => (
             <button key={group.id} type="button" onClick={() => onOpenGroup(group)} className="group flex w-full items-center gap-3 border-b border-[var(--border)]/55 px-4 py-3 text-left transition hover:bg-[var(--surface-hover)]">
-              <DirectoryAvatar name={group.contato} photoUrl={group.metadados?.photoUrl || group.photoUrl} group />
+              <DirectoryAvatar identifier={group.id} name={group.contato} photoUrl={group.metadados?.photoUrl || group.photoUrl} group />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-bold">{group.contato}</span>
                 <span className="mt-0.5 block truncate text-xs text-[var(--text-secondary)]">{group.metadados?.participantes?.length || 0} participantes · {group.ultimoTexto || "Sem mensagens"}</span>

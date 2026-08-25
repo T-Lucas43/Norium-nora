@@ -1,7 +1,8 @@
-import { BadgeCheck, RadioTower, RefreshCw, Search } from "lucide-react";
+import { BadgeCheck, FileText, RadioTower, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import type { MsgConteudo } from "./types";
 import type { WhatsAppChannel } from "./whatsappApi";
-import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+import { useAuthenticatedMedia, useAuthenticatedMediaState } from "./useAuthenticatedMedia";
 
 export interface WhatsAppChannelsViewProps {
   items: WhatsAppChannel[];
@@ -61,6 +62,111 @@ function ChannelAvatar({ channel, size = "md" }: { channel: WhatsAppChannel; siz
   );
 }
 
+function ChannelMessageMedia({ message }: { message: MsgConteudo }) {
+  const media = useAuthenticatedMediaState(message.viewOnce ? undefined : message.arquivoUrl);
+  const [nativeError, setNativeError] = useState(false);
+  const [nativeAttempt, setNativeAttempt] = useState(0);
+  const retry = () => {
+    setNativeError(false);
+    setNativeAttempt((current) => current + 1);
+    media.retry();
+  };
+
+  if (message.viewOnce) {
+    return (
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-4 text-sm text-[var(--text-secondary)]">
+        {"M\u00eddia de visualiza\u00e7\u00e3o \u00fanica indispon\u00edvel."}
+      </div>
+    );
+  }
+  if (!message.arquivoUrl) return null;
+  if (media.loading) {
+    return (
+      <div className="rounded-xl bg-[var(--surface-hover)] p-4 text-sm text-[var(--text-secondary)]">
+        {"Carregando m\u00eddia..."}
+      </div>
+    );
+  }
+  if (media.error || nativeError || !media.source) {
+    return (
+      <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-300">
+        <p>{"M\u00eddia indispon\u00edvel."}</p>
+        <button type="button" onClick={retry} className="mt-2 font-bold underline">
+          Tentar novamente
+        </button>
+      </div>
+    );
+  }
+
+  const mime = (message.arquivoMime || "").toLowerCase();
+  const mediaType = String(message.midiaMeta?.type || "").toLowerCase();
+  const label = message.texto || message.nomeArquivo || "M\u00eddia do canal";
+  if (message.tipo === "audio" || mime.startsWith("audio/")) {
+    return (
+      <audio
+        key={nativeAttempt}
+        controls
+        preload="metadata"
+        src={media.source}
+        className="w-full"
+        aria-label={label}
+        onError={() => setNativeError(true)}
+      />
+    );
+  }
+  if (mime.startsWith("video/") || mediaType.includes("video")) {
+    return (
+      <video
+        key={nativeAttempt}
+        controls
+        preload="metadata"
+        src={media.source}
+        className="max-h-[520px] w-full rounded-xl bg-black"
+        aria-label={label}
+        onError={() => setNativeError(true)}
+      />
+    );
+  }
+  if (message.tipo === "sticker" || mime.startsWith("image/") || mediaType.includes("image")) {
+    return (
+      <img
+        key={nativeAttempt}
+        src={media.source}
+        alt={label}
+        className="max-h-[520px] w-full rounded-xl object-contain"
+        onError={() => setNativeError(true)}
+      />
+    );
+  }
+  return (
+    <a
+      href={media.source}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] p-4 font-bold text-[var(--primary)]"
+    >
+      <FileText size={18} aria-hidden="true" />
+      {message.nomeArquivo || "Abrir m\u00eddia"}
+    </a>
+  );
+}
+
+function ChannelMessage({ message }: { message: MsgConteudo }) {
+  return (
+    <li className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm">
+      <ChannelMessageMedia message={message} />
+      {message.texto && (
+        <p className={`${message.arquivoUrl ? "mt-3" : ""} whitespace-pre-wrap text-sm leading-6 text-[var(--text)]`}>
+          {message.texto}
+        </p>
+      )}
+      <time className="mt-2 block text-right text-[11px] text-[var(--text-secondary)]">
+        {message.horario || formatChannelTimestamp(message.timestamp)}
+      </time>
+    </li>
+  );
+}
+
 export default function WhatsAppChannelsView({
   items,
   loading,
@@ -78,6 +184,12 @@ export default function WhatsAppChannelsView({
     [items, normalizedQuery],
   );
   const selected = items.find((item) => item.id === selectedId) || null;
+  const selectedMessages = useMemo(
+    () => [...(selected?.messages || [])].sort(
+      (first, second) => Number(first.timestamp || 0) - Number(second.timestamp || 0),
+    ),
+    [selected],
+  );
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-1 bg-[var(--background)]" aria-label="Canais do WhatsApp">
@@ -171,38 +283,63 @@ export default function WhatsAppChannelsView({
         </div>
       </aside>
 
-      <div className="grid min-w-0 flex-1 place-items-center overflow-y-auto p-8">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {selected ? (
-          <article className="flex w-full max-w-xl flex-col items-center text-center">
-            <ChannelAvatar channel={selected} size="lg" />
-            <div className="mt-5 flex items-center gap-2">
-              <h2 className="text-2xl font-black text-[var(--text)]">{selected.name}</h2>
-              {selected.verified && <BadgeCheck size={20} className="text-sky-400" aria-hidden="true" />}
-            </div>
-            {selected.verified && <p className="mt-1 text-xs font-semibold text-sky-400">Canal verificado</p>}
-            <p className="mt-5 max-w-md text-sm leading-6 text-[var(--text-secondary)]">
-              {selected.description || "Este canal ainda n\u00e3o possui descri\u00e7\u00e3o."}
-            </p>
-            <div className="mt-6 flex flex-wrap justify-center gap-2 text-xs text-[var(--text-secondary)]">
-              {Boolean(selected.unreadCount) && (
-                <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5">
-                  {selected.unreadCount} {selected.unreadCount === 1 ? "n\u00e3o lida" : "n\u00e3o lidas"}
-                </span>
-              )}
-              {selected.timestamp && (
-                <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5">
-                  Atualizado em {formatChannelTimestamp(selected.timestamp)}
-                </span>
+          <article className="flex min-h-0 flex-1 flex-col">
+            <header className="flex items-center gap-4 border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+              <ChannelAvatar channel={selected} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="truncate text-lg font-black text-[var(--text)]">{selected.name}</h2>
+                  {selected.verified && <BadgeCheck size={18} className="shrink-0 text-sky-400" aria-hidden="true" />}
+                </div>
+                {selected.verified && <p className="text-xs font-semibold text-sky-400">Canal verificado</p>}
+                <p className="truncate text-xs text-[var(--text-secondary)]">
+                  {selected.description || "Canal do WhatsApp"}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap justify-end gap-2 text-xs text-[var(--text-secondary)]">
+                {Boolean(selected.unreadCount) && (
+                  <span className="rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-1.5">
+                    {selected.unreadCount} {selected.unreadCount === 1 ? "n\u00e3o lida" : "n\u00e3o lidas"}
+                  </span>
+                )}
+                {selected.timestamp && (
+                  <span className="rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-1.5">
+                    Atualizado em {formatChannelTimestamp(selected.timestamp)}
+                  </span>
+                )}
+              </div>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--background)] px-6 py-6">
+              {selectedMessages.length ? (
+                <ol
+                  className="mx-auto w-full max-w-2xl space-y-4"
+                  aria-label={`Atualiza\u00e7\u00f5es de ${selected.name}`}
+                >
+                  {selectedMessages.map((message) => (
+                    <ChannelMessage key={message.id} message={message} />
+                  ))}
+                </ol>
+              ) : (
+                <div className="grid h-full place-items-center text-center text-sm text-[var(--text-secondary)]">
+                  <div>
+                    <RadioTower size={28} className="mx-auto mb-3 text-[var(--primary)]" aria-hidden="true" />
+                    <p>{"Nenhuma atualiza\u00e7\u00e3o dispon\u00edvel neste canal."}</p>
+                  </div>
+                </div>
               )}
             </div>
           </article>
         ) : (
-          <div className="flex max-w-sm flex-col items-center text-center text-[var(--text-secondary)]">
-            <span className="grid h-16 w-16 place-items-center rounded-2xl bg-[var(--surface)] text-[var(--primary)]">
-              <RadioTower size={28} />
-            </span>
-            <h2 className="mt-4 text-lg font-bold text-[var(--text)]">Selecione um canal</h2>
-            <p className="mt-1 text-sm">Escolha um canal na lista para ver seus detalhes.</p>
+          <div className="grid min-h-0 flex-1 place-items-center p-8">
+            <div className="flex max-w-sm flex-col items-center text-center text-[var(--text-secondary)]">
+              <span className="grid h-16 w-16 place-items-center rounded-2xl bg-[var(--surface)] text-[var(--primary)]">
+                <RadioTower size={28} />
+              </span>
+              <h2 className="mt-4 text-lg font-bold text-[var(--text)]">Selecione um canal</h2>
+              <p className="mt-1 text-sm">Escolha um canal na lista para ver suas atualiza\u00e7\u00f5es.</p>
+            </div>
           </div>
         )}
       </div>

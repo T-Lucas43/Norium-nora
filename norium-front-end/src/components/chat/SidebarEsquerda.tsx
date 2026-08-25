@@ -18,7 +18,7 @@ import {
 import type { ChatConversa } from "./types";
 import type { WhatsAppSyncProgress } from "./whatsappApi";
 import Button from "../shared/Button";
-import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+import { useWhatsAppProfilePhoto } from "./useAuthenticatedMedia";
 import { conversationDisplayName, isTechnicalWhatsAppLabel } from "./contactPicker";
 
 type ChatAction = "lida" | "fixada" | "favorita" | "silenciada" | "arquivada";
@@ -44,13 +44,12 @@ function getInitials(name: string) {
 }
 
 function ChatAvatar({ chat }: { chat: ChatConversa }) {
-  const [failed, setFailed] = useState(false);
-  const photoUrl = useAuthenticatedMedia(chat.metadados?.photoUrl || chat.photoUrl);
+  const { source: photoUrl, onError } = useWhatsAppProfilePhoto(chat.id, chat.metadados?.photoUrl || chat.photoUrl);
   const displayName = conversationDisplayName(chat);
   return (
     <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--background)] text-[var(--text-secondary)]">
-      {photoUrl && !failed ? (
-        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={() => setFailed(true)} />
+      {photoUrl ? (
+        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" onError={onError} />
       ) : chat.esGrupo ? <Users size={17} /> : displayName && !isTechnicalWhatsAppLabel(displayName) ? (
         <span className="text-xs font-extrabold">{getInitials(displayName)}</span>
       ) : <User size={17} />}

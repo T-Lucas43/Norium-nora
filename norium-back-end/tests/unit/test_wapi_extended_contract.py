@@ -10,6 +10,7 @@ import uuid
 from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlparse
 
 from fastapi import HTTPException
 
@@ -46,6 +47,18 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         chat_router.whatsapp_contact_sync_states.clear()
         chat_router.whatsapp_conversation_mutation_locks.clear()
         self._stack.close()
+
+    async def test_extract_photo_url_accepts_nested_wapi_aliases(self) -> None:
+        cases = [
+            ({"profilePicture": "https://cdn.example/direct.jpg"}, "https://cdn.example/direct.jpg"),
+            ({"contact": {"profilePicture": "https://cdn.example/contact.jpg"}}, "https://cdn.example/contact.jpg"),
+            ({"sender": {"profilePicUrl": "https://cdn.example/sender.jpg"}}, "https://cdn.example/sender.jpg"),
+            ({"sender": {"contact": {"imgUrl": "https://cdn.example/sender-contact.jpg"}}}, "https://cdn.example/sender-contact.jpg"),
+        ]
+
+        for payload, expected in cases:
+            with self.subTest(payload=payload):
+                self.assertEqual(expected, chat_router.extract_photo_url(payload))
 
     async def test_contact_pagination_uses_official_page_and_per_page(self) -> None:
         fetch = AsyncMock(
@@ -127,6 +140,176 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
                 ]
             },
             result,
+        )
+
+    async def test_channels_list_includes_normalized_messages_for_selected_channel(self) -> None:
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "channelsSyncedAt": time.time(),
+                "channels": [
+                    {
+                        "id": "120363400000000010@newsletter",
+                        "subject": "Ofertas Norium",
+                        "messages": [
+                            {
+                                "messageId": "CHANNEL-UPDATE-2",
+                                "moment": 1_725_000_200,
+                                "fromMe": False,
+                                "msgContent": {"conversation": "Segunda atualizacao do canal"},
+                            },
+                            {
+                                "messageId": "CHANNEL-UPDATE-1",
+                                "moment": 1_725_000_100,
+                                "fromMe": False,
+                                "msgContent": {"conversation": "Primeira atualizacao do canal"},
+                            },
+                        ],
+                    }
+                ],
+            },
+        )
+
+        result = await chat_router.listar_canais_whatsapp(user=chat_user())
+
+        messages = result["items"][0].get("messages")
+        self.assertEqual(
+            [
+                {
+                    "id": "CHANNEL-UPDATE-1",
+                    "texto": "Primeira atualizacao do canal",
+                    "tipo": "texto",
+                    "timestamp": 1_725_000_100,
+                    "remetente": "contato",
+                },
+                {
+                    "id": "CHANNEL-UPDATE-2",
+                    "texto": "Segunda atualizacao do canal",
+                    "tipo": "texto",
+                    "timestamp": 1_725_000_200,
+                    "remetente": "contato",
+                },
+            ],
+            [
+                {
+                    "id": message.get("id"),
+                    "texto": message.get("texto"),
+                    "tipo": message.get("tipo"),
+                    "timestamp": message.get("timestamp"),
+                    "remetente": message.get("remetente"),
+                }
+                for message in (messages or [])
+            ],
+        )
+
+    async def test_channel_catalog_media_uses_private_route_without_persisting_conversation(self) -> None:
+        channel_id = "120363400000000012@newsletter"
+        message_id = f"CHANNEL-CATALOG-MEDIA-{uuid.uuid4().hex}"
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "channelsSyncedAt": time.time(),
+                "channels": [
+                    {
+                        "id": channel_id,
+                        "subject": "Canal com imagem",
+                        "messages": [
+                            {
+                                "messageId": message_id,
+                                "moment": 1_725_000_250,
+                                "fromMe": False,
+                                "msgContent": {
+                                    "imageMessage": {
+                                        "caption": "Imagem do catalogo",
+                                        "mediaKey": "catalog-key",
+                                        "directPath": "/catalog/image",
+                                        "mimetype": "image/jpeg",
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+        result = await chat_router.listar_canais_whatsapp(user=chat_user())
+
+        message = result["items"][0]["messages"][0]
+        media_url = urlparse(message["arquivoUrl"])
+        self.assertEqual(f"/api/chat/midia/{message_id}", media_url.path)
+        self.assertEqual([channel_id], parse_qs(media_url.query).get("conversa_id"))
+        self.assertEqual({}, await load_conversations("user-a"))
+
+        image = b"\xff\xd8\xffchannel-catalog"
+        download = AsyncMock(return_value={"base64": base64.b64encode(image).decode()})
+        with patch.object(chat_router.wapi_client, "download_media", download):
+            response = await chat_router.obter_midia_whatsapp(
+                message_id,
+                conversa_id=channel_id,
+                user=chat_user(),
+            )
+
+        self.assertEqual(image, response.body)
+        self.assertEqual("image/jpeg", response.media_type)
+        download.assert_awaited_once_with(
+            "INST-A",
+            "tok-a",
+            media_key="catalog-key",
+            direct_path="/catalog/image",
+            media_type="image",
+            mimetype="image/jpeg",
+        )
+        self.assertEqual({}, await load_conversations("user-a"))
+
+    async def test_channels_merge_last_message_with_messages_persisted_by_webhook(self) -> None:
+        channel_id = "120363400000000011@newsletter"
+        conversation = new_conversation(channel_id, contato="Canal com historico", channel="whatsapp")
+        conversation["mensagens"] = [
+            {
+                "id": "CHANNEL-WEBHOOK-1",
+                "remetente": "contato",
+                "texto": "Atualizacao recebida pelo webhook",
+                "tipo": "texto",
+                "horario": "10:40",
+                "timestamp": 1_725_000_400,
+                "canal": "whatsapp",
+                "channel": "whatsapp",
+            }
+        ]
+        await save_conversations({channel_id: conversation}, "user-a")
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "channelsSyncedAt": time.time(),
+                "channels": [
+                    {
+                        "id": channel_id,
+                        "subject": "Canal com historico",
+                        "lastMessage": {
+                            "messageId": "CHANNEL-CATALOG-LAST",
+                            "moment": 1_725_000_300,
+                            "fromMe": False,
+                            "msgContent": {"conversation": "Ultima publicacao do catalogo"},
+                        },
+                    }
+                ],
+            },
+        )
+
+        result = await chat_router.listar_canais_whatsapp(user=chat_user())
+
+        messages = result["items"][0]["messages"]
+        self.assertEqual(
+            ["CHANNEL-CATALOG-LAST", "CHANNEL-WEBHOOK-1"],
+            [message["id"] for message in messages],
+        )
+        self.assertEqual(
+            ["Ultima publicacao do catalogo", "Atualizacao recebida pelo webhook"],
+            [message["texto"] for message in messages],
         )
 
     async def test_stale_channels_list_schedules_catalog_sync_without_remote_request(self) -> None:
@@ -216,6 +399,96 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
             ["5511999999999@s.whatsapp.net"],
             [item["id"] for item in contacts],
         )
+
+    async def test_conversations_list_excludes_newsletters_persisted_by_webhooks(self) -> None:
+        contact_id = "5511999999999@s.whatsapp.net"
+        channel_id = "120363400000000013@newsletter"
+        now = int(time.time())
+        contact = new_conversation(contact_id, contato="Maria", channel="whatsapp")
+        contact["timestampUltimaMsg"] = now - 1
+        channel = new_conversation(channel_id, contato="Canal persistido", channel="whatsapp")
+        channel["timestampUltimaMsg"] = now
+        await save_conversations(
+            {
+                contact_id: contact,
+                channel_id: channel,
+            },
+            "user-a",
+        )
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "catalogSyncedAt": time.time(),
+            },
+        )
+
+        result = await chat_router.obter_conversas(
+            since=None,
+            limit=100,
+            refresh=False,
+            user=chat_user(),
+        )
+
+        self.assertEqual([contact_id], [item["id"] for item in result])
+
+    async def test_conversations_delta_excludes_newsletters_persisted_by_webhooks(self) -> None:
+        contact_id = "5511888888888@s.whatsapp.net"
+        channel_id = "120363400000000014@newsletter"
+        now = int(time.time())
+        contact = new_conversation(contact_id, contato="Ana", channel="whatsapp")
+        contact["timestampUltimaMsg"] = now
+        channel = new_conversation(channel_id, contato="Canal no delta", channel="whatsapp")
+        channel["timestampUltimaMsg"] = now + 1
+        await save_conversations(
+            {
+                contact_id: contact,
+                channel_id: channel,
+            },
+            "user-a",
+        )
+
+        result = await chat_router.obter_conversas(
+            since=now - 10,
+            limit=100,
+            refresh=False,
+            user=chat_user(),
+        )
+
+        self.assertEqual([contact_id], [item["id"] for item in result["items"]])
+        self.assertEqual(now, result["cursor"])
+
+    async def test_profile_photo_endpoint_prefers_group_metadata(self) -> None:
+        group_id = "120363000000000777@g.us"
+        fresh_photo = "https://cdn.example/fresh-group.jpg"
+        metadata = AsyncMock(return_value={"group": {"id": group_id, "profilePicUrl": fresh_photo}})
+        fallback = AsyncMock(return_value="https://cdn.example/contact-fallback.jpg")
+
+        with (
+            patch.object(chat_router.wapi_client, "group_metadata", metadata),
+            patch.object(chat_router, "fetch_profile_picture", fallback),
+        ):
+            result = await chat_router.obter_foto_perfil(phone=group_id, user=chat_user())
+
+        self.assertEqual(fresh_photo, result["photoUrl"])
+        metadata.assert_awaited_once_with("INST-A", "tok-a", group_id)
+        fallback.assert_not_awaited()
+
+    async def test_profile_photo_endpoint_falls_back_when_group_metadata_has_no_photo(self) -> None:
+        group_id = "120363000000000778@g.us"
+        fallback_photo = "https://cdn.example/group-contact-fallback.jpg"
+        metadata = AsyncMock(return_value={"group": {"id": group_id, "subject": "Equipe"}})
+        fallback = AsyncMock(return_value=fallback_photo)
+
+        with (
+            patch.object(chat_router.wapi_client, "group_metadata", metadata),
+            patch.object(chat_router, "fetch_profile_picture", fallback),
+        ):
+            result = await chat_router.obter_foto_perfil(phone=group_id, user=chat_user())
+
+        self.assertEqual(fallback_photo, result["photoUrl"])
+        metadata.assert_awaited_once_with("INST-A", "tok-a", group_id)
+        fallback.assert_awaited_once_with("user-a", group_id)
 
     async def test_contact_sync_does_not_block_on_profile_picture_refresh(self) -> None:
         expired = {
@@ -312,6 +585,45 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(item["viewed"])
         self.assertFalse(item["mine"])
         self.assertIn("/api/chat/midia/", item["mediaUrl"])
+
+    async def test_status_route_enriches_photo_from_nested_contact_cache(self) -> None:
+        photo_url = "https://cdn.example/maria-from-cache.jpg"
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "contactsSyncedAt": time.time(),
+                "contacts": [
+                    {
+                        "contact": {
+                            "id": "5511999999999@s.whatsapp.net",
+                            "profilePicUrl": photo_url,
+                        }
+                    }
+                ],
+            },
+        )
+        await chat_router.save_whatsapp_status_feed(
+            "user-a",
+            {
+                "items": [
+                    {
+                        "id": "STATUS-WITH-CACHED-PHOTO",
+                        "contactId": "5511999999999@s.whatsapp.net",
+                        "contactName": "Maria",
+                        "tipo": "texto",
+                        "texto": "Status sem foto no evento",
+                        "timestamp": 9_999_999_999,
+                        "visualizado": False,
+                        "fromMe": False,
+                    }
+                ]
+            },
+        )
+
+        result = await chat_router.listar_status_whatsapp(chat_user())
+
+        self.assertEqual(photo_url, result["items"][0].get("photoUrl"))
 
     async def test_status_media_is_downloaded_from_separate_feed(self) -> None:
         await chat_router.save_whatsapp_status_feed(
@@ -714,6 +1026,39 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("Grupo da familia", group["metadados"]["descricaoGrupo"])
         self.assertEqual("https://cdn.example/group-photo.jpg", group["photoUrl"])
         self.assertEqual("https://cdn.example/group-photo.jpg", group["metadados"]["photoUrl"])
+
+    async def test_groups_list_uses_cached_photo_when_live_payload_omits_it(self) -> None:
+        group_id = "120363000000000099@g.us"
+        photo_url = "https://cdn.example/group-photo-from-cache.jpg"
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "contactsSyncedAt": time.time(),
+                "chats": [
+                    {
+                        "id": group_id,
+                        "subject": "Grupo em cache",
+                        "imgUrl": photo_url,
+                    }
+                ],
+            },
+        )
+        payload = {
+            "groups": [
+                {
+                    "id": group_id,
+                    "subject": "Grupo em cache",
+                    "participants": [],
+                }
+            ]
+        }
+
+        with patch.object(chat_router.wapi_client, "get_all_groups", AsyncMock(return_value=payload)):
+            result = await chat_router.listar_grupos(chat_user())
+
+        self.assertEqual(photo_url, result["items"][0].get("photoUrl"))
+        self.assertEqual(photo_url, result["items"][0]["metadados"].get("photoUrl"))
 
     async def test_connected_event_starts_sync_progress(self) -> None:
         with patch.object(chat_router, "schedule_contact_sync", return_value={"status": "syncing"}) as schedule:

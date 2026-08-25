@@ -1,7 +1,7 @@
 import { Camera, ChevronLeft, ChevronRight, CircleDot, Eye, Image as ImageIcon, Mic, Pencil, RefreshCw, SendHorizontal, Square, Video, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { WhatsAppProfile, WhatsAppStatusItem, WhatsAppSyncProgress } from "./whatsappApi";
-import { useAuthenticatedMedia, useAuthenticatedMediaState } from "./useAuthenticatedMedia";
+import { useAuthenticatedMedia, useAuthenticatedMediaState, useWhatsAppProfilePhoto } from "./useAuthenticatedMedia";
 
 interface WhatsAppStatusViewProps {
   items: WhatsAppStatusItem[];
@@ -65,13 +65,12 @@ function groupStatusesByContact(items: WhatsAppStatusItem[]) {
   return Array.from(grouped.values()).sort((left, right) => right.latest.timestamp - left.latest.timestamp);
 }
 
-function StatusAvatar({ name, photoUrl, viewed = false }: { name: string; photoUrl?: string; viewed?: boolean }) {
-  const [failed, setFailed] = useState(false);
-  const source = useAuthenticatedMedia(photoUrl);
+function StatusAvatar({ identifier, name, photoUrl, viewed = false }: { identifier?: string; name: string; photoUrl?: string; viewed?: boolean }) {
+  const { source, onError } = useWhatsAppProfilePhoto(identifier, photoUrl);
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
   return (
     <span className={`grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full border-[3px] bg-[var(--background)] text-xs font-extrabold ${viewed ? "border-[var(--border)] text-[var(--text-secondary)]" : "border-[var(--primary)] text-[var(--text)]"}`}>
-      {source && !failed ? <img src={source} alt="" className="h-full w-full rounded-full object-cover" onError={() => setFailed(true)} /> : initials}
+      {source ? <img src={source} alt="" className="h-full w-full rounded-full object-cover" onError={onError} /> : initials}
     </span>
   );
 }
@@ -285,7 +284,7 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
         const active = group.items.some((status) => status.id === selectedId);
         return (
           <button key={group.key} type="button" disabled={navigationLocked} onClick={() => onSelect(item)} aria-label={`${item.name}, ${countLabel}, ${formatTime(item.timestamp)}`} aria-current={active ? "true" : undefined} className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50 ${active ? "bg-[color-mix(in_srgb,var(--primary)_14%,transparent)]" : ""}`}>
-            <StatusAvatar name={item.name} photoUrl={group.photoUrl} viewed={!hasUnviewed} />
+            <StatusAvatar identifier={item.contactId} name={item.name} photoUrl={group.photoUrl} viewed={!hasUnviewed} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-bold text-[var(--text)]">{item.name}</span>
               <span className="mt-0.5 block text-xs text-[var(--text-secondary)]">{formatTime(item.timestamp)} - {countLabel}</span>
@@ -311,7 +310,7 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
 
         <div className="border-b border-[var(--border)] px-4 py-4">
           <div className="flex items-center gap-3">
-            <StatusAvatar name={profile?.name || "Meu status"} photoUrl={profile?.photoUrl} viewed />
+            <StatusAvatar identifier={profile?.phone} name={profile?.name || "Meu status"} photoUrl={profile?.photoUrl} viewed />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold">Meu status</p>
               <p className="mt-0.5 text-xs text-[var(--text-secondary)]">Publique pelo WhatsApp no celular</p>
@@ -347,7 +346,7 @@ export default function WhatsAppStatusView({ items, selectedId, profile, loading
         {selected ? (
           <>
             <header className="flex h-[72px] shrink-0 items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-5">
-              <StatusAvatar name={selected.name} photoUrl={selected.photoUrl} viewed={selected.viewed} />
+              <StatusAvatar identifier={selected.contactId} name={selected.name} photoUrl={selected.photoUrl} viewed={selected.viewed} />
               <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-bold">{selected.name}</h3><p className="text-xs text-[var(--text-secondary)]">{formatTime(selected.timestamp)}</p></div>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"><Eye size={13} /> Visualizado</span>
             </header>

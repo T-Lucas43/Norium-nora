@@ -2,8 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const mediaApi = vi.hoisted(() => ({ apiBlobRequest: vi.fn() }));
-vi.mock("../../core/api/client", () => ({ apiBlobRequest: mediaApi.apiBlobRequest }));
+const mediaApi = vi.hoisted(() => ({ apiBlobRequest: vi.fn(), apiRequest: vi.fn() }));
+vi.mock("../../core/api/client", () => ({ apiBlobRequest: mediaApi.apiBlobRequest, apiRequest: mediaApi.apiRequest }));
 
 import WhatsAppStatusView from "./WhatsAppStatusView";
 
@@ -18,6 +18,8 @@ function deferred<T>() {
 describe("estado vazio do Status", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    mediaApi.apiBlobRequest.mockReset();
+    mediaApi.apiRequest.mockReset();
     vi.unstubAllGlobals();
     Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: originalMediaDevices });
   });
@@ -90,6 +92,33 @@ describe("estado vazio do Status", () => {
     expect(screen.getByRole("img", { name: "Pr\u00e9via em v\u00eddeo do Status de Ana" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Pr\u00e9via em \u00e1udio do Status de Bia" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /1 atualiza\u00e7\u00e3o/ })).toHaveLength(3);
+  });
+
+  it("renova uma foto de contato expirada uma unica vez pelo ID do Status", async () => {
+    const contactId = "5511777777777@s.whatsapp.net";
+    const expiredPhoto = "https://cdn.example/expired-status.jpg";
+    const freshPhoto = "https://cdn.example/fresh-status.jpg";
+    mediaApi.apiRequest.mockResolvedValue({ photoUrl: freshPhoto });
+    const item = {
+      id: "status-expired-photo",
+      contactId,
+      name: "Maria",
+      photoUrl: expiredPhoto,
+      type: "text" as const,
+      text: "Foto vencida",
+      timestamp: 1_800_000_000,
+    };
+
+    render(<WhatsAppStatusView items={[item]} selectedId={null} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+
+    const row = screen.getByRole("button", { name: /Maria/ });
+    expect(row.querySelector("img")).toHaveAttribute("src", expiredPhoto);
+    fireEvent.error(row.querySelector("img") as HTMLImageElement);
+    await waitFor(() => expect(row.querySelector("img")).toHaveAttribute("src", freshPhoto));
+    fireEvent.error(row.querySelector("img") as HTMLImageElement);
+
+    await waitFor(() => expect(mediaApi.apiRequest).toHaveBeenCalledTimes(1));
+    expect(mediaApi.apiRequest).toHaveBeenCalledWith(`/api/chat/foto-perfil?phone=${encodeURIComponent(contactId)}`, expect.any(Object));
   });
 
   it("bloqueia a navegação durante a gravação e envia o áudio somente ao Status selecionado", async () => {

@@ -216,6 +216,113 @@ class WapiRuntimeSyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("contatos em cache/chats", cache["catalogWarnings"])
         self.assertGreater(float(cache["contactSyncAttemptedAt"]), 0)
 
+    async def test_contact_sync_rehydrates_group_sender_from_saved_contact(self) -> None:
+        group_id = "120363000000000000@g.us"
+        sender_id = "5511999990000@s.whatsapp.net"
+        conversation = new_conversation(
+            group_id,
+            contato="Equipe",
+            channel="whatsapp",
+            is_group=True,
+        )
+        conversation["mensagens"] = [
+            {
+                "id": "GROUP-HISTORY-1",
+                "remetente": "contato",
+                "remetenteId": sender_id,
+                "remetenteNome": "Maria do perfil",
+                "timestamp": 1_700_000_005,
+            }
+        ]
+        conversation["ultimoRemetenteNome"] = "Maria do perfil"
+        conversation["timestampUltimaMsg"] = 1_700_000_005
+        await save_conversations({group_id: conversation}, "user-runtime")
+
+        with (
+            patch.object(
+                chat_router,
+                "fetch_all_wapi_contacts",
+                AsyncMock(
+                    return_value=[
+                        {
+                            "id": sender_id,
+                            "savedName": "Maria da agenda",
+                        }
+                    ]
+                ),
+            ),
+            patch.object(chat_router, "fetch_all_wapi_chats", AsyncMock(return_value=[])),
+        ):
+            result = await chat_router._run_contact_sync("user-runtime")
+
+        self.assertEqual("complete", result["status"])
+        stored = await load_conversations("user-runtime")
+        group = stored[group_id]
+        self.assertEqual("Maria da agenda", group["mensagens"][0]["remetenteNome"])
+        self.assertEqual("Maria da agenda", group["ultimoRemetenteNome"])
+        cache = await chat_router.load_whatsapp_catalog_cache("user-runtime")
+        self.assertEqual("Maria da agenda", cache["savedContactNames"][sender_id])
+
+    async def test_contact_sync_rehydrates_message_arriving_during_catalog_publication(self) -> None:
+        group_id = "120363000000000001@g.us"
+        sender_id = "5511999990001@s.whatsapp.net"
+        original_save_catalog = chat_router.save_whatsapp_catalog_cache
+        injected = False
+
+        async def save_catalog_with_waiting_message(user_id: str, payload: dict) -> None:
+            nonlocal injected
+            await original_save_catalog(user_id, payload)
+            if injected or not payload.get("contactsSyncedAt"):
+                return
+            injected = True
+            db = await load_conversations(user_id)
+            conversation = new_conversation(
+                group_id,
+                contato="Equipe concorrente",
+                channel="whatsapp",
+                is_group=True,
+            )
+            conversation["mensagens"] = [
+                {
+                    "id": "GROUP-RACE-1",
+                    "remetente": "contato",
+                    "remetenteId": sender_id,
+                    "remetenteNome": "Maria do perfil",
+                    "timestamp": 1_700_000_006,
+                }
+            ]
+            conversation["ultimoRemetenteNome"] = "Maria do perfil"
+            conversation["timestampUltimaMsg"] = 1_700_000_006
+            db[group_id] = conversation
+            await save_conversations(db, user_id)
+
+        with (
+            patch.object(
+                chat_router,
+                "fetch_all_wapi_contacts",
+                AsyncMock(
+                    return_value=[
+                        {
+                            "id": sender_id,
+                            "savedName": "Maria da agenda",
+                        }
+                    ]
+                ),
+            ),
+            patch.object(chat_router, "fetch_all_wapi_chats", AsyncMock(return_value=[])),
+            patch.object(
+                chat_router,
+                "save_whatsapp_catalog_cache",
+                AsyncMock(side_effect=save_catalog_with_waiting_message),
+            ),
+        ):
+            result = await chat_router._run_contact_sync("user-runtime")
+
+        self.assertEqual("complete", result["status"])
+        stored = (await load_conversations("user-runtime"))[group_id]
+        self.assertEqual("Maria da agenda", stored["mensagens"][0]["remetenteNome"])
+        self.assertEqual("Maria da agenda", stored["ultimoRemetenteNome"])
+
     async def test_history_loads_messages_from_provider_chat_created_before_connection(self) -> None:
         conversation_id = "5511999990000@s.whatsapp.net"
         conversation = new_conversation(conversation_id, contato="Maria", channel="whatsapp")
@@ -255,6 +362,60 @@ class WapiRuntimeSyncRegressionTests(unittest.IsolatedAsyncioTestCase):
             "tok-runtime",
             conversation_id,
         )
+
+    async def test_group_history_uses_saved_contact_name(self) -> None:
+        group_id = "120363000000000000@g.us"
+        sender_id = "5511999990000@s.whatsapp.net"
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-runtime",
+            {
+                "contacts": [
+                    {
+                        "id": sender_id,
+                        "savedName": "Maria da agenda",
+                    }
+                ],
+                "chats": [],
+            },
+        )
+        conversation = new_conversation(
+            group_id,
+            contato="Equipe",
+            channel="whatsapp",
+            is_group=True,
+        )
+        await save_conversations({group_id: conversation}, "user-runtime")
+        provider_history = AsyncMock(
+            return_value={
+                "chat": {
+                    "id": group_id,
+                    "messages": [
+                        {
+                            "messageId": "GROUP-HISTORY-NAME",
+                            "moment": 1_699_999_999,
+                            "fromMe": False,
+                            "sender": {
+                                "id": sender_id,
+                                "pushName": "Maria do perfil",
+                            },
+                            "msgContent": {"conversation": "mensagem antiga"},
+                        }
+                    ],
+                }
+            }
+        )
+
+        with patch.object(chat_router.wapi_client, "fetch_chat", provider_history):
+            page = await chat_router.obter_historico_conversa(
+                group_id,
+                before=None,
+                limit=50,
+                user=chat_user(),
+            )
+
+        self.assertEqual("Maria da agenda", page["items"][0]["remetenteNome"])
+        stored = (await load_conversations("user-runtime"))[group_id]
+        self.assertEqual("Maria da agenda", stored["mensagens"][0]["remetenteNome"])
 
     async def test_metadata_only_history_response_is_cached_without_repeated_calls(self) -> None:
         conversation_id = "5511888880000@s.whatsapp.net"
@@ -815,6 +976,32 @@ class WapiRuntimeSyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("João local", by_name)
         self.assertIn("5511999990000@s.whatsapp.net", by_name["Maria da agenda"]["aliases"])
         self.assertEqual("12345@lid", by_name["Maria da agenda"]["lid"])
+        self.assertEqual("Maria da agenda", by_name["Maria da agenda"]["savedName"])
+        schedule.assert_not_called()
+
+    async def test_non_contact_notify_is_not_exposed_as_saved_contact_name(self) -> None:
+        now = time.time()
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-runtime",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "contactsSyncedAt": now,
+                "contacts": [
+                    {
+                        "id": "5511999990000@s.whatsapp.net",
+                        "notify": "Nome escolhido no perfil",
+                        "isMyContact": False,
+                    }
+                ],
+                "chats": [],
+            },
+        )
+
+        with patch.object(chat_router, "schedule_contact_sync") as schedule:
+            contacts = await chat_router.obter_contatos_disponiveis(user=chat_user())
+
+        contact = next(item for item in contacts if item["id"] == "5511999990000@s.whatsapp.net")
+        self.assertIsNone(contact["savedName"])
         schedule.assert_not_called()
 
     async def test_status_polling_respects_contact_sync_retry_window(self) -> None:

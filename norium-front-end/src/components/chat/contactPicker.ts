@@ -42,7 +42,7 @@ function bestHumanName(values: Array<string | null | undefined>) {
 }
 
 export function contactDisplayName(contact: Contact) {
-  return bestHumanName([contact.name, contact.notify, contact.verifiedName, contact.pushname])
+  return bestHumanName([contact.savedName, contact.name, contact.notify, contact.verifiedName, contact.pushname])
     || formatWhatsAppPhone(contact.phone || contact.id)
     || "Contato do WhatsApp";
 }
@@ -69,7 +69,7 @@ export function contactGroupPhone(contact: Contact) {
 export function contactMatchesSearch(contact: Contact, search: string) {
   const query = normalizeSearch(search);
   if (!query) return true;
-  return [contact.name, contact.notify, contact.verifiedName, contact.pushname, contact.phone, contact.id, contact.lid, ...(contact.aliases || [])]
+  return [contact.savedName, contact.name, contact.notify, contact.verifiedName, contact.pushname, contact.phone, contact.id, contact.lid, ...(contact.aliases || [])]
     .some((value) => normalizeSearch(value || "").includes(query));
 }
 
@@ -191,6 +191,7 @@ export function mergeContactCatalog(current: Contact[], incoming: Contact[], con
     const previousName = previous ? contactDisplayName(previous) : "";
     const conversationName = conversation ? conversationDisplayName(conversation) : "";
     const humanName = bestHumanName([
+      contact.savedName,
       contact.name,
       contact.notify,
       contact.verifiedName,
@@ -201,6 +202,7 @@ export function mergeContactCatalog(current: Contact[], incoming: Contact[], con
     return {
       ...previous,
       ...contact,
+      savedName: contact.savedName || previous?.savedName,
       name: humanName || incomingName,
       photoUrl: contact.photoUrl || previous?.photoUrl || conversation?.metadados?.photoUrl || conversation?.photoUrl,
       aliases: [...new Set([...(previous?.aliases || []), ...(contact.aliases || []), contact.id, contact.phone, contact.lid].filter(Boolean) as string[])],
@@ -222,7 +224,11 @@ export function enrichConversationsWithContacts(conversations: ChatConversa[], c
     if (!matched) return conversation;
     const matchedName = contactDisplayName(matched);
     const currentName = conversationDisplayName(conversation);
-    const name = bestHumanName([conversation.contato, matchedName]) || currentName;
+    const matchedAgendaName = bestHumanName([
+      matched.savedName,
+      matched.isMyContact ? matchedName : undefined,
+    ]);
+    const name = bestHumanName([matchedAgendaName, conversation.contato, matchedName]) || currentName;
     const photoUrl = matched.photoUrl || conversation.metadados?.photoUrl || conversation.photoUrl;
     return {
       ...conversation,

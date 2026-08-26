@@ -127,4 +127,37 @@ describe("normalização dos dados do WhatsApp", () => {
       aliases: expect.arrayContaining(["123456789@lid", "5591999999999@s.whatsapp.net"]),
     });
   });
+
+  it("prioriza o nome salvo na agenda sobre o nome escolhido no perfil", () => {
+    const normalized = normalizeWhatsAppContact({
+      id: "5591999999999@s.whatsapp.net",
+      name: "Nome escolhido no WhatsApp",
+      pushName: "Nome escolhido no WhatsApp",
+      savedName: "Nome salvo na agenda",
+    });
+
+    expect(normalized).toMatchObject({
+      name: "Nome salvo na agenda",
+      savedName: "Nome salvo na agenda",
+    });
+  });
+
+  it("prioriza name da agenda sobre notify do perfil", () => {
+    expect(normalizeWhatsAppContact({
+      id: "5591999999999@s.whatsapp.net",
+      displayName: "Nome escolhido no WhatsApp",
+      name: "Nome salvo na agenda",
+      notify: "Nome escolhido no WhatsApp",
+      isMyContact: true,
+    })?.name).toBe("Nome salvo na agenda");
+  });
+
+  it("não trata notify de um chat comum como nome salvo", () => {
+    expect(normalizeWhatsAppContact({
+      id: "5591999999999@s.whatsapp.net",
+      name: "Nome escolhido no WhatsApp",
+      notify: "Nome escolhido no WhatsApp",
+      isMyContact: false,
+    })?.savedName).toBeUndefined();
+  });
 });

@@ -107,7 +107,7 @@ WHATSAPP_CONTACT_SYNC_RETRY_SECONDS = max(
     60,
     int(os.getenv("WHATSAPP_CONTACT_SYNC_RETRY_SECONDS", "300")),
 )
-WHATSAPP_CATALOG_SCHEMA_VERSION = 3
+WHATSAPP_CATALOG_SCHEMA_VERSION = 4
 WHATSAPP_HISTORY_CACHE_TTL_SECONDS = max(30, int(os.getenv("WHATSAPP_HISTORY_CACHE_TTL_SECONDS", "120")))
 WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS = max(
     5,
@@ -650,20 +650,117 @@ def _newsletter_catalog_id(record: Dict[str, Any]) -> str:
     return candidate if candidate.lower().endswith("@newsletter") else ""
 
 
-def _contact_display_name(contact: Dict[str, Any], reference_id: str = "") -> str | None:
-    """Extrai nomes de contatos/chats nos shapes conhecidos sem aceitar JID."""
+def _contact_name_from_keys(
+    contact: Dict[str, Any],
+    keys: tuple[str, ...],
+    reference_id: str = "",
+) -> str | None:
     nested = contact.get("contact") if isinstance(contact.get("contact"), dict) else {}
-    for source in (contact, nested):
-        for key in (
-            "subject", "savedName", "displayName", "formattedName", "fullName", "shortName",
-            "contactName", "profileName", "nickname", "givenName", "notify", "name",
-            "verifiedName", "verifiedBizName",
-            "verifiedBusinessName", "businessName", "pushname", "pushName",
-        ):
+    resolved_reference = reference_id or _contact_primary_id(contact)
+    for key in keys:
+        for source in (contact, nested):
             candidate = str(source.get(key) or "").strip()
-            if candidate and not _is_id_like(candidate, reference_id or _contact_primary_id(contact)):
+            if candidate and not _is_id_like(candidate, resolved_reference):
                 return candidate
     return None
+
+
+def _contact_explicit_saved_name(contact: Dict[str, Any], reference_id: str = "") -> str | None:
+    return _contact_name_from_keys(contact, ("savedName", "contactName"), reference_id)
+
+
+def _contact_membership_flag(contact: Dict[str, Any]) -> bool | None:
+    nested = contact.get("contact") if isinstance(contact.get("contact"), dict) else {}
+    for source in (contact, nested):
+        for key in ("isMyContact", "isContact"):
+            if key not in source:
+                continue
+            value = source.get(key)
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            normalized = str(value or "").strip().lower()
+            if normalized in {"1", "true", "yes", "sim"}:
+                return True
+            if normalized in {"0", "false", "no", "nao", "não"}:
+                return False
+    return None
+
+
+def _contact_saved_name(contact: Dict[str, Any], reference_id: str = "") -> str | None:
+    explicit_name = _contact_explicit_saved_name(contact, reference_id)
+    if explicit_name:
+        return explicit_name
+    if _contact_membership_flag(contact) is False:
+        return None
+    return _contact_name_from_keys(contact, ("name",), reference_id)
+
+
+def _contact_display_name(contact: Dict[str, Any], reference_id: str = "") -> str | None:
+    """Extrai nomes de contatos/chats nos shapes conhecidos sem aceitar JID."""
+    return _contact_name_from_keys(
+        contact,
+        (
+            "subject", "savedName", "contactName", "name", "notify",
+            "verifiedName", "verifiedBizName",
+            "verifiedBusinessName", "businessName", "displayName", "formattedName",
+            "fullName", "shortName", "profileName", "nickname", "givenName",
+            "pushname", "pushName",
+        ),
+        reference_id,
+    )
+
+
+def _build_saved_contact_name_index(
+    contacts: list[Dict[str, Any]],
+    fallback_records: list[Dict[str, Any]] | None = None,
+) -> Dict[str, str]:
+    names: Dict[str, str] = {}
+    priorities: Dict[str, int] = {}
+
+    def add(record: Dict[str, Any], candidate: str | None, priority: int) -> None:
+        jid = _contact_primary_id(record)
+        if not jid or not candidate:
+            return
+        for key in _contact_aliases(record) or {jid}:
+            if priority >= priorities.get(key, 0):
+                names[key] = candidate
+                priorities[key] = priority
+
+    for contact in contacts:
+        if not isinstance(contact, dict):
+            continue
+        jid = _contact_primary_id(contact)
+        explicit_name = _contact_explicit_saved_name(contact, jid)
+        saved_name = explicit_name or _contact_saved_name(contact, jid)
+        add(contact, saved_name, 2 if explicit_name else 1)
+
+    for record in fallback_records or []:
+        if not isinstance(record, dict):
+            continue
+        jid = _contact_primary_id(record)
+        explicit_name = _contact_explicit_saved_name(record, jid)
+        trusted_name = (
+            _contact_saved_name(record, jid)
+            if _contact_membership_flag(record) is True
+            else None
+        )
+        add(record, explicit_name or trusted_name, 2 if explicit_name else 1)
+    return names
+
+
+def _saved_contact_name_index_from_cache(cache: Dict[str, Any]) -> Dict[str, str]:
+    compact = cache.get("savedContactNames")
+    if cache.get("schemaVersion") == WHATSAPP_CATALOG_SCHEMA_VERSION and isinstance(compact, dict):
+        return {
+            str(key): str(value)
+            for key, value in compact.items()
+            if str(key).strip() and str(value).strip()
+        }
+    contacts = [item for item in (cache.get("contacts") or []) if isinstance(item, dict)]
+    chats = [item for item in (cache.get("chats") or []) if isinstance(item, dict)]
+    return _build_saved_contact_name_index(contacts, chats)
 
 
 def _contact_aliases(contact: Dict[str, Any]) -> set[str]:
@@ -829,6 +926,7 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         # O segundo catálogo é um fallback importante para instâncias em que a
         # rota PRO de contatos está indisponível ou retorna uma página parcial.
         contact_names, contact_photos, contact_metadata = build_contact_indexes([*contacts, *chats])
+        saved_contact_names = _build_saved_contact_name_index(contacts, chats)
         update_contact_sync_state(
             user_id,
             phase="conversations",
@@ -929,6 +1027,8 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
                         {key: value for key, value in metadata.items() if value is not None}
                     )
                     conversation_changed = True
+                if hydrate_group_message_names(conversation, saved_contact_names):
+                    conversation_changed = True
                 if conversation_changed:
                     db[conversation_id] = normalize_conversation(conversation_id, conversation)
                     changed = True
@@ -965,6 +1065,7 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
             contacts = merge_catalog_items(latest_contacts, contacts)
             chats = merge_catalog_items(latest_chats, chats)
             channels = merge_catalog_items(latest_channels, channels)
+            saved_contact_names = _build_saved_contact_name_index(contacts, chats)
             await save_whatsapp_catalog_cache(
                 user_id,
                 {
@@ -992,12 +1093,26 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
                     "contacts": contacts,
                     "chats": chats,
                     "channels": channels,
+                    "savedContactNames": saved_contact_names,
                     "requiresPro": contacts_requires_pro,
                     "reconnectRequired": contacts_requires_pro,
                     "catalogPartial": partial,
                     "catalogWarnings": warnings,
                 },
             )
+            latest_db = await load_conversations(user_id)
+            rehydrated = False
+            for conversation_id, conversation in latest_db.items():
+                if not isinstance(conversation, dict):
+                    continue
+                if hydrate_group_message_names(conversation, saved_contact_names):
+                    latest_db[conversation_id] = normalize_conversation(
+                        conversation_id,
+                        conversation,
+                    )
+                    rehydrated = True
+            if rehydrated:
+                await save_conversations(latest_db, user_id)
         total = len(contacts)
         catalog_total = len(_dedupe_catalog_items([*contacts, *chats, *channels]))
         photos_available = sum(1 for item in contacts if extract_photo_url(item))
@@ -1831,6 +1946,16 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
     if any(str(item.get("id") or "") == message_id for item in mensagens):
         return {"status": "duplicate"}
 
+    sender_name = msg["senderName"]
+    sender_id = _identifier_value(msg.get("senderId"))
+    if msg["isGroup"] and not is_from_me and sender_id:
+        try:
+            catalog_cache = await load_whatsapp_catalog_cache(user_id)
+            saved_contact_names = _saved_contact_name_index_from_cache(catalog_cache)
+            sender_name = _lookup_contact_index(saved_contact_names, sender_id) or sender_name
+        except Exception:
+            logger.warning("Falha ao resolver nome salvo do remetente do grupo.", exc_info=True)
+
     # Em grupos, nome/foto vêm dos metadados do próprio grupo e são seguros mesmo
     # quando a mensagem é fromMe. Em chats diretos, o remetente de uma fromMe é o
     # usuário — nunca deve substituir a identidade do contato.
@@ -1842,7 +1967,9 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
             conversa["contato"] = nome_atual or phone
     elif not is_from_me:
         if msg["chatName"]:
-            conversa["contato"] = melhor_nome_contato(conversa.get("contato"), msg["chatName"], phone)
+            nome_atual = conversa.get("contato")
+            if _is_id_like(nome_atual, phone):
+                conversa["contato"] = melhor_nome_contato(nome_atual, msg["chatName"], phone)
         if msg.get("photoUrl"):
             conversa["photoUrl"] = msg["photoUrl"]
             conversa.setdefault("metadados", {})["photoUrl"] = msg["photoUrl"]
@@ -1856,7 +1983,7 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
     conversa["horario"] = hora
     conversa["timestampUltimaMsg"] = timestamp
     conversa["ultimaMensagemMinha"] = is_from_me
-    conversa["ultimoRemetenteNome"] = msg["senderName"] if msg["isGroup"] and not is_from_me else None
+    conversa["ultimoRemetenteNome"] = sender_name if msg["isGroup"] and not is_from_me else None
     if is_from_me:
         conversa["lida"] = True
     else:
@@ -1868,7 +1995,7 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
             {
                 "id": message_id,
                 "remetente": "usuario" if is_from_me else "contato",
-                "remetenteNome": msg["senderName"] if msg["isGroup"] and not is_from_me else None,
+                "remetenteNome": sender_name if msg["isGroup"] and not is_from_me else None,
                 "remetenteId": msg.get("senderId"),
                 "texto": msg["texto"],
                 "tipo": msg["tipo"],
@@ -1888,10 +2015,15 @@ async def _wapi_handle_received_unlocked(user_id: str, data: Dict[str, Any]) -> 
     db[phone] = normalize_conversation(phone, conversa)
     await save_conversations(db, user_id)
     await mark_whatsapp_conversation_updated(user_id, phone)
+    event_name = (
+        sender_name
+        if msg["isGroup"] and not is_from_me
+        else str(conversa.get("contato") or msg["chatName"] or phone)
+    )
     await record_event(
         source="whatsapp",
         title="Nova mensagem no WhatsApp" if not is_from_me else "Mensagem enviada no WhatsApp",
-        description=f"{msg['chatName']}: {msg['texto'] or '[sem texto]'}",
+        description=f"{event_name}: {msg['texto'] or '[sem texto]'}",
         metadata={
             "conversaId": phone,
             "messageId": message_id,
@@ -2514,6 +2646,12 @@ async def obter_historico_conversa(
     resolved_user_id = tenant_id(user)
     db = await load_conversations(resolved_user_id)
     conversation = db.get(conversa_id)
+    saved_contact_names: Dict[str, str] = {}
+    if is_group_chat(conversa_id, conversation):
+        catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
+        saved_contact_names = _saved_contact_name_index_from_cache(catalog_cache)
+        if isinstance(conversation, dict):
+            hydrate_group_message_names(conversation, saved_contact_names)
 
     # Páginas antigas sempre vêm do snapshot já persistido. A W-API não
     # oferece cursor de mensagens; repetir uma chamada remota para cada página
@@ -2528,6 +2666,8 @@ async def obter_historico_conversa(
         # esta requisição aguardava. Releia antes de consultar o provedor.
         db = await load_conversations(resolved_user_id)
         conversation = db.get(conversa_id)
+        if isinstance(conversation, dict):
+            hydrate_group_message_names(conversation, saved_contact_names)
         if whatsapp_history_cache_is_fresh(conversation):
             return whatsapp_history_page(conversation, before=None, limit=limit)
 
@@ -2594,6 +2734,7 @@ async def obter_historico_conversa(
                 if not _contact_primary_id(provider_chat):
                     provider_chat = {**provider_chat, "id": conversa_id}
                 sync_catalog_messages(latest, provider_chat)
+                hydrate_group_message_names(latest, saved_contact_names)
                 metadata = latest.setdefault("metadados", {})
                 metadata["historicoSincronizadoEm"] = time.time()
                 metadata["historicoSchema"] = WHATSAPP_HISTORY_SCHEMA_VERSION
@@ -2922,9 +3063,11 @@ def normalize_group_participants(
             or participant.get("isSuperAdmin")
             or admin_role in {"admin", "superadmin", "owner"}
         )
+        explicit_saved_name = _contact_explicit_saved_name(participant, participant_id)
         name = (
-            _contact_display_name(participant, participant_id)
+            explicit_saved_name
             or _lookup_contact_index(names, participant_id)
+            or _contact_display_name(participant, participant_id)
         )
         photo = extract_photo_url(participant) or _lookup_contact_index(photos, participant_id)
         normalized.append(
@@ -3555,6 +3698,7 @@ async def obter_contatos_disponiveis(
             schedule_contact_sync(resolved_user_id, force=True)
 
         contatos = merge_catalog_items([*cached_contacts, *cached_chats], local_records)
+        saved_contact_names = _build_saved_contact_name_index(cached_contacts, cached_chats)
         contatos_whatsapp: list[Dict[str, Any]] = []
         for c in contatos:
             raw_id = _contact_primary_id(c)
@@ -3566,7 +3710,16 @@ async def obter_contatos_disponiveis(
                 or lowered_id.endswith("@newsletter")
             ):
                 continue
-            display_name = _contact_display_name(c, raw_id)
+            saved_name = (
+                _lookup_contact_index(saved_contact_names, raw_id)
+                or _contact_explicit_saved_name(c, raw_id)
+                or (
+                    _contact_saved_name(c, raw_id)
+                    if _contact_membership_flag(c) is True
+                    else None
+                )
+            )
+            display_name = saved_name or _contact_display_name(c, raw_id)
             # Um LID sem nome não é utilizável para humanos e não deve poluir o
             # seletor de novo chat com um identificador técnico.
             if lowered_id.endswith("@lid") and not display_name:
@@ -3585,6 +3738,7 @@ async def obter_contatos_disponiveis(
                     "lid": _identifier_value(c.get("lid") or c.get("senderLid")) or None,
                     "aliases": sorted(_contact_aliases(c)),
                     "name": display_name or clean_phone,
+                    "savedName": saved_name,
                     "notify": c.get("notify"),
                     "pushname": c.get("pushname") or c.get("pushName"),
                     "photoUrl": extract_photo_url(c),
@@ -4118,6 +4272,51 @@ def richer_whatsapp_message_status(existing: Any, incoming: Any) -> str | None:
     if _WHATSAPP_MESSAGE_STATUS_RANK[candidate] >= _WHATSAPP_MESSAGE_STATUS_RANK[current]:
         return candidate
     return current
+
+
+def hydrate_group_message_names(
+    conversation: Dict[str, Any],
+    saved_contact_names: Dict[str, str],
+) -> bool:
+    """Promove nomes salvos na agenda nas mensagens e na prévia de grupos."""
+    if not conversation.get("esGrupo") or not saved_contact_names:
+        return False
+
+    messages = [
+        message
+        for message in (conversation.get("mensagens") or [])
+        if isinstance(message, dict)
+    ]
+    changed = False
+    for message in messages:
+        if message.get("remetente") == "usuario":
+            continue
+        sender_id = _identifier_value(message.get("remetenteId"))
+        if not sender_id:
+            continue
+        saved_name = _lookup_contact_index(saved_contact_names, sender_id)
+        if saved_name and message.get("remetenteNome") != saved_name:
+            message["remetenteNome"] = saved_name
+            changed = True
+
+    if messages:
+        latest_message = max(
+            enumerate(messages),
+            key=lambda item: (
+                normalize_whatsapp_timestamp(item[1].get("timestamp")),
+                item[0],
+            ),
+        )[1]
+        if latest_message.get("remetente") != "usuario":
+            latest_sender_id = _identifier_value(latest_message.get("remetenteId"))
+            latest_saved_name = _lookup_contact_index(saved_contact_names, latest_sender_id)
+            if (
+                latest_saved_name
+                and conversation.get("ultimoRemetenteNome") != latest_saved_name
+            ):
+                conversation["ultimoRemetenteNome"] = latest_saved_name
+                changed = True
+    return changed
 
 
 def sync_catalog_messages(conversation: Dict[str, Any], chat: Dict[str, Any]) -> bool:

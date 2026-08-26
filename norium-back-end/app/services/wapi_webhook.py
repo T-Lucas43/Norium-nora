@@ -468,7 +468,9 @@ def adapt_incoming(data: dict[str, Any]) -> dict[str, Any] | None:
         "senderName": sender_name,
         "chatName": chat_name,
         "senderId": _identifier_token(
-            sender.get("id") if sender else _first(payload, "senderId", "participant", "keyParticipant")
+            _first(sender, "id", "jid", "lid", "senderLid", "phone", "phoneNumber")
+            or _first(payload, "senderId", "participant", "keyParticipant")
+            or _first(key, "participant")
         ) or None,
         "photoUrl": photo_url if isinstance(photo_url, str) and photo_url.startswith("http") else None,
         "timestamp": timestamp_int,

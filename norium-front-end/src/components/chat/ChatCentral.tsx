@@ -115,7 +115,7 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
   const participants = participantSource.map((participant: Record<string, any>) => ({
     id: String(participant.id || participant.phone || participant.jid || ""),
     phone: String(participant.phone || participant.id || participant.jid || ""),
-    name: participant.name || participant.savedName || participant.contactName || participant.notify || participant.pushname || participant.displayName || participant.verifiedName,
+    name: participant.savedName || participant.contactName || participant.displayName || participant.verifiedName || participant.name || participant.notify || participant.pushname,
     isAdmin: normalizarBooleanWhatsApp(participant.isAdmin ?? participant.admin) || ["admin", "superadmin"].includes(String(participant.admin || participant.role || "").toLowerCase()),
     isSuperAdmin: normalizarBooleanWhatsApp(participant.isSuperAdmin ?? participant.superAdmin) || String(participant.admin || participant.role || "").toLowerCase() === "superadmin",
     photoUrl: participant.photoUrl || participant.profilePictureUrl || participant.profilePicUrl || participant.imgUrl,

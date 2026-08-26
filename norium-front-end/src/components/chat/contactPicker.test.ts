@@ -86,6 +86,28 @@ describe("contact picker", () => {
     expect(enrichConversationsWithContacts([{ ...conversation, contato: conversation.id }], merged)[0].contato).toBe("Joao salvo no WhatsApp");
   });
 
+  it("promove o nome da agenda sobre o nome de perfil já persistido na conversa", () => {
+    const conversation = {
+      ...contactToConversation(contact),
+      contato: "Nome escolhido no WhatsApp",
+    };
+    const savedContact = {
+      ...contact,
+      name: "Nome salvo na agenda",
+      pushname: "Nome escolhido no WhatsApp",
+      isMyContact: true,
+    };
+
+    expect(enrichConversationsWithContacts([conversation], [savedContact])[0].contato).toBe("Nome salvo na agenda");
+  });
+
+  it("não rebaixa um nome conhecido com o perfil de um contato não salvo", () => {
+    const conversation = { ...contactToConversation(contact), contato: "Nome salvo na agenda" };
+    const profileOnlyContact = { ...contact, name: "Nome escolhido no WhatsApp", isMyContact: false };
+
+    expect(enrichConversationsWithContacts([conversation], [profileOnlyContact])[0].contato).toBe("Nome salvo na agenda");
+  });
+
   it("remove pseudo-chat de Status mesmo quando o delta recebido está vazio", () => {
     const technicalStatus = {
       ...contactToConversation({ id: "status", phone: "", name: "T" }),

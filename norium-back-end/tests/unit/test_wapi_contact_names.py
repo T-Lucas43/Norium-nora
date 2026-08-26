@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from app.modules.chat import router as chat_router
 from app.modules.chat.router import (
     build_contact_indexes,
     melhor_nome_contato,
@@ -60,6 +61,33 @@ class ContactNameResolutionTests(unittest.TestCase):
         self.assertEqual("Maria salva", nomes["5511999999999"])
         self.assertEqual("Maria salva", nomes["219451387551856@lid"])
 
+    def test_saved_contact_name_wins_over_profile_notify_fields(self) -> None:
+        contacts = [
+            {
+                "id": "5511999999999",
+                "displayName": "Maria do perfil",
+                "name": "Maria salva na agenda",
+                "notify": "Maria do perfil",
+                "isMyContact": True,
+            }
+        ]
+        nomes, _fotos, _meta = build_contact_indexes(contacts)
+        self.assertEqual("Maria salva na agenda", nomes["5511999999999"])
+
+    def test_nested_saved_name_wins_over_outer_profile_name(self) -> None:
+        contacts = [
+            {
+                "id": "5511999999999",
+                "notify": "Maria do perfil",
+                "contact": {
+                    "id": "5511999999999",
+                    "savedName": "Maria salva na agenda",
+                },
+            }
+        ]
+        nomes, _fotos, _meta = build_contact_indexes(contacts)
+        self.assertEqual("Maria salva na agenda", nomes["5511999999999"])
+
     def test_group_subject_wins_over_group_jid(self) -> None:
         groups = [{"id": "120363000000000000@g.us", "subject": "Familia"}]
         nomes, _fotos, _meta = build_contact_indexes(groups)
@@ -90,6 +118,49 @@ class ContactNameResolutionTests(unittest.TestCase):
         self.assertTrue(participants[0]["isAdmin"])
         self.assertTrue(participants[0]["isSuperAdmin"])
         self.assertEqual("https://cdn.example/maria.jpg", participants[0]["photoUrl"])
+
+    def test_group_participant_prefers_saved_contact_name_over_profile_name(self) -> None:
+        names, _photos, _meta = build_contact_indexes(
+            [
+                {
+                    "id": "5511999999999@s.whatsapp.net",
+                    "savedName": "Maria da agenda",
+                }
+            ]
+        )
+        participants = normalize_group_participants(
+            [{"id": "5511999999999@s.whatsapp.net", "pushName": "Maria do perfil"}],
+            names,
+        )
+        self.assertEqual("Maria da agenda", participants[0]["name"])
+
+    def test_group_participant_explicit_saved_name_wins_over_profile_index(self) -> None:
+        participant_id = "5511999999999@s.whatsapp.net"
+        participants = normalize_group_participants(
+            [
+                {"id": participant_id, "savedName": "Maria da agenda"},
+            ],
+            {participant_id: "Maria do perfil no catálogo"},
+        )
+        self.assertEqual("Maria da agenda", participants[0]["name"])
+
+    def test_group_messages_are_rehydrated_with_saved_contact_name(self) -> None:
+        participant_id = "5511999999999@s.whatsapp.net"
+        conversation = {
+            "esGrupo": True,
+            "mensagens": [
+                {
+                    "remetente": "contato",
+                    "remetenteId": participant_id,
+                    "remetenteNome": "Maria do perfil",
+                }
+            ],
+        }
+
+        changed = chat_router.hydrate_group_message_names(conversation, {participant_id: "Maria da agenda"})
+
+        self.assertTrue(changed)
+        self.assertEqual("Maria da agenda", conversation["mensagens"][0]["remetenteNome"])
 
     def test_group_participant_names_are_indexed_as_contact_fallback(self) -> None:
         names, _photos, _meta = build_contact_indexes(

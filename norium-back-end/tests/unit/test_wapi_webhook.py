@@ -80,6 +80,30 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         db_b = await load_conversations("user-b")
         self.assertEqual({}, db_b)
 
+    async def test_received_preserves_saved_contact_name_over_profile_name(self) -> None:
+        db = await load_conversations("user-a")
+        db["5511999998888"] = new_conversation(
+            "5511999998888",
+            contato="Nome salvo na agenda",
+            channel="whatsapp",
+        )
+        await save_conversations(db, "user-a")
+
+        payload = self._received(message_id="CONTACT-NAME-1")
+        payload["sender"] = {
+            "notify": "Nome escolhido no WhatsApp",
+            "pushName": "Nome escolhido no WhatsApp",
+        }
+
+        event = AsyncMock()
+        with patch.object(chat_router, "record_event", event):
+            result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+
+        self.assertEqual("success", result["status"])
+        stored = (await load_conversations("user-a"))["5511999998888"]
+        self.assertEqual("Nome salvo na agenda", stored["contato"])
+        self.assertEqual("Nome salvo na agenda: oi", event.await_args.kwargs["description"])
+
     async def test_from_me_message_preserves_contact_identity(self) -> None:
         # Conversa já tem nome e foto do contato.
         db = await load_conversations("user-a")
@@ -129,6 +153,41 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("120363000000000000@g.us", conv["contato"])
         self.assertEqual("oi grupo", conv["mensagens"][0]["texto"])
         group_metadata.assert_not_awaited()
+
+    async def test_group_sender_uses_saved_contact_name_instead_of_profile_name(self) -> None:
+        sender_id = "5511999998888@s.whatsapp.net"
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "contacts": [],
+                "chats": [
+                    {
+                        "id": sender_id,
+                        "savedName": "Nome salvo na agenda",
+                    }
+                ],
+            },
+        )
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "messageId": "GROUP-IN1",
+            "fromMe": False,
+            "isGroup": True,
+            "chat": {"id": "120363000000000000@g.us"},
+            "sender": {
+                "id": sender_id,
+                "pushName": "Nome escolhido no WhatsApp",
+            },
+            "msgContent": {"conversation": "oi grupo"},
+        }
+
+        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+
+        self.assertEqual("success", result["status"])
+        conversation = (await load_conversations("user-a"))["120363000000000000@g.us"]
+        self.assertEqual("Nome salvo na agenda", conversation["ultimoRemetenteNome"])
+        self.assertEqual("Nome salvo na agenda", conversation["mensagens"][0]["remetenteNome"])
 
     async def test_whatsapp_status_text_image_and_video_use_separate_feed(self) -> None:
         contents = {
@@ -313,6 +372,40 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))
         again = await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))
         self.assertEqual("duplicate", again["status"])
+
+    async def test_stored_group_duplicate_skips_catalog_lookup(self) -> None:
+        group_id = "120363000000000000@g.us"
+        conversation = new_conversation(
+            group_id,
+            contato="Equipe",
+            channel="whatsapp",
+            is_group=True,
+        )
+        conversation["mensagens"] = [{"id": "GROUP-STORED-DUP"}]
+        await save_conversations({group_id: conversation}, "user-a")
+        payload = {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+            "messageId": "GROUP-STORED-DUP",
+            "fromMe": False,
+            "isGroup": True,
+            "chat": {"id": group_id},
+            "sender": {
+                "id": "5511999998888@s.whatsapp.net",
+                "pushName": "Nome escolhido no WhatsApp",
+            },
+            "msgContent": {"conversation": "duplicada"},
+        }
+        catalog = AsyncMock(side_effect=AssertionError("catalogo nao deve ser lido"))
+
+        with patch.object(chat_router, "load_whatsapp_catalog_cache", catalog):
+            result = await chat_router.webhook_whatsapp(
+                payload,
+                request=FakeRequest(secret=SECRET),
+            )
+
+        self.assertEqual("duplicate", result["status"])
+        catalog.assert_not_awaited()
 
     async def test_failed_dispatch_is_not_cached_and_retry_can_persist(self) -> None:
         handler = AsyncMock(side_effect=[RuntimeError("falha transitoria"), {"status": "success"}])
@@ -590,6 +683,32 @@ class WapiAdaptIncomingTests(unittest.TestCase):
         self.assertEqual("Joao", msg["senderName"])
         self.assertEqual(1700000000, msg["timestamp"])
         self.assertEqual("texto", msg["tipo"])
+
+    def test_group_sender_id_accepts_sender_identifier_aliases(self) -> None:
+        from app.services.wapi_webhook import adapt_incoming
+
+        variants = {
+            "jid": "5511999998888@s.whatsapp.net",
+            "lid": "73650132766836@lid",
+            "senderLid": "73650132766837@lid",
+            "phone": "5511999997777@s.whatsapp.net",
+            "phoneNumber": "5511999996666@s.whatsapp.net",
+        }
+        for field, sender_id in variants.items():
+            with self.subTest(field=field):
+                message = adapt_incoming(
+                    {
+                        "event": "webhookReceived",
+                        "messageId": "GROUP-SENDER-ALIAS",
+                        "isGroup": True,
+                        "chat": {"id": "120363000000000000@g.us"},
+                        "sender": {field: sender_id, "pushName": "Joao"},
+                        "msgContent": {"conversation": "ola grupo"},
+                    }
+                )
+
+                self.assertIsNotNone(message)
+                self.assertEqual(sender_id, message["senderId"])
 
     def test_image_message_captures_media_meta(self) -> None:
         from app.services.wapi_webhook import adapt_incoming

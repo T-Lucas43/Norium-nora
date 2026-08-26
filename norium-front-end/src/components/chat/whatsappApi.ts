@@ -180,6 +180,7 @@ export type Contact = {
   lid?: string;
   aliases?: string[];
   name?: string;
+  savedName?: string;
   notify?: string;
   pushname?: string;
   photoUrl?: string;
@@ -362,6 +363,8 @@ export function normalizeWhatsAppContact(value: unknown): Contact | null {
   const id = firstText(raw.id, raw.jid, raw.lid, raw.phone, raw.phoneNumber, raw.number);
   if (!id || [id, raw.jid, raw.phone, raw.phoneNumber, raw.number].some(isWhatsAppStatusIdentifier) || /@g\.us$|@newsletter$/i.test(id)) return null;
   const phone = firstText(raw.phone, raw.phoneNumber, raw.number, id);
+  const isMyContact = booleanFlag(raw.isMyContact ?? raw.isContact);
+  const savedName = firstText(raw.savedName, raw.contactName, isMyContact ? raw.name : undefined);
   const aliases = [raw.id, raw.jid, raw.lid, raw.senderLid, raw.phone, raw.phoneNumber, ...(Array.isArray(raw.aliases) ? raw.aliases : [])]
     .map((item) => firstText(item)).filter(Boolean);
   return {
@@ -369,14 +372,15 @@ export function normalizeWhatsAppContact(value: unknown): Contact | null {
     phone,
     lid: firstText(raw.lid, raw.senderLid) || undefined,
     aliases: [...new Set(aliases)],
-    name: firstText(raw.name, raw.contactName, raw.displayName, raw.savedName, raw.fullName, raw.shortName) || undefined,
+    name: firstText(savedName, raw.name, raw.displayName, raw.fullName, raw.shortName) || undefined,
+    savedName: savedName || undefined,
     notify: firstText(raw.notify, raw.subject) || undefined,
     pushname: firstText(raw.pushname, raw.pushName) || undefined,
     photoUrl: firstText(raw.photoUrl, raw.profilePictureUrl, raw.profilePicUrl, raw.imgUrl) || undefined,
     verifiedName: firstText(raw.verifiedName, raw.businessName) || undefined,
     bio: firstText(raw.bio, raw.status, raw.about) || undefined,
     isBusiness: booleanFlag(raw.isBusiness),
-    isMyContact: booleanFlag(raw.isMyContact ?? raw.isContact),
+    isMyContact,
     isBlocked: booleanFlag(raw.isBlocked),
   };
 }

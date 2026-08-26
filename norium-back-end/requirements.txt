@@ -10,6 +10,6 @@ google-auth-oauthlib
 websockets
 edge-tts
 openai
-pypdf==6.15.0
-reportlab==4.4.3
+pypdf==6.16.1
+reportlab==5.0.1
 openpyxl==3.1.5

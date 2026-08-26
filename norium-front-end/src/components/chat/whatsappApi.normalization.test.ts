@@ -128,6 +128,19 @@ describe("normalização dos dados do WhatsApp", () => {
     });
   });
 
+  it("preserva remoteJidAlt para associar um chat LID ao contato salvo por telefone", () => {
+    expect(normalizeWhatsAppContact({
+      id: "54855339126828@lid",
+      phoneNumber: "5585999999999",
+      remoteJidAlt: "5585999999999@s.whatsapp.net",
+      name: ".",
+    })?.aliases).toEqual(expect.arrayContaining([
+      "54855339126828@lid",
+      "5585999999999",
+      "5585999999999@s.whatsapp.net",
+    ]));
+  });
+
   it("prioriza o nome salvo na agenda sobre o nome escolhido no perfil", () => {
     const normalized = normalizeWhatsAppContact({
       id: "5591999999999@s.whatsapp.net",

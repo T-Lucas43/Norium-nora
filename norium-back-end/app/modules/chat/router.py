@@ -107,7 +107,7 @@ WHATSAPP_CONTACT_SYNC_RETRY_SECONDS = max(
     60,
     int(os.getenv("WHATSAPP_CONTACT_SYNC_RETRY_SECONDS", "300")),
 )
-WHATSAPP_CATALOG_SCHEMA_VERSION = 4
+WHATSAPP_CATALOG_SCHEMA_VERSION = 5
 WHATSAPP_HISTORY_CACHE_TTL_SECONDS = max(30, int(os.getenv("WHATSAPP_HISTORY_CACHE_TTL_SECONDS", "120")))
 WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS = max(
     5,
@@ -629,7 +629,8 @@ def _contact_primary_id(contact: Dict[str, Any]) -> str:
     nested = contact.get("contact") if isinstance(contact.get("contact"), dict) else {}
     for source in (contact, nested):
         for key in (
-            "phone", "phoneNumber", "number", "id", "jid", "lid", "senderLid",
+            "phone", "phoneNumber", "number", "id", "jid", "remoteJid", "remoteJidAlt",
+            "lid", "senderLid",
             "serialized", "wid",
         ):
             value = _identifier_value(source.get(key))
@@ -671,7 +672,8 @@ def _contact_explicit_saved_name(contact: Dict[str, Any], reference_id: str = ""
 
 def _contact_membership_flag(contact: Dict[str, Any]) -> bool | None:
     nested = contact.get("contact") if isinstance(contact.get("contact"), dict) else {}
-    for source in (contact, nested):
+    # O contato aninhado vem do catálogo da agenda e é a fonte mais específica.
+    for source in (nested, contact):
         for key in ("isMyContact", "isContact"):
             if key not in source:
                 continue
@@ -694,6 +696,11 @@ def _contact_saved_name(contact: Dict[str, Any], reference_id: str = "") -> str 
         return explicit_name
     if _contact_membership_flag(contact) is False:
         return None
+    nested = contact.get("contact") if isinstance(contact.get("contact"), dict) else {}
+    if nested and _contact_membership_flag(nested) is True:
+        nested_name = _contact_name_from_keys(nested, ("name",), reference_id)
+        if nested_name:
+            return nested_name
     return _contact_name_from_keys(contact, ("name",), reference_id)
 
 
@@ -716,29 +723,33 @@ def _build_saved_contact_name_index(
     contacts: list[Dict[str, Any]],
     fallback_records: list[Dict[str, Any]] | None = None,
 ) -> Dict[str, str]:
-    names: Dict[str, str] = {}
-    priorities: Dict[str, int] = {}
+    contact_records = [record for record in contacts if isinstance(record, dict)]
+    fallback_contact_records = [
+        record for record in (fallback_records or []) if isinstance(record, dict)
+    ]
+    component_by_alias = _contact_alias_component_map(
+        [*contact_records, *fallback_contact_records]
+    )
+    names_by_component: Dict[str, tuple[int, str]] = {}
 
     def add(record: Dict[str, Any], candidate: str | None, priority: int) -> None:
         jid = _contact_primary_id(record)
         if not jid or not candidate:
             return
-        for key in _contact_aliases(record) or {jid}:
-            if priority >= priorities.get(key, 0):
-                names[key] = candidate
-                priorities[key] = priority
+        aliases = _contact_aliases(record) or {jid}
+        component = component_by_alias.get(sorted(aliases)[0], sorted(aliases)[0])
+        current = names_by_component.get(component)
+        if current is None or priority >= current[0]:
+            names_by_component[component] = (priority, candidate)
 
-    for contact in contacts:
-        if not isinstance(contact, dict):
-            continue
+    for contact in contact_records:
         jid = _contact_primary_id(contact)
         explicit_name = _contact_explicit_saved_name(contact, jid)
         saved_name = explicit_name or _contact_saved_name(contact, jid)
-        add(contact, saved_name, 2 if explicit_name else 1)
+        # O catálogo de contatos é mais confiável que o fallback de chats.
+        add(contact, saved_name, 4 if explicit_name else 3)
 
-    for record in fallback_records or []:
-        if not isinstance(record, dict):
-            continue
+    for record in fallback_contact_records:
         jid = _contact_primary_id(record)
         explicit_name = _contact_explicit_saved_name(record, jid)
         trusted_name = (
@@ -747,6 +758,12 @@ def _build_saved_contact_name_index(
             else None
         )
         add(record, explicit_name or trusted_name, 2 if explicit_name else 1)
+
+    names: Dict[str, str] = {}
+    for alias, component in component_by_alias.items():
+        resolved = names_by_component.get(component)
+        if resolved:
+            names[alias] = resolved[1]
     return names
 
 
@@ -768,7 +785,8 @@ def _contact_aliases(contact: Dict[str, Any]) -> set[str]:
     nested = contact.get("contact") if isinstance(contact.get("contact"), dict) else {}
     for source in (contact, nested):
         for key in (
-            "phone", "phoneNumber", "number", "id", "jid", "lid", "senderLid",
+            "phone", "phoneNumber", "number", "id", "jid", "remoteJid", "remoteJidAlt",
+            "lid", "senderLid",
             "serialized", "user", "wid",
         ):
             value = _identifier_value(source.get(key))
@@ -783,6 +801,39 @@ def _contact_aliases(contact: Dict[str, Any]) -> set[str]:
         if digits:
             aliases.update({digits, f"{digits}@c.us", f"{digits}@s.whatsapp.net"})
     return aliases
+
+
+def _contact_alias_component_map(records: list[Dict[str, Any]]) -> Dict[str, str]:
+    """Liga todos os identificadores que aparecem juntos em contatos/chats."""
+    parent: Dict[str, str] = {}
+
+    def find(alias: str) -> str:
+        parent.setdefault(alias, alias)
+        root = alias
+        while parent[root] != root:
+            root = parent[root]
+        while parent[alias] != alias:
+            next_alias = parent[alias]
+            parent[alias] = root
+            alias = next_alias
+        return root
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for record in records:
+        aliases = sorted(_contact_aliases(record))
+        if not aliases:
+            continue
+        first = aliases[0]
+        find(first)
+        for alias in aliases[1:]:
+            union(first, alias)
+
+    return {alias: find(alias) for alias in list(parent)}
 
 
 def _iter_contact_records(records: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
@@ -927,6 +978,9 @@ async def _run_contact_sync(user_id: str) -> Dict[str, Any]:
         # rota PRO de contatos está indisponível ou retorna uma página parcial.
         contact_names, contact_photos, contact_metadata = build_contact_indexes([*contacts, *chats])
         saved_contact_names = _build_saved_contact_name_index(contacts, chats)
+        # A agenda é autoritativa também para conversas individuais. O índice
+        # visual pode conter notify/name do chat, mas nunca deve rebaixar o nome salvo.
+        contact_names.update(saved_contact_names)
         update_contact_sync_state(
             user_id,
             phase="conversations",
@@ -3746,7 +3800,7 @@ async def obter_contatos_disponiveis(
                     "verifiedName": c.get("verifiedName"),
                     "bio": c.get("bio") or c.get("status"),
                     "isBusiness": bool(c.get("isBusiness")),
-                    "isMyContact": bool(c.get("isMyContact")),
+                    "isMyContact": _contact_membership_flag(c) is True,
                     "isBlocked": bool(c.get("isBlocked")),
                     "channel": "whatsapp",
                     "canal": "whatsapp",
@@ -4519,8 +4573,11 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
     nomes: Dict[str, str] = {}
     fotos: Dict[str, str] = {}
     metadata: Dict[str, Dict[str, Any]] = {}
+    records = _iter_contact_records(contacts)
+    component_by_alias = _contact_alias_component_map(records)
+    names_by_component: Dict[str, tuple[int, str]] = {}
 
-    for contato in _iter_contact_records(contacts):
+    for contato in records:
         jid = _contact_primary_id(contato)
         if not jid:
             continue
@@ -4528,15 +4585,23 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
         # costuma vir indexado pelo número. Indexa também por qualquer lid/jid
         # do contato para a busca por telefone do chat casar (ponte @lid → nome).
         alt_keys = _contact_aliases(contato) or {jid}
-        # ``notify`` é o nome salvo retornado no contrato oficial de
-        # fetch-contacts; grupos priorizam ``subject`` para nunca exibir @g.us.
-        nome = _contact_display_name(contato, jid)
+        explicit_name = _contact_explicit_saved_name(contato, jid)
+        membership = _contact_membership_flag(contato)
+        saved_name = _contact_saved_name(contato, jid)
+        if explicit_name:
+            nome = explicit_name
+            name_priority = 3
+        elif membership is True and saved_name:
+            nome = saved_name
+            name_priority = 2
+        else:
+            nome = _contact_display_name(contato, jid)
+            name_priority = 1
         if nome:
-            for key in alt_keys:
-                # A chamada passa fetch-contacts/cache antes de fetch-chats.
-                # Preserva o nome salvo/mais rico já conhecido e usa o nome do
-                # chat apenas como fallback, sem rebaixar "Maria da agenda".
-                nomes.setdefault(key, str(nome))
+            component = component_by_alias.get(sorted(alt_keys)[0], sorted(alt_keys)[0])
+            current = names_by_component.get(component)
+            if current is None or name_priority > current[0]:
+                names_by_component[component] = (name_priority, str(nome))
         photo = extract_photo_url(contato)
         if photo:
             for key in alt_keys:
@@ -4557,12 +4622,17 @@ def build_contact_indexes(contacts: list[Dict[str, Any]]) -> tuple[Dict[str, str
             "notify": contato.get("notify"),
             "bioRecado": contato.get("bio") or contato.get("status"),
             "isBusiness": bool(contato.get("isBusiness")),
-            "isMyContact": bool(contato.get("isMyContact")),
+            "isMyContact": _contact_membership_flag(contato) is True,
             "isBlocked": bool(contato.get("isBlocked")),
             "photoFetchedAt": contato.get("photoFetchedAt"),
         }
         for key in alt_keys:
             metadata[key] = contact_meta
+
+    for alias, component in component_by_alias.items():
+        resolved = names_by_component.get(component)
+        if resolved:
+            nomes[alias] = resolved[1]
 
     return nomes, fotos, metadata
 

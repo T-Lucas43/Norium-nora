@@ -263,6 +263,44 @@ class WapiRuntimeSyncRegressionTests(unittest.IsolatedAsyncioTestCase):
         cache = await chat_router.load_whatsapp_catalog_cache("user-runtime")
         self.assertEqual("Maria da agenda", cache["savedContactNames"][sender_id])
 
+    async def test_contact_sync_joins_saved_lid_name_to_phone_chat(self) -> None:
+        phone_id = "54855339126828@s.whatsapp.net"
+        lid = "219451387551856@lid"
+
+        with (
+            patch.object(
+                chat_router,
+                "fetch_all_wapi_contacts",
+                AsyncMock(
+                    return_value=[
+                        {
+                            "id": lid,
+                            "savedName": "Kaio K",
+                            "isMyContact": True,
+                        }
+                    ]
+                ),
+            ),
+            patch.object(
+                chat_router,
+                "fetch_all_wapi_chats",
+                AsyncMock(
+                    return_value=[
+                        {
+                            "id": phone_id,
+                            "lid": lid,
+                            "notify": ".",
+                        }
+                    ]
+                ),
+            ),
+        ):
+            result = await chat_router._run_contact_sync("user-runtime")
+
+        self.assertEqual("complete", result["status"])
+        stored = await load_conversations("user-runtime")
+        self.assertEqual("Kaio K", stored[phone_id]["contato"])
+
     async def test_contact_sync_rehydrates_message_arriving_during_catalog_publication(self) -> None:
         group_id = "120363000000000001@g.us"
         sender_id = "5511999990001@s.whatsapp.net"

@@ -70,6 +70,38 @@ describe("contact picker", () => {
     expect(mergeConversationDetails([optimistic], generic)[0].contato).toBe("Joao da Silva");
   });
 
+  it("preserva Kaio K quando os detalhes retornam o nome de perfil ponto", () => {
+    const agenda = contactToConversation({
+      id: "54855339126828@s.whatsapp.net",
+      phone: "54855339126828",
+      name: "Kaio K",
+      savedName: "Kaio K",
+      notify: ".",
+      isMyContact: true,
+    });
+    const details = {
+      ...agenda,
+      contato: ".",
+    };
+
+    expect(mergeConversationDetails([agenda], details)[0].contato).toBe("Kaio K");
+  });
+
+  it("aceita um nome mais rico dos detalhes para contato não salvo", () => {
+    const profileOnly = contactToConversation({
+      id: "5511988887777@s.whatsapp.net",
+      phone: "5511988887777",
+      name: "Nome anterior do perfil",
+      isMyContact: false,
+    });
+    const details = {
+      ...profileOnly,
+      contato: "Nome atualizado do perfil",
+    };
+
+    expect(mergeConversationDetails([profileOnly], details)[0].contato).toBe("Nome atualizado do perfil");
+  });
+
   it("não rebaixa um nome já conhecido para o número em uma atualização", () => {
     const existing = { ...contact, name: "Joao salvo", pushname: undefined };
     const numeric = { ...contact, name: "5511999999999", pushname: undefined };

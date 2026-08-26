@@ -360,12 +360,12 @@ export function normalizeWhatsAppConversation(value: unknown): ChatConversa | nu
 
 export function normalizeWhatsAppContact(value: unknown): Contact | null {
   const raw = record(value);
-  const id = firstText(raw.id, raw.jid, raw.lid, raw.phone, raw.phoneNumber, raw.number);
+  const id = firstText(raw.id, raw.jid, raw.lid, raw.phone, raw.phoneNumber, raw.number, raw.remoteJid, raw.remoteJidAlt);
   if (!id || [id, raw.jid, raw.phone, raw.phoneNumber, raw.number].some(isWhatsAppStatusIdentifier) || /@g\.us$|@newsletter$/i.test(id)) return null;
   const phone = firstText(raw.phone, raw.phoneNumber, raw.number, id);
   const isMyContact = booleanFlag(raw.isMyContact ?? raw.isContact);
   const savedName = firstText(raw.savedName, raw.contactName, isMyContact ? raw.name : undefined);
-  const aliases = [raw.id, raw.jid, raw.lid, raw.senderLid, raw.phone, raw.phoneNumber, ...(Array.isArray(raw.aliases) ? raw.aliases : [])]
+  const aliases = [raw.id, raw.jid, raw.lid, raw.senderLid, raw.phone, raw.phoneNumber, raw.remoteJid, raw.remoteJidAlt, ...(Array.isArray(raw.aliases) ? raw.aliases : [])]
     .map((item) => firstText(item)).filter(Boolean);
   return {
     id,

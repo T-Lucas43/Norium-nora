@@ -105,12 +105,14 @@ export function mergeConversationDetails(current: ChatConversa[], details: ChatC
 
   return current.map((conversation) => {
     if (conversation.id !== details.id) return conversation;
+    const hasSavedAgendaName = conversation.metadados?.isMyContact === true
+      && !isTechnicalWhatsAppLabel(conversation.contato);
     const genericName = isTechnicalWhatsAppLabel(details.contato);
     const messages = mergeMessages(conversation.mensagens, details.mensagens || []);
     return {
       ...conversation,
       ...details,
-      contato: genericName ? conversation.contato : details.contato,
+      contato: hasSavedAgendaName || genericName ? conversation.contato : details.contato,
       photoUrl: details.photoUrl || conversation.photoUrl,
       mensagens: messages,
       metadados: {

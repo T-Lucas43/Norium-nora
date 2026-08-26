@@ -48,6 +48,26 @@ class ContactNameResolutionTests(unittest.TestCase):
         self.assertEqual("João", nomes.get("219451387551856@lid"))
         self.assertEqual("João", nomes.get("5511999999999@c.us"))
 
+    def test_remote_jid_alt_bridges_saved_phone_contact_to_lid_chat(self) -> None:
+        phone_jid = "5585999999999@s.whatsapp.net"
+        lid = "54855339126828@lid"
+        records = [
+            {
+                "id": phone_jid,
+                "name": "Kaio K",
+                "isMyContact": True,
+            },
+            {
+                "id": lid,
+                "remoteJidAlt": phone_jid,
+                "name": ".",
+            },
+        ]
+
+        self.assertIn(phone_jid, chat_router._contact_aliases(records[1]))
+        nomes, _fotos, _meta = build_contact_indexes(records)
+        self.assertEqual("Kaio K", nomes.get(lid))
+
     def test_official_notify_field_is_used_as_saved_name(self) -> None:
         contacts = [
             {
@@ -87,6 +107,24 @@ class ContactNameResolutionTests(unittest.TestCase):
         ]
         nomes, _fotos, _meta = build_contact_indexes(contacts)
         self.assertEqual("Maria salva na agenda", nomes["5511999999999"])
+
+    def test_nested_contact_name_wins_over_outer_profile_name(self) -> None:
+        lid = "54855339126828@lid"
+        phone_jid = "5585999999999@s.whatsapp.net"
+        contact = {
+            "id": lid,
+            "name": ".",
+            "contact": {
+                "id": phone_jid,
+                "name": "Kaio K",
+                "isMyContact": True,
+            },
+        }
+
+        self.assertEqual("Kaio K", chat_router._contact_saved_name(contact, lid))
+        nomes, _fotos, _meta = build_contact_indexes([contact])
+        self.assertEqual("Kaio K", nomes.get(lid))
+        self.assertEqual("Kaio K", nomes.get(phone_jid))
 
     def test_group_subject_wins_over_group_jid(self) -> None:
         groups = [{"id": "120363000000000000@g.us", "subject": "Familia"}]

@@ -107,7 +107,7 @@ WHATSAPP_CONTACT_SYNC_RETRY_SECONDS = max(
     60,
     int(os.getenv("WHATSAPP_CONTACT_SYNC_RETRY_SECONDS", "300")),
 )
-WHATSAPP_CATALOG_SCHEMA_VERSION = 5
+WHATSAPP_CATALOG_SCHEMA_VERSION = 6
 WHATSAPP_HISTORY_CACHE_TTL_SECONDS = max(30, int(os.getenv("WHATSAPP_HISTORY_CACHE_TTL_SECONDS", "120")))
 WHATSAPP_HISTORY_ERROR_BACKOFF_SECONDS = max(
     5,
@@ -770,14 +770,24 @@ def _build_saved_contact_name_index(
 def _saved_contact_name_index_from_cache(cache: Dict[str, Any]) -> Dict[str, str]:
     compact = cache.get("savedContactNames")
     if cache.get("schemaVersion") == WHATSAPP_CATALOG_SCHEMA_VERSION and isinstance(compact, dict):
-        return {
-            str(key): str(value)
-            for key, value in compact.items()
-            if str(key).strip() and str(value).strip()
-        }
+        valid_compact: Dict[str, str] = {}
+        candidate_count = 0
+        for key, value in compact.items():
+            normalized_key = str(key).strip()
+            normalized_value = str(value).strip()
+            if not normalized_key or not normalized_value:
+                continue
+            candidate_count += 1
+            if not _is_id_like(normalized_value, normalized_key):
+                valid_compact[normalized_key] = normalized_value
+        if len(valid_compact) == candidate_count:
+            return valid_compact
     contacts = [item for item in (cache.get("contacts") or []) if isinstance(item, dict)]
     chats = [item for item in (cache.get("chats") or []) if isinstance(item, dict)]
-    return _build_saved_contact_name_index(contacts, chats)
+    rebuilt = _build_saved_contact_name_index(contacts, chats)
+    if cache.get("schemaVersion") == WHATSAPP_CATALOG_SCHEMA_VERSION and isinstance(compact, dict):
+        rebuilt.update(valid_compact)
+    return rebuilt
 
 
 def _contact_aliases(contact: Dict[str, Any]) -> set[str]:
@@ -4259,11 +4269,18 @@ def is_group_chat(phone: str, data: Dict[str, Any] | None = None) -> bool:
 # um nome real (ex.: pushName de um webhook) seja rebaixado de volta para o id.
 _JID_LIKE = re.compile(r"^[^\s@]+@(lid|g\.us|c\.us|s\.whatsapp\.net|newsletter|broadcast)$", re.I)
 _PHONE_LIKE = re.compile(r"^\+?[0-9][0-9\s().-]{6,}$")
+_PLACEHOLDER_LABEL = re.compile(r"^[.,;:_~\-–—]+$")
 
 
 def _is_id_like(value: str | None, phone: str) -> bool:
     v = (value or "").strip()
-    return (not v) or v == phone or bool(_JID_LIKE.fullmatch(v)) or bool(_PHONE_LIKE.fullmatch(v))
+    return (
+        (not v)
+        or v == phone
+        or bool(_JID_LIKE.fullmatch(v))
+        or bool(_PHONE_LIKE.fullmatch(v))
+        or bool(_PLACEHOLDER_LABEL.fullmatch(v))
+    )
 
 
 def melhor_nome_contato(atual: str | None, novo: str | None, phone: str) -> str:
@@ -4278,7 +4295,7 @@ def melhor_nome_contato(atual: str | None, novo: str | None, phone: str) -> str:
         return novo
     if atual and not _is_id_like(atual, phone):
         return atual
-    return atual or novo or phone
+    return phone
 
 
 def parse_whatsapp_collection(payload: Any) -> list[Dict[str, Any]]:

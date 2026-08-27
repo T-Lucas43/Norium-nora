@@ -8,6 +8,7 @@ import {
   contactToConversation,
   enrichConversationsWithContacts,
   formatWhatsAppPhone,
+  isTechnicalWhatsAppLabel,
   mergeContactCatalog,
   mergeConversationCatalog,
   mergeConversationDetails,
@@ -85,6 +86,63 @@ describe("contact picker", () => {
     };
 
     expect(mergeConversationDetails([agenda], details)[0].contato).toBe("Kaio K");
+  });
+
+  it("trata ponto isolado como rotulo tecnico do WhatsApp", () => {
+    expect(isTechnicalWhatsAppLabel(".")).toBe(true);
+    expect(contactToConversation({
+      id: "54855339126828@lid",
+      phone: "54855339126828@lid",
+      name: ".",
+    }).contato).toBe("+54855339126828");
+  });
+
+  it("exibe Kaio K quando agenda e perfil LID chegam no mesmo lote", () => {
+    const phoneJid = "558599126828@s.whatsapp.net";
+    const lid = "54855339126828@lid";
+    const savedContact: Contact = {
+      id: phoneJid,
+      phone: "558599126828",
+      name: "Kaio K",
+      savedName: "Kaio K",
+      isMyContact: true,
+    };
+    const lidProfile: Contact = {
+      id: lid,
+      phone: lid,
+      name: ".",
+      notify: ".",
+      photoUrl: "https://example.test/kaio.jpg",
+      bio: "Recado do Kaio",
+      verifiedName: "Kaio verificado",
+      isBusiness: true,
+      aliases: [phoneJid],
+      isMyContact: false,
+    };
+    const conversation = contactToConversation({
+      ...lidProfile,
+      photoUrl: undefined,
+      bio: undefined,
+      verifiedName: undefined,
+      isBusiness: undefined,
+    });
+
+    const reversedContacts = mergeContactCatalog([], [lidProfile, savedContact], [conversation]);
+    const [reversedEnriched] = enrichConversationsWithContacts([conversation], reversedContacts);
+    expect(reversedEnriched.contato).toBe("Kaio K");
+    expect(reversedEnriched.photoUrl).toBe("https://example.test/kaio.jpg");
+    expect(reversedEnriched.metadados).toMatchObject({
+      bioRecado: "Recado do Kaio",
+      verifiedName: "Kaio verificado",
+      isBusiness: true,
+    });
+
+    const contacts = mergeContactCatalog([], [savedContact, lidProfile], [conversation]);
+    const [enriched] = enrichConversationsWithContacts([conversation], contacts);
+
+    expect(formatWhatsAppPhone(enriched.metadados.numeroCompleto)).toBe("+54855339126828");
+    expect(enriched.contato).toBe("Kaio K");
+    expect(enriched.photoUrl).toBe("https://example.test/kaio.jpg");
   });
 
   it("aceita um nome mais rico dos detalhes para contato não salvo", () => {

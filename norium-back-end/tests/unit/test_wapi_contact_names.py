@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import time
 
 from app.modules.chat import router as chat_router
 from app.modules.chat.router import (
@@ -24,6 +25,30 @@ class ContactNameResolutionTests(unittest.TestCase):
         # o nome real já existente deve ser preservado.
         phone = "219451387551856@lid"
         self.assertEqual("João", melhor_nome_contato("João", phone, phone))
+
+    def test_never_downgrades_real_name_to_punctuation_placeholder(self) -> None:
+        phone = "54855339126828@lid"
+        self.assertEqual("Kaio K", melhor_nome_contato("Kaio K", ".", phone))
+
+    def test_punctuation_placeholder_falls_back_to_phone(self) -> None:
+        phone = "54855339126828@lid"
+        self.assertEqual(phone, melhor_nome_contato(".", None, phone))
+
+    def test_schema_five_catalog_is_stale_after_name_resolution_change(self) -> None:
+        self.assertFalse(chat_router.catalog_cache_is_fresh({
+            "schemaVersion": 5,
+            "catalogSyncedAt": time.time(),
+        }))
+
+    def test_current_catalog_rebuilds_punctuation_only_cached_name(self) -> None:
+        lid = "54855339126828@lid"
+        names = chat_router._saved_contact_name_index_from_cache({
+            "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+            "savedContactNames": {lid: "."},
+            "contacts": [{"id": lid, "savedName": "Kaio K", "isMyContact": True}],
+            "chats": [],
+        })
+        self.assertEqual("Kaio K", names[lid])
 
     def test_keeps_id_only_when_no_name_available(self) -> None:
         phone = "5511999999999@c.us"

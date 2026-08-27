@@ -11,7 +11,10 @@ function normalizeSearch(value: string) {
 
 export function isTechnicalWhatsAppLabel(value?: string | null) {
   const label = String(value || "").trim();
-  return !label || /@(?:c\.us|s\.whatsapp\.net|lid|g\.us|newsletter|broadcast)$/i.test(label) || /^\+?[\d\s().-]{7,}$/.test(label);
+  return !label
+    || /@(?:c\.us|s\.whatsapp\.net|lid|g\.us|newsletter|broadcast)$/i.test(label)
+    || /^\+?[\d\s().-]{7,}$/.test(label)
+    || /^[.,;:_~\-–—]+$/u.test(label);
 }
 
 export function whatsappIdentifierKeys(value?: string | null) {
@@ -172,6 +175,92 @@ function contactKeys(contact: Contact) {
   ])];
 }
 
+function consolidateContactAliases(contacts: Contact[]) {
+  if (contacts.length < 2) return contacts;
+
+  const parents = contacts.map((_contact, index) => index);
+  const findRoot = (index: number): number => {
+    let root = index;
+    while (parents[root] !== root) root = parents[root];
+    while (parents[index] !== index) {
+      const next = parents[index];
+      parents[index] = root;
+      index = next;
+    }
+    return root;
+  };
+  const join = (left: number, right: number) => {
+    const leftRoot = findRoot(left);
+    const rightRoot = findRoot(right);
+    if (leftRoot !== rightRoot) parents[rightRoot] = leftRoot;
+  };
+
+  const ownerByKey = new Map<string, number>();
+  contacts.forEach((contact, index) => {
+    contactKeys(contact).forEach((key) => {
+      const owner = ownerByKey.get(key);
+      if (owner === undefined) ownerByKey.set(key, index);
+      else join(index, owner);
+    });
+  });
+
+  const membersByRoot = new Map<number, Contact[]>();
+  contacts.forEach((contact, index) => {
+    const root = findRoot(index);
+    membersByRoot.set(root, [...(membersByRoot.get(root) || []), contact]);
+  });
+
+  return contacts.map((contact, index): Contact => {
+    const members = membersByRoot.get(findRoot(index)) || [contact];
+    if (members.length < 2) return contact;
+
+    const savedMembers = members.filter((member) => member.isMyContact === true);
+    const agendaName = bestHumanName([
+      ...members.map((member) => member.savedName),
+      ...savedMembers.flatMap((member) => [member.name, member.notify, member.verifiedName, member.pushname]),
+    ]);
+    const sharedName = agendaName || bestHumanName(members.flatMap((member) => [
+      member.name,
+      member.notify,
+      member.verifiedName,
+      member.pushname,
+    ]));
+    const sharedNotify = bestHumanName(members.map((member) => member.notify));
+    const sharedPushname = bestHumanName(members.map((member) => member.pushname));
+    const sharedVerifiedName = bestHumanName(members.map((member) => member.verifiedName));
+    const sharedPhotoUrl = members.map((member) => member.photoUrl).find(Boolean);
+    const sharedBio = members.map((member) => member.bio).find((value) => Boolean(value?.trim()));
+    const sharedIsBusiness = members.some((member) => member.isBusiness === true)
+      ? true
+      : members.some((member) => member.isBusiness === false) ? false : undefined;
+    const sharedIsBlocked = members.some((member) => member.isBlocked === true)
+      ? true
+      : members.some((member) => member.isBlocked === false) ? false : undefined;
+    const aliases = [...new Set(members.flatMap((member) => [
+      ...(member.aliases || []),
+      member.id,
+      member.phone,
+      member.lid,
+    ]).filter(Boolean) as string[])];
+    const belongsToAgenda = Boolean(agendaName) || savedMembers.length > 0;
+
+    return {
+      ...contact,
+      ...(agendaName ? { savedName: agendaName } : {}),
+      ...(sharedName ? { name: sharedName } : {}),
+      notify: bestHumanName([contact.notify, sharedNotify]),
+      pushname: bestHumanName([contact.pushname, sharedPushname]),
+      verifiedName: bestHumanName([contact.verifiedName, sharedVerifiedName]),
+      photoUrl: contact.photoUrl || sharedPhotoUrl,
+      bio: contact.bio || sharedBio,
+      isBusiness: sharedIsBusiness,
+      isMyContact: belongsToAgenda ? true : contact.isMyContact,
+      isBlocked: sharedIsBlocked,
+      aliases,
+    };
+  });
+}
+
 function conversationKeys(conversation: ChatConversa) {
   return [...new Set([
     ...whatsappIdentifierKeys(conversation.id),
@@ -215,7 +304,7 @@ export function mergeContactCatalog(current: Contact[], incoming: Contact[], con
   current.forEach((contact) => {
     if (!contactKeys(contact).some((key) => incomingKeys.has(key))) merged.push(contact);
   });
-  return merged;
+  return consolidateContactAliases(merged);
 }
 
 export function enrichConversationsWithContacts(conversations: ChatConversa[], contacts: Contact[]) {

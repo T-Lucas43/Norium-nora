@@ -44,7 +44,12 @@ class WapiMessagingService:
         self._client = client or WapiClient()
 
     def _creds(self, user_id: str) -> tuple[str, str]:
-        binding = wb.get_binding(user_id)
+        try:
+            binding = wb.get_owned_binding(user_id)
+        except wb.InstanceOwnershipError as exc:
+            raise MessagingUnavailable(
+                "Não foi possível confirmar a instância de WhatsApp desta conta."
+            ) from exc
         if not binding.exists:
             raise MessagingUnavailable("Nenhuma instancia de WhatsApp vinculada a esta conta.")
         return binding.instance_id, binding.token

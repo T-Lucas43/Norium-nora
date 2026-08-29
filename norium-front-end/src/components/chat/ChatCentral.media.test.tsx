@@ -17,6 +17,12 @@ const api = vi.hoisted(() => ({
   sendMedia: vi.fn(),
   sendText: vi.fn(),
 }));
+const mediaClient = vi.hoisted(() => ({ apiBlobRequest: vi.fn() }));
+
+vi.mock("../../core/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../core/api/client")>();
+  return { ...actual, apiBlobRequest: mediaClient.apiBlobRequest };
+});
 
 vi.mock("./whatsappApi", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./whatsappApi")>();
@@ -32,14 +38,21 @@ vi.mock("./SidebarEsquerda", () => ({
 vi.mock("./AreaCentralChat", () => ({
   default: (props: {
     anexosPendentes: Array<{ id: string }>;
+    figurinhasRecentes: Array<{ id: string }>;
     onColarAnexos: (files: File[]) => void;
     onAlternarVisualizacaoUnica: (id: string) => void;
     onEnviar: (text: string) => void | Promise<void>;
+    onEnviarFigurinhaExistente: (sticker: { id: string }) => void | Promise<void>;
   }) => (
     <div>
       <button type="button" onClick={() => props.onColarAnexos([new File(["photo"], "foto.jpg", { type: "image/jpeg" })])}>Adicionar foto</button>
       {props.anexosPendentes[0] && <button type="button" onClick={() => props.onAlternarVisualizacaoUnica(props.anexosPendentes[0].id)}>Ativar visualizacao unica</button>}
       <button type="button" onClick={() => void props.onEnviar("")}>Enviar anexos</button>
+      {props.figurinhasRecentes[0] && (
+        <button type="button" onClick={() => void props.onEnviarFigurinhaExistente(props.figurinhasRecentes[0])}>
+          Reenviar figurinha
+        </button>
+      )}
     </div>
   ),
 }));
@@ -65,6 +78,7 @@ describe("midia em visualizacao unica", () => {
     vi.clearAllMocks();
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:foto") });
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    mediaClient.apiBlobRequest.mockResolvedValue(new Blob(["sticker"], { type: "image/webp" }));
     api.status.mockResolvedValue({ conectado: true, status: "conectado", numero: "5511999999999" });
     api.conversations.mockResolvedValue([conversation]);
     api.contacts.mockResolvedValue([]);
@@ -93,6 +107,43 @@ describe("midia em visualizacao unica", () => {
       conversationId: conversation.id,
       fileName: "foto.jpg",
       viewOnce: true,
+    })));
+  });
+
+  it("normaliza a URL absoluta do backend ao reenviar uma figurinha existente", async () => {
+    const user = userEvent.setup();
+    const stickerConversation = {
+      ...conversation,
+      mensagens: [
+        ...conversation.mensagens,
+        {
+          id: "sticker-1",
+          remetente: "contato" as const,
+          tipo: "sticker" as const,
+          texto: "[Figurinha]",
+          horario: "10:01",
+          timestamp: 2,
+          arquivoUrl: "http://127.0.0.1:8000/api/chat/midia/sticker-1",
+          arquivoMime: "image/webp",
+          nomeArquivo: "sticker-1.webp",
+        },
+      ],
+    };
+    api.conversations.mockResolvedValue([stickerConversation]);
+    api.details.mockResolvedValue(stickerConversation);
+    render(<ChatCentral />);
+
+    await user.click(await screen.findByRole("button", { name: "Abrir conversa de Maria" }));
+    await user.click(await screen.findByRole("button", { name: "Reenviar figurinha" }));
+
+    await waitFor(() => expect(mediaClient.apiBlobRequest).toHaveBeenCalledWith(
+      "/api/chat/midia/sticker-1",
+      expect.objectContaining({ cache: "no-store" }),
+    ));
+    await waitFor(() => expect(api.sendMedia).toHaveBeenCalledWith(expect.objectContaining({
+      conversationId: conversation.id,
+      asSticker: true,
+      fileName: "sticker-1.webp",
     })));
   });
 });

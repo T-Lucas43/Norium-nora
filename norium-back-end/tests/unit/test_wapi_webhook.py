@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 import tempfile
 import time
 import unittest
@@ -25,6 +26,142 @@ class FakeRequest:
 
 
 SECRET = "segredo-teste"
+SHARED_ENVIRONMENTS = ("production", "prod", "railway", "staging")
+LOCAL_TEST_ENVIRONMENTS = ("development", "test")
+RUNTIME_MARKERS_CLEARED = {
+    "RAILWAY_ENVIRONMENT": "",
+    "RAILWAY_PROJECT_ID": "",
+    "RAILWAY_SERVICE_ID": "",
+    "VERCEL": "",
+    "WEBSITE_INSTANCE_ID": "",
+}
+
+
+class WapiWebhookAuthenticationTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _payload() -> dict:
+        return {
+            "event": "webhookReceived",
+            "instanceId": "INST-A",
+        }
+
+    @staticmethod
+    def _runtime(environment: str):
+        return patch.dict(
+            os.environ,
+            {
+                "ENVIRONMENT": environment,
+                "APP_ENV": environment,
+                **RUNTIME_MARKERS_CLEARED,
+            },
+        )
+
+    async def test_missing_configuration_is_only_allowed_in_local_test(self) -> None:
+        for environment in SHARED_ENVIRONMENTS:
+            owner = patch.object(chat_router.wb, "owner_of_instance")
+            classify = patch.object(chat_router.wapi_webhook, "classify_event")
+            with self.subTest(environment=environment), self._runtime(environment), patch.object(
+                chat_router,
+                "WAPI_WEBHOOK_SECRET",
+                "",
+            ), owner as owner_lookup, classify as classify_event:
+                with self.assertRaises(HTTPException) as error:
+                    await chat_router.webhook_whatsapp(self._payload())
+                self.assertEqual(503, error.exception.status_code)
+                owner_lookup.assert_not_called()
+                classify_event.assert_not_called()
+
+        for environment in LOCAL_TEST_ENVIRONMENTS:
+            handler = AsyncMock(return_value={"status": "success"})
+            with self.subTest(environment=environment), self._runtime(environment), patch.object(
+                chat_router,
+                "WAPI_WEBHOOK_SECRET",
+                "",
+            ), patch.object(
+                chat_router.wb,
+                "owner_of_instance",
+                return_value="tenant-owner",
+            ), patch.object(
+                chat_router.wapi_webhook,
+                "classify_event",
+                return_value=chat_router.wapi_webhook.EVENT_RECEIVED,
+            ), patch.object(chat_router, "_wapi_handle_received", handler):
+                result = await chat_router.webhook_whatsapp(self._payload())
+                self.assertEqual("success", result["status"])
+                handler.assert_awaited_once()
+
+    async def test_correct_secret_is_compared_and_accepted_in_every_environment(self) -> None:
+        real_compare_digest = secrets.compare_digest
+        for environment in (*SHARED_ENVIRONMENTS, *LOCAL_TEST_ENVIRONMENTS):
+            handler = AsyncMock(return_value={"status": "success"})
+            payload = self._payload()
+            with self.subTest(environment=environment), self._runtime(environment), patch.object(
+                chat_router,
+                "WAPI_WEBHOOK_SECRET",
+                SECRET,
+            ), patch.object(
+                chat_router.wb,
+                "owner_of_instance",
+                return_value="tenant-owner",
+            ), patch.object(
+                chat_router.wapi_webhook,
+                "classify_event",
+                return_value=chat_router.wapi_webhook.EVENT_RECEIVED,
+            ), patch.object(
+                chat_router,
+                "_wapi_handle_received",
+                handler,
+            ), patch.object(
+                chat_router.secrets,
+                "compare_digest",
+                wraps=real_compare_digest,
+            ) as compare_digest:
+                result = await chat_router.webhook_whatsapp(
+                    payload,
+                    request=FakeRequest(secret=SECRET),
+                )
+                self.assertEqual("success", result["status"])
+                compare_digest.assert_called_once_with(SECRET, SECRET)
+                handler.assert_awaited_once_with("tenant-owner", payload)
+
+    async def test_missing_empty_and_wrong_secret_are_rejected_before_tenant_resolution(self) -> None:
+        for environment in (*SHARED_ENVIRONMENTS, *LOCAL_TEST_ENVIRONMENTS):
+            for supplied_secret in (None, "", "wrong-secret"):
+                owner_lookup = patch.object(chat_router.wb, "owner_of_instance")
+                classify = patch.object(chat_router.wapi_webhook, "classify_event")
+                with self.subTest(
+                    environment=environment,
+                    supplied_secret=repr(supplied_secret),
+                ), self._runtime(environment), patch.object(
+                    chat_router,
+                    "WAPI_WEBHOOK_SECRET",
+                    SECRET,
+                ), owner_lookup as owner, classify as classify_event:
+                    with self.assertRaises(HTTPException) as error:
+                        await chat_router.webhook_whatsapp(
+                            self._payload(),
+                            request=FakeRequest(secret=supplied_secret),
+                        )
+                    self.assertEqual(403, error.exception.status_code)
+                    owner.assert_not_called()
+                    classify_event.assert_not_called()
+
+    async def test_invalid_configured_secret_fails_before_tenant_resolution(self) -> None:
+        for configured_secret in ("   ", "contains whitespace", "line\nbreak", "segredo-ç"):
+            with self.subTest(configured_secret=repr(configured_secret)), self._runtime(
+                "development"
+            ), patch.object(
+                chat_router,
+                "WAPI_WEBHOOK_SECRET",
+                configured_secret,
+            ), patch.object(chat_router.wb, "owner_of_instance") as owner_lookup:
+                with self.assertRaises(HTTPException) as error:
+                    await chat_router.webhook_whatsapp(
+                        self._payload(),
+                        request=FakeRequest(secret=configured_secret),
+                    )
+                self.assertEqual(503, error.exception.status_code)
+                owner_lookup.assert_not_called()
 
 
 class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
@@ -65,9 +202,26 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejects_unknown_instance(self) -> None:
         payload = self._received()
         payload["instanceId"] = "INST-DESCONHECIDA"
-        with self.assertRaises(HTTPException) as error:
-            await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+        with patch.object(chat_router.wapi_webhook, "classify_event") as classify_event:
+            with self.assertRaises(HTTPException) as error:
+                await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
         self.assertEqual(404, error.exception.status_code)
+        classify_event.assert_not_called()
+
+    async def test_payload_tenant_fields_cannot_override_instance_owner(self) -> None:
+        payload = self._received(message_id="FORGED-TENANT")
+        payload["userId"] = "user-b"
+        payload["tenantId"] = "user-b"
+        handler = AsyncMock(return_value={"status": "success"})
+
+        with patch.object(chat_router, "_wapi_handle_received", handler):
+            result = await chat_router.webhook_whatsapp(
+                payload,
+                request=FakeRequest(secret=SECRET),
+            )
+
+        self.assertEqual("success", result["status"])
+        handler.assert_awaited_once_with("user-a", payload)
 
     async def test_received_persists_only_for_owner(self) -> None:
         result = await chat_router.webhook_whatsapp(self._received(), request=FakeRequest(secret=SECRET))

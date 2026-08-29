@@ -163,7 +163,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
             patch.object(nora_router, "create_approval", create),
             patch.object(
                 nora_router.wb,
-                "get_binding",
+                "get_owned_binding",
                 return_value=SimpleNamespace(exists=True, state="connected", instance_id="INST-NORA"),
             ),
             patch.object(nora_router.agent_manager, "execute_message", AsyncMock()) as send,
@@ -200,7 +200,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
             patch.object(nora_router, "create_approval", AsyncMock(return_value={"id": "approval-2"})),
             patch.object(
                 nora_router.wb,
-                "get_binding",
+                "get_owned_binding",
                 return_value=SimpleNamespace(exists=True, state="connected", instance_id="INST-NORA"),
             ),
         ):
@@ -231,7 +231,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.services.agent_manager.AgentManager.execute_message", send),
             patch(
-                "app.services.wapi_binding.get_binding",
+                "app.services.wapi_binding.get_owned_binding",
                 return_value=SimpleNamespace(
                     exists=True, state="connected", instance_id="INST-REAL"
                 ),
@@ -344,7 +344,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.services.agent_manager.AgentManager.execute_message", send),
             patch(
-                "app.services.wapi_binding.get_binding",
+                "app.services.wapi_binding.get_owned_binding",
                 return_value=SimpleNamespace(
                     exists=True, state="connected", instance_id="INST-EDIT"
                 ),
@@ -412,7 +412,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
             patch.object(nora_router, "create_approval", create),
             patch.object(
                 nora_router.wb,
-                "get_binding",
+                "get_owned_binding",
                 return_value=SimpleNamespace(exists=True, state="connected", instance_id="INST-CHAT"),
             ),
             patch.object(nora_router.wapi_messaging, "send_text", direct_send),
@@ -453,7 +453,7 @@ class NoraWhatsAppApprovalTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.services.agent_manager.AgentManager.execute_message", send),
             patch(
-                "app.services.wapi_binding.get_binding",
+                "app.services.wapi_binding.get_owned_binding",
                 return_value=SimpleNamespace(exists=True, state="connected", instance_id="INST-NEW"),
             ),
             patch.object(operations_service, "record_receipt", AsyncMock(return_value={"id": "receipt-binding"})),

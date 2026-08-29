@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   history: vi.fn(),
   details: vi.fn(),
   markConversation: vi.fn(),
+  disconnect: vi.fn(),
 }));
 
 vi.mock("./whatsappApi", async (importOriginal) => {
@@ -41,6 +42,7 @@ describe("diálogo de configurações do WhatsApp", () => {
     api.startSync.mockResolvedValue({ status: "complete", progress: 100 });
     api.syncStatus.mockResolvedValue({ status: "complete", progress: 100 });
     api.statuses.mockResolvedValue({ items: [] });
+    api.disconnect.mockResolvedValue({ status: "desconectado" });
   });
 
   it("expõe semântica de diálogo, contém o foco e fecha com Escape restaurando o gatilho", async () => {
@@ -63,5 +65,57 @@ describe("diálogo de configurações do WhatsApp", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Configurações Gerais do Painel" })).not.toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("ignora um QR antigo que chega depois da desconexão", async () => {
+    const user = userEvent.setup();
+    let statusPoll: (() => void) | undefined;
+    const intervalSpy = vi.spyOn(window, "setInterval").mockImplementation(((handler: TimerHandler, timeout?: number) => {
+      if (timeout === 12_000 && typeof handler === "function") statusPoll = handler as () => void;
+      return 1;
+    }) as typeof window.setInterval);
+
+    let resolveStatusAntigo: ((value: { conectado: boolean; status: string; qrcode: string }) => void) | undefined;
+    api.status
+      .mockResolvedValueOnce({ conectado: true, status: "conectado" })
+      .mockImplementationOnce(() => new Promise<{ conectado: boolean; status: string; qrcode: string }>((resolve) => {
+        resolveStatusAntigo = resolve;
+      }))
+      .mockResolvedValue({
+        conectado: false,
+        status: "aguardando_qrcode",
+        qrcode: "data:image/png;base64,antigo",
+      });
+
+    try {
+      render(<ChatCentral userId="usuario-corrida-desconexao" />);
+      const trigger = await screen.findByRole("button", { name: "Abrir configurações" });
+      await waitFor(() => expect(api.status).toHaveBeenCalledTimes(1));
+      expect(statusPoll).toBeTypeOf("function");
+
+      act(() => statusPoll?.());
+      await waitFor(() => expect(api.status).toHaveBeenCalledTimes(2));
+
+      await user.click(trigger);
+      const settingsDialog = screen.getByRole("dialog", { name: "Configurações Gerais do Painel" });
+      await user.click(within(settingsDialog).getByRole("button", { name: "Desconectar WhatsApp" }));
+      const confirmationDialog = screen.getByRole("alertdialog", { name: "Desconectar WhatsApp?" });
+      await user.click(within(confirmationDialog).getByRole("button", { name: "Desconectar" }));
+      await waitFor(() => expect(api.disconnect).toHaveBeenCalledTimes(1));
+      await screen.findByRole("button", { name: "Conectar WhatsApp" });
+
+      await act(async () => {
+        resolveStatusAntigo?.({
+          conectado: false,
+          status: "aguardando_qrcode",
+          qrcode: "data:image/png;base64,antigo",
+        });
+      });
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Conectar WhatsApp" })).toBeInTheDocument());
+      expect(screen.queryByRole("img", { name: "QR Code para conectar o WhatsApp ao Norium" })).not.toBeInTheDocument();
+    } finally {
+      intervalSpy.mockRestore();
+    }
   });
 });

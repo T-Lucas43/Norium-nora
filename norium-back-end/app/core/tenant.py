@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from app.infrastructure.persistence.json_repository import read_json, write_json
 from app.core.request_context import current_workspace_id
@@ -17,9 +17,54 @@ PRODUCTION_DATA_ROOT = Path("/app/data")
 VERCEL_DATA_ROOT = Path("/tmp/norium")  # nosec B108
 LOCAL_DATA_ROOT = BACKEND_ROOT / "data"
 
+LOCAL_TEST_ENVIRONMENTS = frozenset({"local", "development", "dev", "test", "testing"})
+SHARED_RUNTIME_MARKERS = (
+    "RAILWAY_ENVIRONMENT",
+    "RAILWAY_PROJECT_ID",
+    "RAILWAY_SERVICE_ID",
+    "VERCEL",
+    "WEBSITE_INSTANCE_ID",
+)
+
+
+def environment_names(environ: Mapping[str, str] | None = None) -> frozenset[str]:
+    """Retorna todos os nomes de ambiente declarados pelo runtime."""
+    source = os.environ if environ is None else environ
+    return frozenset(
+        value
+        for name in ("ENVIRONMENT", "APP_ENV")
+        if (value := source.get(name, "").strip().lower())
+    )
+
+
+def is_local_or_test_environment(
+    environ: Mapping[str, str] | None = None,
+    *,
+    require_explicit: bool = False,
+) -> bool:
+    """Classifica o runtime por uma whitelist pequena de ambientes seguros."""
+    source = os.environ if environ is None else environ
+    if any(source.get(name, "").strip() for name in SHARED_RUNTIME_MARKERS):
+        return False
+    names = environment_names(source)
+    if not names:
+        # Mantém o comportamento histórico do desenvolvimento local quando a
+        # classificação não é usada como fronteira de segurança.
+        return not require_explicit
+    return names.issubset(LOCAL_TEST_ENVIRONMENTS)
+
+
+def is_shared_environment(
+    environ: Mapping[str, str] | None = None,
+    *,
+    require_explicit: bool = False,
+) -> bool:
+    """Identifica produção, staging e qualquer runtime fora da whitelist local."""
+    return not is_local_or_test_environment(environ, require_explicit=require_explicit)
+
 
 def is_production() -> bool:
-    return os.getenv("ENVIRONMENT", "").strip().lower() in {"production", "prod", "railway"}
+    return is_shared_environment()
 
 
 def is_vercel() -> bool:

@@ -155,7 +155,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
     try {
       const results = await Promise.allSettled([
         authJson<AdminOverview>("/api/auth/admin/overview", session.token),
-        authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token),
+        authJson<{ users: NoriumUser[] }>("/api/auth/admin/users", session.token),
         authJson<{ plans: PlanInfo[] }>("/api/auth/plans", session.token),
         authJson<{ teams: NoriumTeam[] }>("/api/auth/teams", session.token),
         authJson<{ items: AdminAuditItem[] }>("/api/auth/admin/audit", session.token),

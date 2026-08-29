@@ -38,7 +38,7 @@ import {
   mergeMessages,
   whatsappIdentifierKeys,
 } from "./contactPicker";
-import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
+import { authenticatedMediaRequestUrl, useAuthenticatedMedia } from "./useAuthenticatedMedia";
 import ChatWallpaperSettings from "./ChatWallpaperSettings";
 import { useChatWallpaper } from "./chatWallpaper";
 
@@ -227,6 +227,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   const carregandoConversasRef = useRef(false);
   const carregandoStatusRef = useRef(false);
   const statusRequestGenerationRef = useRef(0);
+  const connectionStatusRequestGenerationRef = useRef(0);
   const canaisRequestGenerationRef = useRef(0);
   const cursorConversasRef = useRef(0);
   const whatsappConectadoRef = useRef(false);
@@ -586,6 +587,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     setContatosCarregados(false);
     setGruposCarregados(false);
     statusRequestGenerationRef.current += 1;
+    connectionStatusRequestGenerationRef.current += 1;
     carregandoStatusRef.current = false;
     setStatusWhatsAppCarregados(false);
     setCarregandoStatusWhatsApp(false);
@@ -623,9 +625,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     async function checarAutenticacao() {
       if (inFlight) return;
       inFlight = true;
+      const requestGeneration = connectionStatusRequestGenerationRef.current;
       try {
         const whatsapp = await whatsappApi.status();
-        if (!active) return;
+        if (!active || requestGeneration !== connectionStatusRequestGenerationRef.current) return;
         const conectado = whatsapp.conectado === true;
         const estavaConectado = whatsappConectadoRef.current;
         whatsappConectadoRef.current = conectado;
@@ -650,7 +653,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
         }
       } catch (err) {
         console.error(err);
-        if (active) {
+        if (active && requestGeneration === connectionStatusRequestGenerationRef.current) {
           setCanaisStatus((current) => ({
             whatsapp: {
               ...(current.whatsapp || { conectado: whatsappConectadoRef.current }),
@@ -680,9 +683,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     const atualizarQrCode = async () => {
       if (inFlight) return;
       inFlight = true;
+      const requestGeneration = connectionStatusRequestGenerationRef.current;
       try {
         const whatsapp = await whatsappApi.status();
-        if (!active) return;
+        if (!active || requestGeneration !== connectionStatusRequestGenerationRef.current) return;
         setErroLogin(null);
         setCanaisStatus({ whatsapp });
         if (whatsapp.conectado) {
@@ -703,7 +707,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
           setMensagemLogin("Preparando uma conexao segura e gerando o QR Code...");
         }
       } catch (error) {
-        if (active) {
+        if (active && requestGeneration === connectionStatusRequestGenerationRef.current) {
           setErroLogin(error instanceof Error ? error.message : "API do WhatsApp indisponivel.");
           setMensagemLogin("Nao foi possivel consultar a sessao. Tente novamente.");
         }
@@ -1090,7 +1094,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     if (!conversaSelecionada || !figurinha.arquivoUrl) return;
     setEnviandoAnexos(true);
     try {
-      const blob = await apiBlobRequest(figurinha.arquivoUrl, {
+      const blob = await apiBlobRequest(authenticatedMediaRequestUrl(figurinha.arquivoUrl), {
         headers: { Accept: "image/webp,image/*,*/*" },
         cache: "no-store",
       });
@@ -1469,15 +1473,18 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   };
 
   const confirmarDesconexao = async () => {
+    connectionStatusRequestGenerationRef.current += 1;
     setDesconectando(true);
     try {
       await whatsappApi.disconnect();
+      connectionStatusRequestGenerationRef.current += 1;
       whatsappConectadoRef.current = false;
       cursorConversasRef.current = 0;
       historicoRef.current.clear();
       setConversas([]);
       setConversaSelecionada(null);
       setQrCodeString(null);
+      setCanalSelecionadoLogin(null);
       catalogoInicialTentadoRef.current = true;
       setCanaisStatus({ whatsapp: { conectado: false, qrcode: null, status: "desconectado" } });
       setConfirmarDesconexaoAberta(false);

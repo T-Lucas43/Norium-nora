@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mediaApi = vi.hoisted(() => ({ apiBlobRequest: vi.fn(), apiRequest: vi.fn() }));
 vi.mock("../../core/api/client", () => ({ apiBlobRequest: mediaApi.apiBlobRequest, apiRequest: mediaApi.apiRequest }));
@@ -15,7 +15,21 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function mediaProxyUrl(source: string) {
+  return `/api/chat/media-proxy?url=${encodeURIComponent(source)}`;
+}
+
 describe("estado vazio do Status", () => {
+  beforeEach(() => {
+    let objectUrlIndex = 0;
+    const NativeURL = URL;
+    vi.stubGlobal("URL", class TestURL extends NativeURL {
+      static createObjectURL = vi.fn(() => `blob:status-media-${++objectUrlIndex}`);
+      static revokeObjectURL = vi.fn();
+    });
+    mediaApi.apiBlobRequest.mockResolvedValue(new Blob(["media"]));
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     mediaApi.apiBlobRequest.mockReset();
@@ -63,7 +77,7 @@ describe("estado vazio do Status", () => {
   });
 
 
-  it("agrupa as atualiza\u00e7\u00f5es por contato e usa a m\u00eddia mais recente como pr\u00e9via", () => {
+  it("agrupa as atualiza\u00e7\u00f5es por contato e usa a m\u00eddia mais recente como pr\u00e9via", async () => {
     const items = [
       { id: "maria-text", contactId: "5511999999999@s.whatsapp.net", name: "Maria", type: "text" as const, text: "Primeiro", timestamp: 1 },
       { id: "maria-image", contactId: "5511999999999@s.whatsapp.net", name: "Maria", type: "image" as const, mediaUrl: "https://example.test/maria-status.jpg", timestamp: 2 },
@@ -74,10 +88,11 @@ describe("estado vazio do Status", () => {
 
     expect(screen.getAllByRole("button", { name: /Maria/ })).toHaveLength(1);
     expect(screen.getByRole("button", { name: /Maria/ })).toHaveAccessibleName(/2 atualiza\u00e7\u00f5es/);
-    expect(screen.getByAltText("Pr\u00e9via do Status de Maria")).toHaveAttribute("src", items[1].mediaUrl);
+    expect(await screen.findByAltText("Pr\u00e9via do Status de Maria")).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(items[1].mediaUrl!), { cache: "no-store" });
   });
 
-  it("agrupa por nome quando o contato n\u00e3o tem ID e indica v\u00eddeo e \u00e1udio", () => {
+  it("agrupa por nome quando o contato n\u00e3o tem ID e indica v\u00eddeo e \u00e1udio", async () => {
     const items = [
       { id: "ana-video", name: "Ana", type: "video" as const, mediaUrl: "https://example.test/ana.mp4", timestamp: 1 },
       { id: "ana-text", name: "Ana", type: "text" as const, text: "Depois", timestamp: 4 },
@@ -86,12 +101,15 @@ describe("estado vazio do Status", () => {
       { id: "fallback-two", name: " ", type: "text" as const, text: "Outro sem contato", timestamp: 1 },
     ];
 
-    render(<WhatsAppStatusView items={items} selectedId={null} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+    const view = render(<WhatsAppStatusView items={items} selectedId={null} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
 
     expect(screen.getAllByRole("button", { name: /Ana/ })).toHaveLength(1);
     expect(screen.getByRole("img", { name: "Pr\u00e9via em v\u00eddeo do Status de Ana" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Pr\u00e9via em \u00e1udio do Status de Bia" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /1 atualiza\u00e7\u00e3o/ })).toHaveLength(3);
+    await waitFor(() => expect(view.container.querySelector("video")?.getAttribute("src")).toMatch(/^blob:status-media-/));
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(items[0].mediaUrl!), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(items[2].mediaUrl!), { cache: "no-store" });
   });
 
   it("renova uma foto de contato expirada uma unica vez pelo ID do Status", async () => {
@@ -112,9 +130,16 @@ describe("estado vazio do Status", () => {
     render(<WhatsAppStatusView items={[item]} selectedId={null} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
 
     const row = screen.getByRole("button", { name: /Maria/ });
-    expect(row.querySelector("img")).toHaveAttribute("src", expiredPhoto);
+    await waitFor(() => expect(row.querySelector("img")?.getAttribute("src")).toMatch(/^blob:status-media-/));
+    const expiredBlobUrl = row.querySelector("img")?.getAttribute("src");
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(expiredPhoto), { cache: "no-store" });
     fireEvent.error(row.querySelector("img") as HTMLImageElement);
-    await waitFor(() => expect(row.querySelector("img")).toHaveAttribute("src", freshPhoto));
+    await waitFor(() => {
+      const refreshedBlobUrl = row.querySelector("img")?.getAttribute("src");
+      expect(refreshedBlobUrl).toMatch(/^blob:status-media-/);
+      expect(refreshedBlobUrl).not.toBe(expiredBlobUrl);
+    });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(freshPhoto), { cache: "no-store" });
     fireEvent.error(row.querySelector("img") as HTMLImageElement);
 
     await waitFor(() => expect(mediaApi.apiRequest).toHaveBeenCalledTimes(1));
@@ -201,13 +226,29 @@ describe("estado vazio do Status", () => {
     expect(onReplyAudio).not.toHaveBeenCalledWith(second, expect.anything(), expect.anything());
   });
 
-  it("mantém a legenda sobreposta à própria mídia do Status", () => {
+  it("mantém a legenda sobreposta à própria mídia do Status", async () => {
     const item = { id: "media", contactId: "5511999999999@s.whatsapp.net", name: "Maria", type: "image" as const, text: "Legenda da foto", mediaUrl: "https://example.test/status.jpg", timestamp: 1 };
     render(<WhatsAppStatusView items={[item]} selectedId="media" onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
 
+    const image = await screen.findByAltText("Status de Maria");
     const caption = screen.getByText("Legenda da foto");
     expect(caption.tagName).toBe("FIGCAPTION");
-    expect(caption.closest("figure")?.querySelector("img")).toHaveAttribute("alt", "Status de Maria");
+    expect(image).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
+    expect(caption.closest("figure")?.querySelector("img")).toBe(image);
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(item.mediaUrl), { cache: "no-store" });
+  });
+
+  it("exibe imagens e áudios externos somente após baixá-los pelo proxy seguro", async () => {
+    const image = { id: "external-image", name: "Maria", type: "image" as const, mediaUrl: "https://cdn.example/status.jpg", timestamp: 1 };
+    const audio = { id: "external-audio", name: "João", type: "audio" as const, mediaUrl: "https://cdn.example/status.ogg", timestamp: 2 };
+    const view = render(<WhatsAppStatusView items={[image, audio]} selectedId={image.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+
+    expect(await screen.findByAltText("Status de Maria")).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(image.mediaUrl), { cache: "no-store" });
+
+    view.rerender(<WhatsAppStatusView items={[image, audio]} selectedId={audio.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
+    await waitFor(() => expect(view.container.querySelector("audio")?.getAttribute("src")).toMatch(/^blob:status-media-/));
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(audio.mediaUrl), { cache: "no-store" });
   });
 
   it("mantém o estado de carregamento de uma mídia privada sem convertê-la em Status de texto", () => {
@@ -237,7 +278,7 @@ describe("estado vazio do Status", () => {
       name: "Maria",
       type: "video" as const,
       text: "Legenda do vídeo indisponível",
-      mediaUrl: "/api/chat/midia/media-error",
+      mediaUrl: "https://cdn.example/media-error.mp4",
       timestamp: 1,
     };
 
@@ -249,9 +290,10 @@ describe("estado vazio do Status", () => {
     const callsBeforeRetry = mediaApi.apiBlobRequest.mock.calls.length;
     await user.click(retry);
     await waitFor(() => expect(mediaApi.apiBlobRequest).toHaveBeenCalledTimes(callsBeforeRetry + 1));
+    expect(mediaApi.apiBlobRequest).toHaveBeenLastCalledWith(mediaProxyUrl(item.mediaUrl), { cache: "no-store" });
   });
 
-  it("descarta a mídia anterior ao trocar de Status e permite repetir uma URL pública", async () => {
+  it("descarta a mídia anterior ao trocar de Status e permite repetir uma URL externa pelo proxy", async () => {
     const user = userEvent.setup();
     const first = {
       id: "first-image",
@@ -271,13 +313,19 @@ describe("estado vazio do Status", () => {
     };
     const view = render(<WhatsAppStatusView items={[first, second]} selectedId={first.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
 
-    fireEvent.error(screen.getByAltText("Status de Maria"));
+    const firstImage = await screen.findByAltText("Status de Maria");
+    expect(firstImage).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(first.mediaUrl), { cache: "no-store" });
+    fireEvent.error(firstImage);
     expect(screen.getByText("Mídia do Status indisponível")).toBeInTheDocument();
+    const callsBeforeRetry = mediaApi.apiBlobRequest.mock.calls.length;
     await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
-    expect(screen.getByAltText("Status de Maria")).toHaveAttribute("src", first.mediaUrl);
+    await waitFor(() => expect(mediaApi.apiBlobRequest).toHaveBeenCalledTimes(callsBeforeRetry + 1));
+    expect(await screen.findByAltText("Status de Maria")).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
 
     view.rerender(<WhatsAppStatusView items={[first, second]} selectedId={second.id} onSelect={vi.fn()} onRefresh={vi.fn()} onCreateUnavailable={vi.fn()} />);
-    expect(screen.getByAltText("Status de João")).toHaveAttribute("src", second.mediaUrl);
+    expect(await screen.findByAltText("Status de João")).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(second.mediaUrl), { cache: "no-store" });
     expect(screen.queryByText("Mídia do Status indisponível")).not.toBeInTheDocument();
   });
 });

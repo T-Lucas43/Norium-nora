@@ -19,13 +19,14 @@ import ipaddress
 import logging
 import os
 import time
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Mapping
 from urllib.parse import quote, urlparse
 
 from app.services import wapi_binding as wb
 from app.services.wapi_binding import InstanceBinding, CONSENT_TERM_VERSION
 from app.services.wapi_client import WapiClient, WapiError
-from app.core.tenant import public_api_url
+from app.core.tenant import is_local_or_test_environment, public_api_url
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,49 @@ logger = logging.getLogger(__name__)
 
 class ConsentRequiredError(Exception):
     """Levantada quando o usuário tenta gerar/ler o QR sem aceite válido."""
+
+
+class WapiConfigurationError(RuntimeError):
+    """Configuração insegura da instância de homologação."""
+
+
+@dataclass(frozen=True, slots=True)
+class _HomologationConfig:
+    instance_id: str
+    token: str
+    tenant_id: str
+
+
+def _load_homologation_config(
+    environ: Mapping[str, str] | None = None,
+) -> _HomologationConfig | None:
+    source = os.environ if environ is None else environ
+    instance_id = source.get("WAPI_TEST_INSTANCE_ID", "").strip()
+    token = source.get("WAPI_TEST_INSTANCE_TOKEN", "").strip()
+    tenant_id = source.get("WAPI_TEST_TENANT_ID", "").strip()
+
+    # Ausência total preserva o fluxo normal de criação por tenant.
+    if not any((instance_id, token, tenant_id)):
+        return None
+
+    if not is_local_or_test_environment(source, require_explicit=True):
+        raise WapiConfigurationError(
+            "Credenciais de homologação W-API são permitidas somente em ambiente local ou de teste."
+        )
+    if not all((instance_id, token, tenant_id)):
+        raise WapiConfigurationError(
+            "Configuração de homologação W-API incompleta; defina instância, credencial e tenant autorizados."
+        )
+    return _HomologationConfig(
+        instance_id=instance_id,
+        token=token,
+        tenant_id=tenant_id,
+    )
+
+
+def validate_wapi_test_configuration() -> None:
+    """Falha de forma segura antes de iniciar o app com homologação inválida."""
+    _load_homologation_config()
 
 
 # Mapeia os 6 tipos de webhook da W-API para o endpoint público único do Norium.
@@ -62,6 +106,9 @@ _QR_CACHE_TTL_SECONDS = max(5.0, float(os.getenv("WAPI_QR_TTL_SECONDS", "20")))
 class WapiConnectService:
     def __init__(self, client: WapiClient | None = None) -> None:
         self._client = client or WapiClient()
+        # Valida e congela a configuração: nenhum tenant pode ativá-la
+        # tardiamente por uma alteração de ambiente durante o processo.
+        self._homologation = _load_homologation_config()
         # instance_id -> (qrcode, fetched_at). Estabiliza o QR entre polls para
         # não regenerar a sessão de pareamento a cada consulta de status.
         self._qr_cache: dict[str, tuple[str, float]] = {}
@@ -168,11 +215,36 @@ class WapiConnectService:
         except TimeoutError:
             logger.warning("Tempo limite ao atualizar os webhooks da instancia W-API existente.")
 
-    def _homolog_instance(self) -> tuple[str, str]:
-        return (
-            os.getenv("WAPI_TEST_INSTANCE_ID", "").strip(),
-            os.getenv("WAPI_TEST_INSTANCE_TOKEN", "").strip(),
-        )
+    def _homolog_instance(self, user_id: str) -> tuple[str, str]:
+        config = self._homologation
+        if config is None:
+            return "", ""
+        if str(user_id).strip() != config.tenant_id:
+            raise WapiError(
+                "Instância de homologação indisponível para esta conta.",
+                code="homologation_tenant_mismatch",
+            )
+        return config.instance_id, config.token
+
+    @staticmethod
+    def _save_owned_binding(user_id: str, binding: InstanceBinding) -> InstanceBinding:
+        try:
+            return wb.save_binding(user_id, binding)
+        except wb.InstanceOwnershipError as exc:
+            raise WapiError(
+                "Instância W-API já vinculada a outra conta.",
+                code="instance_owned_by_another_tenant",
+            ) from exc
+
+    @staticmethod
+    def _get_owned_binding(user_id: str) -> InstanceBinding:
+        try:
+            return wb.get_owned_binding(user_id)
+        except wb.InstanceOwnershipError as exc:
+            raise WapiError(
+                "Não foi possível confirmar a propriedade da instância W-API.",
+                code="instance_owned_by_another_tenant",
+            ) from exc
 
     @staticmethod
     def _instance_declares_lite(item: dict[str, Any]) -> bool:
@@ -222,7 +294,19 @@ class WapiConnectService:
 
     async def ensure_instance(self, user_id: str, *, allow_create: bool = True) -> InstanceBinding:
         """Garante o vínculo de uma instância à conta, de forma idempotente."""
-        binding = wb.get_binding(user_id)
+        binding = self._get_owned_binding(user_id)
+        homologation = self._homologation
+        if (
+            homologation is not None
+            and binding.instance_id == homologation.instance_id
+            and str(user_id).strip() != homologation.tenant_id
+        ):
+            # Bloqueia também vínculos inseguros persistidos por versões antigas,
+            # sem tocar na sessão remota nem remover dados locais.
+            raise WapiError(
+                "Instância de homologação indisponível para esta conta.",
+                code="homologation_tenant_mismatch",
+            )
         if binding.exists:
             # Valida se a instância ainda existe (o usuário pode tê-la apagado no
             # painel). Se sumiu, limpa o vínculo e recria/reutiliza abaixo.
@@ -238,18 +322,24 @@ class WapiConnectService:
                     raise
                 logger.info("Vínculo aponta para instância inexistente; recriando.")
                 wb.clear_binding(user_id)
-                binding = wb.get_binding(user_id)
+                binding = self._get_owned_binding(user_id)
 
         # Homologação: vincula uma instância pré-provisionada (sem create-instance).
-        test_id, test_token = self._homolog_instance()
+        test_id, test_token = self._homolog_instance(user_id)
         if test_id and test_token:
+            owner = wb.owner_of_instance(test_id)
+            if owner is not None and owner != user_id:
+                raise WapiError(
+                    "Instância W-API já vinculada a outra conta.",
+                    code="instance_owned_by_another_tenant",
+                )
             binding.instance_id = test_id
             binding.token = test_token
             binding.instance_name = "homologacao"
             binding.state = "awaiting_qr"
             binding.created_at = time.time()
-            logger.info("Instância de homologação vinculada à conta autenticada.")
-            binding = wb.save_binding(user_id, binding)
+            logger.info("Instância de homologação vinculada ao tenant autorizado.")
+            binding = self._save_owned_binding(user_id, binding)
             await self._refresh_existing_webhooks(binding)
             return binding
 
@@ -285,7 +375,7 @@ class WapiConnectService:
             binding.state = "awaiting_qr"
             binding.created_at = time.time()
             if binding.exists:
-                binding = wb.save_binding(user_id, binding)
+                binding = self._save_owned_binding(user_id, binding)
                 await self._refresh_existing_webhooks(binding)
                 return binding
 
@@ -306,7 +396,7 @@ class WapiConnectService:
         binding.token = new_token
         binding.state = "awaiting_qr"
         binding.created_at = time.time()
-        return wb.save_binding(user_id, binding)
+        return self._save_owned_binding(user_id, binding)
 
     # ---- estado / QR -----------------------------------------------------
 
@@ -317,7 +407,7 @@ class WapiConnectService:
             binding.connected_at = time.time()
         elif status == "disconnected":
             binding.connected_at = None
-        wb.save_binding(user_id, binding)
+        self._save_owned_binding(user_id, binding)
 
     def _drop_qr_cache(self, instance_id: str) -> None:
         self._qr_cache.pop(instance_id, None)
@@ -353,7 +443,7 @@ class WapiConnectService:
     async def status(self, user_id: str) -> dict[str, Any]:
         if not self.configured:
             return {"status": "indisponivel", "qrcode": None, "detail": "W-API não configurada."}
-        binding = wb.get_binding(user_id)
+        binding = self._get_owned_binding(user_id)
         if not binding.exists:
             accepted = binding.has_valid_consent()
             return {
@@ -372,7 +462,7 @@ class WapiConnectService:
 
         connected = live.get("connected") is True
         device: dict[str, Any] | None = None
-        latest = wb.get_binding(user_id)
+        latest = self._get_owned_binding(user_id)
         if not latest.exists or latest.instance_id != instance_id or latest.token != token:
             return {"status": "iniciando", "qrcode": None, "state": "starting"}
         binding = latest
@@ -399,7 +489,7 @@ class WapiConnectService:
             except WapiError as exc:
                 device = None
                 connected = False
-                latest = wb.get_binding(user_id)
+                latest = self._get_owned_binding(user_id)
                 if latest.exists and latest.instance_id == instance_id:
                     # Um webhook novo sempre vence a sondagem iniciada antes dele.
                     if latest.updated_at > probe_version and latest.state == "connected":
@@ -419,7 +509,7 @@ class WapiConnectService:
                 number = device.get("connectedPhone") or device.get("phone") or device.get("number")
             except WapiError:
                 number = None
-            latest = wb.get_binding(user_id)
+            latest = self._get_owned_binding(user_id)
             if (
                 latest.exists
                 and latest.instance_id == instance_id
@@ -450,11 +540,16 @@ class WapiConnectService:
         # QR é servido do cache dentro da janela de TTL para não regenerar a
         # sessão de pareamento a cada poll (senão o WhatsApp não vincula).
         qrcode = await self._stable_qr(binding.instance_id, binding.token)
-        latest = wb.get_binding(user_id)
+        latest = self._get_owned_binding(user_id)
         if (
-            latest.exists
-            and latest.instance_id == instance_id
-            and latest.updated_at > binding.updated_at
+            not latest.exists
+            or latest.instance_id != instance_id
+            or latest.token != token
+        ):
+            self._drop_qr_cache(instance_id)
+            return {"status": "iniciando", "qrcode": None, "state": "starting"}
+        if (
+            latest.updated_at > binding.updated_at
             and latest.state == "connected"
         ):
             self._drop_qr_cache(instance_id)
@@ -465,8 +560,7 @@ class WapiConnectService:
                 "numero": None,
                 "conectadoEm": latest.connected_at,
             }
-        if latest.exists and latest.instance_id == instance_id:
-            binding = latest
+        binding = latest
         if qrcode:
             self._apply_state(user_id, binding, "awaiting_qr")
             return {"status": "aguardando_qrcode", "qrcode": qrcode, "state": "qr"}
@@ -480,19 +574,42 @@ class WapiConnectService:
 
     async def qr(self, user_id: str) -> dict[str, Any]:
         self._require_consent(user_id)
-        binding = wb.get_binding(user_id)
+        binding = self._get_owned_binding(user_id)
         if not binding.exists:
             await self.ensure_instance(user_id)
-            binding = wb.get_binding(user_id)
+            binding = self._get_owned_binding(user_id)
 
-        live = await self._client.status(binding.instance_id, binding.token)
+        instance_id = binding.instance_id
+        token = binding.token
+        live = await self._client.status(instance_id, token)
+        latest = self._get_owned_binding(user_id)
+        if (
+            not latest.exists
+            or latest.instance_id != instance_id
+            or latest.token != token
+        ):
+            self._drop_qr_cache(instance_id)
+            return {"status": "iniciando", "qrcode": None, "state": "starting"}
+        binding = latest
         if live.get("connected") is True:
-            self._drop_qr_cache(binding.instance_id)
+            self._drop_qr_cache(instance_id)
             self._apply_state(user_id, binding, "connected")
             return {"status": "conectado", "qrcode": None, "state": "connected"}
 
         # Usuário iniciando a conexão: renova o QR e abre uma nova janela estável.
-        qrcode = await self._stable_qr(binding.instance_id, binding.token, force=True)
+        qrcode = await self._stable_qr(instance_id, token, force=True)
+        latest = self._get_owned_binding(user_id)
+        if (
+            not latest.exists
+            or latest.instance_id != instance_id
+            or latest.token != token
+        ):
+            self._drop_qr_cache(instance_id)
+            return {"status": "iniciando", "qrcode": None, "state": "starting"}
+        if latest.state == "connected":
+            self._drop_qr_cache(instance_id)
+            return {"status": "conectado", "qrcode": None, "state": "connected"}
+        binding = latest
         self._apply_state(user_id, binding, "awaiting_qr" if qrcode else "connecting")
         return {
             "status": "aguardando_qrcode" if qrcode else "iniciando",
@@ -501,7 +618,7 @@ class WapiConnectService:
         }
 
     async def disconnect(self, user_id: str) -> bool:
-        binding = wb.get_binding(user_id)
+        binding = self._get_owned_binding(user_id)
         if not binding.exists:
             return False
         try:

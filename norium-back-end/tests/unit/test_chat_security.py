@@ -57,7 +57,11 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
     async def test_whatsapp_webhook_rejects_unknown_instance(self) -> None:
         # Modelo W-API: o dono e resolvido pelo instanceId (mapa seguro). Uma
         # instancia desconhecida nao pode entregar eventos e nao revela existencia.
-        with patch.object(chat_router, "WAPI_WEBHOOK_SECRET", ""):
+        with patch.dict(os.environ, {"ENVIRONMENT": "test", "APP_ENV": "test"}), patch.object(
+            chat_router,
+            "WAPI_WEBHOOK_SECRET",
+            "",
+        ):
             with self.assertRaises(HTTPException) as error:
                 await chat_router.webhook_whatsapp(
                     {

@@ -1,11 +1,33 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const apiClient = vi.hoisted(() => ({
+  apiBlobRequest: vi.fn(),
+  apiRequest: vi.fn(),
+}));
+
+vi.mock("../../core/api/client", () => apiClient);
+
 import WhatsAppChannelsView from "./WhatsAppChannelsView";
 
 describe("area de canais do WhatsApp", () => {
+  beforeEach(() => {
+    let objectUrlSequence = 0;
+    apiClient.apiBlobRequest.mockResolvedValue(new Blob(["channel-media"]));
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => `blob:channel-media-${++objectUrlSequence}`),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
   it("mostra as atualizacoes reais ao abrir um canal", async () => {
     const user = userEvent.setup();
+    const source = "https://cdn.example/channel-promo.jpg";
     render(
       <WhatsAppChannelsView
         items={[
@@ -29,7 +51,7 @@ describe("area de canais do WhatsApp", () => {
                 remetente: "contato",
                 texto: "Catalogo visual da promocao",
                 tipo: "midia",
-                arquivoUrl: "https://cdn.example/channel-promo.jpg",
+                arquivoUrl: source,
                 arquivoMime: "image/jpeg",
                 horario: "10:31",
                 timestamp: 1_725_000_200,
@@ -49,9 +71,13 @@ describe("area de canais do WhatsApp", () => {
 
     expect(screen.getByText("Cupom de 20% disponivel ate sexta")).toBeInTheDocument();
     expect(screen.getByText("10:30")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Catalogo visual da promocao" })).toHaveAttribute(
+    expect(await screen.findByRole("img", { name: "Catalogo visual da promocao" })).toHaveAttribute(
       "src",
-      "https://cdn.example/channel-promo.jpg",
+      "blob:channel-media-1",
+    );
+    expect(apiClient.apiBlobRequest).toHaveBeenCalledWith(
+      `/api/chat/media-proxy?url=${encodeURIComponent(source)}`,
+      { cache: "no-store" },
     );
   });
 
@@ -94,15 +120,23 @@ describe("area de canais do WhatsApp", () => {
     const findMedia = () => mime.startsWith("image/")
       ? screen.getByRole("img", { name: label })
       : screen.getByLabelText(label);
-    const firstMedia = findMedia();
+    const firstMedia = mime.startsWith("image/")
+      ? await screen.findByRole("img", { name: label })
+      : await screen.findByLabelText(label);
 
     fireEvent.error(firstMedia);
 
     expect(screen.getByText("Mídia indisponível.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
+    await waitFor(() => expect(apiClient.apiBlobRequest).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(findMedia()).toHaveAttribute("src", "blob:channel-media-2"));
     const retriedMedia = findMedia();
     expect(retriedMedia).not.toBe(firstMedia);
-    expect(retriedMedia).toHaveAttribute("src", source);
+    expect(apiClient.apiBlobRequest).toHaveBeenNthCalledWith(
+      2,
+      `/api/chat/media-proxy?url=${encodeURIComponent(source)}`,
+      { cache: "no-store" },
+    );
   });
 
   it("pesquisa canais e abre o detalhe do resultado selecionado", async () => {

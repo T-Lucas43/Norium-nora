@@ -509,7 +509,10 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
                 raise ValueError("A aprovacao do WhatsApp nao possui destinatario validado.")
             if not message_text or len(message_text) > 1200:
                 raise ValueError("A aprovacao do WhatsApp nao possui uma mensagem valida.")
-            current_binding = wb.get_binding(user_id)
+            try:
+                current_binding = wb.get_owned_binding(user_id)
+            except wb.InstanceOwnershipError:
+                current_binding = wb.InstanceBinding()
             if (
                 not expected_instance_id
                 or not current_binding.exists
@@ -661,7 +664,12 @@ def integration_health(user_id: str, events: list[dict[str, Any]], audits: list[
     from app.services import wapi_binding as _wapi_binding
 
     # Conectado quando a conta tem uma instancia W-API vinculada e conectada.
-    whatsapp_configured = _wapi_binding.get_binding(user_id).state == "connected"
+    try:
+        whatsapp_configured = (
+            _wapi_binding.get_owned_binding(user_id).state == "connected"
+        )
+    except _wapi_binding.InstanceOwnershipError:
+        whatsapp_configured = False
 
     audits = audits or []
 

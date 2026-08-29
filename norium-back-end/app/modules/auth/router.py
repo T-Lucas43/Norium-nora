@@ -722,6 +722,12 @@ def visible_users_for(current: dict[str, Any], users: list[dict[str, Any]]) -> l
     ]
 
 
+def manageable_users_for(current: dict[str, Any], users: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if can_manage_system(current):
+        return [sanitize_user(user) for user in users]
+    return visible_users_for(current, users)
+
+
 def assert_can_touch_user(current: dict[str, Any], target: dict[str, Any]) -> None:
     if is_system_owner(target) and str(current.get("id") or "") != str(target.get("id") or ""):
         raise HTTPException(status_code=403, detail="O administrador auxiliar nao pode alterar o proprietario do sistema.")
@@ -1085,7 +1091,7 @@ async def admin_overview(user: dict[str, Any] = Depends(current_user)) -> dict[s
     if not can_manage_system(user):
         raise HTTPException(status_code=403, detail="Acesso admin restrito.")
     store = await read_user_store()
-    users = visible_users_for(user, store.get("users", []))
+    users = manageable_users_for(user, store.get("users", []))
     active_users = [item for item in users if item.get("status") == "ativo"]
     plan_counts: dict[str, int] = {}
     for item in users:
@@ -1149,3 +1155,11 @@ async def admin_backup(user: dict[str, Any] = Depends(current_user)) -> dict[str
         "plans": PLAN_CATALOG,
         "adminAudit": (store.get("adminAudit", [])[:500] if isinstance(store.get("adminAudit"), list) else []),
     }
+
+
+@router.get("/admin/users")
+async def list_admin_users(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    if not can_manage_system(user):
+        raise HTTPException(status_code=403, detail="Acesso admin restrito.")
+    store = await read_user_store()
+    return {"users": manageable_users_for(user, store.get("users", []))}

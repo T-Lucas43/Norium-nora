@@ -7,6 +7,14 @@ vi.mock("../../core/api/client", () => ({ apiBlobRequest: mediaApi.apiBlobReques
 import WhatsAppDirectory from "./WhatsAppDirectory";
 import { useWhatsAppProfilePhoto } from "./useAuthenticatedMedia";
 
+function proxiedSource(requestUrl: string) {
+  return new URL(requestUrl, window.location.origin).searchParams.get("url") || "unknown";
+}
+
+function blobUrl(source: string) {
+  return `blob:${encodeURIComponent(source)}`;
+}
+
 function ProfilePhotoProbe({
   identifier,
   initialSource,
@@ -23,7 +31,14 @@ function ProfilePhotoProbe({
 
 describe("renovacao de fotos de grupos", () => {
   beforeEach(() => {
+    mediaApi.apiBlobRequest.mockReset();
     mediaApi.apiRequest.mockReset();
+    mediaApi.apiBlobRequest.mockImplementation(async (requestUrl: string) => ({ requestUrl } as unknown as Blob));
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn((blob: Blob & { requestUrl?: string }) => blobUrl(proxiedSource(blob.requestUrl || ""))),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
     window.localStorage.removeItem("norium-auth-token");
     window.sessionStorage.removeItem("norium-auth-token");
     window.localStorage.removeItem("norium-workspace-id");
@@ -69,8 +84,8 @@ describe("renovacao de fotos de grupos", () => {
     expect(mediaApi.apiRequest).toHaveBeenCalledWith(`/api/chat/foto-perfil?phone=${encodeURIComponent(groupId)}`, expect.any(Object));
     resolvePhoto({ photoUrl: freshPhoto });
     await waitFor(() => {
-      expect(first.container.querySelector("img")).toHaveAttribute("src", freshPhoto);
-      expect(second.container.querySelector("img")).toHaveAttribute("src", freshPhoto);
+      expect(first.container.querySelector("img")).toHaveAttribute("src", blobUrl(freshPhoto));
+      expect(second.container.querySelector("img")).toHaveAttribute("src", blobUrl(freshPhoto));
     });
   });
   it("não compartilha uma busca em voo entre tokens ou workspaces", async () => {
@@ -129,7 +144,7 @@ describe("renovacao de fotos de grupos", () => {
       .mockReturnValueOnce(new Promise((resolve) => { resolveB = resolve; }));
     const observedSources: string[] = [];
     const view = render(<ProfilePhotoProbe identifier="contact-a" onSource={(source) => observedSources.push(source)} />);
-    await waitFor(() => expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", freshA));
+    await waitFor(() => expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", blobUrl(freshA)));
 
     observedSources.length = 0;
     view.rerender(<ProfilePhotoProbe identifier="contact-b" onSource={(source) => observedSources.push(source)} />);
@@ -152,7 +167,7 @@ describe("renovacao de fotos de grupos", () => {
     const observedSources: string[] = [];
     window.localStorage.setItem("norium-auth-token", "token-a");
     const view = render(<ProfilePhotoProbe identifier="same-contact" onSource={(source) => observedSources.push(source)} />);
-    await waitFor(() => expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", freshA));
+    await waitFor(() => expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", blobUrl(freshA)));
 
     observedSources.length = 0;
     window.localStorage.setItem("norium-auth-token", "token-b");
@@ -179,6 +194,7 @@ describe("renovacao de fotos de grupos", () => {
     const view = render(
       <ProfilePhotoProbe identifier="contact-a" initialSource={staleA} onSource={() => undefined} />,
     );
+    await waitFor(() => expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", blobUrl(staleA)));
     fireEvent.error(view.getByRole("img", { name: "foto renovada" }));
     await waitFor(() => expect(mediaApi.apiRequest).toHaveBeenCalledTimes(1));
 
@@ -188,12 +204,12 @@ describe("renovacao de fotos de grupos", () => {
       resolveB({ photoUrl: freshB });
       await Promise.resolve();
     });
-    await waitFor(() => expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", freshB));
+    await waitFor(() => expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", blobUrl(freshB)));
 
     await act(async () => {
       resolveA({ photoUrl: freshA });
       await Promise.resolve();
     });
-    expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", freshB);
+    expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", blobUrl(freshB));
   });
 });

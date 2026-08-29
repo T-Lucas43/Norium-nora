@@ -250,7 +250,7 @@ async def request_whatsapp_approval(
         )
 
     resolved_user_id = tenant_id(user)
-    binding = wb.get_binding(resolved_user_id)
+    binding = owned_wapi_binding(resolved_user_id)
     if not binding.exists or str(getattr(binding, "state", "")) != "connected":
         return resposta_agente(
             "whatsapp",
@@ -366,6 +366,13 @@ class AgentExecutePayload(StrictModel):
 
 def tenant_id(user: dict[str, Any]) -> str:
     return str(user.get("id") or "lucas123")
+
+
+def owned_wapi_binding(user_id: str) -> wb.InstanceBinding:
+    try:
+        return wb.get_owned_binding(user_id)
+    except wb.InstanceOwnershipError:
+        return wb.InstanceBinding()
 
 
 def require_nora_permission(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
@@ -1400,7 +1407,7 @@ async def conversar_nora_whatsapp(payload: NoraWhatsAppPayload, user: dict[str, 
         permissions = effective_permissions(user)
         if not permissions.get("chat") or not permissions.get("integracao_whatsapp"):
             raise HTTPException(status_code=403, detail="Sua conta nao pode enviar mensagens pelo WhatsApp.")
-        binding = wb.get_binding(resolved_user_id)
+        binding = owned_wapi_binding(resolved_user_id)
         if not binding.exists or str(getattr(binding, "state", "")) != "connected":
             raise HTTPException(status_code=409, detail="WhatsApp nao esta conectado nesta conta.")
         if empty_context and not parece_ordem_de_envio(payload.texto_usuario):

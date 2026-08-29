@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import time
 import uuid
 
@@ -15,7 +17,8 @@ from fastapi.responses import JSONResponse, Response
 from app.core.request_context import reset_request_context, set_request_context
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.security import TokenValidationError, auth_secret, decode_signed_token
-from app.core.settings import settings
+from app.core.settings import settings, validate_wapi_webhook_configuration
+from app.core.tenant import is_shared_environment
 from app.infrastructure.observability.diagnostics import record_request
 from app.infrastructure.http.spa import configure_spa
 from app.infrastructure.reliability.idempotency import (
@@ -23,6 +26,7 @@ from app.infrastructure.reliability.idempotency import (
     body_digest,
     complete_request,
 )
+from app.services.wapi_connect import validate_wapi_test_configuration
 from app.modules.auth.router import (
     assert_route_permissions,
     assert_workspace_access,
@@ -56,6 +60,47 @@ LOCAL_FRONTEND_ORIGINS = (
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 )
+_WEBHOOK_SECRET_QUERY_PATTERN = re.compile(
+    r"([?&]secret=)[^&#\s\"']*",
+    flags=re.IGNORECASE,
+)
+
+
+def _redact_webhook_secret(value: object) -> object:
+    if isinstance(value, str):
+        return _WEBHOOK_SECRET_QUERY_PATTERN.sub(r"\1<redacted>", value)
+    if isinstance(value, bytes):
+        decoded = value.decode("ascii", errors="replace")
+        return _WEBHOOK_SECRET_QUERY_PATTERN.sub(r"\1<redacted>", decoded).encode("ascii")
+    return value
+
+
+class _WebhookSecretAccessLogFilter(logging.Filter):
+    """Remove o segredo da query antes de qualquer handler do access log."""
+
+    _norium_webhook_secret_filter = True
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = _redact_webhook_secret(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(_redact_webhook_secret(value) for value in record.args)
+        elif isinstance(record.args, dict):
+            record.args = {
+                key: _redact_webhook_secret(value)
+                for key, value in record.args.items()
+            }
+        return True
+
+
+def configure_webhook_secret_log_redaction() -> None:
+    """Instala uma redação idempotente no access logger usado pelo Uvicorn."""
+    access_logger = logging.getLogger("uvicorn.access")
+    if any(
+        getattr(active_filter, "_norium_webhook_secret_filter", False)
+        for active_filter in access_logger.filters
+    ):
+        return
+    access_logger.addFilter(_WebhookSecretAccessLogFilter())
 
 api_limiter = SlidingWindowRateLimiter(limit=600, window_seconds=60)
 public_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
@@ -115,11 +160,14 @@ def cors_origins() -> list[str]:
         domain = os.getenv(variable, "").strip().rstrip("/")
         if domain:
             vercel_origins.append(domain if "://" in domain else f"https://{domain}")
-    local_origins = () if settings.ENVIRONMENT.lower() == "production" else LOCAL_FRONTEND_ORIGINS
+    local_origins = () if is_shared_environment() else LOCAL_FRONTEND_ORIGINS
     return list(dict.fromkeys((*local_origins, *configured, *vercel_origins)))
 
 
 def create_app() -> FastAPI:
+    validate_wapi_test_configuration()
+    validate_wapi_webhook_configuration()
+    configure_webhook_secret_log_redaction()
     app = FastAPI(title="Norium Engine Chat Central Unificado API")
     app.add_middleware(
         CORSMiddleware,
@@ -241,7 +289,7 @@ def create_app() -> FastAPI:
             )
             if request.url.path.startswith("/api/"):
                 response.headers["Cache-Control"] = "no-store"
-            if settings.ENVIRONMENT.lower() == "production":
+            if is_shared_environment():
                 response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             record_request(request.url.path, method, response.status_code, duration_ms, request_id)
             return response

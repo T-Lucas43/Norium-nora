@@ -1,15 +1,72 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiBlobRequest, apiRequest } from "../../core/api/client";
-import { authToken } from "../../core/api/config";
+import { apiBaseUrl, authToken } from "../../core/api/config";
 
-function needsAuthenticatedFetch(source: string) {
-  if (!source) return false;
+const INVALID_MEDIA_SOURCE = "Origem de mídia inválida.";
+
+type MediaSourcePlan =
+  | { kind: "direct"; source: string }
+  | { kind: "fetch"; requestUrl: string }
+  | { kind: "invalid" };
+
+function isChatApiPath(pathname: string) {
+  return pathname === "/api/chat" || pathname.startsWith("/api/chat/");
+}
+
+function mediaSourcePlan(source: string): MediaSourcePlan {
+  if (!source) return { kind: "direct", source: "" };
+
+  let url: URL;
   try {
-    const url = new URL(source, window.location.origin);
-    return url.pathname.startsWith("/api/chat/");
+    url = new URL(source, window.location.origin);
   } catch {
-    return source.startsWith("/api/chat/");
+    return { kind: "invalid" };
   }
+
+  if (url.protocol === "blob:" || url.protocol === "data:") {
+    return { kind: "direct", source };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { kind: "invalid" };
+  }
+
+  const isPrivateChatMedia = isChatApiPath(url.pathname);
+  if (url.origin === window.location.origin) {
+    return isPrivateChatMedia
+      ? { kind: "fetch", requestUrl: source }
+      : { kind: "direct", source };
+  }
+
+  // Em desenvolvimento o backend usa uma origem própria. URLs que ele mesmo
+  // publicou para /api/chat são reduzidas a relativas antes de chegar ao
+  // cliente autenticado; nenhuma origem fornecida pela mídia é aceita aqui.
+  let backendOrigin = "";
+  try {
+    backendOrigin = new URL(apiBaseUrl(), window.location.origin).origin;
+  } catch {
+    // Uma configuracao de backend invalida nao torna a origem da midia confiavel.
+  }
+  if (isPrivateChatMedia && url.origin === backendOrigin) {
+    return { kind: "fetch", requestUrl: `${url.pathname}${url.search}` };
+  }
+
+  return {
+    kind: "fetch",
+    requestUrl: `/api/chat/media-proxy?url=${encodeURIComponent(url.href)}`,
+  };
+}
+
+/** Resolve uma mídia para o cliente autenticado sem permitir origem externa direta. */
+export function authenticatedMediaRequestUrl(source: string) {
+  const plan = mediaSourcePlan(source);
+  if (plan.kind === "fetch") return plan.requestUrl;
+  if (plan.kind === "invalid") throw new Error(INVALID_MEDIA_SOURCE);
+
+  const url = new URL(plan.source, window.location.origin);
+  if ((url.protocol === "http:" || url.protocol === "https:") && url.origin === window.location.origin) {
+    return url.href;
+  }
+  throw new Error(INVALID_MEDIA_SOURCE);
 }
 
 /**
@@ -31,23 +88,35 @@ export type AuthenticatedMediaState = {
 /** Expõe loading/erro para uma mídia privada não se passar por conteúdo textual. */
 export function useAuthenticatedMediaState(source?: string | null): AuthenticatedMediaState {
   const initial = source || "";
-  const initialNeedsFetch = Boolean(initial && needsAuthenticatedFetch(initial));
-  const [resolved, setResolved] = useState(initialNeedsFetch ? "" : initial);
+  const initialPlan = mediaSourcePlan(initial);
+  const initialNeedsFetch = initialPlan.kind === "fetch";
+  const [resolved, setResolved] = useState(initialPlan.kind === "direct" ? initialPlan.source : "");
   const [resolvedFor, setResolvedFor] = useState(initial);
   const [loading, setLoading] = useState(initialNeedsFetch);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    initialPlan.kind === "invalid" ? INVALID_MEDIA_SOURCE : null,
+  );
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let revokedUrl = "";
     let cancelled = false;
     const value = source || "";
+    const plan = mediaSourcePlan(value);
 
-    if (!value || !needsAuthenticatedFetch(value)) {
-      setResolved(value);
+    if (plan.kind === "direct") {
+      setResolved(plan.source);
       setResolvedFor(value);
       setLoading(false);
       setError(null);
+      return undefined;
+    }
+
+    if (plan.kind === "invalid") {
+      setResolved("");
+      setResolvedFor(value);
+      setLoading(false);
+      setError(INVALID_MEDIA_SOURCE);
       return undefined;
     }
 
@@ -55,7 +124,7 @@ export function useAuthenticatedMediaState(source?: string | null): Authenticate
     setResolvedFor(value);
     setLoading(true);
     setError(null);
-    void apiBlobRequest(value, { cache: "no-store" })
+    void apiBlobRequest(plan.requestUrl, { cache: "no-store" })
       .then((blob) => {
         if (cancelled) return;
         revokedUrl = URL.createObjectURL(blob);
@@ -78,9 +147,9 @@ export function useAuthenticatedMediaState(source?: string | null): Authenticate
 
   const stateMatchesSource = resolvedFor === initial;
   return {
-    source: stateMatchesSource ? resolved : initialNeedsFetch ? "" : initial,
+    source: stateMatchesSource ? resolved : initialPlan.kind === "direct" ? initialPlan.source : "",
     loading: stateMatchesSource ? loading : initialNeedsFetch,
-    error: stateMatchesSource ? error : null,
+    error: stateMatchesSource ? error : initialPlan.kind === "invalid" ? INVALID_MEDIA_SOURCE : null,
     retry: () => setAttempt((current) => current + 1),
   };
 }

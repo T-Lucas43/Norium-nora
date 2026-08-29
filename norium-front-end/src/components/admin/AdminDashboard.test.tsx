@@ -47,7 +47,7 @@ function session(user = owner): AuthSession {
 function mockApi(users: NoriumUser[]) {
   vi.mocked(authJson).mockImplementation(async (path, _token, options) => {
     if (path === "/api/auth/admin/overview") return { totalUsers: users.length, activeUsers: users.length, teamUsers: 0, adminUsers: users.filter((item) => item.systemAdmin).length, planCounts: { free: 1, enterprise: 1 }, plans };
-    if (path === "/api/auth/users") return { users };
+    if (path === "/api/auth/admin/users") return { users };
     if (path === "/api/auth/plans") return { plans };
     if (path === "/api/auth/teams") return { teams: [] };
     if (path === "/api/auth/admin/audit") return { items: [] };

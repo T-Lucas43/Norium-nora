@@ -40,8 +40,10 @@ class WapiStatusDetectionTests(unittest.IsolatedAsyncioTestCase):
                 os.environ,
                 {
                     "NORIUM_DATA_DIR": temp_dir,
-                    "WAPI_TEST_INSTANCE_ID": "TEST-INSTANCE",
-                    "WAPI_TEST_INSTANCE_TOKEN": "test-token",
+                    "ENVIRONMENT": "test",
+                    "WAPI_TEST_INSTANCE_ID": "",
+                    "WAPI_TEST_INSTANCE_TOKEN": "",
+                    "WAPI_TEST_TENANT_ID": "",
                     "BACKEND_PUBLIC_URL": "",
                     "API_PUBLIC_URL": "",
                 },
@@ -70,10 +72,20 @@ class WapiStatusDetectionTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         self._stack.close()
 
-    async def _bind_with_prior_connection(self, user_id: str) -> None:
-        """Vincula a instância de homologação e marca connected_at (como o webhook)."""
+    def _bind(self, user_id: str) -> None:
+        """Cria o vínculo diretamente; estes testes exercitam somente status."""
         wb.record_consent(user_id, origin="test")
-        await chat_router.wapi_connect.ensure_instance(user_id)
+        binding = wb.get_binding(user_id)
+        binding.instance_id = "TEST-INSTANCE"
+        binding.token = "test-token"
+        binding.instance_name = "status-test"
+        binding.state = "awaiting_qr"
+        binding.created_at = time.time()
+        wb.save_binding(user_id, binding)
+
+    async def _bind_with_prior_connection(self, user_id: str) -> None:
+        """Marca connected_at como faria o webhook após o pareamento."""
+        self._bind(user_id)
         binding = wb.get_binding(user_id)
         binding.state = "connected"
         binding.connected_at = 1_700_000_000.0
@@ -106,8 +118,7 @@ class WapiStatusDetectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_connected_webhook_wins_against_stale_status_response(self) -> None:
         user = chat_user("user-race-status")
-        wb.record_consent(user["id"], origin="test")
-        await chat_router.wapi_connect.ensure_instance(user["id"])
+        self._bind(user["id"])
 
         async def stale_status(*_args, **_kwargs):
             binding = wb.get_binding(user["id"])
@@ -128,8 +139,7 @@ class WapiStatusDetectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_connected_webhook_wins_while_qr_is_being_fetched(self) -> None:
         user = chat_user("user-race-qr")
-        wb.record_consent(user["id"], origin="test")
-        await chat_router.wapi_connect.ensure_instance(user["id"])
+        self._bind(user["id"])
         client = chat_router.wapi_connect._client
 
         async def qr_after_connected(*_args, **_kwargs):
@@ -172,8 +182,7 @@ class WapiStatusDetectionTests(unittest.IsolatedAsyncioTestCase):
         # Sem sinal do webhook (connected_at None, state != connected) não deve
         # sondar device — segue direto para o QR.
         user = chat_user("user-c")
-        wb.record_consent(user["id"], origin="test")
-        await chat_router.wapi_connect.ensure_instance(user["id"])
+        self._bind(user["id"])
         client = chat_router.wapi_connect._client
         device_mock = AsyncMock(return_value={"connectedPhone": "5511000000000"})
         with patch.object(client, "device", device_mock):
@@ -181,6 +190,67 @@ class WapiStatusDetectionTests(unittest.IsolatedAsyncioTestCase):
         device_mock.assert_not_called()
         self.assertEqual("aguardando_qrcode", result["status"])
 
+
+    async def test_local_disconnect_wins_while_status_qr_is_in_flight(self) -> None:
+        from app.services.wapi_client import WapiError
+
+        user = chat_user("user-disconnect-status-qr")
+        await self._bind_with_prior_connection(user["id"])
+        qr_started = asyncio.Event()
+        release_qr = asyncio.Event()
+
+        async def delayed_qr(*_args, **_kwargs):
+            qr_started.set()
+            await release_qr.wait()
+            return {"qrcode": "QR-OBSOLETO"}
+
+        client = chat_router.wapi_connect._client
+        with (
+            patch.object(
+                client,
+                "device",
+                AsyncMock(side_effect=WapiError("WhatsApp desconectado pelo celular", status=401)),
+            ),
+            patch.object(client, "qr_code", AsyncMock(side_effect=delayed_qr)),
+        ):
+            status_task = asyncio.create_task(chat_router.wapi_connect.status(user["id"]))
+            await asyncio.wait_for(qr_started.wait(), timeout=1)
+
+            await chat_router.desconectar_whatsapp(user=user)
+            self.assertFalse(wb.get_binding(user["id"]).exists)
+
+            release_qr.set()
+            result = await asyncio.wait_for(status_task, timeout=1)
+
+        self.assertFalse(wb.get_binding(user["id"]).exists)
+        self.assertIsNone(result["qrcode"])
+        self.assertNotEqual("aguardando_qrcode", result["status"])
+
+    async def test_local_disconnect_wins_while_explicit_qr_is_in_flight(self) -> None:
+        user = chat_user("user-disconnect-explicit-qr")
+        self._bind(user["id"])
+        qr_started = asyncio.Event()
+        release_qr = asyncio.Event()
+
+        async def delayed_qr(*_args, **_kwargs):
+            qr_started.set()
+            await release_qr.wait()
+            return {"qrcode": "QR-OBSOLETO"}
+
+        client = chat_router.wapi_connect._client
+        with patch.object(client, "qr_code", AsyncMock(side_effect=delayed_qr)):
+            qr_task = asyncio.create_task(chat_router.wapi_connect.qr(user["id"]))
+            await asyncio.wait_for(qr_started.wait(), timeout=1)
+
+            await chat_router.desconectar_whatsapp(user=user)
+            self.assertFalse(wb.get_binding(user["id"]).exists)
+
+            release_qr.set()
+            result = await asyncio.wait_for(qr_task, timeout=1)
+
+        self.assertFalse(wb.get_binding(user["id"]).exists)
+        self.assertIsNone(result["qrcode"])
+        self.assertNotEqual("aguardando_qrcode", result["status"])
 
 if __name__ == "__main__":
     unittest.main()

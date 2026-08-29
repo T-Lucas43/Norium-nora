@@ -18,8 +18,30 @@ type ApiRequestOptions = RequestInit & {
   timeoutMs?: number;
 };
 
+const UNAUTHORIZED_REQUEST_ORIGIN = "Origem da requisicao autenticada nao autorizada.";
+
 function requestUrl(path: string) {
-  if (/^https?:\/\//i.test(path)) return path;
+  let parsed: URL;
+  try {
+    parsed = new URL(path, window.location.origin);
+  } catch {
+    throw new ApiError(UNAUTHORIZED_REQUEST_ORIGIN, 400);
+  }
+
+  const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(path.trimStart());
+  const isNetworkPath = /^[\\/]{2}/.test(path);
+  if (hasScheme || isNetworkPath) {
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.origin !== window.location.origin) {
+      throw new ApiError(UNAUTHORIZED_REQUEST_ORIGIN, 400);
+    }
+    return parsed.href;
+  }
+
+  // Evita que formas relativas ambiguas (por exemplo, barras invertidas)
+  // escapem para outra origem durante a normalizacao feita pelo navegador.
+  if (parsed.origin !== window.location.origin) {
+    throw new ApiError(UNAUTHORIZED_REQUEST_ORIGIN, 400);
+  }
   return `${apiBaseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
@@ -66,6 +88,7 @@ function waitForRetry(delayMs: number, signal?: AbortSignal | null) {
 }
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const url = requestUrl(path);
   const { token = authToken(), timeoutMs = 20_000, headers: customHeaders, signal, ...init } = options;
   const headers = new Headers(customHeaders);
 
@@ -98,7 +121,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
         throw new ApiError("Operacao cancelada.", 499);
       }
 
-      const response = await fetch(requestUrl(path), {
+      const response = await fetch(url, {
         ...init,
         headers,
         signal: timeoutController.signal,
@@ -150,6 +173,7 @@ export async function authenticatedWebSocketUrl(url: string, token?: string | nu
 
 /** Usa a mesma autenticacao e identificacao de workspace para respostas binarias. */
 export async function apiBlobRequest(path: string, options: ApiRequestOptions = {}): Promise<Blob> {
+  const url = requestUrl(path);
   const { token = authToken(), timeoutMs = 60_000, headers: customHeaders, signal, ...init } = options;
   const headers = new Headers(customHeaders);
   if (!headers.has("Accept")) headers.set("Accept", "application/pdf");
@@ -164,7 +188,7 @@ export async function apiBlobRequest(path: string, options: ApiRequestOptions = 
   const abortFromCaller = () => timeoutController.abort();
   signal?.addEventListener("abort", abortFromCaller, { once: true });
   try {
-    const response = await fetch(requestUrl(path), { ...init, headers, signal: timeoutController.signal });
+    const response = await fetch(url, { ...init, headers, signal: timeoutController.signal });
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       throw new ApiError(apiErrorMessage(payload, "Falha ao gerar o arquivo no Norium."), response.status, payload);

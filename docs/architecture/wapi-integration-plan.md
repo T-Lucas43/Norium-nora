@@ -78,12 +78,19 @@ Limitações reais confirmadas:
 
 - Configurar no ambiente: `WAPI_BASE_URL`, `WAPI_MASTER_API_KEY`,
   `WAPI_WEBHOOK_SECRET`. Em produção defina `BACKEND_PUBLIC_URL` para que os
-  webhooks sejam registrados na criação da instância.
+  webhooks sejam registrados na criação da instância. O startup exige um
+  `WAPI_WEBHOOK_SECRET` válido em qualquer ambiente fora da allowlist local/teste
+  (`local`, `development`, `dev`, `test`, `testing`). O valor deve usar ASCII e
+  não pode conter whitespace; a query é redigida dos access logs do Uvicorn.
 - Webhooks: a URL registrada é `<BACKEND_PUBLIC_URL>/api/whatsapp/webhook?secret=<WAPI_WEBHOOK_SECRET>`.
   O backend valida o segredo, resolve o dono pelo `instanceId` (mapa seguro) e
   ignora `userId` do payload.
-- Homologação sem `create-instance`: defina `WAPI_TEST_INSTANCE_ID/TOKEN` para
-  vincular a conta a uma instância existente.
+- Homologação sem `create-instance`: somente em ambiente explicitamente
+  `local`/`development`/`dev`/`test`/`testing`, defina em conjunto
+  `WAPI_TEST_TENANT_ID`, `WAPI_TEST_INSTANCE_ID` e
+  `WAPI_TEST_INSTANCE_TOKEN`. Apenas o tenant indicado pode reivindicar a
+  instância. Qualquer uma dessas variáveis em ambiente compartilhado
+  (`production`, `prod`, `railway`, `staging` etc.) interrompe o startup.
 
 ## Rollback
 

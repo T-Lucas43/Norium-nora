@@ -40,6 +40,9 @@ jobs:
 
       - name: Validate backend
         working-directory: norium-back-end
+        env:
+          ENVIRONMENT: test
+          APP_ENV: test
         run: |
           python -m compileall app main.py
           python -m unittest discover -s tests

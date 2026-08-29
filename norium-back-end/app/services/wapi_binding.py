@@ -17,6 +17,8 @@ Nenhum token é exposto ao frontend nem registrado em log.
 
 from __future__ import annotations
 
+import os
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -36,6 +38,11 @@ CONSENT_TERM_VERSION = "2026-08-22"
 
 _BINDING_DB = "wapi_instance"
 _INDEX_DB = "wapi_instance_index"
+_ownership_lock = threading.RLock()
+
+
+class InstanceOwnershipError(RuntimeError):
+    """Impede que uma instância W-API seja reivindicada por outra conta."""
 
 
 @dataclass(slots=True)
@@ -92,21 +99,52 @@ def get_binding(user_id: str) -> InstanceBinding:
     return InstanceBinding(**{k: v for k, v in raw.items() if k in known})
 
 
+def get_owned_binding(user_id: str) -> InstanceBinding:
+    """Lê o vínculo somente quando o índice confirma esta conta como dona."""
+    with _ownership_lock:
+        binding = get_binding(user_id)
+        if binding.exists and owner_of_instance(binding.instance_id) != user_id:
+            raise InstanceOwnershipError(
+                "Não foi possível confirmar a propriedade da instância W-API."
+            )
+        return binding
+
+
 def save_binding(user_id: str, binding: InstanceBinding) -> InstanceBinding:
-    binding.updated_at = time.time()
-    write_account_db(user_id, _BINDING_DB, asdict(binding))
-    if binding.instance_id:
-        _index_set(binding.instance_id, user_id)
-    return binding
+    with _ownership_lock:
+        current = get_binding(user_id)
+        previous_instance_id = current.instance_id
+
+        # Reserva o índice antes de persistir o vínculo. Assim um conflito nunca
+        # deixa uma segunda conta gravada com credenciais que pertencem à primeira.
+        if binding.instance_id:
+            _index_set(binding.instance_id, user_id)
+
+        binding.updated_at = time.time()
+        try:
+            write_account_db(user_id, _BINDING_DB, asdict(binding))
+        except Exception:
+            # Restaura o índice se a gravação do vínculo falhar após a reserva.
+            if binding.instance_id and binding.instance_id != previous_instance_id:
+                _index_remove(binding.instance_id, user_id)
+            if previous_instance_id:
+                _index_set(previous_instance_id, user_id)
+            raise
+
+        if previous_instance_id and previous_instance_id != binding.instance_id:
+            _index_remove(previous_instance_id, user_id)
+        return binding
 
 
 def clear_binding(user_id: str) -> None:
     """Remove o vínculo preservando o registro de aceite já obtido."""
-    current = get_binding(user_id)
-    consent = current.consent
-    if current.instance_id:
-        _index_remove(current.instance_id)
-    write_account_db(user_id, _BINDING_DB, asdict(InstanceBinding(consent=consent)))
+    with _ownership_lock:
+        current = get_binding(user_id)
+        consent = current.consent
+        write_account_db(user_id, _BINDING_DB, asdict(InstanceBinding(consent=consent)))
+        if current.instance_id:
+            # Um vínculo antigo/corrompido nunca remove o índice do dono atual.
+            _index_remove(current.instance_id, user_id)
 
 
 def record_consent(user_id: str, *, origin: str, term_version: str = CONSENT_TERM_VERSION) -> InstanceBinding:
@@ -127,27 +165,46 @@ def _index_set(instance_id: str, user_id: str) -> None:
     index = read_json_file(path, {})
     if not isinstance(index, dict):
         index = {}
+    claimed_by = str(index.get(instance_id) or "")
+    if claimed_by and claimed_by != user_id:
+        # Índices órfãos/divergentes exigem reconciliação explícita. Nunca
+        # transferimos propriedade automaticamente com base em ausência local.
+        raise InstanceOwnershipError(
+            "A instância W-API já está vinculada a outra conta."
+        )
     index[instance_id] = user_id
     write_json_file(path, index)
 
 
-def _index_remove(instance_id: str) -> None:
+def _index_remove(instance_id: str, expected_owner: str) -> None:
     path = _index_path()
     index = read_json_file(path, {})
-    if isinstance(index, dict) and instance_id in index:
+    if isinstance(index, dict) and index.get(instance_id) == expected_owner:
         index.pop(instance_id, None)
         write_json_file(path, index)
+
+
+def _homologation_owner_allowed(instance_id: str, user_id: str) -> bool:
+    homologation_instance_id = os.getenv("WAPI_TEST_INSTANCE_ID", "").strip()
+    if not homologation_instance_id or instance_id != homologation_instance_id:
+        return True
+    homologation_tenant_id = os.getenv("WAPI_TEST_TENANT_ID", "").strip()
+    return bool(homologation_tenant_id) and str(user_id).strip() == homologation_tenant_id
 
 
 def owner_of_instance(instance_id: str) -> str | None:
     """Resolve o dono de uma instância e reconfirma o vínculo (para webhooks)."""
     if not instance_id:
         return None
-    index = read_json_file(_index_path(), {})
-    owner = index.get(instance_id) if isinstance(index, dict) else None
-    if not owner:
+    with _ownership_lock:
+        index = read_json_file(_index_path(), {})
+        owner = index.get(instance_id) if isinstance(index, dict) else None
+        if not owner:
+            return None
+        # Reconfirma: o vínculo do dono precisa apontar para a mesma instância.
+        if (
+            get_binding(str(owner)).instance_id == instance_id
+            and _homologation_owner_allowed(instance_id, str(owner))
+        ):
+            return str(owner)
         return None
-    # Reconfirma: o vínculo do dono precisa apontar para a mesma instância.
-    if get_binding(str(owner)).instance_id == instance_id:
-        return str(owner)
-    return None

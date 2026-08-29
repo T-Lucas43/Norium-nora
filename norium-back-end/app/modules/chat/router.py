@@ -35,7 +35,14 @@ from app.shared.schemas import StrictModel
 load_dotenv()
 
 from app.routers.auth_router import current_user, effective_permissions, find_user, read_user_store
-from app.core.tenant import get_data_root, public_api_url, read_user_db, write_user_db
+from app.core.settings import is_valid_wapi_webhook_secret
+from app.core.tenant import (
+    get_data_root,
+    is_shared_environment,
+    public_api_url,
+    read_user_db,
+    write_user_db,
+)
 from app.routers.inbox_router import record_event
 from app.services.conversation_store import (
     append_message,
@@ -83,7 +90,7 @@ def _messaging_http_error(exc: Exception, default_detail: str) -> HTTPException:
     return HTTPException(status_code=502, detail=default_detail)
 
 status_conexoes: Dict[str, Dict[str, Dict[str, Any]]] = {}
-WAPI_WEBHOOK_SECRET = os.getenv("WAPI_WEBHOOK_SECRET", "").strip()
+WAPI_WEBHOOK_SECRET = os.getenv("WAPI_WEBHOOK_SECRET", "")
 WHATSAPP_MEDIA_HOSTS = {
     item.strip().lower()
     for item in os.getenv("WHATSAPP_MEDIA_HOSTS", "").split(",")
@@ -293,9 +300,19 @@ def tenant_id(user: dict[str, Any]) -> str:
     return resolved
 
 
+def wapi_owned_binding(user_id: str) -> wb.InstanceBinding | None:
+    """Vínculo somente quando o índice confirma a conta como proprietária."""
+    try:
+        return wb.get_owned_binding(user_id)
+    except wb.InstanceOwnershipError:
+        return None
+
+
 def wapi_creds(user_id: str) -> tuple[str, str] | None:
     """Credenciais (instanceId, token) da instancia vinculada, ou None."""
-    binding = wb.get_binding(user_id)
+    binding = wapi_owned_binding(user_id)
+    if binding is None:
+        return None
     return (binding.instance_id, binding.token) if binding.exists else None
 
 
@@ -1849,8 +1866,10 @@ async def webhook_whatsapp(
             request.query_params.get("secret") or request.headers.get("x-wapi-webhook-secret") or ""
         )
     if not WAPI_WEBHOOK_SECRET:
-        if os.getenv("ENVIRONMENT", "development").strip().lower() == "production":
+        if is_shared_environment(require_explicit=True):
             raise HTTPException(status_code=503, detail="Webhook WhatsApp indisponivel ate a configuracao segura.")
+    elif not is_valid_wapi_webhook_secret(WAPI_WEBHOOK_SECRET):
+        raise HTTPException(status_code=503, detail="Webhook WhatsApp indisponivel ate a configuracao segura.")
     elif not secrets.compare_digest(supplied_secret, WAPI_WEBHOOK_SECRET):
         raise HTTPException(status_code=403, detail="Webhook WhatsApp nao autorizado.")
 
@@ -2368,8 +2387,8 @@ async def _wapi_handle_status_unlocked(user_id: str, data: Dict[str, Any]) -> Di
 
 
 def _wapi_handle_connection(user_id: str, kind: str) -> Dict[str, Any]:
-    binding = wb.get_binding(user_id)
-    if binding.exists:
+    binding = wapi_owned_binding(user_id)
+    if binding is not None and binding.exists:
         if kind == wapi_webhook.EVENT_CONNECTED:
             previous_state = binding.state
             binding.state = "connected"
@@ -2736,9 +2755,8 @@ async def obter_historico_conversa(
             return whatsapp_history_page(conversation, before=None, limit=limit)
 
         creds = wapi_creds(resolved_user_id)
-        binding_created_at = (
-            wb.get_binding(resolved_user_id).created_at if creds else None
-        )
+        owned_binding = wapi_owned_binding(resolved_user_id)
+        binding_created_at = owned_binding.created_at if creds and owned_binding else None
         if creds and whatsapp_history_error_backoff_active(
             resolved_user_id,
             conversa_id,
@@ -2768,9 +2786,11 @@ async def obter_historico_conversa(
         if provider_succeeded:
             async with whatsapp_conversation_mutation_lock(resolved_user_id):
                 latest_db = await load_conversations(resolved_user_id)
+                latest_binding = wapi_owned_binding(resolved_user_id)
                 if (
                     wapi_creds(resolved_user_id) != creds
-                    or wb.get_binding(resolved_user_id).created_at != binding_created_at
+                    or latest_binding is None
+                    or latest_binding.created_at != binding_created_at
                 ):
                     conversation = latest_db.get(conversa_id)
                     return whatsapp_history_page(

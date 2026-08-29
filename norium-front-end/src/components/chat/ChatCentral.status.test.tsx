@@ -16,6 +16,12 @@ const api = vi.hoisted(() => ({
   details: vi.fn(),
   markConversation: vi.fn(),
 }));
+const mediaApi = vi.hoisted(() => ({ apiBlobRequest: vi.fn(), apiRequest: vi.fn() }));
+
+vi.mock("../../core/api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../core/api/client")>();
+  return { ...actual, apiBlobRequest: mediaApi.apiBlobRequest, apiRequest: mediaApi.apiRequest };
+});
 
 vi.mock("./whatsappApi", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./whatsappApi")>();
@@ -29,6 +35,10 @@ import ChatCentral from "./ChatCentral";
 describe("status do WhatsApp", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:status-photo") });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    mediaApi.apiBlobRequest.mockResolvedValue(new Blob(["photo"], { type: "image/jpeg" }));
+    mediaApi.apiRequest.mockResolvedValue({});
     api.status.mockResolvedValue({ conectado: true, status: "conectado", numero: "5511999999999" });
     api.conversations.mockResolvedValue([]);
     api.contacts.mockResolvedValue([]);
@@ -92,7 +102,11 @@ describe("status do WhatsApp", () => {
 
     await user.click(await screen.findByRole("button", { name: /^Status/ }));
     const contactRow = await screen.findByRole("button", { name: /Maria/ });
-    await waitFor(() => expect(contactRow.querySelector("img")).toHaveAttribute("src", photoUrl));
+    await waitFor(() => expect(contactRow.querySelector("img")).toHaveAttribute("src", "blob:status-photo"));
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(
+      `/api/chat/media-proxy?url=${encodeURIComponent(photoUrl)}`,
+      { cache: "no-store" },
+    );
   });
 
 

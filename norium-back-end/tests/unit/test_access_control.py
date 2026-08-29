@@ -177,6 +177,23 @@ class AccessControlTests(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(403, error.exception.status_code)
 
+    async def test_system_admin_panel_lists_self_registered_accounts(self) -> None:
+        admin = account("admin", plan="enterprise", system_admin=True)
+        registered = account("new-customer")
+        store = {"users": [admin, registered], "teams": []}
+
+        with patch.object(auth_router, "read_user_store", AsyncMock(return_value=store)):
+            users_result = await auth_router.list_admin_users(admin)
+            overview_result = await auth_router.admin_overview(admin)
+
+        self.assertEqual({"admin", "new-customer"}, {item["id"] for item in users_result["users"]})
+        self.assertEqual(2, overview_result["totalUsers"])
+        self.assertEqual(2, overview_result["activeUsers"])
+
+        with self.assertRaises(HTTPException) as error:
+            await auth_router.list_admin_users(registered)
+        self.assertEqual(403, error.exception.status_code)
+
     async def test_self_service_cannot_activate_paid_plan(self) -> None:
         user = account("free-user")
         with self.assertRaises(HTTPException) as error:

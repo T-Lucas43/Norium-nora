@@ -55,6 +55,7 @@ websocket_tickets: dict[str, dict[str, Any]] = {}
 WEBSOCKET_TICKET_TTL_SECONDS = 45
 
 Role = Literal["owner", "member"]
+SystemAdminRole = Literal["owner", "assistant"]
 PlanCode = Literal["free", "individual", "equipe", "enterprise"]
 UserStatus = Literal["ativo", "inativo"]
 
@@ -279,12 +280,24 @@ def sanitize_permissions(permissions: dict[str, Any] | None, fallback: dict[str,
     return base
 
 
+def system_admin_role(user: dict[str, Any]) -> str | None:
+    role = str(user.get("systemAdminRole") or "").strip().lower()
+    if role in {"owner", "assistant"}:
+        return role
+    # Compatibilidade com bancos e testes anteriores à separação dos papéis.
+    return "owner" if user.get("systemAdmin") else None
+
+
+def is_system_admin(user: dict[str, Any]) -> bool:
+    return system_admin_role(user) is not None
+
+
 def is_system_owner(user: dict[str, Any]) -> bool:
-    return bool(user.get("systemAdmin"))
+    return system_admin_role(user) == "owner"
 
 
 def effective_permissions(user: dict[str, Any]) -> dict[str, bool]:
-    if is_system_owner(user):
+    if is_system_admin(user):
         return dict(OWNER_PERMISSIONS)
     plan = str(user.get("plan") or "free")
     entitlements = permissions_for_plan(plan, is_owner=user.get("role") == "owner")
@@ -352,7 +365,8 @@ async def assert_workspace_access(user: dict[str, Any], request: Request) -> Non
 def sanitize_user(user: dict[str, Any]) -> dict[str, Any]:
     safe = {key: value for key, value in user.items() if key != "passwordHash"}
     safe["jobTitle"] = str(safe.get("jobTitle") or ("Lider" if safe.get("role") == "owner" else "Membro"))
-    safe["systemAdmin"] = is_system_owner(safe)
+    safe["systemAdminRole"] = system_admin_role(safe)
+    safe["systemAdmin"] = is_system_admin(safe)
     safe["permissions"] = effective_permissions(safe)
     safe["status"] = safe.get("status", "ativo")
     safe["requiresPlanSelection"] = bool(safe.get("requiresPlanSelection", False))
@@ -361,11 +375,11 @@ def sanitize_user(user: dict[str, Any]) -> dict[str, Any]:
 
 def can_manage_team(user: dict[str, Any]) -> bool:
     permissions = effective_permissions(user)
-    return bool(user.get("systemAdmin") or user.get("role") == "owner" or permissions.get("equipe") or permissions.get("admin"))
+    return bool(is_system_admin(user) or user.get("role") == "owner" or permissions.get("equipe") or permissions.get("admin"))
 
 
 def can_manage_system(user: dict[str, Any]) -> bool:
-    return is_system_owner(user)
+    return is_system_admin(user)
 
 
 def assert_team_plan(user: dict[str, Any]) -> None:
@@ -400,6 +414,7 @@ def default_store() -> dict[str, Any]:
             "plan": "equipe",
             "status": "ativo",
             "systemAdmin": True,
+            "systemAdminRole": "owner",
             "sessionVersion": 0,
             "teamOwnerId": None,
             "createdBy": None,
@@ -428,7 +443,56 @@ def default_store() -> dict[str, Any]:
         "users": users,
         "plans": PLAN_CATALOG,
         "teams": teams,
+        "systemOwnerId": OWNER_USER_ID if users else None,
+        "adminAudit": [],
     }
+
+
+def ensure_admin_roles(store: dict[str, Any]) -> dict[str, Any]:
+    users = [item for item in store.get("users", []) if isinstance(item, dict)]
+    if not users:
+        store["systemOwnerId"] = None
+        return store
+
+    users_by_id = {str(item.get("id") or ""): item for item in users if item.get("id")}
+    configured_owner = users_by_id.get(str(store.get("systemOwnerId") or ""))
+    environment_owner = next(
+        (
+            item
+            for item in users
+            if (OWNER_USER_ID and str(item.get("id") or "") == OWNER_USER_ID)
+            or (OWNER_EMAIL and stored_email(item) == OWNER_EMAIL)
+        ),
+        None,
+    )
+    explicit_owner = next(
+        (item for item in users if str(item.get("systemAdminRole") or "").lower() == "owner"),
+        None,
+    )
+    legacy_owner = next((item for item in users if item.get("systemAdmin")), None)
+    owner = environment_owner or configured_owner or explicit_owner or legacy_owner
+    owner_id = str((owner or {}).get("id") or "")
+
+    for item in users:
+        item_id = str(item.get("id") or "")
+        was_admin = bool(item.get("systemAdmin")) or str(item.get("systemAdminRole") or "").lower() in {
+            "owner",
+            "assistant",
+        }
+        if owner_id and item_id == owner_id:
+            item["systemAdmin"] = True
+            item["systemAdminRole"] = "owner"
+        elif was_admin:
+            item["systemAdmin"] = True
+            item["systemAdminRole"] = "assistant"
+        else:
+            item["systemAdmin"] = False
+            item["systemAdminRole"] = None
+
+    store["systemOwnerId"] = owner_id or None
+    if not isinstance(store.get("adminAudit"), list):
+        store["adminAudit"] = []
+    return store
 
 
 def ensure_team_profiles(store: dict[str, Any]) -> dict[str, Any]:
@@ -488,10 +552,13 @@ def ensure_seed_user(store: dict[str, Any]) -> dict[str, Any]:
         owner = next((item for item in users if stored_email(item) == OWNER_EMAIL), None)
         if owner:
             owner["systemAdmin"] = True
+            owner["systemAdminRole"] = "owner"
             owner["role"] = "owner"
+            store["systemOwnerId"] = str(owner.get("id") or OWNER_USER_ID)
+    ensure_admin_roles(store)
     for item in users:
         item["sessionVersion"] = max(0, int(item.get("sessionVersion") or 0))
-        item["systemAdmin"] = bool(item.get("systemAdmin"))
+        item["systemAdmin"] = is_system_admin(item)
         item["permissions"] = effective_permissions(item)
     store["plans"] = PLAN_CATALOG
     return ensure_team_profiles(store)
@@ -644,6 +711,8 @@ async def user_from_websocket_ticket(ticket: str) -> dict[str, Any]:
 
 
 def visible_users_for(current: dict[str, Any], users: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if can_manage_system(current):
+        return [sanitize_user(user) for user in users if isinstance(user, dict)]
     current_team_id = team_id_for_user(current)
     return [
         sanitize_user(user)
@@ -654,6 +723,8 @@ def visible_users_for(current: dict[str, Any], users: list[dict[str, Any]]) -> l
 
 
 def assert_can_touch_user(current: dict[str, Any], target: dict[str, Any]) -> None:
+    if is_system_owner(target) and str(current.get("id") or "") != str(target.get("id") or ""):
+        raise HTTPException(status_code=403, detail="O administrador auxiliar nao pode alterar o proprietario do sistema.")
     if can_manage_system(current):
         return
     if target.get("teamOwnerId") == current.get("id"):
@@ -661,6 +732,32 @@ def assert_can_touch_user(current: dict[str, Any], target: dict[str, Any]) -> No
     if target.get("id") == current.get("id"):
         return
     raise HTTPException(status_code=403, detail="Voce nao pode gerenciar este usuario.")
+
+
+def append_admin_audit(
+    store: dict[str, Any],
+    actor: dict[str, Any],
+    action: str,
+    *,
+    target: dict[str, Any] | None = None,
+    detail: str = "",
+) -> None:
+    entry = {
+        "id": f"audit_{secrets.token_hex(8)}",
+        "action": action,
+        "detail": detail,
+        "actorId": str(actor.get("id") or ""),
+        "actorName": str(actor.get("nome") or actor.get("email") or "Sistema"),
+        "targetId": str((target or {}).get("id") or ""),
+        "targetName": str((target or {}).get("nome") or (target or {}).get("email") or ""),
+        "createdAt": now_iso(),
+    }
+    audit = store.setdefault("adminAudit", [])
+    if not isinstance(audit, list):
+        audit = []
+        store["adminAudit"] = audit
+    audit.insert(0, entry)
+    del audit[500:]
 
 
 @router.post("/login")
@@ -705,6 +802,7 @@ async def register(payload: RegisterPayload, request: Request) -> dict[str, Any]
             "plan": "free",
             "status": "ativo",
             "systemAdmin": False,
+            "systemAdminRole": None,
             "sessionVersion": 0,
             "teamOwnerId": None,
             "createdBy": None,
@@ -720,6 +818,7 @@ async def register(payload: RegisterPayload, request: Request) -> dict[str, Any]
             },
         }
         store.setdefault("users", []).append(user)
+        append_admin_audit(store, user, "user_registered", target=user, detail="Nova conta criada pelo cadastro publico.")
         await write_user_store(store)
     return {
         "token": create_token(user),
@@ -814,8 +913,11 @@ async def plans(_: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
 @router.get("/teams")
 async def list_teams(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     store = await read_user_store()
-    current_team_id = team_id_for_user(user)
-    teams = [team for team in store.get("teams", []) if str(team.get("id") or "") == current_team_id]
+    if can_manage_system(user):
+        teams = store.get("teams", [])
+    else:
+        current_team_id = team_id_for_user(user)
+        teams = [team for team in store.get("teams", []) if str(team.get("id") or "") == current_team_id]
     return {"teams": [sanitize_team(store, team) for team in teams if isinstance(team, dict)]}
 
 
@@ -878,6 +980,7 @@ async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends
             "plan": payload.plan if can_manage_system(user) else "individual",
             "status": "ativo",
             "systemAdmin": False,
+            "systemAdminRole": None,
             "sessionVersion": 0,
             "teamOwnerId": selected_team_owner_id,
             "createdBy": user["id"],
@@ -888,6 +991,7 @@ async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends
         }
         new_user["permissions"] = effective_permissions(new_user)
         store.setdefault("users", []).append(new_user)
+        append_admin_audit(store, user, "user_created", target=new_user, detail="Usuario criado pelo painel administrativo.")
         await write_user_store(store)
     return {"user": sanitize_user(new_user)}
 
@@ -917,25 +1021,26 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
         if payload.plan is not None and can_manage_system(user):
             target["plan"] = payload.plan
             target["permissions"] = permissions_for_plan(payload.plan, is_owner=target.get("role") == "owner")
+            target["requiresPlanSelection"] = False
         if payload.systemAdmin is not None and can_manage_system(user):
-            if target.get("systemAdmin") and not payload.systemAdmin:
-                other_active_admins = [
-                    item
-                    for item in store.get("users", [])
-                    if item.get("id") != target.get("id")
-                    and item.get("status") == "ativo"
-                    and item.get("systemAdmin")
-                ]
-                if not other_active_admins:
-                    raise HTTPException(status_code=409, detail="Mantenha ao menos um administrador do sistema ativo.")
-            target["systemAdmin"] = bool(payload.systemAdmin)
+            target_is_primary_owner = is_system_owner(target)
+            if target_is_primary_owner and not payload.systemAdmin:
+                raise HTTPException(status_code=403, detail="O proprietario do sistema nao pode perder o acesso administrativo.")
+            if payload.systemAdmin:
+                target["systemAdmin"] = True
+                target["requiresPlanSelection"] = False
+                if not target_is_primary_owner:
+                    target["systemAdminRole"] = "assistant"
+            else:
+                target["systemAdmin"] = False
+                target["systemAdminRole"] = None
         if payload.permissions is not None:
             fallback = OWNER_PERMISSIONS if target.get("role") == "owner" else DEFAULT_MEMBER_PERMISSIONS
             next_permissions = sanitize_permissions(payload.permissions, fallback)
             if not can_manage_system(user):
                 next_permissions["admin"] = False
                 next_permissions["equipe"] = False
-            if is_system_owner(target):
+            if is_system_admin(target):
                 next_permissions = OWNER_PERMISSIONS
             target["permissions"] = next_permissions
         if "teamOwnerId" in payload.model_fields_set and can_manage_system(user):
@@ -944,6 +1049,14 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
                 selected_team_owner_id = None
             target["teamOwnerId"] = selected_team_owner_id
         target["updatedAt"] = now_iso()
+        changed_fields = sorted("password" if field == "password" else field for field in payload.model_fields_set)
+        append_admin_audit(
+            store,
+            user,
+            "user_updated",
+            target=target,
+            detail=f"Campos alterados: {', '.join(changed_fields) or 'nenhum'}.",
+        )
         await write_user_store(store)
     return {"user": sanitize_user(target)}
 
@@ -962,6 +1075,7 @@ async def deactivate_user(user_id: str, user: dict[str, Any] = Depends(current_u
             raise HTTPException(status_code=403, detail="O usuario principal nao pode ser removido.")
         target["status"] = "inativo"
         target["updatedAt"] = now_iso()
+        append_admin_audit(store, user, "user_deactivated", target=target, detail="Acesso administrativo desativado.")
         await write_user_store(store)
     return {"user": sanitize_user(target)}
 
@@ -984,4 +1098,51 @@ async def admin_overview(user: dict[str, Any] = Depends(current_user)) -> dict[s
         "adminUsers": len([item for item in users if item.get("systemAdmin") or item.get("permissions", {}).get("admin")]),
         "planCounts": plan_counts,
         "plans": PLAN_CATALOG,
+    }
+
+
+@router.get("/admin/audit")
+async def admin_audit(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    if not can_manage_system(user):
+        raise HTTPException(status_code=403, detail="Acesso admin restrito.")
+    store = await read_user_store()
+    entries = store.get("adminAudit", [])
+    return {"items": entries[:200] if isinstance(entries, list) else []}
+
+
+@router.get("/admin/monitoring")
+async def admin_monitoring(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    if not can_manage_system(user):
+        raise HTTPException(status_code=403, detail="Acesso admin restrito.")
+    store = await read_user_store()
+    users = [item for item in store.get("users", []) if isinstance(item, dict)]
+    public_url = str(os.getenv("BACKEND_PUBLIC_URL") or os.getenv("API_PUBLIC_URL") or "").strip().rstrip("/")
+    return {
+        "status": "operational",
+        "checkedAt": now_iso(),
+        "userStore": "online",
+        "totalUsers": len(users),
+        "activeUsers": len([item for item in users if item.get("status") == "ativo"]),
+        "adminUsers": len([item for item in users if is_system_admin(item)]),
+        "gmailConfigured": bool(
+            (os.getenv("GMAIL_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID"))
+            and (os.getenv("GMAIL_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET"))
+        ),
+        "googleCalendarConfigured": bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET")),
+        "gmailRedirectUri": str(os.getenv("GMAIL_REDIRECT_URI") or (f"{public_url}/api/auth/callback/gmail" if public_url else "")),
+        "googleRedirectUri": str(os.getenv("GOOGLE_REDIRECT_URI") or (f"{public_url}/api/integracoes/google/callback" if public_url else "")),
+    }
+
+
+@router.get("/admin/backup")
+async def admin_backup(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    if not can_manage_system(user):
+        raise HTTPException(status_code=403, detail="Acesso admin restrito.")
+    store = await read_user_store()
+    return {
+        "generatedAt": now_iso(),
+        "users": [sanitize_user(item) for item in store.get("users", []) if isinstance(item, dict)],
+        "teams": [sanitize_team(store, item) for item in store.get("teams", []) if isinstance(item, dict)],
+        "plans": PLAN_CATALOG,
+        "adminAudit": (store.get("adminAudit", [])[:500] if isinstance(store.get("adminAudit"), list) else []),
     }

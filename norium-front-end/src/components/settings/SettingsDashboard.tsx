@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Save,
   Settings2,
+  ShieldCheck,
   SlidersHorizontal,
   Sun,
 } from "lucide-react";
@@ -26,6 +27,7 @@ type SettingsDashboardProps = {
   userId?: string;
   currentUser?: NoriumUser | null;
   onSaved: (profile: PerfilOperador) => void;
+  onOpenAdmin?: () => void;
 };
 
 const colorGroups: Array<{
@@ -69,6 +71,7 @@ export default function SettingsDashboard({
   userId = "primary",
   currentUser,
   onSaved,
+  onOpenAdmin,
 }: SettingsDashboardProps) {
   const [profile, setProfile] = useState<PerfilOperador>(createDefaultProfile);
   const [loading, setLoading] = useState(true);
@@ -176,6 +179,25 @@ export default function SettingsDashboard({
 
       <main className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-6xl space-y-5">
+          {currentUser?.systemAdmin && onOpenAdmin && (
+            <section className="flex flex-col gap-4 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[var(--primary)]/16 text-[var(--primary)]">
+                  <ShieldCheck size={21} />
+                </span>
+                <div>
+                  <h2 className="text-sm font-bold">Painel administrativo</h2>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
+                    Gerencie usuários, planos, equipes e permissões sem sair da sua sessão atual.
+                  </p>
+                </div>
+              </div>
+              <Button variant="primary" onClick={onOpenAdmin} className="shrink-0">
+                <ShieldCheck size={16} /> Abrir painel Admin
+              </Button>
+            </section>
+          )}
+
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
             <div className="mb-5 flex items-center gap-3">
               <span className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--primary)]/12 text-[var(--primary)]">

@@ -151,7 +151,31 @@ class AccessControlTests(unittest.IsolatedAsyncioTestCase):
                     auth_router.UpdateUserPayload(systemAdmin=False),
                     admin,
                 )
-        self.assertEqual(409, error.exception.status_code)
+        self.assertEqual(403, error.exception.status_code)
+
+    async def test_owner_can_assign_assistant_and_assistant_cannot_touch_owner(self) -> None:
+        owner = account("owner", plan="enterprise", system_admin=True)
+        owner["systemAdminRole"] = "owner"
+        assistant = account("assistant", plan="enterprise")
+        store = {"users": [owner, assistant], "teams": [], "systemOwnerId": owner["id"]}
+        with (
+            patch.object(auth_router, "read_user_store", AsyncMock(return_value=store)),
+            patch.object(auth_router, "write_user_store", AsyncMock()),
+        ):
+            promoted = await auth_router.update_user(
+                assistant["id"],
+                auth_router.UpdateUserPayload(systemAdmin=True),
+                owner,
+            )
+            self.assertEqual("assistant", promoted["user"]["systemAdminRole"])
+            self.assertFalse(promoted["user"]["requiresPlanSelection"])
+            with self.assertRaises(HTTPException) as error:
+                await auth_router.update_user(
+                    owner["id"],
+                    auth_router.UpdateUserPayload(plan="free"),
+                    assistant,
+                )
+        self.assertEqual(403, error.exception.status_code)
 
     async def test_self_service_cannot_activate_paid_plan(self) -> None:
         user = account("free-user")

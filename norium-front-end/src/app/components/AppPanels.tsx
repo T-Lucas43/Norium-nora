@@ -55,6 +55,7 @@ type AppPanelsProps = {
   onActiveConversationChange: (conversationId: string | null) => void;
   onEmailHandled: () => void;
   onLogout: () => void;
+  onOpenAdmin: () => void;
   onNavigate: (tab: string) => void;
   onOpenDeepLink: (link: { tab: string; entityType: string; entityId: string; metadata?: Record<string, unknown> }) => void;
   onOpenNora: (prompt?: string) => void;
@@ -79,6 +80,7 @@ export default function AppPanels({
   onClearSystemNotifications,
   onEmailHandled,
   onLogout,
+  onOpenAdmin,
   onNavigate,
   onOpenDeepLink,
   onOpenNora,
@@ -218,6 +220,7 @@ export default function AppPanels({
             userId={currentUser.id}
             currentUser={currentUser}
             onSaved={onProfileSaved}
+            onOpenAdmin={onOpenAdmin}
           />
         </section>
       )}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import logging
 import os
 import re
@@ -8,6 +9,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from google.auth.exceptions import RefreshError
@@ -16,7 +18,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
-from app.core.tenant import get_data_root, read_profile_db, write_profile_db
+from app.core.tenant import get_data_root, is_production, public_api_url, read_profile_db, write_profile_db
 from app.services.oauth_state import active_oauth_attempts, find_oauth_attempt, oauth_attempts_payload
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -26,6 +28,9 @@ logger = logging.getLogger(__name__)
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 TIMEZONE = "America/Sao_Paulo"
 DEFAULT_REDIRECT_URI = "http://localhost:8000/api/integracoes/google/callback"
+GOOGLE_CALLBACK_PATH = "/api/integracoes/google/callback"
+MAX_OAUTH_USER_ID_LENGTH = 64
+OAUTH_USER_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 OAUTH_STATE_TTL_SECONDS = 20 * 60
 MAX_OAUTH_ATTEMPTS = 5
 
@@ -50,11 +55,15 @@ class CalendarService:
     def user_id_from_state(state: str | None) -> str | None:
         if not state:
             return None
+        if len(state) > MAX_OAUTH_USER_ID_LENGTH + 33:
+            return None
         parts = state.split(":", 1)
         if len(parts) != 2 or not re.fullmatch(r"[0-9a-f]{32}", parts[1]):
             return None
         user_id = parts[0].strip()
-        return user_id or None
+        if len(user_id) > MAX_OAUTH_USER_ID_LENGTH or not OAUTH_USER_ID_PATTERN.fullmatch(user_id):
+            return None
+        return user_id
 
     def status(self) -> dict[str, Any]:
         configured = bool(self._client_config())
@@ -80,11 +89,14 @@ class CalendarService:
         }
 
     def authorization_url(self) -> dict[str, str]:
-        state_value = f"{self._safe_user_id()}:{uuid.uuid4().hex}"
+        oauth_user_id = self._safe_user_id()
+        if not OAUTH_USER_ID_PATTERN.fullmatch(oauth_user_id):
+            raise CalendarConfigError("Identificador de usuario invalido para iniciar a conexao do Google Agenda.")
+        state_value = f"{oauth_user_id}:{uuid.uuid4().hex}"
         flow = self._flow(state=state_value)
         auth_url, state = flow.authorization_url(
             access_type="offline",
-            prompt="consent",
+            prompt="consent select_account",
         )
         attempts = active_oauth_attempts(
             self._read_profile_section("calendarOauthState", {}),
@@ -581,7 +593,56 @@ class CalendarService:
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _redirect_uri(self) -> str:
-        return os.getenv("GOOGLE_REDIRECT_URI") or DEFAULT_REDIRECT_URI
+        explicit_redirect = str(os.getenv("GOOGLE_REDIRECT_URI") or "").strip()
+        has_public_runtime_url = any(
+            str(os.getenv(name) or "").strip()
+            for name in ("BACKEND_PUBLIC_URL", "API_PUBLIC_URL", "VERCEL_PROJECT_PRODUCTION_URL", "VERCEL_URL")
+        )
+        callback_url = public_api_url(GOOGLE_CALLBACK_PATH) if has_public_runtime_url else ""
+        production_runtime = is_production() or str(os.getenv("VERCEL") or "").strip() == "1"
+
+        if production_runtime:
+            public_callback = callback_url if self._is_public_https_callback(callback_url) else ""
+            if explicit_redirect and self._is_public_https_callback(explicit_redirect):
+                return explicit_redirect
+            if public_callback:
+                if explicit_redirect:
+                    logger.warning("GOOGLE_REDIRECT_URI invalido para producao; usando callback publico derivado.")
+                return public_callback
+            if explicit_redirect and self._is_loopback_callback(explicit_redirect):
+                raise CalendarConfigError(
+                    "GOOGLE_REDIRECT_URI aponta para localhost em producao. "
+                    "Configure BACKEND_PUBLIC_URL com a URL HTTPS publica do backend."
+                )
+            raise CalendarConfigError(
+                "Callback OAuth do Google Agenda invalido em producao. "
+                "Configure GOOGLE_REDIRECT_URI ou BACKEND_PUBLIC_URL com uma URL HTTPS publica."
+            )
+
+        if explicit_redirect:
+            return explicit_redirect
+        if callback_url.startswith(("https://", "http://")):
+            return callback_url
+        return DEFAULT_REDIRECT_URI
+
+    @staticmethod
+    def _is_loopback_callback(url: str) -> bool:
+        try:
+            hostname = (urlsplit(url).hostname or "").strip().casefold().rstrip(".")
+            if hostname == "localhost" or hostname.endswith(".localhost"):
+                return True
+            return bool(hostname and ipaddress.ip_address(hostname).is_loopback)
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _is_public_https_callback(url: str) -> bool:
+        try:
+            parsed = urlsplit(url)
+            hostname = (parsed.hostname or "").strip().casefold().rstrip(".")
+            return parsed.scheme == "https" and bool(hostname) and not CalendarService._is_loopback_callback(url)
+        except ValueError:
+            return False
 
     def _read_profile(self) -> dict[str, Any]:
         profile = read_profile_db(self.user_id, {})

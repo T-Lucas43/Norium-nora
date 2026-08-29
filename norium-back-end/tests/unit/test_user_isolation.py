@@ -218,7 +218,7 @@ class TeamIsolationTests(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(403, error.exception.status_code)
 
-    def test_system_admin_team_view_excludes_unrelated_accounts(self) -> None:
+    def test_system_admin_view_includes_all_registered_accounts(self) -> None:
         member_of_system_team = user(
             "system-member",
             email="system-member@example.com",
@@ -230,9 +230,7 @@ class TeamIsolationTests(unittest.IsolatedAsyncioTestCase):
         )
         visible_ids = {item["id"] for item in visible}
 
-        self.assertEqual({"system-owner", "system-member"}, visible_ids)
-        self.assertNotIn("owner-a", visible_ids)
-        self.assertNotIn("member-1", visible_ids)
+        self.assertEqual({"system-owner", "system-member", "owner-a", "owner-b", "member-1"}, visible_ids)
 
     def test_legacy_creator_is_migrated_once_but_not_used_for_runtime_scope(self) -> None:
         legacy_member = user(

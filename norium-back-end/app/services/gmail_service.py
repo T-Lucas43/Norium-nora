@@ -53,7 +53,7 @@ PROFILE_CACHE_PATH = BASE_DIR / "gmail_profile_cache.json"
 DEFAULT_REDIRECT_URI = "http://localhost:8000/api/auth/callback/gmail"
 GMAIL_CALLBACK_PATH = "/api/auth/callback/gmail"
 MAX_OAUTH_USER_ID_LENGTH = 64
-OAUTH_USER_ID_PATTERN = re.compile(r"(?:lucas123|usr_[0-9a-f]{16})")
+OAUTH_USER_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 LOCAL_TZ = timezone(timedelta(hours=-3))
 MAX_ATTACHMENT_BYTES = 24 * 1024 * 1024
 PROFILE_CACHE_TTL_SECONDS = 600
@@ -571,8 +571,11 @@ class GmailService:
             raise GmailConfigError("Permissoes do Gmail incompletas. Gere um novo link de conexao.")
 
     def _client_config(self) -> dict[str, Any] | None:
-        client_id = os.getenv("GMAIL_CLIENT_ID")
-        client_secret = os.getenv("GMAIL_CLIENT_SECRET")
+        # O mesmo cliente OAuth web do Google pode atender Gmail e Agenda. Os
+        # nomes dedicados continuam prioritarios, mas instalações antigas que
+        # configuraram apenas GOOGLE_* deixam de falhar silenciosamente.
+        client_id = os.getenv("GMAIL_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
+        client_secret = os.getenv("GMAIL_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET")
         if not client_id or not client_secret:
             return None
         return {

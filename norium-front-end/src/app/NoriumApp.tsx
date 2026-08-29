@@ -158,6 +158,12 @@ export default function NoriumApp() {
     navigateNoriumView("app");
   }, [profile?.tema, profile?.tema_personalizado, setAppMode]);
 
+  const useAdminMode = useCallback(() => {
+    if (!authSession?.availableModes.includes("admin")) return;
+    setAppMode("admin");
+    navigateNoriumView("admin");
+  }, [authSession?.availableModes, setAppMode]);
+
   useEffect(() => {
     if (activeTab === "Notificações") clearSystemUnread();
   }, [activeTab, clearSystemUnread]);
@@ -375,6 +381,7 @@ export default function NoriumApp() {
             onClearSystemNotifications={clearSystemNotifications}
             onEmailHandled={() => setEmailToOpenId(null)}
             onLogout={handleLogout}
+            onOpenAdmin={useAdminMode}
             onNavigate={setActiveTab}
             onOpenDeepLink={openDeepLink}
             onOpenNora={openNora}

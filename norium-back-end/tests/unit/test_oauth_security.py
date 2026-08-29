@@ -23,10 +23,11 @@ class OAuthSecurityTests(unittest.IsolatedAsyncioTestCase):
 
     def test_gmail_state_parser_rejects_noncanonical_and_oversized_user_ids(self) -> None:
         nonce = "a" * 32
-        self.assertIsNone(GmailService.user_id_from_state(f"victim:{nonce}"))
+        self.assertIsNone(GmailService.user_id_from_state(f"victim!:{nonce}"))
         self.assertIsNone(GmailService.user_id_from_state(f"../usr_0123456789abcdef:{nonce}"))
         self.assertIsNone(GmailService.user_id_from_state(f"{'u' * 65}:{nonce}"))
         self.assertEqual("lucas123", GmailService.user_id_from_state(f"lucas123:{nonce}"))
+        self.assertEqual("norium-admin", GmailService.user_id_from_state(f"norium-admin:{nonce}"))
 
     def test_gmail_requires_exact_unexpired_state(self) -> None:
         service = GmailService("victim")
@@ -122,6 +123,23 @@ class OAuthSecurityTests(unittest.IsolatedAsyncioTestCase):
                 "https://oauth.norium.example/gmail/callback",
                 service._redirect_uri(),
             )
+
+    def test_gmail_can_reuse_google_oauth_client_credentials(self) -> None:
+        service = GmailService("norium-admin")
+        with patch.dict(
+            os.environ,
+            {
+                "GMAIL_CLIENT_ID": "",
+                "GMAIL_CLIENT_SECRET": "",
+                "GOOGLE_CLIENT_ID": "shared-client.apps.googleusercontent.com",
+                "GOOGLE_CLIENT_SECRET": "shared-secret",
+                "GMAIL_REDIRECT_URI": "http://localhost:8000/api/auth/callback/gmail",
+                "ENVIRONMENT": "development",
+            },
+        ):
+            config = service._client_config()
+
+        self.assertEqual("shared-client.apps.googleusercontent.com", config["web"]["client_id"])
 
     def test_gmail_production_replaces_loopback_callback_with_public_backend(self) -> None:
         service = GmailService("usr_2222222222222222")
@@ -274,7 +292,7 @@ class OAuthSecurityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(state, finish.call_args.kwargs["state"])
 
     async def test_gmail_callback_rejects_noncanonical_state_before_store_access(self) -> None:
-        state = "victim:" + "a" * 32
+        state = "../victim:" + "a" * 32
         with patch.object(GmailService, "cancel_oauth") as cancel:
             response = await mail_router.gmail_callback(
                 code=None,
@@ -284,6 +302,25 @@ class OAuthSecurityTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(400, response.status_code)
         cancel.assert_not_called()
+
+    def test_calendar_uses_public_backend_callback_in_production(self) -> None:
+        service = CalendarService("norium-admin")
+        with patch.dict(
+            os.environ,
+            {
+                "ENVIRONMENT": "production",
+                "VERCEL": "",
+                "BACKEND_PUBLIC_URL": "https://norium.example/",
+                "API_PUBLIC_URL": "",
+                "VERCEL_PROJECT_PRODUCTION_URL": "",
+                "VERCEL_URL": "",
+                "GOOGLE_REDIRECT_URI": "http://localhost:8000/api/integracoes/google/callback",
+            },
+        ):
+            self.assertEqual(
+                "https://norium.example/api/integracoes/google/callback",
+                service._redirect_uri(),
+            )
 
     async def test_gmail_callback_survives_cancel_persistence_failure(self) -> None:
         state = "usr_5555555555555555:" + "a" * 32

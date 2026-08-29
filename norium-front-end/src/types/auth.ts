@@ -19,6 +19,7 @@ export type PermissionKey =
   | "integracao_financeiro";
 
 export type UserRole = "owner" | "member";
+export type SystemAdminRole = "owner" | "assistant";
 export type UserPlan = "free" | "individual" | "equipe" | "enterprise";
 export type UserStatus = "ativo" | "inativo";
 export type AppMode = "app" | "admin";
@@ -36,6 +37,7 @@ export interface NoriumUser {
   plan: UserPlan;
   status: UserStatus;
   systemAdmin: boolean;
+  systemAdminRole?: SystemAdminRole | null;
   teamOwnerId?: string | null;
   createdBy?: string | null;
   createdAt?: string;

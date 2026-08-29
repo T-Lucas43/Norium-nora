@@ -324,8 +324,11 @@ class CalendarService:
             raise CalendarConfigError("Permissoes do Google Agenda incompletas. Gere um novo link de conexao.")
 
     def _client_config(self) -> dict[str, Any] | None:
-        client_id = os.getenv("GOOGLE_CLIENT_ID")
-        client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        # Gmail e Agenda usam o mesmo tipo de cliente OAuth web. Mantemos
+        # GOOGLE_* como prioridade, mas reaproveitamos GMAIL_* quando a
+        # instalação configurou apenas um único cliente no Google Cloud.
+        client_id = os.getenv("GOOGLE_CLIENT_ID") or os.getenv("GMAIL_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_CLIENT_SECRET") or os.getenv("GMAIL_CLIENT_SECRET")
         legacy = self._legacy_tokens()
         client_id = client_id or (legacy or {}).get("client_id")
         client_secret = client_secret or (legacy or {}).get("client_secret")

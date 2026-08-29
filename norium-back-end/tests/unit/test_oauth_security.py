@@ -322,6 +322,26 @@ class OAuthSecurityTests(unittest.IsolatedAsyncioTestCase):
                 service._redirect_uri(),
             )
 
+    def test_calendar_can_reuse_gmail_oauth_client_credentials(self) -> None:
+        service = CalendarService("norium-admin")
+        with (
+            patch.object(service, "_legacy_tokens", return_value=None),
+            patch.dict(
+                os.environ,
+                {
+                    "GOOGLE_CLIENT_ID": "",
+                    "GOOGLE_CLIENT_SECRET": "",
+                    "GMAIL_CLIENT_ID": "shared-client.apps.googleusercontent.com",
+                    "GMAIL_CLIENT_SECRET": "shared-secret",
+                    "GOOGLE_REDIRECT_URI": "http://localhost:8000/api/integracoes/google/callback",
+                    "ENVIRONMENT": "development",
+                },
+            ),
+        ):
+            config = service._client_config()
+
+        self.assertEqual("shared-client.apps.googleusercontent.com", config["web"]["client_id"])
+
     async def test_gmail_callback_survives_cancel_persistence_failure(self) -> None:
         state = "usr_5555555555555555:" + "a" * 32
         with patch.object(GmailService, "cancel_oauth", side_effect=OSError("storage unavailable")):

@@ -1128,7 +1128,10 @@ async def admin_monitoring(user: dict[str, Any] = Depends(current_user)) -> dict
             (os.getenv("GMAIL_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID"))
             and (os.getenv("GMAIL_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET"))
         ),
-        "googleCalendarConfigured": bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET")),
+        "googleCalendarConfigured": bool(
+            (os.getenv("GOOGLE_CLIENT_ID") or os.getenv("GMAIL_CLIENT_ID"))
+            and (os.getenv("GOOGLE_CLIENT_SECRET") or os.getenv("GMAIL_CLIENT_SECRET"))
+        ),
         "gmailRedirectUri": str(os.getenv("GMAIL_REDIRECT_URI") or (f"{public_url}/api/auth/callback/gmail" if public_url else "")),
         "googleRedirectUri": str(os.getenv("GOOGLE_REDIRECT_URI") or (f"{public_url}/api/integracoes/google/callback" if public_url else "")),
     }

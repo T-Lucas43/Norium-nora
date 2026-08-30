@@ -29,6 +29,11 @@ INTENTIONAL_PARAMETER_STRENGTHENING = {
 INTENTIONAL_PARAMETER_DESCRIPTION_CHANGES = {
     ("GET /api/chat/media-proxy", ("url", "query")),
 }
+INTENTIONAL_PARAMETER_MIGRATIONS = {
+    # A URL legada agora e opcional e serve apenas para localizar uma origem
+    # previamente registrada; novos consumidores usam o media_id opaco.
+    ("GET /api/chat/media-proxy", ("url", "query")),
+}
 INTENTIONAL_SCHEMA_CHANGES = {
     "components.schemas.NoraBoardPayload.properties.action.enum",
     "components.schemas.ComentarioPayload.properties.author.default",
@@ -115,7 +120,10 @@ def _assert_operation_backward_compatible(
         identity = (parameter.get("name"), parameter.get("in"))
         baseline_identities.add(identity)
         test_case.assertIn(identity, current_by_identity, f"Parametro removido: {path}.{identity}")
-        if (path, identity) not in INTENTIONAL_PARAMETER_STRENGTHENING:
+        if (
+            (path, identity) not in INTENTIONAL_PARAMETER_STRENGTHENING
+            and (path, identity) not in INTENTIONAL_PARAMETER_MIGRATIONS
+        ):
             current_parameter = current_by_identity[identity]
             if (path, identity) in INTENTIONAL_PARAMETER_DESCRIPTION_CHANGES:
                 parameter = copy.deepcopy(parameter)

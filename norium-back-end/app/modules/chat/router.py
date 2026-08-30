@@ -15,13 +15,15 @@ import secrets
 import shutil
 import socket
 import subprocess
+import tempfile
 import weakref
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Literal
-from urllib.parse import quote, unquote, urljoin, urlparse
+from urllib.parse import quote, unquote, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -96,6 +98,15 @@ WHATSAPP_MEDIA_HOSTS = {
     for item in os.getenv("WHATSAPP_MEDIA_HOSTS", "").split(",")
     if item.strip()
 }
+REMOTE_MEDIA_REFERENCE_TTL_SECONDS = max(
+    60,
+    min(24 * 60 * 60, int(os.getenv("REMOTE_MEDIA_REFERENCE_TTL_SECONDS", "3600"))),
+)
+REMOTE_MEDIA_REGISTRY_MAX_ENTRIES = max(
+    100,
+    min(10_000, int(os.getenv("REMOTE_MEDIA_REGISTRY_MAX_ENTRIES", "2000"))),
+)
+remote_media_registry: Dict[str, Dict[str, tuple[str, float]]] = {}
 profile_photo_attempt_cache: Dict[str, int] = {}
 whatsapp_webhook_event_cache: Dict[str, float] = {}
 whatsapp_webhook_inflight: Dict[str, asyncio.Future[bool]] = {}
@@ -202,6 +213,53 @@ def _webhook_debug_snapshot(data: Dict[str, Any], kind: str) -> Dict[str, Any]:
 UPLOAD_DIR = get_data_root() / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = 14 * 1024 * 1024
+REMOTE_MEDIA_TEMP_DIR = UPLOAD_DIR / ".remote_media_tmp"
+REMOTE_MEDIA_ALLOWED_MIME_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/heic",
+    "image/heif",
+    "audio/aac",
+    "audio/amr",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/ogg",
+    "audio/opus",
+    "audio/wav",
+    "audio/webm",
+    "audio/x-wav",
+    "video/3gpp",
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "application/pdf",
+    "application/rtf",
+    "application/msword",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/zip",
+    "application/x-7z-compressed",
+    "text/csv",
+    "text/plain",
+}
+
+
+@dataclass(slots=True)
+class DownloadedRemoteMedia:
+    path: Path
+    mime_type: str
+    size: int
+
+    def cleanup(self) -> None:
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Falha ao limpar arquivo temporario de midia remota.")
 
 
 class InicializarLoginPayload(StrictModel):
@@ -1322,11 +1380,17 @@ def read_whatsapp_media_cache(user_id: str, message_id: str) -> tuple[bytes, str
     if not data_path.is_file() or not mime_path.is_file():
         return None
     try:
-        file_bytes = data_path.read_bytes()
+        with data_path.open("rb") as source:
+            file_bytes = source.read(MAX_UPLOAD_BYTES + 1)
         mime_type = mime_path.read_text(encoding="utf-8").strip()
     except OSError:
         return None
-    if not file_bytes or len(file_bytes) > MAX_UPLOAD_BYTES or not mime_type:
+    normalized_mime = mime_type.split(";", 1)[0].strip().casefold()
+    if (
+        not file_bytes
+        or len(file_bytes) > MAX_UPLOAD_BYTES
+        or normalized_mime not in REMOTE_MEDIA_ALLOWED_MIME_TYPES
+    ):
         return None
     return file_bytes, mime_type
 
@@ -1336,10 +1400,17 @@ def write_whatsapp_media_cache(user_id: str, message_id: str, file_bytes: bytes,
     suffix = uuid.uuid4().hex[:10]
     temp_data = data_path.with_name(f"{data_path.name}.{suffix}.tmp")
     temp_mime = mime_path.with_name(f"{mime_path.name}.{suffix}.tmp")
-    temp_data.write_bytes(file_bytes)
-    temp_mime.write_text(mime_type, encoding="utf-8")
-    temp_data.replace(data_path)
-    temp_mime.replace(mime_path)
+    try:
+        temp_data.write_bytes(file_bytes)
+        temp_mime.write_text(mime_type, encoding="utf-8")
+        temp_data.replace(data_path)
+        temp_mime.replace(mime_path)
+    finally:
+        for temp_path in (temp_data, temp_mime):
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def unpack_wapi_media_response(payload: Any) -> tuple[str | None, str | None]:
@@ -1371,30 +1442,24 @@ def unpack_wapi_media_response(payload: Any) -> tuple[str | None, str | None]:
     return inline, link
 
 
-_WHATSAPP_MEDIA_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
-_WHATSAPP_MEDIA_MAX_REDIRECTS = 4
-
-
 def validate_external_media_url(url: str) -> str:
-    """Aceita apenas HTTPS público, sem credenciais nem endereços locais.
-
-    A W-API pode devolver um ``fileLink`` em host próprio ou em um CDN público.
-    Por isso a política não limita o domínio a uma lista fixa, mas bloqueia os
-    destinos que permitem SSRF (localhost, sufixos internos e IPs não globais).
-    Cada redirecionamento passa novamente por esta função antes do próximo GET.
-    """
+    """Valida sintaxe e allowlist antes de qualquer resolução ou request."""
     try:
         parsed = urlparse(str(url or "").strip())
         hostname = (parsed.hostname or "").strip().casefold().rstrip(".")
-        # Acessar ``port`` também valida portas malformadas no URL.
-        _ = parsed.port
+        port = parsed.port
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.") from exc
+    base_hostname = (urlparse(wapi_client.config.base_url).hostname or "").strip().casefold().rstrip(".")
+    allowed_hosts = {base_hostname, *WHATSAPP_MEDIA_HOSTS}
+    allowed_hosts = {host.strip().casefold().rstrip(".") for host in allowed_hosts if host.strip()}
     if (
-        parsed.scheme != "https"
+        parsed.scheme.casefold() != "https"
         or not hostname
+        or hostname not in allowed_hosts
         or parsed.username is not None
         or parsed.password is not None
+        or port not in (None, 443)
         or hostname == "localhost"
         or hostname.endswith((".localhost", ".local", ".internal", ".lan"))
     ):
@@ -1402,22 +1467,16 @@ def validate_external_media_url(url: str) -> str:
     try:
         address = ipaddress.ip_address(hostname)
     except ValueError:
-        # Host público por nome, incluindo os CDNs legítimos usados pela W-API.
-        # Formas numéricas alternativas de IPv4 não devem cair na resolução DNS.
         if hostname.replace(".", "").isdigit() or hostname.startswith("0x"):
             raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
     else:
         if not address.is_global:
             raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
-    return parsed.geturl()
+    return parsed._replace(fragment="").geturl()
 
 
-async def validate_external_media_destination(url: str) -> str:
-    """Valida também todos os endereços retornados pelo DNS do hostname.
-
-    A checagem ocorre imediatamente antes de cada GET. Se o DNS devolver uma
-    combinação pública/privada, a política conservadora rejeita o destino.
-    """
+async def validate_external_media_destination(url: str, *, timeout: float = 5.0) -> str:
+    """Rejeita se qualquer endereço DNS não for global e publicamente roteável."""
     normalized = validate_external_media_url(url)
     parsed = urlparse(normalized)
     hostname = (parsed.hostname or "").strip().casefold().rstrip(".")
@@ -1425,13 +1484,16 @@ async def validate_external_media_destination(url: str) -> str:
         literal = ipaddress.ip_address(hostname)
     except ValueError:
         try:
-            addresses = await asyncio.to_thread(
-                socket.getaddrinfo,
-                hostname,
-                parsed.port or 443,
-                type=socket.SOCK_STREAM,
+            addresses = await asyncio.wait_for(
+                asyncio.to_thread(
+                    socket.getaddrinfo,
+                    hostname,
+                    parsed.port or 443,
+                    type=socket.SOCK_STREAM,
+                ),
+                timeout=max(0.1, float(timeout)),
             )
-        except OSError as exc:
+        except (OSError, TimeoutError) as exc:
             raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.") from exc
         if not addresses:
             raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
@@ -1449,19 +1511,192 @@ async def validate_external_media_destination(url: str) -> str:
     return normalized
 
 
-async def fetch_external_whatsapp_media(url: str, *, timeout: float) -> httpx.Response:
-    """Baixa mídia validando o destino inicial e todos os redirects manualmente."""
-    current_url = await validate_external_media_destination(url)
-    async with httpx.AsyncClient(follow_redirects=False) as media_client:
-        for redirect_count in range(_WHATSAPP_MEDIA_MAX_REDIRECTS + 1):
-            response = await media_client.get(current_url, timeout=timeout)
-            if response.status_code not in _WHATSAPP_MEDIA_REDIRECT_STATUSES:
-                return response
-            location = response.headers.get("Location")
-            if not location or redirect_count >= _WHATSAPP_MEDIA_MAX_REDIRECTS:
-                raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
-            current_url = await validate_external_media_destination(urljoin(current_url, location))
-    raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+def _prune_remote_media_registry(user_id: str, *, now: float | None = None) -> Dict[str, tuple[str, float]]:
+    current = time.monotonic() if now is None else now
+    entries = remote_media_registry.setdefault(user_id, {})
+    for media_id, (_url, expires_at) in list(entries.items()):
+        if expires_at <= current:
+            entries.pop(media_id, None)
+    if len(entries) > REMOTE_MEDIA_REGISTRY_MAX_ENTRIES:
+        oldest = sorted(entries.items(), key=lambda item: item[1][1])
+        for media_id, _entry in oldest[: len(entries) - REMOTE_MEDIA_REGISTRY_MAX_ENTRIES]:
+            entries.pop(media_id, None)
+    return entries
+
+
+def register_remote_media(user_id: str, url: str) -> str:
+    """Registra no servidor uma origem autorizada e devolve um ID não reversível."""
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+    normalized_url = validate_external_media_url(url)
+    now = time.monotonic()
+    entries = _prune_remote_media_registry(normalized_user_id, now=now)
+    for media_id, (registered_url, _expires_at) in entries.items():
+        if registered_url == normalized_url:
+            entries[media_id] = (registered_url, now + REMOTE_MEDIA_REFERENCE_TTL_SECONDS)
+            return media_id
+    media_id = secrets.token_urlsafe(24)
+    entries[media_id] = (normalized_url, now + REMOTE_MEDIA_REFERENCE_TTL_SECONDS)
+    _prune_remote_media_registry(normalized_user_id, now=now)
+    return media_id
+
+
+def resolve_remote_media(user_id: str, media_id: str) -> str:
+    normalized_user_id = str(user_id or "").strip()
+    normalized_media_id = str(media_id or "").strip()
+    entries = _prune_remote_media_registry(normalized_user_id)
+    entry = entries.get(normalized_media_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+    return entry[0]
+
+
+def registered_remote_media_id(user_id: str, url: str) -> str | None:
+    """Compatibilidade: a URL do browser só localiza uma origem já registrada."""
+    normalized_url = validate_external_media_url(url)
+    for media_id, (registered_url, _expires_at) in _prune_remote_media_registry(user_id).items():
+        if registered_url == normalized_url:
+            return media_id
+    return None
+
+
+def remember_remote_media_references(user_id: str, payload: Any) -> None:
+    """Registra URLs de mídia presentes em dados que o próprio servidor resolveu."""
+    media_fields = {
+        "arquivoUrl", "audioUrl", "chatPhoto", "documentUrl", "downloadUrl",
+        "fileLink", "imageUrl", "imgUrl", "link", "mediaUrl", "photoUrl",
+        "picture", "profilePicture", "profilePictureUrl", "profilePicUrl",
+        "senderPhoto", "sourceUrl", "stickerUrl", "url", "videoUrl",
+    }
+    queue = [payload]
+    seen: set[int] = set()
+    while queue:
+        current = queue.pop()
+        if isinstance(current, dict):
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            for key, value in current.items():
+                if key in media_fields and isinstance(value, str) and value.startswith("https://"):
+                    try:
+                        register_remote_media(user_id, value)
+                    except HTTPException:
+                        pass
+                elif isinstance(value, (dict, list, tuple)):
+                    queue.append(value)
+        elif isinstance(current, (list, tuple)):
+            queue.extend(current)
+
+
+def _validated_remote_mime_type(content_type: str | None) -> str:
+    normalized = str(content_type or "").split(";", 1)[0].strip().casefold()
+    if normalized not in REMOTE_MEDIA_ALLOWED_MIME_TYPES:
+        raise HTTPException(status_code=415, detail="Tipo de midia nao permitido.")
+    return normalized
+
+
+async def fetch_external_whatsapp_media(
+    url: str,
+    *,
+    connect_timeout: float = 5.0,
+    read_timeout: float = 25.0,
+) -> DownloadedRemoteMedia:
+    """Baixa para arquivo temporário, sem redirects e com limite durante o stream."""
+    normalized = await validate_external_media_destination(url, timeout=connect_timeout)
+    timeout_config = httpx.Timeout(
+        connect=max(0.1, float(connect_timeout)),
+        read=max(0.1, float(read_timeout)),
+        write=max(0.1, float(connect_timeout)),
+        pool=max(0.1, float(connect_timeout)),
+    )
+    temp_path: Path | None = None
+    open_fd: int | None = None
+    artifact_ready = False
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=False,
+            timeout=timeout_config,
+            trust_env=False,
+        ) as media_client:
+            async with media_client.stream("GET", normalized) as response:
+                if 300 <= int(response.status_code) < 400 or response.status_code != 200:
+                    raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+
+                raw_length = response.headers.get("Content-Length")
+                declared_length: int | None = None
+                if raw_length is not None:
+                    try:
+                        declared_length = int(str(raw_length).strip())
+                    except (TypeError, ValueError) as exc:
+                        raise HTTPException(
+                            status_code=404,
+                            detail="Midia indisponivel no WhatsApp.",
+                        ) from exc
+                    if declared_length < 0:
+                        raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+                    if declared_length > MAX_UPLOAD_BYTES:
+                        raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
+
+                mime_type = _validated_remote_mime_type(response.headers.get("Content-Type"))
+                REMOTE_MEDIA_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+                open_fd, raw_temp_path = tempfile.mkstemp(
+                    prefix="norium-media-",
+                    suffix=".tmp",
+                    dir=str(REMOTE_MEDIA_TEMP_DIR),
+                )
+                temp_path = Path(raw_temp_path)
+                received = 0
+                with os.fdopen(open_fd, "wb") as output:
+                    open_fd = None
+                    async for chunk in response.aiter_bytes():
+                        if not chunk:
+                            continue
+                        received += len(chunk)
+                        if received > MAX_UPLOAD_BYTES:
+                            raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
+                        output.write(chunk)
+                if received == 0:
+                    raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+                artifact = DownloadedRemoteMedia(path=temp_path, mime_type=mime_type, size=received)
+                artifact_ready = True
+                return artifact
+    except HTTPException:
+        raise
+    except (httpx.TimeoutException, httpx.HTTPError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.") from exc
+    finally:
+        if not artifact_ready:
+            if open_fd is not None:
+                try:
+                    os.close(open_fd)
+                except OSError:
+                    pass
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+
+def read_downloaded_remote_media(
+    downloaded: DownloadedRemoteMedia,
+    fallback_mime: str,
+) -> tuple[bytes, str]:
+    """Materializa somente um artefato que já passou pelo limite do stream."""
+    try:
+        with downloaded.path.open("rb") as source:
+            content = source.read(MAX_UPLOAD_BYTES + 1)
+        mime_type = str(downloaded.mime_type or fallback_mime)
+        if not content:
+            raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
+        return content, mime_type
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.") from exc
+    finally:
+        downloaded.cleanup()
 
 
 @router.get("/api/chat/foto-perfil")
@@ -1484,39 +1719,61 @@ async def obter_foto_perfil(
                 photo_url = extract_photo_url(wrapped)
     if not photo_url:
         photo_url = await fetch_profile_picture(resolved_user_id, phone)
+    if photo_url:
+        remember_remote_media_references(resolved_user_id, {"photoUrl": photo_url})
     return {"photoUrl": photo_url, "fetchedAt": time.time() if photo_url else None}
 
 
 @router.get("/api/chat/media-proxy")
 async def media_proxy(
-    url: str = Query(..., description="URL original da midia do WhatsApp"),
+    url: str | None = Query(
+        default=None,
+        max_length=4096,
+        deprecated=True,
+        description="Compatibilidade: URL previamente registrada pelo servidor",
+    ),
     user: dict[str, Any] = Depends(current_user),
+    media_id: str | None = Query(
+        default=None,
+        min_length=16,
+        max_length=128,
+        description="Identificador opaco de uma origem de midia registrada",
+    ),
 ):
     assert_channel_permission(user, "whatsapp")
-    parsed = urlparse(url)
-    base = urlparse(wapi_client.config.base_url)
-    allowed_hosts = {base.hostname or "", *WHATSAPP_MEDIA_HOSTS}
-    if parsed.scheme != "https" or not parsed.hostname or parsed.hostname.lower() not in allowed_hosts:
+    resolved_user_id = tenant_id(user)
+    if bool(url) == bool(media_id):
         raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
+    if media_id:
+        source_url = resolve_remote_media(resolved_user_id, media_id)
+    else:
+        registered_id = registered_remote_media_id(resolved_user_id, str(url or ""))
+        if not registered_id:
+            raise HTTPException(status_code=400, detail="Origem de midia nao autorizada.")
+        source_url = resolve_remote_media(resolved_user_id, registered_id)
+
+    downloaded: DownloadedRemoteMedia | None = None
     try:
-        res_media = await fetch_external_whatsapp_media(url, timeout=25.0)
-        if res_media.status_code != 200:
-            raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
-        if len(res_media.content) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
-        content_type = res_media.headers.get("Content-Type", "application/octet-stream")
-        if content_type.split(";", 1)[0].lower() in {"text/html", "image/svg+xml"}:
-            raise HTTPException(status_code=415, detail="Tipo de midia nao permitido.")
+        downloaded = await fetch_external_whatsapp_media(
+            source_url,
+            connect_timeout=5.0,
+            read_timeout=25.0,
+        )
+        content, mime_type = read_downloaded_remote_media(downloaded, downloaded.mime_type)
+        downloaded = None
         return Response(
-            content=res_media.content,
-            media_type=content_type,
+            content=content,
+            media_type=mime_type,
             headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"},
         )
     except HTTPException:
         raise
-    except Exception as exc:
+    except (OSError, httpx.HTTPError) as exc:
         logger.exception("Falha no proxy de midia.")
-        raise HTTPException(status_code=500, detail="Falha temporaria no proxy de midia.") from exc
+        raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.") from exc
+    finally:
+        if downloaded is not None:
+            downloaded.cleanup()
 
 
 @router.get("/api/chat/uploads/{file_name}")
@@ -1681,6 +1938,7 @@ async def listar_status_whatsapp(user: dict[str, Any] = Depends(current_user)):
                 "color": item.get("color"),
             }
         )
+    remember_remote_media_references(resolved_user_id, serialized_items)
     return {
         "items": serialized_items,
         "unviewedCount": sum(1 for item in items if not item.get("visualizado") and not item.get("fromMe")),
@@ -1753,6 +2011,8 @@ async def obter_perfil_whatsapp(user: dict[str, Any] = Depends(current_user)):
     photo_url = extract_photo_url(device)
     if not photo_url and phone:
         photo_url = await fetch_profile_picture(resolved_user_id, str(phone))
+    if photo_url:
+        remember_remote_media_references(resolved_user_id, {"photoUrl": photo_url})
     return {
         "connected": True,
         "status": "conectado",
@@ -2448,6 +2708,10 @@ async def obter_conversas(
         if await _migrate_legacy_status_conversations_unlocked(resolved_user_id, db):
             await save_conversations(db, resolved_user_id)
     catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
+    remember_remote_media_references(
+        resolved_user_id,
+        {"conversations": db, "catalog": catalog_cache},
+    )
     conversation_list_db = {
         conversation_id: conversation
         for conversation_id, conversation in db.items()
@@ -2950,12 +3214,14 @@ async def obter_detalhes_conversa(
                 latest["photoUrl"] = conversation["photoUrl"]
             latest_db[conversa_id] = normalize_conversation(conversa_id, latest)
             await save_conversations(latest_db, resolved_user_id)
+            remember_remote_media_references(resolved_user_id, latest_db[conversa_id])
             return latest_db[conversa_id]
 
     normalized = normalize_conversation(conversa_id, conversation)
     if catalog_enriched:
         db[conversa_id] = normalized
         await save_conversations(db, resolved_user_id)
+    remember_remote_media_references(resolved_user_id, normalized)
     return normalized
 
 
@@ -3050,12 +3316,14 @@ async def obter_midia_whatsapp(
     elif isinstance(link, str) and link.startswith("https://"):
         # A W-API entrega a midia decriptada por uma URL temporaria (fileLink).
         try:
-            res_link = await fetch_external_whatsapp_media(link, timeout=60.0)
-            if res_link.status_code == 200:
-                file_bytes = res_link.content
-                mime_type = res_link.headers.get("Content-Type", fallback_mime)
+            res_link = await fetch_external_whatsapp_media(
+                link,
+                connect_timeout=5.0,
+                read_timeout=60.0,
+            )
+            file_bytes, mime_type = read_downloaded_remote_media(res_link, fallback_mime)
         except HTTPException as exc:
-            if exc.status_code == 400:
+            if exc.status_code in {400, 413, 415}:
                 raise
             file_bytes = None
         except httpx.HTTPError:
@@ -3070,12 +3338,14 @@ async def obter_midia_whatsapp(
                 file_bytes = None
         elif source_url.startswith("https://"):
             try:
-                res_source = await fetch_external_whatsapp_media(source_url, timeout=60.0)
-                if res_source.status_code == 200:
-                    file_bytes = res_source.content
-                    mime_type = res_source.headers.get("Content-Type", fallback_mime)
+                res_source = await fetch_external_whatsapp_media(
+                    source_url,
+                    connect_timeout=5.0,
+                    read_timeout=60.0,
+                )
+                file_bytes, mime_type = read_downloaded_remote_media(res_source, fallback_mime)
             except HTTPException as exc:
-                if exc.status_code == 400:
+                if exc.status_code in {400, 413, 415}:
                     raise
                 file_bytes = None
             except httpx.HTTPError:
@@ -3091,12 +3361,14 @@ async def obter_midia_whatsapp(
                 file_bytes = None
         elif thumbnail.startswith("https://"):
             try:
-                res_thumbnail = await fetch_external_whatsapp_media(thumbnail, timeout=25.0)
-                if res_thumbnail.status_code == 200:
-                    file_bytes = res_thumbnail.content
-                    mime_type = res_thumbnail.headers.get("Content-Type", "image/jpeg")
+                res_thumbnail = await fetch_external_whatsapp_media(
+                    thumbnail,
+                    connect_timeout=5.0,
+                    read_timeout=25.0,
+                )
+                file_bytes, mime_type = read_downloaded_remote_media(res_thumbnail, "image/jpeg")
             except HTTPException as exc:
-                if exc.status_code == 400:
+                if exc.status_code in {400, 413, 415}:
                     raise
                 file_bytes = None
             except httpx.HTTPError:
@@ -3112,8 +3384,7 @@ async def obter_midia_whatsapp(
         raise HTTPException(status_code=404, detail="Midia indisponivel no WhatsApp.")
     if len(file_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
-    if mime_type.split(";", 1)[0].lower() in {"text/html", "image/svg+xml"}:
-        raise HTTPException(status_code=415, detail="Tipo de midia nao permitido.")
+    _validated_remote_mime_type(mime_type)
     await asyncio.to_thread(write_whatsapp_media_cache, resolved_user_id, message_id, file_bytes, mime_type)
     return Response(
         content=file_bytes,
@@ -3407,6 +3678,7 @@ async def listar_canais_whatsapp(user: dict[str, Any] = Depends(current_user)):
         key=lambda item: (int(item.get("timestamp") or 0), str(item.get("name") or "").lower()),
         reverse=True,
     )
+    remember_remote_media_references(resolved_user_id, items)
     return {"items": items}
 
 
@@ -3477,6 +3749,7 @@ async def listar_grupos(user: dict[str, Any] = Depends(current_user)):
         ),
         reverse=True,
     )
+    remember_remote_media_references(resolved_user_id, items)
     return {"items": items}
 
 
@@ -3521,13 +3794,16 @@ async def obter_grupo(group_id: str, user: dict[str, Any] = Depends(current_user
                 latest["photoUrl"] = conversation["photoUrl"]
             latest_db[group_id] = normalize_conversation(group_id, latest)
             await save_conversations(latest_db, resolved_user_id)
+            remember_remote_media_references(resolved_user_id, latest_db[group_id])
             return latest_db[group_id]
     db = await load_conversations(resolved_user_id)
     conversation = db.get(group_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Grupo nao encontrado.")
     metadata = conversation.get("metadados") or {}
-    return normalize_conversation(group_id, conversation)
+    normalized = normalize_conversation(group_id, conversation)
+    remember_remote_media_references(resolved_user_id, normalized)
+    return normalized
 
 
 @router.post("/api/chat/grupos")
@@ -3836,6 +4112,7 @@ async def obter_contatos_disponiveis(
                     "canal": "whatsapp",
                 }
             )
+        remember_remote_media_references(resolved_user_id, contatos_whatsapp)
         return contatos_whatsapp
     except Exception:
         logger.exception("Falha ao montar catalogo local de contatos WhatsApp.")
@@ -4705,6 +4982,7 @@ def extract_message_payload(
     data: Dict[str, Any],
     message_id: str | None = None,
     conversa_id: str | None = None,
+    user_id: str | None = None,
 ) -> Dict[str, Any]:
     raw_type = str(data.get("type") or "").lower()
     flat_media_types = {
@@ -4755,7 +5033,7 @@ def extract_message_payload(
         return {
             "texto": str(caption or label),
             "tipo": tipo,
-            "arquivoUrl": proxied_media_url(raw_url),
+            "arquivoUrl": proxied_media_url(raw_url, user_id),
             "arquivoMime": mime,
             "duracaoAudio": payload.get("seconds") or payload.get("duration"),
             "nomeArquivo": payload.get("fileName") or payload.get("filename") or default_file_name(tipo, mime),
@@ -4771,10 +5049,14 @@ def whatsapp_media_url(message_id: str, conversa_id: str | None = None) -> str:
     return public_api_url(path)
 
 
-def proxied_media_url(raw_url: Any) -> str | None:
-    if not isinstance(raw_url, str) or not raw_url:
+def proxied_media_url(raw_url: Any, user_id: str | None = None) -> str | None:
+    if not isinstance(raw_url, str) or not raw_url or not str(user_id or "").strip():
         return None
-    return public_api_url(f"/api/chat/media-proxy?url={quote(raw_url, safe='')}")
+    try:
+        media_id = register_remote_media(str(user_id), raw_url)
+    except HTTPException:
+        return None
+    return public_api_url(f"/api/chat/media-proxy?media_id={quote(media_id, safe='')}")
 
 
 def default_file_name(tipo: str, mime: Any) -> str | None:

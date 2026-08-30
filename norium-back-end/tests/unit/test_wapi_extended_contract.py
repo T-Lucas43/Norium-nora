@@ -8,7 +8,7 @@ import time
 import unittest
 import uuid
 from contextlib import ExitStack
-from types import SimpleNamespace
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -681,18 +681,19 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
                 chat_router.validate_external_media_url(url)
             self.assertEqual(400, error.exception.status_code)
 
-    async def test_external_media_redirect_is_validated_before_following(self) -> None:
-        client = AsyncMock()
-        client.__aenter__.return_value = client
-        client.__aexit__.return_value = None
-        client.get = AsyncMock(
-            return_value=SimpleNamespace(
-                status_code=302,
-                headers={"Location": "https://127.0.0.1/private"},
-                content=b"",
-            )
-        )
+    async def test_external_media_private_redirect_is_rejected_without_following(self) -> None:
+        requests = []
 
+        def redirect_response(request):
+            requests.append(request)
+            return chat_router.httpx.Response(
+                302,
+                headers={"Location": "https://127.0.0.1/private"},
+            )
+
+        client = chat_router.httpx.AsyncClient(
+            transport=chat_router.httpx.MockTransport(redirect_response),
+        )
         public_dns = [
             (
                 chat_router.socket.AF_INET,
@@ -709,34 +710,26 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as error:
                 await chat_router.fetch_external_whatsapp_media(
                     "https://api.w-api.app/media/status.jpeg",
-                    timeout=10.0,
+                    connect_timeout=3.0,
+                    read_timeout=10.0,
                 )
 
-        self.assertEqual(400, error.exception.status_code)
-        client.get.assert_awaited_once_with(
-            "https://api.w-api.app/media/status.jpeg",
-            timeout=10.0,
-        )
+        self.assertEqual(404, error.exception.status_code)
+        self.assertEqual(1, len(requests))
 
-    async def test_external_media_allows_valid_https_wapi_redirect(self) -> None:
-        client = AsyncMock()
-        client.__aenter__.return_value = client
-        client.__aexit__.return_value = None
-        client.get = AsyncMock(
-            side_effect=[
-                SimpleNamespace(
-                    status_code=302,
-                    headers={"Location": "https://cdn.w-api.app/media/status.jpeg"},
-                    content=b"",
-                ),
-                SimpleNamespace(
-                    status_code=200,
-                    headers={"Content-Type": "image/jpeg"},
-                    content=b"\xff\xd8\xffstatus",
-                ),
-            ]
-        )
+    async def test_external_media_wapi_redirect_is_also_rejected_without_following(self) -> None:
+        requests = []
 
+        def redirect_response(request):
+            requests.append(request)
+            return chat_router.httpx.Response(
+                302,
+                headers={"Location": "https://cdn.w-api.app/media/status.jpeg"},
+            )
+
+        client = chat_router.httpx.AsyncClient(
+            transport=chat_router.httpx.MockTransport(redirect_response),
+        )
         public_dns = [
             (
                 chat_router.socket.AF_INET,
@@ -750,19 +743,15 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
             patch.object(chat_router.socket, "getaddrinfo", return_value=public_dns),
             patch.object(chat_router.httpx, "AsyncClient", return_value=client),
         ):
-            response = await chat_router.fetch_external_whatsapp_media(
-                "https://api.w-api.app/media/status.jpeg",
-                timeout=10.0,
-            )
+            with self.assertRaises(HTTPException) as error:
+                await chat_router.fetch_external_whatsapp_media(
+                    "https://api.w-api.app/media/status.jpeg",
+                    connect_timeout=3.0,
+                    read_timeout=10.0,
+                )
 
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(
-            [
-                "https://api.w-api.app/media/status.jpeg",
-                "https://cdn.w-api.app/media/status.jpeg",
-            ],
-            [call.args[0] for call in client.get.await_args_list],
-        )
+        self.assertEqual(404, error.exception.status_code)
+        self.assertEqual(1, len(requests))
 
     async def test_external_media_rejects_hostname_resolving_to_private_ip(self) -> None:
         private_dns = [
@@ -775,11 +764,15 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
             )
         ]
 
-        with patch.object(chat_router.socket, "getaddrinfo", return_value=private_dns):
+        with (
+            patch.object(chat_router, "WHATSAPP_MEDIA_HOSTS", {"media.example.test"}),
+            patch.object(chat_router.socket, "getaddrinfo", return_value=private_dns),
+        ):
             with self.assertRaises(HTTPException) as error:
                 await chat_router.fetch_external_whatsapp_media(
                     "https://media.example.test/status.jpeg",
-                    timeout=10.0,
+                    connect_timeout=3.0,
+                    read_timeout=10.0,
                 )
 
         self.assertEqual(400, error.exception.status_code)
@@ -806,24 +799,30 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         image = b"\xff\xd8\xffflat-status"
-        response_payload = SimpleNamespace(
-            status_code=200,
-            headers={"Content-Type": "image/jpeg"},
-            content=image,
-        )
-        safe_fetch = AsyncMock(return_value=response_payload)
-
-        with patch.object(chat_router, "fetch_external_whatsapp_media", safe_fetch):
-            response = await chat_router.obter_midia_whatsapp(
-                message_id,
-                conversa_id="status@broadcast",
-                user=chat_user(),
+        with tempfile.TemporaryDirectory() as media_directory:
+            artifact_path = Path(media_directory) / "status.jpeg"
+            artifact_path.write_bytes(image)
+            response_payload = chat_router.DownloadedRemoteMedia(
+                path=artifact_path,
+                mime_type="image/jpeg",
+                size=len(image),
             )
+            safe_fetch = AsyncMock(return_value=response_payload)
+
+            with patch.object(chat_router, "fetch_external_whatsapp_media", safe_fetch):
+                response = await chat_router.obter_midia_whatsapp(
+                    message_id,
+                    conversa_id="status@broadcast",
+                    user=chat_user(),
+                )
+
+            self.assertFalse(artifact_path.exists())
 
         self.assertEqual(image, response.body)
         safe_fetch.assert_awaited_once_with(
             "https://cdn.w-api.app/media/status.jpeg",
-            timeout=60.0,
+            connect_timeout=5.0,
+            read_timeout=60.0,
         )
 
     async def test_status_image_uses_embedded_thumbnail_when_full_media_is_unavailable(self) -> None:

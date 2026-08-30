@@ -1,10 +1,196 @@
 from __future__ import annotations
 
+import os
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from app.services.wapi_client import WapiClient
+import httpx
+
+from app.services import wapi_client as wapi_client_module
+from app.services.wapi_client import WapiClient, WapiConfig, WapiError, load_wapi_config
 from app.modules.chat import router as chat_router
+
+
+class WapiClientSecurityTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _production_environment(base_url: str) -> dict[str, str]:
+        return {
+            "APP_ENV": "production",
+            "ENVIRONMENT": "production",
+            "WAPI_BASE_URL": base_url,
+            "WAPI_MASTER_API_KEY": "configuration-secret-must-not-leak",
+        }
+
+    def _assert_invalid_base_url(self, base_url: str) -> None:
+        secret = "configuration-secret-must-not-leak"
+        with patch.dict(os.environ, self._production_environment(base_url), clear=False):
+            with self.assertRaisesRegex(RuntimeError, "WAPI_BASE_URL") as error:
+                WapiClient()
+        public_error = str(error.exception)
+        self.assertNotIn(secret, public_error)
+        self.assertNotIn(base_url, public_error)
+
+    def test_http_base_url_is_rejected_in_production(self) -> None:
+        self._assert_invalid_base_url("http://api.w-api.app")
+
+    def test_unapproved_host_is_rejected_during_startup(self) -> None:
+        self._assert_invalid_base_url("https://attacker.example")
+
+    def test_injected_config_cannot_bypass_origin_validation(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"APP_ENV": "production", "ENVIRONMENT": "production"},
+            clear=False,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "WAPI_BASE_URL"):
+                WapiClient(
+                    WapiConfig(
+                        base_url="https://attacker.example",
+                        master_api_key="injected-secret",
+                        webhook_secret="",
+                    )
+                )
+
+    def test_embedded_userinfo_is_rejected_without_echoing_it(self) -> None:
+        self._assert_invalid_base_url("https://browser-user:browser-password@api.w-api.app")
+
+    def test_deceptive_hostname_is_rejected(self) -> None:
+        self._assert_invalid_base_url("https://api.w-api.app.attacker.example")
+
+    def test_unexpected_port_is_rejected(self) -> None:
+        self._assert_invalid_base_url("https://api.w-api.app:8443/v1")
+
+    def test_authorized_url_is_normalized_before_use(self) -> None:
+        with patch.dict(
+            os.environ,
+            self._production_environment("HTTPS://API.W-API.APP.:443/v1/"),
+            clear=False,
+        ):
+            config = load_wapi_config()
+            client = WapiClient(config)
+
+        self.assertEqual("https://api.w-api.app", config.base_url)
+        self.assertEqual("https://api.w-api.app", client.config.base_url)
+        self.assertEqual(
+            "https://api.w-api.app/v1/instance/status-instance",
+            client._url("/instance/status-instance"),
+        )
+
+    def test_http_loopback_is_limited_to_explicit_local_tests(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"APP_ENV": "test", "ENVIRONMENT": "test"},
+            clear=False,
+        ):
+            client = WapiClient(
+                WapiConfig(
+                    base_url="http://127.0.0.1:8765/v1/",
+                    master_api_key="test-only-key",
+                    webhook_secret="",
+                )
+            )
+
+        self.assertEqual("http://127.0.0.1:8765", client.config.base_url)
+
+    async def test_cross_origin_redirect_is_rejected_without_forwarding_bearer(self) -> None:
+        requests: list[tuple[str, bool]] = []
+
+        def redirect_response(request: httpx.Request) -> httpx.Response:
+            requests.append((request.url.host, "authorization" in request.headers))
+            return httpx.Response(
+                302,
+                headers={"Location": "https://attacker.example/collect"},
+            )
+
+        transport_client = httpx.AsyncClient(transport=httpx.MockTransport(redirect_response))
+        client = WapiClient(
+            WapiConfig(
+                base_url="https://api.w-api.app",
+                master_api_key="",
+                webhook_secret="",
+            )
+        )
+        with patch.object(
+            wapi_client_module.httpx,
+            "AsyncClient",
+            return_value=transport_client,
+        ) as client_factory:
+            with self.assertRaises(WapiError) as error:
+                await client.status("INSTANCE", "opaque-test-token")
+
+        self.assertEqual("redirect_not_allowed", error.exception.code)
+        self.assertNotIn("opaque-test-token", str(error.exception))
+        self.assertEqual([("api.w-api.app", True)], requests)
+        client_factory.assert_called_once_with(follow_redirects=False)
+
+    async def test_master_api_key_is_never_placed_in_request_url(self) -> None:
+        requests: list[httpx.Request] = []
+
+        def ok_response(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json={"instances": []})
+
+        secret = "master-key-must-not-appear-in-url"
+        transport_client = httpx.AsyncClient(transport=httpx.MockTransport(ok_response))
+        client = WapiClient(
+            WapiConfig(
+                base_url="https://api.w-api.app",
+                master_api_key=secret,
+                webhook_secret="",
+            )
+        )
+        with patch.object(wapi_client_module.httpx, "AsyncClient", return_value=transport_client):
+            await client.list_instances()
+
+        self.assertEqual(1, len(requests))
+        self.assertNotIn(secret, str(requests[0].url))
+        self.assertEqual(f"Bearer {secret}", requests[0].headers.get("Authorization"))
+
+    async def test_provider_error_does_not_echo_instance_token(self) -> None:
+        secret = "instance-token-must-not-leak"
+
+        def rejected_response(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, json={"message": f"invalid bearer {secret}"})
+
+        transport_client = httpx.AsyncClient(transport=httpx.MockTransport(rejected_response))
+        client = WapiClient(
+            WapiConfig(
+                base_url="https://api.w-api.app",
+                master_api_key="",
+                webhook_secret="",
+            )
+        )
+        with patch.object(wapi_client_module.httpx, "AsyncClient", return_value=transport_client):
+            with self.assertRaises(WapiError) as error:
+                await client.status("INSTANCE", secret)
+
+        self.assertNotIn(secret, str(error.exception))
+
+    async def test_network_error_does_not_retain_or_log_bearer(self) -> None:
+        secret = "network-token-must-not-leak"
+
+        def failed_request(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError(f"internal failure for {secret}", request=request)
+
+        transport_client = httpx.AsyncClient(transport=httpx.MockTransport(failed_request))
+        client = WapiClient(
+            WapiConfig(
+                base_url="https://api.w-api.app",
+                master_api_key="",
+                webhook_secret="",
+            )
+        )
+        with (
+            patch.object(wapi_client_module.httpx, "AsyncClient", return_value=transport_client),
+            self.assertLogs(wapi_client_module.logger.name, level="WARNING") as logs,
+        ):
+            with self.assertRaises(WapiError) as error:
+                await client.send_text("INSTANCE", secret, "5511999999999", "hello")
+
+        self.assertNotIn(secret, str(error.exception))
+        self.assertNotIn(secret, "\n".join(logs.output))
+        self.assertIsNone(error.exception.__cause__)
+        self.assertIsNone(error.exception.__context__)
 
 
 class WapiClientContactContractTests(unittest.IsolatedAsyncioTestCase):

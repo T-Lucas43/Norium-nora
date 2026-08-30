@@ -10,8 +10,8 @@ vivo. Regras de autenticação:
 - Operações de instância/mensagem: header ``Authorization: Bearer <token>`` e
   ``?instanceId=<id>`` na query. O token é próprio de cada instância e vem do
   vínculo por tenant, nunca de um valor global.
-- Operações de conta (``/client/*``): usam a API Key Mestra, enviada no corpo
-  (campo ``apiKey``) conforme o contrato oficial.
+- Operações de conta (``/client/*``): usam a API Key Mestra no corpo ou no
+  header, conforme o endpoint; credenciais nunca são colocadas na URL.
 
 O cliente é sem estado por tenant: quem chama fornece ``instance_id`` e
 ``token`` obtidos do store de vínculo. Assim o isolamento por usuário é decidido
@@ -23,11 +23,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 import httpx
 from dotenv import load_dotenv
+
+from app.core.tenant import is_local_or_test_environment
 
 
 load_dotenv()
@@ -37,6 +40,79 @@ logger = logging.getLogger(__name__)
 # porque a W-API enfileira mesmo desconectada e um retry duplicaria a mensagem.
 _RETRIABLE_STATUS = {429, 500, 502, 503, 504}
 _DEFAULT_TIMEOUT = 20.0
+_WAPI_ALLOWED_HOSTS = frozenset({"api.w-api.app"})
+_WAPI_LOCAL_TEST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "testserver"})
+_WAPI_BASE_PATH_NORMALIZATION = {"": "", "/": "", "/v1": "/v1", "/v1/": "/v1"}
+_WAPI_ALLOWED_BASE_PATHS = frozenset({"", "/v1"})
+
+
+class WapiClientConfigurationError(RuntimeError):
+    """Configuração insegura da origem HTTP da W-API."""
+
+
+def _invalid_base_url() -> WapiClientConfigurationError:
+    return WapiClientConfigurationError(
+        "WAPI_BASE_URL inválida; configure uma origem W-API autorizada."
+    )
+
+
+def normalize_wapi_base_url(
+    raw_base: str,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Valida e reconstrói uma origem canônica antes de qualquer request."""
+    try:
+        parsed = urlsplit(str(raw_base or "").strip())
+        scheme = parsed.scheme.casefold()
+        hostname = (parsed.hostname or "").encode("idna").decode("ascii").casefold().rstrip(".")
+        port = parsed.port
+        normalized_path = _WAPI_BASE_PATH_NORMALIZATION.get(parsed.path)
+    except (UnicodeError, ValueError):
+        raise _invalid_base_url() from None
+
+    is_local_test = is_local_or_test_environment(environ, require_explicit=True)
+    is_local_test_host = hostname in _WAPI_LOCAL_TEST_HOSTS
+    allowed_hosts = _WAPI_ALLOWED_HOSTS | (_WAPI_LOCAL_TEST_HOSTS if is_local_test else frozenset())
+    if (
+        not hostname
+        or hostname not in allowed_hosts
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or normalized_path not in _WAPI_ALLOWED_BASE_PATHS
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        raise _invalid_base_url()
+
+    if scheme == "https":
+        if port not in (None, 443):
+            raise _invalid_base_url()
+        normalized_port: int | None = None
+    elif scheme == "http" and is_local_test and is_local_test_host:
+        normalized_port = None if port in (None, 80) else port
+    else:
+        raise _invalid_base_url()
+
+    rendered_host = f"[{hostname}]" if ":" in hostname else hostname
+    authority = rendered_host if normalized_port is None else f"{rendered_host}:{normalized_port}"
+    return f"{scheme}://{authority}"
+
+
+def _origin_key(url: str) -> tuple[str, str, int]:
+    parsed = urlsplit(url)
+    scheme = parsed.scheme.casefold()
+    hostname = (parsed.hostname or "").casefold().rstrip(".")
+    default_port = 443 if scheme == "https" else 80
+    return scheme, hostname, parsed.port or default_port
+
+
+def _redact_sensitive_message(message: Any, sensitive_values: tuple[str, ...]) -> str:
+    public_message = str(message or "Erro na W-API.")
+    for sensitive_value in sensitive_values:
+        if sensitive_value:
+            public_message = public_message.replace(sensitive_value, "[redacted]")
+    return public_message[:500]
 
 
 class WapiError(Exception):
@@ -57,8 +133,8 @@ class WapiConfig:
     """Configuração da W-API lida do ambiente, sem segredos no código."""
 
     base_url: str
-    master_api_key: str
-    webhook_secret: str
+    master_api_key: str = field(repr=False)
+    webhook_secret: str = field(repr=False)
 
     @property
     def configured(self) -> bool:
@@ -66,10 +142,7 @@ class WapiConfig:
 
 
 def load_wapi_config() -> WapiConfig:
-    raw_base = os.getenv("WAPI_BASE_URL", "https://api.w-api.app").strip().rstrip("/")
-    # Aceita tanto ``https://api.w-api.app`` quanto ``.../v1`` para tolerar
-    # configurações divergentes; o cliente sempre fala com ``/v1``.
-    base = raw_base[:-3].rstrip("/") if raw_base.endswith("/v1") else raw_base
+    base = normalize_wapi_base_url(os.getenv("WAPI_BASE_URL", "https://api.w-api.app"))
     return WapiConfig(
         base_url=base,
         master_api_key=os.getenv("WAPI_MASTER_API_KEY", "").strip(),
@@ -81,7 +154,13 @@ class WapiClient:
     """Fachada assíncrona sobre os endpoints da W-API."""
 
     def __init__(self, config: WapiConfig | None = None) -> None:
-        self._config = config or load_wapi_config()
+        loaded = config or load_wapi_config()
+        self._config = WapiConfig(
+            base_url=normalize_wapi_base_url(loaded.base_url),
+            master_api_key=loaded.master_api_key,
+            webhook_secret=loaded.webhook_secret,
+        )
+        self._validated_origin = _origin_key(self._config.base_url)
 
     @property
     def config(self) -> WapiConfig:
@@ -95,7 +174,20 @@ class WapiClient:
 
     def _url(self, path: str) -> str:
         normalized = path if path.startswith("/") else f"/{path}"
-        return f"{self._config.base_url}/v1{normalized}"
+        parsed_path = urlsplit(normalized)
+        if (
+            parsed_path.scheme
+            or parsed_path.netloc
+            or parsed_path.query
+            or parsed_path.fragment
+            or normalized.startswith("//")
+            or "\\" in normalized
+        ):
+            raise WapiError("Destino W-API inválido.", code="invalid_destination")
+        target_url = f"{self._config.base_url}/v1{parsed_path.path}"
+        if _origin_key(target_url) != self._validated_origin:
+            raise WapiError("Destino W-API inválido.", code="invalid_destination")
+        return target_url
 
     async def _request(
         self,
@@ -112,6 +204,8 @@ class WapiClient:
         if not self._config.base_url:
             raise WapiError("W-API não configurada.", code="not_configured")
 
+        target_url = self._url(path)
+
         query: dict[str, Any] = {}
         if instance_id:
             query["instanceId"] = instance_id
@@ -123,51 +217,68 @@ class WapiClient:
             headers["Authorization"] = f"Bearer {token}"
 
         attempts = 3 if retriable else 1
-        last_exc: Exception | None = None
         for attempt in range(attempts):
             try:
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(follow_redirects=False) as client:
                     response = await client.request(
                         method,
-                        self._url(path),
+                        target_url,
                         params=query or None,
                         json=dict(json_body) if json_body is not None else None,
                         headers=headers,
                         timeout=timeout,
                     )
             except httpx.HTTPError as exc:
-                last_exc = exc
                 if retriable and attempt < attempts - 1:
                     await asyncio.sleep(0.3 * (2**attempt))
                     continue
-                # Nunca inclui URL completa com query (evita vazar instanceId em log).
-                logger.warning("Falha de rede na W-API em %s (%s).", path, type(exc).__name__)
-                raise WapiError("Falha de comunicação com a W-API.", code="network") from exc
+                logger.warning("Falha de rede na W-API (%s).", type(exc).__name__)
+                break
+
+            if 300 <= response.status_code < 400:
+                raise WapiError(
+                    "Redirecionamento recusado pela W-API.",
+                    status=response.status_code,
+                    code="redirect_not_allowed",
+                )
 
             if response.status_code in _RETRIABLE_STATUS and retriable and attempt < attempts - 1:
                 await asyncio.sleep(0.3 * (2**attempt))
                 continue
 
-            return self._parse(response, path)
+            return self._parse(
+                response,
+                sensitive_values=(
+                    str(token or ""),
+                    self._config.master_api_key,
+                    self._config.webhook_secret,
+                ),
+            )
 
-        raise WapiError("Falha de comunicação com a W-API.", code="network")  # pragma: no cover
+        raise WapiError("Falha de comunicação com a W-API.", code="network") from None
 
-    def _parse(self, response: httpx.Response, path: str) -> Any:
+    def _parse(
+        self,
+        response: httpx.Response,
+        *,
+        sensitive_values: tuple[str, ...] = (),
+    ) -> Any:
         try:
             data = response.json()
         except ValueError:
             data = None
 
         if response.status_code >= 400:
-            message = "Erro na W-API."
+            raw_message: Any = "Erro na W-API."
             if isinstance(data, dict):
-                message = str(data.get("message") or data.get("error") or message)
-            logger.warning("W-API recusou %s com status %s.", path, response.status_code)
+                raw_message = data.get("message") or data.get("error") or raw_message
+            logger.warning("W-API recusou uma requisição com status %s.", response.status_code)
+            message = _redact_sensitive_message(raw_message, sensitive_values)
             raise WapiError(message, status=response.status_code)
 
         # A W-API sinaliza erro lógico com ``error: true`` em resposta 200.
         if isinstance(data, dict) and data.get("error") is True:
-            message = str(data.get("message") or data.get("errorMessage") or "Erro na W-API.")
+            raw_message = str(data.get("message") or data.get("errorMessage") or "Erro na W-API.")
             logical_status: int | None = None
             for candidate in (data.get("statusCode"), data.get("httpStatus"), data.get("code")):
                 try:
@@ -177,8 +288,9 @@ class WapiClient:
                 if 400 <= numeric <= 599:
                     logical_status = numeric
                     break
-            if "acesso negado" in message.casefold() or "access denied" in message.casefold():
+            if "acesso negado" in raw_message.casefold() or "access denied" in raw_message.casefold():
                 logical_status = logical_status or 403
+            message = _redact_sensitive_message(raw_message, sensitive_values)
             raise WapiError(message, status=logical_status or response.status_code)
         return data
 
@@ -221,7 +333,7 @@ class WapiClient:
         return await self._request(
             "GET",
             "/client/list-instances",
-            params={"apiKey": self._config.master_api_key},
+            token=self._config.master_api_key,
             timeout=25.0,
             retriable=True,
         )

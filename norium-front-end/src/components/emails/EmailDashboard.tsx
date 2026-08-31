@@ -109,6 +109,7 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
     status,
     setStatus,
     labels,
+    connecting: gmailConnecting,
     fetchStatus,
     fetchLabels,
     connect: connectGmail,
@@ -441,10 +442,11 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
               <div className="mt-6 flex justify-center gap-3">
                 <Button variant="ghost" size="lg"
                   onClick={() => void connectGmail()}
+                  disabled={gmailConnecting}
                   className="mail-primary bg-[#0EA5E9] hover:bg-[#0284C7]"
                 >
                   <Sparkles size={17} />
-                  Conectar Gmail
+                  {gmailConnecting ? "Abrindo Google..." : "Conectar Gmail"}
                 </Button>
                 <Button size="lg"
                   onClick={() => void fetchStatus()}
@@ -593,9 +595,13 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
         <MailSettingsDrawer
           preferences={preferences}
           status={status}
+          connecting={gmailConnecting}
           onPreferenceChange={setPreference}
           onRefreshNow={() => void fetchMessages(false)}
-          onConnect={() => void connectGmail()}
+          onConnect={() => {
+            setSettingsOpen(false);
+            void connectGmail();
+          }}
           onDisconnect={() => void disconnectGmail()}
           onClose={() => setSettingsOpen(false)}
         />
@@ -604,10 +610,14 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
       {profileOpen && (
         <ProfilePopover
           status={status}
+          connecting={gmailConnecting}
           onClose={() => setProfileOpen(false)}
           onOpenSettings={() => { setSettingsOpen(true); setProfileOpen(false); }}
           onRefresh={() => void fetchStatus()}
-          onConnect={() => void connectGmail()}
+          onConnect={() => {
+            setProfileOpen(false);
+            void connectGmail();
+          }}
           onDisconnect={() => void disconnectGmail()}
         />
       )}

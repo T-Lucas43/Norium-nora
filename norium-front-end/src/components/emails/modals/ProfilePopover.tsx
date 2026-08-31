@@ -5,6 +5,7 @@ import type { GmailStatus } from "../../../features/mail/types";
 
 type ProfilePopoverProps = {
   status: GmailStatus | null;
+  connecting?: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
   onRefresh: () => void;
@@ -15,6 +16,7 @@ type ProfilePopoverProps = {
 /** Cartao da conta do Gmail com as acoes de conexao. */
 export default function ProfilePopover({
   status,
+  connecting = false,
   onClose,
   onOpenSettings,
   onRefresh,
@@ -57,9 +59,9 @@ export default function ProfilePopover({
             <RefreshCw size={16} />
             Atualizar perfil
           </Button>
-          <Button variant="ghost" onClick={onConnect} className="mail-hover hover:bg-white/7">
+          <Button variant="ghost" onClick={onConnect} disabled={connecting} className="mail-hover hover:bg-white/7">
             <Sparkles size={16} />
-            {status?.connected ? "Reconectar Gmail" : "Conectar Gmail"}
+            {connecting ? "Abrindo Google..." : status?.connected ? "Reconectar Gmail" : "Conectar Gmail"}
           </Button>
           <Button
             variant="danger"

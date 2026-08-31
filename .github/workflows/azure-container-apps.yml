@@ -127,6 +127,9 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Checkout repository for deployment verification
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: Authenticate with Azure using OpenID Connect
         uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2
         with:
@@ -151,25 +154,27 @@ jobs:
 
       - name: Deploy immutable image
         shell: bash
-        run: >-
-          az containerapp update
-          --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
-          --name "${{ vars.AZURE_CONTAINER_APP_NAME }}"
-          --image "${{ needs.publish-image.outputs.image }}"
-          --set-env-vars
-          ENVIRONMENT=production
-          BACKEND_PUBLIC_URL="${{ vars.AZURE_PUBLIC_URL }}"
-          GMAIL_REDIRECT_URI="${{ vars.AZURE_PUBLIC_URL }}/api/auth/callback/gmail"
-          GOOGLE_REDIRECT_URI="${{ vars.AZURE_PUBLIC_URL }}/api/integracoes/google/callback"
-          WHATSAPP_WEBHOOK_DEBUG=true
-          GMAIL_CLIENT_ID=secretref:gmail-client-id
-          GMAIL_CLIENT_SECRET=secretref:gmail-client-secret
-          GOOGLE_CLIENT_ID=secretref:google-client-id
-          GOOGLE_CLIENT_SECRET=secretref:google-client-secret
-          WAPI_BASE_URL=https://api.w-api.app
-          WAPI_MASTER_API_KEY=secretref:wapi-master-api-key
-          WAPI_WEBHOOK_SECRET=secretref:wapi-webhook-secret
-          --output none
+        run: |
+          public_url="${{ vars.AZURE_PUBLIC_URL }}"
+          public_url="${public_url%/}"
+          az containerapp update \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --image "${{ needs.publish-image.outputs.image }}" \
+            --set-env-vars \
+            ENVIRONMENT=production \
+            BACKEND_PUBLIC_URL="${public_url}" \
+            GMAIL_REDIRECT_URI="${public_url}/api/auth/callback/gmail" \
+            GOOGLE_REDIRECT_URI="${public_url}/api/integracoes/google/callback" \
+            WHATSAPP_WEBHOOK_DEBUG=true \
+            GMAIL_CLIENT_ID=secretref:gmail-client-id \
+            GMAIL_CLIENT_SECRET=secretref:gmail-client-secret \
+            GOOGLE_CLIENT_ID=secretref:google-client-id \
+            GOOGLE_CLIENT_SECRET=secretref:google-client-secret \
+            WAPI_BASE_URL=https://api.w-api.app \
+            WAPI_MASTER_API_KEY=secretref:wapi-master-api-key \
+            WAPI_WEBHOOK_SECRET=secretref:wapi-webhook-secret \
+            --output none
 
       - name: Verify deployed image reference
         shell: bash
@@ -188,3 +193,23 @@ jobs:
       - name: Verify health endpoint
         shell: bash
         run: curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health"
+
+      - name: Verify Google OAuth clients and callbacks
+        shell: bash
+        run: |
+          gmail_client_ref="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query "properties.template.containers[0].env[?name=='GMAIL_CLIENT_ID'].secretRef | [0]" \
+            --output tsv)"
+          google_client_ref="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query "properties.template.containers[0].env[?name=='GOOGLE_CLIENT_ID'].secretRef | [0]" \
+            --output tsv)"
+          test "${gmail_client_ref}" = "gmail-client-id"
+          test "${google_client_ref}" = "google-client-id"
+          GMAIL_CLIENT_ID="${{ secrets.GMAIL_CLIENT_ID }}" \
+          GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}" \
+          OAUTH_PUBLIC_URL="${{ vars.AZURE_PUBLIC_URL }}" \
+            python .github/scripts/verify-google-oauth.py

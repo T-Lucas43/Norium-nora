@@ -183,6 +183,8 @@ describe("chamadas do Modo Equipe", () => {
     const audioTrack = { kind: "audio", enabled: true, readyState: "live", stop: vi.fn() } as unknown as MediaStreamTrack;
     const cameraTrack = { kind: "video", enabled: true, readyState: "live", stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
     const screenTrack = { kind: "video", enabled: true, readyState: "live", stop: vi.fn(), onended: null, contentHint: "" } as unknown as MediaStreamTrack;
+    const remoteAudioTrack = { id: "remote-audio", kind: "audio", enabled: true, readyState: "live", muted: false, stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
+    const remoteScreenTrack = { id: "remote-screen", kind: "video", enabled: true, readyState: "live", muted: false, stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
     class FakeMediaStream {
       tracks: MediaStreamTrack[];
       constructor(tracks: MediaStreamTrack[] = []) { this.tracks = tracks; }
@@ -197,6 +199,7 @@ describe("chamadas do Modo Equipe", () => {
     const displayStream = new FakeMediaStream([screenTrack]) as unknown as MediaStream;
     const replaceTrack = vi.fn().mockResolvedValue(undefined);
     const videoSender = { track: null, replaceTrack } as unknown as RTCRtpSender;
+    const peerInstances: FakePeerConnection[] = [];
     class FakePeerConnection {
       signalingState = "stable";
       connectionState = "connected";
@@ -205,6 +208,7 @@ describe("chamadas do Modo Equipe", () => {
       onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
       ontrack: ((event: RTCTrackEvent) => void) | null = null;
       onconnectionstatechange: (() => void) | null = null;
+      constructor() { peerInstances.push(this); }
       addTrack(track: MediaStreamTrack) { return { track, replaceTrack: vi.fn() } as unknown as RTCRtpSender; }
       addTransceiver() { return { sender: videoSender } as RTCRtpTransceiver; }
       createOffer = vi.fn().mockResolvedValue({ type: "offer", sdp: "offer" });
@@ -223,6 +227,17 @@ describe("chamadas do Modo Equipe", () => {
 
     await act(async () => result.current.startCall());
     await act(async () => result.current.handleSocketEvent({ type: "CALL_ACCEPT", callId: result.current.active?.callId, fromUserId: "member", fromUserName: "Member" }));
+    const peer = peerInstances[0];
+    await act(async () => {
+      peer.ontrack?.({ track: remoteAudioTrack, streams: [new FakeMediaStream([remoteAudioTrack]) as unknown as MediaStream] } as unknown as RTCTrackEvent);
+      peer.ontrack?.({ track: remoteScreenTrack, streams: [] } as unknown as RTCTrackEvent);
+    });
+    expect(result.current.remoteStreams).toHaveLength(1);
+    expect(result.current.remoteStreams[0].stream.getAudioTracks()).toEqual([remoteAudioTrack]);
+    expect(result.current.remoteStreams[0].stream.getVideoTracks()).toEqual([remoteScreenTrack]);
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_SCREEN_STARTED", callId: result.current.active?.callId, fromUserId: "member", fromUserName: "Member" }));
+    expect(result.current.remoteScreenSharingIds).toContain("member");
+
     await act(async () => result.current.toggleCamera());
     expect(replaceTrack).toHaveBeenLastCalledWith(cameraTrack);
     expect(result.current.cameraOff).toBe(false);

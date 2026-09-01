@@ -11,6 +11,7 @@ import MessageReadReceiptsDialog from "./MessageReadReceiptsDialog";
 import TeamMemberPresenceDialog from "./TeamMemberPresenceDialog";
 import TeamMeetingMessageCard from "./TeamMeetingMessageCard";
 import TeamMeetingSchedulerDialog, { type TeamMeetingScheduleInput } from "./TeamMeetingSchedulerDialog";
+import { prepareChatAttachments } from "./chatAttachments";
 import { useTeamCall, type TeamCallSocketEvent, type TeamThreadScope } from "./useTeamCall";
 
 type Attachment = {
@@ -444,15 +445,6 @@ function PendingFilePreview({ file, onRemove }: { file: File; onRemove: () => vo
   );
 }
 
-async function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
 function SubteamEditorDialog({
   value,
   members,
@@ -752,13 +744,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     setSending(true);
     setError("");
     try {
-      const attachments = await Promise.all(
-        outgoingFiles.map(async (file) => ({
-          fileName: file.name,
-          mimeType: file.type || "application/octet-stream",
-          dataUrl: await fileToDataUrl(file),
-        })),
-      );
+      const attachments = await prepareChatAttachments(outgoingFiles);
       const response = await fetch(outgoingScope === "subteam" ? `${API_URL}/subteams/${outgoingSubteamId}/messages` : `${API_URL}/messages`, {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }, session.token),
@@ -1049,9 +1035,9 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           )}
 
           {contentTab === "chat" && <footer className="team-chat-footer flex shrink-0 items-center gap-2 border-t border-[var(--border)] p-3">
-            <label className="team-chat-secondary-control grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-xl border border-[var(--border)]">
+            <label className="team-chat-secondary-control grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-xl border border-[var(--border)]" aria-label="Anexar imagem ou arquivo" title="Anexar imagem ou arquivo">
               <Paperclip size={18} />
-              <input type="file" multiple className="hidden" onChange={(event) => setFiles(Array.from(event.target.files || []))} />
+              <input type="file" multiple className="hidden" onChange={(event) => { setFiles((current) => [...current, ...Array.from(event.target.files || [])]); event.currentTarget.value = ""; }} />
             </label>
             <input
               ref={inputRef}

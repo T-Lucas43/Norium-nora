@@ -7169,6 +7169,15 @@ html.mail-fullscreen-open body{
   color:#fff;
   box-shadow:0 10px 24px rgba(1,12,36,.38);
 }
+.team-call-enable-audio{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  border:1px solid #2b76d2;
+  background:#0b4eac!important;
+  color:#fff!important;
+  box-shadow:0 10px 24px rgba(1,12,36,.42);
+}
 .team-call-local-preview{
   width:min(320px,42vw);
   background:#0b0d0f!important;

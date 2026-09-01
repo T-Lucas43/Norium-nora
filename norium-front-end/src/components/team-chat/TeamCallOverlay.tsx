@@ -32,6 +32,66 @@ function StreamVideo({ stream, muted = false, label, sinkId = "", fit = "cover" 
   return <video ref={ref} autoPlay playsInline muted={muted} aria-label={label} className={`h-full w-full bg-black ${fit === "contain" ? "object-contain" : "object-cover"}`} />;
 }
 
+function RemoteParticipantMedia({ stream, participantName, sharing, sinkId }: { stream: MediaStream; participantName: string; sharing: boolean; sinkId: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [videoActive, setVideoActive] = useState(() => stream.getVideoTracks().some((track) => track.readyState !== "ended" && !track.muted));
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = audioRef.current as (HTMLAudioElement & { setSinkId?: (deviceId: string) => Promise<void> }) | null;
+    if (!video || !audio) return undefined;
+    const videoTracks = stream.getVideoTracks().filter((track) => track.readyState !== "ended");
+    const audioTracks = stream.getAudioTracks().filter((track) => track.readyState !== "ended");
+    const videoStream = new MediaStream(videoTracks);
+    const audioStream = new MediaStream(audioTracks);
+    video.srcObject = videoStream;
+    audio.srcObject = audioStream;
+    if (sinkId && audio.setSinkId) void audio.setSinkId(sinkId).catch(() => undefined);
+
+    const playAudio = () => {
+      if (!audioTracks.length) {
+        setAudioBlocked(false);
+        return;
+      }
+      void audio.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
+    };
+    const refreshVideo = () => {
+      const hasActiveVideo = videoTracks.some((track) => track.readyState !== "ended" && !track.muted);
+      setVideoActive(hasActiveVideo);
+      if (hasActiveVideo) void video.play().catch(() => undefined);
+    };
+    audioTracks.forEach((track) => track.addEventListener("unmute", playAudio));
+    videoTracks.forEach((track) => {
+      track.addEventListener("unmute", refreshVideo);
+      track.addEventListener("mute", refreshVideo);
+      track.addEventListener("ended", refreshVideo);
+    });
+    playAudio();
+    refreshVideo();
+    window.addEventListener("pointerdown", playAudio, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", playAudio);
+      audioTracks.forEach((track) => track.removeEventListener("unmute", playAudio));
+      videoTracks.forEach((track) => {
+        track.removeEventListener("unmute", refreshVideo);
+        track.removeEventListener("mute", refreshVideo);
+        track.removeEventListener("ended", refreshVideo);
+      });
+      if (video.srcObject === videoStream) video.srcObject = null;
+      if (audio.srcObject === audioStream) audio.srcObject = null;
+    };
+  }, [sinkId, stream]);
+
+  return <>
+    <audio ref={audioRef} autoPlay aria-label={`Áudio de ${participantName}`} />
+    <video ref={videoRef} autoPlay playsInline muted aria-label={sharing ? `Tela compartilhada por ${participantName}` : `Câmera de ${participantName}`} className={`h-full w-full bg-black ${sharing ? "object-contain" : "object-cover"} ${videoActive ? "" : "invisible"}`} />
+    {!videoActive && <div className="absolute inset-0 grid place-items-center bg-[#050709] text-center"><div><span className="team-call-primary-button mx-auto grid h-24 w-24 place-items-center rounded-full text-2xl font-black text-white">{initials(participantName)}</span><p className="mt-4 text-sm font-black">{sharing ? "Recebendo a transmissão de tela..." : `${participantName} está sem câmera`}</p></div></div>}
+    {audioBlocked && <button type="button" onClick={() => { const audio = audioRef.current; if (audio) void audio.play().then(() => setAudioBlocked(false)).catch(() => undefined); }} className="team-call-enable-audio absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full px-4 py-2 text-xs font-black" aria-label={`Ativar áudio de ${participantName}`}><Volume2 size={15} /> Ativar áudio</button>}
+  </>;
+}
+
 function deviceLabel(device: MediaDeviceInfo, prefix: string, index: number) {
   return device.label || `${prefix} ${index + 1}`;
 }
@@ -150,7 +210,7 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
           {streams.length ? streams.map((item) => {
             const sharing = call.remoteScreenSharingIds.includes(item.userId);
             const participantName = memberById.get(item.userId)?.nome || "Participante";
-            return <section key={item.userId} className={`team-call-remote-tile relative overflow-hidden rounded-xl border border-[var(--border)] ${sharing ? "team-call-remote-screen" : ""}`}><StreamVideo stream={item.stream} sinkId={call.selectedSpeakerId} fit={sharing ? "contain" : "cover"} label={sharing ? `Tela compartilhada por ${participantName}` : `Câmera de ${participantName}`} />{sharing && <span className="team-call-screen-label absolute left-3 top-3 rounded-lg px-3 py-1.5 text-xs font-black"><MonitorUp size={14} /> Tela de {participantName}</span>}</section>;
+            return <section key={item.userId} className={`team-call-remote-tile relative overflow-hidden rounded-xl border border-[var(--border)] ${sharing ? "team-call-remote-screen" : ""}`}><RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing={sharing} sinkId={call.selectedSpeakerId} />{sharing && <span className="team-call-screen-label absolute left-3 top-3 rounded-lg px-3 py-1.5 text-xs font-black"><MonitorUp size={14} /> Tela de {participantName}</span>}</section>;
           }) : <WaitingStage title={call.active.title} />}
           {(call.screenStream || (call.localStream && !call.cameraOff)) && <div className="team-call-local-previews absolute bottom-5 right-5 z-20 flex flex-col items-end gap-2">
             {call.screenStream && <section className="team-call-local-preview overflow-hidden rounded-xl border shadow-2xl" aria-label="Prévia da sua tela compartilhada"><header className="flex items-center justify-between gap-3 px-3 py-2 text-xs font-black"><span className="flex items-center gap-2"><MonitorUp size={14} /> Você está compartilhando</span><span className="text-emerald-400">AO VIVO</span></header><div className="aspect-video bg-black"><StreamVideo stream={call.screenStream} muted fit="contain" label="Mini visualização da sua tela compartilhada" /></div></section>}
@@ -172,7 +232,7 @@ function DeviceSelector({ call, onClose }: { call: ReturnTypeOfTeamCall; onClose
   return <section className="team-call-popover absolute right-3 top-[calc(100%+10px)] z-20 grid w-[min(92vw,440px)] gap-3 rounded-2xl border p-4 text-left shadow-2xl" aria-label="Dispositivos da chamada">
     <div className="flex items-center justify-between"><div><p className="text-sm font-black">Dispositivos</p><p className="text-xs text-[var(--text-secondary)]">Troque câmera e áudio durante a chamada.</p></div><button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-[var(--surface-hover)]" aria-label="Fechar dispositivos"><X size={17} /></button></div>
     <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]"><span className="flex items-center gap-2"><Mic size={14} /> Dispositivo de entrada</span><select value={call.selectedMicrophoneId} onChange={(event) => void call.selectMicrophone(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none"><option value="">Padrão do sistema</option>{call.devices.microphones.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Microfone", index)}</option>)}</select></label>
-    <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]"><span className="flex items-center gap-2"><Camera size={14} /> Câmera · {call.cameraPermission === "granted" ? "permitida" : "permissão pendente"}</span><select value={call.selectedCameraId} onChange={(event) => void call.selectCamera(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none"><option value="">Padrão do sistema</option>{call.devices.cameras.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Câmera", index)}</option>)}</select></label>
+    <div className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]"><span className="flex items-center gap-2"><Camera size={14} /> Câmera · {call.cameraPermission === "granted" ? "permitida" : call.cameraPermission === "requesting" ? "solicitando permissão" : call.cameraPermission === "denied" ? "bloqueada" : call.cameraPermission === "unavailable" ? "indisponível" : "permissão pendente"}</span><select value={call.selectedCameraId} disabled={call.cameraPermission !== "granted"} onChange={(event) => void call.selectCamera(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none disabled:cursor-not-allowed disabled:opacity-60"><option value="">Padrão do sistema</option>{call.devices.cameras.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Câmera", index)}</option>)}</select>{call.cameraPermission !== "granted" ? <button type="button" disabled={call.cameraPermission === "requesting"} onClick={() => void call.requestCameraPermission().then((granted) => { if (granted) return call.refreshDevices(); return undefined; })} className="team-call-primary-button mt-1 flex h-10 items-center justify-center gap-2 rounded-xl px-3 text-xs font-black text-white disabled:opacity-60"><Camera size={15} /> {call.cameraPermission === "requesting" ? "Solicitando acesso..." : "Permitir e listar câmeras"}</button> : <div className="mt-1 grid grid-cols-2 gap-2"><button type="button" onClick={() => void call.refreshDevices()} className="h-9 rounded-xl border border-[#2d3743] bg-[#11151a] px-3 text-xs font-black text-[#d8e8ff] hover:bg-[#1b2128]">Atualizar lista</button><button type="button" onClick={() => void call.toggleCamera()} className="team-call-primary-button h-9 rounded-xl px-3 text-xs font-black text-white">{call.cameraOff ? "Ativar câmera" : "Desativar câmera"}</button></div>}{call.cameraPermission === "granted" && call.devices.cameras.length === 0 && <small className="font-medium text-amber-500">Nenhuma câmera respondeu. Conecte uma câmera e atualize a lista.</small>}</div>
     <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]"><span className="flex items-center gap-2"><Volume2 size={14} /> Dispositivo de saída</span><select value={call.selectedSpeakerId} disabled={!call.supportsSpeakerSelection} onChange={(event) => call.selectSpeaker(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none disabled:cursor-not-allowed disabled:opacity-55"><option value="">Padrão do sistema</option>{call.devices.speakers.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Saída", index)}</option>)}</select>{!call.supportsSpeakerSelection && <small className="font-medium text-amber-500">Neste navegador, a saída é escolhida nas configurações do sistema.</small>}</label>
   </section>;
 }

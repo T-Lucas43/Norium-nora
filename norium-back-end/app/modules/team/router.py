@@ -30,6 +30,8 @@ chat_lock = asyncio.Lock()
 UPLOAD_DIR = get_data_root() / "team_chat_uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024
+MAX_ATTACHMENT_TOTAL_BYTES = 24 * 1024 * 1024
+MAX_ATTACHMENTS_PER_MESSAGE = 8
 MAX_RECORDING_CHUNK_BYTES = 16 * 1024 * 1024
 MAX_RECORDING_BYTES = 512 * 1024 * 1024
 RECORDING_RETENTION_HOURS = 24
@@ -53,12 +55,12 @@ class SendTeamMessagePayload(StrictModel):
     scope: MessageScope = "team"
     recipientId: str | None = None
     text: str = Field(default="", max_length=2000)
-    attachments: list[AttachmentPayload] = []
+    attachments: list[AttachmentPayload] = Field(default_factory=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE)
 
 
 class SendSubteamMessagePayload(StrictModel):
     text: str = Field(default="", max_length=2000)
-    attachments: list[AttachmentPayload] = []
+    attachments: list[AttachmentPayload] = Field(default_factory=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE)
 
 
 class MarkMessagesReadPayload(StrictModel):
@@ -515,10 +517,10 @@ async def append_team_message_for_user(
     attachments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     team_id = await team_id_for_user_id(user_id)
-    stored_attachments = [
-        save_attachment(AttachmentPayload.model_validate(item))
+    stored_attachments = save_attachments([
+        AttachmentPayload.model_validate(item)
         for item in (attachments or [])
-    ]
+    ])
     message = {
         "id": f"team_msg_{uuid.uuid4().hex}",
         "threadId": "team",
@@ -757,7 +759,7 @@ async def persist_message(
     store = await asyncio.to_thread(read_chat_store, team_id)
     participant_ids = await thread_participant_ids(user, store, scope, recipient_id, subteam_id)
     thread_id = normalize_thread_id(scope, user_id, recipient_id, subteam_id)
-    attachments = [save_attachment(item) for item in attachment_payloads]
+    attachments = save_attachments(attachment_payloads)
     nora_mentioned = scope == "team" and has_nora_mention(text)
     nora_triggered = nora_mentioned and can_use_nora(user)
     message = {
@@ -1406,8 +1408,16 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
         manager.disconnect(websocket, user_id)
 
 
-def save_attachment(payload: AttachmentPayload) -> dict[str, Any]:
-    file_bytes, mime_type = decode_data_url(payload.dataUrl, payload.mimeType)
+def save_attachments(payloads: list[AttachmentPayload]) -> list[dict[str, Any]]:
+    if len(payloads) > MAX_ATTACHMENTS_PER_MESSAGE:
+        raise HTTPException(status_code=400, detail=f"Envie no maximo {MAX_ATTACHMENTS_PER_MESSAGE} anexos por mensagem.")
+    decoded = [(payload, *decode_data_url(payload.dataUrl, payload.mimeType)) for payload in payloads]
+    if sum(len(file_bytes) for _, file_bytes, _ in decoded) > MAX_ATTACHMENT_TOTAL_BYTES:
+        raise HTTPException(status_code=413, detail="Os anexos da mensagem ultrapassam o limite total de 24 MB.")
+    return [save_attachment_bytes(payload, file_bytes, mime_type) for payload, file_bytes, mime_type in decoded]
+
+
+def save_attachment_bytes(payload: AttachmentPayload, file_bytes: bytes, mime_type: str) -> dict[str, Any]:
     safe_name = safe_upload_name(payload.fileName, mime_type)
     (UPLOAD_DIR / safe_name).write_bytes(file_bytes)
     return {

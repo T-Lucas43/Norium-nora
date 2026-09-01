@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -95,6 +96,36 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         recipients = manager.send_to_users.await_args.args[1]
         self.assertEqual({"owner", "member"}, recipients)
         self.assertNotIn("other", recipients)
+
+    async def test_image_attachment_is_saved_and_returned_in_team_chat(self) -> None:
+        image_bytes = b"\x89PNG\r\n\x1a\nteam-image"
+        manager = team_router.PresenceManager()
+        manager.send_to_users = AsyncMock()
+        with (
+            patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),
+            patch.object(team_router, "UPLOAD_DIR", self.upload_dir),
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+            patch.object(team_router, "record_team_event", AsyncMock()),
+            patch.object(team_router, "manager", manager),
+        ):
+            result = await team_router.send_message(
+                team_router.SendTeamMessagePayload(
+                    scope="team",
+                    text="Imagem da equipe",
+                    attachments=[team_router.AttachmentPayload(
+                        fileName="captura.png",
+                        mimeType="image/png",
+                        dataUrl=f"data:image/png;base64,{base64.b64encode(image_bytes).decode('ascii')}",
+                    )],
+                ),
+                self.owner,
+            )
+
+        attachment = result["message"]["attachments"][0]
+        self.assertEqual("image/png", attachment["mimeType"])
+        self.assertEqual("captura.png", attachment["name"])
+        self.assertEqual(image_bytes, (self.upload_dir / attachment["storedName"]).read_bytes())
 
     async def test_members_list_only_reports_active_connected_users_and_last_login(self) -> None:
         manager = team_router.PresenceManager()

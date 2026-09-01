@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import TeamCallOverlay from "./TeamCallOverlay";
 import type { ReturnTypeOfTeamCall } from "./teamCallTypes";
@@ -69,7 +69,7 @@ describe("tela da reuniao do Modo Equipe", () => {
   });
 
   it("orienta a liberar a camera quando a permissao esta bloqueada", () => {
-    const requestCameraPermission = vi.fn();
+    const requestCameraPermission = vi.fn().mockResolvedValue(false);
     const call = {
       incoming: null,
       active: { callId: "call_0123456789abcdef", mode: "audio", title: "Time todo", hostUserId: "owner", startedAt: new Date().toISOString(), thread: { scope: "team", title: "Time todo" } },
@@ -101,6 +101,44 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Câmera > Permitir");
     fireEvent.click(screen.getByRole("button", { name: "Permitir câmera" }));
     expect(requestCameraPermission).toHaveBeenCalledOnce();
+  });
+
+  it("permite liberar e listar cameras dentro do painel de dispositivos", async () => {
+    const requestCameraPermission = vi.fn().mockResolvedValue(true);
+    const refreshDevices = vi.fn().mockResolvedValue(undefined);
+    const call = {
+      incoming: null,
+      active: { callId: "call_0123456789abcdef", mode: "audio", title: "Time todo", hostUserId: "owner", startedAt: new Date().toISOString(), thread: { scope: "team", title: "Time todo" } },
+      localStream: null,
+      screenStream: null,
+      remoteStreams: [],
+      remoteScreenSharingIds: [],
+      muted: false,
+      cameraOff: true,
+      cameraPermission: "unknown",
+      sharingScreen: false,
+      callElapsedSeconds: 0,
+      recording: false,
+      recordingElapsedSeconds: 0,
+      connectionQuality: "good",
+      reactions: [],
+      status: "Na chamada",
+      devices: { microphones: [], cameras: [], speakers: [] },
+      selectedMicrophoneId: "",
+      selectedCameraId: "",
+      selectedSpeakerId: "",
+      supportsSpeakerSelection: true,
+      isHost: true,
+      requestCameraPermission,
+      refreshDevices,
+    } as unknown as ReturnTypeOfTeamCall;
+
+    render(<TeamCallOverlay call={call} messages={[]} members={[]} currentUserId="owner" onSendMessage={vi.fn()} onDownloadAttachment={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Selecionar câmera e dispositivos de áudio" }));
+    expect(screen.getByText("Câmera · permissão pendente")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Permitir e listar câmeras" }));
+    await waitFor(() => expect(requestCameraPermission).toHaveBeenCalledOnce());
+    await waitFor(() => expect(refreshDevices).toHaveBeenCalledOnce());
   });
 
   it("mostra a mini visualizacao da tela compartilhada e mantem o chat legivel", () => {

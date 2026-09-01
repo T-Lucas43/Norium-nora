@@ -151,6 +151,7 @@ export function useTeamCall({
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
   const videoSendersRef = useRef(new Map<string, RTCRtpSender>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
+  const remoteStreamByUserRef = useRef(new Map<string, MediaStream>());
   const screenStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamsRef = useRef<Array<{ userId: string; stream: MediaStream }>>([]);
   const connectingSoundTimerRef = useRef<number | null>(null);
@@ -226,6 +227,10 @@ export function useTeamCall({
     peersRef.current.delete(userId);
     videoSendersRef.current.delete(userId);
     pendingCandidatesRef.current.delete(userId);
+    remoteStreamByUserRef.current.get(userId)?.getTracks().forEach((track) => {
+      track.onended = null;
+    });
+    remoteStreamByUserRef.current.delete(userId);
     setRemoteStreams((current) => current.filter((item) => item.userId !== userId));
     setRemoteScreenSharingIds((current) => current.filter((item) => item !== userId));
   }, []);
@@ -248,6 +253,10 @@ export function useTeamCall({
     peersRef.current.clear();
     videoSendersRef.current.clear();
     pendingCandidatesRef.current.clear();
+    remoteStreamByUserRef.current.forEach((stream) => stream.getTracks().forEach((track) => {
+      track.onended = null;
+    }));
+    remoteStreamByUserRef.current.clear();
     setRemoteStreams([]);
     setRemoteScreenSharingIds([]);
     stopMedia();
@@ -731,7 +740,31 @@ export function useTeamCall({
         }
       };
       peer.ontrack = (event) => {
-        const stream = event.streams[0] || new MediaStream([event.track]);
+        const previous = remoteStreamByUserRef.current.get(remoteUserId);
+        const previousTracks = previous?.getTracks() || [];
+        const incomingTracks = [event.track, ...event.streams.flatMap((stream) => stream.getTracks())];
+        const tracks = [...previousTracks];
+        for (const track of incomingTracks) {
+          if (!tracks.some((current) => current === track || (track.id && current.id === track.id))) tracks.push(track);
+        }
+        const stream = new MediaStream(tracks);
+        remoteStreamByUserRef.current.set(remoteUserId, stream);
+        event.track.onended = () => {
+          const current = remoteStreamByUserRef.current.get(remoteUserId);
+          if (!current) return;
+          const remainingTracks = current.getTracks().filter((track) => track !== event.track && (!event.track.id || track.id !== event.track.id));
+          if (!remainingTracks.length) {
+            remoteStreamByUserRef.current.delete(remoteUserId);
+            setRemoteStreams((items) => items.filter((item) => item.userId !== remoteUserId));
+            return;
+          }
+          const nextStream = new MediaStream(remainingTracks);
+          remoteStreamByUserRef.current.set(remoteUserId, nextStream);
+          setRemoteStreams((items) => [
+            ...items.filter((item) => item.userId !== remoteUserId),
+            { userId: remoteUserId, stream: nextStream },
+          ]);
+        };
         setRemoteStreams((current) => [
           ...current.filter((item) => item.userId !== remoteUserId),
           { userId: remoteUserId, stream },

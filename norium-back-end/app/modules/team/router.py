@@ -55,12 +55,12 @@ class SendTeamMessagePayload(StrictModel):
     scope: MessageScope = "team"
     recipientId: str | None = None
     text: str = Field(default="", max_length=2000)
-    attachments: list[AttachmentPayload] = Field(default_factory=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE)
+    attachments: list[AttachmentPayload] = Field(default=[], max_length=MAX_ATTACHMENTS_PER_MESSAGE)
 
 
 class SendSubteamMessagePayload(StrictModel):
     text: str = Field(default="", max_length=2000)
-    attachments: list[AttachmentPayload] = Field(default_factory=list, max_length=MAX_ATTACHMENTS_PER_MESSAGE)
+    attachments: list[AttachmentPayload] = Field(default=[], max_length=MAX_ATTACHMENTS_PER_MESSAGE)
 
 
 class MarkMessagesReadPayload(StrictModel):

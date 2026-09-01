@@ -15,6 +15,7 @@ type Attachment = {
   mimeType: string;
   size: number;
   url: string;
+  expiresAt?: string;
 };
 
 type TeamMessage = {
@@ -989,7 +990,14 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           )}
           {previewAttachment && <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} token={session.token} />}
           {subteamEditor && <SubteamEditorDialog value={subteamEditor} members={members} currentUserId={session.user.id} saving={subteamSaving} onClose={() => setSubteamEditor(null)} onSave={(input) => void saveSubteam(input)} />}
-          <TeamCallOverlay call={call} />
+          <TeamCallOverlay
+            call={call}
+            messages={messages}
+            members={members}
+            currentUserId={session.user.id}
+            onSendMessage={async (message) => { await sendMessage(message); }}
+            onDownloadAttachment={(attachment) => { void downloadWithAuth(attachment.url, attachment.name, session.token); }}
+          />
         </motion.aside>
       )}
     </AnimatePresence>

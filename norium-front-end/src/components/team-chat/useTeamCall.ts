@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AuthSession } from "../../types/auth";
+import { apiBaseUrl } from "../../utils/api";
+
+const TEAM_CHAT_API = `${apiBaseUrl()}/api/team-chat`;
 
 export type TeamThreadScope = "team" | "direct" | "subteam";
 
@@ -22,6 +25,9 @@ export type TeamCallSocketEvent = {
   mode?: "audio" | "video";
   signal?: RTCSessionDescriptionInit | RTCIceCandidateInit;
   detail?: string;
+  recordingId?: string;
+  expiresAt?: string;
+  emoji?: string;
 };
 
 type ActiveCall = {
@@ -29,12 +35,51 @@ type ActiveCall = {
   mode: "audio" | "video";
   title: string;
   thread: TeamCallThread;
+  hostUserId: string;
 };
 
 type IncomingCall = ActiveCall & {
   fromUserId: string;
   fromUserName: string;
 };
+
+type CallDevices = {
+  microphones: MediaDeviceInfo[];
+  cameras: MediaDeviceInfo[];
+  speakers: MediaDeviceInfo[];
+};
+
+type CallSound = "connecting" | "joined" | "left" | "ended";
+type ConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
+
+function playCallSound(sound: CallSound) {
+  if (typeof window === "undefined" || !window.AudioContext) return;
+  const notes: Record<CallSound, Array<[number, number, number]>> = {
+    connecting: [[440, 0, 0.12], [540, 0.18, 0.12]],
+    joined: [[520, 0, 0.1], [660, 0.12, 0.1], [820, 0.24, 0.16]],
+    left: [[520, 0, 0.12], [390, 0.16, 0.18]],
+    ended: [[480, 0, 0.12], [360, 0.15, 0.14], [250, 0.32, 0.2]],
+  };
+  try {
+    const context = new AudioContext();
+    const baseTime = context.currentTime + 0.01;
+    for (const [frequency, offset, duration] of notes[sound]) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, baseTime + offset);
+      gain.gain.exponentialRampToValueAtTime(0.075, baseTime + offset + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, baseTime + offset + duration);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start(baseTime + offset);
+      oscillator.stop(baseTime + offset + duration + 0.02);
+    }
+    window.setTimeout(() => { void context.close(); }, 900);
+  } catch {
+    // Sons sao um reforco de UX e nunca devem interromper a chamada.
+  }
+}
 
 function configuredIceServers(): RTCIceServer[] {
   const raw = (import.meta.env.VITE_TEAM_CALL_ICE_SERVERS as string | undefined)?.trim();
@@ -70,15 +115,57 @@ export function useTeamCall({
   const [cameraOff, setCameraOff] = useState(false);
   const [sharingScreen, setSharingScreen] = useState(false);
   const [status, setStatus] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
+  const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>(navigator.onLine ? "connecting" : "offline");
+  const [reactions, setReactions] = useState<Array<{ id: string; emoji: string; userName: string }>>([]);
+  const [devices, setDevices] = useState<CallDevices>({ microphones: [], cameras: [], speakers: [] });
+  const [selectedMicrophoneId, setSelectedMicrophoneId] = useState("");
+  const [selectedCameraId, setSelectedCameraId] = useState("");
+  const [selectedSpeakerId, setSelectedSpeakerId] = useState("");
   const activeRef = useRef<ActiveCall | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamsRef = useRef<Array<{ userId: string; stream: MediaStream }>>([]);
+  const connectingSoundTimerRef = useRef<number | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingIdRef = useRef("");
+  const recordingQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const recordingErrorRef = useRef<Error | null>(null);
+  const recordingCleanupRef = useRef<(() => void) | null>(null);
+  const recordingTimerRef = useRef<number | null>(null);
+  const recordingStopPromiseRef = useRef<Promise<void>>(Promise.resolve());
+  const resolveRecordingStopRef = useRef<(() => void) | null>(null);
+  const reactionTimersRef = useRef<number[]>([]);
 
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  useEffect(() => {
+    remoteStreamsRef.current = remoteStreams;
+  }, [remoteStreams]);
+
+  const showReaction = useCallback((emoji: string, userName: string) => {
+    const id = crypto.randomUUID();
+    setReactions((current) => [...current.slice(-7), { id, emoji, userName }]);
+    reactionTimersRef.current.push(window.setTimeout(() => {
+      setReactions((current) => current.filter((reaction) => reaction.id !== id));
+    }, 4200));
+  }, []);
+
+  const stopConnectingSound = useCallback(() => {
+    if (connectingSoundTimerRef.current !== null) window.clearInterval(connectingSoundTimerRef.current);
+    connectingSoundTimerRef.current = null;
+  }, []);
+
+  const startConnectingSound = useCallback(() => {
+    stopConnectingSound();
+    playCallSound("connecting");
+    connectingSoundTimerRef.current = window.setInterval(() => playCallSound("connecting"), 1500);
+  }, [stopConnectingSound]);
 
   const callPayload = useCallback((call: ActiveCall) => ({
     callId: call.callId,
@@ -104,9 +191,10 @@ export function useTeamCall({
     setSharingScreen(false);
   }, []);
 
-  const finishCall = useCallback((notify: boolean) => {
+  const finishCall = useCallback((notify: boolean, sound: CallSound | null = null) => {
     const call = activeRef.current;
     if (notify && call) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
+    stopConnectingSound();
     peersRef.current.forEach((peer) => peer.close());
     peersRef.current.clear();
     pendingCandidatesRef.current.clear();
@@ -117,21 +205,359 @@ export function useTeamCall({
     activeRef.current = null;
     setMuted(false);
     setCameraOff(false);
+    setRecording(false);
+    setRecordingElapsedSeconds(0);
+    if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = null;
+    recordingCleanupRef.current?.();
+    recordingCleanupRef.current = null;
+    reactionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    reactionTimersRef.current = [];
+    setReactions([]);
+    setConnectionQuality(navigator.onLine ? "good" : "offline");
+    if (sound) playCallSound(sound);
     setStatus("");
-  }, [callPayload, sendSocketEvent, stopMedia]);
+  }, [callPayload, sendSocketEvent, stopConnectingSound, stopMedia]);
 
   useEffect(() => () => finishCall(false), [finishCall]);
+
+  const refreshDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    const available = await navigator.mediaDevices.enumerateDevices();
+    const nextDevices = {
+      microphones: available.filter((device) => device.kind === "audioinput"),
+      cameras: available.filter((device) => device.kind === "videoinput"),
+      speakers: available.filter((device) => device.kind === "audiooutput"),
+    };
+    setDevices(nextDevices);
+    setSelectedMicrophoneId((current) => current && nextDevices.microphones.some((device) => device.deviceId === current) ? current : nextDevices.microphones[0]?.deviceId || "");
+    setSelectedCameraId((current) => current && nextDevices.cameras.some((device) => device.deviceId === current) ? current : nextDevices.cameras[0]?.deviceId || "");
+    setSelectedSpeakerId((current) => current && nextDevices.speakers.some((device) => device.deviceId === current) ? current : nextDevices.speakers[0]?.deviceId || "");
+  }, []);
+
+  useEffect(() => {
+    const mediaDevices = navigator.mediaDevices;
+    if (!mediaDevices?.addEventListener) return undefined;
+    const handleDeviceChange = () => { void refreshDevices(); };
+    mediaDevices.addEventListener("devicechange", handleDeviceChange);
+    return () => mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+  }, [refreshDevices]);
+
+  useEffect(() => {
+    const updateNetwork = () => setConnectionQuality(navigator.onLine ? (activeRef.current ? "connecting" : "good") : "offline");
+    window.addEventListener("online", updateNetwork);
+    window.addEventListener("offline", updateNetwork);
+    return () => {
+      window.removeEventListener("online", updateNetwork);
+      window.removeEventListener("offline", updateNetwork);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    let cancelled = false;
+    const measure = async () => {
+      if (!navigator.onLine) {
+        if (!cancelled) setConnectionQuality("offline");
+        return;
+      }
+      const peers = Array.from(peersRef.current.values());
+      if (!peers.length) {
+        if (!cancelled) setConnectionQuality("connecting");
+        return;
+      }
+      if (peers.some((peer) => ["failed", "disconnected", "closed"].includes(peer.connectionState))) {
+        if (!cancelled) setConnectionQuality("poor");
+        return;
+      }
+      let highestRoundTrip = 0;
+      let lostPackets = 0;
+      let receivedPackets = 0;
+      await Promise.all(peers.map(async (peer) => {
+        const report = await peer.getStats();
+        report.forEach((entry) => {
+          if (entry.type === "candidate-pair" && entry.state === "succeeded" && entry.currentRoundTripTime) {
+            highestRoundTrip = Math.max(highestRoundTrip, Number(entry.currentRoundTripTime));
+          }
+          if (entry.type === "inbound-rtp") {
+            lostPackets += Number(entry.packetsLost || 0);
+            receivedPackets += Number(entry.packetsReceived || 0);
+          }
+        });
+      })).catch(() => undefined);
+      const lossPercentage = lostPackets + receivedPackets > 0 ? (lostPackets / (lostPackets + receivedPackets)) * 100 : 0;
+      const nextQuality: ConnectionQuality = highestRoundTrip > 0.65 || lossPercentage > 8
+        ? "poor"
+        : highestRoundTrip > 0.3 || lossPercentage > 3
+          ? "fair"
+          : "good";
+      if (!cancelled) setConnectionQuality(nextQuality);
+    };
+    void measure();
+    const timer = window.setInterval(() => { void measure(); }, 3500);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [active]);
 
   const acquireMedia = useCallback(async (mode: "audio" | "video") => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este navegador nao permite acesso ao microfone e a camera.");
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: mode === "video" ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+      audio: selectedMicrophoneId ? { deviceId: { exact: selectedMicrophoneId } } : true,
+      video: mode === "video" ? {
+        ...(selectedCameraId ? { deviceId: { exact: selectedCameraId } } : {}),
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      } : false,
     });
     localStreamRef.current = stream;
     setLocalStream(stream);
+    await refreshDevices().catch(() => undefined);
     return stream;
+  }, [refreshDevices, selectedCameraId, selectedMicrophoneId]);
+
+  const replaceInputDevice = useCallback(async (kind: "audio" | "video", deviceId: string) => {
+    const currentStream = localStreamRef.current;
+    if (!currentStream || !deviceId || !navigator.mediaDevices?.getUserMedia) return;
+    setStatus(kind === "audio" ? "Trocando microfone..." : "Trocando camera...");
+    try {
+      const replacementStream = await navigator.mediaDevices.getUserMedia(kind === "audio"
+        ? { audio: { deviceId: { exact: deviceId } }, video: false }
+        : { audio: false, video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+      const replacementTrack = kind === "audio" ? replacementStream.getAudioTracks()[0] : replacementStream.getVideoTracks()[0];
+      if (!replacementTrack) throw new Error("O dispositivo selecionado nao forneceu midia.");
+      replacementTrack.enabled = kind === "audio" ? !muted : !cameraOff;
+
+      // Durante a transmissao de tela, a nova camera fica preparada localmente
+      // e passa a ser enviada quando o compartilhamento terminar.
+      if (kind === "audio" || !screenStreamRef.current) {
+        await Promise.all(Array.from(peersRef.current.values()).map(async (peer) => {
+          const sender = peer.getSenders().find((item) => item.track?.kind === kind);
+          if (sender) await sender.replaceTrack(replacementTrack);
+        }));
+      }
+
+      currentStream.getTracks().filter((track) => track.kind === kind).forEach((track) => track.stop());
+      const nextStream = new MediaStream([
+        ...currentStream.getTracks().filter((track) => track.kind !== kind),
+        replacementTrack,
+      ]);
+      localStreamRef.current = nextStream;
+      setLocalStream(nextStream);
+      if (kind === "audio") setSelectedMicrophoneId(deviceId);
+      else setSelectedCameraId(deviceId);
+      replacementStream.getTracks().filter((track) => track !== replacementTrack).forEach((track) => track.stop());
+      setStatus("Na chamada");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Nao foi possivel trocar o dispositivo.");
+    }
+  }, [cameraOff, muted]);
+
+  const createMeetingRecordingStream = useCallback((mode: "audio" | "video") => {
+    if (!window.AudioContext) throw new Error("O navegador nao oferece mixagem de audio para gravacao.");
+    const output = new MediaStream();
+    const audioContext = new AudioContext();
+    void audioContext.resume().catch(() => undefined);
+    const audioDestination = audioContext.createMediaStreamDestination();
+    const connectedAudioTracks = new Set<string>();
+    const audioSources: MediaStreamAudioSourceNode[] = [];
+    const videos = new Map<string, HTMLVideoElement>();
+    let animationFrame = 0;
+    let audioSyncTimer = 0;
+    let canvasStream: MediaStream | null = null;
+
+    const currentSources = () => {
+      const result: Array<{ id: string; label: string; stream: MediaStream }> = [];
+      if (screenStreamRef.current?.getVideoTracks().length) {
+        result.push({ id: "screen", label: "Tela compartilhada", stream: screenStreamRef.current });
+      } else {
+        for (const item of remoteStreamsRef.current) result.push({ id: item.userId, label: `Participante ${item.userId}`, stream: item.stream });
+        if (localStreamRef.current) result.push({ id: "local", label: session.user.nome || "Voce", stream: localStreamRef.current });
+      }
+      return result;
+    };
+
+    const connectAvailableAudio = () => {
+      const allStreams = [localStreamRef.current, ...remoteStreamsRef.current.map((item) => item.stream)].filter(Boolean) as MediaStream[];
+      for (const stream of allStreams) {
+        for (const track of stream.getAudioTracks()) {
+          if (connectedAudioTracks.has(track.id)) continue;
+          const source = audioContext.createMediaStreamSource(new MediaStream([track]));
+          source.connect(audioDestination);
+          audioSources.push(source);
+          connectedAudioTracks.add(track.id);
+        }
+      }
+    };
+    connectAvailableAudio();
+    audioDestination.stream.getAudioTracks().forEach((track) => output.addTrack(track));
+
+    if (mode === "video") {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1280;
+      canvas.height = 720;
+      const context = canvas.getContext("2d");
+      if (!context || typeof canvas.captureStream !== "function") {
+        void audioContext.close();
+        throw new Error("Este navegador nao permite compor a gravacao de video.");
+      }
+      canvasStream = canvas.captureStream(24);
+      canvasStream.getVideoTracks().forEach((track) => output.addTrack(track));
+
+      const draw = () => {
+        connectAvailableAudio();
+        const sources = currentSources();
+        context.fillStyle = "#090b0e";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const columns = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, sources.length))));
+        const rows = Math.max(1, Math.ceil(Math.max(1, sources.length) / columns));
+        const cellWidth = canvas.width / columns;
+        const cellHeight = canvas.height / rows;
+        sources.forEach((source, index) => {
+          let video = videos.get(source.id);
+          if (!video || video.srcObject !== source.stream) {
+            video?.pause();
+            video = document.createElement("video");
+            video.srcObject = source.stream;
+            video.muted = true;
+            video.playsInline = true;
+            void video.play().catch(() => undefined);
+            videos.set(source.id, video);
+          }
+          const x = (index % columns) * cellWidth;
+          const y = Math.floor(index / columns) * cellHeight;
+          if (video.readyState >= 2) context.drawImage(video, x, y, cellWidth, cellHeight);
+          context.fillStyle = "rgba(0,0,0,.58)";
+          context.fillRect(x + 18, y + cellHeight - 54, Math.min(cellWidth - 36, 320), 34);
+          context.fillStyle = "#fff";
+          context.font = "600 18px Arial";
+          context.fillText(source.label, x + 30, y + cellHeight - 31);
+        });
+        if (!sources.length) {
+          context.fillStyle = "#fff";
+          context.font = "700 30px Arial";
+          context.textAlign = "center";
+          context.fillText("Aguardando participantes...", canvas.width / 2, canvas.height / 2);
+          context.textAlign = "start";
+        }
+        animationFrame = window.requestAnimationFrame(draw);
+      };
+      draw();
+    } else {
+      audioSyncTimer = window.setInterval(connectAvailableAudio, 1000);
+    }
+
+    return {
+      stream: output,
+      cleanup: () => {
+        if (animationFrame) window.cancelAnimationFrame(animationFrame);
+        if (audioSyncTimer) window.clearInterval(audioSyncTimer);
+        videos.forEach((video) => { video.pause(); video.srcObject = null; });
+        canvasStream?.getTracks().forEach((track) => track.stop());
+        audioDestination.stream.getTracks().forEach((track) => track.stop());
+        audioSources.forEach((source) => source.disconnect());
+        void audioContext.close();
+      },
+    };
+  }, [session.user.nome]);
+
+  const stopRecording = useCallback(async () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") recorder.stop();
+    await recordingStopPromiseRef.current;
   }, []);
+
+  const startRecording = useCallback(async () => {
+    const call = activeRef.current;
+    if (!call || recording || typeof MediaRecorder === "undefined") {
+      if (typeof MediaRecorder === "undefined") setStatus("Este navegador nao permite gravar reunioes.");
+      return;
+    }
+    const candidates = call.mode === "video"
+      ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
+      : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+    const mimeType = candidates.find((candidate) => !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(candidate)) || "";
+    let cleanup: (() => void) | null = null;
+    let recordingId = "";
+    try {
+      setStatus("Preparando gravacao...");
+      const composition = createMeetingRecordingStream(call.mode);
+      cleanup = composition.cleanup;
+      const startResponse = await fetch(`${TEAM_CHAT_API}/recordings/start`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          callId: call.callId,
+          scope: call.thread.scope,
+          recipientId: call.thread.recipientId || null,
+          subteamId: call.thread.subteamId || null,
+          mimeType: mimeType || (call.mode === "video" ? "video/webm" : "audio/webm"),
+        }),
+      });
+      const startData = await startResponse.json().catch(() => ({}));
+      if (!startResponse.ok) throw new Error(startData?.detail || "Nao foi possivel iniciar a gravacao.");
+      recordingId = String(startData.recording?.id || "");
+      if (!recordingId) throw new Error("O servidor nao confirmou a gravacao.");
+
+      const recorder = new MediaRecorder(composition.stream, mimeType ? { mimeType } : undefined);
+      mediaRecorderRef.current = recorder;
+      recordingIdRef.current = recordingId;
+      recordingCleanupRef.current = cleanup;
+      recordingQueueRef.current = Promise.resolve();
+      recordingErrorRef.current = null;
+      recordingStopPromiseRef.current = new Promise<void>((resolve) => { resolveRecordingStopRef.current = resolve; });
+      recorder.ondataavailable = (event) => {
+        if (!event.data.size || recordingErrorRef.current) return;
+        recordingQueueRef.current = recordingQueueRef.current.then(async () => {
+          const response = await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}/chunks`, {
+            method: "PUT",
+            headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/octet-stream" },
+            body: event.data,
+          });
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data?.detail || "Falha ao enviar um trecho da gravacao.");
+          }
+        }).catch((error) => { recordingErrorRef.current = error instanceof Error ? error : new Error("Falha ao enviar a gravacao."); });
+      };
+      recorder.onstop = () => {
+        void (async () => {
+          await recordingQueueRef.current;
+          try {
+            if (recordingErrorRef.current) throw recordingErrorRef.current;
+            const response = await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}/complete`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${session.token}` },
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data?.detail || "Nao foi possivel finalizar a gravacao.");
+            setStatus("Gravacao salva no chat por 24 horas.");
+          } catch (error) {
+            setStatus(error instanceof Error ? error.message : "Falha ao salvar a gravacao.");
+            await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}`, { method: "DELETE", headers: { Authorization: `Bearer ${session.token}` } }).catch(() => undefined);
+          } finally {
+            recordingCleanupRef.current?.();
+            recordingCleanupRef.current = null;
+            mediaRecorderRef.current = null;
+            recordingIdRef.current = "";
+            setRecording(false);
+            setRecordingElapsedSeconds(0);
+            if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+            recordingTimerRef.current = null;
+            resolveRecordingStopRef.current?.();
+            resolveRecordingStopRef.current = null;
+          }
+        })();
+      };
+      recorder.start(5000);
+      setRecording(true);
+      setRecordingElapsedSeconds(0);
+      recordingTimerRef.current = window.setInterval(() => setRecordingElapsedSeconds((current) => current + 1), 1000);
+      setStatus("Gravando reuniao");
+    } catch (error) {
+      cleanup?.();
+      if (recordingId) await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}`, { method: "DELETE", headers: { Authorization: `Bearer ${session.token}` } }).catch(() => undefined);
+      setStatus(error instanceof Error ? error.message : "Nao foi possivel iniciar a gravacao.");
+    }
+  }, [createMeetingRecordingStream, recording, session.token]);
 
   const createPeer = useCallback(async (remoteUserId: string, createOffer: boolean) => {
     const call = activeRef.current;
@@ -181,10 +607,11 @@ export function useTeamCall({
     setStatus("Solicitando permissao do dispositivo...");
     try {
       await acquireMedia(mode);
-      const call: ActiveCall = { callId: callId(), mode, title: thread.title, thread };
+      const call: ActiveCall = { callId: callId(), mode, title: thread.title, thread, hostUserId: session.user.id };
       activeRef.current = call;
       setActive(call);
       setStatus("Chamando a equipe...");
+      startConnectingSound();
       if (!sendSocketEvent({ type: "CALL_INVITE", ...callPayload(call) })) {
         throw new Error("A conexao em tempo real ainda nao esta pronta.");
       }
@@ -192,11 +619,12 @@ export function useTeamCall({
       finishCall(false);
       setStatus(error instanceof Error ? error.message : "Nao foi possivel iniciar a chamada.");
     }
-  }, [acquireMedia, callPayload, finishCall, sendSocketEvent, thread]);
+  }, [acquireMedia, callPayload, finishCall, sendSocketEvent, session.user.id, startConnectingSound, thread]);
 
   const acceptIncoming = useCallback(async () => {
     if (!incoming) return;
     setStatus("Conectando dispositivos...");
+    startConnectingSound();
     try {
       await acquireMedia(incoming.mode);
       const call: ActiveCall = { ...incoming };
@@ -204,13 +632,15 @@ export function useTeamCall({
       setActive(call);
       setIncoming(null);
       sendSocketEvent({ type: "CALL_ACCEPT", ...callPayload(call) });
+      stopConnectingSound();
+      playCallSound("joined");
       setStatus("Na chamada");
     } catch (error) {
       sendSocketEvent({ type: "CALL_REJECT", ...callPayload(incoming) });
       finishCall(false);
       setStatus(error instanceof Error ? error.message : "Nao foi possivel acessar o dispositivo.");
     }
-  }, [acquireMedia, callPayload, finishCall, incoming, sendSocketEvent]);
+  }, [acquireMedia, callPayload, finishCall, incoming, sendSocketEvent, startConnectingSound, stopConnectingSound]);
 
   const rejectIncoming = useCallback(() => {
     if (incoming) sendSocketEvent({ type: "CALL_REJECT", ...callPayload(incoming) });
@@ -240,6 +670,7 @@ export function useTeamCall({
         title: event.fromUserName || "Chamada da equipe",
         fromUserId: event.fromUserId,
         fromUserName: event.fromUserName || "Membro",
+        hostUserId: event.fromUserId,
         thread: {
           scope: event.scope || "team",
           title: event.fromUserName || "Chamada da equipe",
@@ -251,7 +682,13 @@ export function useTeamCall({
     }
     const call = activeRef.current;
     if (!call || call.callId !== event.callId) return;
+    if (event.type === "CALL_REACTION" && event.emoji) {
+      showReaction(event.emoji, event.fromUserName || "Participante");
+      return;
+    }
     if (event.type === "CALL_ACCEPT") {
+      stopConnectingSound();
+      playCallSound("joined");
       setStatus("Na chamada");
       await createPeer(event.fromUserId, true);
       return;
@@ -287,11 +724,37 @@ export function useTeamCall({
       return;
     }
     if (event.type === "CALL_REJECT") {
+      if (call.thread.scope === "direct") stopConnectingSound();
       setStatus(`${event.fromUserName || "Um participante"} recusou a chamada.`);
       return;
     }
-    if (event.type === "CALL_END") finishCall(false);
-  }, [callPayload, createPeer, finishCall, sendSocketEvent, session.user.id]);
+    if (event.type === "CALL_LEAVE") {
+      closePeer(event.fromUserId);
+      playCallSound("left");
+      setStatus(`${event.fromUserName || "Um participante"} saiu da reuniao.`);
+      return;
+    }
+    if (event.type === "CALL_RECORDING_STARTED") {
+      setRecording(true);
+      setRecordingElapsedSeconds(0);
+      if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = window.setInterval(() => setRecordingElapsedSeconds((current) => current + 1), 1000);
+      setStatus(`${event.fromUserName || "O organizador"} iniciou a gravacao.`);
+      return;
+    }
+    if (event.type === "CALL_RECORDING_AVAILABLE") {
+      setRecording(false);
+      setRecordingElapsedSeconds(0);
+      if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+      setStatus("Gravacao disponivel no chat por 24 horas.");
+      return;
+    }
+    if (event.type === "CALL_END") {
+      await stopRecording();
+      finishCall(false, "ended");
+    }
+  }, [callPayload, closePeer, createPeer, finishCall, sendSocketEvent, session.user.id, showReaction, stopConnectingSound, stopRecording]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;
@@ -344,6 +807,25 @@ export function useTeamCall({
     }
   }, [sharingScreen, stopScreenShare]);
 
+  const endCall = useCallback(async () => {
+    await stopRecording();
+    finishCall(true, "ended");
+  }, [finishCall, stopRecording]);
+
+  const leaveCall = useCallback(async () => {
+    const call = activeRef.current;
+    await stopRecording();
+    if (call) sendSocketEvent({ type: "CALL_LEAVE", ...callPayload(call) });
+    finishCall(false, "left");
+  }, [callPayload, finishCall, sendSocketEvent, stopRecording]);
+
+  const sendReaction = useCallback((emoji: string) => {
+    const call = activeRef.current;
+    if (!call || !["👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"].includes(emoji)) return;
+    showReaction(emoji, session.user.nome || "Voce");
+    sendSocketEvent({ type: "CALL_REACTION", ...callPayload(call), emoji });
+  }, [callPayload, sendSocketEvent, session.user.nome, showReaction]);
+
   return {
     incoming,
     active,
@@ -352,14 +834,32 @@ export function useTeamCall({
     muted,
     cameraOff,
     sharingScreen,
+    recording,
+    recordingElapsedSeconds,
+    connectionQuality,
+    reactions,
     status,
     startCall,
     acceptIncoming,
     rejectIncoming,
-    endCall: () => finishCall(true),
+    endCall,
+    leaveCall,
+    isHost: active?.hostUserId === session.user.id,
+    startRecording,
+    stopRecording,
+    sendReaction,
     toggleMute,
     toggleCamera,
     toggleScreenShare,
     handleSocketEvent,
+    devices,
+    selectedMicrophoneId,
+    selectedCameraId,
+    selectedSpeakerId,
+    supportsSpeakerSelection: typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype,
+    selectMicrophone: (deviceId: string) => replaceInputDevice("audio", deviceId),
+    selectCamera: (deviceId: string) => replaceInputDevice("video", deviceId),
+    selectSpeaker: setSelectedSpeakerId,
+    refreshDevices,
   };
 }

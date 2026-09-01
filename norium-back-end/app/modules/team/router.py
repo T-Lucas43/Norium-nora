@@ -8,12 +8,12 @@ import json
 import mimetypes
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import Field
 
@@ -29,6 +29,9 @@ chat_lock = asyncio.Lock()
 UPLOAD_DIR = get_data_root() / "team_chat_uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024
+MAX_RECORDING_CHUNK_BYTES = 16 * 1024 * 1024
+MAX_RECORDING_BYTES = 512 * 1024 * 1024
+RECORDING_RETENTION_HOURS = 24
 
 MessageScope = Literal["team", "direct"]
 
@@ -66,6 +69,14 @@ class SubteamUpdatePayload(StrictModel):
     name: str | None = Field(default=None, min_length=2, max_length=80)
     description: str | None = Field(default=None, max_length=500)
     memberIds: list[str] | None = Field(default=None, max_length=100)
+
+
+class RecordingStartPayload(StrictModel):
+    callId: str = Field(min_length=8, max_length=120)
+    scope: Literal["team", "direct", "subteam"] = "team"
+    recipientId: str | None = None
+    subteamId: str | None = None
+    mimeType: str = Field(default="video/webm", max_length=120)
 
 
 class PresenceManager:
@@ -187,7 +198,7 @@ def team_chat_path(team_id: str) -> str:
 
 
 def empty_store() -> dict[str, Any]:
-    return {"messages": [], "subteams": [], "createdAt": now_iso(), "updatedAt": now_iso()}
+    return {"messages": [], "subteams": [], "recordings": [], "createdAt": now_iso(), "updatedAt": now_iso()}
 
 
 def read_chat_store(team_id: str) -> dict[str, Any]:
@@ -196,12 +207,71 @@ def read_chat_store(team_id: str) -> dict[str, Any]:
         return empty_store()
     payload.setdefault("messages", [])
     payload.setdefault("subteams", [])
+    payload.setdefault("recordings", [])
     return payload
 
 
 def write_chat_store(team_id: str, payload: dict[str, Any]) -> None:
     payload["updatedAt"] = now_iso()
     write_json_file(team_chat_path(team_id), payload)
+
+
+def parse_iso_datetime(value: Any) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def purge_expired_recordings(store: dict[str, Any]) -> bool:
+    """Remove os arquivos vencidos e conserva no chat apenas o aviso de expiracao."""
+    changed = False
+    current_time = datetime.now(timezone.utc)
+    for message in store.get("messages", []):
+        if not isinstance(message, dict):
+            continue
+        kept_attachments: list[dict[str, Any]] = []
+        expired_recording = False
+        for attachment in message.get("attachments", []):
+            if not isinstance(attachment, dict):
+                continue
+            expires_at = parse_iso_datetime(attachment.get("expiresAt"))
+            if expires_at and expires_at <= current_time:
+                stored_name = Path(str(attachment.get("storedName") or "")).name
+                if stored_name:
+                    (UPLOAD_DIR / stored_name).unlink(missing_ok=True)
+                expired_recording = True
+                changed = True
+                continue
+            kept_attachments.append(attachment)
+        if expired_recording:
+            message["attachments"] = kept_attachments
+            metadata = message.setdefault("metadata", {})
+            if isinstance(metadata, dict):
+                metadata["recordingExpired"] = True
+            message["text"] = "A gravacao desta reuniao expirou apos 24 horas."
+
+    for recording in store.get("recordings", []):
+        if not isinstance(recording, dict) or recording.get("status") != "recording":
+            continue
+        started_at = parse_iso_datetime(recording.get("startedAt"))
+        if started_at and started_at + timedelta(hours=6) <= current_time:
+            temp_name = Path(str(recording.get("tempStoredName") or "")).name
+            if temp_name:
+                (UPLOAD_DIR / temp_name).unlink(missing_ok=True)
+            recording["status"] = "aborted"
+            recording["abortedAt"] = now_iso()
+            changed = True
+    return changed
+
+
+async def read_pruned_chat_store(team_id: str) -> dict[str, Any]:
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        if await asyncio.to_thread(purge_expired_recordings, store):
+            await asyncio.to_thread(write_chat_store, team_id, store)
+        return store
 
 
 async def visible_team_members(user: dict[str, Any]) -> list[dict[str, Any]]:
@@ -479,7 +549,7 @@ async def list_messages(
 ) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user["id"])
-    store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    store = await read_pruned_chat_store(team_id_for(user))
     await thread_participant_ids(user, store, scope, recipientId)
     thread_id = normalize_thread_id(scope, user_id, recipientId)
     messages = [
@@ -493,7 +563,7 @@ async def list_messages(
 async def list_subteam_messages(subteam_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user["id"])
-    store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    store = await read_pruned_chat_store(team_id_for(user))
     await thread_participant_ids(user, store, "subteam", subteam_id=subteam_id)
     thread_id = normalize_thread_id("subteam", user_id, None, subteam_id)
     messages = [
@@ -608,11 +678,185 @@ async def send_subteam_message(
     )
 
 
+def recording_or_404(store: dict[str, Any], recording_id: str) -> dict[str, Any]:
+    recording = next(
+        (item for item in store.get("recordings", []) if isinstance(item, dict) and str(item.get("id") or "") == recording_id),
+        None,
+    )
+    if not recording:
+        raise HTTPException(status_code=404, detail="Gravacao nao encontrada.")
+    return recording
+
+
+def require_recording_owner(recording: dict[str, Any], user_id: str) -> None:
+    if str(recording.get("createdBy") or "") != user_id:
+        raise HTTPException(status_code=403, detail="Somente quem iniciou a gravacao pode finaliza-la.")
+    if recording.get("status") != "recording":
+        raise HTTPException(status_code=409, detail="Esta gravacao ja foi encerrada.")
+
+
+@router.post("/recordings/start")
+async def start_recording(payload: RecordingStartPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    mime_type = payload.mimeType.split(";", 1)[0].strip().lower()
+    if mime_type not in {"video/webm", "audio/webm", "video/mp4", "audio/mp4"}:
+        raise HTTPException(status_code=400, detail="Formato de gravacao nao suportado.")
+    team_id = team_id_for(user)
+    user_id = str(user.get("id") or "")
+    store = await read_pruned_chat_store(team_id)
+    participant_ids = await thread_participant_ids(user, store, payload.scope, payload.recipientId, payload.subteamId)
+    thread_id = normalize_thread_id(payload.scope, user_id, payload.recipientId, payload.subteamId)
+    recording_id = f"meeting_rec_{uuid.uuid4().hex}"
+    extension = "mp4" if "mp4" in mime_type else "webm"
+    stored_name = safe_upload_name(f"reuniao-{payload.callId[:32]}.{extension}", mime_type)
+    recording = {
+        "id": recording_id,
+        "callId": payload.callId,
+        "scope": payload.scope,
+        "threadId": thread_id,
+        "recipientId": payload.recipientId if payload.scope == "direct" else None,
+        "subteamId": payload.subteamId if payload.scope == "subteam" else None,
+        "participantIds": sorted(participant_ids),
+        "createdBy": user_id,
+        "createdByName": user.get("nome") or user.get("email") or "Membro",
+        "mimeType": mime_type,
+        "storedName": stored_name,
+        "tempStoredName": f"{stored_name}.part",
+        "size": 0,
+        "status": "recording",
+        "startedAt": now_iso(),
+    }
+    async with chat_lock:
+        current_store = await asyncio.to_thread(read_chat_store, team_id)
+        duplicate = next(
+            (item for item in current_store.get("recordings", []) if isinstance(item, dict) and item.get("callId") == payload.callId and item.get("createdBy") == user_id and item.get("status") == "recording"),
+            None,
+        )
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Ja existe uma gravacao ativa nesta reuniao.")
+        current_store.setdefault("recordings", []).append(recording)
+        current_store["recordings"] = current_store["recordings"][-200:]
+        await asyncio.to_thread(write_chat_store, team_id, current_store)
+    await manager.send_to_users(team_id, participant_ids, {
+        "type": "CALL_RECORDING_STARTED",
+        "callId": payload.callId,
+        "recordingId": recording_id,
+        "fromUserId": user_id,
+        "fromUserName": recording["createdByName"],
+    })
+    return {"recording": {key: value for key, value in recording.items() if key != "tempStoredName"}}
+
+
+@router.put("/recordings/{recording_id}/chunks")
+async def append_recording_chunk(recording_id: str, request: Request, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    declared_size = int(request.headers.get("content-length") or 0)
+    if declared_size > MAX_RECORDING_CHUNK_BYTES:
+        raise HTTPException(status_code=413, detail="Trecho da gravacao acima do limite de 16 MB.")
+    received = bytearray()
+    async for part in request.stream():
+        received.extend(part)
+        if len(received) > MAX_RECORDING_CHUNK_BYTES:
+            raise HTTPException(status_code=413, detail="Trecho da gravacao acima do limite de 16 MB.")
+    chunk = bytes(received)
+    if not chunk:
+        return {"received": 0}
+    team_id = team_id_for(user)
+    user_id = str(user.get("id") or "")
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        recording = recording_or_404(store, recording_id)
+        require_recording_owner(recording, user_id)
+        next_size = int(recording.get("size") or 0) + len(chunk)
+        if next_size > MAX_RECORDING_BYTES:
+            raise HTTPException(status_code=413, detail="Gravacao acima do limite de 512 MB.")
+        temp_name = Path(str(recording.get("tempStoredName") or "")).name
+        if not temp_name:
+            raise HTTPException(status_code=500, detail="Arquivo temporario da gravacao indisponivel.")
+        path = UPLOAD_DIR / temp_name
+        await asyncio.to_thread(append_file_bytes, path, chunk)
+        recording["size"] = next_size
+        await asyncio.to_thread(write_chat_store, team_id, store)
+    return {"received": len(chunk), "size": next_size}
+
+
+@router.post("/recordings/{recording_id}/complete")
+async def complete_recording(recording_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    team_id = team_id_for(user)
+    user_id = str(user.get("id") or "")
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        recording = recording_or_404(store, recording_id)
+        require_recording_owner(recording, user_id)
+        temp_name = Path(str(recording.get("tempStoredName") or "")).name
+        stored_name = Path(str(recording.get("storedName") or "")).name
+        temp_path = UPLOAD_DIR / temp_name
+        final_path = UPLOAD_DIR / stored_name
+        if not temp_path.exists() or int(recording.get("size") or 0) <= 0:
+            raise HTTPException(status_code=400, detail="A gravacao nao possui conteudo.")
+        await asyncio.to_thread(temp_path.replace, final_path)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=RECORDING_RETENTION_HOURS)
+        attachment = {
+            "id": f"team_att_{uuid.uuid4().hex}",
+            "name": f"gravacao-reuniao.{final_path.suffix.lstrip('.') or 'webm'}",
+            "mimeType": recording.get("mimeType") or "video/webm",
+            "size": int(recording.get("size") or 0),
+            "url": public_api_url(f"/api/team-chat/attachments/{quote(stored_name)}"),
+            "storedName": stored_name,
+            "recordingId": recording_id,
+            "callId": recording.get("callId"),
+            "createdAt": now_iso(),
+            "expiresAt": expires_at.isoformat(),
+        }
+        participant_ids = {str(item) for item in recording.get("participantIds", [])}
+        message = {
+            "id": f"team_msg_{uuid.uuid4().hex}",
+            "threadId": recording.get("threadId"),
+            "scope": recording.get("scope"),
+            "senderId": user_id,
+            "senderName": recording.get("createdByName") or user.get("nome") or "Membro",
+            "senderAvatar": user_avatar_url(user_id),
+            "recipientId": recording.get("recipientId"),
+            "subteamId": recording.get("subteamId"),
+            "memberIds": sorted(participant_ids) if recording.get("scope") == "subteam" else [],
+            "text": "Gravacao da reuniao disponivel por 24 horas.",
+            "attachments": [attachment],
+            "metadata": {"action": "meeting_recording", "callId": recording.get("callId"), "recordingId": recording_id, "expiresAt": expires_at.isoformat()},
+            "createdAt": now_iso(),
+        }
+        store.setdefault("messages", []).append(message)
+        store["messages"] = store["messages"][-2000:]
+        recording.update({"status": "completed", "completedAt": now_iso(), "expiresAt": expires_at.isoformat(), "messageId": message["id"]})
+        await asyncio.to_thread(write_chat_store, team_id, store)
+    await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": message})
+    await manager.send_to_users(team_id, participant_ids, {"type": "CALL_RECORDING_AVAILABLE", "callId": recording.get("callId"), "recordingId": recording_id, "expiresAt": expires_at.isoformat(), "fromUserId": user_id, "fromUserName": recording.get("createdByName") or "Membro"})
+    await record_team_event(team_id, "Gravacao de reuniao concluida", "A gravacao ficara disponivel por 24 horas.", {"action": "meeting_recording", "callId": recording.get("callId"), "recordingId": recording_id})
+    return {"message": message, "expiresAt": expires_at.isoformat()}
+
+
+@router.delete("/recordings/{recording_id}")
+async def abort_recording(recording_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
+    require_team_chat(user)
+    team_id = team_id_for(user)
+    user_id = str(user.get("id") or "")
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        recording = recording_or_404(store, recording_id)
+        require_recording_owner(recording, user_id)
+        temp_name = Path(str(recording.get("tempStoredName") or "")).name
+        if temp_name:
+            await asyncio.to_thread((UPLOAD_DIR / temp_name).unlink, True)
+        recording.update({"status": "aborted", "abortedAt": now_iso()})
+        await asyncio.to_thread(write_chat_store, team_id, store)
+    return {"ok": True}
+
+
 @router.get("/attachments/{file_name}")
 async def download_attachment(file_name: str, user: dict[str, Any] = Depends(current_user)) -> FileResponse:
     require_team_chat(user)
     safe_file_name = Path(file_name).name
-    store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    store = await read_pruned_chat_store(team_id_for(user))
     user_id = str(user.get("id") or "")
     visible_file = any(
         message_visible(message, user_id)
@@ -657,7 +901,7 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             except json.JSONDecodeError:
                 payload = {}
             event_type = str(payload.get("type") or "") if isinstance(payload, dict) else ""
-            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_END"}:
+            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_REACTION", "CALL_LEAVE", "CALL_END"}:
                 await websocket.send_json({"type": "ACK", "timestamp": now_iso()})
                 continue
 
@@ -692,6 +936,11 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                     "signal": payload.get("signal") if event_type == "CALL_SIGNAL" else None,
                     "createdAt": now_iso(),
                 }
+                if event_type == "CALL_REACTION":
+                    emoji = str(payload.get("emoji") or "")
+                    if emoji not in {"👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"}:
+                        raise HTTPException(status_code=400, detail="Reacao invalida.")
+                    event["emoji"] = emoji
                 if event_type in {"CALL_INVITE", "CALL_END"}:
                     call_message = {
                         "id": f"team_msg_{uuid.uuid4().hex}",
@@ -742,6 +991,11 @@ def save_attachment(payload: AttachmentPayload) -> dict[str, Any]:
         "storedName": safe_name,
         "createdAt": now_iso(),
     }
+
+
+def append_file_bytes(path: Path, content: bytes) -> None:
+    with path.open("ab") as output:
+        output.write(content)
 
 
 def decode_data_url(data_url: str, fallback_mime: str) -> tuple[bytes, str]:

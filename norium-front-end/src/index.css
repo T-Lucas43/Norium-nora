@@ -7069,6 +7069,29 @@ html.mail-fullscreen-open body{
 .team-chat-page>.team-chat-context{ grid-column:3; grid-row:2/8; min-height:0; overflow-y:auto; background:#090c10; }
 .team-chat-drawer:not(.team-chat-page)>.team-chat-scope{ max-height:160px; overflow-y:auto; overscroll-behavior:contain; }
 
+.team-call-top-control{
+  display:grid;
+  min-width:62px;
+  min-height:48px;
+  place-items:center;
+  align-content:center;
+  gap:2px;
+  border-radius:8px;
+  padding:5px 8px;
+  color:rgba(255,255,255,.88);
+  font-size:10px;
+  font-weight:700;
+  white-space:nowrap;
+  transition:background-color .16s ease,color .16s ease;
+}
+.team-call-top-control:hover{ background:rgba(255,255,255,.1); }
+.team-call-reaction{ animation:team-call-reaction-float 4.2s ease-out both; }
+@keyframes team-call-reaction-float{
+  0%{ opacity:0; transform:translateY(34px) scale(.72); }
+  12%,74%{ opacity:1; }
+  100%{ opacity:0; transform:translateY(-190px) scale(1.08); }
+}
+
 .team-chat-tabs{ min-height:44px; background:var(--team-chat-list); }
 .team-chat-tabs button{ height:100%; border-bottom:2px solid transparent; color:var(--text-secondary); font-size:12px; font-weight:800; }
 .team-chat-tabs button.active{ border-bottom-color:#60a5fa; color:var(--text); }
@@ -7086,4 +7109,6 @@ html.mail-fullscreen-open body{
   .team-chat-page>.team-chat-members>div{ flex-direction:row; }
   .team-chat-page>.team-chat-members .team-chat-member-chip{ width:auto; }
   .team-chat-page>.team-chat-list{ min-height:0; flex:1; }
+  .team-call-top-control{ min-width:44px; padding-inline:6px; }
+  .team-call-top-control>span{ display:none; }
 }

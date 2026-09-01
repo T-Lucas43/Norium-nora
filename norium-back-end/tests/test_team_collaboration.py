@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -27,6 +28,8 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory(prefix="norium_team_")
         self.chat_path = Path(self.temp_dir.name) / "team_chat.json"
+        self.upload_dir = Path(self.temp_dir.name) / "uploads"
+        self.upload_dir.mkdir()
         self.owner = team_user("owner")
         self.member = team_user("member", owner_id="owner")
         self.other_member = team_user("other", owner_id="owner")
@@ -91,6 +94,50 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         recipients = manager.send_to_users.await_args.args[1]
         self.assertEqual({"owner", "member"}, recipients)
         self.assertNotIn("other", recipients)
+
+    async def test_recording_is_uploaded_in_chunks_and_expires_after_24_hours(self) -> None:
+        class ChunkRequest:
+            headers = {"content-length": "12"}
+
+            async def stream(self):
+                yield b"webm-content"
+
+        with (
+            patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),
+            patch.object(team_router, "UPLOAD_DIR", self.upload_dir),
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+            patch.object(team_router, "record_team_event", AsyncMock()),
+        ):
+            started = await team_router.start_recording(
+                team_router.RecordingStartPayload(
+                    callId="call_0123456789abcdef",
+                    scope="team",
+                    mimeType="video/webm;codecs=vp8,opus",
+                ),
+                self.owner,
+            )
+            recording_id = started["recording"]["id"]
+            chunk_result = await team_router.append_recording_chunk(recording_id, ChunkRequest(), self.owner)  # type: ignore[arg-type]
+            self.assertEqual(12, chunk_result["received"])
+
+            completed = await team_router.complete_recording(recording_id, self.owner)
+            attachment = completed["message"]["attachments"][0]
+            expires_at = datetime.fromisoformat(attachment["expiresAt"])
+            remaining = expires_at - datetime.now(timezone.utc)
+            self.assertGreater(remaining, timedelta(hours=23, minutes=59))
+            recording_path = self.upload_dir / attachment["storedName"]
+            self.assertEqual(b"webm-content", recording_path.read_bytes())
+
+            store = team_router.read_chat_store("owner")
+            store["messages"][-1]["attachments"][0]["expiresAt"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+            team_router.write_chat_store("owner", store)
+            listing = await team_router.list_messages(scope="team", recipientId=None, user=self.owner)
+
+            expired_message = listing["messages"][-1]
+            self.assertEqual([], expired_message["attachments"])
+            self.assertTrue(expired_message["metadata"]["recordingExpired"])
+            self.assertFalse(recording_path.exists())
 
 
 if __name__ == "__main__":

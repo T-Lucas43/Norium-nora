@@ -117,12 +117,12 @@ describe("chamadas do Modo Equipe", () => {
 
     await act(async () => result.current.startCall());
     expect(result.current.devices.microphones).toHaveLength(2);
-    expect(result.current.selectedCameraId).toBe("cam-1");
+    expect(result.current.selectedCameraId).toBe("");
 
     await act(async () => result.current.toggleCamera());
     expect(getUserMedia).toHaveBeenNthCalledWith(3, {
       audio: false,
-      video: { deviceId: { exact: "cam-1" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
     });
     expect(result.current.cameraOff).toBe(false);
 
@@ -176,5 +176,66 @@ describe("chamadas do Modo Equipe", () => {
       scope: "direct",
       recipientId: "owner",
     }));
+  });
+
+  it("reserva o canal de video e transmite camera e tela aos participantes", async () => {
+    const permissionVideo = { kind: "video", enabled: true, readyState: "live", stop: vi.fn() } as unknown as MediaStreamTrack;
+    const audioTrack = { kind: "audio", enabled: true, readyState: "live", stop: vi.fn() } as unknown as MediaStreamTrack;
+    const cameraTrack = { kind: "video", enabled: true, readyState: "live", stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
+    const screenTrack = { kind: "video", enabled: true, readyState: "live", stop: vi.fn(), onended: null, contentHint: "" } as unknown as MediaStreamTrack;
+    class FakeMediaStream {
+      tracks: MediaStreamTrack[];
+      constructor(tracks: MediaStreamTrack[] = []) { this.tracks = tracks; }
+      getTracks() { return this.tracks; }
+      getAudioTracks() { return this.tracks.filter((track) => track.kind === "audio"); }
+      getVideoTracks() { return this.tracks.filter((track) => track.kind === "video"); }
+    }
+    vi.stubGlobal("MediaStream", FakeMediaStream);
+    const permissionStream = new FakeMediaStream([permissionVideo]) as unknown as MediaStream;
+    const audioStream = new FakeMediaStream([audioTrack]) as unknown as MediaStream;
+    const cameraStream = new FakeMediaStream([cameraTrack]) as unknown as MediaStream;
+    const displayStream = new FakeMediaStream([screenTrack]) as unknown as MediaStream;
+    const replaceTrack = vi.fn().mockResolvedValue(undefined);
+    const videoSender = { track: null, replaceTrack } as unknown as RTCRtpSender;
+    class FakePeerConnection {
+      signalingState = "stable";
+      connectionState = "connected";
+      localDescription: RTCSessionDescription | null = null;
+      remoteDescription: RTCSessionDescription | null = null;
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+      addTrack(track: MediaStreamTrack) { return { track, replaceTrack: vi.fn() } as unknown as RTCRtpSender; }
+      addTransceiver() { return { sender: videoSender } as RTCRtpTransceiver; }
+      createOffer = vi.fn().mockResolvedValue({ type: "offer", sdp: "offer" });
+      setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => { this.localDescription = description as RTCSessionDescription; });
+      close = vi.fn();
+    }
+    vi.stubGlobal("RTCPeerConnection", FakePeerConnection);
+    const getUserMedia = vi.fn().mockResolvedValueOnce(permissionStream).mockResolvedValueOnce(audioStream).mockResolvedValueOnce(cameraStream);
+    const getDisplayMedia = vi.fn().mockResolvedValue(displayStream);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia, getDisplayMedia, enumerateDevices: vi.fn().mockResolvedValue([]), addEventListener: vi.fn(), removeEventListener: vi.fn() },
+    });
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+
+    await act(async () => result.current.startCall());
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_ACCEPT", callId: result.current.active?.callId, fromUserId: "member", fromUserName: "Member" }));
+    await act(async () => result.current.toggleCamera());
+    expect(replaceTrack).toHaveBeenLastCalledWith(cameraTrack);
+    expect(result.current.cameraOff).toBe(false);
+
+    await act(async () => result.current.toggleScreenShare());
+    expect(replaceTrack).toHaveBeenLastCalledWith(screenTrack);
+    expect(result.current.screenStream).toBe(displayStream);
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_SCREEN_STARTED" }));
+
+    await act(async () => result.current.toggleScreenShare());
+    expect(replaceTrack).toHaveBeenLastCalledWith(cameraTrack);
+    expect(result.current.screenStream).toBeNull();
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_SCREEN_STOPPED" }));
+    await act(async () => result.current.endCall());
   });
 });

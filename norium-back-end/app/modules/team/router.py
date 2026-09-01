@@ -960,7 +960,7 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             except json.JSONDecodeError:
                 payload = {}
             event_type = str(payload.get("type") or "") if isinstance(payload, dict) else ""
-            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_REACTION", "CALL_LEAVE", "CALL_END"}:
+            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_REACTION", "CALL_SCREEN_STARTED", "CALL_SCREEN_STOPPED", "CALL_LEAVE", "CALL_END"}:
                 await websocket.send_json({"type": "ACK", "timestamp": now_iso()})
                 continue
 

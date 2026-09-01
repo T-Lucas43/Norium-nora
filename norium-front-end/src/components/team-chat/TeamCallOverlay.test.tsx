@@ -10,7 +10,9 @@ describe("tela da reuniao do Modo Equipe", () => {
       incoming: null,
       active: { callId: "call_0123456789abcdef", mode: "audio", title: "Comercial", hostUserId: "owner", startedAt: new Date().toISOString(), thread: { scope: "team", title: "Comercial" } },
       localStream: null,
+      screenStream: null,
       remoteStreams: [],
+      remoteScreenSharingIds: [],
       muted: false,
       cameraOff: true,
       cameraPermission: "granted",
@@ -72,7 +74,9 @@ describe("tela da reuniao do Modo Equipe", () => {
       incoming: null,
       active: { callId: "call_0123456789abcdef", mode: "audio", title: "Time todo", hostUserId: "owner", startedAt: new Date().toISOString(), thread: { scope: "team", title: "Time todo" } },
       localStream: null,
+      screenStream: null,
       remoteStreams: [],
+      remoteScreenSharingIds: [],
       muted: false,
       cameraOff: true,
       cameraPermission: "denied",
@@ -97,5 +101,42 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Câmera > Permitir");
     fireEvent.click(screen.getByRole("button", { name: "Permitir câmera" }));
     expect(requestCameraPermission).toHaveBeenCalledOnce();
+  });
+
+  it("mostra a mini visualizacao da tela compartilhada e mantem o chat legivel", () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const screenStream = {} as MediaStream;
+    const call = {
+      incoming: null,
+      active: { callId: "call_0123456789abcdef", mode: "audio", title: "Time todo", hostUserId: "owner", startedAt: new Date().toISOString(), thread: { scope: "team", title: "Time todo" } },
+      localStream: null,
+      screenStream,
+      remoteStreams: [],
+      remoteScreenSharingIds: [],
+      muted: false,
+      cameraOff: true,
+      cameraPermission: "granted",
+      sharingScreen: true,
+      callElapsedSeconds: 10,
+      recording: false,
+      recordingElapsedSeconds: 0,
+      connectionQuality: "good",
+      reactions: [],
+      status: "Sua tela está visível para os participantes",
+      devices: { microphones: [], cameras: [], speakers: [] },
+      selectedMicrophoneId: "",
+      selectedCameraId: "",
+      selectedSpeakerId: "",
+      supportsSpeakerSelection: true,
+      isHost: true,
+      toggleScreenShare: vi.fn(),
+    } as unknown as ReturnTypeOfTeamCall;
+
+    render(<TeamCallOverlay call={call} messages={[{ id: "message-1", senderId: "owner", senderName: "Owner", text: "Texto com contraste", attachments: [], createdAt: new Date().toISOString() }]} members={[]} currentUserId="owner" onSendMessage={vi.fn()} onDownloadAttachment={vi.fn()} />);
+
+    expect(screen.getByLabelText("Prévia da sua tela compartilhada")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mini visualização da sua tela compartilhada")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Abrir chat da reunião" }));
+    expect(screen.getByText("Texto com contraste")).toHaveClass("team-call-chat-message-mine");
   });
 });

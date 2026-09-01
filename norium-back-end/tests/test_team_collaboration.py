@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 
@@ -112,6 +112,106 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(members_by_id["member"]["online"])
         self.assertEqual("2026-09-01T14:35:00+00:00", members_by_id["member"]["lastLoginAt"])
         self.assertFalse(members_by_id["other"]["online"])
+
+    async def test_team_meeting_is_scheduled_for_conversation_members_and_can_be_added_to_calendar(self) -> None:
+        starts_at = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        ends_at = (datetime.now(timezone.utc) + timedelta(hours=2, minutes=45)).isoformat()
+        manager = team_router.PresenceManager()
+        manager.send_to_users = AsyncMock()
+        calendar_service = MagicMock()
+        calendar_service.create_event.return_value = {
+            "evento": {"id": "local_meeting_1", "source": "local", "htmlLink": None},
+            "source": "local",
+        }
+        with (
+            patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+            patch.object(team_router, "record_event", AsyncMock()),
+            patch.object(team_router, "manager", manager),
+            patch.object(team_router, "CalendarService", return_value=calendar_service),
+        ):
+            result = await team_router.schedule_meeting(
+                team_router.ScheduleMeetingPayload(
+                    scope="team",
+                    title="Revisao da proposta",
+                    description="Validar valores finais",
+                    startsAt=starts_at,
+                    endsAt=ends_at,
+                ),
+                self.owner,
+            )
+            meeting = result["meeting"]
+            self.assertEqual({"owner", "member", "other"}, set(meeting["participantIds"]))
+            self.assertEqual("meeting_scheduled", result["message"]["metadata"]["action"])
+
+            added = await team_router.add_scheduled_meeting_to_calendar(meeting["id"], self.member)
+            self.assertEqual("local_meeting_1", added["calendarEvent"]["eventId"])
+            self.assertFalse(added["alreadyAdded"])
+            repeated = await team_router.add_scheduled_meeting_to_calendar(meeting["id"], self.member)
+            self.assertTrue(repeated["alreadyAdded"])
+            stored = team_router.read_chat_store("owner")
+            self.assertEqual("local_meeting_1", stored["scheduledMeetings"][0]["calendarEntries"]["member"]["eventId"])
+
+    async def test_meeting_reminder_is_emitted_once_ten_minutes_before_start(self) -> None:
+        starts_at = datetime.now(timezone.utc) + timedelta(minutes=8)
+        store = team_router.empty_store()
+        store["scheduledMeetings"] = [{
+            "id": "team_meeting_reminder_1",
+            "threadId": "team",
+            "scope": "team",
+            "title": "Check-in",
+            "startsAt": starts_at.isoformat(),
+            "endsAt": (starts_at + timedelta(minutes=30)).isoformat(),
+            "participantIds": ["owner", "member"],
+            "createdBy": "owner",
+            "createdByName": "Owner",
+            "remindedUserIds": [],
+            "status": "scheduled",
+        }]
+        manager = team_router.PresenceManager()
+        manager.send_to_users = AsyncMock()
+        with (
+            patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "record_event", AsyncMock()) as record_event,
+            patch.object(team_router, "manager", manager),
+        ):
+            team_router.write_chat_store("owner", store)
+            self.assertEqual(2, await team_router.emit_due_meeting_reminders("owner", starts_at - timedelta(minutes=8)))
+            self.assertEqual(0, await team_router.emit_due_meeting_reminders("owner", starts_at - timedelta(minutes=8)))
+            reminded_ids = team_router.read_chat_store("owner")["scheduledMeetings"][0]["remindedUserIds"]
+
+        self.assertEqual(2, record_event.await_count)
+        self.assertEqual(["member", "owner"], reminded_ids)
+
+    async def test_read_receipt_records_viewer_and_time_and_notifies_participants(self) -> None:
+        store = team_router.empty_store()
+        store["messages"] = [{
+            "id": "team_msg_read_1",
+            "threadId": "team",
+            "scope": "team",
+            "senderId": "owner",
+            "recipientId": None,
+            "memberIds": [],
+            "text": "Mensagem importante",
+            "metadata": {"readBy": {}},
+        }]
+        manager = team_router.PresenceManager()
+        manager.send_to_users = AsyncMock()
+        with (
+            patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+            patch.object(team_router, "manager", manager),
+        ):
+            team_router.write_chat_store("owner", store)
+            result = await team_router.mark_messages_read(team_router.MarkMessagesReadPayload(messageIds=["team_msg_read_1"]), self.member)
+
+        receipt = result["updated"][0]["readBy"]["member"]
+        self.assertEqual("Member", receipt["userName"])
+        self.assertTrue(receipt["viewedAt"])
+        self.assertEqual("team_msg_read_1", manager.send_to_users.await_args.args[2]["messageId"])
 
     async def test_recording_is_uploaded_in_chunks_and_expires_after_24_hours(self) -> None:
         class ChunkRequest:

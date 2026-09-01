@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarDays, Download, FileText, FolderOpen, Hash, ImageIcon, Images, Paperclip, Phone, PlayCircle, Plus, Send, Settings2, Users, UserRound, Video, Volume2, X } from "lucide-react";
+import { CalendarDays, CalendarPlus, CheckCheck, Download, FileText, FolderOpen, Hash, ImageIcon, Images, Paperclip, Phone, PlayCircle, Plus, Send, Settings2, Users, UserRound, Video, Volume2, X } from "lucide-react";
 import { canUse, type AuthSession, type NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../../utils/api";
 import { downloadWithAuth } from "../../utils/download";
 import NoraAvatar from "../layout/NoraAvatar";
 import Button from "../shared/Button";
 import TeamCallOverlay from "./TeamCallOverlay";
+import MessageReadReceiptsDialog from "./MessageReadReceiptsDialog";
 import TeamMemberPresenceDialog from "./TeamMemberPresenceDialog";
+import TeamMeetingMessageCard from "./TeamMeetingMessageCard";
+import TeamMeetingSchedulerDialog, { type TeamMeetingScheduleInput } from "./TeamMeetingSchedulerDialog";
 import { useTeamCall, type TeamCallSocketEvent, type TeamThreadScope } from "./useTeamCall";
 
 type Attachment = {
@@ -59,6 +62,18 @@ type TeamChatDrawerProps = {
 const API_URL = `${apiBaseUrl()}/api/team-chat`;
 const WS_URL = `${wsBaseUrl()}/api/team-chat/ws`;
 const NORA_MENTION_AT_END = /(^|\s)@(n(?:o(?:r(?:a)?)?)?)?$/i;
+
+function readReceiptsFor(message: TeamMessage) {
+  const raw = message.metadata?.readBy;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  return Object.entries(raw as Record<string, unknown>)
+    .map(([userId, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+      const receipt = value as Record<string, unknown>;
+      return { userId, userName: String(receipt.userName || "Membro"), viewedAt: String(receipt.viewedAt || "") };
+    })
+    .filter((receipt): receipt is { userId: string; userName: string; viewedAt: string } => Boolean(receipt));
+}
 
 function formatMessageDateTime(value: string) {
   const date = new Date(value);
@@ -492,6 +507,9 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const [contentTab, setContentTab] = useState<"chat" | "files" | "photos">("chat");
   const [subteamEditor, setSubteamEditor] = useState<Subteam | "new" | null>(null);
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [meetingSchedulerOpen, setMeetingSchedulerOpen] = useState(false);
+  const [meetingSaving, setMeetingSaving] = useState(false);
+  const [readReceiptsMessageId, setReadReceiptsMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<TeamMessage[]>([]);
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -507,6 +525,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const socketRef = useRef<WebSocket | null>(null);
   const pendingSocketEventsRef = useRef<Record<string, unknown>[]>([]);
   const handledInitialCallRef = useRef("");
+  const markedMessageIdsRef = useRef<Set<string>>(new Set());
 
   const recipientOptions = useMemo(
     () => members.filter((member) => member.id !== session.user.id && member.status === "ativo"),
@@ -525,6 +544,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     [activeMembers, actualOnlineUserIdSet],
   );
   const selectedMember = selectedMemberId ? memberById.get(selectedMemberId) || null : null;
+  const readReceiptsMessage = readReceiptsMessageId ? messages.find((message) => message.id === readReceiptsMessageId) || null : null;
   const selectedSubteam = useMemo(() => subteams.find((item) => item.id === subteamId) || null, [subteamId, subteams]);
   const conversationMembers = useMemo(() => {
     if (scope === "team") return activeMembers;
@@ -591,6 +611,24 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     }
   }, [session.token]);
 
+  const markMessagesRead = useCallback(async (items: TeamMessage[]) => {
+    const messageIds = items
+      .filter((message) => message.senderId !== session.user.id && !markedMessageIdsRef.current.has(message.id))
+      .map((message) => message.id)
+      .filter(Boolean);
+    if (!messageIds.length) return;
+    try {
+      const response = await fetch(`${API_URL}/messages/read`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }, session.token),
+        body: JSON.stringify({ messageIds }),
+      });
+      if (response.ok) messageIds.forEach((messageId) => markedMessageIdsRef.current.add(messageId));
+    } catch {
+      // A confirmacao atrasada sera tentada novamente quando a conversa atualizar.
+    }
+  }, [session.token, session.user.id]);
+
   const loadMessages = useCallback(async () => {
     const params = new URLSearchParams({ scope });
     if (scope === "direct" && recipientId) params.set("recipientId", recipientId);
@@ -609,7 +647,9 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       const response = await fetch(messagesUrl, { headers: authHeaders(undefined, session.token) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || "Falha ao carregar chat interno.");
-      setMessages(data.messages || []);
+      const loadedMessages = (data.messages || []) as TeamMessage[];
+      setMessages(loadedMessages);
+      void markMessagesRead(loadedMessages);
       setError("");
       onUnread?.(0);
     } catch (loadError) {
@@ -617,7 +657,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     } finally {
       setLoading(false);
     }
-  }, [onUnread, recipientId, scope, session.token, subteamId]);
+  }, [markMessagesRead, onUnread, recipientId, scope, session.token, subteamId]);
 
   useEffect(() => {
     if (!open) return;
@@ -667,9 +707,14 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           const expectedThread = scope === "team" ? "team" : scope === "subteam" ? `subteam:${subteamId}` : `direct:${[session.user.id, recipientId].sort().join(":")}`;
           if (message.threadId === expectedThread) {
             setMessages((current) => [...current.filter((item) => item.id !== message.id), message]);
+            void markMessagesRead([message]);
           } else {
             onUnread?.(1);
           }
+        }
+        if (payload.type === "TEAM_MESSAGE_READ" && payload.messageId) {
+          const readBy = payload.readBy && typeof payload.readBy === "object" ? payload.readBy : {};
+          setMessages((current) => current.map((message) => message.id === payload.messageId ? { ...message, metadata: { ...(message.metadata || {}), readBy } } : message));
         }
         if (String(payload.type || "").startsWith("CALL_")) {
           void handleCallSocketEvent(payload as TeamCallSocketEvent).catch(() => setError("Falha na conexao da chamada. Tente novamente."));
@@ -682,7 +727,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       socketRef.current = null;
       pendingSocketEventsRef.current = [];
     };
-  }, [handleCallSocketEvent, loadSubteams, onUnread, open, recipientId, scope, session.token, session.user.id, subteamId]);
+  }, [handleCallSocketEvent, loadSubteams, markMessagesRead, onUnread, open, recipientId, scope, session.token, session.user.id, subteamId]);
 
   useEffect(() => {
     if (!open || loading) return undefined;
@@ -766,6 +811,50 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     }
   }
 
+  async function saveMeeting(input: TeamMeetingScheduleInput) {
+    if (meetingSaving) return;
+    setMeetingSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/meetings`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }, session.token),
+        body: JSON.stringify({
+          ...input,
+          scope,
+          recipientId: scope === "direct" ? recipientId : null,
+          subteamId: scope === "subteam" ? subteamId : null,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.detail || "Falha ao agendar reunião.");
+      if (data.message) setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
+      setMeetingSchedulerOpen(false);
+      setContentTab("chat");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Falha ao agendar reunião.");
+    } finally {
+      setMeetingSaving(false);
+    }
+  }
+
+  async function addMeetingToCalendar(meetingId: string) {
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(meetingId)}/calendar`, {
+        method: "POST",
+        headers: authHeaders(undefined, session.token),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.detail || "Não consegui adicionar a reunião à agenda.");
+      if (data.message) setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
+    } catch (addError) {
+      const message = addError instanceof Error ? addError.message : "Não consegui adicionar a reunião à agenda.";
+      setError(message);
+      throw addError;
+    }
+  }
+
   function selectNoraMention() {
     const match = text.match(NORA_MENTION_AT_END);
     if (!match || typeof match.index !== "number") return;
@@ -809,6 +898,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             </div>
             <div className="flex items-center gap-1">
               {onOpenCalendar && <Button variant="ghost" size="sm" iconOnly onClick={onOpenCalendar} aria-label="Abrir calendario"><CalendarDays size={17} /></Button>}
+              <Button variant="ghost" size="sm" iconOnly onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} aria-label="Agendar reunião" title="Agendar reunião"><CalendarPlus size={17} /></Button>
               <Button variant="ghost" size="sm" iconOnly disabled={!canStartCall} onClick={() => void call.startCall()} aria-label="Iniciar reunião"><Video size={17} /></Button>
               {variant === "drawer" ? (
                 <Button variant="ghost" size="sm" iconOnly onClick={onClose}><X size={18} /></Button>
@@ -877,6 +967,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               const member = memberById.get(message.senderId);
               const senderAvatar = message.senderAvatar || member?.fotoUrl || (message.senderId === "nora" ? "nora" : "");
               const isNora = message.senderId === "nora";
+              const readReceipts = mine ? readReceiptsFor(message) : [];
               return (
                 <div key={message.id} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                   {!mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} />}
@@ -886,6 +977,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                       <span className="shrink-0 text-right">{formatMessageDateTime(message.createdAt)}</span>
                     </div>
                     {message.text && <NoraMessageContent message={message} />}
+                    {message.metadata?.action === "meeting_scheduled" && <TeamMeetingMessageCard metadata={message.metadata} currentUserId={session.user.id} onAddToCalendar={addMeetingToCalendar} onStart={() => void call.startCall()} />}
                     {message.attachments?.length > 0 && (
                       <div className="mt-2 grid gap-2">
                         {message.attachments.map((attachment) => (
@@ -893,6 +985,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                         ))}
                       </div>
                     )}
+                    {mine && <button type="button" onClick={() => setReadReceiptsMessageId(message.id)} className="mt-2 flex items-center gap-1 text-[11px] font-bold text-blue-100/75 transition hover:text-white" aria-label={`Ver confirmações de leitura: ${readReceipts.length} pessoa(s) viram`}><CheckCheck size={14} /> {readReceipts.length ? `${readReceipts.length} viram` : "Ninguém viu ainda"}</button>}
                   </div>
                   {mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} />}
                 </div>
@@ -1001,7 +1094,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
                 {scope === "team" ? "Canal interno para decisoes, atualizacoes e colaboracao entre todos os membros." : scope === "subteam" ? selectedSubteam?.description || "Comunidade reservada para os membros desta subequipe." : "Conversa reservada entre os participantes selecionados."}
               </p>
-              <div className="mt-4"><Button className="w-full" variant="secondary" size="sm" onClick={() => void call.startCall()} disabled={!canStartCall} icon={<Video size={14} />}>Iniciar reunião</Button></div>
+              <div className="mt-4 grid grid-cols-2 gap-2"><Button className="w-full" variant="secondary" size="sm" onClick={() => void call.startCall()} disabled={!canStartCall} icon={<Video size={14} />}>Iniciar reunião</Button><Button className="w-full" variant="ghost" size="sm" onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} icon={<CalendarPlus size={14} />}>Agendar</Button></div>
               <div className="mt-5 grid gap-2">
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <span className="text-xs font-bold text-[var(--text-secondary)]">Participantes</span>
@@ -1053,6 +1146,19 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             onClose={() => setSelectedMemberId(null)}
             onMessage={() => { setScope("direct"); setRecipientId(selectedMember.id); setContentTab("chat"); setSelectedMemberId(null); }}
             onCall={() => { setSelectedMemberId(null); void call.startCall({ scope: "direct", title: selectedMember.nome, recipientId: selectedMember.id, subteamId: null }); }}
+          />}
+          {meetingSchedulerOpen && <TeamMeetingSchedulerDialog
+            scopeLabel={threadTitle}
+            members={conversationMembers}
+            currentUserId={session.user.id}
+            saving={meetingSaving}
+            onClose={() => setMeetingSchedulerOpen(false)}
+            onSave={(input) => void saveMeeting(input)}
+          />}
+          {readReceiptsMessage && <MessageReadReceiptsDialog
+            messageText={readReceiptsMessage.text}
+            readBy={readReceiptsFor(readReceiptsMessage)}
+            onClose={() => setReadReceiptsMessageId(null)}
           />}
           <TeamCallOverlay
             call={call}

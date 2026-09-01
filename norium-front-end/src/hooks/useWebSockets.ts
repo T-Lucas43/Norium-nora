@@ -123,6 +123,11 @@ function notificationForEvent(event: OmnichannelEvent, read = false): SystemNoti
   let severity: SystemNotificationSeverity = "info";
 
   if (event.source === "equipe" && action === "team_message_created") title = "Nova mensagem no chat da equipe";
+  else if (event.source === "equipe" && action === "team_meeting_scheduled") title = "Reunião agendada no chat da equipe";
+  else if (event.source === "equipe" && action === "team_meeting_reminder") {
+    title = "Reunião em 10 minutos";
+    severity = "warning";
+  }
   else if (event.source === "kanban" && event.metadata?.assigneeId) title = "Tarefa atribuida ou atualizada";
   else if (event.source === "gmail") title = "Nova atividade de e-mail";
   else if (event.source === "calendar") title = "Atualizacao na agenda";
@@ -272,7 +277,7 @@ export function useWebSockets(
           if (oldest) seenTeamMessageIdsRef.current.delete(oldest);
         }
       }
-      if (message.senderId === userId || teamChatOpenRef.current || message.metadata?.action === "call_started") return;
+      if (message.senderId === userId || teamChatOpenRef.current || ["call_started", "meeting_scheduled"].includes(String(message.metadata?.action || ""))) return;
 
       setTeamChatUnreadCount((current) => current + 1);
       pushSystemNotification({
@@ -505,6 +510,13 @@ export function useWebSockets(
               });
             } else if (eventShouldNotify(payload.event)) {
               pushSystemNotification(notificationForEvent(payload.event));
+              const eventAction = String(payload.event.metadata?.action || "");
+              if (eventAction === "team_meeting_reminder" && "Notification" in window && document.visibilityState !== "visible" && Notification.permission === "granted") {
+                new Notification("Reunião em 10 minutos", {
+                  body: payload.event.description || "Sua reunião da equipe começará em 10 minutos.",
+                  tag: `norium-meeting-reminder-${payload.event.metadata?.meetingId || payload.event.id}`,
+                });
+              }
             }
             return;
           }

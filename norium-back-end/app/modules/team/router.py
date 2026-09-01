@@ -23,6 +23,7 @@ from app.core.tenant import get_data_root, get_user_db_path, public_api_url, rea
 from app.modules.team.nora_mentions import generate_team_reply, has_nora_mention
 from app.routers.auth_router import current_user, read_user_store, sanitize_user, user_from_websocket_ticket
 from app.routers.inbox_router import record_event
+from app.services.calendar_service import CalendarService
 
 router = APIRouter(prefix="/api/team-chat", tags=["Chat interno"])
 chat_lock = asyncio.Lock()
@@ -32,6 +33,7 @@ MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024
 MAX_RECORDING_CHUNK_BYTES = 16 * 1024 * 1024
 MAX_RECORDING_BYTES = 512 * 1024 * 1024
 RECORDING_RETENTION_HOURS = 24
+MEETING_REMINDER_MINUTES = 10
 
 MessageScope = Literal["team", "direct"]
 
@@ -59,6 +61,10 @@ class SendSubteamMessagePayload(StrictModel):
     attachments: list[AttachmentPayload] = []
 
 
+class MarkMessagesReadPayload(StrictModel):
+    messageIds: list[str] = Field(default_factory=list, max_length=100)
+
+
 class SubteamCreatePayload(StrictModel):
     name: str = Field(min_length=2, max_length=80)
     description: str = Field(default="", max_length=500)
@@ -77,6 +83,17 @@ class RecordingStartPayload(StrictModel):
     recipientId: str | None = None
     subteamId: str | None = None
     mimeType: str = Field(default="video/webm", max_length=120)
+
+
+class ScheduleMeetingPayload(StrictModel):
+    scope: Literal["team", "direct", "subteam"] = "team"
+    recipientId: str | None = None
+    subteamId: str | None = None
+    title: str = Field(min_length=2, max_length=120)
+    description: str = Field(default="", max_length=1200)
+    startsAt: str = Field(min_length=16, max_length=80)
+    endsAt: str = Field(min_length=16, max_length=80)
+    participantIds: list[str] = Field(default_factory=list, max_length=100)
 
 
 class PresenceManager:
@@ -203,6 +220,7 @@ def empty_store() -> dict[str, Any]:
         "subteams": [],
         "recordings": [],
         "activeCalls": [],
+        "scheduledMeetings": [],
         "createdAt": now_iso(),
         "updatedAt": now_iso(),
     }
@@ -216,6 +234,7 @@ def read_chat_store(team_id: str) -> dict[str, Any]:
     payload.setdefault("subteams", [])
     payload.setdefault("recordings", [])
     payload.setdefault("activeCalls", [])
+    payload.setdefault("scheduledMeetings", [])
     return payload
 
 
@@ -381,6 +400,25 @@ async def valid_team_member_ids(user: dict[str, Any]) -> set[str]:
     return {str(item.get("id") or "") for item in await visible_team_members(user) if item.get("status") == "ativo"}
 
 
+def message_read_by(message: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+    read_by = metadata.get("readBy") if isinstance(metadata.get("readBy"), dict) else {}
+    return {
+        str(user_id): value
+        for user_id, value in read_by.items()
+        if isinstance(value, dict) and str(user_id)
+    }
+
+
+async def message_participant_ids(message: dict[str, Any], user: dict[str, Any], store: dict[str, Any]) -> set[str]:
+    scope = str(message.get("scope") or "team")
+    if scope == "team":
+        return await valid_team_member_ids(user)
+    if scope == "subteam":
+        return {str(item) for item in message.get("memberIds", [])}
+    return {str(message.get("senderId") or ""), str(message.get("recipientId") or "")} - {""}
+
+
 async def thread_participant_ids(
     user: dict[str, Any],
     store: dict[str, Any],
@@ -433,6 +471,39 @@ async def record_team_event(team_id: str, title: str, description: str, metadata
         return
 
 
+async def record_meeting_event_for_users(
+    user_ids: set[str],
+    *,
+    title: str,
+    description: str,
+    meeting: dict[str, Any],
+    action: str,
+    event_id_prefix: str,
+) -> None:
+    for participant_id in sorted(user_ids):
+        try:
+            await record_event(
+                source="equipe",
+                title=title,
+                description=description,
+                metadata={
+                    "userId": participant_id,
+                    "action": action,
+                    "meetingId": meeting.get("id"),
+                    "threadId": meeting.get("threadId"),
+                    "scope": meeting.get("scope"),
+                    "startsAt": meeting.get("startsAt"),
+                    "endsAt": meeting.get("endsAt"),
+                    "organizerId": meeting.get("createdBy"),
+                    "organizerName": meeting.get("createdByName"),
+                },
+                event_id=f"{event_id_prefix}_{meeting.get('id')}_{participant_id}",
+            )
+        except Exception:
+            # O convite continua salvo no chat mesmo se a Central estiver indisponivel.
+            continue
+
+
 async def append_team_message_for_user(
     user_id: str,
     text: str,
@@ -458,7 +529,7 @@ async def append_team_message_for_user(
         "recipientId": None,
         "text": text.strip(),
         "attachments": stored_attachments,
-        "metadata": metadata or {},
+        "metadata": {"readBy": {}, **(metadata or {})},
         "createdAt": now_iso(),
     }
     async with chat_lock:
@@ -629,6 +700,45 @@ async def list_subteam_messages(subteam_id: str, user: dict[str, Any] = Depends(
     return {"threadId": thread_id, "messages": messages[-300:]}
 
 
+@router.post("/messages/read")
+async def mark_messages_read(payload: MarkMessagesReadPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    user_id = str(user.get("id") or "")
+    user_name = str(user.get("nome") or user.get("email") or "Membro")
+    requested_ids = {str(item).strip() for item in payload.messageIds if str(item).strip()}
+    if not requested_ids:
+        return {"updated": []}
+
+    team_id = team_id_for(user)
+    changed: list[tuple[str, dict[str, dict[str, Any]], set[str]]] = []
+    viewed_at = now_iso()
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        for message in store.get("messages", []):
+            if not isinstance(message, dict) or str(message.get("id") or "") not in requested_ids:
+                continue
+            if not message_visible(message, user_id) or str(message.get("senderId") or "") == user_id:
+                continue
+            read_by = message_read_by(message)
+            if user_id in read_by:
+                continue
+            read_by[user_id] = {"userId": user_id, "userName": user_name, "viewedAt": viewed_at}
+            metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+            message["metadata"] = {**metadata, "readBy": read_by}
+            recipients = await message_participant_ids(message, user, store)
+            changed.append((str(message["id"]), read_by, recipients))
+        if changed:
+            await asyncio.to_thread(write_chat_store, team_id, store)
+
+    for message_id, read_by, recipients in changed:
+        await manager.send_to_users(
+            team_id,
+            recipients,
+            {"type": "TEAM_MESSAGE_READ", "messageId": message_id, "readBy": read_by},
+        )
+    return {"updated": [{"messageId": message_id, "readBy": read_by} for message_id, read_by, _ in changed]}
+
+
 async def persist_message(
     *,
     scope: str,
@@ -665,6 +775,7 @@ async def persist_message(
         "metadata": {
             "noraMentioned": nora_mentioned,
             "noraTriggered": nora_triggered,
+            "readBy": {},
         },
         "createdAt": now_iso(),
     }
@@ -732,6 +843,222 @@ async def send_subteam_message(
         attachment_payloads=payload.attachments,
         user=user,
     )
+
+
+def scheduled_meeting_or_404(store: dict[str, Any], meeting_id: str) -> dict[str, Any]:
+    meeting = next(
+        (
+            item
+            for item in store.get("scheduledMeetings", [])
+            if isinstance(item, dict) and str(item.get("id") or "") == meeting_id
+        ),
+        None,
+    )
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Reuniao agendada nao encontrada.")
+    return meeting
+
+
+def require_scheduled_meeting_participant(meeting: dict[str, Any], user_id: str) -> None:
+    if user_id not in {str(item) for item in meeting.get("participantIds", [])}:
+        raise HTTPException(status_code=403, detail="Voce nao participa desta reuniao.")
+
+
+def meeting_message(meeting: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
+    participant_ids = {str(item) for item in meeting.get("participantIds", [])}
+    return {
+        "id": str(meeting["messageId"]),
+        "threadId": meeting.get("threadId"),
+        "scope": meeting.get("scope"),
+        "senderId": str(user.get("id") or ""),
+        "senderName": meeting.get("createdByName") or user.get("nome") or "Membro",
+        "senderAvatar": user_avatar_url(str(user.get("id") or "")),
+        "recipientId": meeting.get("recipientId"),
+        "subteamId": meeting.get("subteamId"),
+        "memberIds": sorted(participant_ids) if meeting.get("scope") == "subteam" else [],
+        "text": f"Agendou a reuniao: {meeting.get('title')}.",
+        "attachments": [],
+        "metadata": {
+            "action": "meeting_scheduled",
+            "meetingId": meeting.get("id"),
+            "title": meeting.get("title"),
+            "description": meeting.get("description"),
+            "startsAt": meeting.get("startsAt"),
+            "endsAt": meeting.get("endsAt"),
+            "participantIds": sorted(participant_ids),
+            "agendaAddedBy": sorted(str(item) for item in meeting.get("calendarEntries", {}).keys()),
+            "reminderMinutes": MEETING_REMINDER_MINUTES,
+            "readBy": {},
+        },
+        "createdAt": meeting.get("createdAt"),
+    }
+
+
+@router.post("/meetings")
+async def schedule_meeting(payload: ScheduleMeetingPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    user_id = str(user.get("id") or "")
+    team_id = team_id_for(user)
+    starts_at = parse_iso_datetime(payload.startsAt)
+    ends_at = parse_iso_datetime(payload.endsAt)
+    current_time = datetime.now(timezone.utc)
+    if not starts_at or not ends_at:
+        raise HTTPException(status_code=400, detail="Data ou horario da reuniao invalido.")
+    if starts_at <= current_time:
+        raise HTTPException(status_code=400, detail="Escolha um horario futuro para a reuniao.")
+    if ends_at <= starts_at or ends_at - starts_at > timedelta(hours=8):
+        raise HTTPException(status_code=400, detail="A reuniao deve durar entre 1 minuto e 8 horas.")
+    if starts_at > current_time + timedelta(days=730):
+        raise HTTPException(status_code=400, detail="A reuniao deve ser agendada para os proximos 2 anos.")
+
+    store = await asyncio.to_thread(read_chat_store, team_id)
+    allowed_participants = await thread_participant_ids(
+        user,
+        store,
+        payload.scope,
+        payload.recipientId,
+        payload.subteamId,
+    )
+    requested_participants = {str(item) for item in payload.participantIds if str(item)} or set(allowed_participants)
+    if requested_participants - allowed_participants:
+        raise HTTPException(status_code=400, detail="A reuniao contem pessoas que nao pertencem a esta conversa.")
+    participant_ids = (requested_participants & allowed_participants) | {user_id}
+    if payload.scope == "direct":
+        participant_ids = set(allowed_participants)
+
+    meeting_id = f"team_meeting_{uuid.uuid4().hex}"
+    thread_id = normalize_thread_id(payload.scope, user_id, payload.recipientId, payload.subteamId)
+    meeting = {
+        "id": meeting_id,
+        "messageId": f"team_msg_{uuid.uuid4().hex}",
+        "scope": payload.scope,
+        "threadId": thread_id,
+        "recipientId": payload.recipientId if payload.scope == "direct" else None,
+        "subteamId": payload.subteamId if payload.scope == "subteam" else None,
+        "title": payload.title.strip(),
+        "description": payload.description.strip(),
+        "startsAt": starts_at.astimezone(timezone.utc).isoformat(),
+        "endsAt": ends_at.astimezone(timezone.utc).isoformat(),
+        "participantIds": sorted(participant_ids),
+        "createdBy": user_id,
+        "createdByName": user.get("nome") or user.get("email") or "Membro",
+        "calendarEntries": {},
+        "remindedUserIds": [],
+        "status": "scheduled",
+        "createdAt": now_iso(),
+    }
+    message = meeting_message(meeting, user)
+    async with chat_lock:
+        current_store = await asyncio.to_thread(read_chat_store, team_id)
+        current_store.setdefault("scheduledMeetings", []).append(meeting)
+        current_store["scheduledMeetings"] = current_store["scheduledMeetings"][-500:]
+        current_store.setdefault("messages", []).append(message)
+        current_store["messages"] = current_store["messages"][-2000:]
+        await asyncio.to_thread(write_chat_store, team_id, current_store)
+
+    await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": message})
+    await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_MEETING_SCHEDULED", "meeting": meeting})
+    local_start = starts_at.astimezone(timezone(timedelta(hours=-3)))
+    await record_meeting_event_for_users(
+        participant_ids,
+        title="Reuniao agendada",
+        description=f"{meeting['title']} em {local_start.strftime('%d/%m/%Y as %H:%M')}.",
+        meeting=meeting,
+        action="team_meeting_scheduled",
+        event_id_prefix="team_meeting_scheduled",
+    )
+    return {"meeting": meeting, "message": message}
+
+
+@router.post("/meetings/{meeting_id}/calendar")
+async def add_scheduled_meeting_to_calendar(meeting_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    user_id = str(user.get("id") or "")
+    team_id = team_id_for(user)
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        meeting = scheduled_meeting_or_404(store, meeting_id)
+        require_scheduled_meeting_participant(meeting, user_id)
+        calendar_entries = meeting.setdefault("calendarEntries", {})
+        if user_id in calendar_entries:
+            return {"meeting": meeting, "calendarEvent": calendar_entries[user_id], "alreadyAdded": True}
+
+        try:
+            result = await asyncio.to_thread(
+                CalendarService(user_id).create_event,
+                titulo=str(meeting.get("title") or "Reuniao da equipe"),
+                inicio=str(meeting.get("startsAt") or ""),
+                fim=str(meeting.get("endsAt") or ""),
+                descricao=(str(meeting.get("description") or "") + "\n\nReuniao agendada pelo chat da equipe no Norium.").strip(),
+                local="Norium - Chat da equipe",
+                participantes=[],
+                criar_meet=False,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="Nao foi possivel adicionar a reuniao a agenda agora.") from exc
+        calendar_event = result.get("evento", {}) if isinstance(result, dict) else {}
+        calendar_source = calendar_event.get("source")
+        if not calendar_source and isinstance(result, dict):
+            calendar_source = result.get("source")
+        calendar_entries[user_id] = {
+            "eventId": calendar_event.get("id"),
+            "source": calendar_source or "local",
+            "htmlLink": calendar_event.get("htmlLink"),
+            "addedAt": now_iso(),
+        }
+        message = next(
+            (item for item in store.get("messages", []) if isinstance(item, dict) and item.get("id") == meeting.get("messageId")),
+            None,
+        )
+        if message:
+            message["metadata"] = meeting_message(meeting, user)["metadata"]
+        await asyncio.to_thread(write_chat_store, team_id, store)
+
+    participant_ids = {str(item) for item in meeting.get("participantIds", [])}
+    if message:
+        await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": message})
+    return {"meeting": meeting, "calendarEvent": calendar_entries[user_id], "alreadyAdded": False}
+
+
+async def emit_due_meeting_reminders(team_id: str, current_time: datetime | None = None) -> int:
+    now = current_time or datetime.now(timezone.utc)
+    pending: list[tuple[dict[str, Any], set[str]]] = []
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        changed = False
+        for meeting in store.get("scheduledMeetings", []):
+            if not isinstance(meeting, dict) or meeting.get("status") != "scheduled":
+                continue
+            starts_at = parse_iso_datetime(meeting.get("startsAt"))
+            if not starts_at:
+                continue
+            seconds_until_start = (starts_at - now).total_seconds()
+            if seconds_until_start < 0 or seconds_until_start > MEETING_REMINDER_MINUTES * 60:
+                continue
+            participant_ids = {str(item) for item in meeting.get("participantIds", [])}
+            reminded = {str(item) for item in meeting.get("remindedUserIds", [])}
+            recipients = participant_ids - reminded
+            if not recipients:
+                continue
+            meeting["remindedUserIds"] = sorted(reminded | recipients)
+            pending.append((dict(meeting), recipients))
+            changed = True
+        if changed:
+            await asyncio.to_thread(write_chat_store, team_id, store)
+
+    for meeting, recipients in pending:
+        starts_at = parse_iso_datetime(meeting.get("startsAt"))
+        start_time = starts_at.astimezone(timezone(timedelta(hours=-3))).strftime("%H:%M") if starts_at else "em instantes"
+        await record_meeting_event_for_users(
+            recipients,
+            title="Reuniao em 10 minutos",
+            description=f"{meeting.get('title') or 'Reuniao da equipe'} comeca as {start_time}.",
+            meeting=meeting,
+            action="team_meeting_reminder",
+            event_id_prefix="team_meeting_reminder",
+        )
+        await manager.send_to_users(team_id, recipients, {"type": "TEAM_MEETING_REMINDER", "meeting": meeting})
+    return sum(len(recipients) for _, recipients in pending)
 
 
 def recording_or_404(store: dict[str, Any], recording_id: str) -> dict[str, Any]:
@@ -878,7 +1205,7 @@ async def complete_recording(recording_id: str, user: dict[str, Any] = Depends(c
             "memberIds": sorted(participant_ids) if recording.get("scope") == "subteam" else [],
             "text": "Gravacao da reuniao disponivel por 24 horas.",
             "attachments": [attachment],
-            "metadata": {"action": "meeting_recording", "callId": recording.get("callId"), "recordingId": recording_id, "expiresAt": expires_at.isoformat()},
+            "metadata": {"action": "meeting_recording", "callId": recording.get("callId"), "recordingId": recording_id, "expiresAt": expires_at.isoformat(), "readBy": {}},
             "createdAt": now_iso(),
         }
         store.setdefault("messages", []).append(message)
@@ -945,6 +1272,7 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
     await manager.connect(team_id, user_id, websocket)
     try:
         await websocket.send_json({"type": "CONNECTED", "onlineUserIds": manager.online_users(team_id)})
+        await emit_due_meeting_reminders(team_id)
         initial_store = await asyncio.to_thread(read_chat_store, team_id)
         if purge_stale_active_calls(initial_store):
             await asyncio.to_thread(write_chat_store, team_id, initial_store)
@@ -953,7 +1281,11 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             if user_id in participant_ids and str(active_call.get("hostUserId") or "") != user_id:
                 await websocket.send_json(active_call_invite(active_call))
         while True:
-            raw = await websocket.receive_text()
+            try:
+                raw = await asyncio.wait_for(websocket.receive_text(), timeout=15)
+            except asyncio.TimeoutError:
+                await emit_due_meeting_reminders(team_id)
+                continue
             if not raw:
                 continue
             if len(raw) > 120_000:
@@ -1030,7 +1362,7 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                             else "Encerrou a chamada."
                         ),
                         "attachments": [],
-                        "metadata": {"action": "call_started" if event_type == "CALL_INVITE" else "call_ended", "callId": call_id, "mode": event["mode"]},
+                        "metadata": {"action": "call_started" if event_type == "CALL_INVITE" else "call_ended", "callId": call_id, "mode": event["mode"], "readBy": {}},
                         "createdAt": now_iso(),
                     }
                     async with chat_lock:

@@ -7,6 +7,7 @@ import { downloadWithAuth } from "../../utils/download";
 import NoraAvatar from "../layout/NoraAvatar";
 import Button from "../shared/Button";
 import TeamCallOverlay from "./TeamCallOverlay";
+import TeamMemberPresenceDialog from "./TeamMemberPresenceDialog";
 import { useTeamCall, type TeamCallSocketEvent, type TeamThreadScope } from "./useTeamCall";
 
 type Attachment = {
@@ -490,6 +491,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const [subteamId, setSubteamId] = useState("");
   const [contentTab, setContentTab] = useState<"chat" | "files" | "photos">("chat");
   const [subteamEditor, setSubteamEditor] = useState<Subteam | "new" | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [messages, setMessages] = useState<TeamMessage[]>([]);
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -511,7 +513,24 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     [members, session.user.id],
   );
   const memberById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
+  const activeMembers = useMemo(() => members.filter((member) => member.status === "ativo"), [members]);
+  const activeMemberIds = useMemo(() => new Set(activeMembers.map((member) => member.id)), [activeMembers]);
+  const actualOnlineUserIds = useMemo(
+    () => Array.from(new Set(onlineUserIds.filter((userId) => activeMemberIds.has(userId)))),
+    [activeMemberIds, onlineUserIds],
+  );
+  const actualOnlineUserIdSet = useMemo(() => new Set(actualOnlineUserIds), [actualOnlineUserIds]);
+  const onlineMembers = useMemo(
+    () => activeMembers.filter((member) => actualOnlineUserIdSet.has(member.id)),
+    [activeMembers, actualOnlineUserIdSet],
+  );
+  const selectedMember = selectedMemberId ? memberById.get(selectedMemberId) || null : null;
   const selectedSubteam = useMemo(() => subteams.find((item) => item.id === subteamId) || null, [subteamId, subteams]);
+  const conversationMembers = useMemo(() => {
+    if (scope === "team") return activeMembers;
+    if (scope === "subteam") return activeMembers.filter((member) => selectedSubteam?.memberIds.includes(member.id));
+    return activeMembers.filter((member) => member.id === session.user.id || member.id === recipientId);
+  }, [activeMembers, recipientId, scope, selectedSubteam, session.user.id]);
   const threadTitle = scope === "team" ? "Time todo" : scope === "subteam" ? selectedSubteam?.name || "Subequipe" : memberById.get(recipientId)?.nome || "Mensagem direta";
   const callThread = useMemo(() => ({
     scope,
@@ -639,7 +658,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
         } catch {
           return;
         }
-        if (payload.type === "PRESENCE") {
+        if (payload.type === "PRESENCE" || payload.type === "CONNECTED") {
           setOnlineUserIds(payload.onlineUserIds || []);
         }
         if (payload.type === "SUBTEAM_UPDATED") void loadSubteams();
@@ -762,7 +781,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   }
 
   const canStartCall = scope === "team" || (scope === "direct" && Boolean(recipientId)) || (scope === "subteam" && Boolean(selectedSubteam));
-  const conversationMemberCount = scope === "team" ? members.length : scope === "subteam" ? selectedSubteam?.memberIds.length || 0 : 2;
+  const conversationMemberCount = conversationMembers.length;
+  const conversationOnlineCount = conversationMembers.filter((member) => actualOnlineUserIdSet.has(member.id)).length;
 
   return (
     <AnimatePresence>
@@ -784,7 +804,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               </span>
               <span className="min-w-0">
                 <p className="truncate text-sm font-bold">Chat da equipe</p>
-                <p className="text-xs font-semibold text-[var(--text-secondary)]">{onlineUserIds.length} online agora</p>
+                <p className="text-xs font-semibold text-[var(--text-secondary)]">{actualOnlineUserIds.length} online agora</p>
               </span>
             </div>
             <div className="flex items-center gap-1">
@@ -826,12 +846,13 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
 
           <div className="team-chat-members border-b border-[var(--border)] px-3 py-2">
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {members.map((member) => (
-                <span key={member.id} className="team-chat-member-chip flex shrink-0 items-center gap-2 rounded-full border border-[var(--border)] px-3 py-1 text-xs font-bold">
-                  <span className={`h-2 w-2 rounded-full ${onlineUserIds.includes(member.id) ? "bg-emerald-400" : "bg-slate-400"}`} />
+              {onlineMembers.map((member) => (
+                <button type="button" key={member.id} onClick={() => setSelectedMemberId(member.id)} className="team-chat-member-chip flex shrink-0 items-center gap-2 rounded-full border border-[var(--border)] px-3 py-1 text-xs font-bold">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
                   {member.nome}
-                </span>
+                </button>
               ))}
+              {!onlineMembers.length && <span className="px-1 py-1 text-xs font-semibold text-[var(--text-secondary)]">Nenhum membro online agora</span>}
             </div>
           </div>
 
@@ -988,7 +1009,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                 </div>
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <span className="text-xs font-bold text-[var(--text-secondary)]">Online agora</span>
-                  <strong className="mt-1 block text-xl text-emerald-300">{onlineUserIds.length}</strong>
+                  <strong className="mt-1 block text-xl text-emerald-300">{conversationOnlineCount}</strong>
                 </div>
               </div>
               {scope === "team" && canUse(session.user, "nora") && (
@@ -1010,11 +1031,11 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               <div className="mt-5">
                 <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Membros</p>
                 <div className="mt-3 space-y-2">
-                  {members.filter((member) => scope !== "subteam" || selectedSubteam?.memberIds.includes(member.id)).slice(0, 8).map((member) => (
+                  {conversationMembers.slice(0, 8).map((member) => (
                     <div key={member.id} className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 hover:bg-[var(--surface-hover)]">
-                      <button type="button" onClick={() => { if (member.id !== session.user.id) { setScope("direct"); setRecipientId(member.id); } }} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                      <button type="button" onClick={() => setSelectedMemberId(member.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left" aria-label={`Ver presença e último acesso de ${member.nome}`}>
                         <MessageAvatar name={member.nome} avatar={member.fotoUrl || ""} />
-                        <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{member.nome}</strong><small className={onlineUserIds.includes(member.id) ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{onlineUserIds.includes(member.id) ? "Online" : "Offline"}</small></span>
+                        <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{member.nome}</strong><small className={actualOnlineUserIdSet.has(member.id) ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{actualOnlineUserIdSet.has(member.id) ? "Online agora" : "Offline"}</small></span>
                       </button>
                       {member.id !== session.user.id && <button type="button" onClick={() => { setScope("direct"); setRecipientId(member.id); void call.startCall({ scope: "direct", title: member.nome, recipientId: member.id, subteamId: null }); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[var(--primary)] hover:bg-[var(--surface)]" aria-label={`Ligar individualmente para ${member.nome}`}><Phone size={15} /></button>}
                     </div>
@@ -1025,6 +1046,14 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           )}
           {previewAttachment && <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} token={session.token} />}
           {subteamEditor && <SubteamEditorDialog value={subteamEditor} members={members} currentUserId={session.user.id} saving={subteamSaving} onClose={() => setSubteamEditor(null)} onSave={(input) => void saveSubteam(input)} />}
+          {selectedMember && <TeamMemberPresenceDialog
+            member={selectedMember}
+            online={actualOnlineUserIdSet.has(selectedMember.id)}
+            isCurrentUser={selectedMember.id === session.user.id}
+            onClose={() => setSelectedMemberId(null)}
+            onMessage={() => { setScope("direct"); setRecipientId(selectedMember.id); setContentTab("chat"); setSelectedMemberId(null); }}
+            onCall={() => { setSelectedMemberId(null); void call.startCall({ scope: "direct", title: selectedMember.nome, recipientId: selectedMember.id, subteamId: null }); }}
+          />}
           <TeamCallOverlay
             call={call}
             messages={messages}

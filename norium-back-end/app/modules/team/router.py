@@ -329,13 +329,15 @@ async def read_pruned_chat_store(team_id: str) -> dict[str, Any]:
 async def visible_team_members(user: dict[str, Any]) -> list[dict[str, Any]]:
     store = await read_user_store()
     current_team_id = team_id_for(user)
+    online_user_ids = set(manager.online_users(current_team_id))
     members = []
     for item in store.get("users", []):
         if str(item.get("id")) == current_team_id or str(item.get("teamOwnerId") or item.get("id")) == current_team_id:
             safe = sanitize_user(item)
             profile = read_profile_db(str(safe.get("id") or ""), {})
             safe["fotoUrl"] = profile.get("fotoUrl") or ""
-            safe["online"] = safe["id"] in manager.online_users(current_team_id)
+            safe["online"] = safe.get("status") == "ativo" and safe["id"] in online_user_ids
+            safe["lastLoginAt"] = item.get("lastLoginAt")
             members.append(safe)
     return members
 
@@ -519,7 +521,9 @@ async def respond_to_nora_mention(
 @router.get("/members")
 async def list_members(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     require_team_chat(user)
-    return {"teamId": team_id_for(user), "members": await visible_team_members(user), "onlineUserIds": manager.online_users(team_id_for(user))}
+    members = await visible_team_members(user)
+    online_user_ids = [str(member["id"]) for member in members if member.get("online")]
+    return {"teamId": team_id_for(user), "members": members, "onlineUserIds": online_user_ids}
 
 
 @router.get("/subteams")

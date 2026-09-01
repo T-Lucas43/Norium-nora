@@ -32,6 +32,7 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         self.upload_dir.mkdir()
         self.owner = team_user("owner")
         self.member = team_user("member", owner_id="owner")
+        self.member["lastLoginAt"] = "2026-09-01T14:35:00+00:00"
         self.other_member = team_user("other", owner_id="owner")
         self.users = {"users": [self.owner, self.member, self.other_member]}
 
@@ -94,6 +95,23 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         recipients = manager.send_to_users.await_args.args[1]
         self.assertEqual({"owner", "member"}, recipients)
         self.assertNotIn("other", recipients)
+
+    async def test_members_list_only_reports_active_connected_users_and_last_login(self) -> None:
+        manager = team_router.PresenceManager()
+        manager.user_team = {"member": "owner", "other": "owner", "unknown": "owner"}
+        self.other_member["status"] = "inativo"
+        with (
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+            patch.object(team_router, "manager", manager),
+        ):
+            listing = await team_router.list_members(self.owner)
+
+        self.assertEqual(["member"], listing["onlineUserIds"])
+        members_by_id = {member["id"]: member for member in listing["members"]}
+        self.assertTrue(members_by_id["member"]["online"])
+        self.assertEqual("2026-09-01T14:35:00+00:00", members_by_id["member"]["lastLoginAt"])
+        self.assertFalse(members_by_id["other"]["online"])
 
     async def test_recording_is_uploaded_in_chunks_and_expires_after_24_hours(self) -> None:
         class ChunkRequest:

@@ -6,6 +6,8 @@ import os
 import unittest
 from unittest.mock import patch
 
+from cryptography.fernet import Fernet
+
 from app import bootstrap
 from app.core.settings import (
     WebhookConfigurationError,
@@ -17,6 +19,7 @@ from app.core.tenant import is_local_or_test_environment, is_shared_environment
 SHARED_ENVIRONMENTS = ("production", "prod", "railway", "staging")
 LOCAL_TEST_ENVIRONMENTS = ("development", "test")
 VALID_SECRET = "webhook-secret-for-tests"
+VALID_CREDENTIAL_KEY = Fernet.generate_key().decode("ascii")
 
 
 class WebhookConfigurationTests(unittest.TestCase):
@@ -24,7 +27,10 @@ class WebhookConfigurationTests(unittest.TestCase):
         for environment in SHARED_ENVIRONMENTS:
             with self.subTest(environment=environment), patch.dict(
                 os.environ,
-                {"ENVIRONMENT": environment},
+                {
+                    "ENVIRONMENT": environment,
+                    "WAPI_CREDENTIAL_ENCRYPTION_KEY": VALID_CREDENTIAL_KEY,
+                },
                 clear=True,
             ), patch.object(bootstrap, "validate_wapi_test_configuration"):
                 with self.assertRaises(RuntimeError):
@@ -102,6 +108,7 @@ class WebhookConfigurationTests(unittest.TestCase):
             {
                 "ENVIRONMENT": "staging",
                 "WAPI_WEBHOOK_SECRET": secret,
+                "WAPI_CREDENTIAL_ENCRYPTION_KEY": VALID_CREDENTIAL_KEY,
             },
             clear=True,
         ), patch.object(bootstrap, "validate_wapi_test_configuration"):
@@ -140,6 +147,7 @@ class WebhookConfigurationTests(unittest.TestCase):
             {
                 "ENVIRONMENT": "staging",
                 "WAPI_WEBHOOK_SECRET": VALID_SECRET,
+                "WAPI_CREDENTIAL_ENCRYPTION_KEY": VALID_CREDENTIAL_KEY,
             },
             clear=True,
         ), patch.object(bootstrap, "validate_wapi_test_configuration"):

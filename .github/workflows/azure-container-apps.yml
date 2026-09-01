@@ -137,7 +137,17 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Synchronize Google OAuth secrets
+      - name: Validate required credential encryption secret
+        shell: bash
+        env:
+          WAPI_CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.WAPI_CREDENTIAL_ENCRYPTION_KEY }}
+        run: |
+          if [[ -z "${WAPI_CREDENTIAL_ENCRYPTION_KEY}" ]]; then
+            echo "Missing required GitHub secret WAPI_CREDENTIAL_ENCRYPTION_KEY." >&2
+            exit 1
+          fi
+
+      - name: Synchronize application secrets
         shell: bash
         run: >-
           az containerapp secret set
@@ -149,6 +159,7 @@ jobs:
           google-client-id="${{ secrets.GOOGLE_CLIENT_ID }}"
           google-client-secret="${{ secrets.GOOGLE_CLIENT_SECRET }}"
           wapi-master-api-key="${{ secrets.WAPI_MASTER_API_KEY }}"
+          wapi-credential-encryption-key="${{ secrets.WAPI_CREDENTIAL_ENCRYPTION_KEY }}"
           wapi-webhook-secret="${{ secrets.WAPI_WEBHOOK_SECRET }}"
           --output none
 
@@ -173,6 +184,7 @@ jobs:
             GOOGLE_CLIENT_SECRET=secretref:google-client-secret \
             WAPI_BASE_URL=https://api.w-api.app \
             WAPI_MASTER_API_KEY=secretref:wapi-master-api-key \
+            WAPI_CREDENTIAL_ENCRYPTION_KEY=secretref:wapi-credential-encryption-key \
             WAPI_WEBHOOK_SECRET=secretref:wapi-webhook-secret \
             --output none
 

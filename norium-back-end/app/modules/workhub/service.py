@@ -50,6 +50,11 @@ from app.modules.workhub.schemas import (
 )
 from app.services.finance_store import create_lancamento, list_finance
 from app.services.task_store import create_task, list_projects, list_tasks
+from app.services.wapi_binding import (
+    migrate_account_binding_credentials,
+    migrate_binding_file,
+    restore_binding_snapshot,
+)
 
 
 LOCAL_TZ = timezone(timedelta(hours=-3))
@@ -1154,6 +1159,9 @@ async def usage_meter(user: dict[str, Any]) -> dict[str, Any]:
 async def create_backup_snapshot(user: dict[str, Any]) -> dict[str, Any]:
     user_id = tenant_id(user)
     source_dir = get_user_dir(user_id)
+    # Nunca replique um binding legado: saneia o arquivo ativo e snapshots
+    # históricos antes que qualquer byte seja copiado para um novo backup.
+    migrate_account_binding_credentials(user_id, include_backups=True)
     backup_id = f"backup_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid.uuid4().hex[:8]}"
     backup_dir = source_dir / "backups" / backup_id
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -1183,11 +1191,18 @@ async def restore_backup_snapshot(user: dict[str, Any], backup_id: str) -> dict[
     backup_dir = user_dir / "backups" / backup_id
     if not backup_dir.exists():
         return None
+    # Um snapshot criado por versão antiga pode conter o formato legado. Migre
+    # a origem primeiro para que nem mesmo a janela de restauração grave texto puro.
+    migrate_binding_file(backup_dir / "wapi_instance_db.json")
     restored: list[str] = []
     for source in backup_dir.glob("*.json"):
         target = user_dir / source.name
-        target.write_bytes(source.read_bytes())
+        if source.name == "wapi_instance_db.json":
+            restore_binding_snapshot(user_id, source)
+        else:
+            target.write_bytes(source.read_bytes())
         restored.append(source.name)
+    migrate_account_binding_credentials(user_id, include_backups=False)
     await record_audit(
         user,
         AuditCreate(

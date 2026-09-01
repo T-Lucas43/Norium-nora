@@ -27,6 +27,9 @@ from app.infrastructure.reliability.idempotency import (
     complete_request,
 )
 from app.services.wapi_connect import validate_wapi_test_configuration
+from app.services.wapi_credentials import (
+    validate_wapi_credential_encryption_configuration,
+)
 from app.modules.auth.router import (
     assert_route_permissions,
     assert_workspace_access,
@@ -165,6 +168,7 @@ def cors_origins() -> list[str]:
 
 
 def create_app() -> FastAPI:
+    validate_wapi_credential_encryption_configuration()
     validate_wapi_test_configuration()
     validate_wapi_webhook_configuration()
     configure_webhook_secret_log_redaction()

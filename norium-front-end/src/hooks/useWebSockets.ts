@@ -29,11 +29,21 @@ type SocketMessage = {
 
 type TeamSocketMessage = {
   type?: string;
+  callId?: string;
+  scope?: "team" | "direct" | "subteam";
+  threadId?: string;
+  recipientId?: string | null;
+  subteamId?: string | null;
+  fromUserId?: string;
+  fromUserName?: string;
+  mode?: "audio" | "video";
+  startedAt?: string;
   message?: {
     id?: string;
     senderId?: string;
     senderName?: string;
     text?: string;
+    metadata?: Record<string, unknown>;
   };
 };
 
@@ -173,6 +183,7 @@ export function useWebSockets(
   const integrationSyncInFlightRef = useRef(false);
   const teamChatOpenRef = useRef(teamChatOpen);
   const seenTeamMessageIdsRef = useRef<Set<string>>(new Set());
+  const seenTeamCallIdsRef = useRef<Set<string>>(new Set());
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const currentUserIdRef = useRef(userId);
   currentUserIdRef.current = userId;
@@ -191,6 +202,7 @@ export function useWebSockets(
     setSystemToasts([]);
     setTeamChatUnreadCount(0);
     seenTeamMessageIdsRef.current.clear();
+    seenTeamCallIdsRef.current.clear();
     seenEventIdsRef.current.clear();
     hasOpenedRef.current = false;
     lastConnectionStateRef.current = null;
@@ -249,7 +261,7 @@ export function useWebSockets(
   }, [activeSystemToastId, dismissSystemToast]);
 
   const notifyTeamMessage = useCallback(
-    (message: { id?: string; senderId?: string; senderName?: string; text?: string }) => {
+    (message: { id?: string; senderId?: string; senderName?: string; text?: string; metadata?: Record<string, unknown> }) => {
       if (currentUserIdRef.current !== userId) return;
       const messageId = String(message.id || "");
       if (messageId && seenTeamMessageIdsRef.current.has(messageId)) return;
@@ -260,7 +272,7 @@ export function useWebSockets(
           if (oldest) seenTeamMessageIdsRef.current.delete(oldest);
         }
       }
-      if (message.senderId === userId || teamChatOpenRef.current) return;
+      if (message.senderId === userId || teamChatOpenRef.current || message.metadata?.action === "call_started") return;
 
       setTeamChatUnreadCount((current) => current + 1);
       pushSystemNotification({
@@ -565,6 +577,28 @@ export function useWebSockets(
         try {
           const payload = JSON.parse(String(event.data || "{}")) as TeamSocketMessage;
           if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) notifyTeamMessage(payload.message);
+          if (payload.type === "CALL_INVITE" && payload.callId) {
+            if (seenTeamCallIdsRef.current.has(payload.callId)) return;
+            seenTeamCallIdsRef.current.add(payload.callId);
+            if (seenTeamCallIdsRef.current.size > 100) {
+              const oldest = seenTeamCallIdsRef.current.values().next().value;
+              if (oldest) seenTeamCallIdsRef.current.delete(oldest);
+            }
+            pushSystemNotification({
+              id: `meeting_${payload.callId}`,
+              title: "Reunião iniciada",
+              description: `${payload.fromUserName || "Um membro da equipe"} convidou você para entrar.`,
+              severity: "info",
+              metadata: { source: "equipe", action: "call_started", callId: payload.callId },
+            });
+            window.dispatchEvent(new CustomEvent("norium:team-call", { detail: payload }));
+            if ("Notification" in window && document.visibilityState !== "visible" && Notification.permission === "granted") {
+              new Notification("Reunião iniciada no Norium", {
+                body: `${payload.fromUserName || "Um membro da equipe"} está chamando você.`,
+                tag: `norium-meeting-${payload.callId}`,
+              });
+            }
+          }
         } catch {
           // Pacotes de presenca ou incompatíveis nao bloqueiam o contador do chat.
         }
@@ -586,7 +620,7 @@ export function useWebSockets(
       teamSocketRef.current?.close();
       teamSocketRef.current = null;
     };
-  }, [enabled, notifyTeamMessage, userId]);
+  }, [enabled, notifyTeamMessage, pushSystemNotification, userId]);
 
   return {
     connected: isolatedForCurrentUser ? connected : false,

@@ -9,6 +9,7 @@ import type { AppMode, AuthSession, PermissionKey } from "../types/auth";
 import { canUse } from "../types/auth";
 import { applyNoriumTheme } from "../utils/theme";
 import { authJson } from "../utils/authApi";
+import type { TeamCallSocketEvent } from "../components/team-chat/useTeamCall";
 import AppPanels from "./components/AppPanels";
 import { useAuthSession } from "./hooks/useAuthSession";
 import { useOperatorProfile } from "./hooks/useOperatorProfile";
@@ -62,6 +63,7 @@ export default function NoriumApp() {
   const [noraContextRequest, setNoraContextRequest] = useState<{ id: number; prompt: string } | null>(null);
   const [activeChatConversationId, setActiveChatConversationId] = useState<string | null>(null);
   const [teamChatOpen, setTeamChatOpen] = useState(false);
+  const [pendingTeamCall, setPendingTeamCall] = useState<TeamCallSocketEvent | null>(null);
   const [emailToOpenId, setEmailToOpenId] = useState<string | null>(null);
   const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set());
   const {
@@ -185,7 +187,19 @@ export default function NoriumApp() {
 
   useEffect(() => {
     setMountedTabs(new Set());
+    setPendingTeamCall(null);
   }, [authSession?.user.id]);
+
+  useEffect(() => {
+    const handleTeamCall = (event: Event) => {
+      const callEvent = (event as CustomEvent<TeamCallSocketEvent>).detail;
+      if (!callEvent?.callId || activeTab === "Chat da Equipe") return;
+      setPendingTeamCall(callEvent);
+      setTeamChatOpen(true);
+    };
+    window.addEventListener("norium:team-call", handleTeamCall);
+    return () => window.removeEventListener("norium:team-call", handleTeamCall);
+  }, [activeTab]);
 
   useEffect(() => {
     if (!authSession?.user.id || !PERSISTENT_TABS.has(activeTab)) return;
@@ -304,6 +318,8 @@ export default function NoriumApp() {
             session={authSession}
             onUnread={(count) => addTeamChatUnread(count)}
             onOpenNora={openNora}
+            initialCallEvent={pendingTeamCall}
+            onInitialCallHandled={(callId) => setPendingTeamCall((current) => current?.callId === callId ? null : current)}
           />
         </Suspense>
       )}

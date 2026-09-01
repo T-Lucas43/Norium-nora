@@ -28,6 +28,7 @@ export type TeamCallSocketEvent = {
   recordingId?: string;
   expiresAt?: string;
   emoji?: string;
+  startedAt?: string;
 };
 
 type ActiveCall = {
@@ -36,6 +37,7 @@ type ActiveCall = {
   title: string;
   thread: TeamCallThread;
   hostUserId: string;
+  startedAt: string;
 };
 
 type IncomingCall = ActiveCall & {
@@ -98,6 +100,21 @@ function callId() {
   return `call_${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
+function mediaAccessError(error: unknown, device: "camera" | "microfone" | "tela") {
+  const name = error instanceof DOMException ? error.name : "";
+  const target = device === "camera" ? "a camera" : device === "tela" ? "a tela" : "o microfone";
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return `Permita o acesso ${target} nas configuracoes do navegador.`;
+  }
+  if (name === "NotFoundError" || name === "OverconstrainedError") {
+    return `Nenhum dispositivo de ${device} disponivel foi encontrado.`;
+  }
+  if (name === "NotReadableError") {
+    return `O dispositivo de ${device} esta sendo usado por outro aplicativo.`;
+  }
+  return error instanceof Error ? error.message : `Nao foi possivel acessar ${target}.`;
+}
+
 export function useTeamCall({
   session,
   thread,
@@ -112,9 +129,10 @@ export function useTeamCall({
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Array<{ userId: string; stream: MediaStream }>>([]);
   const [muted, setMuted] = useState(false);
-  const [cameraOff, setCameraOff] = useState(false);
+  const [cameraOff, setCameraOff] = useState(true);
   const [sharingScreen, setSharingScreen] = useState(false);
   const [status, setStatus] = useState("");
+  const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
   const [recording, setRecording] = useState(false);
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
   const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>(navigator.onLine ? "connecting" : "offline");
@@ -124,8 +142,10 @@ export function useTeamCall({
   const [selectedCameraId, setSelectedCameraId] = useState("");
   const [selectedSpeakerId, setSelectedSpeakerId] = useState("");
   const activeRef = useRef<ActiveCall | null>(null);
+  const incomingRef = useRef<IncomingCall | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
+  const videoSendersRef = useRef(new Map<string, RTCRtpSender>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const screenStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamsRef = useRef<Array<{ userId: string; stream: MediaStream }>>([]);
@@ -136,12 +156,34 @@ export function useTeamCall({
   const recordingErrorRef = useRef<Error | null>(null);
   const recordingCleanupRef = useRef<(() => void) | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
+  const callTimerRef = useRef<number | null>(null);
   const recordingStopPromiseRef = useRef<Promise<void>>(Promise.resolve());
   const resolveRecordingStopRef = useRef<(() => void) | null>(null);
   const reactionTimersRef = useRef<number[]>([]);
 
   useEffect(() => {
     activeRef.current = active;
+  }, [active]);
+
+  useEffect(() => {
+    incomingRef.current = incoming;
+  }, [incoming]);
+
+  useEffect(() => {
+    if (callTimerRef.current !== null) window.clearInterval(callTimerRef.current);
+    callTimerRef.current = null;
+    if (!active) {
+      setCallElapsedSeconds(0);
+      return undefined;
+    }
+    const startedAt = Date.parse(active.startedAt);
+    const updateElapsed = () => setCallElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    updateElapsed();
+    callTimerRef.current = window.setInterval(updateElapsed, 1000);
+    return () => {
+      if (callTimerRef.current !== null) window.clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    };
   }, [active]);
 
   useEffect(() => {
@@ -178,6 +220,7 @@ export function useTeamCall({
   const closePeer = useCallback((userId: string) => {
     peersRef.current.get(userId)?.close();
     peersRef.current.delete(userId);
+    videoSendersRef.current.delete(userId);
     pendingCandidatesRef.current.delete(userId);
     setRemoteStreams((current) => current.filter((item) => item.userId !== userId));
   }, []);
@@ -197,14 +240,19 @@ export function useTeamCall({
     stopConnectingSound();
     peersRef.current.forEach((peer) => peer.close());
     peersRef.current.clear();
+    videoSendersRef.current.clear();
     pendingCandidatesRef.current.clear();
     setRemoteStreams([]);
     stopMedia();
     setIncoming(null);
+    incomingRef.current = null;
     setActive(null);
     activeRef.current = null;
     setMuted(false);
-    setCameraOff(false);
+    setCameraOff(true);
+    setCallElapsedSeconds(0);
+    if (callTimerRef.current !== null) window.clearInterval(callTimerRef.current);
+    callTimerRef.current = null;
     setRecording(false);
     setRecordingElapsedSeconds(0);
     if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
@@ -298,30 +346,31 @@ export function useTeamCall({
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [active]);
 
-  const acquireMedia = useCallback(async (mode: "audio" | "video") => {
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este navegador nao permite acesso ao microfone e a camera.");
+  const acquireMedia = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este navegador nao permite acesso ao microfone.");
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: selectedMicrophoneId ? { deviceId: { exact: selectedMicrophoneId } } : true,
-      video: mode === "video" ? {
-        ...(selectedCameraId ? { deviceId: { exact: selectedCameraId } } : {}),
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      } : false,
+      video: false,
     });
     localStreamRef.current = stream;
     setLocalStream(stream);
+    setCameraOff(true);
     await refreshDevices().catch(() => undefined);
     return stream;
-  }, [refreshDevices, selectedCameraId, selectedMicrophoneId]);
+  }, [refreshDevices, selectedMicrophoneId]);
 
   const replaceInputDevice = useCallback(async (kind: "audio" | "video", deviceId: string) => {
     const currentStream = localStreamRef.current;
-    if (!currentStream || !deviceId || !navigator.mediaDevices?.getUserMedia) return;
+    if (!currentStream || !navigator.mediaDevices?.getUserMedia) return;
+    if (kind === "video" && !currentStream.getVideoTracks().length) {
+      setSelectedCameraId(deviceId);
+      return;
+    }
     setStatus(kind === "audio" ? "Trocando microfone..." : "Trocando camera...");
     try {
       const replacementStream = await navigator.mediaDevices.getUserMedia(kind === "audio"
-        ? { audio: { deviceId: { exact: deviceId } }, video: false }
-        : { audio: false, video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+        ? { audio: deviceId ? { deviceId: { exact: deviceId } } : true, video: false }
+        : { audio: false, video: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), width: { ideal: 1280 }, height: { ideal: 720 } } });
       const replacementTrack = kind === "audio" ? replacementStream.getAudioTracks()[0] : replacementStream.getVideoTracks()[0];
       if (!replacementTrack) throw new Error("O dispositivo selecionado nao forneceu midia.");
       replacementTrack.enabled = kind === "audio" ? !muted : !cameraOff;
@@ -329,8 +378,10 @@ export function useTeamCall({
       // Durante a transmissao de tela, a nova camera fica preparada localmente
       // e passa a ser enviada quando o compartilhamento terminar.
       if (kind === "audio" || !screenStreamRef.current) {
-        await Promise.all(Array.from(peersRef.current.values()).map(async (peer) => {
-          const sender = peer.getSenders().find((item) => item.track?.kind === kind);
+        await Promise.all(Array.from(peersRef.current.entries()).map(async ([remoteUserId, peer]) => {
+          const sender = kind === "video"
+            ? videoSendersRef.current.get(remoteUserId)
+            : peer.getSenders().find((item) => item.track?.kind === kind);
           if (sender) await sender.replaceTrack(replacementTrack);
         }));
       }
@@ -343,7 +394,10 @@ export function useTeamCall({
       localStreamRef.current = nextStream;
       setLocalStream(nextStream);
       if (kind === "audio") setSelectedMicrophoneId(deviceId);
-      else setSelectedCameraId(deviceId);
+      else {
+        setSelectedCameraId(deviceId);
+        setCameraOff(false);
+      }
       replacementStream.getTracks().filter((track) => track !== replacementTrack).forEach((track) => track.stop());
       setStatus("Na chamada");
     } catch (error) {
@@ -471,7 +525,12 @@ export function useTeamCall({
       if (typeof MediaRecorder === "undefined") setStatus("Este navegador nao permite gravar reunioes.");
       return;
     }
-    const candidates = call.mode === "video"
+    const recordingMode: "audio" | "video" = screenStreamRef.current?.getVideoTracks().length
+      || localStreamRef.current?.getVideoTracks().length
+      || remoteStreamsRef.current.some((item) => item.stream.getVideoTracks().length)
+      ? "video"
+      : "audio";
+    const candidates = recordingMode === "video"
       ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
       : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
     const mimeType = candidates.find((candidate) => !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(candidate)) || "";
@@ -479,7 +538,7 @@ export function useTeamCall({
     let recordingId = "";
     try {
       setStatus("Preparando gravacao...");
-      const composition = createMeetingRecordingStream(call.mode);
+      const composition = createMeetingRecordingStream(recordingMode);
       cleanup = composition.cleanup;
       const startResponse = await fetch(`${TEAM_CHAT_API}/recordings/start`, {
         method: "POST",
@@ -489,7 +548,7 @@ export function useTeamCall({
           scope: call.thread.scope,
           recipientId: call.thread.recipientId || null,
           subteamId: call.thread.subteamId || null,
-          mimeType: mimeType || (call.mode === "video" ? "video/webm" : "audio/webm"),
+          mimeType: mimeType || (recordingMode === "video" ? "video/webm" : "audio/webm"),
         }),
       });
       const startData = await startResponse.json().catch(() => ({}));
@@ -559,6 +618,33 @@ export function useTeamCall({
     }
   }, [createMeetingRecordingStream, recording, session.token]);
 
+  const negotiatePeer = useCallback(async (remoteUserId: string, peer: RTCPeerConnection) => {
+    const call = activeRef.current;
+    if (!call || peer.signalingState !== "stable") return;
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+    sendSocketEvent({
+      type: "CALL_SIGNAL",
+      ...callPayload(call),
+      targetUserId: remoteUserId,
+      signal: offer,
+    });
+  }, [callPayload, sendSocketEvent]);
+
+  const attachVideoTrack = useCallback(async (track: MediaStreamTrack | null, sourceStream: MediaStream) => {
+    await Promise.all(Array.from(peersRef.current.entries()).map(async ([remoteUserId, peer]) => {
+      const existingSender = videoSendersRef.current.get(remoteUserId);
+      if (existingSender) {
+        await existingSender.replaceTrack(track);
+        return;
+      }
+      if (!track) return;
+      const sender = peer.addTrack(track, sourceStream);
+      videoSendersRef.current.set(remoteUserId, sender);
+      await negotiatePeer(remoteUserId, peer);
+    }));
+  }, [negotiatePeer]);
+
   const createPeer = useCallback(async (remoteUserId: string, createOffer: boolean) => {
     const call = activeRef.current;
     if (!call || remoteUserId === session.user.id) return null;
@@ -566,7 +652,16 @@ export function useTeamCall({
     if (!peer) {
       peer = new RTCPeerConnection({ iceServers: configuredIceServers() });
       peersRef.current.set(remoteUserId, peer);
-      localStreamRef.current?.getTracks().forEach((track) => peer?.addTrack(track, localStreamRef.current as MediaStream));
+      localStreamRef.current?.getAudioTracks().forEach((track) => {
+        peer?.addTrack(track, localStreamRef.current as MediaStream);
+      });
+      const outgoingVideoTrack = screenStreamRef.current?.getVideoTracks()[0]
+        || localStreamRef.current?.getVideoTracks().find((track) => track.enabled);
+      const outgoingVideoStream = screenStreamRef.current || localStreamRef.current;
+      if (outgoingVideoTrack && outgoingVideoStream) {
+        const sender = peer.addTrack(outgoingVideoTrack, outgoingVideoStream);
+        videoSendersRef.current.set(remoteUserId, sender);
+      }
       peer.onicecandidate = (event) => {
         const current = activeRef.current;
         if (event.candidate && current) {
@@ -589,35 +684,33 @@ export function useTeamCall({
         if (["failed", "closed", "disconnected"].includes(peer?.connectionState || "")) closePeer(remoteUserId);
       };
     }
-    if (createOffer && peer.signalingState === "stable") {
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      sendSocketEvent({
-        type: "CALL_SIGNAL",
-        ...callPayload(call),
-        targetUserId: remoteUserId,
-        signal: offer,
-      });
-    }
+    if (createOffer) await negotiatePeer(remoteUserId, peer);
     return peer;
-  }, [callPayload, closePeer, sendSocketEvent, session.user.id]);
+  }, [callPayload, closePeer, negotiatePeer, sendSocketEvent, session.user.id]);
 
-  const startCall = useCallback(async (mode: "audio" | "video") => {
+  const startCall = useCallback(async (targetThread: TeamCallThread = thread) => {
     if (activeRef.current) return;
-    setStatus("Solicitando permissao do dispositivo...");
+    setStatus("Solicitando permissao do microfone...");
     try {
-      await acquireMedia(mode);
-      const call: ActiveCall = { callId: callId(), mode, title: thread.title, thread, hostUserId: session.user.id };
+      await acquireMedia();
+      const call: ActiveCall = {
+        callId: callId(),
+        mode: "audio",
+        title: targetThread.title,
+        thread: targetThread,
+        hostUserId: session.user.id,
+        startedAt: new Date().toISOString(),
+      };
       activeRef.current = call;
       setActive(call);
-      setStatus("Chamando a equipe...");
+      setStatus(targetThread.scope === "direct" ? "Chamando participante..." : "Chamando a equipe...");
       startConnectingSound();
       if (!sendSocketEvent({ type: "CALL_INVITE", ...callPayload(call) })) {
         throw new Error("A conexao em tempo real ainda nao esta pronta.");
       }
     } catch (error) {
       finishCall(false);
-      setStatus(error instanceof Error ? error.message : "Nao foi possivel iniciar a chamada.");
+      setStatus(mediaAccessError(error, "microfone"));
     }
   }, [acquireMedia, callPayload, finishCall, sendSocketEvent, session.user.id, startConnectingSound, thread]);
 
@@ -626,11 +719,12 @@ export function useTeamCall({
     setStatus("Conectando dispositivos...");
     startConnectingSound();
     try {
-      await acquireMedia(incoming.mode);
+      await acquireMedia();
       const call: ActiveCall = { ...incoming };
       activeRef.current = call;
       setActive(call);
       setIncoming(null);
+      incomingRef.current = null;
       sendSocketEvent({ type: "CALL_ACCEPT", ...callPayload(call) });
       stopConnectingSound();
       playCallSound("joined");
@@ -638,14 +732,16 @@ export function useTeamCall({
     } catch (error) {
       sendSocketEvent({ type: "CALL_REJECT", ...callPayload(incoming) });
       finishCall(false);
-      setStatus(error instanceof Error ? error.message : "Nao foi possivel acessar o dispositivo.");
+      setStatus(mediaAccessError(error, "microfone"));
     }
   }, [acquireMedia, callPayload, finishCall, incoming, sendSocketEvent, startConnectingSound, stopConnectingSound]);
 
   const rejectIncoming = useCallback(() => {
     if (incoming) sendSocketEvent({ type: "CALL_REJECT", ...callPayload(incoming) });
     setIncoming(null);
-  }, [callPayload, incoming, sendSocketEvent]);
+    incomingRef.current = null;
+    stopConnectingSound();
+  }, [callPayload, incoming, sendSocketEvent, stopConnectingSound]);
 
   const handleSocketEvent = useCallback(async (event: TeamCallSocketEvent) => {
     if (!event.callId || !event.fromUserId || event.fromUserId === session.user.id) {
@@ -653,6 +749,7 @@ export function useTeamCall({
       return;
     }
     if (event.type === "CALL_INVITE") {
+      if (incomingRef.current?.callId === event.callId || activeRef.current?.callId === event.callId) return;
       if (activeRef.current) {
         sendSocketEvent({
           type: "CALL_REJECT",
@@ -664,20 +761,24 @@ export function useTeamCall({
         });
         return;
       }
-      setIncoming({
+      const nextIncoming: IncomingCall = {
         callId: event.callId,
-        mode: event.mode || "audio",
-        title: event.fromUserName || "Chamada da equipe",
+        mode: "audio",
+        title: event.scope === "team" ? "Time todo" : event.fromUserName || "Reuniao da equipe",
         fromUserId: event.fromUserId,
         fromUserName: event.fromUserName || "Membro",
         hostUserId: event.fromUserId,
+        startedAt: event.startedAt || new Date().toISOString(),
         thread: {
           scope: event.scope || "team",
-          title: event.fromUserName || "Chamada da equipe",
-          recipientId: event.recipientId || null,
+          title: event.scope === "team" ? "Time todo" : event.fromUserName || "Reuniao da equipe",
+          recipientId: event.scope === "direct" ? event.fromUserId : event.recipientId || null,
           subteamId: event.subteamId || null,
         },
-      });
+      };
+      incomingRef.current = nextIncoming;
+      setIncoming(nextIncoming);
+      startConnectingSound();
       return;
     }
     const call = activeRef.current;
@@ -754,7 +855,7 @@ export function useTeamCall({
       await stopRecording();
       finishCall(false, "ended");
     }
-  }, [callPayload, closePeer, createPeer, finishCall, sendSocketEvent, session.user.id, showReaction, stopConnectingSound, stopRecording]);
+  }, [callPayload, closePeer, createPeer, finishCall, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;
@@ -762,26 +863,66 @@ export function useTeamCall({
     setMuted(next);
   }, [muted]);
 
-  const toggleCamera = useCallback(() => {
-    const next = !cameraOff;
-    localStreamRef.current?.getVideoTracks().forEach((track) => { track.enabled = !next; });
-    setCameraOff(next);
-  }, [cameraOff]);
+  const toggleCamera = useCallback(async () => {
+    const currentStream = localStreamRef.current;
+    if (!currentStream || !navigator.mediaDevices?.getUserMedia) {
+      setStatus("Este navegador nao permite acessar a camera.");
+      return;
+    }
+    const currentTrack = currentStream.getVideoTracks()[0];
+    if (currentTrack) {
+      const enabling = !currentTrack.enabled;
+      currentTrack.enabled = enabling;
+      if (enabling && !screenStreamRef.current) await attachVideoTrack(currentTrack, currentStream);
+      setCameraOff(!enabling);
+      setStatus(enabling ? "Camera ativada" : "Camera desativada");
+      return;
+    }
+
+    setStatus("Ativando camera...");
+    try {
+      const videoConstraints: MediaTrackConstraints = {
+        ...(selectedCameraId ? { deviceId: { exact: selectedCameraId } } : {}),
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      };
+      let cameraStream: MediaStream;
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
+      } catch (error) {
+        if (!selectedCameraId || !(error instanceof DOMException) || !["NotFoundError", "OverconstrainedError"].includes(error.name)) throw error;
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+      }
+      const cameraTrack = cameraStream.getVideoTracks()[0];
+      if (!cameraTrack) throw new Error("A camera nao forneceu video.");
+      const nextStream = new MediaStream([...currentStream.getAudioTracks(), cameraTrack]);
+      localStreamRef.current = nextStream;
+      setLocalStream(nextStream);
+      if (!screenStreamRef.current) await attachVideoTrack(cameraTrack, nextStream);
+      setCameraOff(false);
+      setStatus("Camera ativada");
+      await refreshDevices().catch(() => undefined);
+    } catch (error) {
+      setCameraOff(true);
+      setStatus(mediaAccessError(error, "camera"));
+    }
+  }, [attachVideoTrack, refreshDevices, selectedCameraId]);
 
   const stopScreenShare = useCallback(async () => {
     const activeScreen = screenStreamRef.current;
     screenStreamRef.current = null;
     const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null;
-    await Promise.all(Array.from(peersRef.current.values()).map(async (peer) => {
-      const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-      if (sender) await sender.replaceTrack(cameraTrack);
-    }));
+    await attachVideoTrack(cameraTrack?.enabled ? cameraTrack : null, localStreamRef.current || activeScreen || new MediaStream());
     activeScreen?.getTracks().forEach((track) => {
       track.onended = null;
       track.stop();
     });
     setSharingScreen(false);
-  }, []);
+    setStatus("Transmissao de tela encerrada");
+  }, [attachVideoTrack]);
 
   const toggleScreenShare = useCallback(async () => {
     if (sharingScreen) {
@@ -795,17 +936,16 @@ export function useTeamCall({
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       const screenTrack = stream.getVideoTracks()[0];
+      if (!screenTrack) throw new Error("A tela selecionada nao forneceu video.");
       screenStreamRef.current = stream;
-      await Promise.all(Array.from(peersRef.current.values()).map(async (peer) => {
-        const sender = peer.getSenders().find((item) => item.track?.kind === "video");
-        if (sender) await sender.replaceTrack(screenTrack);
-      }));
+      await attachVideoTrack(screenTrack, stream);
       screenTrack.onended = () => { void stopScreenShare(); };
       setSharingScreen(true);
-    } catch {
-      setStatus("Compartilhamento de tela cancelado.");
+      setStatus("Transmitindo sua tela");
+    } catch (error) {
+      setStatus(mediaAccessError(error, "tela"));
     }
-  }, [sharingScreen, stopScreenShare]);
+  }, [attachVideoTrack, sharingScreen, stopScreenShare]);
 
   const endCall = useCallback(async () => {
     await stopRecording();
@@ -834,6 +974,7 @@ export function useTeamCall({
     muted,
     cameraOff,
     sharingScreen,
+    callElapsedSeconds,
     recording,
     recordingElapsedSeconds,
     connectionQuality,

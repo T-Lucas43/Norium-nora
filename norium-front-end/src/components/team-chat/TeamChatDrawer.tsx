@@ -51,6 +51,8 @@ type TeamChatDrawerProps = {
   onOpenNora?: (prompt?: string) => void;
   onOpenCalendar?: () => void;
   variant?: "drawer" | "page";
+  initialCallEvent?: TeamCallSocketEvent | null;
+  onInitialCallHandled?: (callId: string) => void;
 };
 
 const API_URL = `${apiBaseUrl()}/api/team-chat`;
@@ -479,7 +481,7 @@ function SubteamEditorDialog({
   );
 }
 
-export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenCalendar, variant = "drawer" }: TeamChatDrawerProps) {
+export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenCalendar, variant = "drawer", initialCallEvent = null, onInitialCallHandled }: TeamChatDrawerProps) {
   const [members, setMembers] = useState<NoriumUser[]>([]);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [subteams, setSubteams] = useState<Subteam[]>([]);
@@ -501,6 +503,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const inputRef = useRef<HTMLInputElement>(null);
   const lastScrolledThreadRef = useRef("");
   const socketRef = useRef<WebSocket | null>(null);
+  const pendingSocketEventsRef = useRef<Record<string, unknown>[]>([]);
+  const handledInitialCallRef = useRef("");
 
   const recipientOptions = useMemo(
     () => members.filter((member) => member.id !== session.user.id && member.status === "ativo"),
@@ -516,12 +520,25 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     subteamId: scope === "subteam" ? subteamId : null,
   }), [recipientId, scope, subteamId, threadTitle]);
   const sendSocketEvent = useCallback((payload: Record<string, unknown>) => {
-    if (socketRef.current?.readyState !== WebSocket.OPEN) return false;
+    if (socketRef.current?.readyState !== WebSocket.OPEN) {
+      pendingSocketEventsRef.current.push(payload);
+      return true;
+    }
     socketRef.current.send(JSON.stringify(payload));
     return true;
   }, []);
   const call = useTeamCall({ session, thread: callThread, sendSocketEvent });
-  const handleCallSocketEvent = call.handleSocketEvent;
+  const baseHandleCallSocketEvent = call.handleSocketEvent;
+  const handleCallSocketEvent = useCallback(async (event: TeamCallSocketEvent) => {
+    if (event.type === "CALL_INVITE") {
+      const nextScope = event.scope || "team";
+      setScope(nextScope);
+      if (nextScope === "direct") setRecipientId(event.fromUserId || "");
+      if (nextScope === "subteam") setSubteamId(event.subteamId || "");
+      setContentTab("chat");
+    }
+    await baseHandleCallSocketEvent(event);
+  }, [baseHandleCallSocketEvent]);
   const threadAttachments = useMemo(() => messages.flatMap((message) => message.attachments || []), [messages]);
   const photoAttachments = useMemo(() => threadAttachments.filter(isImageAttachment), [threadAttachments]);
   const mentionMatch = useMemo(() => text.match(NORA_MENTION_AT_END), [text]);
@@ -595,6 +612,14 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   }, [loadMessages, open]);
 
   useEffect(() => {
+    if (!open || !initialCallEvent?.callId || handledInitialCallRef.current === initialCallEvent.callId) return;
+    handledInitialCallRef.current = initialCallEvent.callId;
+    void handleCallSocketEvent(initialCallEvent)
+      .then(() => onInitialCallHandled?.(initialCallEvent.callId || ""))
+      .catch(() => setError("Falha ao abrir o convite da reuniao."));
+  }, [handleCallSocketEvent, initialCallEvent, onInitialCallHandled, open]);
+
+  useEffect(() => {
     if (!open) return;
     const token = session.token || authToken();
     if (!token) return;
@@ -603,6 +628,10 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       if (cancelled) return;
       const socket = new WebSocket(socketUrl);
       socketRef.current = socket;
+      socket.onopen = () => {
+        const queued = pendingSocketEventsRef.current.splice(0);
+        queued.forEach((payload) => socket.send(JSON.stringify(payload)));
+      };
       socket.onmessage = (event) => {
         let payload: Record<string, any> = {};
         try {
@@ -632,6 +661,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       cancelled = true;
       socketRef.current?.close();
       socketRef.current = null;
+      pendingSocketEventsRef.current = [];
     };
   }, [handleCallSocketEvent, loadSubteams, onUnread, open, recipientId, scope, session.token, session.user.id, subteamId]);
 
@@ -648,9 +678,12 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     return () => window.cancelAnimationFrame(frame);
   }, [loading, messages.length, open, recipientId, scope, subteamId]);
 
-  async function sendMessage(overrideText?: string) {
+  async function sendMessage(overrideText?: string, overrideFiles?: File[], targetThread = call.active?.thread) {
     const outgoingText = overrideText ?? text;
-    const outgoingFiles = overrideText === undefined ? files : [];
+    const outgoingFiles = overrideFiles ?? (overrideText === undefined ? files : []);
+    const outgoingScope = targetThread?.scope || scope;
+    const outgoingRecipientId = outgoingScope === "direct" ? targetThread?.recipientId || recipientId : null;
+    const outgoingSubteamId = outgoingScope === "subteam" ? targetThread?.subteamId || subteamId : null;
     if ((!outgoingText.trim() && outgoingFiles.length === 0) || sending) return;
     setSending(true);
     setError("");
@@ -662,15 +695,15 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           dataUrl: await fileToDataUrl(file),
         })),
       );
-      const response = await fetch(scope === "subteam" ? `${API_URL}/subteams/${subteamId}/messages` : `${API_URL}/messages`, {
+      const response = await fetch(outgoingScope === "subteam" ? `${API_URL}/subteams/${outgoingSubteamId}/messages` : `${API_URL}/messages`, {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }, session.token),
-        body: JSON.stringify(scope === "subteam" ? {
+        body: JSON.stringify(outgoingScope === "subteam" ? {
           text: outgoingText,
           attachments,
         } : {
-          scope,
-          recipientId: scope === "direct" ? recipientId : null,
+          scope: outgoingScope,
+          recipientId: outgoingRecipientId,
           text: outgoingText,
           attachments,
         }),
@@ -678,7 +711,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || "Falha ao enviar mensagem.");
       setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
-      if (overrideText === undefined) {
+      if (overrideText === undefined && overrideFiles === undefined) {
         setText("");
         setFiles([]);
       }
@@ -756,8 +789,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             </div>
             <div className="flex items-center gap-1">
               {onOpenCalendar && <Button variant="ghost" size="sm" iconOnly onClick={onOpenCalendar} aria-label="Abrir calendario"><CalendarDays size={17} /></Button>}
-              <Button variant="ghost" size="sm" iconOnly disabled={!canStartCall} onClick={() => void call.startCall("audio")} aria-label="Iniciar chamada de voz"><Phone size={17} /></Button>
-              <Button variant="ghost" size="sm" iconOnly disabled={!canStartCall} onClick={() => void call.startCall("video")} aria-label="Iniciar chamada de video"><Video size={17} /></Button>
+              <Button variant="ghost" size="sm" iconOnly disabled={!canStartCall} onClick={() => void call.startCall()} aria-label="Iniciar reunião"><Video size={17} /></Button>
               {variant === "drawer" ? (
                 <Button variant="ghost" size="sm" iconOnly onClick={onClose}><X size={18} /></Button>
               ) : (
@@ -948,7 +980,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
                 {scope === "team" ? "Canal interno para decisoes, atualizacoes e colaboracao entre todos os membros." : scope === "subteam" ? selectedSubteam?.description || "Comunidade reservada para os membros desta subequipe." : "Conversa reservada entre os participantes selecionados."}
               </p>
-              <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={() => void call.startCall("audio")} disabled={!canStartCall} icon={<Phone size={14} />}>Voz</Button><Button variant="secondary" size="sm" onClick={() => void call.startCall("video")} disabled={!canStartCall} icon={<Video size={14} />}>Video</Button></div>
+              <div className="mt-4"><Button className="w-full" variant="secondary" size="sm" onClick={() => void call.startCall()} disabled={!canStartCall} icon={<Video size={14} />}>Iniciar reunião</Button></div>
               <div className="mt-5 grid gap-2">
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <span className="text-xs font-bold text-[var(--text-secondary)]">Participantes</span>
@@ -979,10 +1011,13 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                 <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Membros</p>
                 <div className="mt-3 space-y-2">
                   {members.filter((member) => scope !== "subteam" || selectedSubteam?.memberIds.includes(member.id)).slice(0, 8).map((member) => (
-                    <button key={member.id} type="button" onClick={() => { if (member.id !== session.user.id) { setScope("direct"); setRecipientId(member.id); } }} className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-left hover:bg-[var(--surface-hover)]">
-                      <MessageAvatar name={member.nome} avatar={member.fotoUrl || ""} />
-                      <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{member.nome}</strong><small className={onlineUserIds.includes(member.id) ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{onlineUserIds.includes(member.id) ? "Online" : "Offline"}</small></span>
-                    </button>
+                    <div key={member.id} className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 hover:bg-[var(--surface-hover)]">
+                      <button type="button" onClick={() => { if (member.id !== session.user.id) { setScope("direct"); setRecipientId(member.id); } }} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                        <MessageAvatar name={member.nome} avatar={member.fotoUrl || ""} />
+                        <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{member.nome}</strong><small className={onlineUserIds.includes(member.id) ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{onlineUserIds.includes(member.id) ? "Online" : "Offline"}</small></span>
+                      </button>
+                      {member.id !== session.user.id && <button type="button" onClick={() => { setScope("direct"); setRecipientId(member.id); void call.startCall({ scope: "direct", title: member.nome, recipientId: member.id, subteamId: null }); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[var(--primary)] hover:bg-[var(--surface)]" aria-label={`Ligar individualmente para ${member.nome}`}><Phone size={15} /></button>}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -995,7 +1030,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             messages={messages}
             members={members}
             currentUserId={session.user.id}
-            onSendMessage={async (message) => { await sendMessage(message); }}
+            onSendMessage={async (message, meetingFiles) => { await sendMessage(message, meetingFiles, call.active?.thread); }}
             onDownloadAttachment={(attachment) => { void downloadWithAuth(attachment.url, attachment.name, session.token); }}
           />
         </motion.aside>

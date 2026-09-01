@@ -139,6 +139,41 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(expired_message["metadata"]["recordingExpired"])
             self.assertFalse(recording_path.exists())
 
+    async def test_active_meeting_invite_is_replayable_and_stale_meetings_are_removed(self) -> None:
+        current_started_at = datetime.now(timezone.utc).isoformat()
+        store = team_router.empty_store()
+        store["activeCalls"] = [
+            {
+                "callId": "call_0123456789abcdef",
+                "scope": "team",
+                "threadId": "team",
+                "recipientId": None,
+                "subteamId": None,
+                "participantIds": ["owner", "member"],
+                "hostUserId": "owner",
+                "hostUserName": "Owner",
+                "startedAt": current_started_at,
+            },
+            {
+                "callId": "call_fedcba9876543210",
+                "scope": "direct",
+                "threadId": "direct:member:owner",
+                "recipientId": "member",
+                "subteamId": None,
+                "participantIds": ["owner", "member"],
+                "hostUserId": "owner",
+                "hostUserName": "Owner",
+                "startedAt": (datetime.now(timezone.utc) - timedelta(hours=13)).isoformat(),
+            },
+        ]
+
+        self.assertTrue(team_router.purge_stale_active_calls(store))
+        self.assertEqual(1, len(store["activeCalls"]))
+        invite = team_router.active_call_invite(store["activeCalls"][0])
+        self.assertEqual("CALL_INVITE", invite["type"])
+        self.assertEqual("call_0123456789abcdef", invite["callId"])
+        self.assertEqual(current_started_at, invite["startedAt"])
+
 
 if __name__ == "__main__":
     unittest.main()

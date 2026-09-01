@@ -4,15 +4,17 @@ import TeamCallOverlay from "./TeamCallOverlay";
 import type { ReturnTypeOfTeamCall } from "./teamCallTypes";
 
 describe("tela da reuniao do Modo Equipe", () => {
-  it("exibe gravacao, chat, dispositivos, qualidade, reacoes e compartilhamento", () => {
+  it("exibe reuniao unificada, duracao, camera, anexos e compartilhamento", () => {
+    const onSendMessage = vi.fn().mockResolvedValue(undefined);
     const call = {
       incoming: null,
-      active: { callId: "call_0123456789abcdef", mode: "video", title: "Comercial", hostUserId: "owner", thread: { scope: "team", title: "Comercial" } },
+      active: { callId: "call_0123456789abcdef", mode: "audio", title: "Comercial", hostUserId: "owner", startedAt: new Date().toISOString(), thread: { scope: "team", title: "Comercial" } },
       localStream: null,
       remoteStreams: [],
       muted: false,
-      cameraOff: false,
+      cameraOff: true,
       sharingScreen: false,
+      callElapsedSeconds: 65,
       recording: false,
       recordingElapsedSeconds: 0,
       connectionQuality: "good",
@@ -38,14 +40,19 @@ describe("tela da reuniao do Modo Equipe", () => {
       selectSpeaker: vi.fn(),
     } as unknown as ReturnTypeOfTeamCall;
 
-    render(<TeamCallOverlay call={call} messages={[]} members={[{ id: "owner", nome: "Owner" }]} currentUserId="owner" onSendMessage={vi.fn()} onDownloadAttachment={vi.fn()} />);
+    render(<TeamCallOverlay call={call} messages={[]} members={[{ id: "owner", nome: "Owner" }]} currentUserId="owner" onSendMessage={onSendMessage} onDownloadAttachment={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "Gravar reunião" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Transmitir tela" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ativar câmera" })).toBeInTheDocument();
     expect(screen.getByRole("status", { name: "Qualidade da internet: Conexão excelente" })).toBeInTheDocument();
+    expect(screen.getByText(/01:05/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Abrir chat da reunião" }));
     expect(screen.getByRole("heading", { name: "Chat da reunião" })).toBeInTheDocument();
+    const meetingFile = new File(["conteudo"], "pauta.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("Anexar arquivos no chat da reunião").querySelector("input") as HTMLInputElement, { target: { files: [meetingFile] } });
+    expect(screen.getByText("pauta.pdf")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Enviar reação com emoji" }));
     fireEvent.click(screen.getByRole("button", { name: "Reagir com 👍" }));

@@ -7078,13 +7078,22 @@ html.mail-fullscreen-open body{
   gap:2px;
   border-radius:8px;
   padding:5px 8px;
-  color:rgba(255,255,255,.88);
+  color:var(--text);
   font-size:10px;
   font-weight:700;
   white-space:nowrap;
   transition:background-color .16s ease,color .16s ease;
 }
-.team-call-top-control:hover{ background:rgba(255,255,255,.1); }
+.team-call-top-control:hover{ background:var(--surface-hover); }
+.team-call-top-control.team-call-active{
+  background:color-mix(in srgb, var(--primary) 18%, var(--surface));
+  color:var(--primary);
+}
+.team-call-top-control.team-call-danger{ color:#f43f5e; }
+.team-call-shell{
+  --team-call-panel:var(--surface);
+  --team-call-stage:var(--screen-background);
+}
 .team-call-reaction{ animation:team-call-reaction-float 4.2s ease-out both; }
 @keyframes team-call-reaction-float{
   0%{ opacity:0; transform:translateY(34px) scale(.72); }

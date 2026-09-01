@@ -55,6 +55,8 @@ function RemoteParticipantMedia({ stream, participantName, sharing, sinkId }: { 
         setAudioBlocked(false);
         return;
       }
+      audio.muted = false;
+      audio.volume = 1;
       void audio.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
     };
     const refreshVideo = () => {

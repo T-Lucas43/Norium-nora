@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import "webrtc-adapter";
 import type { AuthSession } from "../../types/auth";
 import { apiBaseUrl } from "../../utils/api";
 
@@ -94,7 +95,10 @@ function configuredIceServers(): RTCIceServer[] {
       // Uma configuracao invalida nao deve impedir chamadas na mesma rede.
     }
   }
-  return [{ urls: "stun:stun.l.google.com:19302" }];
+  return [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+    { urls: "stun:stun.cloudflare.com:3478" },
+  ];
 }
 
 function callId() {
@@ -149,6 +153,7 @@ export function useTeamCall({
   const incomingRef = useRef<IncomingCall | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
+  const audioSendersRef = useRef(new Map<string, RTCRtpSender>());
   const videoSendersRef = useRef(new Map<string, RTCRtpSender>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const remoteStreamByUserRef = useRef(new Map<string, MediaStream>());
@@ -225,6 +230,7 @@ export function useTeamCall({
   const closePeer = useCallback((userId: string) => {
     peersRef.current.get(userId)?.close();
     peersRef.current.delete(userId);
+    audioSendersRef.current.delete(userId);
     videoSendersRef.current.delete(userId);
     pendingCandidatesRef.current.delete(userId);
     remoteStreamByUserRef.current.get(userId)?.getTracks().forEach((track) => {
@@ -251,6 +257,7 @@ export function useTeamCall({
     stopConnectingSound();
     peersRef.current.forEach((peer) => peer.close());
     peersRef.current.clear();
+    audioSendersRef.current.clear();
     videoSendersRef.current.clear();
     pendingCandidatesRef.current.clear();
     remoteStreamByUserRef.current.forEach((stream) => stream.getTracks().forEach((track) => {
@@ -367,10 +374,35 @@ export function useTeamCall({
 
   const acquireMedia = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este navegador nao permite acesso ao microfone.");
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: selectedMicrophoneId ? { deviceId: { exact: selectedMicrophoneId } } : true,
-      video: false,
-    });
+    const audioPreferences: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      ...(selectedMicrophoneId ? { deviceId: { exact: selectedMicrophoneId } } : {}),
+    };
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: audioPreferences, video: false });
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : "";
+      if (!selectedMicrophoneId || !["NotFoundError", "OverconstrainedError"].includes(name)) throw error;
+      setSelectedMicrophoneId("");
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: false,
+      });
+    }
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new DOMException("O microfone nao forneceu audio.", "NotFoundError");
+    }
+    audioTrack.enabled = true;
+    if ("contentHint" in audioTrack) audioTrack.contentHint = "speech";
+    audioTrack.onended = () => {
+      setMuted(true);
+      setStatus("O microfone foi desconectado. Abra Dispositivos e escolha uma entrada de áudio.");
+    };
     localStreamRef.current = stream;
     setLocalStream(stream);
     setCameraOff(true);
@@ -429,11 +461,12 @@ export function useTeamCall({
     setStatus(kind === "audio" ? "Trocando microfone..." : "Trocando camera...");
     try {
       const replacementStream = await navigator.mediaDevices.getUserMedia(kind === "audio"
-        ? { audio: deviceId ? { deviceId: { exact: deviceId } } : true, video: false }
+        ? { audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }
         : { audio: false, video: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), width: { ideal: 1280 }, height: { ideal: 720 } } });
       const replacementTrack = kind === "audio" ? replacementStream.getAudioTracks()[0] : replacementStream.getVideoTracks()[0];
       if (!replacementTrack) throw new Error("O dispositivo selecionado nao forneceu midia.");
       replacementTrack.enabled = kind === "audio" ? !muted : !cameraOff;
+      if (kind === "audio" && "contentHint" in replacementTrack) replacementTrack.contentHint = "speech";
 
       // Durante a transmissao de tela, a nova camera fica preparada localmente
       // e passa a ser enviada quando o compartilhamento terminar.
@@ -441,8 +474,11 @@ export function useTeamCall({
         await Promise.all(Array.from(peersRef.current.entries()).map(async ([remoteUserId, peer]) => {
           const sender = kind === "video"
             ? videoSendersRef.current.get(remoteUserId)
-            : peer.getSenders().find((item) => item.track?.kind === kind);
-          if (sender) await sender.replaceTrack(replacementTrack);
+            : audioSendersRef.current.get(remoteUserId) || peer.getSenders().find((item) => item.track?.kind === kind);
+          if (sender) {
+            await sender.replaceTrack(replacementTrack);
+            if (kind === "audio") audioSendersRef.current.set(remoteUserId, sender);
+          }
         }));
       }
 
@@ -710,11 +746,22 @@ export function useTeamCall({
     if (!call || remoteUserId === session.user.id) return null;
     let peer = peersRef.current.get(remoteUserId);
     if (!peer) {
-      peer = new RTCPeerConnection({ iceServers: configuredIceServers() });
-      peersRef.current.set(remoteUserId, peer);
-      localStreamRef.current?.getAudioTracks().forEach((track) => {
-        peer?.addTrack(track, localStreamRef.current as MediaStream);
+      peer = new RTCPeerConnection({
+        iceServers: configuredIceServers(),
+        iceCandidatePoolSize: 4,
+        bundlePolicy: "max-bundle",
       });
+      peersRef.current.set(remoteUserId, peer);
+      const localAudioTrack = localStreamRef.current?.getAudioTracks().find((track) => track.readyState !== "ended");
+      if (localAudioTrack && localStreamRef.current) {
+        const audioSender = peer.addTrack(localAudioTrack, localStreamRef.current);
+        audioSendersRef.current.set(remoteUserId, audioSender);
+      } else {
+        // Mantem um canal de audio negociado mesmo se o dispositivo for
+        // conectado alguns instantes depois de entrar na reuniao.
+        const transceiver = peer.addTransceiver("audio", { direction: "sendrecv" });
+        audioSendersRef.current.set(remoteUserId, transceiver.sender);
+      }
       const outgoingVideoTrack = screenStreamRef.current?.getVideoTracks()[0]
         || localStreamRef.current?.getVideoTracks().find((track) => track.enabled);
       const outgoingVideoStream = screenStreamRef.current || localStreamRef.current;
@@ -771,7 +818,29 @@ export function useTeamCall({
         ]);
       };
       peer.onconnectionstatechange = () => {
-        if (["failed", "closed", "disconnected"].includes(peer?.connectionState || "")) closePeer(remoteUserId);
+        const connectionState = peer?.connectionState || "";
+        if (connectionState === "connected") {
+          const currentAudioTrack = localStreamRef.current?.getAudioTracks().find((track) => track.readyState !== "ended") || null;
+          const audioSender = audioSendersRef.current.get(remoteUserId);
+          if (audioSender && currentAudioTrack && audioSender.track !== currentAudioTrack) {
+            void audioSender.replaceTrack(currentAudioTrack).catch(() => undefined);
+          }
+          setStatus("Na chamada · áudio conectado");
+          return;
+        }
+        if (connectionState === "failed") {
+          // Uma troca de rede pode invalidar o par ICE. Tentar uma nova rota e
+          // renegociar evita encerrar a midia dos dois lados prematuramente.
+          peer?.restartIce();
+          if (peer) void negotiatePeer(remoteUserId, peer).catch(() => closePeer(remoteUserId));
+          return;
+        }
+        if (connectionState === "disconnected") {
+          setConnectionQuality("poor");
+          setStatus("Reconectando áudio e vídeo...");
+          return;
+        }
+        if (connectionState === "closed") closePeer(remoteUserId);
       };
     }
     if (createOffer) await negotiatePeer(remoteUserId, peer);
@@ -836,7 +905,7 @@ export function useTeamCall({
   }, [callPayload, incoming, sendSocketEvent, stopConnectingSound]);
 
   const handleSocketEvent = useCallback(async (event: TeamCallSocketEvent) => {
-    if (!event.callId || !event.fromUserId || event.fromUserId === session.user.id) {
+    if (!event.callId || !event.fromUserId || (event.fromUserId === session.user.id && event.type !== "CALL_END")) {
       if (event.type === "CALL_ERROR" && event.detail) setStatus(event.detail);
       return;
     }
@@ -1076,9 +1145,13 @@ export function useTeamCall({
   }, [attachVideoTrack, callPayload, sendSocketEvent, sharingScreen, stopScreenShare]);
 
   const endCall = useCallback(async () => {
+    const call = activeRef.current;
+    // O encerramento remoto nao deve esperar a gravacao terminar de enviar.
+    // Assim todos os participantes e as outras abas fecham imediatamente.
+    if (call) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
     await stopRecording();
-    finishCall(true, "ended");
-  }, [finishCall, stopRecording]);
+    finishCall(false, "ended");
+  }, [callPayload, finishCall, sendSocketEvent, stopRecording]);
 
   const leaveCall = useCallback(async () => {
     const call = activeRef.current;

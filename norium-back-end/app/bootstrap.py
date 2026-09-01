@@ -284,7 +284,12 @@ def create_app() -> FastAPI:
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-            response.headers["Permissions-Policy"] = "camera=(), geolocation=(), payment=(), usb=()"
+            # Camera e microfone sao recursos centrais das reunioes do Modo
+            # Equipe. `camera=()` bloqueia getUserMedia antes mesmo de o
+            # navegador poder mostrar o pedido de permissao ao usuario.
+            response.headers["Permissions-Policy"] = (
+                "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+            )
             response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "

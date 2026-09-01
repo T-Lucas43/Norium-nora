@@ -61,7 +61,11 @@ describe("chamadas do Modo Equipe", () => {
       video: { width: { ideal: 1280 }, height: { ideal: 720 } },
     });
     expect(getUserMedia).toHaveBeenNthCalledWith(2, {
-      audio: true,
+      audio: {
+        autoGainControl: true,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
       video: false,
     });
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({
@@ -127,7 +131,15 @@ describe("chamadas do Modo Equipe", () => {
     expect(result.current.cameraOff).toBe(false);
 
     await act(async () => result.current.selectMicrophone("mic-2"));
-    expect(getUserMedia).toHaveBeenLastCalledWith({ audio: { deviceId: { exact: "mic-2" } }, video: false });
+    expect(getUserMedia).toHaveBeenLastCalledWith({
+      audio: {
+        autoGainControl: true,
+        deviceId: { exact: "mic-2" },
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+      video: false,
+    });
     expect(result.current.selectedMicrophoneId).toBe("mic-2");
     expect(oldAudio.stop).toHaveBeenCalled();
 
@@ -138,14 +150,15 @@ describe("chamadas do Modo Equipe", () => {
 
   it("responde uma chamada individual usando o organizador como destinatario", async () => {
     const cameraTrack = { kind: "video", stop: vi.fn() } as unknown as MediaStreamTrack;
+    const audioTrack = { kind: "audio", enabled: true, readyState: "live", stop: vi.fn() } as unknown as MediaStreamTrack;
     const cameraStream = {
       getTracks: () => [cameraTrack],
       getAudioTracks: () => [],
       getVideoTracks: () => [cameraTrack],
     } as unknown as MediaStream;
     const audioStream = {
-      getTracks: () => [],
-      getAudioTracks: () => [],
+      getTracks: () => [audioTrack],
+      getAudioTracks: () => [audioTrack],
       getVideoTracks: () => [],
     } as unknown as MediaStream;
     Object.defineProperty(navigator, "mediaDevices", {

@@ -97,6 +97,35 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"owner", "member"}, recipients)
         self.assertNotIn("other", recipients)
 
+    async def test_call_end_reaches_other_tabs_but_not_the_origin_socket(self) -> None:
+        manager = team_router.PresenceManager()
+        origin_socket = MagicMock()
+        origin_socket.send_json = AsyncMock()
+        other_owner_tab = MagicMock()
+        other_owner_tab.send_json = AsyncMock()
+        member_socket = MagicMock()
+        member_socket.send_json = AsyncMock()
+        manager.connections["owner"] = [origin_socket, other_owner_tab, member_socket]
+        manager.socket_user = {
+            origin_socket: "owner",
+            other_owner_tab: "owner",
+            member_socket: "member",
+        }
+        manager.user_team = {"owner": "owner", "member": "owner"}
+        event = {"type": "CALL_END", "callId": "call_0123456789abcdef"}
+
+        with patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)):
+            await manager.send_to_users(
+                "owner",
+                {"owner", "member"},
+                event,
+                exclude_websocket=origin_socket,
+            )
+
+        origin_socket.send_json.assert_not_awaited()
+        other_owner_tab.send_json.assert_awaited_once_with(event)
+        member_socket.send_json.assert_awaited_once_with(event)
+
     async def test_image_attachment_is_saved_and_returned_in_team_chat(self) -> None:
         image_bytes = b"\x89PNG\r\n\x1a\nteam-image"
         manager = team_router.PresenceManager()

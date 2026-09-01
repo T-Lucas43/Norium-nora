@@ -153,7 +153,14 @@ class PresenceManager:
         for websocket in disconnected:
             self.disconnect(websocket, self.socket_user.get(websocket, ""))
 
-    async def send_to_users(self, team_id: str, user_ids: set[str], payload: dict[str, Any]) -> None:
+    async def send_to_users(
+        self,
+        team_id: str,
+        user_ids: set[str],
+        payload: dict[str, Any],
+        *,
+        exclude_websocket: WebSocket | None = None,
+    ) -> None:
         disconnected: list[WebSocket] = []
         store = await read_user_store()
         users_by_id = {
@@ -162,6 +169,8 @@ class PresenceManager:
             if isinstance(item, dict)
         }
         for websocket in list(self.connections.get(team_id, [])):
+            if websocket is exclude_websocket:
+                continue
             connected_user_id = self.socket_user.get(websocket, "")
             if connected_user_id not in user_ids:
                 continue
@@ -1322,6 +1331,11 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                     if target_user_id not in participant_ids or target_user_id == user_id or not isinstance(payload.get("signal"), dict):
                         raise HTTPException(status_code=400, detail="Destino de sinalizacao invalido.")
                     recipients = {target_user_id}
+                elif event_type == "CALL_END":
+                    # Encerra tambem outras abas e dispositivos do organizador.
+                    # Apenas o websocket que originou a acao e excluido, pois
+                    # ele fecha a propria interface localmente.
+                    recipients = participant_ids
                 else:
                     recipients = participant_ids - {user_id}
                 event_created_at = now_iso()
@@ -1397,7 +1411,12 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                         call_store["messages"] = call_store["messages"][-2000:]
                         await asyncio.to_thread(write_chat_store, team_id, call_store)
                     await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": call_message})
-                await manager.send_to_users(team_id, recipients, event)
+                await manager.send_to_users(
+                    team_id,
+                    recipients,
+                    event,
+                    exclude_websocket=websocket if event_type == "CALL_END" else None,
+                )
                 await websocket.send_json({"type": "CALL_ACK", "callId": call_id, "event": event_type})
             except HTTPException as exc:
                 await websocket.send_json({"type": "CALL_ERROR", "callId": call_id, "detail": exc.detail})

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import mimetypes
 import re
 import uuid
@@ -48,6 +49,23 @@ class SendTeamMessagePayload(StrictModel):
     recipientId: str | None = None
     text: str = Field(default="", max_length=2000)
     attachments: list[AttachmentPayload] = []
+
+
+class SendSubteamMessagePayload(StrictModel):
+    text: str = Field(default="", max_length=2000)
+    attachments: list[AttachmentPayload] = []
+
+
+class SubteamCreatePayload(StrictModel):
+    name: str = Field(min_length=2, max_length=80)
+    description: str = Field(default="", max_length=500)
+    memberIds: list[str] = Field(default_factory=list, max_length=100)
+
+
+class SubteamUpdatePayload(StrictModel):
+    name: str | None = Field(default=None, min_length=2, max_length=80)
+    description: str | None = Field(default=None, max_length=500)
+    memberIds: list[str] | None = Field(default=None, max_length=100)
 
 
 class PresenceManager:
@@ -105,6 +123,33 @@ class PresenceManager:
         for websocket in disconnected:
             self.disconnect(websocket, self.socket_user.get(websocket, ""))
 
+    async def send_to_users(self, team_id: str, user_ids: set[str], payload: dict[str, Any]) -> None:
+        disconnected: list[WebSocket] = []
+        store = await read_user_store()
+        users_by_id = {
+            str(item.get("id") or ""): item
+            for item in store.get("users", [])
+            if isinstance(item, dict)
+        }
+        for websocket in list(self.connections.get(team_id, [])):
+            connected_user_id = self.socket_user.get(websocket, "")
+            if connected_user_id not in user_ids:
+                continue
+            connected_user = users_by_id.get(connected_user_id)
+            if not connected_user or connected_user.get("status") != "ativo" or team_id_for(connected_user) != team_id:
+                try:
+                    await websocket.close(code=4403)
+                except Exception:
+                    pass
+                disconnected.append(websocket)
+                continue
+            try:
+                await websocket.send_json(payload)
+            except Exception:
+                disconnected.append(websocket)
+        for websocket in disconnected:
+            self.disconnect(websocket, self.socket_user.get(websocket, ""))
+
 
 manager = PresenceManager()
 
@@ -142,7 +187,7 @@ def team_chat_path(team_id: str) -> str:
 
 
 def empty_store() -> dict[str, Any]:
-    return {"messages": [], "createdAt": now_iso(), "updatedAt": now_iso()}
+    return {"messages": [], "subteams": [], "createdAt": now_iso(), "updatedAt": now_iso()}
 
 
 def read_chat_store(team_id: str) -> dict[str, Any]:
@@ -150,6 +195,7 @@ def read_chat_store(team_id: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return empty_store()
     payload.setdefault("messages", [])
+    payload.setdefault("subteams", [])
     return payload
 
 
@@ -175,15 +221,67 @@ async def visible_team_members(user: dict[str, Any]) -> list[dict[str, Any]]:
 def message_visible(message: dict[str, Any], user_id: str) -> bool:
     if message.get("scope") == "team":
         return True
+    if message.get("scope") == "subteam":
+        return user_id in {str(item) for item in message.get("memberIds", [])}
     return user_id in {str(message.get("senderId")), str(message.get("recipientId"))}
 
 
-def normalize_thread_id(scope: str, user_id: str, recipient_id: str | None) -> str:
+def normalize_thread_id(scope: str, user_id: str, recipient_id: str | None, subteam_id: str | None = None) -> str:
     if scope == "team":
         return "team"
+    if scope == "subteam":
+        if not subteam_id:
+            raise HTTPException(status_code=400, detail="subteamId obrigatorio para uma subequipe.")
+        return f"subteam:{subteam_id}"
     if not recipient_id:
         raise HTTPException(status_code=400, detail="recipientId obrigatorio para mensagem direta.")
     return "direct:" + ":".join(sorted([user_id, recipient_id]))
+
+
+def subteam_or_404(store: dict[str, Any], subteam_id: str) -> dict[str, Any]:
+    subteam = next(
+        (item for item in store.get("subteams", []) if isinstance(item, dict) and str(item.get("id")) == subteam_id),
+        None,
+    )
+    if not subteam:
+        raise HTTPException(status_code=404, detail="Subequipe nao encontrada.")
+    return subteam
+
+
+def require_subteam_member(subteam: dict[str, Any], user_id: str) -> None:
+    if user_id not in {str(item) for item in subteam.get("memberIds", [])}:
+        raise HTTPException(status_code=403, detail="Voce nao participa desta subequipe.")
+
+
+async def valid_team_member_ids(user: dict[str, Any]) -> set[str]:
+    return {str(item.get("id") or "") for item in await visible_team_members(user) if item.get("status") == "ativo"}
+
+
+async def thread_participant_ids(
+    user: dict[str, Any],
+    store: dict[str, Any],
+    scope: str,
+    recipient_id: str | None = None,
+    subteam_id: str | None = None,
+) -> set[str]:
+    user_id = str(user.get("id") or "")
+    team_members = await valid_team_member_ids(user)
+    if scope == "team":
+        return team_members
+    if scope == "direct":
+        if not recipient_id or recipient_id not in team_members:
+            raise HTTPException(status_code=404, detail="Membro da equipe nao encontrado.")
+        return {user_id, recipient_id}
+    if scope == "subteam":
+        subteam = subteam_or_404(store, str(subteam_id or ""))
+        require_subteam_member(subteam, user_id)
+        return {str(item) for item in subteam.get("memberIds", []) if str(item) in team_members}
+    raise HTTPException(status_code=400, detail="Conversa invalida.")
+
+
+def can_manage_subteam(user: dict[str, Any], subteam: dict[str, Any]) -> bool:
+    user_id = str(user.get("id") or "")
+    return bool(user.get("systemAdmin") or user_id == team_id_for(user) or user_id == str(subteam.get("createdBy") or ""))
 
 
 def user_avatar_url(user_id: str) -> str:
@@ -302,6 +400,77 @@ async def list_members(user: dict[str, Any] = Depends(current_user)) -> dict[str
     return {"teamId": team_id_for(user), "members": await visible_team_members(user), "onlineUserIds": manager.online_users(team_id_for(user))}
 
 
+@router.get("/subteams")
+async def list_subteams(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    user_id = str(user.get("id") or "")
+    store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    subteams = [
+        item
+        for item in store.get("subteams", [])
+        if isinstance(item, dict) and user_id in {str(member_id) for member_id in item.get("memberIds", [])}
+    ]
+    return {"subteams": subteams}
+
+
+@router.post("/subteams")
+async def create_subteam(payload: SubteamCreatePayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    user_id = str(user.get("id") or "")
+    team_members = await valid_team_member_ids(user)
+    requested_members = {str(item) for item in payload.memberIds}
+    if requested_members - team_members:
+        raise HTTPException(status_code=400, detail="A subequipe contem usuarios que nao pertencem a esta equipe.")
+    now = now_iso()
+    subteam = {
+        "id": f"subteam_{uuid.uuid4().hex}",
+        "name": payload.name.strip(),
+        "description": payload.description.strip(),
+        "memberIds": sorted((requested_members | {user_id}) & team_members),
+        "createdBy": user_id,
+        "createdAt": now,
+        "updatedAt": now,
+    }
+    team_id = team_id_for(user)
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        if any(str(item.get("name") or "").casefold() == subteam["name"].casefold() for item in store.get("subteams", []) if isinstance(item, dict)):
+            raise HTTPException(status_code=409, detail="Ja existe uma subequipe com este nome.")
+        store.setdefault("subteams", []).append(subteam)
+        await asyncio.to_thread(write_chat_store, team_id, store)
+    await manager.send_to_users(team_id, set(subteam["memberIds"]), {"type": "SUBTEAM_UPDATED", "subteam": subteam})
+    return {"subteam": subteam}
+
+
+@router.patch("/subteams/{subteam_id}")
+async def update_subteam(subteam_id: str, payload: SubteamUpdatePayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    team_id = team_id_for(user)
+    team_members = await valid_team_member_ids(user)
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        current = subteam_or_404(store, subteam_id)
+        if not can_manage_subteam(user, current):
+            raise HTTPException(status_code=403, detail="Somente o criador ou administrador pode editar esta subequipe.")
+        updates = payload.model_dump(exclude_unset=True)
+        if "name" in updates:
+            updates["name"] = str(updates["name"]).strip()
+        if "description" in updates:
+            updates["description"] = str(updates["description"]).strip()
+        if payload.memberIds is not None:
+            requested_members = {str(item) for item in payload.memberIds}
+            if requested_members - team_members:
+                raise HTTPException(status_code=400, detail="A subequipe contem usuarios que nao pertencem a esta equipe.")
+            requested_members.add(str(current.get("createdBy") or user.get("id") or ""))
+            updates["memberIds"] = sorted(requested_members & team_members)
+        updated = {**current, **updates, "updatedAt": now_iso()}
+        store["subteams"] = [updated if item is current else item for item in store.get("subteams", [])]
+        await asyncio.to_thread(write_chat_store, team_id, store)
+    notified = {str(item) for item in current.get("memberIds", [])} | {str(item) for item in updated.get("memberIds", [])}
+    await manager.send_to_users(team_id, notified, {"type": "SUBTEAM_UPDATED", "subteam": updated})
+    return {"subteam": updated}
+
+
 @router.get("/messages")
 async def list_messages(
     scope: MessageScope = "team",
@@ -310,8 +479,9 @@ async def list_messages(
 ) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user["id"])
-    thread_id = normalize_thread_id(scope, user_id, recipientId)
     store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    await thread_participant_ids(user, store, scope, recipientId)
+    thread_id = normalize_thread_id(scope, user_id, recipientId)
     messages = [
         item for item in store.get("messages", [])
         if isinstance(item, dict) and item.get("threadId") == thread_id and message_visible(item, user_id)
@@ -319,27 +489,52 @@ async def list_messages(
     return {"threadId": thread_id, "messages": messages[-300:]}
 
 
-@router.post("/messages")
-async def send_message(payload: SendTeamMessagePayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+@router.get("/subteams/{subteam_id}/messages")
+async def list_subteam_messages(subteam_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user["id"])
-    if not payload.text.strip() and not payload.attachments:
+    store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    await thread_participant_ids(user, store, "subteam", subteam_id=subteam_id)
+    thread_id = normalize_thread_id("subteam", user_id, None, subteam_id)
+    messages = [
+        item for item in store.get("messages", [])
+        if isinstance(item, dict) and item.get("threadId") == thread_id and message_visible(item, user_id)
+    ]
+    return {"threadId": thread_id, "messages": messages[-300:]}
+
+
+async def persist_message(
+    *,
+    scope: str,
+    recipient_id: str | None,
+    subteam_id: str | None,
+    text: str,
+    attachment_payloads: list[AttachmentPayload],
+    user: dict[str, Any],
+) -> dict[str, Any]:
+    require_team_chat(user)
+    user_id = str(user["id"])
+    if not text.strip() and not attachment_payloads:
         raise HTTPException(status_code=400, detail="Digite uma mensagem ou anexe um arquivo.")
 
     team_id = team_id_for(user)
-    thread_id = normalize_thread_id(payload.scope, user_id, payload.recipientId)
-    attachments = [save_attachment(item) for item in payload.attachments]
-    nora_mentioned = payload.scope == "team" and has_nora_mention(payload.text)
+    store = await asyncio.to_thread(read_chat_store, team_id)
+    participant_ids = await thread_participant_ids(user, store, scope, recipient_id, subteam_id)
+    thread_id = normalize_thread_id(scope, user_id, recipient_id, subteam_id)
+    attachments = [save_attachment(item) for item in attachment_payloads]
+    nora_mentioned = scope == "team" and has_nora_mention(text)
     nora_triggered = nora_mentioned and can_use_nora(user)
     message = {
         "id": f"team_msg_{uuid.uuid4().hex}",
         "threadId": thread_id,
-        "scope": payload.scope,
+        "scope": scope,
         "senderId": user_id,
         "senderName": user.get("nome") or user.get("email") or "Membro",
         "senderAvatar": user_avatar_url(user_id),
-        "recipientId": payload.recipientId if payload.scope == "direct" else None,
-        "text": payload.text.strip(),
+        "recipientId": recipient_id if scope == "direct" else None,
+        "subteamId": subteam_id if scope == "subteam" else None,
+        "memberIds": sorted(participant_ids) if scope == "subteam" else [],
+        "text": text.strip(),
         "attachments": attachments,
         "metadata": {
             "noraMentioned": nora_mentioned,
@@ -353,10 +548,10 @@ async def send_message(payload: SendTeamMessagePayload, user: dict[str, Any] = D
         store["messages"] = store["messages"][-2000:]
         await asyncio.to_thread(write_chat_store, team_id, store)
 
-    await manager.broadcast(team_id, {"type": "TEAM_CHAT_MESSAGE", "message": message})
+    await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": message})
     await record_team_event(
         team_id,
-        "Mensagem no chat interno" if payload.scope == "team" else "Mensagem direta no chat interno",
+        "Mensagem no chat interno" if scope == "team" else "Mensagem na subequipe" if scope == "subteam" else "Mensagem direta no chat interno",
         (
             f"{message['senderName']}: {short_text(message['text'])}. "
             f"Anexos: {len(attachments)}."
@@ -366,10 +561,11 @@ async def send_message(payload: SendTeamMessagePayload, user: dict[str, Any] = D
             "messageId": message["id"],
             "senderId": user_id,
             "senderName": message["senderName"],
-            "scope": payload.scope,
+            "scope": scope,
             "threadId": thread_id,
             "attachments": len(attachments),
-            "recipientId": payload.recipientId,
+            "recipientId": recipient_id,
+            "subteamId": subteam_id,
         },
     )
     if nora_triggered:
@@ -384,9 +580,52 @@ async def send_message(payload: SendTeamMessagePayload, user: dict[str, Any] = D
     return {"message": message}
 
 
+@router.post("/messages")
+async def send_message(payload: SendTeamMessagePayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return await persist_message(
+        scope=payload.scope,
+        recipient_id=payload.recipientId,
+        subteam_id=None,
+        text=payload.text,
+        attachment_payloads=payload.attachments,
+        user=user,
+    )
+
+
+@router.post("/subteams/{subteam_id}/messages")
+async def send_subteam_message(
+    subteam_id: str,
+    payload: SendSubteamMessagePayload,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    return await persist_message(
+        scope="subteam",
+        recipient_id=None,
+        subteam_id=subteam_id,
+        text=payload.text,
+        attachment_payloads=payload.attachments,
+        user=user,
+    )
+
+
 @router.get("/attachments/{file_name}")
-async def download_attachment(file_name: str, _: dict[str, Any] = Depends(current_user)) -> FileResponse:
-    path = UPLOAD_DIR / Path(file_name).name
+async def download_attachment(file_name: str, user: dict[str, Any] = Depends(current_user)) -> FileResponse:
+    require_team_chat(user)
+    safe_file_name = Path(file_name).name
+    store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    user_id = str(user.get("id") or "")
+    visible_file = any(
+        message_visible(message, user_id)
+        and any(
+            isinstance(attachment, dict) and str(attachment.get("storedName") or "") == safe_file_name
+            for attachment in message.get("attachments", [])
+        )
+        for message in store.get("messages", [])
+        if isinstance(message, dict)
+    )
+    if not visible_file:
+        raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
+    path = UPLOAD_DIR / safe_file_name
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
     return FileResponse(path, filename=path.name)
@@ -408,8 +647,81 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
         await websocket.send_json({"type": "CONNECTED", "onlineUserIds": manager.online_users(team_id)})
         while True:
             raw = await websocket.receive_text()
-            if raw:
+            if not raw:
+                continue
+            if len(raw) > 120_000:
+                await websocket.send_json({"type": "CALL_ERROR", "detail": "Sinal de chamada acima do limite."})
+                continue
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                payload = {}
+            event_type = str(payload.get("type") or "") if isinstance(payload, dict) else ""
+            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_END"}:
                 await websocket.send_json({"type": "ACK", "timestamp": now_iso()})
+                continue
+
+            call_id = str(payload.get("callId") or "")
+            scope = str(payload.get("scope") or "team")
+            recipient_id = str(payload.get("recipientId") or "") or None
+            subteam_id = str(payload.get("subteamId") or "") or None
+            if not re.fullmatch(r"call_[a-f0-9]{16,64}", call_id):
+                await websocket.send_json({"type": "CALL_ERROR", "detail": "Identificador de chamada invalido."})
+                continue
+            try:
+                store = await asyncio.to_thread(read_chat_store, team_id)
+                participant_ids = await thread_participant_ids(user, store, scope, recipient_id, subteam_id)
+                thread_id = normalize_thread_id(scope, user_id, recipient_id, subteam_id)
+                target_user_id = str(payload.get("targetUserId") or "")
+                if event_type == "CALL_SIGNAL":
+                    if target_user_id not in participant_ids or target_user_id == user_id or not isinstance(payload.get("signal"), dict):
+                        raise HTTPException(status_code=400, detail="Destino de sinalizacao invalido.")
+                    recipients = {target_user_id}
+                else:
+                    recipients = participant_ids - {user_id}
+                event = {
+                    "type": event_type,
+                    "callId": call_id,
+                    "scope": scope,
+                    "threadId": thread_id,
+                    "recipientId": recipient_id,
+                    "subteamId": subteam_id,
+                    "fromUserId": user_id,
+                    "fromUserName": str(user.get("nome") or user.get("email") or "Membro"),
+                    "mode": "video" if str(payload.get("mode") or "audio") == "video" else "audio",
+                    "signal": payload.get("signal") if event_type == "CALL_SIGNAL" else None,
+                    "createdAt": now_iso(),
+                }
+                if event_type in {"CALL_INVITE", "CALL_END"}:
+                    call_message = {
+                        "id": f"team_msg_{uuid.uuid4().hex}",
+                        "threadId": thread_id,
+                        "scope": scope,
+                        "senderId": user_id,
+                        "senderName": str(user.get("nome") or user.get("email") or "Membro"),
+                        "senderAvatar": user_avatar_url(user_id),
+                        "recipientId": recipient_id if scope == "direct" else None,
+                        "subteamId": subteam_id if scope == "subteam" else None,
+                        "memberIds": sorted(participant_ids) if scope == "subteam" else [],
+                        "text": (
+                            f"Iniciou uma chamada de {'video' if event['mode'] == 'video' else 'voz'}."
+                            if event_type == "CALL_INVITE"
+                            else "Encerrou a chamada."
+                        ),
+                        "attachments": [],
+                        "metadata": {"action": "call_started" if event_type == "CALL_INVITE" else "call_ended", "callId": call_id, "mode": event["mode"]},
+                        "createdAt": now_iso(),
+                    }
+                    async with chat_lock:
+                        call_store = await asyncio.to_thread(read_chat_store, team_id)
+                        call_store.setdefault("messages", []).append(call_message)
+                        call_store["messages"] = call_store["messages"][-2000:]
+                        await asyncio.to_thread(write_chat_store, team_id, call_store)
+                    await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": call_message})
+                await manager.send_to_users(team_id, recipients, event)
+                await websocket.send_json({"type": "CALL_ACK", "callId": call_id, "event": event_type})
+            except HTTPException as exc:
+                await websocket.send_json({"type": "CALL_ERROR", "callId": call_id, "detail": exc.detail})
     except WebSocketDisconnect:
         manager.disconnect(websocket, user_id)
         await manager.broadcast(team_id, {"type": "PRESENCE", "onlineUserIds": manager.online_users(team_id)})

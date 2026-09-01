@@ -242,6 +242,7 @@ export default function AppPanels({
             onClose={() => onNavigate("Equipe")}
             onUnread={() => undefined}
             onOpenNora={onOpenNora}
+            onOpenCalendar={() => onNavigate("Agenda")}
           />
         </section>
       )}

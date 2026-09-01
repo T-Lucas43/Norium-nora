@@ -42,6 +42,7 @@ import A4ContentPages from "./A4ContentPages";
 import CommercialInspector from "./CommercialInspector";
 import NoraReviewPanel from "./NoraReviewPanel";
 import RichTextToolbar from "./RichTextToolbar";
+import { changedDocumentInput, documentDraft, draftSnapshot, type DocumentDraft } from "./commercialSave";
 
 type Focus = "scope" | "risk" | "tone" | "commercial" | "legal" | "grammar";
 type SaveState = "saved" | "dirty" | "saving" | "error";
@@ -89,6 +90,7 @@ export default function CommercialEditor({
   const sourceDocumentIdRef = useRef(sourceDocument.id);
   const shareButtonRef = useRef<HTMLDivElement>(null);
   const savedSnapshotRef = useRef("");
+  const savedDraftRef = useRef<DocumentDraft>(documentDraft(sourceDocument));
   const [title, setTitle] = useState(sourceDocument.title);
   const [contentHtml, setContentHtml] = useState(sourceDocument.contentHtml);
   const [scopeSummary, setScopeSummary] = useState(sourceDocument.scopeSummary);
@@ -119,10 +121,11 @@ export default function CommercialEditor({
   const proposal = isProposal(sourceDocument) ? sourceDocument : null;
   const contract = isProposal(sourceDocument) ? null : sourceDocument;
 
-  const draftSnapshot = useMemo(
-    () => JSON.stringify({ title, contentHtml, scopeSummary, amount, currency, validUntil, branding, signers, deliverables }),
+  const currentDraft = useMemo<DocumentDraft>(
+    () => ({ title, contentHtml, scopeSummary, amount, currency, validUntil, branding, signers, deliverables }),
     [amount, branding, contentHtml, currency, deliverables, scopeSummary, signers, title, validUntil],
   );
+  const currentSnapshot = useMemo(() => draftSnapshot(currentDraft), [currentDraft]);
 
   useEffect(() => {
     const changedDocument = sourceDocumentIdRef.current !== sourceDocument.id;
@@ -140,21 +143,12 @@ export default function CommercialEditor({
     setBranding(sourceDocument.branding);
     setSigners(sourceDocument.signers);
     setDeliverables(sourceDocument.deliverables);
-    const snapshot = JSON.stringify({
-      title: sourceDocument.title,
-      contentHtml: sourceDocument.contentHtml,
-      scopeSummary: sourceDocument.scopeSummary,
-      amount: sourceDocument.amount,
-      currency: sourceDocument.currency,
-      validUntil: isProposal(sourceDocument) ? sourceDocument.validUntil : null,
-      branding: sourceDocument.branding,
-      signers: sourceDocument.signers,
-      deliverables: sourceDocument.deliverables,
-    });
-    savedSnapshotRef.current = snapshot;
+    const savedDraft = documentDraft(sourceDocument);
+    savedDraftRef.current = savedDraft;
+    savedSnapshotRef.current = draftSnapshot(savedDraft);
     sourceDocumentIdRef.current = sourceDocument.id;
     setSaveState("saved");
-  }, [sourceDocument.id, sourceDocument.version]);
+  }, [sourceDocument]);
 
   useEffect(() => {
     setNoraUndoStack([]);
@@ -162,10 +156,10 @@ export default function CommercialEditor({
 
   useEffect(() => {
     if (readOnly || !savedSnapshotRef.current) return;
-    const nextState = draftSnapshot === savedSnapshotRef.current ? "saved" : "dirty";
+    const nextState = currentSnapshot === savedSnapshotRef.current ? "saved" : "dirty";
     setSaveState((current) => current === "saving" ? current : nextState);
     if (nextState === "dirty") setSaveError("");
-  }, [draftSnapshot, readOnly]);
+  }, [currentSnapshot, readOnly]);
 
   useEffect(() => {
     const token = authToken();
@@ -386,38 +380,22 @@ export default function CommercialEditor({
     }
   }
 
-  function currentUpdateInput(expectedVersion: number): DocumentUpdateInput {
-    return {
-      expectedVersion,
-      title,
-      contentHtml,
-      scopeSummary,
-      amount,
-      currency,
-      validUntil,
-      branding,
-      signers: signers.map(({ name, email, role, order, required }) => ({ name, email, role, order, required })),
-      deliverables,
-    };
+  function currentUpdateInput(expectedVersion: number, html = readPagedEditorHtml(editorRef.current, contentHtml)): DocumentUpdateInput {
+    return changedDocumentInput({ ...currentDraft, contentHtml: html }, savedDraftRef.current, expectedVersion);
   }
 
   async function saveDocument() {
-    if (readOnly || saveState === "saving" || draftSnapshot === savedSnapshotRef.current) return;
+    const html = readPagedEditorHtml(editorRef.current, contentHtml);
+    const input = currentUpdateInput(sourceDocument.version, html);
+    if (readOnly || saveState === "saving" || Object.keys(input).length === 1) return;
     setSaveState("saving");
     setSaveError("");
     try {
-      const saved = await onSave(sourceDocument, currentUpdateInput(sourceDocument.version));
-      savedSnapshotRef.current = JSON.stringify({
-        title: saved.title,
-        contentHtml: saved.contentHtml,
-        scopeSummary: saved.scopeSummary,
-        amount: saved.amount,
-        currency: saved.currency,
-        validUntil: isProposal(saved) ? saved.validUntil : null,
-        branding: saved.branding,
-        signers: saved.signers,
-        deliverables: saved.deliverables,
-      });
+      const saved = await onSave(sourceDocument, input);
+      const savedDraft = documentDraft(saved);
+      savedDraftRef.current = savedDraft;
+      savedSnapshotRef.current = draftSnapshot(savedDraft);
+      setContentHtml(saved.contentHtml);
       setSaveState("saved");
       onDocumentChange(saved);
     } catch (error) {
@@ -430,24 +408,16 @@ export default function CommercialEditor({
     if (!proposal) return;
 
     let currentProposal = proposal;
-    if (!readOnly && draftSnapshot !== savedSnapshotRef.current) {
+    if (!readOnly && currentSnapshot !== savedSnapshotRef.current) {
       setSaveState("saving");
       setSaveError("");
       try {
         const saved = await onSave(proposal, currentUpdateInput(proposal.version));
         if (!isProposal(saved)) return;
         currentProposal = saved;
-        savedSnapshotRef.current = JSON.stringify({
-          title: saved.title,
-          contentHtml: saved.contentHtml,
-          scopeSummary: saved.scopeSummary,
-          amount: saved.amount,
-          currency: saved.currency,
-          validUntil: saved.validUntil,
-          branding: saved.branding,
-          signers: saved.signers,
-          deliverables: saved.deliverables,
-        });
+        const savedDraft = documentDraft(saved);
+        savedDraftRef.current = savedDraft;
+        savedSnapshotRef.current = draftSnapshot(savedDraft);
         setSaveState("saved");
         onDocumentChange(saved);
       } catch (error) {
@@ -475,17 +445,9 @@ export default function CommercialEditor({
         contentHtml: previousContent,
       });
       setContentHtml(previousContent);
-      savedSnapshotRef.current = JSON.stringify({
-        title: saved.title,
-        contentHtml: saved.contentHtml,
-        scopeSummary: saved.scopeSummary,
-        amount: saved.amount,
-        currency: saved.currency,
-        validUntil: isProposal(saved) ? saved.validUntil : null,
-        branding: saved.branding,
-        signers: saved.signers,
-        deliverables: saved.deliverables,
-      });
+      const savedDraft = documentDraft(saved);
+      savedDraftRef.current = savedDraft;
+      savedSnapshotRef.current = draftSnapshot(savedDraft);
       setNoraUndoStack((current) => current.slice(0, -1));
       setSaveState("saved");
       onDocumentChange(saved);

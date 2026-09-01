@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, FileText, ImageIcon, Paperclip, PlayCircle, Send, Users, UserRound, Volume2, X } from "lucide-react";
+import { CalendarDays, Download, FileText, FolderOpen, Hash, ImageIcon, Images, Paperclip, Phone, PlayCircle, Plus, Send, Settings2, Users, UserRound, Video, Volume2, X } from "lucide-react";
 import { canUse, type AuthSession, type NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../../utils/api";
 import { downloadWithAuth } from "../../utils/download";
 import NoraAvatar from "../layout/NoraAvatar";
 import Button from "../shared/Button";
+import TeamCallOverlay from "./TeamCallOverlay";
+import { useTeamCall, type TeamCallSocketEvent, type TeamThreadScope } from "./useTeamCall";
 
 type Attachment = {
   id: string;
@@ -18,15 +20,26 @@ type Attachment = {
 type TeamMessage = {
   id: string;
   threadId: string;
-  scope: "team" | "direct";
+  scope: TeamThreadScope;
   senderId: string;
   senderName: string;
   senderAvatar?: string;
   recipientId?: string | null;
+  subteamId?: string | null;
   text: string;
   attachments: Attachment[];
   metadata?: Record<string, unknown>;
   createdAt: string;
+};
+
+type Subteam = {
+  id: string;
+  name: string;
+  description: string;
+  memberIds: string[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type TeamChatDrawerProps = {
@@ -35,6 +48,7 @@ type TeamChatDrawerProps = {
   session: AuthSession;
   onUnread?: (count: number) => void;
   onOpenNora?: (prompt?: string) => void;
+  onOpenCalendar?: () => void;
   variant?: "drawer" | "page";
 };
 
@@ -420,28 +434,95 @@ async function fileToDataUrl(file: File) {
   });
 }
 
-export default function TeamChatDrawer({ open, onClose, session, onUnread, variant = "drawer" }: TeamChatDrawerProps) {
+function SubteamEditorDialog({
+  value,
+  members,
+  currentUserId,
+  saving,
+  onClose,
+  onSave,
+}: {
+  value: Subteam | "new";
+  members: NoriumUser[];
+  currentUserId: string;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (input: { name: string; description: string; memberIds: string[] }) => void;
+}) {
+  const editing = value !== "new";
+  const [name, setName] = useState(editing ? value.name : "");
+  const [description, setDescription] = useState(editing ? value.description : "");
+  const [memberIds, setMemberIds] = useState<string[]>(editing ? value.memberIds : members.map((member) => member.id));
+
+  return (
+    <div className="fixed inset-0 z-[150] grid place-items-center bg-black/70 p-4" onClick={onClose}>
+      <section className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div><p className="text-xs font-bold uppercase tracking-wide text-blue-400">Comunidade interna</p><h2 className="mt-1 text-xl font-black">{editing ? "Editar subequipe" : "Nova subequipe"}</h2></div>
+          <Button variant="ghost" size="sm" iconOnly onClick={onClose}><X size={18} /></Button>
+        </div>
+        <div className="mt-5 grid gap-3">
+          <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]">Nome<input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none" placeholder="Ex.: Comercial" /></label>
+          <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]">Descricao<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} className="min-h-20 resize-y rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm text-[var(--text)] outline-none" placeholder="Objetivo e assuntos desta subequipe" /></label>
+          <div><p className="text-xs font-bold text-[var(--text-secondary)]">Membros</p><div className="mt-2 grid max-h-48 gap-2 overflow-y-auto sm:grid-cols-2">
+            {members.filter((member) => member.status === "ativo").map((member) => {
+              const checked = memberIds.includes(member.id);
+              const locked = member.id === currentUserId;
+              return <label key={member.id} className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-bold"><input type="checkbox" checked={checked} disabled={locked} onChange={() => setMemberIds((current) => checked ? current.filter((id) => id !== member.id) : [...current, member.id])} /><span className="truncate">{member.nome}</span></label>;
+            })}
+          </div></div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={saving} disabled={name.trim().length < 2} onClick={() => onSave({ name: name.trim(), description: description.trim(), memberIds: Array.from(new Set([...memberIds, currentUserId])) })}>{editing ? "Salvar alteracoes" : "Criar subequipe"}</Button></div>
+      </section>
+    </div>
+  );
+}
+
+export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenCalendar, variant = "drawer" }: TeamChatDrawerProps) {
   const [members, setMembers] = useState<NoriumUser[]>([]);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
-  const [scope, setScope] = useState<"team" | "direct">("team");
+  const [subteams, setSubteams] = useState<Subteam[]>([]);
+  const [scope, setScope] = useState<TeamThreadScope>("team");
   const [recipientId, setRecipientId] = useState("");
+  const [subteamId, setSubteamId] = useState("");
+  const [contentTab, setContentTab] = useState<"chat" | "files" | "photos">("chat");
+  const [subteamEditor, setSubteamEditor] = useState<Subteam | "new" | null>(null);
   const [messages, setMessages] = useState<TeamMessage[]>([]);
   const [text, setText] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [subteamSaving, setSubteamSaving] = useState(false);
   const [error, setError] = useState("");
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastScrolledThreadRef = useRef("");
+  const socketRef = useRef<WebSocket | null>(null);
 
   const recipientOptions = useMemo(
     () => members.filter((member) => member.id !== session.user.id && member.status === "ativo"),
     [members, session.user.id],
   );
   const memberById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
+  const selectedSubteam = useMemo(() => subteams.find((item) => item.id === subteamId) || null, [subteamId, subteams]);
+  const threadTitle = scope === "team" ? "Time todo" : scope === "subteam" ? selectedSubteam?.name || "Subequipe" : memberById.get(recipientId)?.nome || "Mensagem direta";
+  const callThread = useMemo(() => ({
+    scope,
+    title: threadTitle,
+    recipientId: scope === "direct" ? recipientId : null,
+    subteamId: scope === "subteam" ? subteamId : null,
+  }), [recipientId, scope, subteamId, threadTitle]);
+  const sendSocketEvent = useCallback((payload: Record<string, unknown>) => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return false;
+    socketRef.current.send(JSON.stringify(payload));
+    return true;
+  }, []);
+  const call = useTeamCall({ session, thread: callThread, sendSocketEvent });
+  const handleCallSocketEvent = call.handleSocketEvent;
+  const threadAttachments = useMemo(() => messages.flatMap((message) => message.attachments || []), [messages]);
+  const photoAttachments = useMemo(() => threadAttachments.filter(isImageAttachment), [threadAttachments]);
   const mentionMatch = useMemo(() => text.match(NORA_MENTION_AT_END), [text]);
   const showNoraSuggestion =
     scope === "team" &&
@@ -462,16 +543,33 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
     }
   }, [session.token]);
 
+  const loadSubteams = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/subteams`, { headers: authHeaders(undefined, session.token) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.detail || "Falha ao carregar subequipes.");
+      setSubteams(data.subteams || []);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Falha ao carregar subequipes.");
+    }
+  }, [session.token]);
+
   const loadMessages = useCallback(async () => {
     const params = new URLSearchParams({ scope });
     if (scope === "direct" && recipientId) params.set("recipientId", recipientId);
+    if (scope === "subteam" && subteamId) params.set("subteamId", subteamId);
     if (scope === "direct" && !recipientId) {
+      setMessages([]);
+      return;
+    }
+    if (scope === "subteam" && !subteamId) {
       setMessages([]);
       return;
     }
       setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/messages?${params.toString()}`, { headers: authHeaders(undefined, session.token) });
+      const messagesUrl = scope === "subteam" ? `${API_URL}/subteams/${subteamId}/messages` : `${API_URL}/messages?${params.toString()}`;
+      const response = await fetch(messagesUrl, { headers: authHeaders(undefined, session.token) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || "Falha ao carregar chat interno.");
       setMessages(data.messages || []);
@@ -482,12 +580,13 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
     } finally {
       setLoading(false);
     }
-  }, [onUnread, recipientId, scope, session.token]);
+  }, [onUnread, recipientId, scope, session.token, subteamId]);
 
   useEffect(() => {
     if (!open) return;
     void loadMembers();
-  }, [loadMembers, open]);
+    void loadSubteams();
+  }, [loadMembers, loadSubteams, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -499,35 +598,45 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
     const token = session.token || authToken();
     if (!token) return;
     let cancelled = false;
-    let socket: WebSocket | null = null;
     void authenticatedWebSocketUrl(WS_URL, token).then((socketUrl) => {
       if (cancelled) return;
-      socket = new WebSocket(socketUrl);
+      const socket = new WebSocket(socketUrl);
+      socketRef.current = socket;
       socket.onmessage = (event) => {
-        const payload = JSON.parse(String(event.data || "{}"));
+        let payload: Record<string, any> = {};
+        try {
+          payload = JSON.parse(String(event.data || "{}"));
+        } catch {
+          return;
+        }
         if (payload.type === "PRESENCE") {
           setOnlineUserIds(payload.onlineUserIds || []);
         }
+        if (payload.type === "SUBTEAM_UPDATED") void loadSubteams();
         if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) {
           const message = payload.message as TeamMessage;
-          const expectedThread = scope === "team" ? "team" : `direct:${[session.user.id, recipientId].sort().join(":")}`;
+          const expectedThread = scope === "team" ? "team" : scope === "subteam" ? `subteam:${subteamId}` : `direct:${[session.user.id, recipientId].sort().join(":")}`;
           if (message.threadId === expectedThread) {
             setMessages((current) => [...current.filter((item) => item.id !== message.id), message]);
           } else {
             onUnread?.(1);
           }
         }
+        if (String(payload.type || "").startsWith("CALL_")) {
+          void handleCallSocketEvent(payload as TeamCallSocketEvent).catch(() => setError("Falha na conexao da chamada. Tente novamente."));
+        }
       };
     }).catch(() => undefined);
     return () => {
       cancelled = true;
-      socket?.close();
+      socketRef.current?.close();
+      socketRef.current = null;
     };
-  }, [onUnread, open, recipientId, scope, session.token, session.user.id]);
+  }, [handleCallSocketEvent, loadSubteams, onUnread, open, recipientId, scope, session.token, session.user.id, subteamId]);
 
   useEffect(() => {
     if (!open || loading) return undefined;
-    const threadKey = scope === "team" ? "team" : `direct:${recipientId}`;
+    const threadKey = scope === "team" ? "team" : scope === "subteam" ? `subteam:${subteamId}` : `direct:${recipientId}`;
     const initialForThread = lastScrolledThreadRef.current !== threadKey;
     const frame = window.requestAnimationFrame(() => {
       const list = listRef.current;
@@ -536,7 +645,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
       lastScrolledThreadRef.current = threadKey;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [loading, messages.length, open, recipientId, scope]);
+  }, [loading, messages.length, open, recipientId, scope, subteamId]);
 
   async function sendMessage(overrideText?: string) {
     const outgoingText = overrideText ?? text;
@@ -552,10 +661,18 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
           dataUrl: await fileToDataUrl(file),
         })),
       );
-      const response = await fetch(`${API_URL}/messages`, {
+      const response = await fetch(scope === "subteam" ? `${API_URL}/subteams/${subteamId}/messages` : `${API_URL}/messages`, {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }, session.token),
-        body: JSON.stringify({ scope, recipientId: scope === "direct" ? recipientId : null, text: outgoingText, attachments }),
+        body: JSON.stringify(scope === "subteam" ? {
+          text: outgoingText,
+          attachments,
+        } : {
+          scope,
+          recipientId: scope === "direct" ? recipientId : null,
+          text: outgoingText,
+          attachments,
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || "Falha ao enviar mensagem.");
@@ -568,6 +685,31 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
       setError(sendError instanceof Error ? sendError.message : "Falha ao enviar mensagem.");
     } finally {
       setSending(false);
+    }
+  }
+
+  async function saveSubteam(input: { name: string; description: string; memberIds: string[] }) {
+    if (!subteamEditor || subteamSaving) return;
+    setSubteamSaving(true);
+    setError("");
+    try {
+      const editing = subteamEditor !== "new";
+      const response = await fetch(`${API_URL}/subteams${editing ? `/${subteamEditor.id}` : ""}`, {
+        method: editing ? "PATCH" : "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }, session.token),
+        body: JSON.stringify(input),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.detail || "Falha ao salvar subequipe.");
+      await loadSubteams();
+      setScope("subteam");
+      setSubteamId(data.subteam.id);
+      setContentTab("chat");
+      setSubteamEditor(null);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Falha ao salvar subequipe.");
+    } finally {
+      setSubteamSaving(false);
     }
   }
 
@@ -584,6 +726,9 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
       inputRef.current?.setSelectionRange(nextText.length, nextText.length);
     });
   }
+
+  const canStartCall = scope === "team" || (scope === "direct" && Boolean(recipientId)) || (scope === "subteam" && Boolean(selectedSubteam));
+  const conversationMemberCount = scope === "team" ? members.length : scope === "subteam" ? selectedSubteam?.memberIds.length || 0 : 2;
 
   return (
     <AnimatePresence>
@@ -608,17 +753,20 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">{onlineUserIds.length} online agora</p>
               </span>
             </div>
-            {variant === "drawer" ? (
-              <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
-                <X size={18} />
-              </Button>
-            ) : (
-              <Button variant="secondary" size="sm" onClick={onClose}>Voltar para equipe</Button>
-            )}
+            <div className="flex items-center gap-1">
+              {onOpenCalendar && <Button variant="ghost" size="sm" iconOnly onClick={onOpenCalendar} aria-label="Abrir calendario"><CalendarDays size={17} /></Button>}
+              <Button variant="ghost" size="sm" iconOnly disabled={!canStartCall} onClick={() => void call.startCall("audio")} aria-label="Iniciar chamada de voz"><Phone size={17} /></Button>
+              <Button variant="ghost" size="sm" iconOnly disabled={!canStartCall} onClick={() => void call.startCall("video")} aria-label="Iniciar chamada de video"><Video size={17} /></Button>
+              {variant === "drawer" ? (
+                <Button variant="ghost" size="sm" iconOnly onClick={onClose}><X size={18} /></Button>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={onClose}>Equipe</Button>
+              )}
+            </div>
           </header>
 
           <div className="team-chat-scope grid grid-cols-2 gap-2 border-b border-[var(--border)] p-3">
-            <button onClick={() => setScope("team")} className={`h-10 rounded-xl text-xs font-bold transition ${scope === "team" ? "team-chat-primary-control" : "team-chat-secondary-control"}`}>
+            <button onClick={() => { setScope("team"); setContentTab("chat"); }} className={`h-10 rounded-xl text-xs font-bold transition ${scope === "team" ? "team-chat-primary-control" : "team-chat-secondary-control"}`}>
               <Users size={15} className="mr-2 inline" /> Time todo
             </button>
             <select
@@ -626,6 +774,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
               onChange={(event) => {
                 setScope("direct");
                 setRecipientId(event.target.value);
+                setContentTab("chat");
               }}
               className="team-chat-select h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold outline-none"
             >
@@ -636,6 +785,10 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
                 </option>
               ))}
             </select>
+            {subteams.map((subteam) => (
+              <button key={subteam.id} type="button" onClick={() => { setScope("subteam"); setSubteamId(subteam.id); setContentTab("chat"); }} className={`flex h-10 items-center gap-2 rounded-xl px-3 text-left text-xs font-bold transition ${scope === "subteam" && subteamId === subteam.id ? "team-chat-primary-control" : "team-chat-secondary-control"}`}><Hash size={14} /><span className="truncate">{subteam.name}</span></button>
+            ))}
+            <button type="button" onClick={() => setSubteamEditor("new")} className="team-chat-secondary-control flex h-10 items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border)] text-xs font-bold"><Plus size={14} /> Subequipe</button>
           </div>
 
           <div className="team-chat-members border-b border-[var(--border)] px-3 py-2">
@@ -649,9 +802,15 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
             </div>
           </div>
 
+          <nav className="team-chat-tabs flex items-end gap-5 border-b border-[var(--border)] px-4">
+            <button type="button" onClick={() => setContentTab("chat")} className={contentTab === "chat" ? "active" : ""}>Chat</button>
+            <button type="button" onClick={() => setContentTab("files")} className={contentTab === "files" ? "active" : ""}>Arquivos <span>{threadAttachments.length}</span></button>
+            <button type="button" onClick={() => setContentTab("photos")} className={contentTab === "photos" ? "active" : ""}>Fotos <span>{photoAttachments.length}</span></button>
+          </nav>
+
           <div ref={listRef} className="team-chat-list min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
             {loading && <p className="text-center text-xs font-bold text-[var(--text-secondary)]">Carregando conversa...</p>}
-            {!loading && messages.length === 0 && (
+            {contentTab === "chat" && !loading && messages.length === 0 && (
               <div className="grid h-full place-items-center text-center text-[var(--text-secondary)]">
                 <div>
                   <UserRound className="mx-auto mb-3" size={34} />
@@ -659,7 +818,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
                 </div>
               </div>
             )}
-            {messages.map((message) => {
+            {contentTab === "chat" && messages.map((message) => {
               const mine = message.senderId === session.user.id;
               const member = memberById.get(message.senderId);
               const senderAvatar = message.senderAvatar || member?.fotoUrl || (message.senderId === "nora" ? "nora" : "");
@@ -685,10 +844,22 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
                 </div>
               );
             })}
+            {contentTab === "files" && (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {threadAttachments.map((attachment) => <TeamAttachmentCard key={attachment.id} attachment={attachment} onPreview={setPreviewAttachment} token={session.token} />)}
+                {!threadAttachments.length && <div className="col-span-full grid min-h-72 place-items-center text-center text-[var(--text-secondary)]"><div><FolderOpen className="mx-auto" size={38} /><p className="mt-3 text-sm font-bold">Nenhum arquivo nesta conversa.</p></div></div>}
+              </div>
+            )}
+            {contentTab === "photos" && (
+              <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+                {photoAttachments.map((attachment) => <TeamAttachmentCard key={attachment.id} attachment={attachment} onPreview={setPreviewAttachment} token={session.token} />)}
+                {!photoAttachments.length && <div className="col-span-full grid min-h-72 place-items-center text-center text-[var(--text-secondary)]"><div><Images className="mx-auto" size={38} /><p className="mt-3 text-sm font-bold">Nenhuma foto nesta conversa.</p></div></div>}
+              </div>
+            )}
           </div>
 
-          {files.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto border-t border-[var(--border)] px-3 py-2">
+          {contentTab === "chat" && files.length > 0 && (
+            <div className="team-chat-pending-files flex gap-2 overflow-x-auto border-t border-[var(--border)] px-3 py-2">
               {files.map((file) => (
                 <PendingFilePreview key={`${file.name}-${file.size}`} file={file} onRemove={() => setFiles((current) => current.filter((item) => item !== file))} />
               ))}
@@ -696,7 +867,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
           )}
 
           <AnimatePresence>
-            {showNoraSuggestion && (
+            {contentTab === "chat" && showNoraSuggestion && (
               <motion.div
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -722,12 +893,15 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
           </AnimatePresence>
 
           {error && (
-            <div className="mx-3 mt-2 shrink-0 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-200">
+            <div className="team-chat-error mx-3 mt-2 shrink-0 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-200">
               {error}
             </div>
           )}
+          {!call.active && call.status && (
+            <div className="team-chat-error mx-3 mt-2 shrink-0 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100">{call.status}</div>
+          )}
 
-          <footer className="team-chat-footer flex shrink-0 items-center gap-2 border-t border-[var(--border)] p-3">
+          {contentTab === "chat" && <footer className="team-chat-footer flex shrink-0 items-center gap-2 border-t border-[var(--border)] p-3">
             <label className="team-chat-secondary-control grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-xl border border-[var(--border)]">
               <Paperclip size={18} />
               <input type="file" multiple className="hidden" onChange={(event) => setFiles(Array.from(event.target.files || []))} />
@@ -765,18 +939,19 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
             >
               <Send size={18} />
             </Button>
-          </footer>
+          </footer>}
           {variant === "page" && (
             <aside className="team-chat-context border-l border-[var(--border)] p-4">
               <p className="text-xs font-bold uppercase tracking-wide text-blue-400">Detalhes da conversa</p>
-              <h2 className="mt-2 text-lg font-black">{scope === "team" ? "Time todo" : memberById.get(recipientId)?.nome || "Mensagem direta"}</h2>
+              <div className="mt-2 flex items-start justify-between gap-2"><h2 className="text-lg font-black">{threadTitle}</h2>{scope === "subteam" && selectedSubteam && (selectedSubteam.createdBy === session.user.id || session.user.id === (session.user.teamOwnerId || session.user.id) || session.user.systemAdmin) && <Button variant="ghost" size="sm" iconOnly onClick={() => setSubteamEditor(selectedSubteam)} aria-label="Editar subequipe"><Settings2 size={15} /></Button>}</div>
               <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
-                {scope === "team" ? "Canal interno para decisões, atualizações e colaboração entre todos os membros." : "Conversa reservada entre os participantes selecionados."}
+                {scope === "team" ? "Canal interno para decisoes, atualizacoes e colaboracao entre todos os membros." : scope === "subteam" ? selectedSubteam?.description || "Comunidade reservada para os membros desta subequipe." : "Conversa reservada entre os participantes selecionados."}
               </p>
+              <div className="mt-4 grid grid-cols-2 gap-2"><Button variant="secondary" size="sm" onClick={() => void call.startCall("audio")} disabled={!canStartCall} icon={<Phone size={14} />}>Voz</Button><Button variant="secondary" size="sm" onClick={() => void call.startCall("video")} disabled={!canStartCall} icon={<Video size={14} />}>Video</Button></div>
               <div className="mt-5 grid gap-2">
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <span className="text-xs font-bold text-[var(--text-secondary)]">Participantes</span>
-                  <strong className="mt-1 block text-xl">{scope === "team" ? members.length : 2}</strong>
+                  <strong className="mt-1 block text-xl">{conversationMemberCount}</strong>
                 </div>
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <span className="text-xs font-bold text-[var(--text-secondary)]">Online agora</span>
@@ -802,7 +977,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
               <div className="mt-5">
                 <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Membros</p>
                 <div className="mt-3 space-y-2">
-                  {members.slice(0, 8).map((member) => (
+                  {members.filter((member) => scope !== "subteam" || selectedSubteam?.memberIds.includes(member.id)).slice(0, 8).map((member) => (
                     <button key={member.id} type="button" onClick={() => { if (member.id !== session.user.id) { setScope("direct"); setRecipientId(member.id); } }} className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 text-left hover:bg-[var(--surface-hover)]">
                       <MessageAvatar name={member.nome} avatar={member.fotoUrl || ""} />
                       <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{member.nome}</strong><small className={onlineUserIds.includes(member.id) ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{onlineUserIds.includes(member.id) ? "Online" : "Offline"}</small></span>
@@ -813,6 +988,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, varia
             </aside>
           )}
           {previewAttachment && <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} token={session.token} />}
+          {subteamEditor && <SubteamEditorDialog value={subteamEditor} members={members} currentUserId={session.user.id} saving={subteamSaving} onClose={() => setSubteamEditor(null)} onSave={(input) => void saveSubteam(input)} />}
+          <TeamCallOverlay call={call} />
         </motion.aside>
       )}
     </AnimatePresence>

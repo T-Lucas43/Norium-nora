@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import tempfile
 import unittest
@@ -34,7 +35,9 @@ from app.modules.commercial.service import (  # noqa: E402
     decide_suggestion,
     decide_proposal,
     delete_contract,
+    document_for_response,
     instantiate_obligations,
+    list_commercial_data,
     replace_visible_text,
     public_signature_data,
     send_for_signature,
@@ -152,6 +155,56 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(instantiated["contract"]["status"], "active")
         self.assertEqual(len(instantiated["tasks"]), 1)
+
+    async def test_commercial_list_is_compact_and_details_do_not_repeat_revision_logos(self) -> None:
+        proposal = await create_proposal(
+            self.user,
+            ProposalCreate(
+                clientId=self.client_id,
+                title="Proposta leve",
+                contentHtml="<p>Conteudo completo carregado apenas no editor.</p>",
+            ),
+        )
+        large_logo = "data:image/png;base64," + ("A" * 400_000)
+        store = read_store(self.user["id"])
+        stored = next(item for item in store["proposals"] if item["id"] == proposal["id"])
+        stored["branding"]["logoUrl"] = large_logo
+        stored["revisions"] = [
+            {
+                "id": "revision_legacy",
+                "version": 1,
+                "title": stored["title"],
+                "contentHtml": stored["contentHtml"],
+                "branding": {**stored["branding"]},
+                "savedBy": "Teste",
+                "savedById": self.user["id"],
+                "savedAt": stored["updatedAt"],
+            }
+        ]
+        await write_store(self.user["id"], store)
+
+        full_size = len(json.dumps(store, ensure_ascii=False))
+        commercial = await list_commercial_data(self.user)
+        list_size = len(json.dumps(commercial, ensure_ascii=False))
+        listed = commercial["proposals"][0]
+
+        self.assertEqual(listed["documentType"], "proposal")
+        self.assertEqual(listed["primaryColor"], stored["branding"]["primaryColor"])
+        for heavy_field in ("contentHtml", "revisions", "branding", "signers", "deliverables"):
+            self.assertNotIn(heavy_field, listed)
+        self.assertLess(list_size, full_size // 5)
+
+        detail = document_for_response(stored)
+        self.assertEqual(detail["branding"]["logoUrl"], large_logo)
+        self.assertNotIn("logoUrl", detail["revisions"][0]["branding"])
+
+        updated = await update_proposal(
+            self.user,
+            proposal["id"],
+            ProposalUpdate(expectedVersion=1, title="Proposta leve revisada"),
+        )
+        self.assertTrue(updated["revisions"])
+        self.assertTrue(all("logoUrl" not in item["branding"] for item in updated["revisions"]))
 
     async def test_contract_draft_can_be_deleted_and_formal_contract_is_cancelled(self) -> None:
         proposal = await create_proposal(

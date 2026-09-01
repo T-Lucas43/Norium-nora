@@ -27,7 +27,7 @@ const Nora = lazy(() => import("../components/layout/Nora"));
 const PublicAccess = lazy(() => import("../components/public/PublicAccess"));
 const LegalPage = lazy(() => import("../components/public/LegalPage"));
 const TeamChatDrawer = lazy(() => import("../components/team-chat/TeamChatDrawer"));
-const SESSION_TABS = ["Dashboard", "Central", "E-mails", "Agenda", "Chat", "Chat da Equipe", "Tarefas"];
+const PERSISTENT_TABS = new Set(["E-mail", "E-mails", "Chat", "Propostas"]);
 const SIMULATION_BACKUP_STORAGE = "norium-simulation-backup";
 
 type NoriumDeepLink = {
@@ -63,7 +63,7 @@ export default function NoriumApp() {
   const [activeChatConversationId, setActiveChatConversationId] = useState<string | null>(null);
   const [teamChatOpen, setTeamChatOpen] = useState(false);
   const [emailToOpenId, setEmailToOpenId] = useState<string | null>(null);
-  const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set(["Dashboard"]));
+  const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set());
   const {
     appMode,
     authLoading,
@@ -184,22 +184,16 @@ export default function NoriumApp() {
   }, [activeTab, allowedTabs, authSession, canAccessTab]);
 
   useEffect(() => {
-    setMountedTabs((current) => {
-      if (current.has(activeTab)) return current;
-      const next = new Set(current);
-      next.add(activeTab);
-      return next;
-    });
-  }, [activeTab]);
+    setMountedTabs(new Set());
+  }, [authSession?.user.id]);
 
   useEffect(() => {
-    if (!authSession) return;
+    if (!authSession?.user.id || !PERSISTENT_TABS.has(activeTab)) return;
     setMountedTabs((current) => {
-      const next = new Set(current);
-      SESSION_TABS.filter(canAccessTab).forEach((tab) => next.add(tab));
-      return next.size === current.size ? current : next;
+      if (current.has(activeTab)) return current;
+      return new Set(current).add(activeTab);
     });
-  }, [authSession, canAccessTab]);
+  }, [activeTab, authSession?.user.id]);
 
   const openNotifications = useCallback(() => {
     setActiveTab("Notificações");

@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, Response
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.core.request_context import reset_request_context, set_request_context
 from app.core.rate_limit import SlidingWindowRateLimiter
@@ -180,6 +181,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID", "X-Norium-Workspace"],
     )
+    app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
 
     @app.middleware("http")
     async def request_reliability_middleware(request: Request, call_next):

@@ -455,8 +455,34 @@ def summary(store: dict[str, list[dict[str, Any]]], user: dict[str, Any]) -> dic
     }
 
 
+def commercial_document_summary(document: dict[str, Any], document_type: str) -> dict[str, Any]:
+    client = document.get("client") if isinstance(document.get("client"), dict) else {}
+    branding = document.get("branding") if isinstance(document.get("branding"), dict) else {}
+    item = {
+        "documentType": document_type,
+        "id": str(document.get("id") or ""),
+        "client": {
+            "id": str(client.get("id") or ""),
+            "name": str(client.get("name") or ""),
+            "company": str(client.get("company") or ""),
+        },
+        "brainstormId": document.get("brainstormId"),
+        "title": str(document.get("title") or "Documento comercial"),
+        "amount": document.get("amount") or 0,
+        "currency": str(document.get("currency") or "BRL"),
+        "status": str(document.get("status") or "draft"),
+        "updatedAt": str(document.get("updatedAt") or ""),
+        "primaryColor": str(branding.get("primaryColor") or "#1E293B"),
+    }
+    if document_type == "proposal":
+        item["contractId"] = document.get("contractId")
+    else:
+        item["proposalId"] = document.get("proposalId")
+    return item
+
+
 async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
-    store = read_store(collaboration_tenant_id(user))
+    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     proposals = sorted(store["proposals"], key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
     contracts = sorted(store["contracts"], key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
     custom_template_ids = {str(item.get("id")) for item in store["templates"]}
@@ -465,8 +491,8 @@ async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
         *(item for item in standard_templates() if item["id"] not in custom_template_ids),
     ]
     return {
-        "proposals": proposals,
-        "contracts": contracts,
+        "proposals": [commercial_document_summary(item, "proposal") for item in proposals],
+        "contracts": [commercial_document_summary(item, "contract") for item in contracts],
         "brandProfiles": store["brandProfiles"],
         "templates": templates,
         "summary": summary(store, user),
@@ -498,7 +524,7 @@ async def create_proposal(user: dict[str, Any], payload: ProposalCreate) -> dict
         "updatedAt": now,
     }
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         store["proposals"].insert(0, proposal)
         await write_store(tenant_id, store)
     return proposal
@@ -1121,7 +1147,7 @@ async def generate_proposal_draft(user: dict[str, Any], payload: ProposalBriefRe
 async def delete_proposal(user: dict[str, Any], proposal_id: str) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, proposal = proposal_or_404(store, proposal_id)
         if proposal.get("contractId") or any(item.get("proposalId") == proposal_id for item in store["contracts"]):
             raise HTTPException(status_code=409, detail="Esta proposta possui contrato vinculado e deve ser preservada no historico.")
@@ -1145,22 +1171,41 @@ def contract_or_404(store: dict[str, list[dict[str, Any]]], contract_id: str) ->
 
 
 def revision(document: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
+    branding = document.get("branding") if isinstance(document.get("branding"), dict) else {}
     return {
         "id": f"revision_{uuid.uuid4().hex}",
         "version": document.get("version"),
         "title": document.get("title"),
         "contentHtml": document.get("contentHtml"),
-        "branding": document.get("branding"),
+        # O logo atual continua no documento. Repetir o data URL em cada
+        # revisao fazia poucos documentos ocuparem varios megabytes.
+        "branding": {key: value for key, value in branding.items() if key != "logoUrl"},
         "savedBy": str(user.get("nome") or user.get("email") or "Operador"),
         "savedById": str(user.get("id") or ""),
         "savedAt": now_iso(),
     }
 
 
+def compact_revision(revision_item: dict[str, Any]) -> dict[str, Any]:
+    branding = revision_item.get("branding") if isinstance(revision_item.get("branding"), dict) else {}
+    return {
+        **revision_item,
+        "branding": {key: value for key, value in branding.items() if key != "logoUrl"},
+    }
+
+
+def document_for_response(document: dict[str, Any]) -> dict[str, Any]:
+    revisions = document.get("revisions") if isinstance(document.get("revisions"), list) else []
+    return {
+        **document,
+        "revisions": [compact_revision(item) for item in revisions if isinstance(item, dict)],
+    }
+
+
 async def update_proposal(user: dict[str, Any], proposal_id: str, payload: ProposalUpdate) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
         if payload.expectedVersion and int(current.get("version") or 1) != payload.expectedVersion:
             raise HTTPException(status_code=409, detail="O documento foi alterado por outra pessoa. Recarregue para conciliar as versoes.")
@@ -1185,7 +1230,10 @@ async def update_proposal(user: dict[str, Any], proposal_id: str, payload: Propo
                         "signatureDataUrl": previous.get("signatureDataUrl"),
                     })
             updates["signers"] = prepared
-        revisions = [revision(current, user), *current.get("revisions", [])][:30]
+        revisions = [
+            revision(current, user),
+            *(compact_revision(item) for item in current.get("revisions", []) if isinstance(item, dict)),
+        ][:30]
         updated = {
             **current,
             **updates,
@@ -1202,7 +1250,7 @@ async def update_proposal(user: dict[str, Any], proposal_id: str, payload: Propo
 async def submit_proposal(user: dict[str, Any], proposal_id: str, note: str) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
         if current.get("status") not in {"draft", "changes_requested", "rejected"}:
             raise HTTPException(status_code=409, detail="Esta proposta nao pode ser submetida no status atual.")
@@ -1236,7 +1284,7 @@ async def decide_proposal(
         raise HTTPException(status_code=403, detail="Somente gestor ou proprietario pode decidir esta aprovacao.")
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
         if current.get("status") != "in_review":
             raise HTTPException(status_code=409, detail="A proposta nao esta aguardando aprovacao.")
@@ -1389,7 +1437,7 @@ async def analyze_with_nora(
     payload: NoraAnalysisRequest,
 ) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
-    store = read_store(tenant_id)
+    store = await asyncio.to_thread(read_store, tenant_id)
     _, proposal = proposal_or_404(store, proposal_id)
     document_text = plain_text(str(proposal.get("contentHtml") or ""))[:24_000]
     focus_instructions = {
@@ -1425,7 +1473,7 @@ async def analyze_with_nora(
         for item in analysis.pop("suggestions", [])
     ]
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
         updated = {
             **current,
@@ -1450,7 +1498,7 @@ async def write_document_with_nora(
     payload: NoraWritingRequest,
 ) -> dict[str, str]:
     tenant_id = collaboration_tenant_id(user)
-    store = read_store(tenant_id)
+    store = await asyncio.to_thread(read_store, tenant_id)
     if document_type == "proposal":
         _, document = proposal_or_404(store, document_id)
     elif document_type == "contract":
@@ -1502,7 +1550,7 @@ async def decide_suggestion(
 ) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
         suggestion = next(
             (item for item in current.get("suggestions", []) if str(item.get("id")) == suggestion_id),
@@ -1596,7 +1644,7 @@ async def create_contract(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         proposal_index, proposal = proposal_or_404(store, proposal_id)
         if proposal.get("status") not in {"approved", "sent", "accepted"}:
             raise HTTPException(status_code=409, detail="O contrato so pode ser gerado a partir de uma proposta aprovada.")
@@ -1652,7 +1700,7 @@ async def create_contract(
 async def update_contract(user: dict[str, Any], contract_id: str, payload: ContractUpdate) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, current = contract_or_404(store, contract_id)
         if current.get("status") in {"signed", "active", "completed", "cancelled"}:
             raise HTTPException(status_code=409, detail="Contratos finalizados nao podem ter o conteudo alterado.")
@@ -1669,7 +1717,10 @@ async def update_contract(user: dict[str, Any], contract_id: str, payload: Contr
         updated = {
             **current,
             **updates,
-            "revisions": [revision(current, user), *current.get("revisions", [])][:30],
+            "revisions": [
+                revision(current, user),
+                *(compact_revision(item) for item in current.get("revisions", []) if isinstance(item, dict)),
+            ][:30],
             "version": int(current.get("version") or 1) + 1,
             "updatedAt": now_iso(),
         }
@@ -1681,7 +1732,7 @@ async def update_contract(user: dict[str, Any], contract_id: str, payload: Contr
 async def cancel_contract(user: dict[str, Any], contract_id: str) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, current = contract_or_404(store, contract_id)
         status = str(current.get("status") or "draft")
         if status == "cancelled":
@@ -1694,7 +1745,10 @@ async def cancel_contract(user: dict[str, Any], contract_id: str) -> dict[str, A
             "status": "cancelled",
             "cancelledAt": timestamp,
             "cancelledBy": str(user.get("id") or ""),
-            "revisions": [revision(current, user), *current.get("revisions", [])][:30],
+            "revisions": [
+                revision(current, user),
+                *(compact_revision(item) for item in current.get("revisions", []) if isinstance(item, dict)),
+            ][:30],
             "auditTrail": [
                 {
                     "id": f"contract_audit_{uuid.uuid4().hex}",
@@ -1717,7 +1771,7 @@ async def cancel_contract(user: dict[str, Any], contract_id: str) -> dict[str, A
 async def delete_contract(user: dict[str, Any], contract_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, contract = contract_or_404(store, contract_id)
         if contract.get("status") != "draft":
             raise HTTPException(
@@ -1751,7 +1805,7 @@ async def delete_contract(user: dict[str, Any], contract_id: str) -> tuple[dict[
 async def send_for_signature(user: dict[str, Any], contract_id: str) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, current = contract_or_404(store, contract_id)
         signers = current.get("signers") if isinstance(current.get("signers"), list) else []
         if not signers:
@@ -1925,7 +1979,7 @@ async def sign_contract(
     if not payload.consent:
         raise HTTPException(status_code=422, detail="A assinatura exige consentimento expresso.")
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         index, current = contract_or_404(store, contract_id)
         signers = current.get("signers") if isinstance(current.get("signers"), list) else []
         signer = next((item for item in signers if str(item.get("id")) == signer_id), None)
@@ -1985,7 +2039,7 @@ async def instantiate_obligations(
     payload: InstantiateObligationsRequest,
 ) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
-    store = read_store(tenant_id)
+    store = await asyncio.to_thread(read_store, tenant_id)
     index, contract = contract_or_404(store, contract_id)
     if contract.get("status") not in {"signed", "active"}:
         raise HTTPException(status_code=409, detail="As obrigacoes so podem ser desdobradas depois de todas as assinaturas.")
@@ -2044,7 +2098,7 @@ async def instantiate_obligations(
         "updatedAt": now_iso(),
     }
     async with _store_lock:
-        latest = read_store(tenant_id)
+        latest = await asyncio.to_thread(read_store, tenant_id)
         latest_index, _ = contract_or_404(latest, contract_id)
         latest["contracts"][latest_index] = updated
         await write_store(tenant_id, latest)
@@ -2054,7 +2108,7 @@ async def instantiate_obligations(
 async def create_brand_profile(user: dict[str, Any], payload: BrandProfileCreate) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         if not is_team_plan(user) and store["brandProfiles"]:
             raise HTTPException(status_code=403, detail="O plano Solo permite apenas um perfil de marca.")
         now = now_iso()
@@ -2076,7 +2130,7 @@ async def create_template(user: dict[str, Any], payload: TemplateCreate) -> dict
         raise HTTPException(status_code=403, detail="A biblioteca compartilhada exige plano Plus ou Enterprise.")
     tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = read_store(tenant_id)
+        store = await asyncio.to_thread(read_store, tenant_id)
         now = now_iso()
         item = {
             "id": f"template_{uuid.uuid4().hex}",

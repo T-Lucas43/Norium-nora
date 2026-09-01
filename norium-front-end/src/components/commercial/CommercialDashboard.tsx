@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Ban,
   BadgeCheck,
@@ -36,7 +36,9 @@ import {
   generateContract,
   generateProposalDraft,
   instantiateContract,
+  loadContract,
   loadCommercialData,
+  loadProposal,
   sendContractForSignature,
   shareCommercialDocument,
   signContract,
@@ -46,6 +48,7 @@ import {
   type DocumentUpdateInput,
 } from "../../features/commercial/api";
 import {
+  commercialDocumentSummary,
   defaultBranding,
   isProposal,
   type BrainstormOption,
@@ -53,6 +56,7 @@ import {
   type CommercialContract,
   type CommercialData,
   type CommercialDocument,
+  type CommercialDocumentSummary,
   type CommercialProposal,
   type CommercialTemplate,
   type ProposalBriefInput,
@@ -143,6 +147,11 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [openingDocumentId, setOpeningDocumentId] = useState<string | null>(null);
+  const [creationOptionsLoading, setCreationOptionsLoading] = useState(false);
+  const [creationOptionsError, setCreationOptionsError] = useState("");
+  const creationOptionsLoadingRef = useRef(false);
+  const creationOptionsLoadedRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -159,14 +168,8 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     setLoading(true);
     setError("");
     try {
-      const [commercial, clientResponse, brainstormResponse] = await Promise.all([
-        loadCommercialData(signal),
-        apiRequest<{ items: ClientOption[] }>("/api/clientes", { signal }).catch(() => ({ items: [] })),
-        apiRequest<BrainstormOption[]>("/api/brainstorm/sessions", { signal }).catch(() => []),
-      ]);
+      const commercial = await loadCommercialData(signal);
       setData(commercial);
-      setClients(clientResponse.items || []);
-      setBrainstorms(brainstormResponse || []);
     } catch (requestError) {
       if (signal?.aborted || (requestError instanceof DOMException && requestError.name === "AbortError") || (requestError instanceof ApiError && requestError.status === 499)) return;
       setError(messageFromError(requestError, "Nao foi possivel carregar propostas e contratos."));
@@ -174,6 +177,35 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       if (!signal?.aborted) setLoading(false);
     }
   }, []);
+
+  const loadCreationOptions = useCallback(async () => {
+    if (creationOptionsLoadingRef.current || creationOptionsLoadedRef.current) return;
+    creationOptionsLoadingRef.current = true;
+    setCreationOptionsLoading(true);
+    setCreationOptionsError("");
+    try {
+      const [clientResponse, brainstormResponse] = await Promise.all([
+        apiRequest<{ items: ClientOption[] }>("/api/clientes"),
+        apiRequest<BrainstormOption[]>("/api/brainstorm/sessions").catch((requestError) => {
+          if (requestError instanceof ApiError && [403, 404].includes(requestError.status)) return [];
+          throw requestError;
+        }),
+      ]);
+      setClients(clientResponse.items || []);
+      setBrainstorms(brainstormResponse || []);
+      creationOptionsLoadedRef.current = true;
+    } catch (requestError) {
+      setCreationOptionsError(messageFromError(requestError, "Nao foi possivel carregar clientes para a nova proposta."));
+    } finally {
+      creationOptionsLoadingRef.current = false;
+      setCreationOptionsLoading(false);
+    }
+  }, []);
+
+  const openCreate = useCallback(() => {
+    setCreateOpen(true);
+    void loadCreationOptions();
+  }, [loadCreationOptions]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -188,23 +220,23 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   }, [notice]);
 
   useEffect(() => {
-    if (!error) return undefined;
+    if (!error || !data) return undefined;
     const timer = window.setTimeout(() => setError(""), 9000);
     return () => window.clearTimeout(timer);
-  }, [error]);
+  }, [data, error]);
 
   useEffect(() => {
-    const openFromBrainstorm = () => setCreateOpen(true);
+    const openFromBrainstorm = () => openCreate();
     if (window.localStorage.getItem("norium:commercial-brainstorm-id")) {
-      setCreateOpen(true);
+      openCreate();
     }
     window.addEventListener("norium:commercial-create", openFromBrainstorm);
     return () => window.removeEventListener("norium:commercial-create", openFromBrainstorm);
-  }, []);
+  }, [openCreate]);
 
-  const currentItems = useMemo<CommercialDocument[]>(() => {
+  const currentItems = useMemo<CommercialDocumentSummary[]>(() => {
     if (!data) return [];
-    const source: CommercialDocument[] = view === "contracts" ? data.contracts : data.proposals;
+    const source: CommercialDocumentSummary[] = view === "contracts" ? data.contracts : data.proposals;
     const needle = query.trim().toLocaleLowerCase("pt-BR");
     return source.filter((item) => {
       const matchesStatus = statusFilter === "all" || item.status === statusFilter;
@@ -213,14 +245,34 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     });
   }, [data, query, statusFilter, view]);
 
+  async function openDocument(item: CommercialDocumentSummary) {
+    if (openingDocumentId) return;
+    setOpeningDocumentId(item.id);
+    setError("");
+    try {
+      if (item.documentType === "proposal") {
+        const response = await loadProposal(item.id);
+        setSelected(response.proposal);
+      } else {
+        const response = await loadContract(item.id);
+        setSelected(response.contract);
+      }
+    } catch (requestError) {
+      setError(messageFromError(requestError, "Nao foi possivel abrir o documento."));
+    } finally {
+      setOpeningDocumentId(null);
+    }
+  }
+
   function replaceDocument(nextDocument: CommercialDocument) {
     setSelected(nextDocument);
+    const nextSummary = commercialDocumentSummary(nextDocument);
     setData((current) => {
       if (!current) return current;
       if (isProposal(nextDocument)) {
-        return { ...current, proposals: current.proposals.map((item) => item.id === nextDocument.id ? nextDocument : item) };
+        return { ...current, proposals: current.proposals.map((item) => item.id === nextDocument.id ? nextSummary as typeof item : item) };
       }
-      return { ...current, contracts: current.contracts.map((item) => item.id === nextDocument.id ? nextDocument : item) };
+      return { ...current, contracts: current.contracts.map((item) => item.id === nextDocument.id ? nextSummary as typeof item : item) };
     });
   }
 
@@ -312,8 +364,8 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       const response = await generateContract(proposal.id, templateId, title);
       setData((current) => current ? {
         ...current,
-        proposals: current.proposals.map((item) => item.id === response.proposal.id ? response.proposal : item),
-        contracts: [response.contract, ...current.contracts.filter((item) => item.id !== response.contract.id)],
+        proposals: current.proposals.map((item) => item.id === response.proposal.id ? commercialDocumentSummary(response.proposal) as typeof item : item),
+        contracts: [commercialDocumentSummary(response.contract) as typeof current.contracts[number], ...current.contracts.filter((item) => item.id !== response.contract.id)],
       } : current);
       setView("contracts");
       setSelected(response.contract);
@@ -343,7 +395,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     }, "Solicitacoes de assinatura registradas.");
   }
 
-  async function handleDeleteProposal(proposal: CommercialProposal) {
+  async function handleDeleteProposal(proposal: Pick<CommercialProposal, "id" | "title" | "contractId">) {
     const confirmed = await showConfirm({
       title: "Excluir proposta?",
       description: `A proposta "${proposal.title}" e seu historico de revisoes serao removidos. Esta acao nao pode ser desfeita.`,
@@ -358,7 +410,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     }, "Proposta excluida.");
   }
 
-  async function handleCancelContract(contract: CommercialContract) {
+  async function handleCancelContract(contract: Pick<CommercialContract, "id" | "title" | "status">) {
     const confirmed = await showConfirm({
       title: "Cancelar contrato?",
       description: `O contrato "${contract.title}" sera marcado como cancelado e permanecera no historico com sua trilha de auditoria.`,
@@ -373,7 +425,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     }, "Contrato cancelado e preservado no historico.");
   }
 
-  async function handleDeleteContract(contract: CommercialContract) {
+  async function handleDeleteContract(contract: Pick<CommercialContract, "id" | "title" | "status">) {
     const confirmed = await showConfirm({
       title: "Excluir minuta?",
       description: `A minuta "${contract.title}" sera removida e a proposta vinculada voltara a ficar disponivel. Esta acao nao pode ser desfeita.`,
@@ -464,13 +516,20 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
             <div><h1 className="text-2xl font-black">Propostas e contratos</h1><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Do brainstorm ao documento assinado, com revisao da Nora e execucao das obrigacoes.</p></div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => void load()} icon={<RefreshCw size={15} />}>Atualizar</Button>
+            <Button variant="secondary" loading={loading} onClick={() => void load()} icon={<RefreshCw size={15} />}>Atualizar</Button>
             <Button variant="secondary" onClick={() => onOpenNora("Quero criar uma proposta comercial. Pergunte o cliente, origem no brainstorm, escopo, valor, validade, entregaveis e assinantes antes de abrir ou criar o documento.")} icon={<Sparkles size={15} />}>Pedir para Nora</Button>
-            <Button onClick={() => setCreateOpen(true)} icon={<Plus size={16} />}>Nova proposta</Button>
+            <Button onClick={openCreate} icon={<Plus size={16} />}>Nova proposta</Button>
           </div>
         </header>
 
-        {error && <StatusBanner tone="error">{error}</StatusBanner>}
+        {error && (
+          <StatusBanner
+            tone="error"
+            action={!data ? <Button size="sm" variant="secondary" onClick={() => void load()}>Tentar novamente</Button> : undefined}
+          >
+            {error}
+          </StatusBanner>
+        )}
         {notice && <StatusBanner tone="success">{notice}</StatusBanner>}
 
         {loading ? <LoadingState label="Carregando documentos comerciais..." /> : data && (
@@ -504,8 +563,8 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                 <div className="min-h-[480px]">
                   {currentItems.map((item) => (
                     <article key={item.id} className="grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_148px] xl:items-center">
-                      <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{isProposal(item) ? <FileSignature size={19} /> : <FileCheck2 size={19} />}</span>
-                      <button type="button" onClick={() => setSelected(item)} className="min-w-0 text-left">
+                      <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{item.documentType === "proposal" ? <FileSignature size={19} /> : <FileCheck2 size={19} />}</span>
+                      <button type="button" disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} className="min-w-0 text-left disabled:cursor-wait disabled:opacity-70">
                         <strong className="block truncate text-sm">{item.title}</strong>
                         <small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.client?.name || "Cliente nao informado"} {item.brainstormId ? "- vinculado ao Brainstorm" : ""}</small>
                       </button>
@@ -514,22 +573,22 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                       <time className="col-start-2 text-xs font-bold text-[var(--text-secondary)] xl:col-auto">{formatDate(item.updatedAt)}</time>
                       <DocumentPreviewButton
                         title={item.title}
-                        label={isProposal(item) ? "Proposta comercial" : "Contrato"}
-                        primaryColor={item.branding?.primaryColor}
-                        onClick={() => setSelected(item)}
+                        label={item.documentType === "proposal" ? "Proposta comercial" : "Contrato"}
+                        primaryColor={item.primaryColor}
+                        onClick={() => void openDocument(item)}
                         className="col-span-2 xl:col-auto"
                       />
                       <div className="col-span-2 flex min-h-10 flex-wrap items-center gap-2 xl:col-auto xl:justify-end">
-                        {!isProposal(item) && !["signed", "active", "completed", "cancelled"].includes(item.status) && (
-                          <Button variant="secondary" iconOnly onClick={() => setSelected(item)} aria-label={`Editar contrato ${item.title}`} title="Editar contrato"><Pencil size={16} /></Button>
+                        {item.documentType === "contract" && !["signed", "active", "completed", "cancelled"].includes(item.status) && (
+                          <Button variant="secondary" iconOnly loading={openingDocumentId === item.id} disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} aria-label={`Editar contrato ${item.title}`} title="Editar contrato"><Pencil size={16} /></Button>
                         )}
-                        {isProposal(item) && !item.contractId && (
+                        {item.documentType === "proposal" && !item.contractId && (
                           <Button variant="danger" iconOnly onClick={() => void handleDeleteProposal(item)} className="border-red-400/20 text-red-400 hover:bg-red-500/10" aria-label={`Excluir proposta ${item.title}`} title="Excluir proposta"><Trash2 size={16} /></Button>
                         )}
-                        {!isProposal(item) && item.status !== "cancelled" && item.status !== "completed" && (
+                        {item.documentType === "contract" && item.status !== "cancelled" && item.status !== "completed" && (
                           <Button variant="danger" iconOnly onClick={() => void handleCancelContract(item)} className="border-amber-400/20 text-amber-300 hover:bg-amber-500/10" aria-label={`Cancelar contrato ${item.title}`} title="Cancelar contrato"><Ban size={16} /></Button>
                         )}
-                        {!isProposal(item) && item.status === "draft" && (
+                        {item.documentType === "contract" && item.status === "draft" && (
                           <Button variant="danger" iconOnly onClick={() => void handleDeleteContract(item)} className="border-red-400/20 text-red-400 hover:bg-red-500/10" aria-label={`Excluir minuta ${item.title}`} title="Excluir minuta"><Trash2 size={16} /></Button>
                         )}
                       </div>
@@ -570,13 +629,16 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
         <CreateProposalDialog
           clients={clients}
           brainstorms={brainstorms}
+          optionsLoading={creationOptionsLoading}
+          optionsError={creationOptionsError}
+          onRetryOptions={() => void loadCreationOptions()}
           templates={data.templates}
           brands={data.brandProfiles.map((item) => ({ id: item.id, name: item.name, branding: item.branding }))}
           busy={busy}
           onClose={() => setCreateOpen(false)}
           onCreate={(input) => void runAction(async () => {
             const response = await createProposal(input);
-            setData((current) => current ? { ...current, proposals: [response.proposal, ...current.proposals], summary: { ...current.summary, proposalCount: current.summary.proposalCount + 1, draftCount: current.summary.draftCount + 1 } } : current);
+            setData((current) => current ? { ...current, proposals: [commercialDocumentSummary(response.proposal) as typeof current.proposals[number], ...current.proposals], summary: { ...current.summary, proposalCount: current.summary.proposalCount + 1, draftCount: current.summary.draftCount + 1 } } : current);
             setCreateOpen(false);
             setSelected(response.proposal);
           }, "Proposta criada. O salvamento automatico esta ativo.")}
@@ -602,6 +664,9 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
 function CreateProposalDialog({
   clients,
   brainstorms,
+  optionsLoading,
+  optionsError,
+  onRetryOptions,
   templates,
   brands,
   busy,
@@ -610,6 +675,9 @@ function CreateProposalDialog({
 }: {
   clients: ClientOption[];
   brainstorms: BrainstormOption[];
+  optionsLoading: boolean;
+  optionsError: string;
+  onRetryOptions: () => void;
   templates: CommercialTemplate[];
   brands: Array<{ id: string; name: string; branding: typeof defaultBranding }>;
   busy: boolean;
@@ -617,11 +685,8 @@ function CreateProposalDialog({
   onCreate: (input: CreateInput) => void;
 }) {
   const [clientId, setClientId] = useState(clients[0]?.id || "");
-  const [brainstormId, setBrainstormId] = useState(() => {
-    const pending = window.localStorage.getItem("norium:commercial-brainstorm-id") || "";
-    window.localStorage.removeItem("norium:commercial-brainstorm-id");
-    return brainstorms.some((item) => item.id === pending) ? pending : "";
-  });
+  const [brainstormId, setBrainstormId] = useState("");
+  const [pendingBrainstormId] = useState(() => window.localStorage.getItem("norium:commercial-brainstorm-id") || "");
   const [title, setTitle] = useState("");
   const [objective, setObjective] = useState("");
   const [scopeNotes, setScopeNotes] = useState("");
@@ -644,6 +709,18 @@ function CreateProposalDialog({
   const guidance = templateGuidance(selectedTemplate);
   const selectedBrand = brands.find((item) => item.id === brandId);
   const client = clients.find((item) => item.id === clientId);
+
+  useEffect(() => {
+    if (!clientId && clients[0]) setClientId(clients[0].id);
+  }, [clientId, clients]);
+
+  useEffect(() => {
+    if (optionsLoading || optionsError || !pendingBrainstormId) return;
+    if (brainstorms.some((item) => item.id === pendingBrainstormId)) {
+      setBrainstormId(pendingBrainstormId);
+    }
+    window.localStorage.removeItem("norium:commercial-brainstorm-id");
+  }, [brainstorms, optionsError, optionsLoading, pendingBrainstormId]);
 
   function selectBrainstorm(nextId: string) {
     setBrainstormId(nextId);
@@ -726,7 +803,11 @@ function CreateProposalDialog({
       onClose={onClose}
       wide
     >
-      {!clients.length ? (
+      {optionsLoading ? (
+        <LoadingState label="Carregando clientes e brainstorms..." />
+      ) : optionsError ? (
+        <StatusBanner tone="error" action={<Button size="sm" variant="secondary" onClick={onRetryOptions}>Tentar novamente</Button>}>{optionsError}</StatusBanner>
+      ) : !clients.length ? (
         <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-4 text-sm font-bold text-amber-300">Cadastre ao menos um cliente na tela Clientes antes de criar a proposta.</div>
       ) : draft ? (
         <div className="grid min-h-0 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">

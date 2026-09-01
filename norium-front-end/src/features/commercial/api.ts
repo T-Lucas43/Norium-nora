@@ -46,6 +46,14 @@ export function loadCommercialData(signal?: AbortSignal) {
   return apiRequest<CommercialData>("/api/comercial", { signal });
 }
 
+export function loadProposal(id: string, signal?: AbortSignal) {
+  return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}`, { signal });
+}
+
+export function loadContract(id: string, signal?: AbortSignal) {
+  return apiRequest<{ contract: CommercialContract }>(`/api/comercial/contracts/${id}`, { signal });
+}
+
 export function createProposal(input: ProposalCreateInput) {
   return apiRequest<{ proposal: CommercialProposal }>("/api/comercial/proposals", {
     method: "POST",

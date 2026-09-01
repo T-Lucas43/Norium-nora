@@ -60,13 +60,14 @@ const systemFolders: Array<{ key: string; label: string; icon: LucideIcon; count
 
 
 type EmailDashboardProps = {
+  active?: boolean;
   userId?: string;
   canUseNora?: boolean;
   selectedEmailId?: string | null;
   onSelectedEmailHandled?: () => void;
 };
 
-export default function EmailDashboard({ userId = "primary", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
+export default function EmailDashboard({ active = true, userId = "primary", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
   const [activeFolder, setActiveFolder] = useState("inbox");
   const [activeFilter, setActiveFilter] = useState<MailQuickFilter>("all");
   const [searchDraft, setSearchDraft] = useState("");
@@ -114,7 +115,7 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
     fetchLabels,
     connect: connectGmail,
     disconnect: disconnectGmail,
-  } = useGmailConnection({ userId, onError: setError, onDisconnected: handleDisconnected });
+  } = useGmailConnection({ active, userId, onError: setError, onDisconnected: handleDisconnected });
 
   const handleMailboxChanged = useCallback(() => {
     setSelectedIds(new Set());
@@ -144,7 +145,7 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
     folder: activeFolder,
     filter: activeFilter,
     searchQuery,
-    connected: Boolean(status?.connected),
+    connected: active && Boolean(status?.connected),
     autoRefresh,
     onError: setError,
     onStatusPayload: handleStatusPayload,
@@ -248,13 +249,14 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
 
 
   useEffect(() => {
+    if (!active) return;
     void fetchStatus().catch((err) => setError(err instanceof Error ? err.message : "Falha ao checar Gmail."));
-  }, [fetchStatus]);
+  }, [active, fetchStatus]);
 
   useEffect(() => {
-    if (!status?.connected) return;
+    if (!active || !status?.connected) return;
     void fetchLabels().catch(() => undefined);
-  }, [fetchLabels, status?.connected]);
+  }, [active, fetchLabels, status?.connected]);
 
   useEffect(() => {
     setReplyText("");

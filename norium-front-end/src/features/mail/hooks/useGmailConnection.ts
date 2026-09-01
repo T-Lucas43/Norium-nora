@@ -4,6 +4,7 @@ import { clearMailboxCacheForUser } from "../mailboxCache";
 import type { GmailLabel, GmailStatus } from "../types";
 
 type UseGmailConnectionOptions = {
+  active?: boolean;
   userId: string;
   onError: (message: string) => void;
   /** Limpeza de estado que pertence ao dashboard (mensagens, selecoes, paineis). */
@@ -42,7 +43,7 @@ export function routeGoogleOAuth(
 }
 
 /** Conexao com o Gmail: status da conta, rotulos e o par conectar/desconectar. */
-export function useGmailConnection({ userId, onError, onDisconnected }: UseGmailConnectionOptions) {
+export function useGmailConnection({ active = true, userId, onError, onDisconnected }: UseGmailConnectionOptions) {
   const [status, setStatus] = useState<GmailStatus | null>(null);
   const [labels, setLabels] = useState<GmailLabel[]>([]);
   const [connecting, setConnecting] = useState(false);
@@ -61,6 +62,7 @@ export function useGmailConnection({ userId, onError, onDisconnected }: UseGmail
   }, [userId]);
 
   useEffect(() => {
+    if (!active) return undefined;
     const refreshAfterOAuth = () => {
       if (document.visibilityState === "visible") {
         void fetchStatus().catch(() => undefined);
@@ -72,7 +74,7 @@ export function useGmailConnection({ userId, onError, onDisconnected }: UseGmail
       window.removeEventListener("focus", refreshAfterOAuth);
       document.removeEventListener("visibilitychange", refreshAfterOAuth);
     };
-  }, [fetchStatus]);
+  }, [active, fetchStatus]);
 
   const connect = useCallback(async () => {
     if (connectingRef.current) return;

@@ -78,7 +78,7 @@ export type DocumentRevision = {
   version: number;
   title: string;
   contentHtml: string;
-  branding: Branding;
+  branding: Omit<Branding, "logoUrl"> & { logoUrl?: string };
   savedBy: string;
   savedById: string;
   savedAt: string;
@@ -213,9 +213,27 @@ export type CommercialSummary = {
   maxBrandProfiles: number | null;
 };
 
+export type CommercialProposalSummary = Pick<
+  CommercialProposal,
+  "id" | "client" | "brainstormId" | "contractId" | "title" | "amount" | "currency" | "status" | "updatedAt"
+> & {
+  documentType: "proposal";
+  primaryColor: string;
+};
+
+export type CommercialContractSummary = Pick<
+  CommercialContract,
+  "id" | "proposalId" | "client" | "brainstormId" | "title" | "amount" | "currency" | "status" | "updatedAt"
+> & {
+  documentType: "contract";
+  primaryColor: string;
+};
+
+export type CommercialDocumentSummary = CommercialProposalSummary | CommercialContractSummary;
+
 export type CommercialData = {
-  proposals: CommercialProposal[];
-  contracts: CommercialContract[];
+  proposals: CommercialProposalSummary[];
+  contracts: CommercialContractSummary[];
   brandProfiles: BrandProfile[];
   templates: CommercialTemplate[];
   summary: CommercialSummary;
@@ -285,4 +303,20 @@ export const defaultBranding: Branding = {
 
 export function isProposal(document: CommercialDocument): document is CommercialProposal {
   return "approval" in document;
+}
+
+export function commercialDocumentSummary(document: CommercialDocument): CommercialDocumentSummary {
+  const base = {
+    id: document.id,
+    client: document.client,
+    brainstormId: document.brainstormId,
+    title: document.title,
+    amount: document.amount,
+    currency: document.currency,
+    updatedAt: document.updatedAt,
+    primaryColor: document.branding?.primaryColor || defaultBranding.primaryColor,
+  };
+  return isProposal(document)
+    ? { ...base, documentType: "proposal", contractId: document.contractId, status: document.status }
+    : { ...base, documentType: "contract", proposalId: document.proposalId, status: document.status };
 }

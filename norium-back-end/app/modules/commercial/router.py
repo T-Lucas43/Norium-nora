@@ -46,6 +46,7 @@ from app.modules.commercial.service import (
     decide_suggestion,
     delete_contract,
     delete_proposal,
+    document_for_response,
     generate_proposal_draft,
     instantiate_obligations,
     list_commercial_data,
@@ -143,7 +144,7 @@ async def share_document(
     request: Request,
 ) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
-    store = read_store(tenant_id)
+    store = await asyncio.to_thread(read_store, tenant_id)
     if document_type == "proposal":
         _, document = proposal_or_404(store, document_id)
     else:
@@ -272,7 +273,7 @@ async def post_proposal(payload: ProposalCreate, user: dict[str, Any] = Depends(
     proposal = await create_proposal(user, payload)
     await audit(user, "proposal_created", f'Proposta "{proposal["title"]}" criada.', "proposal", proposal["id"], "success")
     await notify(user, "Nova proposta comercial", proposal["title"], "proposal_created", proposal["id"])
-    return {"proposal": proposal}
+    return {"proposal": document_for_response(proposal)}
 
 
 @router.post("/proposal-draft")
@@ -285,21 +286,21 @@ async def post_proposal_draft(
 
 @router.get("/proposals/{proposal_id}")
 async def get_proposal(proposal_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    store = read_store(collaboration_tenant_id(user))
+    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     _, proposal = next(
         ((index, item) for index, item in enumerate(store["proposals"]) if str(item.get("id")) == proposal_id),
         (None, None),
     )
     if proposal is None:
         raise HTTPException(status_code=404, detail="Proposta nao encontrada.")
-    return {"proposal": proposal}
+    return {"proposal": document_for_response(proposal)}
 
 
 @router.get("/proposals/{proposal_id}/pdf")
 async def export_proposal_pdf(proposal_id: str, user: dict[str, Any] = Depends(current_user)) -> StreamingResponse:
-    store = read_store(collaboration_tenant_id(user))
+    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     _, proposal = proposal_or_404(store, proposal_id)
-    pdf_bytes, filename = build_commercial_pdf(proposal, "proposal")
+    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, proposal, "proposal")
     await audit(user, "proposal_pdf_exported", f'PDF da proposta "{proposal["title"]}" gerado.', "proposal", proposal_id, "success")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
@@ -313,7 +314,7 @@ async def remove_proposal(proposal_id: str, user: dict[str, Any] = Depends(curre
     proposal = await delete_proposal(user, proposal_id)
     await audit(user, "proposal_deleted", f'Proposta "{proposal["title"]}" excluida.', "proposal", proposal_id, "warning")
     await notify(user, "Proposta excluida", proposal["title"], "proposal_deleted", proposal_id)
-    return {"ok": True, "proposal": proposal}
+    return {"ok": True, "proposal": document_for_response(proposal)}
 
 
 @router.patch("/proposals/{proposal_id}")
@@ -323,12 +324,13 @@ async def patch_proposal(
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     proposal = await update_proposal(user, proposal_id, payload)
+    response_proposal = document_for_response(proposal)
     await manager.broadcast(
         collaboration_tenant_id(user),
         proposal_id,
-        {"type": "DOCUMENT_UPDATED", "documentType": "proposal", "document": proposal, "actorId": str(user.get("id") or "")},
+        {"type": "DOCUMENT_UPDATED", "documentType": "proposal", "document": response_proposal, "actorId": str(user.get("id") or "")},
     )
-    return {"proposal": proposal}
+    return {"proposal": response_proposal}
 
 
 @router.post("/proposals/{proposal_id}/submit")
@@ -346,7 +348,7 @@ async def post_submit(
         "proposal_submitted",
         proposal_id,
     )
-    return {"proposal": proposal}
+    return {"proposal": document_for_response(proposal)}
 
 
 @router.post("/proposals/{proposal_id}/approve")
@@ -358,7 +360,7 @@ async def post_approve(
     proposal = await decide_proposal(user, proposal_id, approved=True, note=payload.note)
     await audit(user, "proposal_approved", f'Proposta "{proposal["title"]}" aprovada.', "proposal", proposal_id, "success")
     await notify(user, "Proposta aprovada", proposal["title"], "proposal_approved", proposal_id)
-    return {"proposal": proposal}
+    return {"proposal": document_for_response(proposal)}
 
 
 @router.post("/proposals/{proposal_id}/request-changes")
@@ -369,7 +371,7 @@ async def post_request_changes(
 ) -> dict[str, Any]:
     proposal = await decide_proposal(user, proposal_id, approved=False, note=payload.note)
     await audit(user, "proposal_changes_requested", f'Ajustes solicitados em "{proposal["title"]}".', "proposal", proposal_id, "warning")
-    return {"proposal": proposal}
+    return {"proposal": document_for_response(proposal)}
 
 
 @router.post("/proposals/{proposal_id}/nora-analysis")
@@ -380,7 +382,7 @@ async def post_nora_analysis(
 ) -> dict[str, Any]:
     proposal = await analyze_with_nora(user, proposal_id, payload)
     await audit(user, "proposal_analyzed", f'Nora analisou "{proposal["title"]}".', "proposal", proposal_id, "info")
-    return {"proposal": proposal}
+    return {"proposal": document_for_response(proposal)}
 
 
 @router.post("/proposals/{proposal_id}/nora-write")
@@ -400,12 +402,13 @@ async def post_suggestion_decision(
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     proposal = await decide_suggestion(user, proposal_id, suggestion_id, payload.decision)
+    response_proposal = document_for_response(proposal)
     await manager.broadcast(
         collaboration_tenant_id(user),
         proposal_id,
-        {"type": "DOCUMENT_UPDATED", "documentType": "proposal", "document": proposal, "actorId": str(user.get("id") or "")},
+        {"type": "DOCUMENT_UPDATED", "documentType": "proposal", "document": response_proposal, "actorId": str(user.get("id") or "")},
     )
-    return {"proposal": proposal}
+    return {"proposal": response_proposal}
 
 
 @router.post("/proposals/{proposal_id}/contract")
@@ -417,21 +420,21 @@ async def post_contract(
     contract, proposal = await create_contract(user, proposal_id, payload.title, payload.templateId)
     await audit(user, "contract_created", f'Contrato "{contract["title"]}" gerado.', "contract", contract["id"], "success")
     await notify(user, "Contrato gerado", contract["title"], "contract_created", contract["id"])
-    return {"contract": contract, "proposal": proposal}
+    return {"contract": document_for_response(contract), "proposal": document_for_response(proposal)}
 
 
 @router.get("/contracts/{contract_id}")
 async def get_contract(contract_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    store = read_store(collaboration_tenant_id(user))
+    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     _, contract = contract_or_404(store, contract_id)
-    return {"contract": contract}
+    return {"contract": document_for_response(contract)}
 
 
 @router.get("/contracts/{contract_id}/pdf")
 async def export_contract_pdf(contract_id: str, user: dict[str, Any] = Depends(current_user)) -> StreamingResponse:
-    store = read_store(collaboration_tenant_id(user))
+    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     _, contract = contract_or_404(store, contract_id)
-    pdf_bytes, filename = build_commercial_pdf(contract, "contract")
+    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, contract, "contract")
     await audit(user, "contract_pdf_exported", f'PDF do contrato "{contract["title"]}" gerado.', "contract", contract_id, "success")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
@@ -447,12 +450,13 @@ async def patch_contract(
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     contract = await update_contract(user, contract_id, payload)
+    response_contract = document_for_response(contract)
     await manager.broadcast(
         collaboration_tenant_id(user),
         contract_id,
-        {"type": "DOCUMENT_UPDATED", "documentType": "contract", "document": contract, "actorId": str(user.get("id") or "")},
+        {"type": "DOCUMENT_UPDATED", "documentType": "contract", "document": response_contract, "actorId": str(user.get("id") or "")},
     )
-    return {"contract": contract}
+    return {"contract": response_contract}
 
 
 @router.post("/contracts/{contract_id}/cancel")
@@ -461,13 +465,14 @@ async def post_cancel_contract(
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     contract = await cancel_contract(user, contract_id)
+    response_contract = document_for_response(contract)
     await audit(user, "contract_cancelled", f'Contrato "{contract["title"]}" cancelado e preservado no historico.', "contract", contract_id, "success")
     await manager.broadcast(
         collaboration_tenant_id(user),
         contract_id,
-        {"type": "DOCUMENT_UPDATED", "documentType": "contract", "document": contract, "actorId": str(user.get("id") or "")},
+        {"type": "DOCUMENT_UPDATED", "documentType": "contract", "document": response_contract, "actorId": str(user.get("id") or "")},
     )
-    return {"contract": contract}
+    return {"contract": response_contract}
 
 
 @router.delete("/contracts/{contract_id}")
@@ -482,7 +487,11 @@ async def remove_contract(
         contract_id,
         {"type": "DOCUMENT_DELETED", "documentType": "contract", "documentId": contract_id, "actorId": str(user.get("id") or "")},
     )
-    return {"ok": True, "contract": contract, "proposal": proposal}
+    return {
+        "ok": True,
+        "contract": document_for_response(contract),
+        "proposal": document_for_response(proposal) if proposal else None,
+    }
 
 
 @router.post("/contracts/{contract_id}/nora-write")
@@ -541,7 +550,7 @@ async def post_send_for_signature(
         or "http://127.0.0.1:5173"
     )
     return {
-        "contract": contract,
+        "contract": document_for_response(contract),
         "signatureLinks": signature_links(collaboration_tenant_id(user), contract, frontend_url),
     }
 
@@ -595,7 +604,7 @@ async def post_sign(
     await audit(user, "contract_signed", f'Assinatura registrada em "{contract["title"]}".', "contract", contract_id, "success")
     if contract.get("status") == "signed":
         await notify(user, "Contrato totalmente assinado", contract["title"], "contract_signed", contract_id)
-    return {"contract": contract}
+    return {"contract": document_for_response(contract)}
 
 
 @router.post("/contracts/{contract_id}/instantiate")
@@ -615,7 +624,7 @@ async def post_instantiate(
         "success",
     )
     await notify(user, "Contrato desdobrado em tarefas", f'{contract["title"]}: {len(result["tasks"])} tarefa(s).', "contract_instantiated", contract_id)
-    return result
+    return {**result, "contract": document_for_response(contract)}
 
 
 @router.post("/brand-profiles")
@@ -643,7 +652,7 @@ async def commercial_socket(document_id: str, websocket: WebSocket, ticket: str 
         await websocket.close(code=4401)
         return
     tenant_id = collaboration_tenant_id(user)
-    store = read_store(tenant_id)
+    store = await asyncio.to_thread(read_store, tenant_id)
     document = next(
         (
             item

@@ -504,7 +504,9 @@ export default function CommercialEditor({
     if (!confirmed) return;
     setTitle(revision.title);
     setContentHtml(revision.contentHtml);
-    setBranding(revision.branding);
+    // Revisoes novas nao repetem o data URL do logo; ao restaurar, preserve a
+    // imagem atual e aplique apenas as demais propriedades historicas.
+    setBranding((current) => ({ ...current, ...revision.branding, logoUrl: revision.branding.logoUrl || current.logoUrl }));
   }
 
   async function exportPdf() {

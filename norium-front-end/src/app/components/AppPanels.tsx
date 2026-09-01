@@ -91,7 +91,7 @@ export default function AppPanels({
 }: AppPanelsProps) {
   const currentUser = authSession.user;
   const activePanelClass = (...tabs: string[]) => (tabs.includes(activeTab) ? "app-panel" : "hidden");
-  const isPanelMounted = (...tabs: string[]) => tabs.some((tab) => mountedTabs.has(tab) || tabs.includes(activeTab));
+  const isPanelMounted = (...tabs: string[]) => tabs.includes(activeTab) || tabs.some((tab) => mountedTabs.has(tab));
   const coach = (module: GuidedModule, compact = false) => (
     <ModuleCoach module={module} onAskNora={onOpenNora} compact={compact} />
   );
@@ -143,6 +143,7 @@ export default function AppPanels({
         <section className={activePanelClass("E-mail", "E-mails")}>
           {coach("Emails")}
           <EmailDashboard
+            active={activeTab === "E-mail" || activeTab === "E-mails"}
             userId={currentUser.id}
             canUseNora={canUseNora}
             selectedEmailId={emailToOpenId}
@@ -160,6 +161,7 @@ export default function AppPanels({
         <section className={`${activePanelClass("Chat")} app-panel-chat`}>
           {coach("Chat")}
           <ChatCentral
+            active={activeTab === "Chat"}
             userId={currentUser.id}
             onConversaAtivaChange={onActiveConversationChange}
             onOpenNora={onOpenNora}

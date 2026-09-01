@@ -13,6 +13,7 @@ describe("tela da reuniao do Modo Equipe", () => {
       remoteStreams: [],
       muted: false,
       cameraOff: true,
+      cameraPermission: "granted",
       sharingScreen: false,
       callElapsedSeconds: 65,
       recording: false,
@@ -31,6 +32,7 @@ describe("tela da reuniao do Modo Equipe", () => {
       sendReaction: vi.fn(),
       toggleScreenShare: vi.fn(),
       toggleCamera: vi.fn(),
+      requestCameraPermission: vi.fn(),
       toggleMute: vi.fn(),
       endCall: vi.fn(),
       leaveCall: vi.fn(),
@@ -62,5 +64,38 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByLabelText("Dispositivos da chamada")).toBeInTheDocument();
     expect(screen.getByText("Dispositivo de entrada")).toBeInTheDocument();
     expect(screen.getByText("Dispositivo de saída")).toBeInTheDocument();
+  });
+
+  it("orienta a liberar a camera quando a permissao esta bloqueada", () => {
+    const requestCameraPermission = vi.fn();
+    const call = {
+      incoming: null,
+      active: { callId: "call_0123456789abcdef", mode: "audio", title: "Time todo", hostUserId: "owner", startedAt: new Date().toISOString(), thread: { scope: "team", title: "Time todo" } },
+      localStream: null,
+      remoteStreams: [],
+      muted: false,
+      cameraOff: true,
+      cameraPermission: "denied",
+      sharingScreen: false,
+      callElapsedSeconds: 0,
+      recording: false,
+      recordingElapsedSeconds: 0,
+      connectionQuality: "good",
+      reactions: [],
+      status: "Câmera bloqueada",
+      devices: { microphones: [], cameras: [], speakers: [] },
+      selectedMicrophoneId: "",
+      selectedCameraId: "",
+      selectedSpeakerId: "",
+      supportsSpeakerSelection: true,
+      isHost: true,
+      requestCameraPermission,
+    } as unknown as ReturnTypeOfTeamCall;
+
+    render(<TeamCallOverlay call={call} messages={[]} members={[]} currentUserId="owner" onSendMessage={vi.fn()} onDownloadAttachment={vi.fn()} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Câmera > Permitir");
+    fireEvent.click(screen.getByRole("button", { name: "Permitir câmera" }));
+    expect(requestCameraPermission).toHaveBeenCalledOnce();
   });
 });

@@ -53,6 +53,7 @@ type CallDevices = {
 
 type CallSound = "connecting" | "joined" | "left" | "ended";
 type ConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
+type CameraPermission = "unknown" | "requesting" | "granted" | "denied" | "unavailable";
 
 function playCallSound(sound: CallSound) {
   if (typeof window === "undefined" || !window.AudioContext) return;
@@ -104,10 +105,10 @@ function mediaAccessError(error: unknown, device: "camera" | "microfone" | "tela
   const name = error instanceof DOMException ? error.name : "";
   const target = device === "camera" ? "a camera" : device === "tela" ? "a tela" : "o microfone";
   if (name === "NotAllowedError" || name === "SecurityError") {
-    return `Permita o acesso ${target} nas configuracoes do navegador.`;
+    return `Permita o acesso ${target} nas configurações do navegador.`;
   }
   if (name === "NotFoundError" || name === "OverconstrainedError") {
-    return `Nenhum dispositivo de ${device} disponivel foi encontrado.`;
+    return `Nenhum dispositivo de ${device} disponível foi encontrado.`;
   }
   if (name === "NotReadableError") {
     return `O dispositivo de ${device} esta sendo usado por outro aplicativo.`;
@@ -130,6 +131,7 @@ export function useTeamCall({
   const [remoteStreams, setRemoteStreams] = useState<Array<{ userId: string; stream: MediaStream }>>([]);
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(true);
+  const [cameraPermission, setCameraPermission] = useState<CameraPermission>("unknown");
   const [sharingScreen, setSharingScreen] = useState(false);
   const [status, setStatus] = useState("");
   const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
@@ -358,6 +360,47 @@ export function useTeamCall({
     await refreshDevices().catch(() => undefined);
     return stream;
   }, [refreshDevices, selectedMicrophoneId]);
+
+  const requestCameraPermission = useCallback(async () => {
+    if (window.isSecureContext === false || !navigator.mediaDevices?.getUserMedia) {
+      setCameraPermission("unavailable");
+      setStatus("A câmera exige uma conexão HTTPS segura e um navegador compatível.");
+      return false;
+    }
+    setCameraPermission("requesting");
+    setStatus("Solicitando permissão para usar a câmera...");
+    try {
+      const defaultVideoConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
+      let permissionStream: MediaStream;
+      try {
+        permissionStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            ...(selectedCameraId ? { deviceId: { exact: selectedCameraId } } : {}),
+            ...defaultVideoConstraints,
+          },
+        });
+      } catch (error) {
+        const name = error instanceof DOMException ? error.name : "";
+        if (!selectedCameraId || (name !== "NotFoundError" && name !== "OverconstrainedError")) throw error;
+        setSelectedCameraId("");
+        permissionStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: defaultVideoConstraints });
+      }
+      const cameraTrack = permissionStream.getVideoTracks()[0];
+      if (!cameraTrack) throw new DOMException("Nenhuma câmera respondeu.", "NotFoundError");
+      permissionStream.getTracks().forEach((track) => track.stop());
+      setCameraPermission("granted");
+      setCameraOff(true);
+      setStatus("Permissão da câmera concedida. Ela permanece desligada até você ativá-la.");
+      await refreshDevices().catch(() => undefined);
+      return true;
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : "";
+      setCameraPermission(name === "NotFoundError" || name === "OverconstrainedError" ? "unavailable" : "denied");
+      setStatus(`${mediaAccessError(error, "camera")} Clique no cadeado ao lado do endereço do site, escolha Câmera > Permitir e tente novamente.`);
+      return false;
+    }
+  }, [refreshDevices, selectedCameraId]);
 
   const replaceInputDevice = useCallback(async (kind: "audio" | "video", deviceId: string) => {
     const currentStream = localStreamRef.current;
@@ -690,8 +733,9 @@ export function useTeamCall({
 
   const startCall = useCallback(async (targetThread: TeamCallThread = thread) => {
     if (activeRef.current) return;
-    setStatus("Solicitando permissao do microfone...");
+    setStatus("Solicitando permissões da câmera e do microfone...");
     try {
+      await requestCameraPermission();
       await acquireMedia();
       const call: ActiveCall = {
         callId: callId(),
@@ -712,13 +756,14 @@ export function useTeamCall({
       finishCall(false);
       setStatus(mediaAccessError(error, "microfone"));
     }
-  }, [acquireMedia, callPayload, finishCall, sendSocketEvent, session.user.id, startConnectingSound, thread]);
+  }, [acquireMedia, callPayload, finishCall, requestCameraPermission, sendSocketEvent, session.user.id, startConnectingSound, thread]);
 
   const acceptIncoming = useCallback(async () => {
     if (!incoming) return;
     setStatus("Conectando dispositivos...");
     startConnectingSound();
     try {
+      await requestCameraPermission();
       await acquireMedia();
       const call: ActiveCall = { ...incoming };
       activeRef.current = call;
@@ -734,7 +779,7 @@ export function useTeamCall({
       finishCall(false);
       setStatus(mediaAccessError(error, "microfone"));
     }
-  }, [acquireMedia, callPayload, finishCall, incoming, sendSocketEvent, startConnectingSound, stopConnectingSound]);
+  }, [acquireMedia, callPayload, finishCall, incoming, requestCameraPermission, sendSocketEvent, startConnectingSound, stopConnectingSound]);
 
   const rejectIncoming = useCallback(() => {
     if (incoming) sendSocketEvent({ type: "CALL_REJECT", ...callPayload(incoming) });
@@ -869,6 +914,7 @@ export function useTeamCall({
       setStatus("Este navegador nao permite acessar a camera.");
       return;
     }
+    if (cameraPermission !== "granted" && !(await requestCameraPermission())) return;
     const currentTrack = currentStream.getVideoTracks()[0];
     if (currentTrack) {
       const enabling = !currentTrack.enabled;
@@ -909,7 +955,7 @@ export function useTeamCall({
       setCameraOff(true);
       setStatus(mediaAccessError(error, "camera"));
     }
-  }, [attachVideoTrack, refreshDevices, selectedCameraId]);
+  }, [attachVideoTrack, cameraPermission, refreshDevices, requestCameraPermission, selectedCameraId]);
 
   const stopScreenShare = useCallback(async () => {
     const activeScreen = screenStreamRef.current;
@@ -973,6 +1019,7 @@ export function useTeamCall({
     remoteStreams,
     muted,
     cameraOff,
+    cameraPermission,
     sharingScreen,
     callElapsedSeconds,
     recording,
@@ -991,6 +1038,7 @@ export function useTeamCall({
     sendReaction,
     toggleMute,
     toggleCamera,
+    requestCameraPermission,
     toggleScreenShare,
     handleSocketEvent,
     devices,

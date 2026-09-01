@@ -7078,21 +7078,75 @@ html.mail-fullscreen-open body{
   gap:2px;
   border-radius:8px;
   padding:5px 8px;
-  color:var(--text);
+  color:#eaf2ff;
   font-size:10px;
   font-weight:700;
   white-space:nowrap;
   transition:background-color .16s ease,color .16s ease;
 }
-.team-call-top-control:hover{ background:var(--surface-hover); }
+.team-call-top-control:hover{ background:#0d2d59; }
 .team-call-top-control.team-call-active{
-  background:color-mix(in srgb, var(--primary) 18%, var(--surface));
-  color:var(--primary);
+  background:#0d3b78;
+  color:#8dc2ff;
 }
 .team-call-top-control.team-call-danger{ color:#f43f5e; }
 .team-call-shell{
-  --team-call-panel:var(--surface);
-  --team-call-stage:var(--screen-background);
+  --team-call-border:#173c72;
+  background:#020817!important;
+  color:#f4f8ff!important;
+  opacity:1!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+.team-call-shell .team-call-header{
+  background:#061a3a!important;
+  border-color:var(--team-call-border)!important;
+  opacity:1!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+  box-shadow:0 12px 34px #000b22!important;
+}
+.team-call-side-panel,
+.team-call-popover,
+.team-call-waiting,
+.team-call-incoming-card{
+  background:#07162d!important;
+  border-color:#173c72!important;
+  color:#f4f8ff!important;
+  opacity:1!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+.team-call-side-panel{ background:#061124!important; }
+.team-call-waiting{ background:#030b1c!important; }
+.team-call-incoming-backdrop{
+  background:#020817!important;
+  opacity:1!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+.team-call-camera-permission{
+  background:#092654!important;
+  border-color:#1d55a0!important;
+  color:#f4f8ff!important;
+}
+.team-call-recording-badge{
+  background:#061124!important;
+  border:1px solid #7f1d3d;
+  opacity:1!important;
+}
+.team-call-shell [class*="bg-[var(--background)]"]{
+  background:#020b1e!important;
+  opacity:1!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+.team-call-shell [class*="bg-[var(--surface-hover)]"]{
+  background:#0a2143!important;
+  opacity:1!important;
+}
+.team-call-shell [class*="border-[var(--border)]"]{
+  border-color:#173c72!important;
 }
 .team-call-reaction{ animation:team-call-reaction-float 4.2s ease-out both; }
 @keyframes team-call-reaction-float{

@@ -28,15 +28,24 @@ describe("chamadas do Modo Equipe", () => {
   });
 
   it("inicia uma reuniao com audio e deixa a camera para ser ativada dentro da sala", async () => {
-    const stop = vi.fn();
-    const stream = {
-      getTracks: () => [{ stop }],
+    const cameraStop = vi.fn();
+    const audioStop = vi.fn();
+    const cameraTrack = { kind: "video", stop: cameraStop } as unknown as MediaStreamTrack;
+    const audioTrack = { kind: "audio", stop: audioStop } as unknown as MediaStreamTrack;
+    const cameraStream = {
+      getTracks: () => [cameraTrack],
       getAudioTracks: () => [],
+      getVideoTracks: () => [cameraTrack],
+    } as unknown as MediaStream;
+    const audioStream = {
+      getTracks: () => [audioTrack],
+      getAudioTracks: () => [audioTrack],
       getVideoTracks: () => [],
     } as unknown as MediaStream;
+    const getUserMedia = vi.fn().mockResolvedValueOnce(cameraStream).mockResolvedValueOnce(audioStream);
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia: vi.fn().mockResolvedValue(stream) },
+      value: { getUserMedia },
     });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
     const { result, unmount } = renderHook(() => useTeamCall({
@@ -47,7 +56,11 @@ describe("chamadas do Modo Equipe", () => {
 
     await act(async () => result.current.startCall());
 
-    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+    expect(getUserMedia).toHaveBeenNthCalledWith(1, {
+      audio: false,
+      video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
+    expect(getUserMedia).toHaveBeenNthCalledWith(2, {
       audio: true,
       video: false,
     });
@@ -58,16 +71,19 @@ describe("chamadas do Modo Equipe", () => {
     }));
     expect(result.current.active?.title).toBe("Time todo");
     expect(result.current.cameraOff).toBe(true);
+    expect(result.current.cameraPermission).toBe("granted");
+    expect(cameraStop).toHaveBeenCalled();
 
     await act(async () => { await result.current.endCall(); });
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_END" }));
-    expect(stop).toHaveBeenCalled();
+    expect(audioStop).toHaveBeenCalled();
     unmount();
   });
 
   it("lista e troca microfone, camera e saida de audio durante a chamada", async () => {
     const oldAudio = { id: "old-audio", kind: "audio", enabled: true, stop: vi.fn() } as unknown as MediaStreamTrack;
     const oldVideo = { id: "old-video", kind: "video", enabled: true, stop: vi.fn() } as unknown as MediaStreamTrack;
+    const permissionVideo = { id: "permission-video", kind: "video", enabled: true, stop: vi.fn() } as unknown as MediaStreamTrack;
     const newAudio = { id: "new-audio", kind: "audio", enabled: true, stop: vi.fn() } as unknown as MediaStreamTrack;
     class FakeMediaStream {
       tracks: MediaStreamTrack[];
@@ -77,10 +93,11 @@ describe("chamadas do Modo Equipe", () => {
       getVideoTracks() { return this.tracks.filter((track) => track.kind === "video"); }
     }
     vi.stubGlobal("MediaStream", FakeMediaStream);
+    const permissionStream = new FakeMediaStream([permissionVideo]) as unknown as MediaStream;
     const initialStream = new FakeMediaStream([oldAudio]) as unknown as MediaStream;
     const cameraStream = new FakeMediaStream([oldVideo]) as unknown as MediaStream;
     const replacementStream = new FakeMediaStream([newAudio]) as unknown as MediaStream;
-    const getUserMedia = vi.fn().mockResolvedValueOnce(initialStream).mockResolvedValueOnce(cameraStream).mockResolvedValueOnce(replacementStream);
+    const getUserMedia = vi.fn().mockResolvedValueOnce(permissionStream).mockResolvedValueOnce(initialStream).mockResolvedValueOnce(cameraStream).mockResolvedValueOnce(replacementStream);
     const enumerateDevices = vi.fn().mockResolvedValue([
       { deviceId: "mic-1", kind: "audioinput", label: "Microfone interno" },
       { deviceId: "mic-2", kind: "audioinput", label: "Headset" },
@@ -103,7 +120,7 @@ describe("chamadas do Modo Equipe", () => {
     expect(result.current.selectedCameraId).toBe("cam-1");
 
     await act(async () => result.current.toggleCamera());
-    expect(getUserMedia).toHaveBeenNthCalledWith(2, {
+    expect(getUserMedia).toHaveBeenNthCalledWith(3, {
       audio: false,
       video: { deviceId: { exact: "cam-1" }, width: { ideal: 1280 }, height: { ideal: 720 } },
     });
@@ -120,14 +137,20 @@ describe("chamadas do Modo Equipe", () => {
   });
 
   it("responde uma chamada individual usando o organizador como destinatario", async () => {
-    const stream = {
+    const cameraTrack = { kind: "video", stop: vi.fn() } as unknown as MediaStreamTrack;
+    const cameraStream = {
+      getTracks: () => [cameraTrack],
+      getAudioTracks: () => [],
+      getVideoTracks: () => [cameraTrack],
+    } as unknown as MediaStream;
+    const audioStream = {
       getTracks: () => [],
       getAudioTracks: () => [],
       getVideoTracks: () => [],
     } as unknown as MediaStream;
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia: vi.fn().mockResolvedValue(stream), enumerateDevices: vi.fn().mockResolvedValue([]) },
+      value: { getUserMedia: vi.fn().mockResolvedValueOnce(cameraStream).mockResolvedValueOnce(audioStream), enumerateDevices: vi.fn().mockResolvedValue([]) },
     });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
     const memberSession = { ...session, user: { ...session.user, id: "member", nome: "Member", role: "member" as const } };

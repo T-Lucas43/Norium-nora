@@ -76,14 +76,14 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
     return createPortal(
       <div className="team-call-incoming-backdrop fixed inset-0 z-[180] grid place-items-center p-4">
         <section className="team-call-incoming-card w-full max-w-sm rounded-2xl border p-6 text-center shadow-2xl">
-          <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#0d2d59] text-[#8dc2ff]"><Video size={28} /></span>
-          <p className="mt-5 text-xs font-bold uppercase tracking-[.18em] text-[#69aaff]">Reunião iniciada</p>
+          <span className="team-call-control-surface mx-auto grid h-16 w-16 place-items-center rounded-full"><Video size={28} /></span>
+          <p className="team-call-accent-text mt-5 text-xs font-bold uppercase tracking-[.18em]">Reunião iniciada</p>
           <h2 className="mt-2 text-xl font-black">{call.incoming.fromUserName}</h2>
           <p className="mt-2 text-sm text-[var(--text-secondary)]">Convidou você para {call.incoming.thread.scope === "direct" ? "uma chamada individual" : "uma reunião da equipe"}.</p>
           <p className="mt-2 text-xs text-[var(--text-secondary)]">Sua câmera entra desligada e pode ser ativada dentro da reunião.</p>
           <div className="mt-6 flex justify-center gap-4">
             <button type="button" onClick={call.rejectIncoming} className="grid h-14 w-14 place-items-center rounded-full bg-rose-600 hover:bg-rose-500" aria-label="Recusar chamada"><PhoneOff size={22} /></button>
-            <button type="button" onClick={() => void call.acceptIncoming()} className="grid h-14 w-14 place-items-center rounded-full bg-[#176bff] text-white hover:bg-[#2d7cff]" aria-label="Entrar na reunião"><Video size={22} /></button>
+            <button type="button" onClick={() => void call.acceptIncoming()} className="team-call-primary-button grid h-14 w-14 place-items-center rounded-full text-white" aria-label="Entrar na reunião"><Video size={22} /></button>
           </div>
         </section>
       </div>, document.body,
@@ -122,7 +122,7 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
           <button type="button" onClick={() => void (call.isHost ? call.endCall() : call.leaveCall())} className="team-call-top-control team-call-danger ml-2" aria-label={call.isHost ? "Encerrar reunião" : "Sair da reunião"}><PhoneOff size={20} /><span>{call.isHost ? "Encerrar" : "Sair"}</span></button>
         </nav>
         {devicesOpen && <DeviceSelector call={call} onClose={() => setDevicesOpen(false)} />}
-        {reactionsOpen && <section className="team-call-popover absolute right-3 top-[calc(100%+10px)] z-20 flex gap-1 rounded-2xl border p-2 shadow-2xl" aria-label="Reações da reunião">{["👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"].map((emoji) => <button key={emoji} type="button" onClick={() => { call.sendReaction(emoji); setReactionsOpen(false); }} className="grid h-11 w-11 place-items-center rounded-xl text-2xl hover:bg-[#0d2d59]" aria-label={`Reagir com ${emoji}`}>{emoji}</button>)}</section>}
+        {reactionsOpen && <section className="team-call-popover absolute right-3 top-[calc(100%+10px)] z-20 flex gap-1 rounded-2xl border p-2 shadow-2xl" aria-label="Reações da reunião">{["👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"].map((emoji) => <button key={emoji} type="button" onClick={() => { call.sendReaction(emoji); setReactionsOpen(false); }} className="grid h-11 w-11 place-items-center rounded-xl text-2xl hover:bg-[#1b2128]" aria-label={`Reagir com ${emoji}`}>{emoji}</button>)}</section>}
       </header>
 
       {call.cameraPermission !== "granted" && (
@@ -131,10 +131,10 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
             <CameraOff size={20} className="shrink-0" />
             <div className="min-w-0">
               <p className="text-sm font-black">{call.cameraPermission === "requesting" ? "Solicitando acesso à câmera..." : call.cameraPermission === "unavailable" ? "Câmera indisponível" : "Permissão da câmera necessária"}</p>
-              <p className="mt-0.5 text-xs text-[#b8cbed]">{call.cameraPermission === "denied" ? "Clique no cadeado ao lado do endereço, escolha Câmera > Permitir e tente novamente." : "O Norium solicita a permissão, mas mantém sua câmera desligada até você ativá-la."}</p>
+              <p className="mt-0.5 text-xs text-[#9ca7b5]">{call.cameraPermission === "denied" ? "Clique no cadeado ao lado do endereço, escolha Câmera > Permitir e tente novamente." : "O Norium solicita a permissão, mas mantém sua câmera desligada até você ativá-la."}</p>
             </div>
           </div>
-          {call.cameraPermission !== "requesting" && <button type="button" onClick={() => void call.requestCameraPermission()} className="shrink-0 rounded-lg bg-[#176bff] px-4 py-2 text-xs font-black text-white hover:bg-[#2d7cff]">Permitir câmera</button>}
+          {call.cameraPermission !== "requesting" && <button type="button" onClick={() => void call.requestCameraPermission()} className="team-call-primary-button shrink-0 rounded-lg px-4 py-2 text-xs font-black text-white">Permitir câmera</button>}
         </section>
       )}
 
@@ -143,7 +143,7 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
           {call.recording && <div className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /> REC {durationLabel(call.recordingElapsedSeconds)}</div>}
           {streams.length ? streams.map((item) => <div key={item.userId} className="overflow-hidden rounded-xl border border-[var(--border)]"><StreamVideo stream={item.stream} sinkId={call.selectedSpeakerId} label={`Participante ${item.userId}`} /></div>) : <WaitingStage title={call.active.title} />}
           {call.localStream && !call.cameraOff && <div className="absolute bottom-5 right-5 h-28 w-44 overflow-hidden rounded-xl border border-[var(--border)] shadow-2xl md:h-40 md:w-60"><StreamVideo stream={call.localStream} muted label="Sua câmera" /></div>}
-          <div className="pointer-events-none absolute bottom-8 left-6 z-20 flex items-end gap-3">{call.reactions.map((reaction) => <div key={reaction.id} className="team-call-reaction rounded-full bg-[#071a35] px-3 py-2 text-center shadow-xl"><span className="block text-3xl">{reaction.emoji}</span><small className="block max-w-24 truncate text-[10px] text-[#b8cbed]">{reaction.userName}</small></div>)}</div>
+          <div className="pointer-events-none absolute bottom-8 left-6 z-20 flex items-end gap-3">{call.reactions.map((reaction) => <div key={reaction.id} className="team-call-reaction rounded-full bg-[#11151a] px-3 py-2 text-center shadow-xl"><span className="block text-3xl">{reaction.emoji}</span><small className="block max-w-24 truncate text-[10px] text-[#9ca7b5]">{reaction.userName}</small></div>)}</div>
         </main>
 
         {(chatOpen || peopleOpen) && <aside className="team-call-side-panel flex w-[min(92vw,390px)] shrink-0 flex-col border-l">
@@ -165,7 +165,7 @@ function DeviceSelector({ call, onClose }: { call: ReturnTypeOfTeamCall; onClose
 }
 
 function WaitingStage({ title }: { title: string }) {
-  return <div className="team-call-waiting grid place-items-center rounded-xl border text-center"><div><span className="mx-auto grid h-36 w-36 place-items-center rounded-full bg-[#176bff] text-4xl font-black text-white shadow-2xl">{initials(title)}</span><p className="mt-8 text-2xl font-black">Aguardando o ingresso de outros participantes...</p><p className="mt-2 text-sm text-[#9db7dd]">O som de entrada tocará quando alguém conectar.</p></div></div>;
+  return <div className="team-call-waiting grid place-items-center rounded-xl border text-center"><div><span className="team-call-primary-button mx-auto grid h-36 w-36 place-items-center rounded-full text-4xl font-black text-white shadow-2xl">{initials(title)}</span><p className="mt-8 text-2xl font-black">Aguardando o ingresso de outros participantes...</p><p className="mt-2 text-sm text-[#9ca7b5]">O som de entrada tocará quando alguém conectar.</p></div></div>;
 }
 
 function MeetingChat({ messages, currentUserId, listRef, messageText, messageFiles, sending, onMessageText, onMessageFiles, onSubmit, onDownloadAttachment }: { messages: MeetingMessage[]; currentUserId: string; listRef: RefObject<HTMLDivElement | null>; messageText: string; messageFiles: File[]; sending: boolean; onMessageText: (value: string) => void; onMessageFiles: (files: File[]) => void; onSubmit: (event: FormEvent) => void; onDownloadAttachment: (attachment: MeetingAttachment) => void }) {

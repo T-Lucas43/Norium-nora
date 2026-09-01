@@ -7078,75 +7078,92 @@ html.mail-fullscreen-open body{
   gap:2px;
   border-radius:8px;
   padding:5px 8px;
-  color:#eaf2ff;
+  color:#f4f6f8;
   font-size:10px;
   font-weight:700;
   white-space:nowrap;
   transition:background-color .16s ease,color .16s ease;
 }
-.team-call-top-control:hover{ background:#0d2d59; }
+.team-call-top-control:hover{ background:#1b2128; }
 .team-call-top-control.team-call-active{
-  background:#0d3b78;
-  color:#8dc2ff;
+  background:linear-gradient(135deg, #0b4eac 0%, #1268e8 58%, #159fd2 100%);
+  color:#fff;
 }
 .team-call-top-control.team-call-danger{ color:#f43f5e; }
 .team-call-shell{
-  --team-call-border:#173c72;
-  background:#020817!important;
-  color:#f4f8ff!important;
+  --team-call-background:#050709;
+  --team-call-panel:#0b0d0f;
+  --team-call-control:#11151a;
+  --team-call-control-hover:#1b2128;
+  --team-call-border:#22262b;
+  --team-call-primary:linear-gradient(135deg, #0b4eac 0%, #1268e8 58%, #159fd2 100%);
+  background:var(--team-call-background)!important;
+  color:#f4f6f8!important;
   opacity:1!important;
   backdrop-filter:none!important;
   -webkit-backdrop-filter:none!important;
 }
 .team-call-shell .team-call-header{
-  background:#061a3a!important;
+  background:var(--team-call-panel)!important;
   border-color:var(--team-call-border)!important;
   opacity:1!important;
   backdrop-filter:none!important;
   -webkit-backdrop-filter:none!important;
-  box-shadow:0 12px 34px #000b22!important;
+  box-shadow:0 12px 34px rgba(0,0,0,.42)!important;
 }
 .team-call-side-panel,
 .team-call-popover,
 .team-call-waiting,
 .team-call-incoming-card{
-  background:#07162d!important;
-  border-color:#173c72!important;
-  color:#f4f8ff!important;
+  background:#0c0e10!important;
+  border-color:var(--team-call-border, #22262b)!important;
+  color:#f4f6f8!important;
   opacity:1!important;
   backdrop-filter:none!important;
   -webkit-backdrop-filter:none!important;
 }
-.team-call-side-panel{ background:#061124!important; }
-.team-call-waiting{ background:#030b1c!important; }
+.team-call-side-panel{ background:var(--team-call-panel, #0b0d0f)!important; }
+.team-call-waiting{ background:var(--team-call-background, #050709)!important; }
 .team-call-incoming-backdrop{
-  background:#020817!important;
+  --team-call-border:#22262b;
+  background:#050709!important;
   opacity:1!important;
   backdrop-filter:none!important;
   -webkit-backdrop-filter:none!important;
 }
 .team-call-camera-permission{
-  background:#092654!important;
-  border-color:#1d55a0!important;
-  color:#f4f8ff!important;
+  background:linear-gradient(90deg, #0b0d0f 0%, #0b1624 58%, #071528 100%)!important;
+  border-color:#1b2635!important;
+  color:#f4f6f8!important;
 }
 .team-call-recording-badge{
-  background:#061124!important;
+  background:#11151a!important;
   border:1px solid #7f1d3d;
   opacity:1!important;
 }
+.team-call-primary-button{
+  background:linear-gradient(135deg, #0b4eac 0%, #1268e8 58%, #159fd2 100%)!important;
+  box-shadow:0 14px 28px rgba(1,12,36,.3);
+}
+.team-call-primary-button:hover{ filter:brightness(1.1); }
+.team-call-control-surface{
+  border:1px solid #1b2635;
+  background:#101720!important;
+  color:#2782ff!important;
+}
+.team-call-accent-text{ color:#4da3ff!important; }
 .team-call-shell [class*="bg-[var(--background)]"]{
-  background:#020b1e!important;
+  background:var(--team-call-control)!important;
   opacity:1!important;
   backdrop-filter:none!important;
   -webkit-backdrop-filter:none!important;
 }
 .team-call-shell [class*="bg-[var(--surface-hover)]"]{
-  background:#0a2143!important;
+  background:var(--team-call-control-hover)!important;
   opacity:1!important;
 }
 .team-call-shell [class*="border-[var(--border)]"]{
-  border-color:#173c72!important;
+  border-color:var(--team-call-border)!important;
 }
 .team-call-reaction{ animation:team-call-reaction-float 4.2s ease-out both; }
 @keyframes team-call-reaction-float{

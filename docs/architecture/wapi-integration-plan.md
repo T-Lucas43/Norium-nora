@@ -9,7 +9,10 @@
 
 - **Base**: `https://api.w-api.app/v1`
 - **Auth (instância)**: header `Authorization: Bearer <instanceToken>`, `?instanceId=<id>` na query.
-- **Auth (conta/mestra)**: `client/*` usa a API Key Mestra (no corpo, campo `apiKey`, e/ou header).
+- **Auth (conta/mestra)**: `GET /client/list-instances` usa a API Key Mestra em
+  `Authorization: Bearer <WAPI_MASTER_API_KEY>`. A coleção chama essa credencial
+  genericamente de `{{token}}`; `apiKey`, token e segredos nunca vão na query.
+  Outros endpoints `client/*` mantêm seus contratos individuais documentados.
 - **Envio enfileira mesmo desconectado** (categoria "Fila de mensagens") — nunca sondar envio.
 
 ## Isolamento (regra crítica)
@@ -24,7 +27,7 @@ recurso de outro dono, sem revelar existência). Webhooks mapeados por `instance
 | Área | Endpoint W-API | Tela/fluxo Norium | Serviço backend | Persistência | Teste |
 |---|---|---|---|---|---|
 | Instância (criar) | `POST /client/create-instance` | Conectar WhatsApp | `wapi_client.create_instance` | binding store | isolamento, idempotência |
-| Instância (listar) | `GET /client/list-instances` | (admin/diagnóstico) | `wapi_client.list_instances` | — | — |
+| Instância (listar) | `GET /client/list-instances` | (admin/diagnóstico) | `wapi_client.list_instances` | — | Bearer mestra sem segredo na URL; 401; vazio/múltiplas |
 | Instância (QR) | `GET /instance/qr-code` | Etapa QR (pós-aceite) | `connect_flow.qr` | consent gate | QR só com aceite |
 | Instância (pareamento) | `GET /instance/pairing-code` | Conectar por telefone | `connect_flow.pairing` | — | — |
 | Instância (status) | `GET /instance/status-instance` | Estado conexão | `connect_flow.status` | — | — |

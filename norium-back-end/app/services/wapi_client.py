@@ -328,8 +328,12 @@ class WapiClient:
         return result if isinstance(result, dict) else {}
 
     async def list_instances(self) -> Any:
-        # NÃO VERIFICADO ao vivo: auth/param da API Mestra não testados (evitamos
-        # tocar em endpoints de conta durante o desenvolvimento).
+        """Lista instâncias do owner usando a API Key Mestra no Bearer header.
+
+        A coleção local não define um envelope único para a resposta. O payload
+        permanece intacto para a reconciliação idempotente aceitar instances,
+        data ou uma lista direta sem enviar credenciais na query string.
+        """
         return await self._request(
             "GET",
             "/client/list-instances",

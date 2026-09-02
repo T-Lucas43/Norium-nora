@@ -27,7 +27,7 @@ RUN apt-get update \
 COPY norium-back-end/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 RUN mkdir -p /ms-playwright \
-    && python -m playwright install --with-deps --no-shell chromium \
+    && python -m playwright install --with-deps --only-shell chromium \
     && chmod -R a+rX /ms-playwright
 
 COPY norium-back-end/app ./app

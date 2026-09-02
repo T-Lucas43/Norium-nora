@@ -172,6 +172,10 @@ jobs:
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
             --image "${{ needs.publish-image.outputs.image }}" \
+            --cpu 1.0 \
+            --memory 2Gi \
+            --min-replicas 1 \
+            --max-replicas 1 \
             --set-env-vars \
             ENVIRONMENT=production \
             BACKEND_PUBLIC_URL="${public_url}" \
@@ -209,6 +213,14 @@ jobs:
       - name: Verify real Chromium navigation and click
         shell: bash
         run: curl --fail --max-time 60 --retry 3 --retry-delay 8 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health/browser"
+
+      - name: Verify application stability after Chromium
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            curl --fail --max-time 20 "${{ vars.AZURE_PUBLIC_URL }}/health"
+            if [[ "${attempt}" != "3" ]]; then sleep 3; fi
+          done
 
       - name: Verify Google OAuth clients and callbacks
         shell: bash

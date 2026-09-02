@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import Field, field_validator
@@ -8,32 +9,95 @@ from app.shared.schemas import StrictModel
 
 
 BrowserRisk = Literal["baixo", "medio", "alto"]
+BrowserActionType = Literal[
+    "navigate", "search", "click", "fill", "credential_fill", "select",
+    "press", "wait", "extract", "screenshot", "download", "upload",
+]
+
+
+def _is_domain(value: str) -> bool:
+    labels = value.split(".")
+    return (
+        len(value) <= 253
+        and len(labels) >= 2
+        and all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels)
+    )
+
+
+class BrowserActionPayload(StrictModel):
+    type: BrowserActionType
+    target: str = Field(default="", max_length=500)
+    value: str = Field(default="", max_length=10_000)
+    description: str = Field(default="", max_length=500)
+    credentialId: str | None = Field(default=None, max_length=160)
+    credentialField: Literal["username", "password", "secret"] | None = None
+    artifactId: str | None = Field(default=None, max_length=160)
 
 
 class BrowserProfilePayload(StrictModel):
     name: str = Field(min_length=2, max_length=120)
+    description: str = Field(default="", max_length=500)
     allowedDomains: list[str] = Field(default_factory=list, max_length=50)
     blockedDomains: list[str] = Field(default_factory=list, max_length=50)
+    credentialIds: list[str] = Field(default_factory=list, max_length=20)
     allowDownloads: bool = False
+    allowUploads: bool = False
+    allowForms: bool = False
     retainSession: bool = False
+    maxDurationSeconds: int = Field(default=300, ge=30, le=900)
+    maxActions: int = Field(default=20, ge=1, le=40)
 
     @field_validator("allowedDomains", "blockedDomains")
     @classmethod
     def normalize_domains(cls, values: list[str]) -> list[str]:
         normalized = [value.strip().lower().lstrip(".") for value in values if value.strip()]
+        if any(not _is_domain(value) for value in normalized):
+            raise ValueError("Informe somente dominios validos, sem protocolo, caminho ou porta.")
         return list(dict.fromkeys(normalized))
 
 
 class BrowserPlanPayload(StrictModel):
     objective: str = Field(min_length=4, max_length=2000)
     startUrl: str = Field(min_length=8, max_length=2000)
-    profileId: str | None = None
-    maxPages: int = Field(default=1, ge=1, le=1)
+    profileId: str | None = Field(default=None, max_length=160)
+    executionMode: Literal["assisted", "automatic"] = "assisted"
+    expectedResult: Literal["summary", "structured", "files"] = "summary"
+    maxPages: int = Field(default=10, ge=1, le=20)
+    maxSteps: int = Field(default=20, ge=1, le=40)
+    timeoutSeconds: int = Field(default=300, ge=30, le=900)
+    actions: list[BrowserActionPayload] = Field(default_factory=list, max_length=40)
+    useAiPlanner: bool = True
 
 
 class BrowserApprovalPayload(StrictModel):
     decision: Literal["approve", "reject"]
     note: str = Field(default="", max_length=500)
+    actionId: str | None = Field(default=None, max_length=160)
+
+
+class BrowserCredentialPayload(StrictModel):
+    label: str = Field(min_length=2, max_length=120)
+    domain: str = Field(min_length=3, max_length=255)
+    username: str = Field(min_length=1, max_length=500)
+    password: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("domain")
+    @classmethod
+    def normalize_domain(cls, value: str) -> str:
+        normalized = value.strip().lower().lstrip(".")
+        if not _is_domain(normalized):
+            raise ValueError("Informe um dominio valido, sem protocolo, caminho ou porta.")
+        return normalized
+
+
+class BrowserUploadPayload(StrictModel):
+    fileName: str = Field(min_length=1, max_length=240)
+    mimeType: str = Field(default="application/octet-stream", max_length=160)
+    dataUrl: str = Field(min_length=16, max_length=14_000_000)
+
+
+class BrowserPlanActionsPayload(StrictModel):
+    actions: list[BrowserActionPayload] = Field(min_length=1, max_length=40)
 
 
 class KnowledgeBasePayload(StrictModel):

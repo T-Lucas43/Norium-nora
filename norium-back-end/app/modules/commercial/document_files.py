@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from pypdf import PdfReader, PdfWriter
+from reportlab.lib.colors import HexColor
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
@@ -34,6 +35,7 @@ NATIVE_PDF_OPERATIONS = {
     "compress",
     "images_to_pdf",
     "watermark",
+    "edit_pdf",
     "page_numbers",
     "add_password",
     "remove_password",
@@ -51,6 +53,7 @@ OPERATION_LABELS = {
     "compress": "Comprimir PDF",
     "images_to_pdf": "Converter imagens em PDF",
     "watermark": "Aplicar marca d'agua",
+    "edit_pdf": "Editar PDF",
     "page_numbers": "Numerar paginas",
     "add_password": "Adicionar senha",
     "remove_password": "Remover senha autorizada",
@@ -67,6 +70,7 @@ OPERATION_OPTION_KEYS: dict[str, set[str]] = {
     "rotate": {"pages", "degrees"},
     "compress": {"level"},
     "watermark": {"text", "opacity", "fontSize", "rotation"},
+    "edit_pdf": {"text", "pages", "xPercent", "yPercent", "fontSize", "color"},
     "add_password": {"password"},
     "remove_password": {"password"},
     "ocr": {"languages", "deskew", "clean"},
@@ -86,11 +90,11 @@ def _validated_options(operation: str, options: dict[str, Any]) -> tuple[dict[st
             if len(password) > 200:
                 raise HTTPException(status_code=422, detail="A senha informada e muito longa.")
             transient[key] = password
-        elif key in {"text", "languages", "pages"}:
+        elif key in {"text", "languages", "pages", "color"}:
             normalized[key] = str(value)[:500]
         elif key in {"degrees", "fontSize", "rotation", "level"}:
             normalized[key] = int(value)
-        elif key == "opacity":
+        elif key in {"opacity", "xPercent", "yPercent"}:
             normalized[key] = float(value)
         elif key in {"deskew", "clean"}:
             normalized[key] = bool(value)
@@ -615,8 +619,9 @@ def _process_native(operation: str, paths: list[Path], options: dict[str, Any]) 
     elif operation == "remove_password":
         for page in reader.pages:
             writer.add_page(page)
-    elif operation in {"watermark", "page_numbers"}:
+    elif operation in {"watermark", "page_numbers", "edit_pdf"}:
         text = str(options.get("text") or "CONFIDENCIAL")[:120]
+        edit_pages = set(_page_numbers(options, len(reader.pages))) if operation == "edit_pdf" else set()
         for page_index, page in enumerate(reader.pages, start=1):
             width = float(page.mediabox.width)
             height = float(page.mediabox.height)
@@ -630,11 +635,26 @@ def _process_native(operation: str, paths: list[Path], options: dict[str, Any]) 
                     pdf.drawCentredString(0, 0, text)
                     pdf.restoreState()
                 page.merge_page(_overlay_page(width, height, draw_watermark))
-            else:
+            elif operation == "page_numbers":
                 def draw_number(pdf: canvas.Canvas, page_width: float, _page_height: float, number: int = page_index) -> None:
                     pdf.setFont("Helvetica", 9)
                     pdf.drawCentredString(page_width / 2, 18, f"Pagina {number} de {len(reader.pages)}")
                 page.merge_page(_overlay_page(width, height, draw_number))
+            elif not edit_pages or (page_index - 1) in edit_pages:
+                color = str(options.get("color") or "#1266F1")
+                if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+                    raise ValueError("A cor do editor deve usar o formato hexadecimal #RRGGBB.")
+
+                def draw_editor_text(pdf: canvas.Canvas, page_width: float, page_height: float) -> None:
+                    pdf.saveState()
+                    pdf.setFillColor(HexColor(color))
+                    pdf.setFont("Helvetica", max(8, min(int(options.get("fontSize") or 18), 96)))
+                    x = page_width * max(0.02, min(float(options.get("xPercent") or 10) / 100, 0.98))
+                    y = page_height * (1 - max(0.02, min(float(options.get("yPercent") or 12) / 100, 0.98)))
+                    pdf.drawString(x, y, text)
+                    pdf.restoreState()
+
+                page.merge_page(_overlay_page(width, height, draw_editor_text))
             writer.add_page(page)
     else:
         raise ValueError("Operacao de PDF nao implementada.")

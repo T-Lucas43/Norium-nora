@@ -36,7 +36,7 @@ from app.modules.commercial.document_files import (  # noqa: E402
     update_imported_document,
 )
 from app.modules.commercial.schemas import ImportedDocumentUpdate  # noqa: E402
-from pypdf import PdfWriter  # noqa: E402
+from pypdf import PdfReader, PdfWriter  # noqa: E402
 from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
 from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
 from app.modules.commercial.repository import read_store, write_store  # noqa: E402
@@ -619,6 +619,7 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(favorite["favorite"])
         capabilities = await pdf_capabilities()
         self.assertIn("split", {item["id"] for item in capabilities["operations"]})
+        self.assertIn("edit_pdf", {item["id"] for item in capabilities["operations"]})
 
         job = await create_processing_job(
             self.user["id"],
@@ -630,6 +631,22 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         completed = next(item for item in store["processingJobs"] if item["id"] == job["id"])
         self.assertEqual(completed["status"], "completed")
         self.assertEqual(len(completed["outputDocumentIds"]), 2)
+
+        edit_job = await create_processing_job(
+            self.user["id"],
+            self.user,
+            PdfProcessRequest(
+                operation="edit_pdf",
+                documentIds=[document["id"]],
+                options={"text": "Revisado no Norium", "pages": "1", "xPercent": 15, "yPercent": 20, "fontSize": 14, "color": "#173f7a"},
+            ),
+        )
+        await run_processing_job(self.user["id"], edit_job["id"])
+        store = read_store(self.user["id"])
+        edited_job = next(item for item in store["processingJobs"] if item["id"] == edit_job["id"])
+        edited_document = next(item for item in store["uploadedDocuments"] if item["id"] == edited_job["outputDocumentIds"][0])
+        self.assertEqual("completed", edited_job["status"])
+        self.assertIn("Revisado no Norium", PdfReader(edited_document["storagePath"]).pages[0].extract_text())
 
         protected_job = await create_processing_job(
             self.user["id"],

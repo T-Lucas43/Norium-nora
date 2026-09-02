@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -15,6 +16,8 @@ from app.modules.auth.router import can_manage_system, current_user
 
 
 router = APIRouter(tags=["Sistema"])
+_browser_health_lock = asyncio.Lock()
+_browser_health_cache: dict[str, Any] | None = None
 
 
 @router.get("/")
@@ -29,6 +32,20 @@ async def root(request: Request):
 @router.get("/health")
 async def health() -> dict[str, Any]:
     return {"status": "ok"}
+
+
+@router.get("/health/browser")
+async def browser_health() -> dict[str, Any]:
+    """Prova fixa e cacheada de que o Chromium da revisao consegue agir."""
+    global _browser_health_cache
+    if _browser_health_cache is not None:
+        return _browser_health_cache
+    async with _browser_health_lock:
+        if _browser_health_cache is None:
+            from app.modules.intelligence.browser_runtime import browser_runtime_health
+
+            _browser_health_cache = await asyncio.wait_for(browser_runtime_health(), timeout=45)
+    return _browser_health_cache
 
 
 @router.get("/api/system/diagnostics")

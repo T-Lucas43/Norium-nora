@@ -15,7 +15,15 @@ A Central de Documentos amplia o antigo modulo de propostas sem quebrar seus flu
 
 Os trabalhos sao persistidos com os estados `queued`, `processing`, `completed`, `failed` e `cancelled`, progresso, tentativas, tempo limite e IDs dos resultados. A resposta HTTP nao precisa manter o processamento aberto.
 
-Operacoes nativas: combinar, separar, reorganizar, excluir e girar paginas, comprimir streams, converter imagens, marca d'agua, numeracao, adicionar/remover senha autorizada, extrair texto, remover metadados, sanitizar e comparar texto.
+Operacoes nativas: combinar, separar, reorganizar, excluir e girar paginas, comprimir streams, converter imagens, marca d'agua, editar com sobreposicao de texto posicionada, numeracao, adicionar/remover senha autorizada, extrair texto, remover metadados, sanitizar e comparar texto.
+
+Ao abrir `Ferramentas PDF`, o frontend troca a Central por um workspace completo do
+`Norium PDF Studio`: catalogo pesquisavel por categoria, importacao multipla,
+selecao de documentos, visualizacao autenticada, editor de texto/cor/posicao,
+opcoes de conversao, fila e historico. A organizacao segue o padrao de suites de
+PDF conhecidas, mas usa componentes, cores e identidade do Norium. A interface so
+exibe operacoes confirmadas pelo endpoint de capacidades; nenhum card simula uma
+funcao ausente no backend.
 
 O adaptador Stirling PDF e opcional e somente backend. Quando `STIRLING_PDF_URL` esta configurada, o Norium consulta `/v3/api-docs` e so anuncia ou chama uma operacao confirmada pela instancia. A chave global, quando usada, fica em `STIRLING_PDF_API_KEY` e segue no header `X-API-KEY`. Sem instancia disponivel, as operacoes nativas continuam funcionando; OCR nao aparece como disponivel.
 

@@ -13,6 +13,7 @@ ENV PYTHONUNBUFFERED=1
 ENV ENVIRONMENT=production
 ENV NORIUM_DATA_DIR=/app/data
 ENV NORIUM_SPA_DIR=/app/static
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PORT=8000
 
 WORKDIR /app
@@ -25,6 +26,9 @@ RUN apt-get update \
 
 COPY norium-back-end/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN mkdir -p /ms-playwright \
+    && python -m playwright install --with-deps --no-shell chromium \
+    && chmod -R a+rX /ms-playwright
 
 COPY norium-back-end/app ./app
 COPY norium-back-end/main.py ./main.py
@@ -32,6 +36,10 @@ COPY --from=frontend-build /build/frontend/dist ./static
 
 RUN mkdir -p /app/data && chown -R norium:norium /app
 USER norium
+
+# Falha o build se o binario empacotado nao conseguir abrir uma pagina e
+# executar uma interacao DOM real sob o mesmo usuario da aplicacao.
+RUN python -c "import asyncio; from playwright.async_api import async_playwright; exec('async def smoke():\n async with async_playwright() as p:\n  browser = await p.chromium.launch(headless=True, args=[\"--disable-dev-shm-usage\"])\n  page = await browser.new_page()\n  await page.set_content(\"<button id=ok>pendente</button><script>ok.onclick=()=>ok.textContent=\\\"executado\\\"</script>\")\n  await page.locator(\"#ok\").click()\n  assert await page.locator(\"#ok\").inner_text() == \"executado\"\n  await browser.close()\n'); asyncio.run(smoke())"
 
 EXPOSE 8000
 

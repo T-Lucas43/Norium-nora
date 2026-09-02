@@ -206,6 +206,10 @@ jobs:
         shell: bash
         run: curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health"
 
+      - name: Verify real Chromium navigation and click
+        shell: bash
+        run: curl --fail --max-time 60 --retry 3 --retry-delay 8 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health/browser"
+
       - name: Verify Google OAuth clients and callbacks
         shell: bash
         run: |

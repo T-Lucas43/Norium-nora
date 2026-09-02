@@ -33,6 +33,7 @@ PdfOperation = Literal[
     "compress",
     "images_to_pdf",
     "watermark",
+    "edit_pdf",
     "page_numbers",
     "add_password",
     "remove_password",

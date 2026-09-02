@@ -132,7 +132,7 @@ def rate_limit_bucket(path: str) -> str:
         return "admin"
     if path.startswith(("/api/auth/login", "/api/auth/register")):
         return "auth"
-    if "/public/" in path or "/publico/" in path or path == "/health":
+    if "/public/" in path or "/publico/" in path or path.startswith("/health"):
         return "public"
     return "api" if path.startswith("/api/") else "none"
 

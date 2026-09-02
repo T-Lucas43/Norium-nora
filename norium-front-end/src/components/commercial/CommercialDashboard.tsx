@@ -93,6 +93,7 @@ import StatusBanner from "../shared/StatusBanner";
 import { showConfirm, showPrompt } from "../shared/AppDialogProvider";
 import A4ContentPages from "./A4ContentPages";
 import CommercialEditor from "./CommercialEditor";
+import PdfToolsWorkspace from "./PdfToolsWorkspace";
 
 type View = "all" | "proposals" | "contracts" | "files" | "templates" | "brands";
 type DisplayMode = "list" | "grid";
@@ -144,8 +145,6 @@ const proposalTransitions: Record<string, CommercialProposal["status"][]> = {
   contracted: ["archived"],
   archived: ["draft"],
 };
-const EMPTY_PDF_OPERATIONS: PdfCapabilities["operations"] = [];
-
 type ProposalTemplateGuidance = {
   summary: string;
   objective: string;
@@ -622,8 +621,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     await runAction(async () => {
       const response = await processPdf(operation, documentIds, options);
       setData((current) => current ? { ...current, processingJobs: [response.job, ...current.processingJobs] } : current);
-      setPdfToolsOpen(false);
-    }, "Processamento adicionado a fila. O resultado aparecera em Arquivos.");
+    }, "Processamento adicionado a fila. O resultado sera salvo como um novo arquivo.");
   }
 
   async function handleRenameTemplate(template: CommercialTemplate) {
@@ -658,6 +656,32 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       setData((current) => current ? { ...current, templates: current.templates.filter((item) => item.id !== template.id) } : current);
       setTemplatePreview(null);
     }, "Modelo excluido.");
+  }
+
+  if (pdfToolsOpen && data) {
+    return (
+      <>
+        <PdfToolsWorkspace
+          capabilities={pdfCapabilities}
+          documents={data.uploadedDocuments}
+          jobs={data.processingJobs}
+          busy={busy}
+          onBack={() => setPdfToolsOpen(false)}
+          onProcess={(operation, documentIds, options) => void handlePdfProcess(operation, documentIds, options)}
+          onImported={(document) => setData((current) => current ? {
+            ...current,
+            uploadedDocuments: [document, ...current.uploadedDocuments],
+            summary: {
+              ...current.summary,
+              documentCount: current.summary.documentCount + 1,
+              fileCount: current.summary.fileCount + 1,
+            },
+          } : current)}
+        />
+        {error && <FloatingMessage kind="error" message={error} onClose={() => setError("")} />}
+        {notice && <FloatingMessage kind="success" message={notice} onClose={() => setNotice("")} />}
+      </>
+    );
   }
 
   if (selected) {
@@ -923,7 +947,6 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       }, "Modelo salvo na biblioteca.")} />}
       {templatePreview && <TemplatePreviewDialog template={templatePreview} busy={busy} onClose={() => setTemplatePreview(null)} onRename={() => void handleRenameTemplate(templatePreview)} onDuplicate={() => void handleDuplicateTemplate(templatePreview)} onDelete={templatePreview.id.startsWith("standard_") ? undefined : () => void handleDeleteTemplate(templatePreview)} />}
       {importOpen && <ImportDocumentDialog busy={busy} onClose={() => setImportOpen(false)} onSubmit={(input) => void handleImport(input)} />}
-      {pdfToolsOpen && data && <PdfToolsDialog capabilities={pdfCapabilities} documents={data.uploadedDocuments} busy={busy} onClose={() => setPdfToolsOpen(false)} onSubmit={(operation, documentIds, options) => void handlePdfProcess(operation, documentIds, options)} />}
     </main>
   );
 }
@@ -1394,29 +1417,6 @@ function ImportDocumentDialog({ busy, onClose, onSubmit }: { busy: boolean; onCl
   const [confidential, setConfidential] = useState(false);
   const supported = file ? ["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(file.type) : false;
   return <Dialog title="Importar documento" subtitle="PDFs e imagens ficam privados no workspace e passam por validacao de tipo e assinatura." onClose={onClose}><div className="space-y-4"><FormField label="Arquivo"><input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" onChange={(event) => setFile(event.target.files?.[0] || null)} className="commercial-field p-2" /></FormField>{file && !supported && <StatusBanner tone="error">Formato nao permitido. Selecione PDF, PNG, JPG ou WebP.</StatusBanner>}<div className="grid gap-3 sm:grid-cols-2"><FormField label="Categoria"><select value={category} onChange={(event) => setCategory(event.target.value as UploadedDocument["category"])} className="commercial-field"><option value="pdf">PDF / Arquivo</option><option value="draft">Rascunho</option><option value="sent">Enviado</option><option value="received">Recebido</option><option value="archived">Arquivado</option></select></FormField><FormField label="Origem"><select value={direction} onChange={(event) => setDirection(event.target.value as UploadedDocument["direction"])} className="commercial-field"><option value="internal">Interno</option><option value="sent">Enviado</option><option value="received">Recebido</option></select></FormField></div><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={confidential} onChange={(event) => setConfidential(event.target.checked)} /> Documento confidencial</label><div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!file || !supported} onClick={() => file && onSubmit({ file, category, direction, confidential })} icon={<Upload size={14} />}>Importar</Button></div></div></Dialog>;
-}
-
-function PdfToolsDialog({ capabilities, documents, busy, onClose, onSubmit }: { capabilities: PdfCapabilities | null; documents: UploadedDocument[]; busy: boolean; onClose: () => void; onSubmit: (operation: PdfOperation, documentIds: string[], options: Record<string, unknown>) => void }) {
-  const operations = capabilities?.operations || EMPTY_PDF_OPERATIONS;
-  const [operation, setOperation] = useState<PdfOperation>(operations[0]?.id || "merge");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [text, setText] = useState("CONFIDENCIAL");
-  const [pages, setPages] = useState("");
-  const [password, setPassword] = useState("");
-  const [degrees, setDegrees] = useState(90);
-  useEffect(() => {
-    if (operations.length && !operations.some((item) => item.id === operation)) setOperation(operations[0].id);
-  }, [operation, operations]);
-  const selectedOperation = operations.find((item) => item.id === operation);
-  const availableDocuments = operation === "images_to_pdf" ? documents.filter((item) => item.mimeType.startsWith("image/")) : documents.filter((item) => item.mimeType === "application/pdf");
-  const needsMany = operation === "merge" || operation === "compare";
-  const validSelection = needsMany ? selectedIds.length >= 2 : selectedIds.length === 1 || (operation === "images_to_pdf" && selectedIds.length > 0);
-  const options: Record<string, unknown> = {};
-  if (operation === "watermark" && text.trim()) options.text = text.trim();
-  if (["split", "reorder", "delete_pages", "rotate"].includes(operation) && pages.trim()) options.pages = pages.trim();
-  if (["add_password", "remove_password"].includes(operation) && password) options.password = password;
-  if (operation === "rotate") options.degrees = degrees;
-  return <Dialog title="Ferramentas de PDF" subtitle="Operacoes executadas em fila, com progresso, limite de tempo, repeticao controlada e registro do resultado." onClose={onClose} wide><div className="space-y-5">{!capabilities ? <LoadingState label="Consultando ferramentas disponiveis..." /> : <><div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]"><section><FormField label="Operacao"><select value={operation} onChange={(event) => { setOperation(event.target.value as PdfOperation); setSelectedIds([]); }} className="commercial-field">{operations.map((item) => <option key={item.id} value={item.id}>{item.label} ({item.engine === "native" ? "Norium" : "Stirling"})</option>)}</select></FormField><p className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{capabilities.stirling.message} Somente operacoes confirmadas pela instancia aparecem aqui.</p><div className="mt-3 space-y-3">{operation === "watermark" && <FormField label="Texto da marca"><input value={text} onChange={(event) => setText(event.target.value)} className="commercial-field" /></FormField>}{["split", "reorder", "delete_pages", "rotate"].includes(operation) && <FormField label="Paginas (ex.: 1,3,4)"><input value={pages} onChange={(event) => setPages(event.target.value)} className="commercial-field" placeholder="Vazio = todas" /></FormField>}{["add_password", "remove_password"].includes(operation) && <FormField label="Senha autorizada"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="commercial-field" /></FormField>}{operation === "rotate" && <FormField label="Rotacao"><select value={degrees} onChange={(event) => setDegrees(Number(event.target.value))} className="commercial-field"><option value={90}>90 graus</option><option value={180}>180 graus</option><option value={270}>270 graus</option><option value={-90}>-90 graus</option></select></FormField>}</div></section><section><h3 className="text-xs font-black uppercase text-[var(--text-secondary)]">Selecione {needsMany ? "ao menos dois arquivos" : "um arquivo"}</h3><div className="mt-3 max-h-[48dvh] space-y-2 overflow-auto pr-1">{availableDocuments.map((document) => { const checked = selectedIds.includes(document.id); return <label key={document.id} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 ${checked ? "border-blue-400/50 bg-blue-500/10" : "border-[var(--border)] bg-[var(--background)]"}`}><input type={needsMany || operation === "images_to_pdf" ? "checkbox" : "radio"} name="pdf-document" checked={checked} onChange={() => setSelectedIds((current) => needsMany || operation === "images_to_pdf" ? checked ? current.filter((id) => id !== document.id) : [...current, document.id] : [document.id])} /><FileText size={17} className="text-cyan-300" /><span className="min-w-0"><strong className="block truncate text-xs">{document.title}</strong><small className="text-[var(--text-secondary)]">{formatFileSize(document.size)}</small></span></label>; })}{!availableDocuments.length && <EmptyState title="Nenhum arquivo compativel" description="Importe um arquivo antes de usar esta ferramenta." icon={Upload} className="min-h-56" />}</div></section></div><div className="flex flex-col-reverse gap-2 border-t border-[var(--border)] pt-4 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs font-semibold text-[var(--text-secondary)]">{selectedOperation?.engine === "stirling" ? "Processado pelo servico Stirling isolado." : "Processado nativamente no backend do Norium."}</span><div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!validSelection || !operations.length} onClick={() => onSubmit(operation, selectedIds, options)} icon={<Wrench size={14} />}>Processar</Button></div></div></>}</div></Dialog>;
 }
 
 function Dialog({ title, subtitle, onClose, children, wide = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean }) {

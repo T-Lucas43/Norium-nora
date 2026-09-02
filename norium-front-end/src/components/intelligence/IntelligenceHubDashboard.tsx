@@ -7,19 +7,14 @@ import {
   CheckCircle2,
   CircleDollarSign,
   ExternalLink,
-  FileSearch,
   Gauge,
-  Globe2,
   LibraryBig,
   Loader2,
   Network,
-  Pause,
-  Play,
   Plus,
   RefreshCw,
   Search,
   ShieldCheck,
-  Square,
   Store,
   Trash2,
   UploadCloud,
@@ -30,26 +25,11 @@ import {
 import { apiRequest } from "../../core/api/client";
 import Button from "../shared/Button";
 import { showConfirm } from "../shared/AppDialogProvider";
+import BrowserAgentDashboard from "./BrowserAgentDashboard";
 
 type Mode = "browser" | "knowledge" | "marketplace" | "models";
 type GenericItem = Record<string, unknown> & { id: string; name?: string; title?: string; status?: string };
 
-type BrowserRun = GenericItem & {
-  objective: string;
-  startUrl: string;
-  host: string;
-  risk: "baixo" | "medio" | "alto";
-  riskReason: string;
-  progress: number;
-  requiresApproval: boolean;
-  approved: boolean;
-  result?: { title?: string; summary?: string; url?: string; links?: string[]; readOnly?: boolean } | null;
-  error?: string | null;
-  timeline?: Array<{ at: string; event: string; message: string }>;
-  createdAt: string;
-};
-
-type BrowserOverview = { profiles: GenericItem[]; runs: BrowserRun[] };
 type KnowledgeOverview = { bases: GenericItem[]; sources: GenericItem[] };
 type KnowledgeResult = {
   score: number;
@@ -84,15 +64,6 @@ type ModelsOverview = {
   policies: GenericItem[];
   usage: { requests: number; inputTokens: number; outputTokens: number; estimatedCost: number };
 };
-
-const runningStates = new Set(["queued", "running", "planned"]);
-
-function displayDate(value: unknown) {
-  if (!value) return "—";
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
-}
 
 function api<T>(path: string, init?: RequestInit) {
   return apiRequest<T>(path, init);
@@ -150,103 +121,7 @@ function Notice({ tone = "info", children }: { tone?: "info" | "error" | "succes
 }
 
 function BrowserDashboard({ onOpenNora }: { onOpenNora: (prompt?: string) => void }) {
-  const [data, setData] = useState<BrowserOverview>({ profiles: [], runs: [] });
-  const [objective, setObjective] = useState("Ler a página e resumir os pontos principais com evidências");
-  const [startUrl, setStartUrl] = useState("");
-  const [profileId, setProfileId] = useState("");
-  const [profileName, setProfileName] = useState("");
-  const [domains, setDomains] = useState("");
-  const [showProfile, setShowProfile] = useState(false);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-
-  const load = useCallback(async () => {
-    try {
-      const response = await api<BrowserOverview>("/api/navegador");
-      setData(response);
-      setSelectedRunId((current) => current || response.runs[0]?.id || null);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Não foi possível carregar o Agente Navegador.");
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    if (!data.runs.some((run) => runningStates.has(run.status || ""))) return;
-    const timer = window.setInterval(() => void load(), 2500);
-    return () => window.clearInterval(timer);
-  }, [data.runs, load]);
-
-  const selected = data.runs.find((run) => run.id === selectedRunId) || data.runs[0] || null;
-
-  async function createPlan(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError(""); setMessage("");
-    try {
-      const response = await api<{ item: BrowserRun }>("/api/navegador/runs/plan", { method: "POST", body: JSON.stringify({ objective, startUrl, profileId: profileId || null, maxPages: 1 }) });
-      setSelectedRunId(response.item.id); setMessage("Plano criado. Revise risco, domínio e etapas antes de executar."); setStartUrl(""); await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível criar o plano."); }
-    finally { setBusy(false); }
-  }
-
-  async function runAction(runId: string, action: "execute" | "pause" | "resume" | "cancel") {
-    setBusy(true); setError("");
-    try {
-      await api(`/api/navegador/runs/${runId}/${action}`, { method: "POST" });
-      setMessage(action === "execute" ? "Execução enviada para a fila." : "Controle aplicado à execução."); await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "A ação não foi concluída."); }
-    finally { setBusy(false); }
-  }
-
-  async function approve(runId: string, decision: "approve" | "reject") {
-    setBusy(true); setError("");
-    try {
-      await api(`/api/navegador/runs/${runId}/approval`, { method: "POST", body: JSON.stringify({ decision, note: decision === "approve" ? "Aprovado na tela do Agente Navegador" : "Rejeitado na tela do Agente Navegador" }) });
-      setMessage(decision === "approve" ? "Plano aprovado e enviado para execução." : "Plano rejeitado sem executar ações externas."); await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível registrar a decisão."); }
-    finally { setBusy(false); }
-  }
-
-  async function createProfile(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
-    try {
-      const response = await api<{ item: GenericItem }>("/api/navegador/profiles", { method: "POST", body: JSON.stringify({ name: profileName, allowedDomains: domains.split(",").map((item) => item.trim()).filter(Boolean), blockedDomains: [], allowDownloads: false, retainSession: false }) });
-      setProfileId(response.item.id); setProfileName(""); setDomains(""); setShowProfile(false); setMessage("Perfil seguro criado."); await load();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível criar o perfil."); }
-    finally { setBusy(false); }
-  }
-
-  return (
-    <main className="mx-auto w-full max-w-[1720px] space-y-5 p-4 text-[var(--text)] sm:p-6">
-      <Hero icon={Globe2} eyebrow="Execução supervisionada" title="Agente Navegador" description="Planeje leituras web públicas, limite domínios, aprove ações sensíveis e acompanhe cada evidência sem expor credenciais." actions={<><Button onClick={() => setShowProfile((value) => !value)}><ShieldCheck size={16} /> Novo perfil</Button><Button variant="primary" onClick={() => onOpenNora("Crie um plano do Agente Navegador para ")}><Bot size={16} /> Pedir à Nora</Button></>} />
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric icon={Globe2} label="Execuções" value={data.runs.length} detail="Histórico isolado por usuário" /><Metric icon={Play} label="Em andamento" value={data.runs.filter((run) => runningStates.has(run.status || "")).length} detail="Fila e processamento" /><Metric icon={AlertTriangle} label="Aprovações" value={data.runs.filter((run) => run.status === "awaiting_approval").length} detail="Nenhuma ação passa sozinha" /><Metric icon={ShieldCheck} label="Perfis" value={data.profiles.length} detail="Políticas de domínio" /></section>
-      {error && <Notice tone="error">{error}</Notice>}{message && <Notice tone="success">{message}</Notice>}
-      {showProfile && <form onSubmit={createProfile} className="grid gap-3 rounded-2xl border border-cyan-400/25 bg-cyan-400/6 p-4 md:grid-cols-[1fr_2fr_auto]"><input required minLength={2} value={profileName} onChange={(event) => setProfileName(event.target.value)} placeholder="Nome do perfil" className="intelligence-field" /><input required value={domains} onChange={(event) => setDomains(event.target.value)} placeholder="Domínios permitidos, separados por vírgula" className="intelligence-field" /><Button variant="primary" disabled={busy} type="submit"><Plus size={16} /> Criar perfil</Button></form>}
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,430px)_minmax(0,1fr)]">
-        <div className="space-y-4">
-          <form onSubmit={createPlan} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)]">
-            <h2 className="text-lg font-black">Nova tarefa</h2><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">O plano é criado antes de qualquer acesso externo.</p>
-            <label className="mt-4 block text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">Objetivo<textarea required minLength={4} value={objective} onChange={(event) => setObjective(event.target.value)} rows={4} className="intelligence-field mt-2 resize-y py-3" /></label>
-            <label className="mt-3 block text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">URL inicial<input required type="url" value={startUrl} onChange={(event) => setStartUrl(event.target.value)} placeholder="https://exemplo.com/pagina" className="intelligence-field mt-2" /></label>
-            <label className="mt-3 block text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">Perfil seguro<select value={profileId} onChange={(event) => setProfileId(event.target.value)} className="intelligence-field mt-2"><option value="">Sem lista restrita</option>{data.profiles.map((profile) => <option key={profile.id} value={profile.id}>{String(profile.name)}</option>)}</select></label>
-            <Button type="submit" variant="primary" disabled={busy || !startUrl.trim()} className="mt-4 w-full"><FileSearch size={17} /> Planejar tarefa</Button>
-          </form>
-          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4"><div className="mb-3 flex items-center justify-between"><h2 className="font-black">Histórico</h2><Button iconOnly variant="ghost" onClick={() => void load()} aria-label="Atualizar"><RefreshCw size={15} /></Button></div><div className="max-h-[420px] space-y-2 overflow-y-auto">{data.runs.map((run) => <button key={run.id} onClick={() => setSelectedRunId(run.id)} className={`w-full rounded-xl border p-3 text-left ${selected?.id === run.id ? "border-cyan-300/50 bg-cyan-400/8" : "border-[var(--border)] bg-[var(--background)]"}`}><div className="flex items-center justify-between gap-2"><strong className="truncate text-sm">{run.host}</strong><StatusPill status={run.status || "planned"} /></div><p className="mt-2 line-clamp-2 text-xs font-semibold text-[var(--text-secondary)]">{run.objective}</p></button>)}{!data.runs.length && <p className="py-8 text-center text-sm font-semibold text-[var(--text-secondary)]">Nenhuma tarefa planejada.</p>}</div></div>
-        </div>
-        <div className="min-w-0 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)]">
-          {!selected ? <div className="grid min-h-80 place-items-center text-center text-[var(--text-secondary)]"><div><Globe2 className="mx-auto" size={38} /><p className="mt-3 font-bold">Selecione ou crie uma execução.</p></div></div> : <div className="space-y-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><StatusPill status={selected.status || "planned"} /><span className={`rounded-full px-2.5 py-1 text-xs font-black ${selected.risk === "alto" ? "bg-rose-400/12 text-rose-200" : selected.risk === "medio" ? "bg-amber-400/12 text-amber-100" : "bg-emerald-400/12 text-emerald-200"}`}>Risco {selected.risk}</span></div><h2 className="mt-3 break-words text-xl font-black">{selected.objective}</h2><a href={selected.startUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex max-w-full items-center gap-2 break-all text-xs font-bold text-cyan-200">{selected.startUrl}<ExternalLink size={12} /></a></div><span className="shrink-0 text-xs font-bold text-[var(--text-secondary)]">{displayDate(selected.createdAt)}</span></div>
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4"><div className="flex items-center justify-between text-xs font-black"><span>Progresso rastreável</span><span>{selected.progress || 0}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-white/8"><div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-300" style={{ width: `${selected.progress || 0}%` }} /></div><p className="mt-3 text-xs font-semibold text-[var(--text-secondary)]">{selected.riskReason}</p></div>
-            <div className="flex flex-wrap gap-2">{selected.status === "awaiting_approval" ? <><Button variant="primary" disabled={busy} onClick={() => void approve(selected.id, "approve")}><CheckCircle2 size={16} /> Aprovar e executar</Button><Button variant="danger" disabled={busy} onClick={() => void approve(selected.id, "reject")}><XCircle size={16} /> Rejeitar</Button></> : <>{["planned", "failed"].includes(selected.status || "") && <Button variant="primary" disabled={busy} onClick={() => void runAction(selected.id, "execute")}><Play size={16} /> Executar</Button>}{selected.status === "running" && <Button disabled={busy} onClick={() => void runAction(selected.id, "pause")}><Pause size={16} /> Pausar</Button>}{selected.status === "paused" && <Button disabled={busy} onClick={() => void runAction(selected.id, "resume")}><Play size={16} /> Retomar</Button>}{runningStates.has(selected.status || "") && <Button variant="danger" disabled={busy} onClick={() => void runAction(selected.id, "cancel")}><Square size={14} /> Cancelar</Button>}</>}</div>
-            {selected.error && <Notice tone="error">{selected.error}</Notice>}
-            {selected.result && <section className="rounded-xl border border-emerald-400/25 bg-emerald-400/6 p-4"><div className="flex items-center gap-2 text-emerald-200"><CheckCircle2 size={17} /><h3 className="font-black">{selected.result.title || "Resultado"}</h3></div><p className="mt-3 whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-[var(--text-secondary)]">{selected.result.summary}</p><span className="mt-3 inline-flex rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-black text-emerald-200">Somente leitura</span></section>}
-            <section><h3 className="font-black">Linha do tempo</h3><ol className="mt-3 space-y-3">{(selected.timeline || []).slice().reverse().map((event, index) => <li key={`${event.at}-${index}`} className="flex gap-3"><span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-cyan-300" /><div><strong className="block text-xs uppercase tracking-wide">{event.event.replaceAll("_", " ")}</strong><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{event.message}</p><small className="text-[var(--text-secondary)]">{displayDate(event.at)}</small></div></li>)}</ol></section>
-          </div>}
-        </div>
-      </section>
-    </main>
-  );
+  return <BrowserAgentDashboard onOpenNora={onOpenNora} />;
 }
 
 function KnowledgeDashboard({ onOpenNora }: { onOpenNora: (prompt?: string) => void }) {

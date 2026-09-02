@@ -7,19 +7,25 @@ estado, mas permanecem modulos independentes.
 
 ## Fronteiras de seguranca
 
-- O Agente Navegador desta revisao executa leitura HTTP(S) publica. URLs com
-  credenciais embutidas, localhost, IP privado/reservado, portas nao-web, tipo de
-  conteudo nao textual, redirecionamento e respostas acima de 1 MB sao bloqueados.
-- A resolucao DNS tambem e validada contra enderecos nao-publicos antes da
-  requisicao. Cada execucao preserva plano, risco, aprovacao, progresso, resultado,
-  erro e linha do tempo.
-- Objetivos que sugerem login, envio, compra, pagamento, publicacao, assinatura,
-  exclusao, formulario, clique ou download param em `awaiting_approval`.
-- Perfis limitam dominios permitidos e bloqueados. Downloads e retencao de sessao
-  nascem desativados.
-- Nesta versao nao ha automacao oculta de mouse/teclado nem reutilizacao de cookies.
-  Um adapter visual futuro pode implementar Browser Use sem alterar os contratos
-  de plano, aprovacao e auditoria.
+- O Agente Navegador usa Playwright e Chromium headless reais em um contexto
+  isolado por execucao. Ele navega, pesquisa, clica, preenche, seleciona, pressiona
+  teclas, extrai texto/tabelas/links, envia e baixa arquivos e captura evidencias.
+- URLs com credenciais embutidas, localhost, IP privado/reservado, portas nao-web
+  ou protocolos nao HTTP(S) sao bloqueadas. A resolucao DNS e todas as requisicoes
+  do contexto passam pela politica anti-SSRF, inclusive redirecionamentos.
+- Cada execucao preserva plano editavel, risco, progresso, resultado, erro, linha do
+  tempo e artefatos. Cliques, teclas, formularios, credenciais e transferencias de
+  arquivo exigem confirmacao imediatamente antes da acao externa.
+- Perfis limitam dominios, duracao e quantidade de etapas e liberam separadamente
+  formularios, downloads, uploads e retencao de sessao. Cookies persistidos sao
+  criptografados e credenciais so entram no DOM pela referencia ao cofre; o segredo
+  nao e devolvido no plano, resultado ou log.
+- A fila possui pausa, retomada, cancelamento, limite de concorrencia e timeout. A
+  recuperacao nao repete automaticamente uma acao externa ja concluida. Para mais
+  de uma replica, o executor em processo deve migrar para fila e lock distribuidos.
+- A imagem roda como usuario Linux sem privilegios. O build abre o Chromium e clica
+  em um elemento DOM; apos o deploy, `/health/browser` navega e clica em um destino
+  publico fixo, provando o motor da revisao ativa.
 
 ## Conhecimento empresarial
 
@@ -63,7 +69,8 @@ estado, mas permanecem modulos independentes.
 
 ## Integracao com Automacoes e Nora
 
-- O construtor oferece `Executar tarefa no navegador`, com URL e objetivo, e
+- O construtor oferece `Executar tarefa no navegador`, com URL, objetivo, perfil,
+  modo assistido/automatico, formato do resultado, limite de etapas e timeout, e
   `Executar IA com roteamento`, com politica e nivel de privacidade.
 - A execucao da automacao usa os mesmos servicos do modulo: nao existe um caminho
   paralelo que ignore permissoes, aprovacao ou auditoria.
@@ -77,8 +84,10 @@ estado, mas permanecem modulos independentes.
 Os projetos abaixo foram estudados como referencias de arquitetura, sem copiar
 codigo nem substituir os modulos nativos do Norium:
 
-- [Browser Use](https://github.com/browser-use/browser-use) — orquestracao de
-  navegadores para agentes; referencia para um adapter visual futuro (MIT).
+- [Playwright para Python](https://playwright.dev/python/) — motor atual do adapter
+  Chromium, instalado com o navegador e dependencias fixados na imagem (Apache-2.0).
+- [Browser Use](https://github.com/browser-use/browser-use) — referencia de
+  orquestracao e experiencia para agentes de navegador; nao e dependencia (MIT).
 - [Dify](https://github.com/langgenius/dify) — pipelines, conhecimento e operacao
   de apps de IA; possui licenca propria, portanto e referencia, nao dependencia.
 - [Crawl4AI](https://github.com/unclecode/crawl4ai) — extracao e crawling para LLMs;

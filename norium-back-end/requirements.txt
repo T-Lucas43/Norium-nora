@@ -5,6 +5,7 @@ python-dotenv
 cryptography==50.0.0
 tzdata
 httpx
+playwright==1.62.0
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib

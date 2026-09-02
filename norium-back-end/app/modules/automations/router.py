@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import re
 import unicodedata
 import uuid
@@ -490,7 +491,8 @@ async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> 
         None,
     )
     if browser_node:
-        from app.modules.intelligence.service import create_browser_plan, execute_browser_run
+        from app.modules.intelligence.browser_runtime import queue_browser_run
+        from app.modules.intelligence.service import create_browser_plan
 
         node_config = browser_node.get("config") if isinstance(browser_node.get("config"), dict) else {}
         target_url = str(node_config.get("targetUrl") or variables.get("targetUrl") or "").strip()
@@ -503,18 +505,30 @@ async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> 
         if not target_url:
             raise RuntimeError("Configure a URL publica no bloco do Agente Navegador antes de executar.")
         synthetic_user = {"id": user_id}
+        raw_actions = str(node_config.get("actionsJson") or "").strip()
+        actions: list[dict[str, Any]] = []
+        if raw_actions:
+            try:
+                parsed_actions = json.loads(raw_actions)
+                actions = parsed_actions if isinstance(parsed_actions, list) else []
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("O plano JSON do no Agente Navegador e invalido.") from exc
         run = await create_browser_plan(
             synthetic_user,
-            {"objective": objective, "startUrl": target_url, "profileId": node_config.get("profileId") or None, "maxPages": 1},
+            {
+                "objective": objective, "startUrl": target_url,
+                "profileId": node_config.get("profileId") or None,
+                "executionMode": node_config.get("executionMode") or "automatic",
+                "expectedResult": node_config.get("expectedResult") or "structured",
+                "maxPages": min(20, max(1, int(node_config.get("maxPages") or 10))),
+                "maxSteps": min(40, max(1, int(node_config.get("maxSteps") or 20))),
+                "timeoutSeconds": min(900, max(30, int(node_config.get("timeoutSeconds") or 300))),
+                "actions": actions, "useAiPlanner": not bool(actions),
+            },
             source="automation",
         )
-        executed = await execute_browser_run(synthetic_user, str(run["id"]))
-        if executed.get("status") == "awaiting_approval":
-            effects.append(f'Agente Navegador aguardando aprovacao na execucao {run["id"]}.')
-        elif executed.get("status") != "completed":
-            raise RuntimeError(str(executed.get("error") or "O Agente Navegador nao concluiu a leitura."))
-        else:
-            effects.append(f'Agente Navegador leu "{executed.get("result", {}).get("title", "pagina publica")}" com rastreabilidade.')
+        await queue_browser_run(synthetic_user, str(run["id"]))
+        effects.append(f'Agente Navegador iniciou a execucao real {run["id"]}; resultados e aprovacoes ficam na tela Navegador.')
 
     model_node = next(
         (

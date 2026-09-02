@@ -206,7 +206,7 @@ const componentLibrary: Array<{
       { title: "Registrar gasto", description: "Cria lançamento financeiro com categoria.", icon: "credit-card", kind: "action", category: "Gastos" },
       { title: "Atualizar relatório", description: "Atualiza indicadores operacionais.", icon: "bar-chart-3", kind: "action", category: "Relatórios" },
       { title: "Notificar equipe", description: "Envia aviso no chat interno.", icon: "users", kind: "action", category: "Equipe" },
-      { title: "Executar tarefa no navegador", description: "Lê uma URL autorizada com plano, aprovação e histórico.", icon: "globe", kind: "action", category: "Navegador" },
+      { title: "Executar tarefa no navegador", description: "Opera um Chromium real com cliques, formulários, arquivos, aprovações e evidências.", icon: "globe", kind: "action", category: "Navegador" },
       { title: "Executar IA com roteamento", description: "Seleciona provedor por política de custo, capacidade e privacidade.", icon: "network", kind: "nora", category: "IA e Modelos" },
     ],
   },
@@ -1486,8 +1486,30 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                           <input type="url" value={selectedBuilderNode.config?.targetUrl || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), targetUrl: event.target.value } })} placeholder="https://exemplo.com/pagina" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
                         </label>
                         <label className="block space-y-1.5">
-                          <span className="text-xs font-bold text-[var(--text-secondary)]">Objetivo da leitura</span>
-                          <textarea value={selectedBuilderNode.config?.objective || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), objective: event.target.value } })} rows={3} placeholder="Resumir fatos e registrar evidências" className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">Objetivo da tarefa</span>
+                          <textarea value={selectedBuilderNode.config?.objective || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), objective: event.target.value } })} rows={3} placeholder="Pesquisar, preencher o formulário e baixar o comprovante" className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-bold text-[var(--text-secondary)]">Modo</span>
+                            <select value={selectedBuilderNode.config?.executionMode || "automatic"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), executionMode: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"><option value="automatic">Automático</option><option value="assisted">Assistido por etapa</option></select>
+                          </label>
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-bold text-[var(--text-secondary)]">Resultado</span>
+                            <select value={selectedBuilderNode.config?.expectedResult || "structured"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), expectedResult: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"><option value="structured">Dados estruturados</option><option value="summary">Resumo</option><option value="files">Arquivos</option></select>
+                          </label>
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-bold text-[var(--text-secondary)]">Máximo de etapas</span>
+                            <input type="number" min="1" max="40" value={selectedBuilderNode.config?.maxSteps || "20"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), maxSteps: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                          </label>
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-bold text-[var(--text-secondary)]">Tempo limite (s)</span>
+                            <input type="number" min="30" max="900" value={selectedBuilderNode.config?.timeoutSeconds || "300"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), timeoutSeconds: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                          </label>
+                        </div>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">ID do perfil seguro (opcional)</span>
+                          <input value={selectedBuilderNode.config?.profileId || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), profileId: event.target.value } })} placeholder="browser-profile-..." className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
                         </label>
                       </>
                     )}

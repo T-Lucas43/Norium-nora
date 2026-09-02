@@ -2,21 +2,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
-from app.modules.auth.router import current_user
+from app.modules.auth.router import can_manage_team, current_user
+from app.modules.intelligence.browser_runtime import (
+    ACTIVE_BROWSER_LIMIT, artifact_path, control_browser_run, decide_browser_action, queue_browser_run,
+    sanitize_profile, sanitize_run, store_uploaded_artifact,
+)
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 from app.modules.intelligence.schemas import (
-    BrowserApprovalPayload, BrowserPlanPayload, BrowserProfilePayload, KnowledgeBasePayload,
+    BrowserApprovalPayload, BrowserCredentialPayload, BrowserPlanActionsPayload, BrowserPlanPayload, BrowserProfilePayload, BrowserUploadPayload, KnowledgeBasePayload,
     KnowledgeSearchPayload, KnowledgeSourcePayload, MarketplaceInstallPayload, MarketplaceUpdatePayload,
     ModelPolicyPayload, ModelProviderPayload, ModelRoutePayload, ModelTestPayload,
 )
 from app.modules.intelligence.service import (
-    MARKETPLACE_CATALOG, all_providers, catalog_item, create_browser_plan, create_browser_profile,
-    create_knowledge_base, execute_browser_run, find_item, install_marketplace, route_model,
+    MARKETPLACE_CATALOG, all_providers, catalog_item, create_browser_credential, create_browser_plan, create_browser_profile,
+    create_knowledge_base, find_item, install_marketplace, replace_browser_plan_actions, route_model,
     sanitize_provider, save_model_policy, save_provider, search_knowledge, tenant_id, test_provider,
-    uninstall_marketplace, update_browser_control, usage_summary, add_knowledge_source, reindex_knowledge_source,
+    uninstall_marketplace, usage_summary, add_knowledge_source, reindex_knowledge_source,
 )
+from app.modules.platform.service import delete_collection_item, list_collection, sanitize_vault_item
 
 
 browser_router = APIRouter(prefix="/api/navegador", tags=["Agente Navegador"])
@@ -28,12 +34,51 @@ models_router = APIRouter(prefix="/api/modelos-ia", tags=["IA e Modelos"])
 @browser_router.get("")
 async def browser_overview(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     store = read_store(tenant_id(user))
-    return {"profiles": store["browserProfiles"], "runs": store["browserRuns"][:100]}
+    credentials = []
+    if can_manage_team(user):
+        credentials = [
+            sanitize_vault_item(item) for item in await list_collection(user, "vault", account_level=True)
+            if str(item.get("integration") or "").startswith("browser:")
+        ]
+    return {
+        "profiles": [sanitize_profile(item) for item in store["browserProfiles"]],
+        "runs": [sanitize_run(item) for item in store["browserRuns"][:100]],
+        "credentials": credentials,
+        "runtime": {"engine": "playwright-chromium", "realBrowser": True, "maxConcurrency": ACTIVE_BROWSER_LIMIT},
+    }
 
 
 @browser_router.post("/profiles")
 async def post_browser_profile(payload: BrowserProfilePayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    return {"item": await create_browser_profile(user, payload.model_dump())}
+    if payload.credentialIds and not can_manage_team(user):
+        raise HTTPException(status_code=403, detail="Somente o responsavel da equipe pode vincular credenciais.")
+    if payload.credentialIds:
+        browser_credentials = {
+            str(item.get("id")) for item in await list_collection(user, "vault", account_level=True)
+            if str(item.get("integration") or "").startswith("browser:")
+        }
+        if any(credential_id not in browser_credentials for credential_id in payload.credentialIds):
+            raise HTTPException(status_code=422, detail="Um dos IDs nao pertence a uma credencial do Agente Navegador.")
+    return {"item": sanitize_profile(await create_browser_profile(user, payload.model_dump()))}
+
+
+@browser_router.post("/credentials")
+async def post_browser_credential(payload: BrowserCredentialPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    if not can_manage_team(user):
+        raise HTTPException(status_code=403, detail="Somente o responsavel da equipe pode cadastrar credenciais.")
+    return {"item": await create_browser_credential(user, payload.model_dump())}
+
+
+@browser_router.delete("/credentials/{credential_id}")
+async def delete_browser_credential(credential_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
+    if not can_manage_team(user):
+        raise HTTPException(status_code=403, detail="Somente o responsavel da equipe pode revogar credenciais.")
+    credentials = await list_collection(user, "vault", account_level=True)
+    item = find_item(credentials, credential_id)
+    if not item or not str(item.get("integration") or "").startswith("browser:"):
+        raise HTTPException(status_code=404, detail="Credencial de navegador nao encontrada.")
+    deleted = await delete_collection_item(user, "vault", credential_id, account_level=True)
+    return {"deleted": deleted}
 
 
 @browser_router.delete("/profiles/{profile_id}")
@@ -50,41 +95,50 @@ async def plan_browser_run(payload: BrowserPlanPayload, user: dict[str, Any] = D
     return {"item": await create_browser_plan(user, payload.model_dump())}
 
 
+@browser_router.put("/runs/{run_id}/plan")
+async def put_browser_run_plan(run_id: str, payload: BrowserPlanActionsPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return {"item": sanitize_run(await replace_browser_plan_actions(user, run_id, [item.model_dump() for item in payload.actions]))}
+
+
 @browser_router.post("/runs/{run_id}/execute")
-async def start_browser_run(run_id: str, background: BackgroundTasks, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+async def start_browser_run(run_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     store = read_store(tenant_id(user))
     run = find_item(store["browserRuns"], run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Execucao do navegador nao encontrada.")
-    if run.get("requiresApproval") and not run.get("approved"):
-        item = await execute_browser_run(user, run_id)
-        return {"item": item}
-    background.add_task(execute_browser_run, user, run_id)
-    return {"item": {**run, "status": "queued"}}
+    return {"item": await queue_browser_run(user, run_id)}
 
 
 @browser_router.post("/runs/{run_id}/approval")
-async def approve_browser_run(run_id: str, payload: BrowserApprovalPayload, background: BackgroundTasks, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    def mutation(store: dict[str, Any]) -> dict[str, Any]:
-        run = find_item(store["browserRuns"], run_id)
-        if not run:
-            raise HTTPException(status_code=404, detail="Execucao do navegador nao encontrada.")
-        approved = payload.decision == "approve"
-        run.update({"approved": approved, "status": "planned" if approved else "rejected", "approvalNote": payload.note, "approvedAt": now_iso(), "updatedAt": now_iso()})
-        run.setdefault("timeline", []).append({"at": now_iso(), "event": "approved" if approved else "rejected", "message": payload.note or ("Aprovado pelo operador." if approved else "Rejeitado pelo operador.")})
-        return run
-    item = await mutate_store(tenant_id(user), mutation)
-    if payload.decision == "approve":
-        background.add_task(execute_browser_run, user, run_id)
+async def approve_browser_run(run_id: str, payload: BrowserApprovalPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    item = await decide_browser_action(user, run_id, payload.actionId, payload.decision == "approve", payload.note)
     return {"item": item}
 
 
-@browser_router.post("/runs/{run_id}/{action}")
-async def control_browser_run(run_id: str, action: str, background: BackgroundTasks, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    item = await update_browser_control(user, run_id, action)
-    if action == "resume":
-        background.add_task(execute_browser_run, user, run_id)
-    return {"item": item}
+@browser_router.post("/runs/{run_id}/uploads")
+async def upload_browser_file(run_id: str, payload: BrowserUploadPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return {"item": await store_uploaded_artifact(tenant_id(user), run_id, payload.fileName, payload.mimeType, payload.dataUrl)}
+
+
+@browser_router.get("/runs/{run_id}/artifacts/{artifact_id}")
+async def get_browser_artifact(run_id: str, artifact_id: str, user: dict[str, Any] = Depends(current_user)) -> FileResponse:
+    path, artifact = artifact_path(tenant_id(user), run_id, artifact_id)
+    return FileResponse(path, media_type=str(artifact.get("mimeType") or "application/octet-stream"), filename=str(artifact.get("name") or path.name))
+
+
+@browser_router.post("/runs/{run_id}/pause")
+async def pause_browser_run(run_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return {"item": await control_browser_run(user, run_id, "pause")}
+
+
+@browser_router.post("/runs/{run_id}/resume")
+async def resume_browser_run(run_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return {"item": await control_browser_run(user, run_id, "resume")}
+
+
+@browser_router.post("/runs/{run_id}/cancel")
+async def cancel_browser_run(run_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return {"item": await control_browser_run(user, run_id, "cancel")}
 
 
 @knowledge_router.get("")

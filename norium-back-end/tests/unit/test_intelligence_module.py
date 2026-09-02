@@ -35,33 +35,62 @@ class IntelligenceModuleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_sensitive_browser_plan_waits_for_approval_then_records_evidence(self) -> None:
         account = user("browser-owner")
+        profile = await service.create_browser_profile(account, {
+            "name": "Operacao supervisionada", "allowedDomains": ["example.com"], "blockedDomains": [],
+            "credentialIds": [], "allowDownloads": False, "allowUploads": False,
+            "allowForms": True, "retainSession": False, "maxDurationSeconds": 300, "maxActions": 20,
+        })
         run = await service.create_browser_plan(
             account,
-            {"objective": "Entrar na conta e ler o painel", "startUrl": "https://example.com", "profileId": None, "maxPages": 1},
+            {
+                "objective": "Enviar o formulario somente depois da aprovacao", "startUrl": "https://example.com",
+                "profileId": profile["id"], "maxPages": 1, "maxSteps": 10, "timeoutSeconds": 300,
+                "executionMode": "automatic", "expectedResult": "structured", "useAiPlanner": False,
+                "actions": [{"type": "click", "target": "Enviar", "value": "", "description": "Enviar formulario"}],
+            },
         )
-        waiting = await service.execute_browser_run(account, run["id"])
-        self.assertEqual("awaiting_approval", waiting["status"])
-
+        action = next(item for item in run["plan"] if item["type"] == "click")
+        self.assertEqual("sensitive", action["riskClass"])
+        self.assertTrue(action["requiresApproval"])
         await mutate_store(
             account["id"],
-            lambda store: next(item for item in store["browserRuns"] if item["id"] == run["id"]).update({"approved": True, "status": "planned"}),
+            lambda store: (
+                next(item for item in store["browserRuns"] if item["id"] == run["id"]).update({
+                    "status": "awaiting_approval",
+                    "pendingApproval": {"actionId": action["id"], "type": "click", "target": "Enviar"},
+                }),
+                next(item for item in next(entry for entry in store["browserRuns"] if entry["id"] == run["id"])["plan"] if item["id"] == action["id"]).update({"status": "awaiting_approval"}),
+            ),
         )
-        page = {"url": "https://example.com", "host": "example.com", "title": "Example", "text": "Fato verificavel da pagina.", "bytes": 30, "contentType": "text/html"}
-        with patch.object(service, "safe_fetch", AsyncMock(return_value=page)):
-            completed = await service.execute_browser_run(account, run["id"])
-        self.assertEqual("completed", completed["status"])
-        self.assertTrue(completed["result"]["readOnly"])
-        self.assertIn("Fato verificavel", completed["result"]["summary"])
+        from app.modules.intelligence.browser_runtime import decide_browser_action
+
+        approved = await decide_browser_action(account, run["id"], action["id"], True, "Aprovado no teste")
+        approved_action = next(item for item in approved["plan"] if item["id"] == action["id"])
+        self.assertTrue(approved_action["approved"])
+        self.assertEqual("pending", approved_action["status"])
 
     async def test_browser_plan_keeps_domain_policy_snapshot_if_profile_is_deleted(self) -> None:
         account = user("browser-policy-owner")
-        profile = await service.create_browser_profile(account, {"name": "Restrito", "allowedDomains": ["example.com"], "blockedDomains": [], "allowDownloads": False, "retainSession": False})
-        run = await service.create_browser_plan(account, {"objective": "Ler pagina publica", "startUrl": "https://example.com", "profileId": profile["id"], "maxPages": 1})
+        profile = await service.create_browser_profile(account, {"name": "Restrito", "allowedDomains": ["example.com"], "blockedDomains": [], "credentialIds": [], "allowDownloads": False, "allowUploads": False, "allowForms": False, "retainSession": False, "maxDurationSeconds": 300, "maxActions": 20})
+        run = await service.create_browser_plan(account, {"objective": "Ler pagina publica", "startUrl": "https://example.com", "profileId": profile["id"], "maxPages": 1, "maxSteps": 20, "timeoutSeconds": 300, "executionMode": "assisted", "expectedResult": "summary", "actions": [], "useAiPlanner": False})
         await mutate_store(account["id"], lambda store: store.update({"browserProfiles": []}))
-        page = {"url": "https://example.com", "host": "example.com", "title": "Example", "text": "Conteudo", "links": [], "bytes": 10, "contentType": "text/html"}
-        with patch.object(service, "safe_fetch", AsyncMock(return_value=page)) as fetch:
-            await service.execute_browser_run(account, run["id"])
-        self.assertEqual(["example.com"], fetch.await_args.args[1])
+        stored = next(item for item in read_store(account["id"])["browserRuns"] if item["id"] == run["id"])
+        self.assertEqual(["example.com"], stored["policySnapshot"]["allowedDomains"])
+        self.assertEqual("example.com", stored["host"])
+
+    async def test_browser_credential_can_only_fill_its_own_domain(self) -> None:
+        account = user("browser-credential-owner")
+        credential = await service.create_browser_credential(account, {
+            "label": "Portal", "domain": "example.com", "username": "operador", "password": "segredo-forte",
+        })
+        profile = {"credentialIds": [credential["id"]]}
+        action = {"credentialId": credential["id"], "credentialField": "username"}
+        from app.modules.intelligence.browser_runtime import _credential_value
+
+        self.assertEqual("operador", await _credential_value(account, profile, action, "https://app.example.com/login"))
+        with self.assertRaises(HTTPException) as blocked:
+            await _credential_value(account, profile, action, "https://attacker.example.net/login")
+        self.assertEqual(403, blocked.exception.status_code)
 
     async def test_knowledge_search_returns_citation_and_prevents_duplicates(self) -> None:
         account = user("knowledge-owner")

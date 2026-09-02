@@ -26,7 +26,7 @@ export type DocumentKind = "proposal" | "contract";
 export type TemplateDocumentType = DocumentKind | "term" | "budget" | "report" | "custom";
 export type PdfOperation =
   | "merge" | "split" | "reorder" | "delete_pages" | "rotate" | "compress"
-  | "images_to_pdf" | "watermark" | "page_numbers" | "add_password" | "remove_password"
+  | "images_to_pdf" | "watermark" | "edit_pdf" | "page_numbers" | "add_password" | "remove_password"
   | "ocr" | "extract_text" | "remove_metadata" | "sanitize" | "compare";
 export type ProposalTone = "consultive" | "executive" | "technical" | "friendly";
 

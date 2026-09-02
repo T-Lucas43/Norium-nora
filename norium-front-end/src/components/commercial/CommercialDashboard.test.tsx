@@ -9,6 +9,7 @@ const commercialApi = vi.hoisted(() => ({
   loadCommercialData: vi.fn(),
   loadProposal: vi.fn(),
   loadContract: vi.fn(),
+  loadPdfCapabilities: vi.fn(),
 }));
 const clientApi = vi.hoisted(() => ({ apiRequest: vi.fn() }));
 
@@ -118,6 +119,15 @@ describe("CommercialDashboard leve", () => {
     commercialApi.loadCommercialData.mockResolvedValue(commercialData);
     commercialApi.loadProposal.mockResolvedValue({ proposal });
     commercialApi.loadContract.mockResolvedValue({ contract: null });
+    commercialApi.loadPdfCapabilities.mockResolvedValue({
+      operations: [
+        { id: "merge", label: "Combinar PDFs", engine: "native" },
+        { id: "edit_pdf", label: "Editar PDF", engine: "native" },
+      ],
+      stirling: { available: false, operations: [] },
+      maxUploadBytes: 25 * 1024 * 1024,
+      asynchronous: true,
+    });
     clientApi.apiRequest.mockImplementation((path: string) => {
       if (path === "/api/clientes") {
         return Promise.resolve({ items: [{ id: "client-1", name: "Cliente Um", company: "Empresa", email: "cliente@empresa.local" }] });
@@ -151,5 +161,16 @@ describe("CommercialDashboard leve", () => {
 
     await waitFor(() => expect(commercialApi.loadProposal).toHaveBeenCalledWith("proposal-1"));
     expect(await screen.findByText("Editor aberto: Proposta sob demanda")).toBeInTheDocument();
+  });
+
+  it("abre o PDF Studio completo ao clicar em Ferramentas PDF", async () => {
+    render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
+
+    await screen.findByText("Proposta sob demanda");
+    await userEvent.setup().click(screen.getByRole("button", { name: /Ferramentas PDF/i }));
+
+    expect(await screen.findByRole("heading", { name: "Norium PDF Studio" })).toBeInTheDocument();
+    expect(await screen.findByText("Combinar PDF")).toBeInTheDocument();
+    expect(await screen.findByText("Editar PDF")).toBeInTheDocument();
   });
 });

@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import html
 import ipaddress
+import json
 import os
 import re
 import socket
@@ -19,7 +20,7 @@ from fastapi import HTTPException
 
 from app.core.tenant import read_user_db, write_user_db
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store, write_store
-from app.modules.platform.service import decrypt_secret, encrypt_secret
+from app.modules.platform.service import decrypt_secret, encrypt_secret, save_vault_secret
 
 
 MAX_FETCH_BYTES = 1_000_000
@@ -175,6 +176,121 @@ def browser_risk(objective: str) -> tuple[str, bool, str]:
     return "baixo", False, "Leitura publica sem alteracao externa."
 
 
+READ_ACTIONS = {"navigate", "search", "extract", "screenshot", "wait"}
+EXTERNAL_ACTIONS = {"click", "fill", "select", "press", "download", "upload"}
+SENSITIVE_ACTION_TERMS = {
+    "enviar", "submit", "comprar", "pagar", "pagamento", "assinar", "aceitar",
+    "excluir", "apagar", "publicar", "contratar", "transferir", "senha", "login",
+}
+
+
+def classify_browser_action(action: dict[str, Any]) -> tuple[str, bool, str]:
+    kind = str(action.get("type") or "")
+    context = normalize_text(f'{action.get("target", "")} {action.get("description", "")}')
+    sensitive = kind == "credential_fill" or any(term in context for term in SENSITIVE_ACTION_TERMS)
+    if sensitive:
+        return "sensitive", True, "Acao sensivel: exige confirmacao imediatamente antes da execucao."
+    if kind in EXTERNAL_ACTIONS:
+        return "external", True, "Acao externa: exige aprovacao antes de alterar ou transferir dados."
+    if kind in {"click", "press"} and any(term in context for term in SENSITIVE_ACTION_TERMS):
+        return "sensitive", True, "O controle pode confirmar uma operacao sensivel."
+    return "read", False, "Acao de navegacao ou consulta sem alteracao externa identificada."
+
+
+def _action(kind: str, description: str, target: str = "", value: str = "", **extra: Any) -> dict[str, Any]:
+    item = {
+        "id": entity_id("action"), "type": kind, "description": description,
+        "target": target, "value": value, "status": "pending", "approved": False,
+        **extra,
+    }
+    risk_class, requires_approval, reason = classify_browser_action(item)
+    item.update({"riskClass": risk_class, "requiresApproval": requires_approval, "riskReason": reason})
+    return item
+
+
+def heuristic_browser_actions(objective: str, start_url: str) -> list[dict[str, Any]]:
+    actions = [_action("navigate", "Abrir a URL inicial autorizada", value=start_url)]
+    quoted = re.findall(r'["“]([^"”]{1,300})["”]', objective)
+    normalized = normalize_text(objective)
+    fill_match = re.search(r'(?:preencha|preencher)\s+(?:o\s+campo\s+)?["“]([^"”]+)["”]\s+com\s+["“]([^"”]+)["”]', objective, flags=re.I)
+    select_match = re.search(r'(?:selecione|selecionar)\s+["“]([^"”]+)["”]\s+(?:em|no\s+campo)\s+["“]([^"”]+)["”]', objective, flags=re.I)
+    if fill_match:
+        actions.append(_action("fill", f'Preencher o campo {fill_match.group(1)}', target=fill_match.group(1), value=fill_match.group(2)))
+    if select_match:
+        actions.append(_action("select", f'Selecionar {select_match.group(1)} em {select_match.group(2)}', target=select_match.group(2), value=select_match.group(1)))
+    if any(term in normalized for term in ("pesquise", "pesquisar", "busque", "buscar", "procure", "procurar")):
+        query = quoted[0] if quoted else re.sub(r'^.*?(?:por|sobre)\s+', "", objective, flags=re.I).strip(" .")
+        if query and query != objective:
+            actions.append(_action("search", f'Pesquisar por {query[:120]}', value=query[:1000]))
+    click_match = re.search(r'(?:clique|clicar)\s+(?:em|no|na)?\s*["“]([^"”]+)["”]', objective, flags=re.I)
+    if click_match:
+        actions.append(_action("click", f'Clicar em {click_match.group(1)}', target=click_match.group(1)))
+    if any(term in normalized for term in ("baixe", "baixar", "download")) and quoted:
+        actions.append(_action("download", f'Baixar {quoted[-1]}', target=quoted[-1]))
+    actions.extend([
+        _action("extract", "Extrair texto, links e tabelas da pagina final"),
+        _action("screenshot", "Registrar captura final como evidencia"),
+    ])
+    return actions
+
+
+def _parse_planner_json(answer: str) -> list[dict[str, Any]]:
+    match = re.search(r"\{[\s\S]*\}", answer)
+    if not match:
+        return []
+    try:
+        payload = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return []
+    actions = payload.get("actions") if isinstance(payload, dict) else []
+    if not isinstance(actions, list):
+        return []
+    allowed = {"navigate", "search", "click", "fill", "select", "press", "wait", "extract", "screenshot", "download", "upload", "credential_fill"}
+    normalized: list[dict[str, Any]] = []
+    for raw in actions[:40]:
+        if not isinstance(raw, dict) or raw.get("type") not in allowed:
+            continue
+        normalized.append(_action(
+            str(raw["type"]), str(raw.get("description") or raw["type"])[:500],
+            target=str(raw.get("target") or "")[:500], value=str(raw.get("value") or "")[:10_000],
+        ))
+    return normalized
+
+
+async def plan_browser_actions(user: dict[str, Any], payload: dict[str, Any], normalized_url: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    explicit = payload.get("actions") if isinstance(payload.get("actions"), list) else []
+    if explicit:
+        actions = [
+            _action(
+                str(raw.get("type") or "extract"), str(raw.get("description") or raw.get("type") or "Etapa")[:500],
+                target=str(raw.get("target") or "")[:500], value=str(raw.get("value") or "")[:10_000],
+                credentialId=raw.get("credentialId"), credentialField=raw.get("credentialField"), artifactId=raw.get("artifactId"),
+            )
+            for raw in explicit[:40]
+        ]
+        if not actions or actions[0].get("type") != "navigate":
+            actions.insert(0, _action("navigate", "Abrir a URL inicial autorizada", value=normalized_url))
+        return actions, {"mode": "manual", "detail": "Plano editado pelo operador."}
+    if payload.get("useAiPlanner"):
+        routed = route_model(user, {"requiredCapabilities": ["text", "json"], "estimatedInputTokens": 900, "estimatedOutputTokens": 700, "privacy": "any", "externalActionCommitted": False})
+        selected = routed.get("selected")
+        if selected:
+            try:
+                answer, model_meta = await complete_with_provider(
+                    user, str(selected["id"]),
+                    [{"role": "user", "content": f"URL inicial: {normalized_url}\nObjetivo: {payload['objective']}"}],
+                    "Crie um plano de automacao web. Responda somente JSON {\"actions\":[{\"type\":\"navigate|search|click|fill|select|press|wait|extract|screenshot|download\",\"description\":\"...\",\"target\":\"texto, label=, placeholder= ou css=\",\"value\":\"...\"}]}. Nao inclua senhas, tokens, JavaScript nem acoes nao solicitadas. Comece navegando e termine extraindo e capturando evidencia.",
+                )
+                actions = _parse_planner_json(answer)
+                if actions:
+                    if actions[0].get("type") != "navigate":
+                        actions.insert(0, _action("navigate", "Abrir a URL inicial autorizada", value=normalized_url))
+                    return actions, {"mode": "ai", "provider": model_meta.get("provider"), "detail": "Plano criado pelo roteador de IA e reclassificado pelo servidor."}
+            except HTTPException:
+                pass
+    return heuristic_browser_actions(str(payload["objective"]), normalized_url), {"mode": "deterministic", "detail": "Plano seguro criado localmente; pode ser editado antes da execucao."}
+
+
 def find_item(items: list[dict[str, Any]], item_id: str) -> dict[str, Any] | None:
     return next((item for item in items if str(item.get("id")) == item_id), None)
 
@@ -185,6 +301,14 @@ async def create_browser_profile(user: dict[str, Any], payload: dict[str, Any]) 
     return item
 
 
+async def create_browser_credential(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    secret = json.dumps({"username": payload["username"], "password": payload["password"]}, ensure_ascii=False)
+    return await save_vault_secret(user, {
+        "integration": f'browser:{payload["domain"]}', "label": payload["label"], "secret": secret,
+        "expiresAt": None, "scopes": [f'domain:{payload["domain"]}', "browser:fill"],
+    })
+
+
 async def create_browser_plan(user: dict[str, Any], payload: dict[str, Any], *, source: str = "screen") -> dict[str, Any]:
     user_id = tenant_id(user)
     store = read_store(user_id)
@@ -192,25 +316,68 @@ async def create_browser_plan(user: dict[str, Any], payload: dict[str, Any], *, 
     allowed = list(profile.get("allowedDomains", [])) if profile else []
     blocked = list(profile.get("blockedDomains", [])) if profile else []
     normalized, host = validate_public_url(str(payload["startUrl"]), allowed, blocked)
-    risk, approval, reason = browser_risk(str(payload["objective"]))
+    actions, planner = await plan_browser_actions(user, payload, normalized)
+    max_steps = min(int(payload.get("maxSteps") or 20), int(profile.get("maxActions") or 20) if profile else 20)
+    actions = actions[:max_steps]
+    risk_order = {"read": 0, "external": 1, "sensitive": 2}
+    highest = max((str(item.get("riskClass") or "read") for item in actions), key=lambda value: risk_order.get(value, 0), default="read")
+    risk = "alto" if highest == "sensitive" else "medio" if highest == "external" else "baixo"
+    approval = any(bool(item.get("requiresApproval")) for item in actions)
+    reason = "O plano contem acoes que serao confirmadas individualmente." if approval else "Plano de consulta sem alteracao externa identificada."
     created = now_iso()
     run = {
         "id": entity_id("browser_run"), "objective": payload["objective"], "startUrl": normalized,
         "host": host, "profileId": profile.get("id") if profile else None, "source": source,
-        "policySnapshot": {"allowedDomains": allowed, "blockedDomains": blocked, "allowDownloads": bool(profile and profile.get("allowDownloads"))},
+        "policySnapshot": {
+            "allowedDomains": allowed, "blockedDomains": blocked,
+            "credentialIds": list(profile.get("credentialIds", [])) if profile else [],
+            "allowDownloads": bool(profile and profile.get("allowDownloads")),
+            "allowUploads": bool(profile and profile.get("allowUploads")),
+            "allowForms": bool(profile and profile.get("allowForms")),
+            "retainSession": bool(profile and profile.get("retainSession")),
+            "maxDurationSeconds": int(profile.get("maxDurationSeconds") or 300) if profile else 300,
+            "maxActions": int(profile.get("maxActions") or 20) if profile else 20,
+        },
         "risk": risk, "riskReason": reason, "requiresApproval": approval, "approved": False,
-        "status": "planned", "progress": 0, "maxPages": payload.get("maxPages", 1),
-        "plan": [
-            {"id": "validate", "title": "Validar dominio e politica", "status": "ready"},
-            {"id": "read", "title": "Ler a pagina publica", "status": "pending"},
-            {"id": "extract", "title": "Extrair fatos e links", "status": "pending"},
-        ],
+        "status": "planned", "progress": 0, "maxPages": payload.get("maxPages", 10),
+        "maxSteps": max_steps, "timeoutSeconds": min(int(payload.get("timeoutSeconds") or 300), int(profile.get("maxDurationSeconds") or 300) if profile else 300),
+        "executionMode": payload.get("executionMode", "assisted"), "expectedResult": payload.get("expectedResult", "summary"),
+        "planner": planner, "plan": actions,
         "timeline": [{"at": created, "event": "plan_created", "message": reason}],
-        "result": None, "error": None, "cancelRequested": False, "pauseRequested": False,
+        "result": None, "error": None, "cancelRequested": False, "pauseRequested": False, "artifacts": [], "pendingApproval": None,
         "createdAt": created, "updatedAt": created,
     }
     await mutate_store(user_id, lambda current: current["browserRuns"].insert(0, run))
     return run
+
+
+async def replace_browser_plan_actions(user: dict[str, Any], run_id: str, raw_actions: list[dict[str, Any]]) -> dict[str, Any]:
+    user_id = tenant_id(user)
+
+    def mutation(store: dict[str, Any]) -> dict[str, Any]:
+        run = find_item(store["browserRuns"], run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Execucao do navegador nao encontrada.")
+        if run.get("status") not in {"planned", "failed", "paused"}:
+            raise HTTPException(status_code=409, detail="Pause a execucao antes de alterar o plano.")
+        profile = find_item(store["browserProfiles"], str(run.get("profileId") or ""))
+        limit = min(int(run.get("maxSteps") or 20), int((profile or run.get("policySnapshot") or {}).get("maxActions") or 20))
+        actions = [
+            _action(
+                str(raw.get("type") or "extract"), str(raw.get("description") or raw.get("type") or "Etapa")[:500],
+                target=str(raw.get("target") or "")[:500], value=str(raw.get("value") or "")[:10_000],
+                credentialId=raw.get("credentialId"), credentialField=raw.get("credentialField"), artifactId=raw.get("artifactId"),
+            )
+            for raw in raw_actions[:limit]
+        ]
+        if not actions or actions[0].get("type") != "navigate":
+            actions.insert(0, _action("navigate", "Abrir a URL inicial autorizada", value=str(run["startUrl"])))
+        run.update({"plan": actions[:limit], "progress": 0, "currentStep": 0, "result": None, "error": None, "status": "planned", "updatedAt": now_iso()})
+        run["requiresApproval"] = any(item.get("requiresApproval") for item in run["plan"])
+        run.setdefault("timeline", []).append({"at": now_iso(), "event": "plan_updated", "message": "Plano revisado pelo operador antes da execucao."})
+        return run
+
+    return await mutate_store(user_id, mutation)
 
 
 def _set_run(user_id: str, run_id: str, updates: dict[str, Any], event: tuple[str, str] | None = None) -> dict[str, Any]:
@@ -227,54 +394,15 @@ def _set_run(user_id: str, run_id: str, updates: dict[str, Any], event: tuple[st
 
 
 async def execute_browser_run(user: dict[str, Any], run_id: str) -> dict[str, Any]:
-    user_id = tenant_id(user)
-    store = read_store(user_id)
-    run = find_item(store["browserRuns"], run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Execucao do navegador nao encontrada.")
-    if run.get("requiresApproval") and not run.get("approved"):
-        return _set_run(user_id, run_id, {"status": "awaiting_approval"}, ("approval_required", "Aguardando aprovacao humana."))
-    if run.get("cancelRequested"):
-        return _set_run(user_id, run_id, {"status": "cancelled"}, ("cancelled", "Execucao cancelada antes do acesso externo."))
-    if run.get("pauseRequested"):
-        return _set_run(user_id, run_id, {"status": "paused"}, ("paused", "Execucao pausada antes do acesso externo."))
-    _set_run(user_id, run_id, {"status": "running", "progress": 25}, ("started", "Leitura segura iniciada."))
-    try:
-        current_store = read_store(user_id)
-        current = find_item(current_store["browserRuns"], run_id) or run
-        profile = find_item(current_store["browserProfiles"], str(current.get("profileId") or ""))
-        policy = current.get("policySnapshot") if isinstance(current.get("policySnapshot"), dict) else {}
-        page = await safe_fetch(
-            str(current["startUrl"]),
-            list(policy.get("allowedDomains", profile.get("allowedDomains", []) if profile else [])),
-            list(policy.get("blockedDomains", profile.get("blockedDomains", []) if profile else [])),
-        )
-        latest = find_item(read_store(user_id)["browserRuns"], run_id) or current
-        if latest.get("cancelRequested"):
-            return _set_run(user_id, run_id, {"status": "cancelled", "progress": 50}, ("cancelled", "Resultado descartado apos cancelamento."))
-        result = {
-            "title": page["title"], "url": page["url"], "summary": page["text"][:1200],
-            "textLength": len(page["text"]), "links": list(page.get("links", []))[:30], "readOnly": True,
-        }
-        return _set_run(user_id, run_id, {"status": "completed", "progress": 100, "result": result, "error": None}, ("completed", "Pagina lida e evidencias registradas."))
-    except HTTPException as exc:
-        return _set_run(user_id, run_id, {"status": "failed", "error": str(exc.detail), "progress": 100}, ("failed", str(exc.detail)))
-    except Exception:
-        return _set_run(user_id, run_id, {"status": "failed", "error": "Falha inesperada na execucao segura.", "progress": 100}, ("failed", "Falha inesperada na execucao segura."))
+    from app.modules.intelligence.browser_runtime import execute_browser_run as execute_real_browser
+
+    return await execute_real_browser(user, run_id)
 
 
 async def update_browser_control(user: dict[str, Any], run_id: str, action: str) -> dict[str, Any]:
-    user_id = tenant_id(user)
-    updates: dict[str, Any]
-    if action == "cancel":
-        updates = {"cancelRequested": True, "status": "cancelled"}
-    elif action == "pause":
-        updates = {"pauseRequested": True, "status": "paused"}
-    elif action == "resume":
-        updates = {"pauseRequested": False, "status": "planned"}
-    else:
-        raise HTTPException(status_code=400, detail="Controle de execucao invalido.")
-    return _set_run(user_id, run_id, updates, (action, f"Execucao {action}."))
+    from app.modules.intelligence.browser_runtime import control_browser_run
+
+    return await control_browser_run(user, run_id, action)
 
 
 def chunk_text(text: str, size: int = 1200, overlap: int = 160) -> list[str]:

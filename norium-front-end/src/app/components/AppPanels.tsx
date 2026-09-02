@@ -20,6 +20,7 @@ const EmailDashboard = lazy(() => import("../../components/emails/EmailDashboard
 const FinanceDashboard = lazy(() => import("../../components/finance/FinanceDashboard"));
 const HelpDashboard = lazy(() => import("../../components/help/HelpDashboard"));
 const InboxUniversal = lazy(() => import("../../components/inbox/InboxUniversal"));
+const IntelligenceHubDashboard = lazy(() => import("../../components/intelligence/IntelligenceHubDashboard"));
 const MoreDashboard = lazy(() => import("../../components/more/MoreDashboard"));
 const OperationsDashboard = lazy(() => import("../../components/operations/OperationsDashboard"));
 const ProfileSettings = lazy(() => import("../../components/profile/ProfileSettings"));
@@ -202,6 +203,26 @@ export default function AppPanels({
         <section className={activeTab === "Documentos" || activeTab === "Propostas" ? "app-panel" : "hidden"}>
           {coach("Propostas")}
           <CommercialDashboard session={authSession} onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("Agente Navegador") && (
+        <section className={activePanelClass("Agente Navegador")}>
+          <IntelligenceHubDashboard mode="browser" onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("Conhecimento") && (
+        <section className={activePanelClass("Conhecimento")}>
+          <IntelligenceHubDashboard mode="knowledge" onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("Marketplace") && (
+        <section className={activePanelClass("Marketplace")}>
+          <IntelligenceHubDashboard mode="marketplace" onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("IA e Modelos") && (
+        <section className={activePanelClass("IA e Modelos")}>
+          <IntelligenceHubDashboard mode="models" onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Perfil") && (

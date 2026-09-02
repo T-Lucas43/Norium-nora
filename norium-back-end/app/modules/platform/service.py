@@ -190,6 +190,11 @@ def encrypt_secret(value: str) -> str:
     return _fernet().encrypt(value.encode("utf-8")).decode("ascii")
 
 
+def decrypt_secret(value: str) -> str:
+    """Recupera segredo somente no backend; chamadores nunca devem serializa-lo."""
+    return _fernet().decrypt(value.encode("ascii")).decode("utf-8")
+
+
 def masked_secret(value: str) -> str:
     if len(value) <= 4:
         return "****"

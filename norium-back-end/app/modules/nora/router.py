@@ -65,6 +65,7 @@ from app.services.nora_whatsapp_action import (
 )
 from app.services.brainstorm_store import create_brainstorm_session, list_brainstorm_sessions
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
+from app.modules.intelligence.service import complete_with_provider, create_browser_plan
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/nora", tags=["Nora IA"])
@@ -94,6 +95,19 @@ class NoraNaturalPayload(StrictModel):
     email_session_id: str | None = None
     commercial_session_id: str | None = None
     screen_context: str | None = Field(default=None, max_length=500)
+    model_id: str | None = Field(default=None, max_length=180)
+    routing_mode: Literal["automatic", "manual"] = "automatic"
+
+
+def browser_tool_request(text: str) -> tuple[str, str] | None:
+    normalized = normalizar_intencao(text)
+    if not any(term in normalized for term in ("navegador", "pagina web", "site", "url")):
+        return None
+    match = re.search(r"https?://[^\s<>'\"]+", text, flags=re.I)
+    if not match:
+        return None
+    url = match.group(0).rstrip(".,;)")
+    return url, text
 
 
 class NoraVoicePayload(StrictModel):
@@ -962,6 +976,32 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
         if module_help is not None:
             return resposta_agente("operacoes", module_help, resolution=resolution)
 
+        browser_request = browser_tool_request(texto)
+        if browser_request is not None:
+            permissions = effective_permissions(user)
+            if not permissions.get("navegador"):
+                return resposta_agente(
+                    "operacoes",
+                    {"status": "sem_permissao", "response": "Seu acesso nao permite usar o Agente Navegador."},
+                    resolution=resolution,
+                )
+            url, objective = browser_request
+            run = await create_browser_plan(
+                user,
+                {"objective": objective, "startUrl": url, "profileId": None, "maxPages": 1},
+                source="nora",
+            )
+            approval = " O plano exige aprovacao antes de executar." if run.get("requiresApproval") else " Abra a tela Agente Navegador para revisar e executar."
+            return resposta_agente(
+                "operacoes",
+                {
+                    "status": "plano_navegador_criado",
+                    "response": f"Criei um plano rastreavel para {run.get('host')}.{approval}",
+                    "browserRun": run,
+                },
+                resolution=resolution,
+            )
+
         if not payload.email_session_id and not payload.agenda_session_id and is_compound_request(texto):
             steps = build_compound_plan(texto)
             if any(str(step.get("agent") or "") == "whatsapp" for step in steps):
@@ -1183,7 +1223,16 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
 
         mensagens_dict = [msg.model_dump() for msg in payload.messages[-6:]]
         mensagens_dict.append({"role": "user", "content": await message_with_memory(user, texto, {"communication", "client", "project", "process", "general"})})
-        resposta = await nora_service.perguntar_nora(mensagens_dict, payload.screen_context)
+        model_routing = None
+        if payload.model_id and payload.model_id != "nora-runtime":
+            resposta, model_routing = await complete_with_provider(
+                user,
+                payload.model_id,
+                mensagens_dict,
+                nora_service.system_prompt + (f"\n\nContexto de tela: {payload.screen_context}" if payload.screen_context else ""),
+            )
+        else:
+            resposta = await nora_service.perguntar_nora(mensagens_dict, payload.screen_context)
         return {
             "intent": "chat",
             "skill": "chat",
@@ -1193,6 +1242,7 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             "status": "chat",
             "response": resposta,
             "speech_text": texto_para_voz(resposta),
+            "model_routing": model_routing,
         }
     except Exception as exc:
         logger.exception("Falha na orquestracao natural da Nora.")
@@ -1226,6 +1276,8 @@ async def conversar_com_nora_natural_stream(
         or mensagem_social_curta(texto) is not None
         or answer_module_help(texto) is not None
         or is_compound_request(texto)
+        or browser_tool_request(texto) is not None
+        or bool(payload.model_id and payload.model_id != "nora-runtime")
     )
 
     resolution = resolve_skill(texto)

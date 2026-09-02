@@ -14,12 +14,14 @@ import {
   Filter,
   FlaskConical,
   GitBranch,
+  Globe2,
   History,
   Layers,
   ListChecks,
   Mail,
   MessageSquare,
   MousePointer2,
+  Network,
   Play,
   Plus,
   Rocket,
@@ -145,6 +147,8 @@ const iconMap: Record<string, LucideIcon> = {
   tags: Tags,
   users: Users,
   webhook: Webhook,
+  globe: Globe2,
+  network: Network,
   zap: Zap,
 };
 
@@ -202,6 +206,8 @@ const componentLibrary: Array<{
       { title: "Registrar gasto", description: "Cria lançamento financeiro com categoria.", icon: "credit-card", kind: "action", category: "Gastos" },
       { title: "Atualizar relatório", description: "Atualiza indicadores operacionais.", icon: "bar-chart-3", kind: "action", category: "Relatórios" },
       { title: "Notificar equipe", description: "Envia aviso no chat interno.", icon: "users", kind: "action", category: "Equipe" },
+      { title: "Executar tarefa no navegador", description: "Lê uma URL autorizada com plano, aprovação e histórico.", icon: "globe", kind: "action", category: "Navegador" },
+      { title: "Executar IA com roteamento", description: "Seleciona provedor por política de custo, capacidade e privacidade.", icon: "network", kind: "nora", category: "IA e Modelos" },
     ],
   },
   {
@@ -1473,6 +1479,36 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                         className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"
                       />
                     </label>
+                    {selectedBuilderNode.title.toLowerCase().includes("navegador") && (
+                      <>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">URL pública autorizada</span>
+                          <input type="url" value={selectedBuilderNode.config?.targetUrl || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), targetUrl: event.target.value } })} placeholder="https://exemplo.com/pagina" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                        </label>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">Objetivo da leitura</span>
+                          <textarea value={selectedBuilderNode.config?.objective || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), objective: event.target.value } })} rows={3} placeholder="Resumir fatos e registrar evidências" className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
+                        </label>
+                      </>
+                    )}
+                    {selectedBuilderNode.title.toLowerCase().includes("roteamento") && selectedBuilderNode.title.toLowerCase().includes("ia") && (
+                      <>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">ID da política (opcional)</span>
+                          <input value={selectedBuilderNode.config?.policyId || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), policyId: event.target.value } })} placeholder="policy_..." className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                        </label>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">Privacidade mínima</span>
+                          <select value={selectedBuilderNode.config?.privacy || "any"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), privacy: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none">
+                            <option value="any">Qualquer provedor permitido</option><option value="private">Privado ou local</option><option value="local">Somente local</option>
+                          </select>
+                        </label>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">Prompt executado pelo modelo</span>
+                          <textarea value={selectedBuilderNode.config?.prompt || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), prompt: event.target.value } })} rows={3} placeholder="Resuma os dados recebidos e devolva próximos passos." className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
+                        </label>
+                      </>
+                    )}
                     <button
                       onClick={() => removeBuilderNode(selectedBuilderNode.id)}
                       className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-rose-300/30 text-xs font-bold text-rose-200"

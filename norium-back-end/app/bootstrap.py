@@ -46,6 +46,12 @@ from app.modules.clients.router import router as clients_router
 from app.modules.commercial.router import router as commercial_router
 from app.modules.finance.router import router as financeiro_router
 from app.modules.inbox.router import router as inbox_router
+from app.modules.intelligence.router import (
+    browser_router,
+    knowledge_router,
+    marketplace_router,
+    models_router,
+)
 from app.modules.mail.router import router as gmail_router
 from app.modules.nora.router import router as nora_router
 from app.modules.operations.router import router as operations_router
@@ -324,6 +330,10 @@ def create_app() -> FastAPI:
     app.include_router(tarefas_router)
     app.include_router(financeiro_router)
     app.include_router(automacoes_router)
+    app.include_router(browser_router)
+    app.include_router(knowledge_router)
+    app.include_router(marketplace_router)
+    app.include_router(models_router)
     app.include_router(team_chat_router)
     app.include_router(brainstorm_router)
     app.include_router(chat_router)

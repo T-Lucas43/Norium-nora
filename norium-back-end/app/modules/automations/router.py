@@ -38,6 +38,7 @@ class AutomationNode(StrictModel):
     description: str = Field(default="", max_length=260)
     x: float = 0
     y: float = 0
+    config: dict[str, str] = Field(default_factory=dict)
 
 
 class AutomationConnection(StrictModel):
@@ -478,6 +479,86 @@ async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> 
     text = automation_text(automation)
     variables = automation.get("variables") if isinstance(automation.get("variables"), dict) else {}
     effects: list[str] = []
+
+    flow = automation.get("flow") if isinstance(automation.get("flow"), dict) else {}
+    flow_nodes = flow.get("nodes") if isinstance(flow.get("nodes"), list) else []
+    browser_node = next(
+        (
+            item for item in flow_nodes
+            if isinstance(item, dict) and "navegador" in normalize_text(item.get("title", ""))
+        ),
+        None,
+    )
+    if browser_node:
+        from app.modules.intelligence.service import create_browser_plan, execute_browser_run
+
+        node_config = browser_node.get("config") if isinstance(browser_node.get("config"), dict) else {}
+        target_url = str(node_config.get("targetUrl") or variables.get("targetUrl") or "").strip()
+        objective = str(
+            node_config.get("objective")
+            or variables.get("browserObjective")
+            or automation.get("description")
+            or "Ler e resumir a pagina publica"
+        )
+        if not target_url:
+            raise RuntimeError("Configure a URL publica no bloco do Agente Navegador antes de executar.")
+        synthetic_user = {"id": user_id}
+        run = await create_browser_plan(
+            synthetic_user,
+            {"objective": objective, "startUrl": target_url, "profileId": node_config.get("profileId") or None, "maxPages": 1},
+            source="automation",
+        )
+        executed = await execute_browser_run(synthetic_user, str(run["id"]))
+        if executed.get("status") == "awaiting_approval":
+            effects.append(f'Agente Navegador aguardando aprovacao na execucao {run["id"]}.')
+        elif executed.get("status") != "completed":
+            raise RuntimeError(str(executed.get("error") or "O Agente Navegador nao concluiu a leitura."))
+        else:
+            effects.append(f'Agente Navegador leu "{executed.get("result", {}).get("title", "pagina publica")}" com rastreabilidade.')
+
+    model_node = next(
+        (
+            item for item in flow_nodes
+            if isinstance(item, dict) and "roteamento" in normalize_text(item.get("title", "")) and "ia" in normalize_text(item.get("title", ""))
+        ),
+        None,
+    )
+    if model_node:
+        from app.modules.intelligence.service import complete_with_provider, route_model
+
+        node_config = model_node.get("config") if isinstance(model_node.get("config"), dict) else {}
+        routing = route_model(
+            {"id": user_id},
+            {
+                "policyId": node_config.get("policyId") or None,
+                "preferredProviderId": node_config.get("providerId") or None,
+                "requiredCapabilities": ["text"],
+                "estimatedInputTokens": 1000,
+                "estimatedOutputTokens": 500,
+                "privacy": node_config.get("privacy") or "any",
+                "externalActionCommitted": False,
+            },
+        )
+        selected = routing.get("selected")
+        if not selected:
+            raise RuntimeError("Nenhum modelo configurado atende a politica deste bloco.")
+        prompt = str(
+            node_config.get("prompt")
+            or model_node.get("description")
+            or automation.get("description")
+            or "Resuma o contexto desta automacao."
+        )
+        answer, usage = await complete_with_provider(
+            {"id": user_id},
+            str(selected.get("id")),
+            [{"role": "user", "content": prompt}],
+            "Voce executa um bloco de automacao do Norium. Responda somente com o resultado solicitado, sem inventar dados externos.",
+        )
+        automation.setdefault("variables", {})["lastModelOutput"] = answer[:4000]
+        effects.append(
+            f'IA executada por {selected.get("name")} / {selected.get("model")}; '
+            f'{int(usage.get("usage", {}).get("outputTokens") or 0)} token(s) de saida registrados.'
+        )
 
     if "criar tarefa" in text or "tarefa" in text and "criar" in text:
         project_id = str(variables.get("taskProjectId") or "default")

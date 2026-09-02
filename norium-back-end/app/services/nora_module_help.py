@@ -298,6 +298,50 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         ),
     ),
     ModuleHelp(
+        module="agente navegador",
+        aliases=("tela agente navegador", "agente navegador", "navegador web"),
+        response=(
+            "O Agente Navegador planeja e executa leituras de paginas publicas com controles de seguranca.\n\n"
+            "Informe objetivo, URL e, se desejar, um perfil de dominios permitidos. Revise o risco e as etapas "
+            "antes de executar. Pedidos com login, envio, compra, formulario, download ou outra acao sensivel "
+            "param para aprovacao humana. A tela mostra progresso, resultado, erro e linha do tempo. Nesta versao "
+            "o executor e somente leitura e bloqueia redes privadas, redirecionamentos e conteudo nao textual."
+        ),
+    ),
+    ModuleHelp(
+        module="conhecimento",
+        aliases=("tela conhecimento", "conhecimento empresarial", "base de conhecimento"),
+        response=(
+            "Conhecimento organiza o contexto autorizado da empresa em bases independentes.\n\n"
+            "Crie uma base, escolha visibilidade e adicione texto ou uma pagina publica. O Norium deduplica a fonte, "
+            "divide o conteudo em trechos e registra a indexacao. Na busca, cada resultado informa base, fonte, "
+            "trecho citavel, relevancia e aviso de desatualizacao. Permissoes sao aplicadas antes da recuperacao; "
+            "nao use a tela para armazenar segredos ou materiais que voce nao esta autorizado a indexar."
+        ),
+    ),
+    ModuleHelp(
+        module="marketplace",
+        aliases=("tela marketplace", "marketplace interno", "catalogo de componentes"),
+        response=(
+            "Marketplace interno instala agentes, automacoes, modelos e pacotes governados.\n\n"
+            "Abra um item para revisar autor, versao, permissoes e dependencias. A instalacao exige confirmacao e "
+            "cria um recurso real, sempre desativado para revisao. Atualizacoes preservam configuracoes e tambem "
+            "exigem confirmacao. Ao remover, o Norium mantem historico e desativa o recurso associado em vez de "
+            "apagar evidencias da operacao."
+        ),
+    ),
+    ModuleHelp(
+        module="ia e modelos",
+        aliases=("tela ia e modelos", "ia e modelos", "roteamento de modelos", "multi modelo"),
+        response=(
+            "IA e Modelos administra provedores e politicas de roteamento da Nora e das automacoes.\n\n"
+            "Cadastre provedor, modelo, capacidades, custo, privacidade e chave; o segredo e criptografado e nao "
+            "volta pela API. Depois crie uma politica manual ou automatica, simule a rota sem consumir tokens e "
+            "confira por que provedores foram aceitos ou rejeitados. O fallback considera capacidade, privacidade, "
+            "custo e contexto e e bloqueado depois que uma acao externa ja foi confirmada."
+        ),
+    ),
+    ModuleHelp(
         module="ajuda",
         aliases=("ajuda e guia pratico", "guia pratico", "quero ajuda", "ajuda"),
         response=(

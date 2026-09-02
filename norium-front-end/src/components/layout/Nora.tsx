@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   Bot,
+  BrainCircuit,
   CalendarDays,
   CheckCircle2,
   Copy,
@@ -1038,6 +1039,7 @@ async function askNaturalNoraStream(
   commercialSessionId: string | null,
   userId: string,
   screenContext: string,
+  modelId: string | null,
   signal: AbortSignal,
   handlers: {
     onDelta: (fullText: string, delta: string) => void;
@@ -1067,6 +1069,8 @@ async function askNaturalNoraStream(
       email_session_id: emailSessionId,
       commercial_session_id: commercialSessionId,
       screen_context: screenContext || undefined,
+      model_id: modelId || undefined,
+      routing_mode: modelId ? "manual" : "automatic",
     }),
   });
 
@@ -1145,6 +1149,7 @@ async function askNaturalNora(
   commercialSessionId: string | null,
   userId: string,
   screenContext: string,
+  modelId: string | null,
 ) {
   const payloadMessages = messages.slice(-6).map((message) => ({
     role: message.role === "user" ? "user" : "assistant",
@@ -1166,6 +1171,8 @@ async function askNaturalNora(
       email_session_id: emailSessionId,
       commercial_session_id: commercialSessionId,
       screen_context: screenContext || undefined,
+      model_id: modelId || undefined,
+      routing_mode: modelId ? "manual" : "automatic",
     }),
   });
   const data = await res.json();
@@ -1282,6 +1289,9 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   const [voiceGreetingEnabled, setVoiceGreetingEnabled] = useState(() => readBooleanPreference("norium:nora:voice-greeting", false));
   const [expanded, setExpanded] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
+  const [modelChoice, setModelChoice] = useState(() => localStorage.getItem("norium:nora:model-choice") || "auto");
+  const [autoModelId, setAutoModelId] = useState<string | null>(null);
+  const [modelOptions, setModelOptions] = useState<Array<{ id: string; name: string; model: string }>>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -1301,6 +1311,31 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   const requestStartedRef = useRef(0);
   const firstAudioReportedRef = useRef(false);
   const pinnedToBottomRef = useRef(true);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void apiRequest<{ providers?: Array<{ id: string; name: string; model: string; enabled: boolean; configured: boolean }> }>("/api/modelos-ia")
+      .then(async (overview) => {
+        if (!active) return;
+        const available = (overview.providers || []).filter((item) => item.enabled && item.configured);
+        setModelOptions(available.map(({ id, name, model }) => ({ id, name, model })));
+        if (!available.length) return;
+        try {
+          const routed = await apiRequest<{ selected?: { id?: string } | null }>("/api/modelos-ia/route", {
+            method: "POST",
+            body: JSON.stringify({ requiredCapabilities: ["text"], estimatedInputTokens: 1000, estimatedOutputTokens: 500, privacy: "any", externalActionCommitted: false }),
+          });
+          if (active) setAutoModelId(routed.selected?.id || available[0]?.id || null);
+        } catch {
+          if (active) setAutoModelId(available[0]?.id || null);
+        }
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [open]);
+
+  const effectiveModelId = modelChoice === "auto" ? autoModelId : modelChoice;
 
   function setCycleState(cycleId: number, state: NoraRunState) {
     if (activeCycleRef.current === cycleId) setRunState(state);
@@ -1633,6 +1668,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             continueCommercialSession ? effectiveCommercialSessionId : null,
             userId,
             screenContext,
+            effectiveModelId,
             controller.signal,
             {
               onResponseId: (responseId) => {
@@ -1724,6 +1760,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             continueCommercialSession ? effectiveCommercialSessionId : null,
             userId,
             screenContext,
+            effectiveModelId,
           );
           if (activeCycleRef.current !== cycleId) return;
           applyNaturalAgentEffects(result);
@@ -2222,6 +2259,21 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
             {controlsOpen && (
             <div className="nora-drawer-controls border-b border-[var(--border)] p-3">
+              <label className="mb-3 block rounded-lg border border-cyan-400/20 bg-[var(--surface)] px-3 py-2 text-xs font-bold text-[var(--text)]">
+                <span className="mb-1.5 flex items-center gap-2"><BrainCircuit size={14} /> Modelo da conversa</span>
+                <select
+                  value={modelChoice}
+                  onChange={(event) => {
+                    setModelChoice(event.target.value);
+                    localStorage.setItem("norium:nora:model-choice", event.target.value);
+                  }}
+                  className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none"
+                >
+                  <option value="auto">Automático por política</option>
+                  {modelOptions.map((item) => <option key={item.id} value={item.id}>{item.name} / {item.model}</option>)}
+                </select>
+                <small className="mt-1.5 block text-[var(--text-secondary)]">{modelChoice === "auto" ? "O Norium escolhe por capacidade, privacidade e custo." : "Seleção manual para respostas gerais."}</small>
+              </label>
               <label className={`flex items-center justify-between gap-3 rounded-lg border border-cyan-400/20 bg-[var(--surface)] px-3 py-2 text-xs font-bold ${conversaId ? "text-[var(--text)]" : "text-[var(--text-secondary)]"}`}>
                 <span>Preparar envio para aprovação</span>
                 <input

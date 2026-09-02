@@ -82,7 +82,7 @@ export const permissionLabels: Record<PermissionKey, string> = {
   gastos: "Financeiro",
   automacoes: "Automações",
   relatorios: "Relatorios",
-  propostas: "Propostas e contratos",
+  propostas: "Documentos comerciais",
   nora: "Nora",
   perfil: "Perfil",
   equipe: "Modo equipe",

@@ -266,6 +266,9 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
     ModuleHelp(
         module="propostas",
         aliases=(
+            "tela de documentos",
+            "central de documentos",
+            "documentos comerciais",
             "tela de propostas",
             "propostas e contratos",
             "propostas",
@@ -274,8 +277,8 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
             "assinatura digital",
         ),
         response=(
-            "Propostas e contratos leva um documento comercial do rascunho até a assinatura, "
-            "com revisão da Nora e aprovação humana antes de qualquer envio.\n\n"
+            "Documentos e a central que leva propostas e contratos do rascunho ate a assinatura, "
+            "reune arquivos importados e oferece ferramentas de PDF com revisao da Nora e aprovacao humana.\n\n"
             "Fluxo completo:\n"
             "1. Crie a proposta a partir de um cliente cadastrado; a origem pode ser uma sessão "
             "de brainstorm encerrada.\n"

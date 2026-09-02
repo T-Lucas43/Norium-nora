@@ -805,7 +805,7 @@ export default function BrainstormDashboard({
   function createProposalFromSession(item: BrainstormSession) {
     window.localStorage.setItem("norium:commercial-brainstorm-id", item.id);
     window.dispatchEvent(new CustomEvent("norium:commercial-create", { detail: { brainstormId: item.id } }));
-    onNavigate("Propostas");
+    onNavigate("Documentos");
   }
 
   async function shareSession(item: BrainstormSession) {

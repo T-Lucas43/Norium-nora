@@ -198,8 +198,8 @@ export default function AppPanels({
           />
         </section>
       )}
-      {isPanelMounted("Propostas") && (
-        <section className={activeTab === "Propostas" ? "app-panel" : "hidden"}>
+      {isPanelMounted("Documentos", "Propostas") && (
+        <section className={activeTab === "Documentos" || activeTab === "Propostas" ? "app-panel" : "hidden"}>
           {coach("Propostas")}
           <CommercialDashboard session={authSession} onOpenNora={onOpenNora} />
         </section>

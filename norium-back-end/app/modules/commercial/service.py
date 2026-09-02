@@ -20,25 +20,28 @@ from fastapi import HTTPException
 
 from app.core.security import auth_secret
 from app.modules.clients.repository import list_clients
-from app.modules.commercial.repository import read_store, write_store
+from app.modules.commercial.repository import STORE_LOCK, read_store, write_store
 from app.modules.commercial.schemas import (
     BrandProfileCreate,
     ContractUpdate,
+    DocumentDuplicateRequest,
     InstantiateObligationsRequest,
     NoraAnalysisRequest,
     NoraWritingRequest,
     ProposalBriefRequest,
     ProposalCreate,
+    ProposalStatusChange,
     ProposalUpdate,
     SignatureRequest,
     TemplateCreate,
+    TemplateUpdate,
 )
 from app.services.calendar_service import CalendarService
 from app.services.nora import NoraIAService
 from app.services.task_store import create_task
 
 
-_store_lock = asyncio.Lock()
+_store_lock = STORE_LOCK
 _nora = NoraIAService()
 
 ALLOWED_TAGS = {
@@ -88,6 +91,34 @@ TEXT_BOUNDARY_TAGS = {
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def document_event(
+    action: str,
+    label: str,
+    user: dict[str, Any],
+    *,
+    note: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": f"event_{uuid.uuid4().hex}",
+        "action": action,
+        "label": label,
+        "note": note,
+        "metadata": metadata or {},
+        "actorId": str(user.get("id") or ""),
+        "actorName": str(user.get("nome") or user.get("email") or "Operador"),
+        "timestamp": now_iso(),
+    }
+
+
+def prepend_event(
+    document: dict[str, Any],
+    event: dict[str, Any],
+) -> list[dict[str, Any]]:
+    existing = document.get("events") if isinstance(document.get("events"), list) else []
+    return [event, *(item for item in existing if isinstance(item, dict))][:200]
 
 
 def collaboration_tenant_id(user: dict[str, Any]) -> str:
@@ -442,13 +473,33 @@ def standard_templates() -> list[dict[str, Any]]:
 def summary(store: dict[str, list[dict[str, Any]]], user: dict[str, Any]) -> dict[str, Any]:
     proposals = store["proposals"]
     contracts = store["contracts"]
+    uploaded = store.get("uploadedDocuments", [])
+    all_documents = [*proposals, *contracts, *uploaded]
+    today = datetime.now(timezone.utc).date()
+    expiring = 0
+    for item in proposals:
+        raw_date = str(item.get("validUntil") or "")[:10]
+        if not raw_date:
+            continue
+        try:
+            days = (datetime.fromisoformat(raw_date).date() - today).days
+        except ValueError:
+            continue
+        if 0 <= days <= 14:
+            expiring += 1
     return {
+        "documentCount": len(all_documents),
         "proposalCount": len(proposals),
         "draftCount": len([item for item in proposals if item.get("status") == "draft"]),
         "reviewCount": len([item for item in proposals if item.get("status") in {"in_review", "changes_requested"}]),
         "approvedCount": len([item for item in proposals if item.get("status") in {"approved", "sent", "accepted"}]),
+        "negotiationCount": len([item for item in proposals if item.get("status") in {"sent", "viewed", "negotiating", "changes_requested"}]),
         "contractCount": len(contracts),
+        "awaitingSignatureCount": len([item for item in contracts if item.get("status") == "awaiting_signatures"]),
         "signedCount": len([item for item in contracts if item.get("status") in {"signed", "active", "completed"}]),
+        "expiringCount": expiring,
+        "archivedCount": len([item for item in all_documents if item.get("status") == "archived" or item.get("archived")]),
+        "fileCount": len(uploaded),
         "planMode": "enterprise" if is_team_plan(user) else "solo",
         "requiresApproval": is_team_plan(user),
         "maxBrandProfiles": None if is_team_plan(user) else 1,
@@ -471,6 +522,9 @@ def commercial_document_summary(document: dict[str, Any], document_type: str) ->
         "amount": document.get("amount") or 0,
         "currency": str(document.get("currency") or "BRL"),
         "status": str(document.get("status") or "draft"),
+        "favorite": bool(document.get("favorite") or (document.get("metadata") or {}).get("favorite")),
+        "category": "proposals" if document_type == "proposal" else "contracts",
+        "validUntil": document.get("validUntil"),
         "updatedAt": str(document.get("updatedAt") or ""),
         "primaryColor": str(branding.get("primaryColor") or "#1E293B"),
     }
@@ -482,19 +536,25 @@ def commercial_document_summary(document: dict[str, Any], document_type: str) ->
 
 
 async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
+    from app.modules.commercial.document_files import document_file_summary, processing_job_summary
+
     store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     proposals = sorted(store["proposals"], key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
     contracts = sorted(store["contracts"], key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
     custom_template_ids = {str(item.get("id")) for item in store["templates"]}
-    templates = [
+    templates = []
+    for item in [
         *store["templates"],
         *(item for item in standard_templates() if item["id"] not in custom_template_ids),
-    ]
+    ]:
+        templates.append({"active": True, "isDefault": False, "variables": [], **item})
     return {
         "proposals": [commercial_document_summary(item, "proposal") for item in proposals],
         "contracts": [commercial_document_summary(item, "contract") for item in contracts],
         "brandProfiles": store["brandProfiles"],
         "templates": templates,
+        "uploadedDocuments": [document_file_summary(item) for item in sorted(store.get("uploadedDocuments", []), key=lambda value: str(value.get("updatedAt") or ""), reverse=True)],
+        "processingJobs": [processing_job_summary(item) for item in sorted(store.get("processingJobs", []), key=lambda value: str(value.get("updatedAt") or ""), reverse=True)[:50]],
         "summary": summary(store, user),
     }
 
@@ -518,11 +578,13 @@ async def create_proposal(user: dict[str, Any], payload: ProposalCreate) -> dict
         "suggestions": [],
         "version": 1,
         "revisions": [],
+        "events": [],
         "createdBy": str(user.get("id") or ""),
         "createdByName": str(user.get("nome") or user.get("email") or "Operador"),
         "createdAt": now,
         "updatedAt": now,
     }
+    proposal["events"] = [document_event("document_created", "Proposta criada", user)]
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         store["proposals"].insert(0, proposal)
@@ -1242,6 +1304,15 @@ async def update_proposal(user: dict[str, Any], proposal_id: str, payload: Propo
             "updatedAt": now_iso(),
             "updatedBy": str(user.get("id") or ""),
         }
+        updated["events"] = prepend_event(
+            current,
+            document_event(
+                "document_updated",
+                "Proposta atualizada",
+                user,
+                metadata={"fields": sorted(updates.keys())},
+            ),
+        )
         store["proposals"][index] = updated
         await write_store(tenant_id, store)
     return updated
@@ -1268,6 +1339,16 @@ async def submit_proposal(user: dict[str, Any], proposal_id: str, note: str) -> 
             },
             "updatedAt": now_iso(),
         }
+        updated["events"] = prepend_event(
+            current,
+            document_event(
+                "approval_requested" if status == "in_review" else "proposal_approved",
+                "Enviada para aprovacao" if status == "in_review" else "Aprovada no fluxo individual",
+                user,
+                note=note,
+                metadata={"previousStatus": current.get("status"), "status": status},
+            ),
+        )
         store["proposals"][index] = updated
         await write_store(tenant_id, store)
     return updated
@@ -1301,9 +1382,128 @@ async def decide_proposal(
             },
             "updatedAt": now_iso(),
         }
+        updated["events"] = prepend_event(
+            current,
+            document_event(
+                "proposal_approved" if approved else "proposal_changes_requested",
+                "Proposta aprovada" if approved else "Alteracao solicitada",
+                user,
+                note=note,
+                metadata={"previousStatus": current.get("status"), "status": updated["status"]},
+            ),
+        )
         store["proposals"][index] = updated
         await write_store(tenant_id, store)
     return updated
+
+
+PROPOSAL_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    "draft": {"in_review", "approved", "archived"},
+    "in_review": {"approved", "changes_requested", "rejected", "archived"},
+    "changes_requested": {"draft", "in_review", "approved", "archived"},
+    "approved": {"sent", "expired", "archived"},
+    "rejected": {"draft", "in_review", "archived"},
+    "sent": {"viewed", "negotiating", "accepted", "declined", "expired", "archived"},
+    "viewed": {"negotiating", "accepted", "declined", "expired", "archived"},
+    "negotiating": {"sent", "accepted", "declined", "expired", "archived"},
+    "accepted": {"contracted", "archived"},
+    "declined": {"draft", "archived"},
+    "expired": {"draft", "sent", "archived"},
+    "contracted": {"archived"},
+    "archived": {"draft"},
+}
+
+
+async def change_proposal_status(
+    user: dict[str, Any],
+    proposal_id: str,
+    payload: ProposalStatusChange,
+) -> dict[str, Any]:
+    tenant_id = collaboration_tenant_id(user)
+    async with _store_lock:
+        store = await asyncio.to_thread(read_store, tenant_id)
+        index, current = proposal_or_404(store, proposal_id)
+        previous = str(current.get("status") or "draft")
+        target = payload.status
+        if target == previous:
+            return current
+        if target not in PROPOSAL_STATUS_TRANSITIONS.get(previous, set()):
+            raise HTTPException(
+                status_code=409,
+                detail=f'A transicao de "{previous}" para "{target}" nao e permitida.',
+            )
+        if target == "approved" and is_team_plan(user) and previous == "in_review" and not can_approve(user):
+            raise HTTPException(status_code=403, detail="Somente gestor ou proprietario pode aprovar esta proposta.")
+        timestamp = now_iso()
+        updated = {
+            **current,
+            "status": target,
+            "updatedAt": timestamp,
+            "events": prepend_event(
+                current,
+                document_event(
+                    "proposal_status_changed",
+                    "Status da proposta alterado",
+                    user,
+                    note=payload.note,
+                    metadata={"previousStatus": previous, "status": target},
+                ),
+            ),
+        }
+        store["proposals"][index] = updated
+        await write_store(tenant_id, store)
+    return updated
+
+
+async def duplicate_proposal(
+    user: dict[str, Any],
+    proposal_id: str,
+    payload: DocumentDuplicateRequest,
+) -> dict[str, Any]:
+    tenant_id = collaboration_tenant_id(user)
+    async with _store_lock:
+        store = await asyncio.to_thread(read_store, tenant_id)
+        _, current = proposal_or_404(store, proposal_id)
+        timestamp = now_iso()
+        duplicate = {
+            **current,
+            "id": f"proposal_{uuid.uuid4().hex}",
+            "title": payload.title or f'{current.get("title") or "Proposta"} - copia',
+            "status": "draft",
+            "contractId": None,
+            "approval": None,
+            "suggestions": [],
+            "version": 1,
+            "revisions": [],
+            "signers": [
+                {
+                    **signer,
+                    "id": f"signer_{uuid.uuid4().hex}",
+                    "status": "pending",
+                    "signedAt": None,
+                    "invitedAt": None,
+                    "signatureDataUrl": "",
+                }
+                for signer in current.get("signers", [])
+                if isinstance(signer, dict)
+            ],
+            "events": [],
+            "createdBy": str(user.get("id") or ""),
+            "createdByName": str(user.get("nome") or user.get("email") or "Operador"),
+            "createdAt": timestamp,
+            "updatedAt": timestamp,
+        }
+        duplicate["events"] = [
+            document_event(
+                "document_duplicated",
+                "Proposta duplicada",
+                user,
+                metadata={"sourceDocumentId": proposal_id},
+            )
+        ]
+        store["proposals"].insert(0, duplicate)
+        await write_store(tenant_id, store)
+    return duplicate
 
 
 def grammar_suggestions(content: str) -> list[dict[str, Any]]:
@@ -2125,6 +2325,55 @@ async def create_brand_profile(user: dict[str, Any], payload: BrandProfileCreate
     return item
 
 
+TEMPLATE_VARIABLES = {
+    "ADDRESS",
+    "CLIENT_NAME",
+    "COMPANY",
+    "DATE",
+    "DOCUMENT",
+    "DURATION",
+    "NORA_CONTENT",
+    "PAYMENT_TERMS",
+    "RESPONSIBLE",
+    "SERVICES",
+    "VALID_UNTIL",
+    "VALUES",
+}
+
+
+def _template_variables(content_html: str, declared: list[str]) -> list[str]:
+    used = {value.upper() for value in re.findall(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}", content_html)}
+    requested = {str(value).strip().upper() for value in declared if str(value).strip()}
+    unknown = sorted((used | requested) - TEMPLATE_VARIABLES)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f'Variaveis de modelo nao permitidas: {", ".join(unknown)}.',
+        )
+    return sorted(used | requested)
+
+
+def _template_or_404(store: dict[str, Any], template_id: str) -> tuple[int, dict[str, Any]]:
+    for index, item in enumerate(store.get("templates", [])):
+        if str(item.get("id")) == template_id:
+            return index, item
+    if any(str(item.get("id")) == template_id for item in standard_templates()):
+        raise HTTPException(status_code=409, detail="Modelos padrao nao podem ser alterados; duplique o modelo primeiro.")
+    raise HTTPException(status_code=404, detail="Modelo nao encontrado.")
+
+
+def _unset_default_template(store: dict[str, Any], document_type: str, except_id: str = "") -> None:
+    store["templates"] = [
+        {
+            **item,
+            "isDefault": False,
+        }
+        if str(item.get("id")) != except_id and str(item.get("documentType")) == document_type
+        else item
+        for item in store.get("templates", [])
+    ]
+
+
 async def create_template(user: dict[str, Any], payload: TemplateCreate) -> dict[str, Any]:
     if payload.shared and not is_team_plan(user):
         raise HTTPException(status_code=403, detail="A biblioteca compartilhada exige plano Plus ou Enterprise.")
@@ -2132,14 +2381,91 @@ async def create_template(user: dict[str, Any], payload: TemplateCreate) -> dict
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         now = now_iso()
+        sanitized = sanitize_document_html(payload.contentHtml)
         item = {
             "id": f"template_{uuid.uuid4().hex}",
             **payload.model_dump(),
-            "contentHtml": sanitize_document_html(payload.contentHtml),
+            "contentHtml": sanitized,
+            "variables": _template_variables(sanitized, payload.variables),
             "createdBy": str(user.get("id") or ""),
             "createdAt": now,
             "updatedAt": now,
         }
+        if payload.isDefault:
+            _unset_default_template(store, payload.documentType)
         store["templates"].append(item)
+        await write_store(tenant_id, store)
+    return item
+
+
+async def update_template(
+    user: dict[str, Any],
+    template_id: str,
+    payload: TemplateUpdate,
+) -> dict[str, Any]:
+    tenant_id = collaboration_tenant_id(user)
+    async with _store_lock:
+        store = await asyncio.to_thread(read_store, tenant_id)
+        index, current = _template_or_404(store, template_id)
+        updates = payload.model_dump(exclude_unset=True)
+        if updates.get("shared") and not is_team_plan(user):
+            raise HTTPException(status_code=403, detail="A biblioteca compartilhada exige plano Plus ou Enterprise.")
+        content = sanitize_document_html(str(updates.get("contentHtml") or current.get("contentHtml") or ""))
+        declared = updates.get("variables")
+        if not isinstance(declared, list):
+            declared = list(current.get("variables") or [])
+        updates["contentHtml"] = content
+        updates["variables"] = _template_variables(content, declared)
+        document_type = str(updates.get("documentType") or current.get("documentType") or "proposal")
+        if updates.get("isDefault"):
+            _unset_default_template(store, document_type, template_id)
+        updated = {**current, **updates, "updatedAt": now_iso()}
+        store["templates"][index] = updated
+        await write_store(tenant_id, store)
+    return updated
+
+
+async def duplicate_template(
+    user: dict[str, Any],
+    template_id: str,
+    payload: DocumentDuplicateRequest,
+) -> dict[str, Any]:
+    tenant_id = collaboration_tenant_id(user)
+    async with _store_lock:
+        store = await asyncio.to_thread(read_store, tenant_id)
+        source = next(
+            (
+                item
+                for item in [*store.get("templates", []), *standard_templates()]
+                if str(item.get("id")) == template_id
+            ),
+            None,
+        )
+        if not source:
+            raise HTTPException(status_code=404, detail="Modelo nao encontrado.")
+        timestamp = now_iso()
+        item = {
+            **source,
+            "id": f"template_{uuid.uuid4().hex}",
+            "name": payload.title or f'{source.get("name") or "Modelo"} - copia',
+            "shared": False,
+            "active": True,
+            "isDefault": False,
+            "variables": _template_variables(str(source.get("contentHtml") or ""), list(source.get("variables") or [])),
+            "createdBy": str(user.get("id") or ""),
+            "createdAt": timestamp,
+            "updatedAt": timestamp,
+        }
+        store["templates"].append(item)
+        await write_store(tenant_id, store)
+    return item
+
+
+async def delete_template(user: dict[str, Any], template_id: str) -> dict[str, Any]:
+    tenant_id = collaboration_tenant_id(user)
+    async with _store_lock:
+        store = await asyncio.to_thread(read_store, tenant_id)
+        index, item = _template_or_404(store, template_id)
+        store["templates"].pop(index)
         await write_store(tenant_id, store)
     return item

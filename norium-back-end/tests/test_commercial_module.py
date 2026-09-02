@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import base64
+import io
 import json
 import shutil
 import tempfile
@@ -13,13 +15,28 @@ os.environ["NORIUM_DATA_DIR"] = TEST_DATA_DIR
 from app.modules.clients.router import ClientCreate, create_client  # noqa: E402
 from app.modules.commercial.schemas import (  # noqa: E402
     ContractUpdate,
+    DocumentDuplicateRequest,
+    DocumentImportRequest,
     InstantiateObligationsRequest,
     ProposalBriefRequest,
     ProposalCreate,
+    ProposalStatusChange,
     ProposalUpdate,
     SignatureRequest,
     SignerInput,
+    TemplateCreate,
+    TemplateUpdate,
+    PdfProcessRequest,
 )
+from app.modules.commercial.document_files import (  # noqa: E402
+    create_processing_job,
+    import_document,
+    pdf_capabilities,
+    run_processing_job,
+    update_imported_document,
+)
+from app.modules.commercial.schemas import ImportedDocumentUpdate  # noqa: E402
+from pypdf import PdfWriter  # noqa: E402
 from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
 from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
 from app.modules.commercial.repository import read_store, write_store  # noqa: E402
@@ -30,10 +47,15 @@ from app.modules.commercial.service import (  # noqa: E402
     _parse_briefing_response,
     _proposal_html_from_briefing,
     cancel_contract,
+    change_proposal_status,
     create_contract,
     create_proposal,
+    create_template,
+    delete_template,
     decide_suggestion,
     decide_proposal,
+    duplicate_proposal,
+    duplicate_template,
     delete_contract,
     document_for_response,
     instantiate_obligations,
@@ -45,6 +67,7 @@ from app.modules.commercial.service import (  # noqa: E402
     sign_contract,
     signature_links,
     submit_proposal,
+    update_template,
     update_contract,
     update_proposal,
     standard_templates,
@@ -562,6 +585,122 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
             "timeline": "",
         }
         self.assertTrue(_draft_requires_expansion(draft, payload))
+
+    async def test_document_center_imports_and_processes_pdf_in_private_queue(self) -> None:
+        writer = PdfWriter()
+        writer.add_blank_page(width=200, height=300)
+        writer.add_blank_page(width=200, height=300)
+        buffer = io.BytesIO()
+        writer.write(buffer)
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+        document = await import_document(
+            self.user["id"],
+            self.user,
+            DocumentImportRequest(
+                fileName="contrato-teste.pdf",
+                mimeType="application/pdf",
+                dataBase64=encoded,
+                category="received",
+                direction="received",
+                confidential=True,
+            ),
+        )
+        self.assertNotIn("storagePath", document)
+        self.assertEqual(document["category"], "received")
+        self.assertTrue(document["securityReviewRequired"])
+
+        favorite = await update_imported_document(
+            self.user["id"],
+            self.user,
+            document["id"],
+            ImportedDocumentUpdate(favorite=True),
+        )
+        self.assertTrue(favorite["favorite"])
+        capabilities = await pdf_capabilities()
+        self.assertIn("split", {item["id"] for item in capabilities["operations"]})
+
+        job = await create_processing_job(
+            self.user["id"],
+            self.user,
+            PdfProcessRequest(operation="split", documentIds=[document["id"]]),
+        )
+        await run_processing_job(self.user["id"], job["id"])
+        store = read_store(self.user["id"])
+        completed = next(item for item in store["processingJobs"] if item["id"] == job["id"])
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(len(completed["outputDocumentIds"]), 2)
+
+        protected_job = await create_processing_job(
+            self.user["id"],
+            self.user,
+            PdfProcessRequest(
+                operation="add_password",
+                documentIds=[document["id"]],
+                options={"password": "senha-segura"},
+            ),
+        )
+        self.assertNotIn("password", protected_job["options"])
+        self.assertTrue(protected_job["requiresTransientSecret"])
+
+        other_store = read_store(f"other-{self.user['id']}")
+        self.assertFalse(other_store["uploadedDocuments"])
+
+    async def test_proposal_status_duplication_and_template_crud_are_auditable(self) -> None:
+        proposal = await create_proposal(
+            self.user,
+            ProposalCreate(
+                clientId=self.client_id,
+                title="Proposta com ciclo comercial",
+                contentHtml="<p>Escopo</p>",
+            ),
+        )
+        approved = await submit_proposal(self.user, proposal["id"], "Fluxo Solo")
+        sent = await change_proposal_status(
+            self.user,
+            approved["id"],
+            ProposalStatusChange(status="sent", note="Enviada ao cliente"),
+        )
+        viewed = await change_proposal_status(
+            self.user,
+            sent["id"],
+            ProposalStatusChange(status="viewed"),
+        )
+        self.assertEqual(viewed["status"], "viewed")
+        self.assertEqual(viewed["events"][0]["action"], "proposal_status_changed")
+
+        duplicate = await duplicate_proposal(
+            self.user,
+            proposal["id"],
+            DocumentDuplicateRequest(title="Proposta duplicada"),
+        )
+        self.assertEqual(duplicate["status"], "draft")
+        self.assertNotEqual(duplicate["id"], proposal["id"])
+
+        template = await create_template(
+            self.user,
+            TemplateCreate(
+                name="Modelo de termo",
+                description="Termo reutilizavel",
+                contentHtml="<h1>{{CLIENT_NAME}}</h1><p>{{DATE}}</p>",
+                documentType="term",
+                variables=["CLIENT_NAME", "DATE"],
+            ),
+        )
+        updated = await update_template(
+            self.user,
+            template["id"],
+            TemplateUpdate(active=False),
+        )
+        self.assertFalse(updated["active"])
+        copied = await duplicate_template(
+            self.user,
+            template["id"],
+            DocumentDuplicateRequest(),
+        )
+        self.assertNotEqual(copied["id"], template["id"])
+        removed = await delete_template(self.user, template["id"])
+        self.assertEqual(removed["id"], template["id"])
 
 
 if __name__ == "__main__":

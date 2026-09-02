@@ -49,6 +49,9 @@ INTENTIONAL_SCHEMA_CHANGES = {
     "components.schemas.ModificarChatPayload.required",
     "components.schemas.ApagarMensagemPayload.properties.user_id",
     "components.schemas.ApagarMensagemPayload.required",
+    # A Central de Documentos amplia o enum historico sem remover os valores
+    # proposal/contract aceitos pelos consumidores existentes.
+    "components.schemas.TemplateCreate.properties.documentType.enum",
 }
 
 

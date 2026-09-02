@@ -28,7 +28,7 @@ const Nora = lazy(() => import("../components/layout/Nora"));
 const PublicAccess = lazy(() => import("../components/public/PublicAccess"));
 const LegalPage = lazy(() => import("../components/public/LegalPage"));
 const TeamChatDrawer = lazy(() => import("../components/team-chat/TeamChatDrawer"));
-const PERSISTENT_TABS = new Set(["E-mail", "E-mails", "Chat", "Propostas"]);
+const PERSISTENT_TABS = new Set(["E-mail", "E-mails", "Chat", "Documentos", "Propostas"]);
 const SIMULATION_BACKUP_STORAGE = "norium-simulation-backup";
 
 type NoriumDeepLink = {

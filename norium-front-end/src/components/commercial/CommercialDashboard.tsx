@@ -2,48 +2,66 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   Ban,
   BadgeCheck,
+  Copy,
   FileCheck2,
   FileClock,
   FilePlus2,
   FileSignature,
+  FileText,
   Filter,
+  Grid3X3,
   ExternalLink,
   Eye,
   Link2,
   LayoutTemplate,
+  List,
   Palette,
   Pencil,
   Plus,
   RefreshCw,
   Search,
   Send,
+  Star,
   Sparkles,
   Trash2,
+  Upload,
   UsersRound,
+  Wrench,
   X,
 } from "lucide-react";
 import { apiRequest, ApiError } from "../../core/api/client";
 import {
   analyzeProposal,
   cancelContract,
+  changeProposalStatus,
   createBrandProfile,
   createProposal,
   createTemplate,
+  deleteImportedDocument,
+  deleteTemplate,
   deleteContract,
+  downloadImportedDocument,
   deleteProposal,
   decideProposal,
   decideSuggestion,
+  duplicateProposal,
+  duplicateTemplate,
   generateContract,
   generateProposalDraft,
+  importDocument,
   instantiateContract,
   loadContract,
   loadCommercialData,
+  loadPdfCapabilities,
   loadProposal,
+  processPdf,
   sendContractForSignature,
   shareCommercialDocument,
   signContract,
   submitProposal,
   updateContract,
+  updateImportedDocument,
+  updateTemplate,
   updateProposal,
   type DocumentUpdateInput,
 } from "../../features/commercial/api";
@@ -59,9 +77,13 @@ import {
   type CommercialDocumentSummary,
   type CommercialProposal,
   type CommercialTemplate,
+  type PdfCapabilities,
+  type PdfOperation,
   type ProposalBriefInput,
   type ProposalDraft,
   type SignatureLink,
+  type TemplateDocumentType,
+  type UploadedDocument,
 } from "../../features/commercial/types";
 import type { AuthSession } from "../../types/auth";
 import Button from "../shared/Button";
@@ -72,7 +94,9 @@ import { showConfirm, showPrompt } from "../shared/AppDialogProvider";
 import A4ContentPages from "./A4ContentPages";
 import CommercialEditor from "./CommercialEditor";
 
-type View = "proposals" | "contracts" | "templates" | "brands";
+type View = "all" | "proposals" | "contracts" | "files" | "templates" | "brands";
+type DisplayMode = "list" | "grid";
+type SortMode = "updated_desc" | "updated_asc" | "title";
 
 type CommercialDashboardProps = {
   session: AuthSession;
@@ -86,7 +110,11 @@ const statusLabels: Record<string, string> = {
   approved: "Aprovada",
   rejected: "Rejeitada",
   sent: "Enviada",
+  viewed: "Visualizada",
+  negotiating: "Em negociacao",
   accepted: "Aceita",
+  declined: "Recusada",
+  expired: "Expirada",
   contracted: "Convertida",
   archived: "Arquivada",
   awaiting_signatures: "Aguardando assinaturas",
@@ -94,7 +122,29 @@ const statusLabels: Record<string, string> = {
   active: "Ativo",
   completed: "Concluido",
   cancelled: "Cancelado",
+  queued: "Na fila",
+  processing: "Processando",
+  failed: "Falhou",
+  pdf: "PDF",
+  received: "Recebido",
 };
+
+const proposalTransitions: Record<string, CommercialProposal["status"][]> = {
+  draft: ["in_review", "approved", "archived"],
+  in_review: ["approved", "changes_requested", "rejected", "archived"],
+  changes_requested: ["draft", "in_review", "approved", "archived"],
+  approved: ["sent", "expired", "archived"],
+  rejected: ["draft", "in_review", "archived"],
+  sent: ["viewed", "negotiating", "accepted", "declined", "expired", "archived"],
+  viewed: ["negotiating", "accepted", "declined", "expired", "archived"],
+  negotiating: ["sent", "accepted", "declined", "expired", "archived"],
+  accepted: ["contracted", "archived"],
+  declined: ["draft", "archived"],
+  expired: ["draft", "sent", "archived"],
+  contracted: ["archived"],
+  archived: ["draft"],
+};
+const EMPTY_PDF_OPERATIONS: PdfCapabilities["operations"] = [];
 
 type ProposalTemplateGuidance = {
   summary: string;
@@ -142,10 +192,13 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   const [data, setData] = useState<CommercialData | null>(null);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [brainstorms, setBrainstorms] = useState<BrainstormOption[]>([]);
-  const [view, setView] = useState<View>("proposals");
+  const [view, setView] = useState<View>("all");
   const [selected, setSelected] = useState<CommercialDocument | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("list");
+  const [sortMode, setSortMode] = useState<SortMode>("updated_desc");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [openingDocumentId, setOpeningDocumentId] = useState<string | null>(null);
   const [creationOptionsLoading, setCreationOptionsLoading] = useState(false);
@@ -160,6 +213,9 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   const [instantiateOpen, setInstantiateOpen] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [pdfToolsOpen, setPdfToolsOpen] = useState(false);
+  const [pdfCapabilities, setPdfCapabilities] = useState<PdfCapabilities | null>(null);
   const [templatePreview, setTemplatePreview] = useState<CommercialTemplate | null>(null);
   const [contractProposal, setContractProposal] = useState<CommercialProposal | null>(null);
   const [signatureLinks, setSignatureLinks] = useState<SignatureLink[]>([]);
@@ -172,7 +228,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       setData(commercial);
     } catch (requestError) {
       if (signal?.aborted || (requestError instanceof DOMException && requestError.name === "AbortError") || (requestError instanceof ApiError && requestError.status === 499)) return;
-      setError(messageFromError(requestError, "Nao foi possivel carregar propostas e contratos."));
+      setError(messageFromError(requestError, "Nao foi possivel carregar a Central de Documentos."));
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
@@ -234,16 +290,46 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     return () => window.removeEventListener("norium:commercial-create", openFromBrainstorm);
   }, [openCreate]);
 
+  useEffect(() => {
+    if (!data?.processingJobs.some((job) => job.status === "queued" || job.status === "processing")) return undefined;
+    const timer = window.setInterval(() => {
+      void loadCommercialData().then(setData).catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [data?.processingJobs]);
+
   const currentItems = useMemo<CommercialDocumentSummary[]>(() => {
     if (!data) return [];
-    const source: CommercialDocumentSummary[] = view === "contracts" ? data.contracts : data.proposals;
+    const source: CommercialDocumentSummary[] = view === "contracts"
+      ? data.contracts
+      : view === "proposals"
+        ? data.proposals
+        : [...data.proposals, ...data.contracts];
     const needle = query.trim().toLocaleLowerCase("pt-BR");
     return source.filter((item) => {
       const matchesStatus = statusFilter === "all" || item.status === statusFilter;
       const matchesQuery = !needle || `${item.title} ${item.client?.name || ""} ${item.client?.company || ""}`.toLocaleLowerCase("pt-BR").includes(needle);
-      return matchesStatus && matchesQuery;
-    });
-  }, [data, query, statusFilter, view]);
+      return matchesStatus && matchesQuery && (!favoritesOnly || item.favorite);
+    }).sort((left, right) => sortMode === "title"
+      ? left.title.localeCompare(right.title, "pt-BR")
+      : sortMode === "updated_asc"
+        ? left.updatedAt.localeCompare(right.updatedAt)
+        : right.updatedAt.localeCompare(left.updatedAt));
+  }, [data, favoritesOnly, query, sortMode, statusFilter, view]);
+
+  const currentFiles = useMemo(() => {
+    if (!data) return [];
+    const needle = query.trim().toLocaleLowerCase("pt-BR");
+    return data.uploadedDocuments.filter((item) => {
+      const matchesStatus = statusFilter === "all" || item.category === statusFilter || item.status === statusFilter;
+      const matchesQuery = !needle || `${item.title} ${item.originalFileName}`.toLocaleLowerCase("pt-BR").includes(needle);
+      return matchesStatus && matchesQuery && (!favoritesOnly || item.favorite);
+    }).sort((left, right) => sortMode === "title"
+      ? left.title.localeCompare(right.title, "pt-BR")
+      : sortMode === "updated_asc"
+        ? left.updatedAt.localeCompare(right.updatedAt)
+        : right.updatedAt.localeCompare(left.updatedAt));
+  }, [data, favoritesOnly, query, sortMode, statusFilter]);
 
   async function openDocument(item: CommercialDocumentSummary) {
     if (openingDocumentId) return;
@@ -440,6 +526,140 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     }, "Minuta excluida. A proposta vinculada foi restaurada.");
   }
 
+  async function handleDuplicateProposal(proposal: Pick<CommercialProposal, "id" | "title">) {
+    await runAction(async () => {
+      const response = await duplicateProposal(proposal.id);
+      setData((current) => current ? {
+        ...current,
+        proposals: [commercialDocumentSummary(response.proposal) as typeof current.proposals[number], ...current.proposals],
+        summary: { ...current.summary, documentCount: current.summary.documentCount + 1, proposalCount: current.summary.proposalCount + 1, draftCount: current.summary.draftCount + 1 },
+      } : current);
+    }, `Copia de "${proposal.title}" criada como rascunho.`);
+  }
+
+  async function handleProposalStatus(proposal: CommercialDocumentSummary, status: CommercialProposal["status"]) {
+    await runAction(async () => {
+      const response = await changeProposalStatus(proposal.id, status);
+      setData((current) => current ? {
+        ...current,
+        proposals: current.proposals.map((item) => item.id === proposal.id ? commercialDocumentSummary(response.proposal) as typeof item : item),
+      } : current);
+    }, `Status alterado para ${statusLabels[status] || status}.`);
+  }
+
+  async function handleImport(input: {
+    file: File;
+    category: UploadedDocument["category"];
+    direction: UploadedDocument["direction"];
+    confidential: boolean;
+  }) {
+    await runAction(async () => {
+      const dataBase64 = await fileAsDataUrl(input.file);
+      const response = await importDocument({
+        fileName: input.file.name,
+        mimeType: input.file.type as "application/pdf" | "image/png" | "image/jpeg" | "image/webp",
+        dataBase64,
+        category: input.category,
+        direction: input.direction,
+        confidential: input.confidential,
+      });
+      setData((current) => current ? {
+        ...current,
+        uploadedDocuments: [response.document, ...current.uploadedDocuments],
+        summary: {
+          ...current.summary,
+          documentCount: current.summary.documentCount + 1,
+          fileCount: current.summary.fileCount + 1,
+        },
+      } : current);
+      setView("files");
+      setImportOpen(false);
+    }, "Documento importado para o armazenamento privado.");
+  }
+
+  async function handleToggleFavorite(document: UploadedDocument) {
+    await runAction(async () => {
+      const response = await updateImportedDocument(document.id, { favorite: !document.favorite });
+      setData((current) => current ? {
+        ...current,
+        uploadedDocuments: current.uploadedDocuments.map((item) => item.id === document.id ? response.document : item),
+      } : current);
+    });
+  }
+
+  async function handleDownload(document: UploadedDocument) {
+    await runAction(async () => {
+      const blob = await downloadImportedDocument(document.id);
+      downloadBlob(blob, document.originalFileName);
+    }, "Download preparado.");
+  }
+
+  async function handleDeleteImported(document: UploadedDocument) {
+    const confirmed = await showConfirm({
+      title: "Excluir arquivo?",
+      description: `O arquivo "${document.title}" sera removido do armazenamento privado.`,
+      confirmLabel: "Excluir arquivo",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    await runAction(async () => {
+      await deleteImportedDocument(document.id);
+      await load();
+    }, "Arquivo excluido.");
+  }
+
+  async function openPdfTools() {
+    setPdfToolsOpen(true);
+    if (pdfCapabilities) return;
+    try {
+      setPdfCapabilities(await loadPdfCapabilities());
+    } catch (requestError) {
+      setError(messageFromError(requestError, "Nao foi possivel carregar as ferramentas de PDF."));
+    }
+  }
+
+  async function handlePdfProcess(operation: PdfOperation, documentIds: string[], options: Record<string, unknown>) {
+    await runAction(async () => {
+      const response = await processPdf(operation, documentIds, options);
+      setData((current) => current ? { ...current, processingJobs: [response.job, ...current.processingJobs] } : current);
+      setPdfToolsOpen(false);
+    }, "Processamento adicionado a fila. O resultado aparecera em Arquivos.");
+  }
+
+  async function handleRenameTemplate(template: CommercialTemplate) {
+    const name = await showPrompt({
+      title: "Renomear modelo",
+      description: "Atualize o nome usado na biblioteca.",
+      confirmLabel: "Salvar",
+      defaultValue: template.name,
+      required: true,
+    });
+    if (!name?.trim()) return;
+    await runAction(async () => {
+      const response = await updateTemplate(template.id, { name: name.trim() });
+      setData((current) => current ? { ...current, templates: current.templates.map((item) => item.id === template.id ? response.template : item) } : current);
+      setTemplatePreview(response.template);
+    }, "Modelo atualizado.");
+  }
+
+  async function handleDuplicateTemplate(template: CommercialTemplate) {
+    await runAction(async () => {
+      const response = await duplicateTemplate(template.id);
+      setData((current) => current ? { ...current, templates: [...current.templates, response.template] } : current);
+      setTemplatePreview(response.template);
+    }, "Modelo duplicado como copia pessoal.");
+  }
+
+  async function handleDeleteTemplate(template: CommercialTemplate) {
+    const confirmed = await showConfirm({ title: "Excluir modelo?", description: `O modelo "${template.name}" sera removido da biblioteca.`, confirmLabel: "Excluir modelo", tone: "danger" });
+    if (!confirmed) return;
+    await runAction(async () => {
+      await deleteTemplate(template.id);
+      setData((current) => current ? { ...current, templates: current.templates.filter((item) => item.id !== template.id) } : current);
+      setTemplatePreview(null);
+    }, "Modelo excluido.");
+  }
+
   if (selected) {
     return (
       <>
@@ -513,12 +733,14 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
         <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><FileSignature size={23} /></span>
-            <div><h1 className="text-2xl font-black">Propostas e contratos</h1><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Do brainstorm ao documento assinado, com revisao da Nora e execucao das obrigacoes.</p></div>
+            <div><h1 className="text-2xl font-black">Documentos</h1><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Crie, organize, aprove, assine e processe documentos comerciais em um só lugar.</p></div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" loading={loading} onClick={() => void load()} icon={<RefreshCw size={15} />}>Atualizar</Button>
-            <Button variant="secondary" onClick={() => onOpenNora("Quero criar uma proposta comercial. Pergunte o cliente, origem no brainstorm, escopo, valor, validade, entregaveis e assinantes antes de abrir ou criar o documento.")} icon={<Sparkles size={15} />}>Pedir para Nora</Button>
-            <Button onClick={openCreate} icon={<Plus size={16} />}>Nova proposta</Button>
+            <Button variant="secondary" onClick={() => setImportOpen(true)} icon={<Upload size={15} />}>Importar</Button>
+            <Button variant="secondary" onClick={() => void openPdfTools()} icon={<Wrench size={15} />}>Ferramentas PDF</Button>
+            <Button variant="secondary" onClick={() => onOpenNora("Quero criar ou revisar um documento comercial. Pergunte o tipo, cliente, origem, escopo, valor, validade, entregaveis e assinantes antes de executar qualquer acao.")} icon={<Sparkles size={15} />}>Criar com Nora</Button>
+            <Button onClick={openCreate} icon={<Plus size={16} />}>Novo documento</Button>
           </div>
         </header>
 
@@ -534,35 +756,45 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
 
         {loading ? <LoadingState label="Carregando documentos comerciais..." /> : data && (
           <>
-            <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-              <Metric label="Propostas" value={data.summary.proposalCount} icon={FileSignature} />
-              <Metric label="Rascunhos" value={data.summary.draftCount} icon={FileClock} />
-              <Metric label="Em aprovacao" value={data.summary.reviewCount} icon={UsersRound} />
-              <Metric label="Aprovadas" value={data.summary.approvedCount} icon={BadgeCheck} />
-              <Metric label="Contratos" value={data.summary.contractCount} icon={FileCheck2} />
-              <Metric label="Assinados" value={data.summary.signedCount} icon={FileCheck2} />
+            <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
+              <Metric label="Total" value={data.summary.documentCount} icon={FileText} onClick={() => { setView("all"); setStatusFilter("all"); }} />
+              <Metric label="Rascunhos" value={data.summary.draftCount} icon={FileClock} onClick={() => { setView("proposals"); setStatusFilter("draft"); }} />
+              <Metric label="Em aprovacao" value={data.summary.reviewCount} icon={UsersRound} onClick={() => { setView("proposals"); setStatusFilter("in_review"); }} />
+              <Metric label="Em negociacao" value={data.summary.negotiationCount} icon={Send} onClick={() => { setView("proposals"); setStatusFilter("negotiating"); }} />
+              <Metric label="Aguard. assinatura" value={data.summary.awaitingSignatureCount} icon={FileSignature} onClick={() => { setView("contracts"); setStatusFilter("awaiting_signatures"); }} />
+              <Metric label="Assinados" value={data.summary.signedCount} icon={BadgeCheck} onClick={() => { setView("contracts"); setStatusFilter("signed"); }} />
+              <Metric label="A vencer" value={data.summary.expiringCount} icon={FileClock} onClick={() => { setView("proposals"); setStatusFilter("all"); }} />
+              <Metric label="Arquivados" value={data.summary.archivedCount} icon={FileCheck2} onClick={() => { setView("all"); setStatusFilter("archived"); }} />
             </section>
 
             <section className="mt-5 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <div className="flex flex-col gap-3 border-b border-[var(--border)] p-4 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex overflow-x-auto">
+                  <ViewTab active={view === "all"} label="Todos" count={data.summary.documentCount} onClick={() => { setView("all"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "proposals"} label="Propostas" count={data.proposals.length} onClick={() => { setView("proposals"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "contracts"} label="Contratos" count={data.contracts.length} onClick={() => { setView("contracts"); setStatusFilter("all"); }} />
+                  <ViewTab active={view === "files"} label="Arquivos e PDFs" count={data.uploadedDocuments.length} onClick={() => { setView("files"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "templates"} label="Modelos" count={data.templates.length} onClick={() => setView("templates")} />
                   <ViewTab active={view === "brands"} label="Marcas" count={data.brandProfiles.length} onClick={() => setView("brands")} />
                 </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                   <label className="flex h-10 min-w-64 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Search size={15} className="text-[var(--text-secondary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por documento ou cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
-                  {(view === "proposals" || view === "contracts") && (
-                    <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Filter size={14} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="commercial-status-select min-w-[150px] bg-transparent text-xs font-bold outline-none"><option value="all">Todos os status</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                  {(view === "all" || view === "proposals" || view === "contracts" || view === "files") && (
+                    <>
+                      <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Filter size={14} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="commercial-status-select min-w-[150px] bg-transparent text-xs font-bold outline-none"><option value="all">Todos os status</option>{view === "files" ? <><option value="pdf">PDFs</option><option value="sent">Enviados</option><option value="received">Recebidos</option><option value="archived">Arquivados</option></> : Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                      <select aria-label="Ordenar documentos" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="commercial-field h-10 w-auto min-w-[150px] text-xs font-bold"><option value="updated_desc">Mais recentes</option><option value="updated_asc">Mais antigos</option><option value="title">Titulo A-Z</option></select>
+                      <Button variant={favoritesOnly ? "primary" : "secondary"} iconOnly onClick={() => setFavoritesOnly((current) => !current)} aria-label="Mostrar favoritos" title="Favoritos"><Star size={15} fill={favoritesOnly ? "currentColor" : "none"} /></Button>
+                      <Button variant={displayMode === "list" ? "primary" : "secondary"} iconOnly onClick={() => setDisplayMode("list")} aria-label="Visualizacao em lista" title="Lista"><List size={15} /></Button>
+                      <Button variant={displayMode === "grid" ? "primary" : "secondary"} iconOnly onClick={() => setDisplayMode("grid")} aria-label="Visualizacao em grade" title="Grade"><Grid3X3 size={15} /></Button>
+                    </>
                   )}
                 </div>
               </div>
 
-              {(view === "proposals" || view === "contracts") && (
-                <div className="min-h-[480px]">
+              {(view === "all" || view === "proposals" || view === "contracts") && (
+                <div className={`min-h-[480px] ${displayMode === "grid" ? "grid gap-3 p-4 sm:grid-cols-2 2xl:grid-cols-3" : ""}`}>
                   {currentItems.map((item) => (
-                    <article key={item.id} className="grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_148px] xl:items-center">
+                    <article key={item.id} className={displayMode === "grid" ? "flex min-h-72 flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 transition hover:border-blue-400/30" : "grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_148px] xl:items-center"}>
                       <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{item.documentType === "proposal" ? <FileSignature size={19} /> : <FileCheck2 size={19} />}</span>
                       <button type="button" disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} className="min-w-0 text-left disabled:cursor-wait disabled:opacity-70">
                         <strong className="block truncate text-sm">{item.title}</strong>
@@ -579,6 +811,12 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                         className="col-span-2 xl:col-auto"
                       />
                       <div className="col-span-2 flex min-h-10 flex-wrap items-center gap-2 xl:col-auto xl:justify-end">
+                        {item.documentType === "proposal" && (
+                          <>
+                            <select aria-label={`Alterar status de ${item.title}`} value="" disabled={busy} onChange={(event) => event.target.value && void handleProposalStatus(item, event.target.value as CommercialProposal["status"])} className="commercial-status-select h-9 max-w-[150px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="">Alterar status</option>{(proposalTransitions[item.status] || []).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>
+                            <Button variant="secondary" iconOnly onClick={() => void handleDuplicateProposal(item)} aria-label={`Duplicar proposta ${item.title}`} title="Duplicar proposta"><Copy size={15} /></Button>
+                          </>
+                        )}
                         {item.documentType === "contract" && !["signed", "active", "completed", "cancelled"].includes(item.status) && (
                           <Button variant="secondary" iconOnly loading={openingDocumentId === item.id} disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} aria-label={`Editar contrato ${item.title}`} title="Editar contrato"><Pencil size={16} /></Button>
                         )}
@@ -595,6 +833,33 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                     </article>
                   ))}
                   {!currentItems.length && <EmptyState title="Nenhum documento encontrado" description="Crie uma proposta ou ajuste os filtros." icon={FilePlus2} className="min-h-[430px] border-none" />}
+                </div>
+              )}
+
+              {(view === "files" || view === "all") && (
+                <div className="min-h-[480px] p-4">
+                  {data.processingJobs.length > 0 && (
+                    <section className="mb-4 rounded-lg border border-blue-400/20 bg-blue-500/5 p-4">
+                      <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-black">Fila de processamento</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Tentativas, progresso e resultados ficam registrados.</p></div><Wrench size={17} className="text-blue-300" /></div>
+                      <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                        {data.processingJobs.slice(0, 6).map((job) => <article key={job.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="flex items-center justify-between gap-2"><strong className="truncate text-xs">{job.label}</strong><StatusChip status={job.status} /></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface-hover)]"><span className="block h-full bg-blue-500 transition-all" style={{ width: `${job.progress}%` }} /></div><p className="mt-2 text-xs font-semibold text-[var(--text-secondary)]">{job.message}</p></article>)}
+                      </div>
+                    </section>
+                  )}
+                  <div className={displayMode === "grid" ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-3" : "space-y-2"}>
+                    {currentFiles.map((document) => (
+                      <article key={document.id} className={`border border-[var(--border)] bg-[var(--background)] p-4 ${displayMode === "grid" ? "rounded-lg" : "flex flex-col gap-3 rounded-lg lg:flex-row lg:items-center"}`}>
+                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-cyan-500/10 text-cyan-300"><FileText size={19} /></span>
+                        <div className="min-w-0 flex-1"><strong className="block truncate text-sm">{document.title}</strong><p className="mt-1 truncate text-xs font-semibold text-[var(--text-secondary)]">{document.originalFileName} · {formatFileSize(document.size)}</p><div className="mt-2 flex flex-wrap gap-2"><StatusChip status={document.category} />{document.confidential && <span className="rounded-full bg-amber-500/10 px-2 py-1 text-xs font-bold text-amber-300">Confidencial</span>}<time className="px-1 py-1 text-xs font-bold text-[var(--text-secondary)]">{formatDate(document.updatedAt)}</time></div></div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="secondary" iconOnly onClick={() => void handleToggleFavorite(document)} aria-label={`Favoritar ${document.title}`} title="Favorito"><Star size={15} fill={document.favorite ? "currentColor" : "none"} /></Button>
+                          <Button variant="secondary" onClick={() => void handleDownload(document)} icon={<ExternalLink size={14} />}>Baixar</Button>
+                          <Button variant="danger" iconOnly onClick={() => void handleDeleteImported(document)} aria-label={`Excluir ${document.title}`} title="Excluir"><Trash2 size={15} /></Button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  {!currentFiles.length && view === "files" && <EmptyState title="Nenhum arquivo encontrado" description="Importe PDFs ou imagens para organizar e processar com seguranca." icon={Upload} className="min-h-[380px] border-none" />}
                 </div>
               )}
 
@@ -651,12 +916,14 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
         setBrandOpen(false);
       }, "Perfil de marca criado.")} />}
 
-      {templateOpen && <TemplateDialog busy={busy} onClose={() => setTemplateOpen(false)} onSubmit={(name, description, shared) => void runAction(async () => {
-        const response = await createTemplate(name, description, "<h1>Titulo da proposta</h1><p>Apresente o contexto, o escopo, os entregaveis e as condicoes comerciais.</p>", shared);
+      {templateOpen && <TemplateDialog busy={busy} onClose={() => setTemplateOpen(false)} onSubmit={(name, description, shared, documentType, category) => void runAction(async () => {
+        const response = await createTemplate(name, description, "<h1>Titulo do documento</h1><p>Apresente o contexto, o escopo, os entregaveis e as condicoes comerciais.</p>", shared, category, documentType);
         setData((current) => current ? { ...current, templates: [...current.templates, response.template] } : current);
         setTemplateOpen(false);
       }, "Modelo salvo na biblioteca.")} />}
-      {templatePreview && <TemplatePreviewDialog template={templatePreview} onClose={() => setTemplatePreview(null)} />}
+      {templatePreview && <TemplatePreviewDialog template={templatePreview} busy={busy} onClose={() => setTemplatePreview(null)} onRename={() => void handleRenameTemplate(templatePreview)} onDuplicate={() => void handleDuplicateTemplate(templatePreview)} onDelete={templatePreview.id.startsWith("standard_") ? undefined : () => void handleDeleteTemplate(templatePreview)} />}
+      {importOpen && <ImportDocumentDialog busy={busy} onClose={() => setImportOpen(false)} onSubmit={(input) => void handleImport(input)} />}
+      {pdfToolsOpen && data && <PdfToolsDialog capabilities={pdfCapabilities} documents={data.uploadedDocuments} busy={busy} onClose={() => setPdfToolsOpen(false)} onSubmit={(operation, documentIds, options) => void handlePdfProcess(operation, documentIds, options)} />}
     </main>
   );
 }
@@ -1111,11 +1378,45 @@ function BrandProfileDialog({ busy, onClose, onSubmit }: { busy: boolean; onClos
   return <Dialog title="Novo perfil de marca" subtitle="Depois, personalize cores e logo dentro do documento." onClose={onClose}><div className="space-y-4"><FormField label="Nome da marca"><input value={name} onChange={(event) => setName(event.target.value)} className="commercial-field" /></FormField><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} /> Usar como marca padrao</label><div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!name.trim()} onClick={() => onSubmit(name.trim(), isDefault)}>Criar perfil</Button></div></div></Dialog>;
 }
 
-function TemplateDialog({ busy, onClose, onSubmit }: { busy: boolean; onClose: () => void; onSubmit: (name: string, description: string, shared: boolean) => void }) {
+function TemplateDialog({ busy, onClose, onSubmit }: { busy: boolean; onClose: () => void; onSubmit: (name: string, description: string, shared: boolean, documentType: TemplateDocumentType, category: string) => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [shared, setShared] = useState(false);
-  return <Dialog title="Salvar novo modelo" subtitle="Crie uma estrutura reutilizavel para futuras propostas." onClose={onClose}><div className="space-y-4"><FormField label="Nome"><input value={name} onChange={(event) => setName(event.target.value)} className="commercial-field" /></FormField><FormField label="Descricao"><textarea value={description} onChange={(event) => setDescription(event.target.value)} className="commercial-field min-h-20 resize-y" /></FormField><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={shared} onChange={(event) => setShared(event.target.checked)} /> Compartilhar com a empresa</label><div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!name.trim()} onClick={() => onSubmit(name.trim(), description.trim(), shared)}>Salvar modelo</Button></div></div></Dialog>;
+  const [documentType, setDocumentType] = useState<TemplateDocumentType>("proposal");
+  const [category, setCategory] = useState("geral");
+  return <Dialog title="Salvar novo modelo" subtitle="Crie uma estrutura reutilizavel e classificada para a biblioteca." onClose={onClose}><div className="space-y-4"><FormField label="Nome"><input value={name} onChange={(event) => setName(event.target.value)} className="commercial-field" /></FormField><FormField label="Descricao"><textarea value={description} onChange={(event) => setDescription(event.target.value)} className="commercial-field min-h-20 resize-y" /></FormField><div className="grid gap-3 sm:grid-cols-2"><FormField label="Tipo"><select value={documentType} onChange={(event) => setDocumentType(event.target.value as TemplateDocumentType)} className="commercial-field"><option value="proposal">Proposta</option><option value="contract">Contrato</option><option value="term">Termo</option><option value="budget">Orcamento</option><option value="report">Relatorio</option><option value="custom">Personalizado</option></select></FormField><FormField label="Categoria"><input value={category} onChange={(event) => setCategory(event.target.value)} className="commercial-field" /></FormField></div><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={shared} onChange={(event) => setShared(event.target.checked)} /> Compartilhar com a empresa</label><div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!name.trim()} onClick={() => onSubmit(name.trim(), description.trim(), shared, documentType, category.trim() || "geral")}>Salvar modelo</Button></div></div></Dialog>;
+}
+
+function ImportDocumentDialog({ busy, onClose, onSubmit }: { busy: boolean; onClose: () => void; onSubmit: (input: { file: File; category: UploadedDocument["category"]; direction: UploadedDocument["direction"]; confidential: boolean }) => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [category, setCategory] = useState<UploadedDocument["category"]>("pdf");
+  const [direction, setDirection] = useState<UploadedDocument["direction"]>("internal");
+  const [confidential, setConfidential] = useState(false);
+  const supported = file ? ["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(file.type) : false;
+  return <Dialog title="Importar documento" subtitle="PDFs e imagens ficam privados no workspace e passam por validacao de tipo e assinatura." onClose={onClose}><div className="space-y-4"><FormField label="Arquivo"><input type="file" accept="application/pdf,image/png,image/jpeg,image/webp" onChange={(event) => setFile(event.target.files?.[0] || null)} className="commercial-field p-2" /></FormField>{file && !supported && <StatusBanner tone="error">Formato nao permitido. Selecione PDF, PNG, JPG ou WebP.</StatusBanner>}<div className="grid gap-3 sm:grid-cols-2"><FormField label="Categoria"><select value={category} onChange={(event) => setCategory(event.target.value as UploadedDocument["category"])} className="commercial-field"><option value="pdf">PDF / Arquivo</option><option value="draft">Rascunho</option><option value="sent">Enviado</option><option value="received">Recebido</option><option value="archived">Arquivado</option></select></FormField><FormField label="Origem"><select value={direction} onChange={(event) => setDirection(event.target.value as UploadedDocument["direction"])} className="commercial-field"><option value="internal">Interno</option><option value="sent">Enviado</option><option value="received">Recebido</option></select></FormField></div><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={confidential} onChange={(event) => setConfidential(event.target.checked)} /> Documento confidencial</label><div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!file || !supported} onClick={() => file && onSubmit({ file, category, direction, confidential })} icon={<Upload size={14} />}>Importar</Button></div></div></Dialog>;
+}
+
+function PdfToolsDialog({ capabilities, documents, busy, onClose, onSubmit }: { capabilities: PdfCapabilities | null; documents: UploadedDocument[]; busy: boolean; onClose: () => void; onSubmit: (operation: PdfOperation, documentIds: string[], options: Record<string, unknown>) => void }) {
+  const operations = capabilities?.operations || EMPTY_PDF_OPERATIONS;
+  const [operation, setOperation] = useState<PdfOperation>(operations[0]?.id || "merge");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [text, setText] = useState("CONFIDENCIAL");
+  const [pages, setPages] = useState("");
+  const [password, setPassword] = useState("");
+  const [degrees, setDegrees] = useState(90);
+  useEffect(() => {
+    if (operations.length && !operations.some((item) => item.id === operation)) setOperation(operations[0].id);
+  }, [operation, operations]);
+  const selectedOperation = operations.find((item) => item.id === operation);
+  const availableDocuments = operation === "images_to_pdf" ? documents.filter((item) => item.mimeType.startsWith("image/")) : documents.filter((item) => item.mimeType === "application/pdf");
+  const needsMany = operation === "merge" || operation === "compare";
+  const validSelection = needsMany ? selectedIds.length >= 2 : selectedIds.length === 1 || (operation === "images_to_pdf" && selectedIds.length > 0);
+  const options: Record<string, unknown> = {};
+  if (operation === "watermark" && text.trim()) options.text = text.trim();
+  if (["split", "reorder", "delete_pages", "rotate"].includes(operation) && pages.trim()) options.pages = pages.trim();
+  if (["add_password", "remove_password"].includes(operation) && password) options.password = password;
+  if (operation === "rotate") options.degrees = degrees;
+  return <Dialog title="Ferramentas de PDF" subtitle="Operacoes executadas em fila, com progresso, limite de tempo, repeticao controlada e registro do resultado." onClose={onClose} wide><div className="space-y-5">{!capabilities ? <LoadingState label="Consultando ferramentas disponiveis..." /> : <><div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]"><section><FormField label="Operacao"><select value={operation} onChange={(event) => { setOperation(event.target.value as PdfOperation); setSelectedIds([]); }} className="commercial-field">{operations.map((item) => <option key={item.id} value={item.id}>{item.label} ({item.engine === "native" ? "Norium" : "Stirling"})</option>)}</select></FormField><p className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{capabilities.stirling.message} Somente operacoes confirmadas pela instancia aparecem aqui.</p><div className="mt-3 space-y-3">{operation === "watermark" && <FormField label="Texto da marca"><input value={text} onChange={(event) => setText(event.target.value)} className="commercial-field" /></FormField>}{["split", "reorder", "delete_pages", "rotate"].includes(operation) && <FormField label="Paginas (ex.: 1,3,4)"><input value={pages} onChange={(event) => setPages(event.target.value)} className="commercial-field" placeholder="Vazio = todas" /></FormField>}{["add_password", "remove_password"].includes(operation) && <FormField label="Senha autorizada"><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="commercial-field" /></FormField>}{operation === "rotate" && <FormField label="Rotacao"><select value={degrees} onChange={(event) => setDegrees(Number(event.target.value))} className="commercial-field"><option value={90}>90 graus</option><option value={180}>180 graus</option><option value={270}>270 graus</option><option value={-90}>-90 graus</option></select></FormField>}</div></section><section><h3 className="text-xs font-black uppercase text-[var(--text-secondary)]">Selecione {needsMany ? "ao menos dois arquivos" : "um arquivo"}</h3><div className="mt-3 max-h-[48dvh] space-y-2 overflow-auto pr-1">{availableDocuments.map((document) => { const checked = selectedIds.includes(document.id); return <label key={document.id} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 ${checked ? "border-blue-400/50 bg-blue-500/10" : "border-[var(--border)] bg-[var(--background)]"}`}><input type={needsMany || operation === "images_to_pdf" ? "checkbox" : "radio"} name="pdf-document" checked={checked} onChange={() => setSelectedIds((current) => needsMany || operation === "images_to_pdf" ? checked ? current.filter((id) => id !== document.id) : [...current, document.id] : [document.id])} /><FileText size={17} className="text-cyan-300" /><span className="min-w-0"><strong className="block truncate text-xs">{document.title}</strong><small className="text-[var(--text-secondary)]">{formatFileSize(document.size)}</small></span></label>; })}{!availableDocuments.length && <EmptyState title="Nenhum arquivo compativel" description="Importe um arquivo antes de usar esta ferramenta." icon={Upload} className="min-h-56" />}</div></section></div><div className="flex flex-col-reverse gap-2 border-t border-[var(--border)] pt-4 sm:flex-row sm:items-center sm:justify-between"><span className="text-xs font-semibold text-[var(--text-secondary)]">{selectedOperation?.engine === "stirling" ? "Processado pelo servico Stirling isolado." : "Processado nativamente no backend do Norium."}</span><div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!validSelection || !operations.length} onClick={() => onSubmit(operation, selectedIds, options)} icon={<Wrench size={14} />}>Processar</Button></div></div></>}</div></Dialog>;
 }
 
 function Dialog({ title, subtitle, onClose, children, wide = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -1126,8 +1427,8 @@ function FormField({ label, children }: { label: string; children: ReactNode }) 
   return <label className="block"><span className="mb-1.5 block text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</span>{children}</label>;
 }
 
-function Metric({ label, value, icon: Icon }: { label: string; value: number; icon: typeof FileSignature }) {
-  return <article className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"><span><small className="font-black uppercase text-[var(--text-secondary)]">{label}</small><strong className="mt-2 block text-2xl">{value}</strong></span><span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span></article>;
+function Metric({ label, value, icon: Icon, onClick }: { label: string; value: number; icon: typeof FileSignature; onClick?: () => void }) {
+  return <button type="button" onClick={onClick} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-left transition hover:border-blue-400/35 hover:bg-blue-500/5"><span><small className="font-black uppercase text-[var(--text-secondary)]">{label}</small><strong className="mt-2 block text-2xl">{value}</strong></span><span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span></button>;
 }
 
 function ViewTab({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
@@ -1197,7 +1498,7 @@ function LibraryView({
   return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="grid min-h-48 grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><button type="button" disabled={!onItemClick} onClick={() => onItemClick?.(item.id)} className="self-start disabled:cursor-default" aria-label={onItemClick ? `Pre-visualizar ${item.title}` : undefined}>{item.template ? <DocumentCover label={item.template.documentType === "contract" ? "Contrato" : "Proposta comercial"} /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span>}</button><div className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong><p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)} icon={<Eye size={14} />}>Visualizar em A4</Button>}</div></article>)}</div>{!items.length && <EmptyState title="Biblioteca vazia" description={`Use "${actionLabel}" para criar o primeiro item.`} icon={Icon} className="mt-5 min-h-72" />}</div>;
 }
 
-function TemplatePreviewDialog({ template, onClose }: { template: CommercialTemplate; onClose: () => void }) {
+function TemplatePreviewDialog({ template, busy, onClose, onRename, onDuplicate, onDelete }: { template: CommercialTemplate; busy: boolean; onClose: () => void; onRename: () => void; onDuplicate: () => void; onDelete?: () => void }) {
   return (
     <Dialog
       title={template.name}
@@ -1205,6 +1506,7 @@ function TemplatePreviewDialog({ template, onClose }: { template: CommercialTemp
       onClose={onClose}
       wide
     >
+      <div className="mb-5 flex flex-wrap justify-end gap-2"><Button variant="secondary" onClick={onRename} disabled={busy || template.id.startsWith("standard_")} icon={<Pencil size={14} />}>Renomear</Button><Button variant="secondary" onClick={onDuplicate} loading={busy} icon={<Copy size={14} />}>Duplicar</Button>{onDelete && <Button variant="danger" onClick={onDelete} disabled={busy} icon={<Trash2 size={14} />}>Excluir</Button>}</div>
       <TemplateA4Preview template={template} />
     </Dialog>
   );
@@ -1278,4 +1580,28 @@ function formatMoney(value: number, currency: string) {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value));
+}
+
+function formatFileSize(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Nao foi possivel ler o arquivo selecionado."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

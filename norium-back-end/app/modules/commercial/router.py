@@ -9,8 +9,8 @@ import logging
 from collections import defaultdict
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.modules.auth.router import current_user, effective_permissions, user_from_websocket_ticket
 from app.modules.commercial.repository import read_store
@@ -18,18 +18,38 @@ from app.modules.commercial.schemas import (
     BrandProfileCreate,
     ContractCreate,
     ContractUpdate,
+    DocumentDuplicateRequest,
+    DocumentImportRequest,
     DocumentShareRequest,
+    ImportedDocumentUpdate,
     InstantiateObligationsRequest,
     NoraAnalysisRequest,
     NoraWritingRequest,
+    PdfProcessRequest,
     ProposalBriefRequest,
     ProposalCreate,
     ProposalApprovalDecision,
+    ProposalStatusChange,
     ProposalSubmit,
     ProposalUpdate,
     SignatureRequest,
     SuggestionDecision,
     TemplateCreate,
+    TemplateUpdate,
+)
+
+from app.modules.commercial.document_files import (
+    cancel_processing_job,
+    create_processing_job,
+    delete_imported_document,
+    document_path,
+    import_document,
+    imported_document_or_404,
+    pdf_capabilities,
+    processing_job_or_404,
+    processing_job_summary,
+    run_processing_job,
+    update_imported_document,
 )
 
 from app.modules.commercial.service import (
@@ -42,12 +62,16 @@ from app.modules.commercial.service import (
     create_contract,
     create_proposal,
     create_template,
+    change_proposal_status,
     decide_proposal,
     decide_suggestion,
     delete_contract,
     delete_proposal,
+    delete_template,
     document_for_response,
     generate_proposal_draft,
+    duplicate_proposal,
+    duplicate_template,
     instantiate_obligations,
     list_commercial_data,
     proposal_or_404,
@@ -59,6 +83,7 @@ from app.modules.commercial.service import (
     submit_proposal,
     update_contract,
     update_proposal,
+    update_template,
     write_document_with_nora,
 )
 
@@ -72,7 +97,7 @@ from app.modules.commercial.service import plain_text
 from app.modules.commercial.pdf_export import build_commercial_pdf
 
 
-router = APIRouter(prefix="/api/comercial", tags=["Propostas e Contratos"])
+router = APIRouter(prefix="/api/comercial", tags=["Documentos"])
 
 
 class CommercialConnectionManager:
@@ -130,7 +155,7 @@ async def notify(user: dict[str, Any], title: str, description: str, action: str
             "action": action,
             "entityType": "commercial_document",
             "entityId": entity_id,
-            "deepLink": {"tab": "Propostas", "entityType": "commercial_document", "entityId": entity_id},
+            "deepLink": {"tab": "Documentos", "entityType": "commercial_document", "entityId": entity_id},
         },
     )
 
@@ -244,7 +269,7 @@ async def share_document(
             "action": "commercial_document_shared",
             "documentType": document_type,
             "documentId": document_id,
-            "deepLink": {"tab": "Propostas", "entityType": document_type, "entityId": document_id},
+            "deepLink": {"tab": "Documentos", "entityType": document_type, "entityId": document_id},
         },
         attachments=[pdf_attachment],
     )
@@ -266,6 +291,90 @@ async def share_document(
 @router.get("")
 async def get_commercial(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     return await list_commercial_data(user)
+
+
+@router.get("/pdf/capabilities")
+async def get_pdf_capabilities(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    del user
+    return await pdf_capabilities()
+
+
+@router.post("/documents/import")
+async def post_document_import(
+    payload: DocumentImportRequest,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    document = await import_document(collaboration_tenant_id(user), user, payload)
+    await audit(user, "document_imported", f'Arquivo "{document["title"]}" importado.', "document", document["id"], "success")
+    return {"document": document}
+
+
+@router.patch("/documents/{document_id}")
+async def patch_imported_document(
+    document_id: str,
+    payload: ImportedDocumentUpdate,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    document = await update_imported_document(collaboration_tenant_id(user), user, document_id, payload)
+    return {"document": document}
+
+
+@router.delete("/documents/{document_id}")
+async def remove_imported_document(
+    document_id: str,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    document = await delete_imported_document(collaboration_tenant_id(user), document_id)
+    await audit(user, "document_deleted", f'Arquivo "{document["title"]}" excluido.', "document", document_id, "warning")
+    return {"ok": True, "document": document}
+
+
+@router.get("/documents/{document_id}/download")
+async def download_imported_document(
+    document_id: str,
+    user: dict[str, Any] = Depends(current_user),
+) -> FileResponse:
+    tenant_id = collaboration_tenant_id(user)
+    store = await asyncio.to_thread(read_store, tenant_id)
+    _, document = imported_document_or_404(store, document_id)
+    path = document_path(tenant_id, document)
+    await audit(user, "document_downloaded", f'Arquivo "{document.get("title")}" baixado.', "document", document_id, "info")
+    return FileResponse(
+        path,
+        media_type=str(document.get("mimeType") or "application/octet-stream"),
+        filename=str(document.get("originalFileName") or path.name),
+    )
+
+
+@router.post("/pdf/process")
+async def post_pdf_process(
+    payload: PdfProcessRequest,
+    background_tasks: BackgroundTasks,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    tenant_id = collaboration_tenant_id(user)
+    job = await create_processing_job(tenant_id, user, payload)
+    transient_options = {
+        key: value
+        for key, value in payload.options.items()
+        if key == "password"
+    }
+    background_tasks.add_task(run_processing_job, tenant_id, job["id"], transient_options)
+    await audit(user, "pdf_processing_queued", f'{job["label"]} agendado.', "processing_job", job["id"], "info")
+    return {"job": job}
+
+
+@router.get("/pdf/jobs/{job_id}")
+async def get_pdf_job(job_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
+    _, job = processing_job_or_404(store, job_id)
+    return {"job": processing_job_summary(job)}
+
+
+@router.post("/pdf/jobs/{job_id}/cancel")
+async def post_cancel_pdf_job(job_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    job = await cancel_processing_job(collaboration_tenant_id(user), job_id)
+    return {"job": job}
 
 
 @router.post("/proposals")
@@ -331,6 +440,28 @@ async def patch_proposal(
         {"type": "DOCUMENT_UPDATED", "documentType": "proposal", "document": response_proposal, "actorId": str(user.get("id") or "")},
     )
     return {"proposal": response_proposal}
+
+
+@router.post("/proposals/{proposal_id}/duplicate")
+async def post_duplicate_proposal(
+    proposal_id: str,
+    payload: DocumentDuplicateRequest,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    proposal = await duplicate_proposal(user, proposal_id, payload)
+    await audit(user, "proposal_duplicated", f'Proposta "{proposal["title"]}" duplicada.', "proposal", proposal["id"], "success")
+    return {"proposal": document_for_response(proposal)}
+
+
+@router.patch("/proposals/{proposal_id}/status")
+async def patch_proposal_status(
+    proposal_id: str,
+    payload: ProposalStatusChange,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    proposal = await change_proposal_status(user, proposal_id, payload)
+    await audit(user, "proposal_status_changed", f'Status de "{proposal["title"]}" atualizado.', "proposal", proposal_id, "success")
+    return {"proposal": document_for_response(proposal)}
 
 
 @router.post("/proposals/{proposal_id}/submit")
@@ -640,6 +771,30 @@ async def post_brand_profile(
 async def post_template(payload: TemplateCreate, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     item = await create_template(user, payload)
     return {"template": item}
+
+
+@router.patch("/templates/{template_id}")
+async def patch_template(
+    template_id: str,
+    payload: TemplateUpdate,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    return {"template": await update_template(user, template_id, payload)}
+
+
+@router.post("/templates/{template_id}/duplicate")
+async def post_duplicate_template(
+    template_id: str,
+    payload: DocumentDuplicateRequest,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    return {"template": await duplicate_template(user, template_id, payload)}
+
+
+@router.delete("/templates/{template_id}")
+async def remove_template(template_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    item = await delete_template(user, template_id)
+    return {"ok": True, "template": item}
 
 
 @router.websocket("/ws/{document_id}")

@@ -57,7 +57,7 @@ const navigation: NavigationItem[] = [
   { title: "Financeiro", icon: CreditCard },
   { title: "Automações", icon: GitBranch },
   { title: "Relatórios", icon: BarChart3 },
-  { title: "Propostas", icon: ScrollText },
+  { title: "Documentos", icon: ScrollText },
   { title: "Equipe", icon: UsersRound },
   { title: "Chat da Equipe", icon: MessagesSquare },
   { title: "Clientes", icon: UserRoundCheck },

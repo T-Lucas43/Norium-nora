@@ -170,10 +170,10 @@ const guides: Record<GuidedModule, ModuleGuide> = {
     ],
   },
   Propostas: {
-    title: "Propostas e contratos",
+    title: "Central de documentos",
     description: "Crie documentos comerciais, revise com a Nora, obtenha aprovacoes e converta propostas em contratos.",
     topics: ["Vincule cliente e brainstorm de origem", "Edite com salvamento automatico e historico", "Depois da aprovacao, gere o contrato e transforme obrigacoes em tarefas"],
-    prompt: "Explique a tela de Propostas e contratos e me ajude a preparar um documento comercial completo, perguntando os dados que estiverem faltando antes de executar qualquer acao.",
+    prompt: "Explique a Central de Documentos e me ajude a preparar, revisar ou processar um documento comercial completo, perguntando os dados que estiverem faltando antes de executar qualquer acao.",
   },
   Perfil: {
     title: "Perfil do operador",

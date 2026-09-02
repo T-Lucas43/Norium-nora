@@ -21,6 +21,7 @@ export const TAB_PERMISSIONS: Record<string, PermissionKey | null> = {
   Automacoes: "automacoes",
   "Automações": "automacoes",
   Relatorios: "relatorios",
+  Documentos: "propostas",
   Propostas: "propostas",
   "Relatórios": "relatorios",
   Perfil: "perfil",
@@ -46,7 +47,7 @@ export const PRIMARY_TABS = [
   "Financeiro",
   "Automações",
   "Relatórios",
-  "Propostas",
+  "Documentos",
   "Equipe",
   "Chat da Equipe",
   "Clientes",
@@ -59,5 +60,6 @@ export const ACTIVE_TAB_STORAGE = "norium-active-tab";
 
 export function initialTab() {
   const saved = localStorage.getItem(ACTIVE_TAB_STORAGE);
+  if (saved === "Propostas") return "Documentos";
   return saved && TAB_PERMISSIONS[saved] !== undefined ? saved : "Dashboard";
 }

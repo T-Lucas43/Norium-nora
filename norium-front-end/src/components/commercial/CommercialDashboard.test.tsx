@@ -84,17 +84,28 @@ const commercialData: CommercialData = {
     status: proposal.status,
     updatedAt: proposal.updatedAt,
     primaryColor: defaultBranding.primaryColor,
+    favorite: false,
+    category: "proposals",
+    validUntil: null,
   }],
   contracts: [],
   brandProfiles: [],
   templates: [],
+  uploadedDocuments: [],
+  processingJobs: [],
   summary: {
+    documentCount: 1,
     proposalCount: 1,
     draftCount: 1,
     reviewCount: 0,
     approvedCount: 0,
+    negotiationCount: 0,
     contractCount: 0,
+    awaitingSignatureCount: 0,
     signedCount: 0,
+    expiringCount: 0,
+    archivedCount: 0,
+    fileCount: 0,
     planMode: "solo",
     requiresApproval: false,
     maxBrandProfiles: 1,
@@ -122,7 +133,7 @@ describe("CommercialDashboard leve", () => {
     expect(await screen.findByText("Proposta sob demanda")).toBeInTheDocument();
     expect(clientApi.apiRequest).not.toHaveBeenCalled();
 
-    await userEvent.setup().click(screen.getByRole("button", { name: "Nova proposta" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Novo documento" }));
 
     await waitFor(() => expect(clientApi.apiRequest).toHaveBeenCalledWith("/api/clientes"));
     await waitFor(() => expect(clientApi.apiRequest).toHaveBeenCalledWith("/api/brainstorm/sessions"));

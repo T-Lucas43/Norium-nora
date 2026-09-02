@@ -30,6 +30,7 @@ TAB_ALIASES = {
     "inbox": "central",
     "gastos": "financeiro",
     "e-mail": "emails",
+    "documentos": "propostas",
 }
 
 

@@ -600,11 +600,22 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       confirmLabel: "Excluir arquivo",
       tone: "danger",
     });
-    if (!confirmed) return;
+    if (!confirmed) return false;
+    let deleted = false;
     await runAction(async () => {
       await deleteImportedDocument(document.id);
-      await load();
+      setData((current) => current ? {
+        ...current,
+        uploadedDocuments: current.uploadedDocuments.filter((item) => item.id !== document.id),
+        summary: {
+          ...current.summary,
+          documentCount: Math.max(0, current.summary.documentCount - 1),
+          fileCount: Math.max(0, current.summary.fileCount - 1),
+        },
+      } : current);
+      deleted = true;
     }, "Arquivo excluido.");
+    return deleted;
   }
 
   async function openPdfTools() {
@@ -668,6 +679,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
           busy={busy}
           onBack={() => setPdfToolsOpen(false)}
           onProcess={(operation, documentIds, options) => void handlePdfProcess(operation, documentIds, options)}
+          onDelete={handleDeleteImported}
           onImported={(document) => setData((current) => current ? {
             ...current,
             uploadedDocuments: [document, ...current.uploadedDocuments],

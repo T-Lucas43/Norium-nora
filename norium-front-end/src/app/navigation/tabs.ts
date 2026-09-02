@@ -66,8 +66,79 @@ export const PRIMARY_TABS = [
 
 export const ACTIVE_TAB_STORAGE = "norium-active-tab";
 
+const TAB_ALIASES: Record<string, string> = {
+  Resumo: "Dashboard",
+  Inbox: "Central",
+  "E-mail": "E-mails",
+  Gastos: "Financeiro",
+  Automacoes: "Automações",
+  Relatorios: "Relatórios",
+  Propostas: "Documentos",
+  Configuracoes: "Configurações",
+  Notificacoes: "Notificações",
+};
+
+export const TAB_ROUTES: Record<string, string> = {
+  Dashboard: "dashboard",
+  Controle: "controle",
+  Central: "central",
+  Pendencias: "pendencias",
+  "Notificações": "notificacoes",
+  "E-mails": "emails",
+  Agenda: "agenda",
+  Chat: "chat",
+  Tarefas: "tarefas",
+  Financeiro: "financeiro",
+  "Automações": "automacoes",
+  "Relatórios": "relatorios",
+  Documentos: "documentos",
+  "Agente Navegador": "navegador",
+  Conhecimento: "conhecimento",
+  Marketplace: "marketplace",
+  "IA e Modelos": "ia-modelos",
+  Equipe: "equipe",
+  "Chat da Equipe": "chat-equipe",
+  Clientes: "clientes",
+  Governanca: "governanca",
+  Brainstorm: "brainstorm",
+  Mais: "mais",
+  Perfil: "perfil",
+  "Configurações": "configuracoes",
+  Ajuda: "ajuda",
+};
+
+const ROUTE_TABS = new Map(Object.entries(TAB_ROUTES).map(([tab, route]) => [route, tab]));
+
+export function canonicalTab(tab: string) {
+  return TAB_ALIASES[tab] || tab;
+}
+
+export function tabPath(tab: string) {
+  const canonical = canonicalTab(tab);
+  return `/app/${TAB_ROUTES[canonical] || TAB_ROUTES.Dashboard}`;
+}
+
+export function tabFromPath(pathname = window.location.pathname) {
+  const match = pathname.match(/^\/app\/([^/]+)\/?$/i);
+  return match ? ROUTE_TABS.get(match[1].toLowerCase()) || null : null;
+}
+
+export function navigateNoriumTab(tab: string, options: { replace?: boolean } = {}) {
+  const canonical = canonicalTab(tab);
+  const path = tabPath(canonical);
+  const destination = `${path}${window.location.search}`;
+  const state = { ...(window.history.state || {}), noriumView: "app", noriumTab: canonical };
+  if (options.replace || window.location.pathname === path) {
+    window.history.replaceState(state, "", destination);
+  } else {
+    window.history.pushState(state, "", destination);
+  }
+}
+
 export function initialTab() {
+  const routed = tabFromPath();
+  if (routed) return routed;
   const saved = localStorage.getItem(ACTIVE_TAB_STORAGE);
-  if (saved === "Propostas") return "Documentos";
-  return saved && TAB_PERMISSIONS[saved] !== undefined ? saved : "Dashboard";
+  const canonical = saved ? canonicalTab(saved) : "";
+  return canonical && TAB_PERMISSIONS[canonical] !== undefined ? canonical : "Dashboard";
 }

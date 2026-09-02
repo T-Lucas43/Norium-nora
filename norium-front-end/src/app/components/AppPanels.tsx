@@ -50,7 +50,6 @@ type AppPanelsProps = {
   connected: boolean;
   emailToOpenId: string | null;
   eventsBySource: EventGroups;
-  mountedTabs: Set<string>;
   profile: PerfilOperador | null;
   systemNotifications: SystemNotification[];
   onActiveConversationChange: (conversationId: string | null) => void;
@@ -74,7 +73,6 @@ export default function AppPanels({
   connected,
   emailToOpenId,
   eventsBySource,
-  mountedTabs,
   profile,
   systemNotifications,
   onActiveConversationChange,
@@ -92,7 +90,7 @@ export default function AppPanels({
 }: AppPanelsProps) {
   const currentUser = authSession.user;
   const activePanelClass = (...tabs: string[]) => (tabs.includes(activeTab) ? "app-panel" : "hidden");
-  const isPanelMounted = (...tabs: string[]) => tabs.includes(activeTab) || tabs.some((tab) => mountedTabs.has(tab));
+  const isPanelMounted = (...tabs: string[]) => tabs.includes(activeTab);
   const coach = (module: GuidedModule, compact = false) => (
     <ModuleCoach module={module} onAskNora={onOpenNora} compact={compact} />
   );

@@ -55,6 +55,37 @@ type CallDevices = {
 type CallSound = "connecting" | "joined" | "left" | "ended";
 type ConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
 type CameraPermission = "unknown" | "requesting" | "granted" | "denied" | "unavailable";
+export type ScreenShareQuality = "720p" | "1080p" | "1440p";
+export type ScreenShareFps = 15 | 30 | 60;
+
+const SCREEN_SHARE_PROFILES: Record<ScreenShareQuality, { width: number; height: number; maxBitrate: number }> = {
+  "720p": { width: 1280, height: 720, maxBitrate: 2_500_000 },
+  "1080p": { width: 1920, height: 1080, maxBitrate: 5_000_000 },
+  "1440p": { width: 2560, height: 1440, maxBitrate: 8_000_000 },
+};
+
+function screenShareConstraints(quality: ScreenShareQuality, fps: ScreenShareFps): MediaTrackConstraints {
+  const profile = SCREEN_SHARE_PROFILES[quality];
+  return {
+    width: { ideal: profile.width, max: profile.width },
+    height: { ideal: profile.height, max: profile.height },
+    frameRate: { ideal: fps, max: fps },
+  };
+}
+
+async function applyScreenShareSenderProfile(sender: RTCRtpSender, quality: ScreenShareQuality, fps: ScreenShareFps) {
+  if (typeof sender.getParameters !== "function" || typeof sender.setParameters !== "function") return;
+  const parameters = sender.getParameters();
+  if (!parameters.encodings?.length) return;
+  const profile = SCREEN_SHARE_PROFILES[quality];
+  parameters.encodings = parameters.encodings.map((encoding) => ({
+    ...encoding,
+    active: true,
+    maxBitrate: Math.round(profile.maxBitrate * Math.max(0.65, fps / 30)),
+    maxFramerate: fps,
+  }));
+  await sender.setParameters(parameters);
+}
 
 function playCallSound(sound: CallSound) {
   if (typeof window === "undefined" || !window.AudioContext) return;
@@ -149,6 +180,8 @@ export function useTeamCall({
   const [selectedMicrophoneId, setSelectedMicrophoneId] = useState("");
   const [selectedCameraId, setSelectedCameraId] = useState("");
   const [selectedSpeakerId, setSelectedSpeakerId] = useState("");
+  const [screenShareQuality, setScreenShareQuality] = useState<ScreenShareQuality>("1080p");
+  const [screenShareFps, setScreenShareFps] = useState<ScreenShareFps>(30);
   const activeRef = useRef<ActiveCall | null>(null);
   const incomingRef = useRef<IncomingCall | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -159,6 +192,8 @@ export function useTeamCall({
   const remoteStreamByUserRef = useRef(new Map<string, MediaStream>());
   const screenRecoveryTimersRef = useRef(new Map<string, number>());
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const screenShareQualityRef = useRef<ScreenShareQuality>("1080p");
+  const screenShareFpsRef = useRef<ScreenShareFps>(30);
   const remoteStreamsRef = useRef<Array<{ userId: string; stream: MediaStream }>>([]);
   const connectingSoundTimerRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -737,12 +772,25 @@ export function useTeamCall({
     await Promise.all(Array.from(peersRef.current.entries()).map(async ([remoteUserId, peer]) => {
       const existingSender = videoSendersRef.current.get(remoteUserId);
       if (existingSender) {
+        const transceiver = typeof peer.getTransceivers === "function"
+          ? peer.getTransceivers().find((item) => item.sender === existingSender)
+          : undefined;
+        if (track && transceiver && transceiver.direction !== "sendrecv") transceiver.direction = "sendrecv";
         await existingSender.replaceTrack(track);
+        if (track && screenStreamRef.current?.getVideoTracks().includes(track)) {
+          await applyScreenShareSenderProfile(existingSender, screenShareQualityRef.current, screenShareFpsRef.current).catch(() => undefined);
+        }
+        // replaceTrack(null -> tela) não libera quadros em alguns navegadores
+        // sem um novo SDP. O emissor renegocia já com a faixa ativa.
+        await negotiatePeer(remoteUserId, peer);
         return;
       }
       if (!track) return;
       const sender = peer.addTrack(track, sourceStream);
       videoSendersRef.current.set(remoteUserId, sender);
+      if (screenStreamRef.current?.getVideoTracks().includes(track)) {
+        await applyScreenShareSenderProfile(sender, screenShareQualityRef.current, screenShareFpsRef.current).catch(() => undefined);
+      }
       await negotiatePeer(remoteUserId, peer);
     }));
   }, [negotiatePeer]);
@@ -795,11 +843,13 @@ export function useTeamCall({
       peer.ontrack = (event) => {
         const previous = remoteStreamByUserRef.current.get(remoteUserId);
         const previousTracks = previous?.getTracks() || [];
-        const incomingTracks = [event.track, ...event.streams.flatMap((stream) => stream.getTracks())];
-        const tracks = [...previousTracks];
-        for (const track of incomingTracks) {
-          if (!tracks.some((current) => current === track || (track.id && current.id === track.id))) tracks.push(track);
-        }
+        // A chamada usa uma faixa de audio e uma de video por participante.
+        // Substituir a faixa anterior evita que o elemento <video> continue
+        // preso à câmera/tela antiga, que permanece muted após replaceTrack.
+        const tracks = [
+          ...previousTracks.filter((track) => track.kind !== event.track.kind),
+          event.track,
+        ];
         const stream = new MediaStream(tracks);
         remoteStreamByUserRef.current.set(remoteUserId, stream);
         if (event.track.kind === "video") {
@@ -864,10 +914,10 @@ export function useTeamCall({
   }, [callPayload, closePeer, negotiatePeer, sendSocketEvent, session.user.id]);
 
   const requestRemoteScreenRefresh = useCallback(async (remoteUserId: string) => {
-    // Quem recebe cria uma nova oferta depois que o outro lado anexou a faixa
-    // de tela. Isso corrige navegadores que mantêm o transceiver inicialmente
-    // vazio em recvonly e não liberam quadros apenas com replaceTrack().
-    const peer = await createPeer(remoteUserId, true);
+    // O emissor renegocia imediatamente com a faixa anexada. O receptor só
+    // cria uma oferta de recuperação se nenhum quadro chegar, evitando glare
+    // entre duas ofertas simultâneas.
+    const peer = await createPeer(remoteUserId, false);
     const previousTimer = screenRecoveryTimersRef.current.get(remoteUserId);
     if (previousTimer !== undefined) window.clearTimeout(previousTimer);
     const recoveryTimer = window.setTimeout(() => {
@@ -888,6 +938,23 @@ export function useTeamCall({
     screenRecoveryTimersRef.current.set(remoteUserId, recoveryTimer);
     return peer;
   }, [createPeer, negotiatePeer]);
+
+  const applyCurrentScreenShareProfile = useCallback(async (quality: ScreenShareQuality, fps: ScreenShareFps) => {
+    screenShareQualityRef.current = quality;
+    screenShareFpsRef.current = fps;
+    setScreenShareQuality(quality);
+    setScreenShareFps(fps);
+    const screenTrack = screenStreamRef.current?.getVideoTracks()[0];
+    if (screenTrack?.readyState === "live" && typeof screenTrack.applyConstraints === "function") {
+      await screenTrack.applyConstraints(screenShareConstraints(quality, fps)).catch(() => undefined);
+    }
+    if (screenTrack) {
+      await Promise.all(Array.from(videoSendersRef.current.values()).map((sender) => (
+        applyScreenShareSenderProfile(sender, quality, fps).catch(() => undefined)
+      )));
+    }
+    if (screenTrack) setStatus(`Transmitindo em ${quality} · ${fps} FPS`);
+  }, []);
 
   const startCall = useCallback(async (targetThread: TeamCallThread = thread) => {
     if (activeRef.current) return;
@@ -1173,7 +1240,9 @@ export function useTeamCall({
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: screenShareConstraints(screenShareQualityRef.current, screenShareFpsRef.current),
+      });
       const screenTrack = stream.getVideoTracks()[0];
       if (!screenTrack) throw new Error("A tela selecionada nao forneceu video.");
       screenTrack.contentHint = "detail";
@@ -1248,10 +1317,14 @@ export function useTeamCall({
     selectedMicrophoneId,
     selectedCameraId,
     selectedSpeakerId,
+    screenShareQuality,
+    screenShareFps,
     supportsSpeakerSelection: typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype,
     selectMicrophone: (deviceId: string) => replaceInputDevice("audio", deviceId),
     selectCamera: (deviceId: string) => replaceInputDevice("video", deviceId),
     selectSpeaker: setSelectedSpeakerId,
+    selectScreenShareQuality: (quality: ScreenShareQuality) => applyCurrentScreenShareProfile(quality, screenShareFpsRef.current),
+    selectScreenShareFps: (fps: ScreenShareFps) => applyCurrentScreenShareProfile(screenShareQualityRef.current, fps),
     refreshDevices,
   };
 }

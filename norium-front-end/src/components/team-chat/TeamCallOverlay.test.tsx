@@ -27,6 +27,8 @@ describe("tela da reuniao do Modo Equipe", () => {
       selectedMicrophoneId: "",
       selectedCameraId: "",
       selectedSpeakerId: "",
+      screenShareQuality: "1080p",
+      screenShareFps: 30,
       supportsSpeakerSelection: true,
       isHost: true,
       startRecording: vi.fn(),
@@ -42,6 +44,8 @@ describe("tela da reuniao do Modo Equipe", () => {
       selectMicrophone: vi.fn(),
       selectCamera: vi.fn(),
       selectSpeaker: vi.fn(),
+      selectScreenShareQuality: vi.fn(),
+      selectScreenShareFps: vi.fn(),
     } as unknown as ReturnTypeOfTeamCall;
 
     render(<TeamCallOverlay call={call} messages={[]} members={[{ id: "owner", nome: "Owner" }]} currentUserId="owner" onSendMessage={onSendMessage} onDownloadAttachment={vi.fn()} />);
@@ -51,6 +55,12 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByRole("button", { name: "Ativar câmera" })).toBeInTheDocument();
     expect(screen.getByRole("status", { name: "Qualidade da internet: Conexão excelente" })).toBeInTheDocument();
     expect(screen.getByText(/01:05/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Configurar qualidade da transmissão" }));
+    fireEvent.change(screen.getByLabelText("Qualidade da transmissão"), { target: { value: "720p" } });
+    fireEvent.change(screen.getByLabelText("Taxa de quadros"), { target: { value: "60" } });
+    expect(call.selectScreenShareQuality).toHaveBeenCalledWith("720p");
+    expect(call.selectScreenShareFps).toHaveBeenCalledWith(60);
 
     fireEvent.click(screen.getByRole("button", { name: "Abrir chat da reunião" }));
     expect(screen.getByRole("heading", { name: "Chat da reunião" })).toBeInTheDocument();
@@ -176,5 +186,58 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByLabelText("Mini visualização da sua tela compartilhada")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Abrir chat da reunião" }));
     expect(screen.getByText("Texto com contraste")).toHaveClass("team-call-chat-message-mine");
+  });
+
+  it("permite abrir a tela compartilhada remota em tela cheia", () => {
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", { configurable: true, value: requestFullscreen });
+    const remoteVideoTrack = {
+      id: "remote-screen",
+      kind: "video",
+      muted: false,
+      readyState: "live",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as MediaStreamTrack;
+    class FakeMediaStream {
+      private readonly tracks: MediaStreamTrack[];
+      constructor(tracks: MediaStreamTrack[] = []) { this.tracks = tracks; }
+      getTracks() { return this.tracks; }
+      getAudioTracks() { return this.tracks.filter((track) => track.kind === "audio"); }
+      getVideoTracks() { return this.tracks.filter((track) => track.kind === "video"); }
+    }
+    vi.stubGlobal("MediaStream", FakeMediaStream);
+    const remoteStream = new FakeMediaStream([remoteVideoTrack]) as unknown as MediaStream;
+    const call = {
+      incoming: null,
+      active: { callId: "call_0123456789abcdef", mode: "audio", title: "Time todo", hostUserId: "owner", startedAt: new Date().toISOString(), thread: { scope: "team", title: "Time todo" } },
+      localStream: null,
+      screenStream: null,
+      remoteStreams: [{ userId: "member", stream: remoteStream }],
+      remoteScreenSharingIds: ["member"],
+      muted: false,
+      cameraOff: true,
+      cameraPermission: "granted",
+      sharingScreen: false,
+      callElapsedSeconds: 10,
+      recording: false,
+      recordingElapsedSeconds: 0,
+      connectionQuality: "good",
+      reactions: [],
+      status: "Transmissão de tela recebida",
+      devices: { microphones: [], cameras: [], speakers: [] },
+      selectedMicrophoneId: "",
+      selectedCameraId: "",
+      selectedSpeakerId: "",
+      screenShareQuality: "1080p",
+      screenShareFps: 30,
+      supportsSpeakerSelection: true,
+      isHost: true,
+    } as unknown as ReturnTypeOfTeamCall;
+
+    render(<TeamCallOverlay call={call} messages={[]} members={[{ id: "member", nome: "Fernando" }]} currentUserId="owner" onSendMessage={vi.fn()} onDownloadAttachment={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ver tela de Fernando em tela cheia" }));
+    expect(requestFullscreen).toHaveBeenCalledOnce();
   });
 });

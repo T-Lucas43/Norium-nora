@@ -195,7 +195,8 @@ describe("chamadas do Modo Equipe", () => {
     const permissionVideo = { kind: "video", enabled: true, readyState: "live", stop: vi.fn() } as unknown as MediaStreamTrack;
     const audioTrack = { kind: "audio", enabled: true, readyState: "live", stop: vi.fn() } as unknown as MediaStreamTrack;
     const cameraTrack = { kind: "video", enabled: true, readyState: "live", stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
-    const screenTrack = { kind: "video", enabled: true, readyState: "live", stop: vi.fn(), onended: null, contentHint: "" } as unknown as MediaStreamTrack;
+    const applyConstraints = vi.fn().mockResolvedValue(undefined);
+    const screenTrack = { kind: "video", enabled: true, readyState: "live", stop: vi.fn(), onended: null, contentHint: "", applyConstraints } as unknown as MediaStreamTrack;
     const remoteAudioTrack = { id: "remote-audio", kind: "audio", enabled: true, readyState: "live", muted: false, stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
     const remoteScreenTrack = { id: "remote-screen", kind: "video", enabled: true, readyState: "live", muted: false, stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
     class FakeMediaStream {
@@ -250,7 +251,8 @@ describe("chamadas do Modo Equipe", () => {
     expect(result.current.remoteStreams[0].stream.getVideoTracks()).toEqual([remoteScreenTrack]);
     await act(async () => result.current.handleSocketEvent({ type: "CALL_SCREEN_STARTED", callId: result.current.active?.callId, fromUserId: "member", fromUserName: "Member" }));
     expect(result.current.remoteScreenSharingIds).toContain("member");
-    expect(peer.createOffer).toHaveBeenCalledTimes(2);
+    // A faixa remota ja esta ativa; o receptor nao cria uma oferta concorrente.
+    expect(peer.createOffer).toHaveBeenCalledTimes(1);
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({
       type: "CALL_SIGNAL",
       targetUserId: "member",
@@ -260,16 +262,36 @@ describe("chamadas do Modo Equipe", () => {
     await act(async () => result.current.toggleCamera());
     expect(replaceTrack).toHaveBeenLastCalledWith(cameraTrack);
     expect(result.current.cameraOff).toBe(false);
+    expect(peer.createOffer).toHaveBeenCalledTimes(2);
 
     await act(async () => result.current.toggleScreenShare());
+    expect(getDisplayMedia).toHaveBeenCalledWith({
+      video: {
+        width: { ideal: 1920, max: 1920 },
+        height: { ideal: 1080, max: 1080 },
+        frameRate: { ideal: 30, max: 30 },
+      },
+    });
     expect(replaceTrack).toHaveBeenLastCalledWith(screenTrack);
     expect(result.current.screenStream).toBe(displayStream);
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_SCREEN_STARTED" }));
+    expect(peer.createOffer).toHaveBeenCalledTimes(3);
+
+    await act(async () => result.current.selectScreenShareQuality("720p"));
+    await act(async () => result.current.selectScreenShareFps(60));
+    expect(applyConstraints).toHaveBeenLastCalledWith({
+      width: { ideal: 1280, max: 1280 },
+      height: { ideal: 720, max: 720 },
+      frameRate: { ideal: 60, max: 60 },
+    });
+    expect(result.current.screenShareQuality).toBe("720p");
+    expect(result.current.screenShareFps).toBe(60);
 
     await act(async () => result.current.toggleScreenShare());
     expect(replaceTrack).toHaveBeenLastCalledWith(cameraTrack);
     expect(result.current.screenStream).toBeNull();
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_SCREEN_STOPPED" }));
+    expect(peer.createOffer).toHaveBeenCalledTimes(4);
     await act(async () => result.current.endCall());
   });
 });

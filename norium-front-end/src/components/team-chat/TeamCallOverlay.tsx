@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Camera, CameraOff, Circle, Clock3, Download, MessageSquareText, Mic, MicOff, MonitorUp, Paperclip, PhoneOff, Send, Settings2, SmilePlus, Users, Video, Volume2, Wifi, WifiOff, X } from "lucide-react";
+import { Camera, CameraOff, Circle, Clock3, Download, Maximize2, MessageSquareText, Mic, MicOff, MonitorUp, Paperclip, PhoneOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, Wifi, WifiOff, X } from "lucide-react";
 import type { ReturnTypeOfTeamCall } from "./teamCallTypes";
 
 type MeetingAttachment = { id: string; name: string; mimeType: string; size: number; url: string; expiresAt?: string };
@@ -33,6 +33,7 @@ function StreamVideo({ stream, muted = false, label, sinkId = "", fit = "cover" 
 }
 
 function RemoteParticipantMedia({ stream, participantName, sharing, sinkId }: { stream: MediaStream; participantName: string; sharing: boolean; sinkId: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [audioBlocked, setAudioBlocked] = useState(false);
@@ -86,12 +87,18 @@ function RemoteParticipantMedia({ stream, participantName, sharing, sinkId }: { 
     };
   }, [sinkId, stream]);
 
-  return <>
+  const toggleFullscreen = async () => {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await containerRef.current?.requestFullscreen();
+  };
+
+  return <div ref={containerRef} className="relative h-full w-full bg-black">
     <audio ref={audioRef} autoPlay aria-label={`Áudio de ${participantName}`} />
     <video ref={videoRef} autoPlay playsInline muted aria-label={sharing ? `Tela compartilhada por ${participantName}` : `Câmera de ${participantName}`} className={`h-full w-full bg-black ${sharing ? "object-contain" : "object-cover"} ${videoActive ? "" : "invisible"}`} />
     {!videoActive && <div className="absolute inset-0 grid place-items-center bg-[#050709] text-center"><div><span className="team-call-primary-button mx-auto grid h-24 w-24 place-items-center rounded-full text-2xl font-black text-white">{initials(participantName)}</span><p className="mt-4 text-sm font-black">{sharing ? "Recebendo a transmissão de tela..." : `${participantName} está sem câmera`}</p></div></div>}
     {audioBlocked && <button type="button" onClick={() => { const audio = audioRef.current; if (audio) void audio.play().then(() => setAudioBlocked(false)).catch(() => undefined); }} className="team-call-enable-audio absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full px-4 py-2 text-xs font-black" aria-label={`Ativar áudio de ${participantName}`}><Volume2 size={15} /> Ativar áudio</button>}
-  </>;
+    {sharing && <button type="button" onClick={() => void toggleFullscreen()} className="team-call-screen-label absolute right-3 top-3 z-20 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-black" aria-label={`Ver tela de ${participantName} em tela cheia`}><Maximize2 size={15} /> Tela cheia</button>}
+  </div>;
 }
 
 function deviceLabel(device: MediaDeviceInfo, prefix: string, index: number) {
@@ -116,6 +123,7 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
   const [chatOpen, setChatOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
+  const [qualityOpen, setQualityOpen] = useState(false);
   const [messageText, setMessageText] = useState("");
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -166,6 +174,7 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
     setPeopleOpen(panel === "people" ? !peopleOpen : false);
     setDevicesOpen(panel === "devices" ? !devicesOpen : false);
     setReactionsOpen(false);
+    setQualityOpen(false);
   };
   const connectionLabel = { offline: "Sem internet", connecting: "Conectando", poor: "Conexão fraca", fair: "Conexão estável", good: "Conexão excelente" }[call.connectionQuality];
   const connectionColor = { offline: "text-rose-300", connecting: "text-amber-300", poor: "text-rose-300", fair: "text-amber-300", good: "text-emerald-300" }[call.connectionQuality];
@@ -184,12 +193,14 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
           <div role="status" className={`team-call-top-control ${connectionColor}`} aria-label={`Qualidade da internet: ${connectionLabel}`} title={connectionLabel}>{call.connectionQuality === "offline" ? <WifiOff size={19} /> : <Wifi size={19} />}<span>{connectionLabel}</span></div>
           <button type="button" onClick={() => { setReactionsOpen((current) => !current); setDevicesOpen(false); setChatOpen(false); setPeopleOpen(false); }} className={`team-call-top-control ${reactionsOpen ? "team-call-active" : ""}`} aria-label="Enviar reação com emoji"><SmilePlus size={19} /><span>Reagir</span></button>
           <button type="button" onClick={() => void call.toggleScreenShare()} className={`team-call-top-control ${call.sharingScreen ? "team-call-active" : ""}`} aria-label={call.sharingScreen ? "Parar transmissão de tela" : "Transmitir tela"}><MonitorUp size={19} /><span>{call.sharingScreen ? "Parar tela" : "Transmitir tela"}</span></button>
+          <button type="button" onClick={() => { setQualityOpen((current) => !current); setDevicesOpen(false); setChatOpen(false); setPeopleOpen(false); setReactionsOpen(false); }} className={`team-call-top-control ${qualityOpen ? "team-call-active" : ""}`} aria-label="Configurar qualidade da transmissão"><SlidersHorizontal size={19} /><span>Qualidade</span></button>
           <button type="button" onClick={() => void call.toggleCamera()} className={`team-call-top-control ${call.cameraOff ? "team-call-danger" : ""}`} aria-label={call.cameraOff ? "Ativar câmera" : "Desativar câmera"}>{call.cameraOff ? <CameraOff size={19} /> : <Camera size={19} />}<span>Câmera</span></button>
           <button type="button" onClick={call.toggleMute} className={`team-call-top-control ${call.muted ? "team-call-danger" : ""}`} aria-label={call.muted ? "Ativar microfone" : "Silenciar microfone"}>{call.muted ? <MicOff size={19} /> : <Mic size={19} />}<span>Microfone</span></button>
           <button type="button" onClick={() => togglePanel("devices")} className={`team-call-top-control ${devicesOpen ? "team-call-active" : ""}`} aria-label="Selecionar câmera e dispositivos de áudio"><Settings2 size={19} /><span>Dispositivos</span></button>
           <button type="button" onClick={() => void (call.isHost ? call.endCall() : call.leaveCall())} className="team-call-top-control team-call-danger ml-2" aria-label={call.isHost ? "Encerrar reunião" : "Sair da reunião"}><PhoneOff size={20} /><span>{call.isHost ? "Encerrar" : "Sair"}</span></button>
         </nav>
         {devicesOpen && <DeviceSelector call={call} onClose={() => setDevicesOpen(false)} />}
+        {qualityOpen && <ScreenShareQualitySelector call={call} onClose={() => setQualityOpen(false)} />}
         {reactionsOpen && <section className="team-call-popover absolute right-3 top-[calc(100%+10px)] z-20 flex gap-1 rounded-2xl border p-2 shadow-2xl" aria-label="Reações da reunião">{["👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"].map((emoji) => <button key={emoji} type="button" onClick={() => { call.sendReaction(emoji); setReactionsOpen(false); }} className="grid h-11 w-11 place-items-center rounded-xl text-2xl hover:bg-[#1b2128]" aria-label={`Reagir com ${emoji}`}>{emoji}</button>)}</section>}
       </header>
 
@@ -228,6 +239,15 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
       </div>
     </div>, document.body,
   );
+}
+
+function ScreenShareQualitySelector({ call, onClose }: { call: ReturnTypeOfTeamCall; onClose: () => void }) {
+  return <section className="team-call-popover absolute right-3 top-[calc(100%+10px)] z-20 grid w-[min(92vw,360px)] gap-4 rounded-2xl border p-4 text-left shadow-2xl" aria-label="Qualidade da transmissão de tela">
+    <div className="flex items-center justify-between"><div><p className="text-sm font-black">Transmissão de tela</p><p className="text-xs text-[var(--text-secondary)]">Ajuste a qualidade enviada aos participantes.</p></div><button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-[var(--surface-hover)]" aria-label="Fechar qualidade"><X size={17} /></button></div>
+    <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]"><span>Qualidade da transmissão</span><select value={call.screenShareQuality} onChange={(event) => void call.selectScreenShareQuality(event.target.value as typeof call.screenShareQuality)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none"><option value="720p">HD · 720p</option><option value="1080p">Full HD · 1080p</option><option value="1440p">Quad HD · 1440p</option></select></label>
+    <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]"><span>Taxa de quadros</span><select value={call.screenShareFps} onChange={(event) => void call.selectScreenShareFps(Number(event.target.value) as typeof call.screenShareFps)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none"><option value={15}>15 FPS · economiza internet</option><option value={30}>30 FPS · recomendado</option><option value={60}>60 FPS · movimento fluido</option></select></label>
+    <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">A mudança é aplicada durante a transmissão. O navegador pode reduzir a resolução se a conexão não suportar.</p>
+  </section>;
 }
 
 function DeviceSelector({ call, onClose }: { call: ReturnTypeOfTeamCall; onClose: () => void }) {

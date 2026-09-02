@@ -39,7 +39,7 @@ USER norium
 
 # Falha o build se o binario empacotado nao conseguir abrir uma pagina e
 # executar uma interacao DOM real sob o mesmo usuario da aplicacao.
-RUN python -c "import asyncio; from playwright.async_api import async_playwright; exec('async def smoke():\n async with async_playwright() as p:\n  browser = await p.chromium.launch(headless=True, args=[\"--disable-dev-shm-usage\"])\n  page = await browser.new_page()\n  await page.set_content(\"<button id=ok>pendente</button><script>ok.onclick=()=>ok.textContent=\\\"executado\\\"</script>\")\n  await page.locator(\"#ok\").click()\n  assert await page.locator(\"#ok\").inner_text() == \"executado\"\n  await browser.close()\n'); asyncio.run(smoke())"
+RUN python -m app.infrastructure.browser_runtime_smoke
 
 EXPOSE 8000
 

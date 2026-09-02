@@ -250,6 +250,12 @@ describe("chamadas do Modo Equipe", () => {
     expect(result.current.remoteStreams[0].stream.getVideoTracks()).toEqual([remoteScreenTrack]);
     await act(async () => result.current.handleSocketEvent({ type: "CALL_SCREEN_STARTED", callId: result.current.active?.callId, fromUserId: "member", fromUserName: "Member" }));
     expect(result.current.remoteScreenSharingIds).toContain("member");
+    expect(peer.createOffer).toHaveBeenCalledTimes(2);
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: "CALL_SIGNAL",
+      targetUserId: "member",
+      signal: expect.objectContaining({ type: "offer" }),
+    }));
 
     await act(async () => result.current.toggleCamera());
     expect(replaceTrack).toHaveBeenLastCalledWith(cameraTrack);

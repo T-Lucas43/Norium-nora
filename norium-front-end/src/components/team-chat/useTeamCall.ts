@@ -157,6 +157,7 @@ export function useTeamCall({
   const videoSendersRef = useRef(new Map<string, RTCRtpSender>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const remoteStreamByUserRef = useRef(new Map<string, MediaStream>());
+  const screenRecoveryTimersRef = useRef(new Map<string, number>());
   const screenStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamsRef = useRef<Array<{ userId: string; stream: MediaStream }>>([]);
   const connectingSoundTimerRef = useRef<number | null>(null);
@@ -228,6 +229,9 @@ export function useTeamCall({
   }), []);
 
   const closePeer = useCallback((userId: string) => {
+    const recoveryTimer = screenRecoveryTimersRef.current.get(userId);
+    if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
+    screenRecoveryTimersRef.current.delete(userId);
     peersRef.current.get(userId)?.close();
     peersRef.current.delete(userId);
     audioSendersRef.current.delete(userId);
@@ -264,6 +268,8 @@ export function useTeamCall({
       track.onended = null;
     }));
     remoteStreamByUserRef.current.clear();
+    screenRecoveryTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    screenRecoveryTimersRef.current.clear();
     setRemoteStreams([]);
     setRemoteScreenSharingIds([]);
     stopMedia();
@@ -796,6 +802,16 @@ export function useTeamCall({
         }
         const stream = new MediaStream(tracks);
         remoteStreamByUserRef.current.set(remoteUserId, stream);
+        if (event.track.kind === "video") {
+          const markVideoReceived = () => {
+            const recoveryTimer = screenRecoveryTimersRef.current.get(remoteUserId);
+            if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
+            screenRecoveryTimersRef.current.delete(remoteUserId);
+            if (recoveryTimer !== undefined) setStatus("Transmissão de tela recebida");
+          };
+          if (!event.track.muted) markVideoReceived();
+          else event.track.addEventListener("unmute", markVideoReceived, { once: true });
+        }
         event.track.onended = () => {
           const current = remoteStreamByUserRef.current.get(remoteUserId);
           if (!current) return;
@@ -846,6 +862,32 @@ export function useTeamCall({
     if (createOffer) await negotiatePeer(remoteUserId, peer);
     return peer;
   }, [callPayload, closePeer, negotiatePeer, sendSocketEvent, session.user.id]);
+
+  const requestRemoteScreenRefresh = useCallback(async (remoteUserId: string) => {
+    // Quem recebe cria uma nova oferta depois que o outro lado anexou a faixa
+    // de tela. Isso corrige navegadores que mantêm o transceiver inicialmente
+    // vazio em recvonly e não liberam quadros apenas com replaceTrack().
+    const peer = await createPeer(remoteUserId, true);
+    const previousTimer = screenRecoveryTimersRef.current.get(remoteUserId);
+    if (previousTimer !== undefined) window.clearTimeout(previousTimer);
+    const recoveryTimer = window.setTimeout(() => {
+      screenRecoveryTimersRef.current.delete(remoteUserId);
+      const remoteVideoReady = remoteStreamByUserRef.current
+        .get(remoteUserId)
+        ?.getVideoTracks()
+        .some((track) => track.readyState === "live" && !track.muted);
+      if (remoteVideoReady) return;
+      const currentPeer = peersRef.current.get(remoteUserId);
+      if (!currentPeer) return;
+      if (["failed", "disconnected"].includes(currentPeer.connectionState)) currentPeer.restartIce();
+      setStatus("Reconectando a transmissão de tela...");
+      void negotiatePeer(remoteUserId, currentPeer).catch(() => {
+        setStatus("Não foi possível receber a tela. Peça ao participante para interromper e compartilhar novamente.");
+      });
+    }, 3500);
+    screenRecoveryTimersRef.current.set(remoteUserId, recoveryTimer);
+    return peer;
+  }, [createPeer, negotiatePeer]);
 
   const startCall = useCallback(async (targetThread: TeamCallThread = thread) => {
     if (activeRef.current) return;
@@ -951,9 +993,13 @@ export function useTeamCall({
     if (event.type === "CALL_SCREEN_STARTED") {
       setRemoteScreenSharingIds((current) => current.includes(event.fromUserId as string) ? current : [...current, event.fromUserId as string]);
       setStatus(`${event.fromUserName || "Um participante"} está compartilhando a tela.`);
+      await requestRemoteScreenRefresh(event.fromUserId);
       return;
     }
     if (event.type === "CALL_SCREEN_STOPPED") {
+      const recoveryTimer = screenRecoveryTimersRef.current.get(event.fromUserId);
+      if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
+      screenRecoveryTimersRef.current.delete(event.fromUserId);
       setRemoteScreenSharingIds((current) => current.filter((item) => item !== event.fromUserId));
       setStatus(`${event.fromUserName || "Um participante"} encerrou o compartilhamento.`);
       return;
@@ -1026,7 +1072,7 @@ export function useTeamCall({
       await stopRecording();
       finishCall(false, "ended");
     }
-  }, [callPayload, closePeer, createPeer, finishCall, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording]);
+  }, [callPayload, closePeer, createPeer, finishCall, requestRemoteScreenRefresh, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;

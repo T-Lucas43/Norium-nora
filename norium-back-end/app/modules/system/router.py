@@ -44,7 +44,7 @@ async def browser_health() -> dict[str, Any]:
         if _browser_health_cache is None:
             from app.modules.intelligence.browser_runtime import browser_runtime_health
 
-            _browser_health_cache = await asyncio.wait_for(browser_runtime_health(), timeout=45)
+            _browser_health_cache = await asyncio.wait_for(browser_runtime_health(), timeout=20)
     return _browser_health_cache
 
 

@@ -600,16 +600,33 @@ async def decide_browser_action(user: dict[str, Any], run_id: str, action_id: st
 
 
 async def browser_runtime_health() -> dict[str, Any]:
-    """Executa uma navegacao e um clique reais em destino publico fixo."""
+    """Comprova o Chromium real sem depender da rede externa do provedor."""
+    health_document = """<!doctype html>
+<html lang="pt-BR">
+  <head><meta charset="utf-8"><title>Norium Browser Runtime</title></head>
+  <body>
+    <button id="proof" type="button" onclick="this.textContent='executed'">pending</button>
+  </body>
+</html>"""
+    health_url = "data:text/html;base64," + base64.b64encode(health_document.encode("utf-8")).decode("ascii")
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
         try:
             page = await browser.new_page(viewport={"width": 1024, "height": 768})
-            await page.goto("https://example.com", wait_until="domcontentloaded", timeout=20_000)
+            await page.goto(health_url, wait_until="domcontentloaded", timeout=8_000)
             title = await page.title()
-            link = page.locator("a").first
-            await link.click(timeout=10_000)
-            await page.wait_for_load_state("domcontentloaded", timeout=20_000)
-            return {"ok": True, "engine": "chromium", "startTitle": title, "interaction": "link_clicked", "finalHost": urlparse(page.url).hostname}
+            button = page.locator("#proof")
+            await button.click(timeout=5_000)
+            result = await button.text_content(timeout=5_000)
+            if result != "executed":
+                raise RuntimeError("Chromium nao confirmou o clique de verificacao.")
+            return {
+                "ok": True,
+                "engine": "chromium",
+                "navigation": "isolated_data_document",
+                "title": title,
+                "interaction": "button_clicked",
+                "result": result,
+            }
         finally:
-            await browser.close()
+            await asyncio.wait_for(browser.close(), timeout=5)

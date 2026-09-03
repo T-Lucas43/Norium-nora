@@ -22,7 +22,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Mapping
 from urllib.parse import quote, unquote, urlparse
 from zoneinfo import ZoneInfo
 
@@ -33,6 +33,37 @@ from fastapi.responses import FileResponse, Response
 from pydantic import Field, model_validator
 
 from app.shared.schemas import StrictModel
+from app.modules.whatsapp import (
+    ConsentRequired,
+    FeatureUnavailable,
+    InvalidMedia,
+    MediaNotFound,
+    MediaTooLarge,
+    NotConnected,
+    OwnershipConflict,
+    RemoteOutcomeUnknown,
+    RemoteRejected,
+    RemoteUnavailable,
+    SendMedia,
+    SendResult,
+    SendText,
+    UnknownWebhookInstance,
+    UnsupportedMedia,
+    WebhookProcessingFailed,
+    WebhookUnauthorized,
+    WebhookUnavailable,
+    WhatsAppIntegration,
+    WhatsAppIntegrationError,
+)
+from app.modules.whatsapp._ports import (
+    PreparedSend,
+    ProviderMedia,
+    ProviderMediaCommand,
+    ProviderSendReceipt,
+    ProviderTextCommand,
+)
+from app.modules.whatsapp.http_adapter import HttpWApiAdapter
+from app.modules.whatsapp.runtime_adapter import LegacyWhatsAppRuntimeAdapter
 
 load_dotenv()
 
@@ -60,7 +91,7 @@ from app.services.conversation_store import (
     whatsapp_conversation_mutation_lock,
     whatsapp_conversation_mutation_locks,
 )
-from app.services.wapi_connect import WapiConnectService, ConsentRequiredError
+from app.services.wapi_connect import WapiConnectService
 from app.services.wapi_messaging import (
     WapiMessagingService,
     MessagingUnavailable,
@@ -90,6 +121,51 @@ def _messaging_http_error(exc: Exception, default_detail: str) -> HTTPException:
     if isinstance(exc, WapiError) and (exc.status == 403 or "acesso negado" in str(exc.message or "").lower()):
         return HTTPException(status_code=501, detail="Recurso indisponivel no plano atual da W-API.")
     return HTTPException(status_code=502, detail=default_detail)
+
+
+def _whatsapp_http_error(
+    exc: WhatsAppIntegrationError,
+    default_detail: str,
+    *,
+    default_status: int = 502,
+) -> HTTPException:
+    """Traduz erros estaveis do modulo para o contrato HTTP existente."""
+    if isinstance(exc, ConsentRequired):
+        return HTTPException(
+            status_code=403,
+            detail={"code": exc.code, "message": str(exc)},
+        )
+    if isinstance(exc, WebhookUnavailable):
+        return HTTPException(status_code=503, detail=str(exc))
+    if isinstance(exc, WebhookUnauthorized):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, UnknownWebhookInstance):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, WebhookProcessingFailed):
+        return HTTPException(status_code=502, detail=str(exc))
+    if isinstance(exc, NotConnected):
+        return HTTPException(
+            status_code=409,
+            detail="WhatsApp nao esta conectado nesta conta.",
+        )
+    if isinstance(exc, FeatureUnavailable):
+        return HTTPException(status_code=501, detail=str(exc))
+    if isinstance(exc, MediaNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, MediaTooLarge):
+        return HTTPException(status_code=413, detail=str(exc))
+    if isinstance(exc, UnsupportedMedia):
+        return HTTPException(status_code=415, detail=str(exc))
+    if isinstance(exc, InvalidMedia):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, OwnershipConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(
+        exc,
+        (RemoteOutcomeUnknown, RemoteRejected, RemoteUnavailable),
+    ):
+        return HTTPException(status_code=default_status, detail=default_detail)
+    return HTTPException(status_code=default_status, detail=default_detail)
 
 status_conexoes: Dict[str, Dict[str, Dict[str, Any]]] = {}
 WAPI_WEBHOOK_SECRET = os.getenv("WAPI_WEBHOOK_SECRET", "")
@@ -2059,23 +2135,19 @@ async def registrar_consentimento(
 async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, payload.canal)
-    user_status = connection_status(resolved_user_id)
     try:
-        resultado = await wapi_connect.start(resolved_user_id)
-    except ConsentRequiredError as exc:
-        # Bloqueia a geração do QR sem aceite, inclusive por chamada direta.
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "consent_required", "message": str(exc)},
+        resultado = await whatsapp_integration.ensure_connection(resolved_user_id)
+    except WhatsAppIntegrationError as exc:
+        raise _whatsapp_http_error(
+            exc,
+            "API do WhatsApp ainda nao esta disponivel.",
+            default_status=503,
         ) from exc
-    status = resultado.get("status")
-    user_status["whatsapp"]["conectado"] = status == "conectado"
+    status = resultado.status
     if status in {"conectado", "aguardando_qrcode", "iniciando"}:
-        if status == "conectado":
-            schedule_contact_sync(resolved_user_id)
         return {
             "status": status,
-            "qrcode": None if status == "conectado" else resultado.get("qrcode"),
+            "qrcode": None if status == "conectado" else resultado.qr_code,
             "sincronizacao": dict(contact_sync_state(resolved_user_id)),
         }
     raise HTTPException(status_code=503, detail="API do WhatsApp ainda nao esta disponivel.")
@@ -2085,16 +2157,32 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
 async def desconectar_whatsapp(user: dict[str, Any] = Depends(current_user)):
     assert_channel_permission(user, "whatsapp")
     resolved_user_id = tenant_id(user)
-    # Desconexão LOCAL: remove o WhatsApp apenas do Norium, SEM chamar o
-    # /instance/disconnect da W-API — esse endpoint desloga a conta inteira e
-    # derruba o celular e os demais aparelhos. Aqui limpamos só o vínculo e o
-    # cache locais; os outros dispositivos do usuário permanecem conectados.
+    try:
+        result = await whatsapp_integration.disconnect(resolved_user_id)
+    except WhatsAppIntegrationError as exc:
+        raise _whatsapp_http_error(
+            exc,
+            "Nao foi possivel desconectar o WhatsApp.",
+        ) from exc
+    return {"status": result.status}
+
+
+async def _whatsapp_connection_established(
+    resolved_user_id: str,
+    result,
+):
+    user_status = connection_status(resolved_user_id)
+    user_status["whatsapp"]["conectado"] = result.status == "conectado"
+    if result.status == "conectado":
+        schedule_contact_sync(resolved_user_id)
+    return result
+
+
+async def _whatsapp_disconnect_local(resolved_user_id: str) -> None:
+    """Remove binding e caches locais sem deslogar a instancia remota."""
     sync_task = whatsapp_contact_sync_tasks.pop(resolved_user_id, None)
     if sync_task and not sync_task.done():
         sync_task.cancel()
-    # Compartilha o lock com sincronização e webhooks. O vínculo é removido antes
-    # dos caches para que qualquer evento que já resolveu o tenant, mas ainda
-    # aguardava o lock, falhe na reconfirmação e não grave dados após a limpeza.
     async with whatsapp_conversation_mutation_lock(resolved_user_id):
         wb.clear_binding(resolved_user_id)
         await save_conversations({}, resolved_user_id)
@@ -2104,7 +2192,6 @@ async def desconectar_whatsapp(user: dict[str, Any] = Depends(current_user)):
     for cache_key in [key for key in profile_photo_attempt_cache if key.startswith(f"{resolved_user_id}:")]:
         profile_photo_attempt_cache.pop(cache_key, None)
     status_conexoes.pop(resolved_user_id, None)
-    return {"status": "desconectado"}
 
 
 @router.post("/api/whatsapp/webhook")
@@ -2118,119 +2205,83 @@ async def webhook_whatsapp(
     x_norium_event_id: str | None = Header(default=None),
     request: Request = None,
 ):
-    # 1) Autenticacao: segredo compartilhado via query (?secret=) ou header.
-    #    A URL registrada na W-API leva o segredo, entao chega em toda chamada.
     supplied_secret = ""
     if request is not None:
         supplied_secret = str(
-            request.query_params.get("secret") or request.headers.get("x-wapi-webhook-secret") or ""
+            request.query_params.get("secret")
+            or request.headers.get("x-wapi-webhook-secret")
+            or ""
         )
-    if not WAPI_WEBHOOK_SECRET:
-        if is_shared_environment(require_explicit=True):
-            raise HTTPException(status_code=503, detail="Webhook WhatsApp indisponivel ate a configuracao segura.")
-    elif not is_valid_wapi_webhook_secret(WAPI_WEBHOOK_SECRET):
-        raise HTTPException(status_code=503, detail="Webhook WhatsApp indisponivel ate a configuracao segura.")
-    elif not secrets.compare_digest(supplied_secret, WAPI_WEBHOOK_SECRET):
-        raise HTTPException(status_code=403, detail="Webhook WhatsApp nao autorizado.")
+    try:
+        result = await whatsapp_integration.handle_webhook(
+            {"x-wapi-webhook-secret": supplied_secret},
+            data,
+        )
+    except WhatsAppIntegrationError as exc:
+        raise _whatsapp_http_error(
+            exc,
+            "Falha temporaria ao processar webhook.",
+        ) from exc
+    return result.as_dict()
 
-    # 2) Dono resolvido pela instancia (mapa seguro). Nunca confia em userId do payload.
-    instance_id = wapi_webhook.instance_id(data)
-    owner_user_id = wb.owner_of_instance(instance_id) if instance_id else None
-    if not owner_user_id:
-        # Nao revela a existencia de instancias de terceiros.
-        raise HTTPException(status_code=404, detail="Evento nao reconhecido.")
 
-    # 3) Deduplicacao por (instancia + tipo de evento + id). Recebido e status
-    #    compartilham o messageId, entao a chave inclui o tipo/status. Eventos em
-    #    voo aguardam o primeiro processamento; apenas sucesso entra no cache.
-    kind = wapi_webhook.classify_event(data)
+async def _whatsapp_dispatch_webhook(
+    owner_user_id: str,
+    payload: Mapping[str, Any],
+    kind: str,
+) -> Dict[str, Any]:
+    data = dict(payload)
     if WHATSAPP_WEBHOOK_DEBUG:
         try:
-            webhook_debug_logger.info("WAPI_WEBHOOK_DEBUG %r", _webhook_debug_snapshot(data, kind))
-        except Exception:  # diagnóstico nunca pode quebrar o webhook
-            webhook_debug_logger.info("WAPI_WEBHOOK_DEBUG <falha ao serializar>")
-    now = time.time()
-    for expired in [eid for eid, expires_at in whatsapp_webhook_event_cache.items() if expires_at <= now]:
-        whatsapp_webhook_event_cache.pop(expired, None)
-    raw_id = wapi_webhook.event_id(data)
-    dedup_id = ""
-    processing_future: asyncio.Future[bool] | None = None
-    if raw_id:
-        status_token = ""
-        if kind == wapi_webhook.EVENT_STATUS:
-            wrapped_status = data.get("data") if isinstance(data.get("data"), dict) else {}
-            status_token = str(
-                data.get("status") or data.get("ack") or data.get("state")
-                or data.get("chatStatus") or data.get("unreadCount")
-                or wrapped_status.get("status") or wrapped_status.get("ack") or wrapped_status.get("state")
-                or wrapped_status.get("chatStatus") or wrapped_status.get("unreadCount") or ""
-            ).strip().lower()
-        dedup_id = f"{instance_id}:{kind}:{raw_id}:{status_token}"
-        while True:
-            if dedup_id in whatsapp_webhook_event_cache:
-                return {"status": "duplicate"}
-            active = whatsapp_webhook_inflight.get(dedup_id)
-            if active is None:
-                processing_future = asyncio.get_running_loop().create_future()
-                whatsapp_webhook_inflight[dedup_id] = processing_future
-                break
-            if await asyncio.shield(active):
-                return {"status": "duplicate"}
+            webhook_debug_logger.info(
+                "WAPI_WEBHOOK_DEBUG %r",
+                _webhook_debug_snapshot(data, kind),
+            )
+        except Exception:
+            webhook_debug_logger.info(
+                "WAPI_WEBHOOK_DEBUG <falha ao serializar>"
+            )
 
-    # 4) Dispatch por tipo de evento.
-    try:
-        if wapi_webhook.is_status_broadcast(data):
-            result = await _wapi_handle_status_broadcast(owner_user_id, data)
-        elif kind == wapi_webhook.EVENT_RECEIVED:
-            result = await _wapi_handle_received(owner_user_id, data)
-        elif kind == wapi_webhook.EVENT_STATUS:
-            # Algumas configurações usam webhookDelivery ("Ao enviar") para
-            # entregar também o conteúdo da mensagem criada no celular. Nesse
-            # caso ela precisa aparecer no Norium como fromMe, além do ACK.
-            adapted_outgoing = wapi_webhook.adapt_incoming(data)
-            if (
-                adapted_outgoing
-                and adapted_outgoing.get("fromMe")
-                and (
-                    adapted_outgoing.get("texto")
-                    or adapted_outgoing.get("tipo") not in {None, "texto"}
-                    or adapted_outgoing.get("midiaMeta")
-                )
-            ):
-                received_result = await _wapi_handle_received(owner_user_id, data)
-                status_result = await _wapi_handle_status(owner_user_id, data)
-                result = {
-                    "status": "success"
-                    if "success" in {received_result.get("status"), status_result.get("status")}
-                    else received_result.get("status") or status_result.get("status") or "ignored",
-                    "event": "outgoing_sync",
-                }
-            else:
-                result = await _wapi_handle_status(owner_user_id, data)
-        elif kind == wapi_webhook.EVENT_PRESENCE:
-            result = await _wapi_handle_status(owner_user_id, data)
-        elif kind in (wapi_webhook.EVENT_CONNECTED, wapi_webhook.EVENT_DISCONNECTED):
-            result = await _wapi_handle_connection_event(owner_user_id, kind, data)
-        else:
-            result = {"status": "ignored", "event": kind}
-
-        if dedup_id:
-            whatsapp_webhook_event_cache[dedup_id] = time.time() + 600
-        if processing_future is not None and not processing_future.done():
-            processing_future.set_result(True)
-        return result
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Falha ao processar webhook W-API.")
-        raise HTTPException(status_code=502, detail="Falha temporaria ao processar webhook.")
-    finally:
-        if processing_future is not None:
-            if not processing_future.done():
-                processing_future.set_result(False)
-            if whatsapp_webhook_inflight.get(dedup_id) is processing_future:
-                whatsapp_webhook_inflight.pop(dedup_id, None)
-
+    if wapi_webhook.is_status_broadcast(data):
+        return await _wapi_handle_status_broadcast(owner_user_id, data)
+    if kind == wapi_webhook.EVENT_RECEIVED:
+        return await _wapi_handle_received(owner_user_id, data)
+    if kind == wapi_webhook.EVENT_STATUS:
+        adapted_outgoing = wapi_webhook.adapt_incoming(data)
+        if (
+            adapted_outgoing
+            and adapted_outgoing.get("fromMe")
+            and (
+                adapted_outgoing.get("texto")
+                or adapted_outgoing.get("tipo") not in {None, "texto"}
+                or adapted_outgoing.get("midiaMeta")
+            )
+        ):
+            received_result = await _wapi_handle_received(owner_user_id, data)
+            status_result = await _wapi_handle_status(owner_user_id, data)
+            return {
+                "status": (
+                    "success"
+                    if "success"
+                    in {
+                        received_result.get("status"),
+                        status_result.get("status"),
+                    }
+                    else received_result.get("status")
+                    or status_result.get("status")
+                    or "ignored"
+                ),
+                "event": "outgoing_sync",
+            }
+        return await _wapi_handle_status(owner_user_id, data)
+    if kind == wapi_webhook.EVENT_PRESENCE:
+        return await _wapi_handle_status(owner_user_id, data)
+    if kind in (
+        wapi_webhook.EVENT_CONNECTED,
+        wapi_webhook.EVENT_DISCONNECTED,
+    ):
+        return await _wapi_handle_connection_event(owner_user_id, kind, data)
+    return {"status": "ignored", "event": kind}
 
 async def _wapi_apply_reaction(user_id: str, msg: Dict[str, Any]) -> Dict[str, Any]:
     """Reação recebida: atualiza a mensagem alvo em vez de criar uma mensagem."""
@@ -3225,28 +3276,40 @@ async def obter_detalhes_conversa(
     return normalized
 
 
-@router.get("/api/chat/midia/{message_id}")
-async def obter_midia_whatsapp(
+async def _whatsapp_stream_media_legacy(
+    resolved_user_id: str,
     message_id: str,
-    conversa_id: str | None = Query(default=None, max_length=120),
-    user: dict[str, Any] = Depends(current_user),
-):
-    assert_channel_permission(user, "whatsapp")
-    resolved_user_id = tenant_id(user)
+) -> ProviderMedia:
     cached = await asyncio.to_thread(read_whatsapp_media_cache, resolved_user_id, message_id)
     if cached:
         file_bytes, mime_type = cached
-        return Response(
+        return ProviderMedia(
             content=file_bytes,
-            media_type=mime_type,
-            headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
+            mime_type=mime_type,
+            cache_control="private, max-age=86400",
         )
 
-    resolved_conversation_id = conversa_id
+    resolved_conversation_id: str | None = None
     if not resolved_conversation_id:
         db = await load_conversations(resolved_user_id)
         for candidate_id, conversation in db.items():
             if any(str(item.get("id") or "") == message_id for item in conversation.get("mensagens") or []):
+                resolved_conversation_id = candidate_id
+                break
+    if not resolved_conversation_id:
+        catalog = await load_whatsapp_catalog_cache(resolved_user_id)
+        for channel in catalog.get("channels") or []:
+            if not isinstance(channel, dict):
+                continue
+            candidate_id = str(channel.get("id") or "")
+            if (
+                candidate_id
+                and channel_catalog_media_meta(
+                    catalog,
+                    candidate_id,
+                    message_id,
+                )
+            ):
                 resolved_conversation_id = candidate_id
                 break
 
@@ -3386,10 +3449,39 @@ async def obter_midia_whatsapp(
         raise HTTPException(status_code=413, detail="Midia acima do limite permitido.")
     _validated_remote_mime_type(mime_type)
     await asyncio.to_thread(write_whatsapp_media_cache, resolved_user_id, message_id, file_bytes, mime_type)
-    return Response(
+    return ProviderMedia(
         content=file_bytes,
-        media_type=mime_type,
-        headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"},
+        mime_type=mime_type,
+        cache_control="private, max-age=86400",
+    )
+
+
+@router.get("/api/chat/midia/{message_id}")
+async def obter_midia_whatsapp(
+    message_id: str,
+    conversa_id: str | None = Query(default=None, max_length=120),
+    user: dict[str, Any] = Depends(current_user),
+):
+    assert_channel_permission(user, "whatsapp")
+    resolved_user_id = tenant_id(user)
+    try:
+        media = await whatsapp_integration.stream_media(
+            resolved_user_id,
+            message_id,
+        )
+    except WhatsAppIntegrationError as exc:
+        raise _whatsapp_http_error(
+            exc,
+            "Midia indisponivel no WhatsApp.",
+            default_status=404,
+        ) from exc
+    return Response(
+        content=media.content,
+        media_type=media.mime_type,
+        headers={
+            "Cache-Control": media.cache_control,
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
@@ -4165,123 +4257,168 @@ async def quoted_message_preview(
     return None
 
 
-@router.post("/api/chat/enviar")
-async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] = Depends(current_user)):
-    resolved_user_id = tenant_id(user)
-    assert_channel_permission(user, payload.canal)
+def _whatsapp_media_error(exc: HTTPException) -> WhatsAppIntegrationError:
+    detail = str(exc.detail or "")
+    if exc.status_code == 413:
+        return MediaTooLarge()
+    if exc.status_code == 415:
+        return UnsupportedMedia(detail or "Tipo de midia nao permitido.")
+    return InvalidMedia(detail or "Arquivo de midia invalido.")
 
+
+async def _whatsapp_prepare_send(
+    resolved_user_id: str,
+    command: SendText | SendMedia,
+) -> PreparedSend:
     citada = await quoted_message_preview(
         resolved_user_id,
-        payload.conversa_id,
-        payload.responder_a,
+        command.conversation_id,
+        command.reply_to,
     )
+    if isinstance(command, SendText):
+        return PreparedSend(
+            command=command,
+            provider=ProviderTextCommand(
+                conversation_id=command.conversation_id,
+                text=command.text,
+                reply_to=command.reply_to or "",
+            ),
+            context={"citada": citada},
+        )
 
     try:
-        result = await wapi_messaging.send_text(
-            resolved_user_id, payload.conversa_id, payload.texto, quoted_message_id=payload.responder_a or ""
+        file_bytes, mime_type = decode_data_url(
+            command.data_url,
+            command.mime_type,
         )
-    except (MessagingUnavailable, WapiError) as exc:
-        raise _messaging_http_error(exc, "A API do WhatsApp recusou o envio.") from exc
-    if not result.get("sent"):
-        raise HTTPException(status_code=502, detail="A API do WhatsApp recusou o envio.")
+        if command.view_once:
+            safe_file_name = safe_upload_name(command.file_name, mime_type)
+            local_url = None
+        else:
+            local_url, safe_file_name = save_upload_file(
+                resolved_user_id,
+                command.file_name,
+                mime_type,
+                file_bytes,
+            )
+    except HTTPException as exc:
+        raise _whatsapp_media_error(exc) from None
 
-    async with whatsapp_conversation_mutation_lock(resolved_user_id):
-        await append_outgoing_message(
-            payload.conversa_id,
-            payload.texto,
-            channel="whatsapp",
-            status="enviado",
-            message_id=str(result.get("messageId") or "") or None,
-            citada=citada,
-            user_id=resolved_user_id,
-        )
-    await mark_whatsapp_conversation_updated(resolved_user_id, payload.conversa_id)
-    await record_event(
-        source="whatsapp",
-        title="Mensagem enviada no WhatsApp",
-        description=payload.texto,
-        metadata={
-            "conversaId": payload.conversa_id,
-            "channel": "whatsapp",
-            "direction": "outgoing",
-            "userId": resolved_user_id,
-        },
-    )
-    return {"status": "enviado_real", "canal": "whatsapp"}
-
-
-@router.post("/api/chat/enviar-arquivo")
-async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = Depends(current_user)):
-    resolved_user_id = tenant_id(user)
-    assert_channel_permission(user, payload.canal)
-    citada = await quoted_message_preview(
-        resolved_user_id,
-        payload.conversa_id,
-        payload.responder_a,
-    )
-    file_bytes, mime_type = decode_data_url(payload.data_url, payload.mime_type)
-    if payload.visualizacao_unica:
-        safe_file_name = safe_upload_name(payload.nome_arquivo, mime_type)
-        local_url = None
-    else:
-        local_url, safe_file_name = save_upload_file(resolved_user_id, payload.nome_arquivo, mime_type, file_bytes)
     media_kind = classify_media(mime_type, safe_file_name)
     extension = file_extension(safe_file_name, mime_type)
-    legenda = (payload.legenda or "").strip() or None
+    caption = (command.caption or "").strip() or None
+    if command.as_sticker and media_kind != "image":
+        raise UnsupportedMedia(
+            "Figurinhas devem ser enviadas a partir de uma imagem."
+        )
 
-    if payload.como_figurinha and media_kind != "image":
-        raise HTTPException(status_code=415, detail="Figurinhas devem ser enviadas a partir de uma imagem.")
-
-    media_data = payload.data_url
-    if payload.como_figurinha:
-        kind, tipo, texto = "sticker", "sticker", "[Figurinha]"
+    media_data = command.data_url
+    if command.as_sticker:
+        provider_kind, public_kind, text = "sticker", "sticker", "[Figurinha]"
     elif media_kind == "audio":
-        kind, tipo, texto = "audio", "audio", "[Audio]"
-        # A W-API rejeita webm (formato de gravacao do navegador). Transcodifica
-        # para ogg/opus (formato de voz do WhatsApp). Fallback: envia o original.
+        provider_kind, public_kind, text = "audio", "audio", "[Audio]"
         ogg = await asyncio.to_thread(transcode_audio_to_ogg, file_bytes)
         if ogg:
-            media_data = "data:audio/ogg;base64," + base64.b64encode(ogg).decode()
+            media_data = (
+                "data:audio/ogg;base64," + base64.b64encode(ogg).decode()
+            )
     elif media_kind == "image":
-        kind, tipo, texto = "image", "midia", (legenda or "[Imagem]")
+        provider_kind, public_kind, text = (
+            "image",
+            "midia",
+            caption or "[Imagem]",
+        )
     elif media_kind == "video":
-        kind, tipo, texto = "video", "midia", (legenda or "[Video]")
+        provider_kind, public_kind, text = (
+            "video",
+            "midia",
+            caption or "[Video]",
+        )
     else:
-        kind, tipo, texto = "document", "documento", (legenda or "[Documento]")
+        provider_kind, public_kind, text = (
+            "document",
+            "documento",
+            caption or "[Documento]",
+        )
 
-    try:
-        # A W-API aceita mídia como data URI (base64), verificado ao vivo.
-        result = await wapi_messaging.send_media(
-            resolved_user_id,
-            payload.conversa_id,
-            kind,
-            media_data,
-            caption=(legenda or ""),
+    return PreparedSend(
+        command=command,
+        provider=ProviderMediaCommand(
+            conversation_id=command.conversation_id,
+            kind=provider_kind,
+            data=media_data,
+            caption=caption or "",
             file_name=safe_file_name,
             extension=extension,
-            timeout=110.0,
-            quoted_message_id=payload.responder_a or "",
-            view_once=payload.visualizacao_unica,
-        )
-    except (MessagingUnavailable, WapiError) as exc:
-        raise _messaging_http_error(exc, "A API do WhatsApp recusou o envio do arquivo.") from exc
-    if not result.get("sent"):
-        raise HTTPException(status_code=502, detail="A API do WhatsApp recusou o envio do arquivo.")
+            reply_to=command.reply_to or "",
+            view_once=command.view_once,
+        ),
+        context={
+            "citada": citada,
+            "mime_type": mime_type,
+            "file_name": safe_file_name,
+            "local_url": local_url,
+            "kind": public_kind,
+            "text": text,
+            "view_once": command.view_once,
+        },
+    )
 
+
+async def _whatsapp_persist_send(
+    resolved_user_id: str,
+    prepared: PreparedSend,
+    receipt: ProviderSendReceipt,
+) -> SendResult:
+    command = prepared.command
+    if isinstance(command, SendText):
+        async with whatsapp_conversation_mutation_lock(resolved_user_id):
+            await append_outgoing_message(
+                command.conversation_id,
+                command.text,
+                channel="whatsapp",
+                status="enviado",
+                message_id=receipt.message_id,
+                citada=prepared.context.get("citada"),
+                user_id=resolved_user_id,
+            )
+        await mark_whatsapp_conversation_updated(
+            resolved_user_id,
+            command.conversation_id,
+        )
+        await record_event(
+            source="whatsapp",
+            title="Mensagem enviada no WhatsApp",
+            description=command.text,
+            metadata={
+                "conversaId": command.conversation_id,
+                "channel": "whatsapp",
+                "direction": "outgoing",
+                "userId": resolved_user_id,
+            },
+        )
+        return SendResult(message_id=receipt.message_id)
+
+    file_name = str(prepared.context.get("file_name") or command.file_name)
+    mime_type = str(prepared.context.get("mime_type") or command.mime_type)
+    public_kind = str(prepared.context.get("kind") or "documento")
+    local_url_value = prepared.context.get("local_url")
+    local_url = str(local_url_value) if local_url_value else None
+    text = str(prepared.context.get("text") or "[Documento]")
     hora, timestamp = current_clock()
     async with whatsapp_conversation_mutation_lock(resolved_user_id):
         await append_message(
-            payload.conversa_id,
+            command.conversation_id,
             {
-                "id": str(result.get("messageId") or "") or f"file_out_{timestamp}_{uuid.uuid4().hex[:8]}",
+                "id": receipt.message_id,
                 "remetente": "usuario",
-                "texto": texto,
-                "tipo": tipo,
+                "texto": text,
+                "tipo": public_kind,
                 "arquivoUrl": local_url,
                 "arquivoMime": mime_type,
-                "nomeArquivo": safe_file_name,
-                "visualizacaoUnica": payload.visualizacao_unica,
-                "citada": citada,
+                "nomeArquivo": file_name,
+                "visualizacaoUnica": command.view_once,
+                "citada": prepared.context.get("citada"),
                 "horario": hora,
                 "timestamp": timestamp,
                 "status": "enviado",
@@ -4291,30 +4428,83 @@ async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = D
             channel="whatsapp",
             user_id=resolved_user_id,
         )
-    await mark_whatsapp_conversation_updated(resolved_user_id, payload.conversa_id)
+    await mark_whatsapp_conversation_updated(
+        resolved_user_id,
+        command.conversation_id,
+    )
     await record_event(
         source="whatsapp",
         title="Arquivo enviado no WhatsApp",
-        description=f"{safe_file_name} ({mime_type})",
+        description=f"{file_name} ({mime_type})",
         metadata={
-            "conversaId": payload.conversa_id,
+            "conversaId": command.conversation_id,
             "channel": "whatsapp",
-            "tipo": tipo,
+            "tipo": public_kind,
             "arquivoUrl": local_url,
-            "visualizacaoUnica": payload.visualizacao_unica,
+            "visualizacaoUnica": command.view_once,
             "userId": resolved_user_id,
         },
     )
+    return SendResult(
+        message_id=receipt.message_id,
+        kind=public_kind,
+        local_url=local_url,
+        file_name=file_name,
+        view_once=command.view_once,
+    )
 
+
+@router.post("/api/chat/enviar")
+async def enviar_mensagem(payload: EnviarMensagemPayload, user: dict[str, Any] = Depends(current_user)):
+    resolved_user_id = tenant_id(user)
+    assert_channel_permission(user, payload.canal)
+    try:
+        result = await whatsapp_integration.send(
+            resolved_user_id,
+            SendText(
+                conversation_id=payload.conversa_id,
+                text=payload.texto,
+                reply_to=payload.responder_a,
+            ),
+        )
+    except WhatsAppIntegrationError as exc:
+        raise _whatsapp_http_error(
+            exc,
+            "A API do WhatsApp recusou o envio.",
+        ) from exc
+    return {"status": result.status, "canal": result.channel}
+
+@router.post("/api/chat/enviar-arquivo")
+async def enviar_arquivo(payload: EnviarArquivoPayload, user: dict[str, Any] = Depends(current_user)):
+    resolved_user_id = tenant_id(user)
+    assert_channel_permission(user, payload.canal)
+    try:
+        result = await whatsapp_integration.send(
+            resolved_user_id,
+            SendMedia(
+                conversation_id=payload.conversa_id,
+                file_name=payload.nome_arquivo,
+                mime_type=payload.mime_type,
+                data_url=payload.data_url,
+                caption=payload.legenda,
+                as_sticker=payload.como_figurinha,
+                reply_to=payload.responder_a,
+                view_once=payload.visualizacao_unica,
+            ),
+        )
+    except WhatsAppIntegrationError as exc:
+        raise _whatsapp_http_error(
+            exc,
+            "A API do WhatsApp recusou o envio do arquivo.",
+        ) from exc
     return {
-        "status": "enviado_real",
-        "canal": "whatsapp",
-        "tipo": tipo,
-        "arquivoUrl": local_url,
-        "nomeArquivo": safe_file_name,
-        "visualizacaoUnica": payload.visualizacao_unica,
+        "status": result.status,
+        "canal": result.channel,
+        "tipo": result.kind,
+        "arquivoUrl": result.local_url,
+        "nomeArquivo": result.file_name,
+        "visualizacaoUnica": result.view_once,
     }
-
 
 @router.post("/api/chat/reagir")
 async def reagir_mensagem(payload: ReagirMensagemPayload, user: dict[str, Any] = Depends(current_user)):
@@ -5182,3 +5372,45 @@ async def fetch_group_metadata(user_id: str, phone: str) -> Dict[str, Any] | Non
     except WapiError:
         logger.warning("Falha ao buscar metadados de grupo W-API.")
     return None
+
+
+# Composition root incremental. Todos os suppliers consultam os globais no
+# momento da chamada para preservar substituicoes em testes e futuras trocas.
+whatsapp_integration = WhatsAppIntegration(
+    wapi=HttpWApiAdapter(
+        connect_service=lambda: wapi_connect,
+        messaging_service=lambda: wapi_messaging,
+        binding_store=lambda: wb,
+        webhook_adapter=lambda: wapi_webhook,
+        media_streamer=lambda resolved_user_id, media_id: (
+            _whatsapp_stream_media_legacy(resolved_user_id, media_id)
+        ),
+        local_disconnector=lambda resolved_user_id: (
+            _whatsapp_disconnect_local(resolved_user_id)
+        ),
+    ),
+    runtime=LegacyWhatsAppRuntimeAdapter(
+        connection_established=lambda resolved_user_id, result: (
+            _whatsapp_connection_established(resolved_user_id, result)
+        ),
+        disconnected=lambda _resolved_user_id: None,
+        prepare_send=lambda resolved_user_id, command: (
+            _whatsapp_prepare_send(resolved_user_id, command)
+        ),
+        persist_send=lambda resolved_user_id, prepared, receipt: (
+            _whatsapp_persist_send(resolved_user_id, prepared, receipt)
+        ),
+        dispatch_webhook=lambda resolved_user_id, payload, kind: (
+            _whatsapp_dispatch_webhook(resolved_user_id, payload, kind)
+        ),
+    ),
+    webhook_secret=lambda: WAPI_WEBHOOK_SECRET,
+    webhook_secret_is_valid=lambda secret: (
+        is_valid_wapi_webhook_secret(secret)
+    ),
+    allow_missing_webhook_secret=lambda: not is_shared_environment(
+        require_explicit=True
+    ),
+    webhook_event_cache=whatsapp_webhook_event_cache,
+    webhook_inflight=whatsapp_webhook_inflight,
+)

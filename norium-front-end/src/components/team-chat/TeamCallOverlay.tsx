@@ -159,7 +159,7 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
           <p className="mt-2 text-xs text-[var(--text-secondary)]">Sua câmera entra desligada e pode ser ativada dentro da reunião.</p>
           <div className="mt-6 flex justify-center gap-4">
             <button type="button" onClick={call.rejectIncoming} className="grid h-14 w-14 place-items-center rounded-full bg-rose-600 hover:bg-rose-500" aria-label="Recusar chamada"><PhoneOff size={22} /></button>
-            <button type="button" onClick={() => void call.acceptIncoming()} className="team-call-primary-button grid h-14 w-14 place-items-center rounded-full text-white" aria-label="Entrar na reunião"><Video size={22} /></button>
+            <button type="button" disabled={call.busy} onClick={() => void call.acceptIncoming()} className="team-call-primary-button grid h-14 w-14 place-items-center rounded-full text-white disabled:opacity-60" aria-label="Entrar na reunião"><Video size={22} /></button>
           </div>
         </section>
       </div>, document.body,

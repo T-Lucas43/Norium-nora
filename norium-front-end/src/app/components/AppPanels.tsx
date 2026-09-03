@@ -30,7 +30,6 @@ const SettingsDashboard = lazy(() => import("../../components/settings/SettingsD
 const SystemNotificationsCenter = lazy(() => import("../../components/notifications/SystemNotificationsCenter"));
 const TasksDashboard = lazy(() => import("../../components/tasks/TasksDashboard"));
 const TeamDashboard = lazy(() => import("../../components/team/TeamDashboard"));
-const TeamChatDrawer = lazy(() => import("../../components/team-chat/TeamChatDrawer"));
 const WorkHubDashboard = lazy(() => import("../../components/workhub/WorkHubDashboard"));
 
 function PanelLoading() {
@@ -254,15 +253,6 @@ export default function AppPanels({
       {isPanelMounted("Chat da Equipe") && (
         <section className={activePanelClass("Chat da Equipe")}>
           {coach("TeamChat")}
-          <TeamChatDrawer
-            open
-            variant="page"
-            session={authSession}
-            onClose={() => onNavigate("Equipe")}
-            onUnread={() => undefined}
-            onOpenNora={onOpenNora}
-            onOpenCalendar={() => onNavigate("Agenda")}
-          />
         </section>
       )}
       {isPanelMounted("Clientes") && (

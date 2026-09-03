@@ -305,20 +305,34 @@ def purge_expired_recordings(store: dict[str, Any]) -> bool:
 
 
 def purge_stale_active_calls(store: dict[str, Any]) -> bool:
-    """Evita que uma reuniao abandonada continue aparecendo indefinidamente."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
-    active_calls = store.get("activeCalls", [])
-    retained = [
-        call
-        for call in active_calls
-        if isinstance(call, dict)
-        and (started_at := parse_iso_datetime(call.get("startedAt"))) is not None
-        and started_at >= cutoff
-    ]
-    if len(retained) == len(active_calls):
-        return False
-    store["activeCalls"] = retained
-    return True
+    """Uma chamada precisa de heartbeat do organizador; registros antigos nao tocam."""
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=90)
+    original = store.get("activeCalls", [])
+    retained: list[dict[str, Any]] = []
+    threads: set[str] = set()
+    for call in reversed(original):
+        if not isinstance(call, dict):
+            continue
+        heartbeat = parse_iso_datetime(call.get("lastHeartbeatAt") or call.get("startedAt"))
+        thread_id = str(call.get("threadId") or "")
+        if not heartbeat or heartbeat < cutoff or thread_id in threads:
+            remember_ended_call(store, str(call.get("callId") or ""))
+            continue
+        threads.add(thread_id)
+        retained.append(call)
+    store["activeCalls"] = list(reversed(retained))
+    return len(retained) != len(original)
+
+
+def remember_ended_call(store: dict[str, Any], call_id: str) -> None:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+    ended = {
+        key: value for key, value in store.get("endedCallIds", {}).items()
+        if (ended_at := parse_iso_datetime(value)) and ended_at > cutoff
+    }
+    if call_id:
+        ended[call_id] = now_iso()
+    store["endedCallIds"] = ended
 
 
 def active_call_for(store: dict[str, Any], call_id: str) -> dict[str, Any] | None:
@@ -342,9 +356,35 @@ def active_call_invite(call: dict[str, Any]) -> dict[str, Any]:
         "subteamId": call.get("subteamId"),
         "fromUserId": call.get("hostUserId"),
         "fromUserName": call.get("hostUserName"),
+        "joinedUserIds": sorted(call.get("joinedClients", {})),
         "mode": "audio",
         "startedAt": call.get("startedAt"),
         "createdAt": call.get("startedAt"),
+    }
+
+
+def call_message(call: dict[str, Any], sender_id: str, sender_name: str, action: Literal["call_started", "call_ended"]) -> dict[str, Any]:
+    scope = str(call.get("scope") or "team")
+    participant_ids = {str(item) for item in call.get("participantIds", []) if str(item)}
+    return {
+        "id": f"team_msg_{uuid.uuid4().hex}",
+        "threadId": str(call.get("threadId") or "team"),
+        "scope": scope,
+        "senderId": sender_id,
+        "senderName": sender_name,
+        "senderAvatar": user_avatar_url(sender_id),
+        "recipientId": call.get("recipientId") if scope == "direct" else None,
+        "subteamId": call.get("subteamId") if scope == "subteam" else None,
+        "memberIds": sorted(participant_ids) if scope == "subteam" else [],
+        "text": "Iniciou uma reuniao." if action == "call_started" else "Encerrou a chamada.",
+        "attachments": [],
+        "metadata": {
+            "action": action,
+            "callId": str(call.get("callId") or ""),
+            "mode": "audio",
+            "readBy": {},
+        },
+        "createdAt": now_iso(),
     }
 
 
@@ -606,6 +646,69 @@ async def list_members(user: dict[str, Any] = Depends(current_user)) -> dict[str
     members = await visible_team_members(user)
     online_user_ids = [str(member["id"]) for member in members if member.get("online")]
     return {"teamId": team_id_for(user), "members": members, "onlineUserIds": online_user_ids}
+
+
+async def active_calls_snapshot(team_id: str) -> list[dict[str, Any]]:
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        before = list(store.get("activeCalls", []))
+        if purge_stale_active_calls(store):
+            await asyncio.to_thread(write_chat_store, team_id, store)
+        calls = list(store.get("activeCalls", []))
+    ids = {call["callId"] for call in calls}
+    for call in before:
+        if call.get("callId") not in ids:
+            await manager.send_to_users(team_id, set(call.get("participantIds", [])), {
+                **active_call_invite(call), "type": "CALL_END", "reason": "expired",
+            })
+    return calls
+
+
+async def broadcast_call_state(team_id: str) -> None:
+    calls = await active_calls_snapshot(team_id)
+    for user_id in manager.online_users(team_id):
+        await manager.send_to_users(team_id, {user_id}, {
+            "type": "CALLS_STATE",
+            "calls": [active_call_invite(call) for call in calls if user_id in call.get("participantIds", [])],
+        })
+
+
+@router.get("/calls/active")
+async def list_active_calls(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    calls = await active_calls_snapshot(team_id_for(user))
+    return {"calls": [active_call_invite(call) for call in calls if str(user["id"]) in call.get("participantIds", [])]}
+
+
+@router.delete("/calls/{call_id}")
+async def delete_active_call(call_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    """Exclusao confirmada e idempotente, compartilhada pelo HTTP e WebSocket."""
+    require_team_chat(user)
+    if not re.fullmatch(r"call_[a-f0-9]{16,64}", call_id):
+        raise HTTPException(status_code=400, detail="Identificador de chamada invalido.")
+    team_id = team_id_for(user)
+    user_id = str(user["id"])
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        call = active_call_for(store, call_id)
+        if not call:
+            # Uma mensagem atrasada nao pode recriar uma chamada ja encerrada.
+            remember_ended_call(store, call_id)
+            await asyncio.to_thread(write_chat_store, team_id, store)
+            return {"callId": call_id, "ended": False, "deleted": True}
+        if str(call.get("hostUserId") or "") != user_id:
+            raise HTTPException(status_code=403, detail="Somente o organizador pode encerrar a reuniao.")
+        store["activeCalls"] = [item for item in store.get("activeCalls", []) if item.get("callId") != call_id]
+        remember_ended_call(store, call_id)
+        ended_message = call_message(call, user_id, str(user.get("nome") or "Membro"), "call_ended")
+        store.setdefault("messages", []).append(ended_message)
+        store["messages"] = store["messages"][-2000:]
+        await asyncio.to_thread(write_chat_store, team_id, store)
+    recipients = set(call.get("participantIds", []))
+    await manager.send_to_users(team_id, recipients, {**active_call_invite(call), "type": "CALL_END"})
+    await manager.send_to_users(team_id, recipients, {"type": "TEAM_CHAT_MESSAGE", "message": ended_message})
+    await broadcast_call_state(team_id)
+    return {"callId": call_id, "ended": True, "deleted": True}
 
 
 @router.get("/subteams")
@@ -1269,33 +1372,137 @@ async def download_attachment(file_name: str, user: dict[str, Any] = Depends(cur
     return FileResponse(path, filename=path.name)
 
 
+async def handle_call_event(websocket: WebSocket, user: dict[str, Any], payload: dict[str, Any]) -> None:
+    team_id, user_id = team_id_for(user), str(user["id"])
+    event_type, call_id = str(payload.get("type") or ""), str(payload.get("callId") or "")
+    if not re.fullmatch(r"call_[a-f0-9]{16,64}", call_id):
+        raise HTTPException(status_code=400, detail="Identificador de chamada invalido.")
+    if event_type == "CALL_END":
+        await delete_active_call(call_id, user)
+        await websocket.send_json({"type": "CALL_ACK", "callId": call_id, "event": event_type})
+        return
+    client_id = str(payload.get("clientId") or "legacy")[:100]
+    message = None
+    await active_calls_snapshot(team_id)
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        call = active_call_for(store, call_id)
+        if call_id in store.get("endedCallIds", {}):
+            await websocket.send_json({"type": "CALL_END", "callId": call_id, "fromUserId": user_id})
+            return
+        if event_type == "CALL_INVITE":
+            scope = str(payload.get("scope") or "team")
+            recipient_id = str(payload.get("recipientId") or "") or None
+            subteam_id = str(payload.get("subteamId") or "") or None
+            participants = await thread_participant_ids(user, store, scope, recipient_id, subteam_id)
+            thread_id = normalize_thread_id(scope, user_id, recipient_id, subteam_id)
+            existing = next((item for item in store.get("activeCalls", []) if item.get("threadId") == thread_id), None)
+            if existing:
+                await websocket.send_json({
+                    **active_call_invite(existing), "type": "CALL_ACTIVE", "requestedCallId": call_id,
+                })
+                return
+            started_at = now_iso()
+            call = {
+                "callId": call_id, "scope": scope, "threadId": thread_id,
+                "recipientId": recipient_id, "subteamId": subteam_id,
+                "participantIds": sorted(participants), "joinedClients": {user_id: client_id},
+                "hostUserId": user_id, "hostUserName": str(user.get("nome") or "Membro"),
+                "startedAt": started_at, "lastHeartbeatAt": started_at,
+            }
+            store.setdefault("activeCalls", []).append(call)
+            message = call_message(call, user_id, call["hostUserName"], "call_started")
+            store.setdefault("messages", []).append(message)
+            store["messages"] = store["messages"][-2000:]
+        else:
+            if not call:
+                await websocket.send_json({"type": "CALL_END", "callId": call_id, "fromUserId": user_id})
+                return
+            if user_id not in call.get("participantIds", []):
+                raise HTTPException(status_code=403, detail="Voce nao participa desta conversa.")
+        participants = set(call.get("participantIds", []))
+        joined = call.setdefault("joinedClients", {})
+        if event_type == "CALL_ACCEPT":
+            joined[user_id] = client_id
+        elif event_type not in {"CALL_INVITE", "CALL_REJECT"}:
+            if joined.get(user_id) != client_id:
+                await websocket.send_json({"type": "CALL_SESSION", "callId": call_id, "clientId": joined.get(user_id), "fromUserId": user_id})
+                return
+            if event_type == "CALL_LEAVE":
+                # Sair como organizador tem a mesma semantica de encerrar para todos.
+                if call.get("hostUserId") != user_id:
+                    joined.pop(user_id, None)
+            elif event_type == "CALL_HEARTBEAT":
+                if call.get("hostUserId") == user_id:
+                    call["lastHeartbeatAt"] = now_iso()
+        event = {
+            **active_call_invite(call), "type": event_type,
+            "fromUserId": user_id, "fromUserName": str(user.get("nome") or "Membro"),
+            "clientId": client_id, "createdAt": now_iso(),
+        }
+        recipients = set(joined) - {user_id}
+        if event_type == "CALL_INVITE":
+            recipients = participants - {user_id}
+        if event_type == "CALL_SIGNAL":
+            target = str(payload.get("targetUserId") or "")
+            if target not in joined or target == user_id or not isinstance(payload.get("signal"), dict):
+                raise HTTPException(status_code=400, detail="Destino de sinalizacao invalido.")
+            recipients = {target}
+            event["signal"] = payload["signal"]
+        if event_type == "CALL_REACTION":
+            emoji = str(payload.get("emoji") or "")
+            if emoji not in {"👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"}:
+                raise HTTPException(status_code=400, detail="Reacao invalida.")
+            event["emoji"] = emoji
+        if event_type in {"CALL_INVITE", "CALL_ACCEPT", "CALL_LEAVE", "CALL_HEARTBEAT"}:
+            await asyncio.to_thread(write_chat_store, team_id, store)
+    if event_type == "CALL_LEAVE" and call.get("hostUserId") == user_id:
+        await delete_active_call(call_id, user)
+        return
+    if event_type in {"CALL_INVITE", "CALL_ACCEPT"}:
+        await manager.send_to_users(team_id, {user_id}, {
+            "type": "CALL_SESSION", "callId": call_id, "clientId": client_id, "fromUserId": user_id,
+        })
+    if event_type != "CALL_HEARTBEAT":
+        await manager.send_to_users(team_id, recipients, event)
+    if message:
+        await manager.send_to_users(team_id, participants, {"type": "TEAM_CHAT_MESSAGE", "message": message})
+    await websocket.send_json({"type": "CALL_ACK", "callId": call_id, "event": event_type})
+    if event_type in {"CALL_INVITE", "CALL_ACCEPT", "CALL_LEAVE"}:
+        await broadcast_call_state(team_id)
+
+
 @router.websocket("/ws")
 async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=None)) -> None:
     try:
         user = await user_from_websocket_ticket(ticket or "")
         require_team_chat(user)
-        team_id = team_id_for(user)
-        user_id = str(user["id"])
+        team_id, user_id = team_id_for(user), str(user["id"])
     except Exception:
         await websocket.close(code=4401)
         return
-
     await manager.connect(team_id, user_id, websocket)
     try:
         await websocket.send_json({"type": "CONNECTED", "onlineUserIds": manager.online_users(team_id)})
         await emit_due_meeting_reminders(team_id)
-        initial_store = await asyncio.to_thread(read_chat_store, team_id)
-        if purge_stale_active_calls(initial_store):
-            await asyncio.to_thread(write_chat_store, team_id, initial_store)
-        for active_call in initial_store.get("activeCalls", []):
-            participant_ids = {str(item) for item in active_call.get("participantIds", [])}
-            if user_id in participant_ids and str(active_call.get("hostUserId") or "") != user_id:
-                await websocket.send_json(active_call_invite(active_call))
+        # Reconectar sincroniza a lista, nunca dispara novamente o convite/toque.
+        calls = await active_calls_snapshot(team_id)
+        await websocket.send_json({
+            "type": "CALLS_STATE",
+            "calls": [active_call_invite(call) for call in calls if user_id in call.get("participantIds", [])],
+        })
         while True:
             try:
                 raw = await asyncio.wait_for(websocket.receive_text(), timeout=15)
             except asyncio.TimeoutError:
                 await emit_due_meeting_reminders(team_id)
+                # Cada conexao reconcilia seu estado; nao multiplica snapshots
+                # para toda a equipe a cada timeout de cada aba aberta.
+                calls = await active_calls_snapshot(team_id)
+                await websocket.send_json({
+                    "type": "CALLS_STATE",
+                    "calls": [active_call_invite(call) for call in calls if user_id in call.get("participantIds", [])],
+                })
                 continue
             if not raw:
                 continue
@@ -1307,124 +1514,18 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             except json.JSONDecodeError:
                 payload = {}
             event_type = str(payload.get("type") or "") if isinstance(payload, dict) else ""
-            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_REACTION", "CALL_SCREEN_STARTED", "CALL_SCREEN_STOPPED", "CALL_LEAVE", "CALL_END"}:
+            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_REACTION", "CALL_SCREEN_STARTED", "CALL_SCREEN_STOPPED", "CALL_LEAVE", "CALL_END", "CALL_HEARTBEAT"}:
                 await websocket.send_json({"type": "ACK", "timestamp": now_iso()})
                 continue
-
-            call_id = str(payload.get("callId") or "")
-            scope = str(payload.get("scope") or "team")
-            recipient_id = str(payload.get("recipientId") or "") or None
-            subteam_id = str(payload.get("subteamId") or "") or None
-            if not re.fullmatch(r"call_[a-f0-9]{16,64}", call_id):
-                await websocket.send_json({"type": "CALL_ERROR", "detail": "Identificador de chamada invalido."})
-                continue
             try:
-                store = await asyncio.to_thread(read_chat_store, team_id)
-                purge_stale_active_calls(store)
-                participant_ids = await thread_participant_ids(user, store, scope, recipient_id, subteam_id)
-                thread_id = normalize_thread_id(scope, user_id, recipient_id, subteam_id)
-                active_call = active_call_for(store, call_id)
-                if event_type == "CALL_END" and active_call and str(active_call.get("hostUserId") or "") != user_id:
-                    raise HTTPException(status_code=403, detail="Somente o organizador pode encerrar a reuniao.")
-                target_user_id = str(payload.get("targetUserId") or "")
-                if event_type == "CALL_SIGNAL":
-                    if target_user_id not in participant_ids or target_user_id == user_id or not isinstance(payload.get("signal"), dict):
-                        raise HTTPException(status_code=400, detail="Destino de sinalizacao invalido.")
-                    recipients = {target_user_id}
-                elif event_type == "CALL_END":
-                    # Encerra tambem outras abas e dispositivos do organizador.
-                    # Apenas o websocket que originou a acao e excluido, pois
-                    # ele fecha a propria interface localmente.
-                    recipients = participant_ids
-                else:
-                    recipients = participant_ids - {user_id}
-                event_created_at = now_iso()
-                started_at = str(active_call.get("startedAt") or event_created_at) if active_call else event_created_at
-                event = {
-                    "type": event_type,
-                    "callId": call_id,
-                    "scope": scope,
-                    "threadId": thread_id,
-                    "recipientId": recipient_id,
-                    "subteamId": subteam_id,
-                    "fromUserId": user_id,
-                    "fromUserName": str(user.get("nome") or user.get("email") or "Membro"),
-                    "mode": "audio",
-                    "signal": payload.get("signal") if event_type == "CALL_SIGNAL" else None,
-                    "startedAt": started_at,
-                    "createdAt": event_created_at,
-                }
-                if event_type == "CALL_REACTION":
-                    emoji = str(payload.get("emoji") or "")
-                    if emoji not in {"👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"}:
-                        raise HTTPException(status_code=400, detail="Reacao invalida.")
-                    event["emoji"] = emoji
-                if event_type in {"CALL_INVITE", "CALL_END"}:
-                    if event_type == "CALL_INVITE":
-                        event["startedAt"] = event_created_at
-                    call_message = {
-                        "id": f"team_msg_{uuid.uuid4().hex}",
-                        "threadId": thread_id,
-                        "scope": scope,
-                        "senderId": user_id,
-                        "senderName": str(user.get("nome") or user.get("email") or "Membro"),
-                        "senderAvatar": user_avatar_url(user_id),
-                        "recipientId": recipient_id if scope == "direct" else None,
-                        "subteamId": subteam_id if scope == "subteam" else None,
-                        "memberIds": sorted(participant_ids) if scope == "subteam" else [],
-                        "text": (
-                            "Iniciou uma reuniao."
-                            if event_type == "CALL_INVITE"
-                            else "Encerrou a chamada."
-                        ),
-                        "attachments": [],
-                        "metadata": {"action": "call_started" if event_type == "CALL_INVITE" else "call_ended", "callId": call_id, "mode": event["mode"], "readBy": {}},
-                        "createdAt": now_iso(),
-                    }
-                    async with chat_lock:
-                        call_store = await asyncio.to_thread(read_chat_store, team_id)
-                        purge_stale_active_calls(call_store)
-                        if event_type == "CALL_INVITE":
-                            call_store.setdefault("activeCalls", [])
-                            call_store["activeCalls"] = [
-                                call for call in call_store["activeCalls"]
-                                if str(call.get("callId") or "") != call_id
-                            ]
-                            call_store["activeCalls"].append({
-                                "callId": call_id,
-                                "scope": scope,
-                                "threadId": thread_id,
-                                "recipientId": recipient_id,
-                                "subteamId": subteam_id,
-                                "participantIds": sorted(participant_ids),
-                                "hostUserId": user_id,
-                                "hostUserName": event["fromUserName"],
-                                "startedAt": event["startedAt"],
-                            })
-                            call_store["activeCalls"] = call_store["activeCalls"][-100:]
-                        else:
-                            call_store["activeCalls"] = [
-                                call for call in call_store.get("activeCalls", [])
-                                if str(call.get("callId") or "") != call_id
-                            ]
-                        call_store.setdefault("messages", []).append(call_message)
-                        call_store["messages"] = call_store["messages"][-2000:]
-                        await asyncio.to_thread(write_chat_store, team_id, call_store)
-                    await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": call_message})
-                await manager.send_to_users(
-                    team_id,
-                    recipients,
-                    event,
-                    exclude_websocket=websocket if event_type == "CALL_END" else None,
-                )
-                await websocket.send_json({"type": "CALL_ACK", "callId": call_id, "event": event_type})
+                await handle_call_event(websocket, user, payload)
             except HTTPException as exc:
-                await websocket.send_json({"type": "CALL_ERROR", "callId": call_id, "detail": exc.detail})
+                await websocket.send_json({"type": "CALL_ERROR", "callId": payload.get("callId"), "detail": exc.detail})
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(websocket, user_id)
         await manager.broadcast(team_id, {"type": "PRESENCE", "onlineUserIds": manager.online_users(team_id)})
-    except Exception:
-        manager.disconnect(websocket, user_id)
 
 
 def save_attachments(payloads: list[AttachmentPayload]) -> list[dict[str, Any]]:

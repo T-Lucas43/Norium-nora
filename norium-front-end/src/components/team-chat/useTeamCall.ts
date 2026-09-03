@@ -30,6 +30,11 @@ export type TeamCallSocketEvent = {
   expiresAt?: string;
   emoji?: string;
   startedAt?: string;
+  calls?: TeamCallSocketEvent[];
+  joinedUserIds?: string[];
+  clientId?: string | null;
+  requestedCallId?: string;
+  event?: string;
 };
 
 type ActiveCall = {
@@ -45,6 +50,27 @@ type IncomingCall = ActiveCall & {
   fromUserId: string;
   fromUserName: string;
 };
+
+function incomingCallFromEvent(event: TeamCallSocketEvent, currentUserId: string): IncomingCall | null {
+  if (!event.callId || !event.fromUserId) return null;
+  const scope = event.scope || "team";
+  const title = scope === "team" ? "Time todo" : event.fromUserName || "Reuniao da equipe";
+  return {
+    callId: event.callId,
+    mode: "audio",
+    title,
+    fromUserId: event.fromUserId,
+    fromUserName: event.fromUserName || "Membro",
+    hostUserId: event.fromUserId,
+    startedAt: event.startedAt || new Date().toISOString(),
+    thread: {
+      scope,
+      title,
+      recipientId: scope === "direct" && event.fromUserId !== currentUserId ? event.fromUserId : event.recipientId || null,
+      subteamId: event.subteamId || null,
+    },
+  };
+}
 
 type CallDevices = {
   microphones: MediaDeviceInfo[];
@@ -162,6 +188,15 @@ export function useTeamCall({
 }) {
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
   const [active, setActive] = useState<ActiveCall | null>(null);
+  const [availableCalls, setAvailableCalls] = useState<TeamCallSocketEvent[]>([]);
+  const [busy, setBusy] = useState(false);
+  const availableCallsRef = useRef<TeamCallSocketEvent[]>([]);
+  const busyRef = useRef(false);
+  const mediaEpochRef = useRef(0);
+  const confirmedCallIdRef = useRef("");
+  const endedCallIdsRef = useRef(new Set<string>());
+  const dismissedInviteIdsRef = useRef(new Set<string>());
+  const clientIdRef = useRef(crypto.randomUUID());
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Array<{ userId: string; stream: MediaStream }>>([]);
   const [muted, setMuted] = useState(false);
@@ -197,6 +232,7 @@ export function useTeamCall({
   const remoteStreamsRef = useRef<Array<{ userId: string; stream: MediaStream }>>([]);
   const connectingSoundTimerRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStartPendingRef = useRef(false);
   const recordingIdRef = useRef("");
   const recordingQueueRef = useRef<Promise<void>>(Promise.resolve());
   const recordingErrorRef = useRef<Error | null>(null);
@@ -257,6 +293,7 @@ export function useTeamCall({
 
   const callPayload = useCallback((call: ActiveCall) => ({
     callId: call.callId,
+    clientId: clientIdRef.current,
     mode: call.mode,
     scope: call.thread.scope,
     recipientId: call.thread.recipientId || null,
@@ -281,10 +318,10 @@ export function useTeamCall({
   }, []);
 
   const stopMedia = useCallback(() => {
-    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
     screenStreamRef.current = null;
     setScreenStream(null);
-    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
     localStreamRef.current = null;
     setLocalStream(null);
     setSharingScreen(false);
@@ -292,6 +329,10 @@ export function useTeamCall({
 
   const finishCall = useCallback((notify: boolean, sound: CallSound | null = null) => {
     const call = activeRef.current;
+    mediaEpochRef.current += 1;
+    busyRef.current = false;
+    setBusy(false);
+    confirmedCallIdRef.current = "";
     if (notify && call) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
     stopConnectingSound();
     peersRef.current.forEach((peer) => peer.close());
@@ -331,7 +372,42 @@ export function useTeamCall({
     setStatus("");
   }, [callPayload, sendSocketEvent, stopConnectingSound, stopMedia]);
 
-  useEffect(() => () => finishCall(false), [finishCall]);
+  useEffect(() => {
+    const leaveOnClose = () => {
+      const call = activeRef.current;
+      if (call) {
+        if (call.hostUserId === session.user.id) {
+          sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
+          void fetch(`${TEAM_CHAT_API}/calls/${encodeURIComponent(call.callId)}`, {
+            method: "DELETE", headers: { Authorization: `Bearer ${session.token}` }, keepalive: true,
+          }).catch(() => undefined);
+        } else sendSocketEvent({ type: "CALL_LEAVE", ...callPayload(call) });
+      }
+      if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+      finishCall(false);
+    };
+    window.addEventListener("pagehide", leaveOnClose);
+    return () => { window.removeEventListener("pagehide", leaveOnClose); leaveOnClose(); };
+  }, [callPayload, finishCall, sendSocketEvent, session.token, session.user.id]);
+
+  useEffect(() => {
+    if (!active) return;
+    const heartbeat = () => sendSocketEvent({ type: "CALL_HEARTBEAT", ...callPayload(active) });
+    const timer = window.setInterval(heartbeat, 20000);
+    return () => window.clearInterval(timer);
+  }, [active, callPayload, sendSocketEvent]);
+
+  useEffect(() => {
+    if (!incoming) return;
+    const timer = window.setTimeout(() => {
+      if (incomingRef.current?.callId !== incoming.callId) return;
+      dismissedInviteIdsRef.current.add(incoming.callId);
+      incomingRef.current = null;
+      setIncoming(null);
+      stopConnectingSound();
+    }, 30000);
+    return () => window.clearTimeout(timer);
+  }, [incoming, stopConnectingSound]);
 
   const refreshDevices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -413,7 +489,7 @@ export function useTeamCall({
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [active]);
 
-  const acquireMedia = useCallback(async () => {
+  const acquireMedia = useCallback(async (epoch = mediaEpochRef.current) => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este navegador nao permite acesso ao microfone.");
     const audioPreferences: MediaTrackConstraints = {
       echoCancellation: true,
@@ -432,6 +508,10 @@ export function useTeamCall({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: false,
       });
+    }
+    if (epoch !== mediaEpochRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new DOMException("Entrada cancelada.", "AbortError");
     }
     const audioTrack = stream.getAudioTracks()[0];
     if (!audioTrack) {
@@ -493,6 +573,7 @@ export function useTeamCall({
   }, [refreshDevices, selectedCameraId]);
 
   const replaceInputDevice = useCallback(async (kind: "audio" | "video", deviceId: string) => {
+    const epoch = mediaEpochRef.current;
     const currentStream = localStreamRef.current;
     if (!currentStream || !navigator.mediaDevices?.getUserMedia) return;
     if (kind === "video" && !currentStream.getVideoTracks().length) {
@@ -504,6 +585,10 @@ export function useTeamCall({
       const replacementStream = await navigator.mediaDevices.getUserMedia(kind === "audio"
         ? { audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }
         : { audio: false, video: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), width: { ideal: 1280 }, height: { ideal: 720 } } });
+      if (epoch !== mediaEpochRef.current) {
+        replacementStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const replacementTrack = kind === "audio" ? replacementStream.getAudioTracks()[0] : replacementStream.getVideoTracks()[0];
       if (!replacementTrack) throw new Error("O dispositivo selecionado nao forneceu midia.");
       replacementTrack.enabled = kind === "audio" ? !muted : !cameraOff;
@@ -523,7 +608,11 @@ export function useTeamCall({
         }));
       }
 
-      currentStream.getTracks().filter((track) => track.kind === kind).forEach((track) => track.stop());
+      if (epoch !== mediaEpochRef.current) {
+        replacementStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      currentStream.getTracks().filter((track) => track.kind === kind).forEach((track) => { track.onended = null; track.stop(); });
       const nextStream = new MediaStream([
         ...currentStream.getTracks().filter((track) => track.kind !== kind),
         replacementTrack,
@@ -658,10 +747,12 @@ export function useTeamCall({
 
   const startRecording = useCallback(async () => {
     const call = activeRef.current;
-    if (!call || recording || typeof MediaRecorder === "undefined") {
+    if (!call || recording || mediaRecorderRef.current || recordingStartPendingRef.current || typeof MediaRecorder === "undefined") {
       if (typeof MediaRecorder === "undefined") setStatus("Este navegador nao permite gravar reunioes.");
       return;
     }
+    const epoch = mediaEpochRef.current;
+    recordingStartPendingRef.current = true;
     const recordingMode: "audio" | "video" = screenStreamRef.current?.getVideoTracks().length
       || localStreamRef.current?.getVideoTracks().length
       || remoteStreamsRef.current.some((item) => item.stream.getVideoTracks().length)
@@ -692,6 +783,7 @@ export function useTeamCall({
       if (!startResponse.ok) throw new Error(startData?.detail || "Nao foi possivel iniciar a gravacao.");
       recordingId = String(startData.recording?.id || "");
       if (!recordingId) throw new Error("O servidor nao confirmou a gravacao.");
+      if (epoch !== mediaEpochRef.current) throw new Error("A reunião foi encerrada antes de iniciar a gravação.");
 
       const recorder = new MediaRecorder(composition.stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = recorder;
@@ -725,9 +817,9 @@ export function useTeamCall({
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(data?.detail || "Nao foi possivel finalizar a gravacao.");
-            setStatus("Gravacao salva no chat por 24 horas.");
+            if (activeRef.current?.callId === call.callId) setStatus("Gravacao salva no chat por 24 horas.");
           } catch (error) {
-            setStatus(error instanceof Error ? error.message : "Falha ao salvar a gravacao.");
+            if (activeRef.current?.callId === call.callId) setStatus(error instanceof Error ? error.message : "Falha ao salvar a gravacao.");
             await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}`, { method: "DELETE", headers: { Authorization: `Bearer ${session.token}` } }).catch(() => undefined);
           } finally {
             recordingCleanupRef.current?.();
@@ -751,7 +843,9 @@ export function useTeamCall({
     } catch (error) {
       cleanup?.();
       if (recordingId) await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}`, { method: "DELETE", headers: { Authorization: `Bearer ${session.token}` } }).catch(() => undefined);
-      setStatus(error instanceof Error ? error.message : "Nao foi possivel iniciar a gravacao.");
+      if (epoch === mediaEpochRef.current) setStatus(error instanceof Error ? error.message : "Nao foi possivel iniciar a gravacao.");
+    } finally {
+      recordingStartPendingRef.current = false;
     }
   }, [createMeetingRecordingStream, recording, session.token]);
 
@@ -956,96 +1050,174 @@ export function useTeamCall({
     if (screenTrack) setStatus(`Transmitindo em ${quality} · ${fps} FPS`);
   }, []);
 
-  const startCall = useCallback(async (targetThread: TeamCallThread = thread) => {
-    if (activeRef.current) return;
-    setStatus("Solicitando permissões da câmera e do microfone...");
-    try {
-      await requestCameraPermission();
-      await acquireMedia();
-      const call: ActiveCall = {
-        callId: callId(),
-        mode: "audio",
-        title: targetThread.title,
-        thread: targetThread,
-        hostUserId: session.user.id,
-        startedAt: new Date().toISOString(),
-      };
-      activeRef.current = call;
-      setActive(call);
-      setStatus(targetThread.scope === "direct" ? "Chamando participante..." : "Chamando a equipe...");
-      startConnectingSound();
-      if (!sendSocketEvent({ type: "CALL_INVITE", ...callPayload(call) })) {
-        throw new Error("A conexao em tempo real ainda nao esta pronta.");
-      }
-    } catch (error) {
+  const syncActiveCalls = useCallback((calls: TeamCallSocketEvent[]) => {
+    const valid = calls.filter((call) => call.callId && !endedCallIdsRef.current.has(call.callId));
+    availableCallsRef.current = valid;
+    setAvailableCalls(valid);
+    const current = activeRef.current || incomingRef.current;
+    if (current && !valid.some((call) => call.callId === current.callId)
+      && (incomingRef.current || confirmedCallIdRef.current === current.callId)) {
+      endedCallIdsRef.current.add(current.callId);
+      void stopRecording();
       finishCall(false);
-      setStatus(mediaAccessError(error, "microfone"));
     }
-  }, [acquireMedia, callPayload, finishCall, requestCameraPermission, sendSocketEvent, session.user.id, startConnectingSound, thread]);
+  }, [finishCall, stopRecording]);
 
-  const acceptIncoming = useCallback(async () => {
-    if (!incoming) return;
+  const acceptCall = useCallback(async (pendingCall: IncomingCall) => {
+    if (activeRef.current || busyRef.current || endedCallIdsRef.current.has(pendingCall.callId)) return;
+    busyRef.current = true;
+    setBusy(true);
+    const epoch = mediaEpochRef.current;
+    incomingRef.current = pendingCall;
+    setIncoming(pendingCall);
     setStatus("Conectando dispositivos...");
     startConnectingSound();
     try {
       await requestCameraPermission();
-      await acquireMedia();
-      const call: ActiveCall = { ...incoming };
+      if (epoch !== mediaEpochRef.current || incomingRef.current?.callId !== pendingCall.callId) return;
+      await acquireMedia(epoch);
+      if (epoch !== mediaEpochRef.current) return;
+      const call: ActiveCall = { ...pendingCall };
       activeRef.current = call;
       setActive(call);
       setIncoming(null);
       incomingRef.current = null;
-      sendSocketEvent({ type: "CALL_ACCEPT", ...callPayload(call) });
+      if (!sendSocketEvent({ type: "CALL_ACCEPT", ...callPayload(call) })) {
+        throw new Error("A conexão da reunião foi interrompida. Tente ingressar novamente.");
+      }
+      dismissedInviteIdsRef.current.add(call.callId);
+      window.dispatchEvent(new CustomEvent("norium:team-call-dismiss", { detail: { callId: call.callId } }));
       stopConnectingSound();
       playCallSound("joined");
       setStatus("Na chamada");
     } catch (error) {
-      sendSocketEvent({ type: "CALL_REJECT", ...callPayload(incoming) });
+      if (epoch !== mediaEpochRef.current) return;
       finishCall(false);
       setStatus(mediaAccessError(error, "microfone"));
+    } finally {
+      if (epoch === mediaEpochRef.current) { busyRef.current = false; setBusy(false); }
     }
-  }, [acquireMedia, callPayload, finishCall, incoming, requestCameraPermission, sendSocketEvent, startConnectingSound, stopConnectingSound]);
+  }, [acquireMedia, callPayload, finishCall, requestCameraPermission, sendSocketEvent, startConnectingSound, stopConnectingSound]);
+
+  const acceptIncoming = useCallback(async () => {
+    const pendingCall = incomingRef.current;
+    if (pendingCall) await acceptCall(pendingCall);
+  }, [acceptCall]);
+
+  const joinActiveCall = useCallback(async (event: TeamCallSocketEvent) => {
+    const pendingCall = incomingCallFromEvent(event, session.user.id);
+    if (pendingCall) await acceptCall(pendingCall);
+  }, [acceptCall, session.user.id]);
+
+  const startCall = useCallback(async (targetThread: TeamCallThread = thread) => {
+    if (activeRef.current || busyRef.current) return;
+    const threadId = targetThread.scope === "team" ? "team" : targetThread.scope === "subteam"
+      ? `subteam:${targetThread.subteamId}` : `direct:${[session.user.id, targetThread.recipientId].sort().join(":")}`;
+    const existing = availableCallsRef.current.find((call) => call.threadId === threadId);
+    if (existing) { await joinActiveCall(existing); return; }
+    busyRef.current = true;
+    setBusy(true);
+    const epoch = mediaEpochRef.current;
+    setStatus("Solicitando permissões da câmera e do microfone...");
+    try {
+      await requestCameraPermission();
+      if (epoch !== mediaEpochRef.current) return;
+      await acquireMedia(epoch);
+      if (epoch !== mediaEpochRef.current) return;
+      const call: ActiveCall = {
+        callId: callId(), mode: "audio", title: targetThread.title, thread: targetThread,
+        hostUserId: session.user.id, startedAt: new Date().toISOString(),
+      };
+      activeRef.current = call;
+      setActive(call);
+      setIncoming(null);
+      incomingRef.current = null;
+      setStatus(targetThread.scope === "direct" ? "Chamando participante..." : "Chamando a equipe...");
+      startConnectingSound();
+      if (!sendSocketEvent({ type: "CALL_INVITE", ...callPayload(call) })) {
+        throw new Error("A conexão em tempo real ainda não está pronta.");
+      }
+    } catch (error) {
+      if (epoch !== mediaEpochRef.current) return;
+      finishCall(false);
+      setStatus(mediaAccessError(error, "microfone"));
+    } finally {
+      if (epoch === mediaEpochRef.current) { busyRef.current = false; setBusy(false); }
+    }
+  }, [acquireMedia, callPayload, finishCall, joinActiveCall, requestCameraPermission, sendSocketEvent, session.user.id, startConnectingSound, thread]);
 
   const rejectIncoming = useCallback(() => {
-    if (incoming) sendSocketEvent({ type: "CALL_REJECT", ...callPayload(incoming) });
-    setIncoming(null);
-    incomingRef.current = null;
-    stopConnectingSound();
-  }, [callPayload, incoming, sendSocketEvent, stopConnectingSound]);
+    const pendingCall = incomingRef.current;
+    if (pendingCall) {
+      dismissedInviteIdsRef.current.add(pendingCall.callId);
+      sendSocketEvent({ type: "CALL_REJECT", ...callPayload(pendingCall) });
+      window.dispatchEvent(new CustomEvent("norium:team-call-dismiss", { detail: { callId: pendingCall.callId } }));
+    }
+    finishCall(false);
+  }, [callPayload, finishCall, sendSocketEvent]);
 
   const handleSocketEvent = useCallback(async (event: TeamCallSocketEvent) => {
+    if (event.type === "CALLS_STATE") { syncActiveCalls(event.calls || []); return; }
+    if (event.type === "CALL_ACK" && event.callId === activeRef.current?.callId) {
+      confirmedCallIdRef.current = event.callId || "";
+      return;
+    }
+    if (event.type === "CALL_ERROR") {
+      if (event.callId && event.callId === activeRef.current?.callId && !confirmedCallIdRef.current) finishCall(false);
+      if (event.detail) setStatus(event.detail);
+      return;
+    }
+    if (event.type === "CALL_SESSION" && event.fromUserId === session.user.id) {
+      if (event.callId === activeRef.current?.callId && event.clientId !== clientIdRef.current) {
+        void stopRecording();
+        finishCall(false);
+        setStatus("Esta reunião está aberta em outra aba ou dispositivo.");
+      }
+      return;
+    }
+    if (event.type === "CALL_ACTIVE" && event.requestedCallId === activeRef.current?.callId && event.callId !== event.requestedCallId) {
+      finishCall(false);
+      syncActiveCalls([...availableCallsRef.current.filter((call) => call.threadId !== event.threadId), event]);
+      setStatus("Já existe uma reunião nesta conversa. Use Ingressar.");
+      return;
+    }
+    if (event.type === "CALL_END" && event.callId) {
+      endedCallIdsRef.current.add(event.callId);
+      availableCallsRef.current = availableCallsRef.current.filter((call) => call.callId !== event.callId);
+      setAvailableCalls(availableCallsRef.current);
+      if (incomingRef.current?.callId === event.callId || activeRef.current?.callId === event.callId) {
+        void stopRecording();
+        finishCall(false, "ended");
+      }
+      return;
+    }
+    if (event.callId && endedCallIdsRef.current.has(event.callId)) return;
+    if (event.type === "CALL_INVITE" || event.type === "CALL_ACTIVE") {
+      availableCallsRef.current = [...availableCallsRef.current.filter((call) => call.threadId !== event.threadId && call.callId !== event.callId), event];
+      setAvailableCalls(availableCallsRef.current);
+    }
     if (!event.callId || !event.fromUserId || (event.fromUserId === session.user.id && event.type !== "CALL_END")) {
       if (event.type === "CALL_ERROR" && event.detail) setStatus(event.detail);
       return;
     }
-    if (event.type === "CALL_INVITE") {
+    if (event.type === "CALL_INVITE" || event.type === "CALL_ACTIVE") {
+      if (event.type === "CALL_ACTIVE" || dismissedInviteIdsRef.current.has(event.callId)) return;
       if (incomingRef.current?.callId === event.callId || activeRef.current?.callId === event.callId) return;
       if (activeRef.current) {
-        sendSocketEvent({
-          type: "CALL_REJECT",
-          callId: event.callId,
-          mode: event.mode || "audio",
-          scope: event.scope || "team",
-          recipientId: event.recipientId || null,
-          subteamId: event.subteamId || null,
-        });
+        if (event.type === "CALL_INVITE") {
+          sendSocketEvent({
+            type: "CALL_REJECT",
+            callId: event.callId,
+            mode: event.mode || "audio",
+            scope: event.scope || "team",
+            recipientId: event.recipientId || null,
+            subteamId: event.subteamId || null,
+          });
+        }
         return;
       }
-      const nextIncoming: IncomingCall = {
-        callId: event.callId,
-        mode: "audio",
-        title: event.scope === "team" ? "Time todo" : event.fromUserName || "Reuniao da equipe",
-        fromUserId: event.fromUserId,
-        fromUserName: event.fromUserName || "Membro",
-        hostUserId: event.fromUserId,
-        startedAt: event.startedAt || new Date().toISOString(),
-        thread: {
-          scope: event.scope || "team",
-          title: event.scope === "team" ? "Time todo" : event.fromUserName || "Reuniao da equipe",
-          recipientId: event.scope === "direct" ? event.fromUserId : event.recipientId || null,
-          subteamId: event.subteamId || null,
-        },
-      };
+      const nextIncoming = incomingCallFromEvent(event, session.user.id);
+      if (!nextIncoming) return;
       incomingRef.current = nextIncoming;
       setIncoming(nextIncoming);
       startConnectingSound();
@@ -1076,6 +1248,9 @@ export function useTeamCall({
       playCallSound("joined");
       setStatus("Na chamada");
       await createPeer(event.fromUserId, true);
+      if (activeRef.current?.callId === call.callId && screenStreamRef.current) {
+        sendSocketEvent({ type: "CALL_SCREEN_STARTED", ...callPayload(call) });
+      }
       return;
     }
     if (event.type === "CALL_SIGNAL" && event.signal) {
@@ -1135,11 +1310,7 @@ export function useTeamCall({
       setStatus("Gravacao disponivel no chat por 24 horas.");
       return;
     }
-    if (event.type === "CALL_END") {
-      await stopRecording();
-      finishCall(false, "ended");
-    }
-  }, [callPayload, closePeer, createPeer, finishCall, requestRemoteScreenRefresh, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording]);
+  }, [callPayload, closePeer, createPeer, finishCall, requestRemoteScreenRefresh, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;
@@ -1148,12 +1319,14 @@ export function useTeamCall({
   }, [muted]);
 
   const toggleCamera = useCallback(async () => {
+    const epoch = mediaEpochRef.current;
     const currentStream = localStreamRef.current;
     if (!currentStream || !navigator.mediaDevices?.getUserMedia) {
       setStatus("Este navegador nao permite acessar a camera.");
       return;
     }
     if (cameraPermission !== "granted" && !(await requestCameraPermission())) return;
+    if (epoch !== mediaEpochRef.current) return;
     const currentTrack = currentStream.getVideoTracks()[0];
     if (currentTrack && currentTrack.readyState !== "ended") {
       const enabling = !currentTrack.enabled;
@@ -1188,6 +1361,10 @@ export function useTeamCall({
           video: { width: { ideal: 1280 }, height: { ideal: 720 } },
         });
       }
+      if (epoch !== mediaEpochRef.current) {
+        cameraStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const cameraTrack = cameraStream.getVideoTracks()[0];
       if (!cameraTrack) throw new Error("A camera nao forneceu video.");
       cameraTrack.enabled = true;
@@ -1196,6 +1373,7 @@ export function useTeamCall({
       localStreamRef.current = nextStream;
       setLocalStream(nextStream);
       if (!screenStreamRef.current) await attachVideoTrack(cameraTrack, nextStream);
+      if (epoch !== mediaEpochRef.current) return;
       setCameraOff(false);
       setCameraPermission("granted");
       setStatus("Câmera ativada e sendo transmitida");
@@ -1231,6 +1409,8 @@ export function useTeamCall({
   }, [attachVideoTrack, callPayload, sendSocketEvent]);
 
   const toggleScreenShare = useCallback(async () => {
+    const epoch = mediaEpochRef.current;
+    if (!activeRef.current) return;
     if (sharingScreen) {
       await stopScreenShare();
       return;
@@ -1243,12 +1423,17 @@ export function useTeamCall({
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: screenShareConstraints(screenShareQualityRef.current, screenShareFpsRef.current),
       });
+      if (epoch !== mediaEpochRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const screenTrack = stream.getVideoTracks()[0];
       if (!screenTrack) throw new Error("A tela selecionada nao forneceu video.");
       screenTrack.contentHint = "detail";
       screenStreamRef.current = stream;
       setScreenStream(stream);
       await attachVideoTrack(screenTrack, stream);
+      if (epoch !== mediaEpochRef.current) return;
       screenTrack.onended = () => { void stopScreenShare(); };
       setSharingScreen(true);
       const call = activeRef.current;
@@ -1261,16 +1446,38 @@ export function useTeamCall({
 
   const endCall = useCallback(async () => {
     const call = activeRef.current;
-    // O encerramento remoto nao deve esperar a gravacao terminar de enviar.
-    // Assim todos os participantes e as outras abas fecham imediatamente.
-    if (call) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
-    await stopRecording();
+    if (!call) return;
+    endedCallIdsRef.current.add(call.callId);
+    availableCallsRef.current = availableCallsRef.current.filter((item) => item.callId !== call.callId);
+    setAvailableCalls(availableCallsRef.current);
+    sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
+    window.dispatchEvent(new CustomEvent("norium:team-call", { detail: { type: "CALL_END", callId: call.callId, fromUserId: session.user.id } }));
+    void stopRecording();
     finishCall(false, "ended");
-  }, [callPayload, finishCall, sendSocketEvent, stopRecording]);
+    busyRef.current = true;
+    setBusy(true);
+    let endedByServer = false;
+    if (call) {
+      try {
+        const response = await fetch(`${TEAM_CHAT_API}/calls/${encodeURIComponent(call.callId)}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${session.token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        endedByServer = response.ok;
+      } catch {
+        // O WebSocket abaixo e o caminho de contingencia se a API estiver indisponivel.
+      }
+      if (!endedByServer) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
+    }
+    busyRef.current = false;
+    setBusy(false);
+    if (!endedByServer) setStatus("O encerramento foi enviado. Aguardando confirmação do servidor.");
+  }, [callPayload, finishCall, sendSocketEvent, session.token, session.user.id, stopRecording]);
 
   const leaveCall = useCallback(async () => {
     const call = activeRef.current;
-    await stopRecording();
+    void stopRecording();
     if (call) sendSocketEvent({ type: "CALL_LEAVE", ...callPayload(call) });
     finishCall(false, "left");
   }, [callPayload, finishCall, sendSocketEvent, stopRecording]);
@@ -1285,6 +1492,9 @@ export function useTeamCall({
   return {
     incoming,
     active,
+    availableCalls,
+    busy,
+    syncActiveCalls,
     localStream,
     remoteStreams,
     muted,
@@ -1301,6 +1511,7 @@ export function useTeamCall({
     status,
     startCall,
     acceptIncoming,
+    joinActiveCall,
     rejectIncoming,
     endCall,
     leaveCall,

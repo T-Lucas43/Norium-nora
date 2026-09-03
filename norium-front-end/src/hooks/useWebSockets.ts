@@ -7,6 +7,7 @@ import type {
   SystemNotificationToast,
 } from "../types/omnichannel";
 import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../utils/api";
+import type { TeamCallSocketEvent } from "../components/team-chat/useTeamCall";
 
 const API_URL = `${apiBaseUrl()}/api/omnichannel/inbox`;
 const WS_URL = `${wsBaseUrl()}/api/omnichannel/ws`;
@@ -38,6 +39,7 @@ type TeamSocketMessage = {
   fromUserName?: string;
   mode?: "audio" | "video";
   startedAt?: string;
+  calls?: TeamCallSocketEvent[];
   message?: {
     id?: string;
     senderId?: string;
@@ -189,6 +191,10 @@ export function useWebSockets(
   const teamChatOpenRef = useRef(teamChatOpen);
   const seenTeamMessageIdsRef = useRef<Set<string>>(new Set());
   const seenTeamCallIdsRef = useRef<Set<string>>(new Set());
+  const endedTeamCallIdsRef = useRef<Set<string>>(new Set());
+  const meetingNotificationsRef = useRef(new Map<string, Notification>());
+  const notificationsRef = useRef(systemNotifications);
+  notificationsRef.current = systemNotifications;
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const currentUserIdRef = useRef(userId);
   currentUserIdRef.current = userId;
@@ -208,6 +214,9 @@ export function useWebSockets(
     setTeamChatUnreadCount(0);
     seenTeamMessageIdsRef.current.clear();
     seenTeamCallIdsRef.current.clear();
+    endedTeamCallIdsRef.current.clear();
+    meetingNotificationsRef.current.forEach((notification) => notification.close());
+    meetingNotificationsRef.current.clear();
     seenEventIdsRef.current.clear();
     hasOpenedRef.current = false;
     lastConnectionStateRef.current = null;
@@ -228,6 +237,39 @@ export function useWebSockets(
     setSystemToasts((current) => current.filter((toast) => toast.id !== toastId));
   }, []);
 
+  const dismissCallNotifications = useCallback((callId: string) => {
+    meetingNotificationsRef.current.get(callId)?.close();
+    meetingNotificationsRef.current.delete(callId);
+    const removedUnread = notificationsRef.current.filter((notification) => notification.metadata?.callId === callId && !notification.read).length;
+    notificationsRef.current = notificationsRef.current.filter((notification) => notification.metadata?.callId !== callId);
+    setSystemNotifications((current) => current.filter((notification) => notification.metadata?.callId !== callId));
+    setSystemToasts((current) => current.filter((toast) => toast.notification.metadata?.callId !== callId));
+    setSystemUnreadCount((current) => Math.max(0, current - removedUnread));
+  }, []);
+
+  useEffect(() => {
+    const meetingNotifications = meetingNotificationsRef.current;
+    const onDismiss = (event: Event) => {
+      const callId = (event as CustomEvent<{ callId?: string }>).detail?.callId;
+      if (callId) dismissCallNotifications(callId);
+    };
+    const onEnd = (event: Event) => {
+      const payload = (event as CustomEvent<TeamCallSocketEvent>).detail;
+      if (payload?.type === "CALL_END" && payload.callId) {
+        endedTeamCallIdsRef.current.add(payload.callId);
+        dismissCallNotifications(payload.callId);
+      }
+    };
+    window.addEventListener("norium:team-call-dismiss", onDismiss);
+    window.addEventListener("norium:team-call", onEnd);
+    return () => {
+      window.removeEventListener("norium:team-call-dismiss", onDismiss);
+      window.removeEventListener("norium:team-call", onEnd);
+      meetingNotifications.forEach((notification) => notification.close());
+      meetingNotifications.clear();
+    };
+  }, [dismissCallNotifications]);
+
   const pushSystemNotification = useCallback(
     (payload: {
       id?: string;
@@ -240,6 +282,9 @@ export function useWebSockets(
       showToast?: boolean;
     }) => {
       const notification = buildSystemNotification(payload);
+      // An invite and its end can arrive in one React batch. Keep the unread
+      // bookkeeping synchronous so ending it cannot leave a ghost badge.
+      notificationsRef.current = [notification, ...notificationsRef.current].slice(0, 80);
       setSystemNotifications((current) => [notification, ...current].slice(0, 80));
 
       if (activeTabRef.current !== NOTIFICATIONS_TAB) {
@@ -277,7 +322,7 @@ export function useWebSockets(
           if (oldest) seenTeamMessageIdsRef.current.delete(oldest);
         }
       }
-      if (message.senderId === userId || teamChatOpenRef.current || ["call_started", "meeting_scheduled"].includes(String(message.metadata?.action || ""))) return;
+      if (message.senderId === userId || teamChatOpenRef.current || ["call_started", "call_ended", "meeting_scheduled"].includes(String(message.metadata?.action || ""))) return;
 
       setTeamChatUnreadCount((current) => current + 1);
       pushSystemNotification({
@@ -589,8 +634,23 @@ export function useWebSockets(
         try {
           const payload = JSON.parse(String(event.data || "{}")) as TeamSocketMessage;
           if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) notifyTeamMessage(payload.message);
+          if (payload.type === "CALL_END" && payload.callId) {
+            endedTeamCallIdsRef.current.add(payload.callId);
+            dismissCallNotifications(payload.callId);
+            window.dispatchEvent(new CustomEvent("norium:team-call", { detail: payload }));
+          }
+          if (payload.type === "CALLS_STATE") {
+            const activeIds = new Set((payload.calls || []).map((call) => call.callId));
+            for (const callId of seenTeamCallIdsRef.current) {
+              if (!activeIds.has(callId)) {
+                endedTeamCallIdsRef.current.add(callId);
+                dismissCallNotifications(callId);
+              }
+            }
+            window.dispatchEvent(new CustomEvent("norium:team-call", { detail: payload }));
+          }
           if (payload.type === "CALL_INVITE" && payload.callId) {
-            if (seenTeamCallIdsRef.current.has(payload.callId)) return;
+            if (payload.fromUserId === userId || seenTeamCallIdsRef.current.has(payload.callId) || endedTeamCallIdsRef.current.has(payload.callId)) return;
             seenTeamCallIdsRef.current.add(payload.callId);
             if (seenTeamCallIdsRef.current.size > 100) {
               const oldest = seenTeamCallIdsRef.current.values().next().value;
@@ -605,10 +665,11 @@ export function useWebSockets(
             });
             window.dispatchEvent(new CustomEvent("norium:team-call", { detail: payload }));
             if ("Notification" in window && document.visibilityState !== "visible" && Notification.permission === "granted") {
-              new Notification("Reunião iniciada no Norium", {
+              const notification = new Notification("Reunião iniciada no Norium", {
                 body: `${payload.fromUserName || "Um membro da equipe"} está chamando você.`,
                 tag: `norium-meeting-${payload.callId}`,
               });
+              meetingNotificationsRef.current.set(payload.callId, notification);
             }
           }
         } catch {
@@ -632,7 +693,7 @@ export function useWebSockets(
       teamSocketRef.current?.close();
       teamSocketRef.current = null;
     };
-  }, [enabled, notifyTeamMessage, pushSystemNotification, userId]);
+  }, [dismissCallNotifications, enabled, notifyTeamMessage, pushSystemNotification, userId]);
 
   return {
     connected: isolatedForCurrentUser ? connected : false,

@@ -70,6 +70,7 @@ export default function NoriumApp() {
   const [noraContextRequest, setNoraContextRequest] = useState<{ id: number; prompt: string } | null>(null);
   const [activeChatConversationId, setActiveChatConversationId] = useState<string | null>(null);
   const [teamChatOpen, setTeamChatOpen] = useState(false);
+  const [teamChatMounted, setTeamChatMounted] = useState(false);
   const [pendingTeamCall, setPendingTeamCall] = useState<TeamCallSocketEvent | null>(null);
   const [emailToOpenId, setEmailToOpenId] = useState<string | null>(null);
   const {
@@ -207,14 +208,28 @@ export default function NoriumApp() {
 
   useEffect(() => {
     setPendingTeamCall(null);
+    setTeamChatMounted(false);
   }, [authSession?.user.id]);
+
+  useEffect(() => {
+    if (teamChatOpen || activeTab === "Chat da Equipe") setTeamChatMounted(true);
+  }, [activeTab, teamChatOpen]);
 
   useEffect(() => {
     const handleTeamCall = (event: Event) => {
       const callEvent = (event as CustomEvent<TeamCallSocketEvent>).detail;
-      if (!callEvent?.callId || activeTab === "Chat da Equipe") return;
+      if (callEvent?.type === "CALLS_STATE") {
+        setPendingTeamCall((current) => current && callEvent.calls?.some((call) => call.callId === current.callId) ? current : null);
+        return;
+      }
+      if (!callEvent?.callId) return;
+      if (callEvent.type === "CALL_END") {
+        setPendingTeamCall((current) => current?.callId === callEvent.callId ? null : current);
+        return;
+      }
+      if (callEvent.type !== "CALL_INVITE") return;
       setPendingTeamCall(callEvent);
-      setTeamChatOpen(true);
+      if (activeTab !== "Chat da Equipe") setTeamChatOpen(true);
     };
     window.addEventListener("norium:team-call", handleTeamCall);
     return () => window.removeEventListener("norium:team-call", handleTeamCall);
@@ -320,21 +335,6 @@ export default function NoriumApp() {
         </Suspense>
       )}
 
-      {canAccessPermission("chat") && teamChatOpen && (
-        <Suspense fallback={null}>
-          <TeamChatDrawer
-            key={`team-chat-${currentUser?.id || "anonymous"}`}
-            open={teamChatOpen}
-            onClose={() => setTeamChatOpen(false)}
-            session={authSession}
-            onUnread={(count) => addTeamChatUnread(count)}
-            onOpenNora={openNora}
-            initialCallEvent={pendingTeamCall}
-            onInitialCallHandled={(callId) => setPendingTeamCall((current) => current?.callId === callId ? null : current)}
-          />
-        </Suspense>
-      )}
-
       <SystemNotificationToasts
         toasts={systemToasts}
         onDismiss={dismissSystemToast}
@@ -413,6 +413,22 @@ export default function NoriumApp() {
             onRefreshEvents={() => void refreshEvents()}
             onSessionUpdate={updateSession}
           />
+          {canAccessPermission("chat") && (teamChatMounted || teamChatOpen || activeTab === "Chat da Equipe") && (
+            <Suspense fallback={null}>
+              <TeamChatDrawer
+                key={`team-chat-${currentUser?.id || "anonymous"}`}
+                open={teamChatOpen || activeTab === "Chat da Equipe"}
+                variant={activeTab === "Chat da Equipe" ? "page" : "drawer"}
+                onClose={() => { setTeamChatOpen(false); if (activeTab === "Chat da Equipe") navigateTab("Equipe"); }}
+                session={authSession}
+                onUnread={addTeamChatUnread}
+                onOpenNora={openNora}
+                onOpenCalendar={() => navigateTab("Agenda")}
+                initialCallEvent={pendingTeamCall}
+                onInitialCallHandled={(callId) => setPendingTeamCall((current) => current?.callId === callId ? null : current)}
+              />
+            </Suspense>
+          )}
         </main>
       </div>
     </div>

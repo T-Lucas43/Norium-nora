@@ -21,9 +21,11 @@ const session = {
 describe("chamadas do Modo Equipe", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ calls: [] }) }));
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -189,6 +191,114 @@ describe("chamadas do Modo Equipe", () => {
       scope: "direct",
       recipientId: "owner",
     }));
+  });
+
+  it("limpa convite pendente ao encerrar e ignora reenvio atrasado", async () => {
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    const invite = { type: "CALL_INVITE", callId: "call_0123456789abcdef", fromUserId: "member", scope: "team" as const, threadId: "team" };
+    await act(async () => result.current.handleSocketEvent(invite));
+    expect(result.current.incoming?.callId).toBe(invite.callId);
+    await act(async () => result.current.handleSocketEvent({ ...invite, type: "CALL_END" }));
+    expect(result.current.incoming).toBeNull();
+    expect(result.current.availableCalls).toHaveLength(0);
+    await act(async () => result.current.handleSocketEvent(invite));
+    expect(result.current.incoming).toBeNull();
+  });
+
+  it("sincroniza reuniao ativa sem tocar e permite ingressar depois de recusar", async () => {
+    const camera = { getTracks: () => [{ stop: vi.fn() }] };
+    const audio = { kind: "audio", enabled: true, stop: vi.fn() };
+    const stream = { getTracks: () => [audio], getAudioTracks: () => [audio], getVideoTracks: () => [] };
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValueOnce(camera).mockResolvedValueOnce(stream) } });
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    const invite = { type: "CALL_INVITE", callId: "call_0123456789abcdef", fromUserId: "member", scope: "team" as const, threadId: "team" };
+    await act(async () => result.current.handleSocketEvent({ type: "CALLS_STATE", calls: [invite] }));
+    expect(result.current.incoming).toBeNull();
+    expect(result.current.availableCalls).toHaveLength(1);
+    await act(async () => result.current.handleSocketEvent(invite));
+    act(() => result.current.rejectIncoming());
+    await act(async () => result.current.handleSocketEvent(invite));
+    expect(result.current.incoming).toBeNull();
+    await act(async () => result.current.startCall());
+    expect(result.current.active?.callId).toBe(invite.callId);
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_ACCEPT", callId: invite.callId }));
+    expect(sendSocketEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_INVITE" }));
+  });
+
+  it("nao reabre a chamada se ela terminar enquanto o microfone pede permissao", async () => {
+    let resolveMedia!: (stream: unknown) => void;
+    const deferred = new Promise((resolve) => { resolveMedia = resolve; });
+    const camera = { getTracks: () => [{ stop: vi.fn() }] };
+    const audio = { kind: "audio", enabled: true, stop: vi.fn() };
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValueOnce(camera).mockReturnValueOnce(deferred) } });
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    const invite = { type: "CALL_INVITE", callId: "call_0123456789abcdef", fromUserId: "member", scope: "team" as const, threadId: "team" };
+    await act(async () => result.current.handleSocketEvent(invite));
+    let joining!: Promise<void>;
+    await act(async () => { joining = result.current.acceptIncoming(); });
+    await act(async () => result.current.handleSocketEvent({ ...invite, type: "CALL_END" }));
+    await act(async () => {
+      resolveMedia({ getTracks: () => [audio], getAudioTracks: () => [audio], getVideoTracks: () => [] });
+      await joining;
+    });
+    expect(result.current.active).toBeNull();
+    expect(result.current.incoming).toBeNull();
+    expect(audio.stop).toHaveBeenCalled();
+    expect(sendSocketEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_ACCEPT" }));
+  });
+
+  it.each(["camera", "screen"])("descarta %s autorizada depois que a reunião foi encerrada", async (kind) => {
+    const permissionVideo = { kind: "video", stop: vi.fn() };
+    const audio = { kind: "audio", enabled: true, stop: vi.fn() };
+    const delayedVideo = { kind: "video", stop: vi.fn() };
+    const stream = (tracks: typeof audio[]) => ({
+      getTracks: () => tracks,
+      getAudioTracks: () => tracks.filter((track) => track.kind === "audio"),
+      getVideoTracks: () => tracks.filter((track) => track.kind === "video"),
+    });
+    let resolveMedia!: (value: unknown) => void;
+    const delayed = new Promise((resolve) => { resolveMedia = resolve; });
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
+      getUserMedia: vi.fn().mockResolvedValueOnce(stream([permissionVideo as typeof audio])).mockResolvedValueOnce(stream([audio])).mockReturnValue(delayed),
+      getDisplayMedia: vi.fn().mockReturnValue(delayed),
+    } });
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result, unmount } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    await act(async () => result.current.startCall());
+    let enabling!: Promise<void>;
+    act(() => { enabling = kind === "camera" ? result.current.toggleCamera() : result.current.toggleScreenShare(); });
+    await act(async () => result.current.endCall());
+    await act(async () => { resolveMedia(stream([delayedVideo as typeof audio])); await enabling; });
+    expect(result.current.active).toBeNull();
+    expect(result.current.localStream).toBeNull();
+    expect(result.current.screenStream).toBeNull();
+    expect(delayedVideo.stop).toHaveBeenCalled();
+    expect(sendSocketEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_SCREEN_STARTED" }));
+    unmount();
+  });
+
+  it("bloqueia clique duplo ao iniciar e fecha sem esperar resposta HTTP", async () => {
+    let resolveCamera!: (stream: unknown) => void;
+    const cameraPromise = new Promise((resolve) => { resolveCamera = resolve; });
+    const camera = { getTracks: () => [{ stop: vi.fn() }] };
+    const audio = { kind: "audio", enabled: true, stop: vi.fn() };
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockReturnValueOnce(cameraPromise).mockResolvedValue({ getTracks: () => [audio], getAudioTracks: () => [audio], getVideoTracks: () => [] }) } });
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    let starting!: Promise<void>;
+    await act(async () => { starting = result.current.startCall(); await result.current.startCall(); });
+    await act(async () => { resolveCamera(camera); await starting; });
+    expect(sendSocketEvent.mock.calls.filter(([event]) => event.type === "CALL_INVITE")).toHaveLength(1);
+    let resolveEnd!: (value: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise((resolve) => { resolveEnd = resolve; })));
+    let ending!: Promise<void>;
+    await act(async () => { ending = result.current.endCall(); });
+    expect(result.current.active).toBeNull();
+    expect(audio.stop).toHaveBeenCalled();
+    await act(async () => { resolveEnd({ ok: true }); await ending; });
   });
 
   it("reserva o canal de video e transmite camera e tela aos participantes", async () => {

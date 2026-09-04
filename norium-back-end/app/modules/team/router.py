@@ -1454,6 +1454,11 @@ async def handle_call_event(websocket: WebSocket, user: dict[str, Any], payload:
             if emoji not in {"👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"}:
                 raise HTTPException(status_code=400, detail="Reacao invalida.")
             event["emoji"] = emoji
+        if event_type == "CALL_MEDIA_STATE":
+            if not isinstance(payload.get("cameraEnabled"), bool) or not isinstance(payload.get("screenSharing"), bool):
+                raise HTTPException(status_code=400, detail="Estado de midia invalido.")
+            event["cameraEnabled"] = payload["cameraEnabled"]
+            event["screenSharing"] = payload["screenSharing"]
         if event_type in {"CALL_INVITE", "CALL_ACCEPT", "CALL_LEAVE", "CALL_HEARTBEAT"}:
             await asyncio.to_thread(write_chat_store, team_id, store)
     if event_type == "CALL_LEAVE" and call.get("hostUserId") == user_id:
@@ -1514,7 +1519,7 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             except json.JSONDecodeError:
                 payload = {}
             event_type = str(payload.get("type") or "") if isinstance(payload, dict) else ""
-            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_REACTION", "CALL_SCREEN_STARTED", "CALL_SCREEN_STOPPED", "CALL_LEAVE", "CALL_END", "CALL_HEARTBEAT"}:
+            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_REACTION", "CALL_MEDIA_STATE", "CALL_SCREEN_STARTED", "CALL_SCREEN_STOPPED", "CALL_LEAVE", "CALL_END", "CALL_HEARTBEAT"}:
                 await websocket.send_json({"type": "ACK", "timestamp": now_iso()})
                 continue
             try:

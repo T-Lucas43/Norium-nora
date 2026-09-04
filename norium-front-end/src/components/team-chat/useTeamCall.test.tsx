@@ -321,8 +321,11 @@ describe("chamadas do Modo Equipe", () => {
     const audioStream = new FakeMediaStream([audioTrack]) as unknown as MediaStream;
     const cameraStream = new FakeMediaStream([cameraTrack]) as unknown as MediaStream;
     const displayStream = new FakeMediaStream([screenTrack]) as unknown as MediaStream;
+    const screenAudioTrack = { id: "screen-audio", kind: "audio", enabled: true, readyState: "live", stop: vi.fn() } as unknown as MediaStreamTrack;
+    (displayStream as unknown as FakeMediaStream).tracks.push(screenAudioTrack);
     const replaceTrack = vi.fn().mockResolvedValue(undefined);
     const videoSender = { track: null, replaceTrack } as unknown as RTCRtpSender;
+    const screenAudioSender = { track: null, replaceTrack: vi.fn().mockResolvedValue(undefined) };
     const peerInstances: FakePeerConnection[] = [];
     class FakePeerConnection {
       signalingState = "stable";
@@ -334,7 +337,7 @@ describe("chamadas do Modo Equipe", () => {
       onconnectionstatechange: (() => void) | null = null;
       constructor() { peerInstances.push(this); }
       addTrack(track: MediaStreamTrack) { return { track, replaceTrack: vi.fn() } as unknown as RTCRtpSender; }
-      addTransceiver() { return { sender: videoSender } as RTCRtpTransceiver; }
+      addTransceiver(kind: string) { return { sender: kind === "video" ? videoSender : screenAudioSender } as RTCRtpTransceiver; }
       createOffer = vi.fn().mockResolvedValue({ type: "offer", sdp: "offer" });
       setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => { this.localDescription = description as RTCSessionDescription; });
       close = vi.fn();
@@ -359,6 +362,11 @@ describe("chamadas do Modo Equipe", () => {
     expect(result.current.remoteStreams).toHaveLength(1);
     expect(result.current.remoteStreams[0].stream.getAudioTracks()).toEqual([remoteAudioTrack]);
     expect(result.current.remoteStreams[0].stream.getVideoTracks()).toEqual([remoteScreenTrack]);
+    const remoteSharedAudio = { ...remoteAudioTrack, id: "remote-shared-audio" };
+    await act(async () => peer.ontrack?.({ track: remoteSharedAudio, streams: [] } as unknown as RTCTrackEvent));
+    expect(result.current.remoteStreams[0].stream.getAudioTracks()).toEqual([remoteAudioTrack, remoteSharedAudio]);
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_MEDIA_STATE", callId: result.current.active?.callId, fromUserId: "member", cameraEnabled: false, screenSharing: false }));
+    expect(result.current.remoteCameraEnabled.member).toBe(false);
     await act(async () => result.current.handleSocketEvent({ type: "CALL_SCREEN_STARTED", callId: result.current.active?.callId, fromUserId: "member", fromUserName: "Member" }));
     expect(result.current.remoteScreenSharingIds).toContain("member");
     // A faixa remota ja esta ativa; o receptor nao cria uma oferta concorrente.
@@ -376,6 +384,7 @@ describe("chamadas do Modo Equipe", () => {
 
     await act(async () => result.current.toggleScreenShare());
     expect(getDisplayMedia).toHaveBeenCalledWith({
+      audio: true,
       video: {
         width: { ideal: 1920, max: 1920 },
         height: { ideal: 1080, max: 1080 },
@@ -384,6 +393,10 @@ describe("chamadas do Modo Equipe", () => {
     });
     expect(replaceTrack).toHaveBeenLastCalledWith(screenTrack);
     expect(result.current.screenStream).toBe(displayStream);
+    expect(screenAudioSender.replaceTrack).toHaveBeenLastCalledWith(screenAudioTrack);
+    act(() => result.current.toggleMute());
+    expect(audioTrack.enabled).toBe(false);
+    expect(screenAudioTrack.enabled).toBe(true);
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_SCREEN_STARTED" }));
     expect(peer.createOffer).toHaveBeenCalledTimes(3);
 
@@ -400,8 +413,12 @@ describe("chamadas do Modo Equipe", () => {
     await act(async () => result.current.toggleScreenShare());
     expect(replaceTrack).toHaveBeenLastCalledWith(cameraTrack);
     expect(result.current.screenStream).toBeNull();
+    expect(screenAudioSender.replaceTrack).toHaveBeenLastCalledWith(null);
+    expect(screenAudioTrack.stop).toHaveBeenCalled();
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_SCREEN_STOPPED" }));
     expect(peer.createOffer).toHaveBeenCalledTimes(4);
+    await act(async () => result.current.toggleCamera());
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_MEDIA_STATE", cameraEnabled: false, screenSharing: false }));
     await act(async () => result.current.endCall());
   });
 });

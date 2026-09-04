@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Camera, CameraOff, Circle, Clock3, Download, Maximize2, MessageSquareText, Mic, MicOff, MonitorUp, Paperclip, PhoneOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, Wifi, WifiOff, X } from "lucide-react";
+import { Camera, CameraOff, Circle, Clock3, Download, Maximize2, MessageSquareText, Mic, MicOff, MonitorUp, Paperclip, PhoneOff, Pin, PinOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
+import ParticipantAudio from "./ParticipantAudio";
 import type { ReturnTypeOfTeamCall } from "./teamCallTypes";
 
 type MeetingAttachment = { id: string; name: string; mimeType: string; size: number; url: string; expiresAt?: string };
@@ -32,71 +33,37 @@ function StreamVideo({ stream, muted = false, label, sinkId = "", fit = "cover" 
   return <video ref={ref} autoPlay playsInline muted={muted} aria-label={label} className={`h-full w-full bg-black ${fit === "contain" ? "object-contain" : "object-cover"}`} />;
 }
 
-function RemoteParticipantMedia({ stream, participantName, sharing, sinkId }: { stream: MediaStream; participantName: string; sharing: boolean; sinkId: string }) {
+function RemoteParticipantMedia({ stream, participantName, sharing, videoEnabled }: { stream: MediaStream; participantName: string; sharing: boolean; videoEnabled: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [audioBlocked, setAudioBlocked] = useState(false);
-  const [videoActive, setVideoActive] = useState(() => stream.getVideoTracks().some((track) => track.readyState !== "ended" && !track.muted));
-
+  const [videoActive, setVideoActive] = useState(false);
   useEffect(() => {
     const video = videoRef.current;
-    const audio = audioRef.current as (HTMLAudioElement & { setSinkId?: (deviceId: string) => Promise<void> }) | null;
-    if (!video || !audio) return undefined;
-    const videoTracks = stream.getVideoTracks().filter((track) => track.readyState !== "ended");
-    const audioTracks = stream.getAudioTracks().filter((track) => track.readyState !== "ended");
-    const videoStream = new MediaStream(videoTracks);
-    const audioStream = new MediaStream(audioTracks);
-    video.srcObject = videoStream;
-    audio.srcObject = audioStream;
-    if (sinkId && audio.setSinkId) void audio.setSinkId(sinkId).catch(() => undefined);
-
-    const playAudio = () => {
-      if (!audioTracks.length) {
-        setAudioBlocked(false);
-        return;
-      }
-      audio.muted = false;
-      audio.volume = 1;
-      void audio.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
+    if (!video) return;
+    const tracks = stream.getVideoTracks();
+    const refresh = () => {
+      const active = videoEnabled && tracks.some((track) => track.readyState !== "ended" && !track.muted);
+      setVideoActive(active);
+      // Limpar a fonte elimina o ultimo quadro mesmo com a faixa RTP viva.
+      video.srcObject = active ? new MediaStream(tracks) : null;
+      if (active) void video.play().catch(() => undefined);
     };
-    const refreshVideo = () => {
-      const hasActiveVideo = videoTracks.some((track) => track.readyState !== "ended" && !track.muted);
-      setVideoActive(hasActiveVideo);
-      if (hasActiveVideo) void video.play().catch(() => undefined);
-    };
-    audioTracks.forEach((track) => track.addEventListener("unmute", playAudio));
-    videoTracks.forEach((track) => {
-      track.addEventListener("unmute", refreshVideo);
-      track.addEventListener("mute", refreshVideo);
-      track.addEventListener("ended", refreshVideo);
-    });
-    playAudio();
-    refreshVideo();
-    window.addEventListener("pointerdown", playAudio, { once: true });
+    tracks.forEach((track) => ["unmute", "mute", "ended"].forEach((event) => track.addEventListener(event, refresh)));
+    refresh();
     return () => {
-      window.removeEventListener("pointerdown", playAudio);
-      audioTracks.forEach((track) => track.removeEventListener("unmute", playAudio));
-      videoTracks.forEach((track) => {
-        track.removeEventListener("unmute", refreshVideo);
-        track.removeEventListener("mute", refreshVideo);
-        track.removeEventListener("ended", refreshVideo);
-      });
-      if (video.srcObject === videoStream) video.srcObject = null;
-      if (audio.srcObject === audioStream) audio.srcObject = null;
+      tracks.forEach((track) => ["unmute", "mute", "ended"].forEach((event) => track.removeEventListener(event, refresh)));
+      video.srcObject = null;
     };
-  }, [sinkId, stream]);
-
+  }, [stream, videoEnabled, sharing]);
   const toggleFullscreen = async () => {
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else await containerRef.current?.requestFullscreen();
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await containerRef.current?.requestFullscreen();
+    } catch { /* O navegador mantem a visualizacao na chamada. */ }
   };
-
-  return <div ref={containerRef} className="relative h-full w-full bg-black">
-    <audio ref={audioRef} autoPlay aria-label={`Áudio de ${participantName}`} />
-    <video ref={videoRef} autoPlay playsInline muted aria-label={sharing ? `Tela compartilhada por ${participantName}` : `Câmera de ${participantName}`} className={`h-full w-full bg-black ${sharing ? "object-contain" : "object-cover"} ${videoActive ? "" : "invisible"}`} />
-    {!videoActive && <div className="absolute inset-0 grid place-items-center bg-[#050709] text-center"><div><span className="team-call-primary-button mx-auto grid h-24 w-24 place-items-center rounded-full text-2xl font-black text-white">{initials(participantName)}</span><p className="mt-4 text-sm font-black">{sharing ? "Recebendo a transmissão de tela..." : `${participantName} está sem câmera`}</p></div></div>}
-    {audioBlocked && <button type="button" onClick={() => { const audio = audioRef.current; if (audio) void audio.play().then(() => setAudioBlocked(false)).catch(() => undefined); }} className="team-call-enable-audio absolute bottom-3 left-1/2 z-10 -translate-x-1/2 rounded-full px-4 py-2 text-xs font-black" aria-label={`Ativar áudio de ${participantName}`}><Volume2 size={15} /> Ativar áudio</button>}
+  return <div ref={containerRef} className="relative h-full min-h-0 w-full bg-black">
+    <video key={sharing ? "screen" : "camera"} ref={videoRef} autoPlay playsInline muted aria-label={sharing ? `Tela compartilhada por ${participantName}` : `Câmera de ${participantName}`} className={`h-full w-full bg-black ${sharing ? "object-contain" : "object-cover"} ${videoEnabled && videoActive ? "" : "invisible"}`} />
+    {(!videoEnabled || !videoActive) && <div className="absolute inset-0 grid place-items-center bg-[#050709] p-3 text-center"><div><span className="team-call-primary-button mx-auto grid h-16 w-16 place-items-center rounded-full text-xl font-black text-white">{initials(participantName)}</span><p className="mt-3 text-sm font-black">{sharing ? "Recebendo a transmissão de tela..." : `${participantName} está sem câmera`}</p></div></div>}
     {sharing && <button type="button" onClick={() => void toggleFullscreen()} className="team-call-screen-label absolute right-3 top-3 z-20 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-black" aria-label={`Ver tela de ${participantName} em tela cheia`}><Maximize2 size={15} /> Tela cheia</button>}
   </div>;
 }
@@ -127,6 +94,13 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
   const [messageText, setMessageText] = useState("");
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
+  const [audioSettings, setAudioSettings] = useState<Record<string, { volume: number; muted: boolean }>>({});
+  const [pinned, setPinned] = useState<{ userId: string; type: "member" | "screen" } | null>(null);
+  useEffect(() => { setAudioSettings({}); setPinned(null); }, [call.active?.callId]);
+  useEffect(() => {
+    if (pinned && (!call.remoteStreams.some((item) => item.userId === pinned.userId) ||
+      (pinned.type === "screen" && !call.remoteScreenSharingIds.includes(pinned.userId)))) setPinned(null);
+  }, [pinned, call.remoteStreams, call.remoteScreenSharingIds]);
   const chatListRef = useRef<HTMLDivElement>(null);
   const memberById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
 
@@ -168,6 +142,10 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
   if (!call.active) return null;
 
   const streams = call.remoteStreams;
+  const updateAudio = (userId: string, patch: Partial<{ volume: number; muted: boolean }>) =>
+    setAudioSettings((current) => ({ ...current, [userId]: { ...(current[userId] || { volume: 100, muted: false }), ...patch } }));
+  const togglePin = (userId: string, type: "member" | "screen") =>
+    setPinned((current) => current?.userId === userId && current.type === type ? null : { userId, type });
   const participantIds = Array.from(new Set([currentUserId, ...streams.map((item) => item.userId)]));
   const togglePanel = (panel: "chat" | "people" | "devices") => {
     setChatOpen(panel === "chat" ? !chatOpen : false);
@@ -218,14 +196,26 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
       )}
 
       <div className="flex min-h-0 flex-1">
-        <main className={`relative grid min-w-0 flex-1 gap-3 p-3 ${streams.length > 1 ? "md:grid-cols-2" : ""}`}>
+        <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 overflow-auto p-3 ${pinned && streams.length > 1 ? "team-call-stage-pinned" : streams.length > 1 ? "md:grid-cols-2" : ""}`}>
           {call.recording && <div className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /> REC {durationLabel(call.recordingElapsedSeconds)}</div>}
           {streams.length ? streams.map((item) => {
             const sharing = call.remoteScreenSharingIds.includes(item.userId);
             const participantName = memberById.get(item.userId)?.nome || "Participante";
-            return <section key={item.userId} className={`team-call-remote-tile relative overflow-hidden rounded-xl border border-[var(--border)] ${sharing ? "team-call-remote-screen" : ""}`}><RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing={sharing} sinkId={call.selectedSpeakerId} />{sharing && <span className="team-call-screen-label absolute left-3 top-3 rounded-lg px-3 py-1.5 text-xs font-black"><MonitorUp size={14} /> Tela de {participantName}</span>}</section>;
+            const settings = audioSettings[item.userId] || { volume: 100, muted: false };
+            const isPinned = pinned?.userId === item.userId;
+            return <section key={item.userId} data-participant={item.userId} data-pinned={isPinned || undefined} style={isPinned && streams.length > 1 ? { gridRow: `1 / span ${streams.length - 1}` } : undefined} className={`team-call-remote-tile relative flex min-h-56 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] ${sharing ? "team-call-remote-screen" : ""} ${isPinned ? "team-call-pinned-tile" : ""}`}>
+              <ParticipantAudio stream={item.stream} name={participantName} volume={settings.volume} muted={settings.muted} sinkId={call.selectedSpeakerId} />
+              <div className="relative min-h-36 flex-1 overflow-hidden"><RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing={sharing} videoEnabled={sharing || call.remoteCameraEnabled?.[item.userId] === true} />{sharing && <span className="team-call-screen-label absolute left-3 top-3 rounded-lg px-3 py-1.5 text-xs font-black"><MonitorUp size={14} /> Tela de {participantName}</span>}</div>
+              <div className="team-call-participant-controls flex flex-wrap items-center gap-2 border-t p-2">
+                <strong className="mr-auto max-w-36 truncate text-xs">{participantName}</strong>
+                <button type="button" aria-label={`${settings.muted ? "Ouvir" : "Silenciar"} ${participantName} para mim`} aria-pressed={settings.muted} onClick={() => updateAudio(item.userId, { muted: !settings.muted })} className="rounded-lg p-2 hover:bg-white/10">{settings.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button>
+                <label className="flex items-center gap-2 text-xs"><span className="sr-only">Volume de {participantName}</span><input aria-label={`Volume de ${participantName}`} type="range" min="0" max="200" step="5" value={settings.volume} onChange={(event) => updateAudio(item.userId, { volume: Number(event.target.value) })} className="w-24 accent-blue-500" /><span className="w-9">{settings.volume}%</span></label>
+                <button type="button" onClick={() => togglePin(item.userId, "member")} aria-pressed={isPinned && pinned?.type === "member"} aria-label={`${isPinned && pinned?.type === "member" ? "Desafixar" : "Fixar"} ${participantName}`} className="flex items-center gap-1 rounded-lg p-2 text-xs hover:bg-white/10">{isPinned && pinned?.type === "member" ? <PinOff size={15} /> : <Pin size={15} />} Membro</button>
+                {sharing && <button type="button" onClick={() => togglePin(item.userId, "screen")} aria-pressed={isPinned && pinned?.type === "screen"} aria-label={`${isPinned && pinned?.type === "screen" ? "Desafixar" : "Fixar"} transmissão de ${participantName}`} className="flex items-center gap-1 rounded-lg p-2 text-xs hover:bg-white/10">{isPinned && pinned?.type === "screen" ? <PinOff size={15} /> : <Pin size={15} />} Transmissão</button>}
+              </div>
+            </section>;
           }) : <WaitingStage title={call.active.title} />}
-          {(call.screenStream || (call.localStream && !call.cameraOff)) && <div className="team-call-local-previews absolute bottom-5 right-5 z-20 flex flex-col items-end gap-2">
+          {(call.screenStream || (call.localStream && !call.cameraOff)) && <div className="team-call-local-previews pointer-events-none absolute bottom-28 right-5 z-20 flex flex-col items-end gap-2">
             {call.screenStream && <section className="team-call-local-preview overflow-hidden rounded-xl border shadow-2xl" aria-label="Prévia da sua tela compartilhada"><header className="flex items-center justify-between gap-3 px-3 py-2 text-xs font-black"><span className="flex items-center gap-2"><MonitorUp size={14} /> Você está compartilhando</span><span className="text-emerald-400">AO VIVO</span></header><div className="aspect-video bg-black"><StreamVideo stream={call.screenStream} muted fit="contain" label="Mini visualização da sua tela compartilhada" /></div></section>}
             {call.localStream && !call.cameraOff && <section className="team-call-camera-preview h-24 w-36 overflow-hidden rounded-xl border shadow-2xl md:h-28 md:w-44"><StreamVideo stream={call.localStream} muted label="Sua câmera" /></section>}
           </div>}
@@ -243,7 +233,7 @@ export default function TeamCallOverlay({ call, messages, members, currentUserId
 
 function ScreenShareQualitySelector({ call, onClose }: { call: ReturnTypeOfTeamCall; onClose: () => void }) {
   return <section className="team-call-popover absolute right-3 top-[calc(100%+10px)] z-20 grid w-[min(92vw,360px)] gap-4 rounded-2xl border p-4 text-left shadow-2xl" aria-label="Qualidade da transmissão de tela">
-    <div className="flex items-center justify-between"><div><p className="text-sm font-black">Transmissão de tela</p><p className="text-xs text-[var(--text-secondary)]">Ajuste a qualidade enviada aos participantes.</p></div><button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-[var(--surface-hover)]" aria-label="Fechar qualidade"><X size={17} /></button></div>
+    <div className="flex items-center justify-between"><div><p className="text-sm font-black">Transmissão de tela</p><p className="text-xs text-[var(--text-secondary)]">Para transmitir som, marque Compartilhar áudio ao escolher a aba ou tela no navegador.</p></div><button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-[var(--surface-hover)]" aria-label="Fechar qualidade"><X size={17} /></button></div>
     <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]"><span>Qualidade da transmissão</span><select value={call.screenShareQuality} onChange={(event) => void call.selectScreenShareQuality(event.target.value as typeof call.screenShareQuality)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none"><option value="720p">HD · 720p</option><option value="1080p">Full HD · 1080p</option><option value="1440p">Quad HD · 1440p</option></select></label>
     <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]"><span>Taxa de quadros</span><select value={call.screenShareFps} onChange={(event) => void call.selectScreenShareFps(Number(event.target.value) as typeof call.screenShareFps)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none"><option value={15}>15 FPS · economiza internet</option><option value={30}>30 FPS · recomendado</option><option value={60}>60 FPS · movimento fluido</option></select></label>
     <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">A mudança é aplicada durante a transmissão. O navegador pode reduzir a resolução se a conexão não suportar.</p>

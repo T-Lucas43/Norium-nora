@@ -7,20 +7,48 @@ import TeamCallOverlay from "../../src/components/team-chat/TeamCallOverlay";
 import TeamActiveCallCard from "../../src/components/team-chat/TeamActiveCallCard";
 import "../../src/index.css";
 
-const userId = new URLSearchParams(location.search).get("user") === "member" ? "member" : "owner";
-const members = [{ id: "owner", nome: "Owner" }, { id: "member", nome: "Member" }];
+const requestedUser = new URLSearchParams(location.search).get("user");
+const userId = requestedUser === "member" || requestedUser === "other" ? requestedUser : "owner";
+const members = [{ id: "owner", nome: "Owner" }, { id: "member", nome: "Member" }, { id: "other", nome: "Other" }];
+function syntheticVideo(label: string) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 640; canvas.height = 360;
+  const context = canvas.getContext("2d")!;
+  const draw = () => {
+    context.fillStyle = label === "Tela" ? "#12539c" : "#156345";
+    context.fillRect(0, 0, 640, 360);
+    context.fillStyle = "white"; context.font = "30px sans-serif";
+    context.fillText(`${label} · ${userId}`, 30, 80);
+    context.fillText(String(Date.now()), 30, 160);
+  };
+  draw();
+  const timer = window.setInterval(draw, 100);
+  const stream = canvas.captureStream(15);
+  const track = stream.getVideoTracks()[0];
+  const stop = track.stop.bind(track);
+  track.stop = () => { window.clearInterval(timer); stop(); };
+  return stream;
+}
+function syntheticAudio(frequency: number) {
+  const context = new AudioContext();
+  void context.resume();
+  const destination = context.createMediaStreamDestination();
+  const tone = context.createOscillator(); tone.frequency.value = frequency;
+  const gain = context.createGain(); gain.gain.value = 0.05;
+  tone.connect(gain).connect(destination); tone.start();
+  const track = destination.stream.getAudioTracks()[0];
+  const stop = track.stop.bind(track);
+  track.stop = () => { tone.stop(); void context.close(); stop(); };
+  return destination.stream;
+}
 Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
   getUserMedia: async ({ video }: { video: unknown }) => {
     if (video) {
-      const canvas = document.createElement("canvas");
-      canvas.width = 640; canvas.height = 360;
-      canvas.getContext("2d")!.fillRect(0, 0, 640, 360);
-      return canvas.captureStream(15);
+      return syntheticVideo("Câmera");
     }
-    const context = new AudioContext();
-    const destination = context.createMediaStreamDestination();
-    return destination.stream;
+    return syntheticAudio(220);
   },
+  getDisplayMedia: async () => new MediaStream([...syntheticVideo("Tela").getTracks(), ...syntheticAudio(880).getTracks()]),
   enumerateDevices: async () => [],
   addEventListener() {}, removeEventListener() {},
 } });

@@ -53,6 +53,21 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(store["messages"]))
         self.assertTrue(any(call.args[0]["type"] == "CALL_ACTIVE" for call in self.socket.send_json.call_args_list))
 
+    async def test_media_state_is_validated_and_only_sent_to_joined_users(self):
+        await self.send("CALL_INVITE")
+        await self.send("CALL_ACCEPT", self.member, clientId="member-tab")
+        self.manager.send_to_users.reset_mock()
+        await self.send("CALL_MEDIA_STATE", cameraEnabled=False, screenSharing=False)
+        sent = self.manager.send_to_users.call_args.args
+        self.assertEqual({"member"}, sent[1])
+        self.assertIs(False, sent[2]["cameraEnabled"])
+        self.assertIs(False, sent[2]["screenSharing"])
+        with self.assertRaises(HTTPException):
+            await self.send("CALL_MEDIA_STATE", cameraEnabled="false", screenSharing=False)
+        self.manager.send_to_users.reset_mock()
+        await self.send("CALL_MEDIA_STATE", self.other, clientId="other-tab", cameraEnabled=True, screenSharing=True)
+        self.manager.send_to_users.assert_not_awaited()
+
     async def test_end_is_idempotent_deletes_state_and_cancels_all_invites(self):
         await self.send("CALL_INVITE")
         await self.send("CALL_ACCEPT", self.member, clientId="member-tab")

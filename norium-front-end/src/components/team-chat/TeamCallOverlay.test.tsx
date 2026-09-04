@@ -236,8 +236,28 @@ describe("tela da reuniao do Modo Equipe", () => {
       isHost: true,
     } as unknown as ReturnTypeOfTeamCall;
 
-    render(<TeamCallOverlay call={call} messages={[]} members={[{ id: "member", nome: "Fernando" }]} currentUserId="owner" onSendMessage={vi.fn()} onDownloadAttachment={vi.fn()} />);
+    const props = { call, messages: [], members: [{ id: "member", nome: "Fernando" }], currentUserId: "owner", onSendMessage: vi.fn(), onDownloadAttachment: vi.fn() };
+    const { rerender } = render(<TeamCallOverlay {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Ver tela de Fernando em tela cheia" }));
     expect(requestFullscreen).toHaveBeenCalledOnce();
+    fireEvent.change(screen.getByRole("slider", { name: "Volume de Fernando" }), { target: { value: "175" } });
+    expect(screen.getByText("175%")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Silenciar Fernando para mim" }));
+    expect(screen.getByLabelText("Áudio de Fernando")).toHaveProperty("muted", true);
+    fireEvent.click(screen.getByRole("button", { name: "Fixar transmissão de Fernando" }));
+    expect(document.querySelector('[data-participant="member"]')).toHaveAttribute("data-pinned", "true");
+    const oldVideo = screen.getByLabelText("Tela compartilhada por Fernando");
+    rerender(<TeamCallOverlay {...props} call={{ ...call, remoteScreenSharingIds: [], remoteCameraEnabled: { member: false } }} />);
+    expect(oldVideo).toHaveProperty("srcObject", null);
+    expect(screen.getByLabelText("Câmera de Fernando")).toHaveProperty("srcObject", null);
+    expect(screen.getByText("Fernando está sem câmera")).toBeInTheDocument();
+    expect(document.querySelector('[data-participant="member"]')).not.toHaveAttribute("data-pinned");
+    expect(screen.getByText("175%")).toBeInTheDocument();
+    expect(screen.getByLabelText("Áudio de Fernando")).toHaveProperty("muted", true);
+    fireEvent.click(screen.getByRole("button", { name: "Ouvir Fernando para mim" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fixar Fernando" }));
+    expect(document.querySelector('[data-participant="member"]')).toHaveAttribute("data-pinned", "true");
+    rerender(<TeamCallOverlay {...props} call={{ ...call, remoteStreams: [] }} />);
+    expect(document.querySelector('[data-pinned]')).toBeNull();
   });
 });

@@ -35,6 +35,8 @@ export type TeamCallSocketEvent = {
   clientId?: string | null;
   requestedCallId?: string;
   event?: string;
+  cameraEnabled?: boolean;
+  screenSharing?: boolean;
 };
 
 type ActiveCall = {
@@ -205,6 +207,7 @@ export function useTeamCall({
   const [sharingScreen, setSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [remoteScreenSharingIds, setRemoteScreenSharingIds] = useState<string[]>([]);
+  const [remoteCameraEnabled, setRemoteCameraEnabled] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState("");
   const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
   const [recording, setRecording] = useState(false);
@@ -222,6 +225,7 @@ export function useTeamCall({
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
   const audioSendersRef = useRef(new Map<string, RTCRtpSender>());
+  const screenAudioSendersRef = useRef(new Map<string, RTCRtpSender>());
   const videoSendersRef = useRef(new Map<string, RTCRtpSender>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
   const remoteStreamByUserRef = useRef(new Map<string, MediaStream>());
@@ -300,6 +304,17 @@ export function useTeamCall({
     subteamId: call.thread.subteamId || null,
   }), []);
 
+  const publishMediaState = useCallback(() => {
+    const call = activeRef.current;
+    if (!call) return;
+    sendSocketEvent({ type: "CALL_MEDIA_STATE", ...callPayload(call),
+      cameraEnabled: !!localStreamRef.current?.getVideoTracks().some((track) => track.enabled && track.readyState !== "ended"),
+      screenSharing: !!screenStreamRef.current,
+    });
+  }, [callPayload, sendSocketEvent]);
+
+  useEffect(() => { if (active) publishMediaState(); }, [active, cameraOff, sharingScreen, publishMediaState]);
+
   const closePeer = useCallback((userId: string) => {
     const recoveryTimer = screenRecoveryTimersRef.current.get(userId);
     if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
@@ -307,6 +322,8 @@ export function useTeamCall({
     peersRef.current.get(userId)?.close();
     peersRef.current.delete(userId);
     audioSendersRef.current.delete(userId);
+    screenAudioSendersRef.current.delete(userId);
+    setRemoteCameraEnabled((current) => { const next = { ...current }; delete next[userId]; return next; });
     videoSendersRef.current.delete(userId);
     pendingCandidatesRef.current.delete(userId);
     remoteStreamByUserRef.current.get(userId)?.getTracks().forEach((track) => {
@@ -338,6 +355,7 @@ export function useTeamCall({
     peersRef.current.forEach((peer) => peer.close());
     peersRef.current.clear();
     audioSendersRef.current.clear();
+    screenAudioSendersRef.current.clear();
     videoSendersRef.current.clear();
     pendingCandidatesRef.current.clear();
     remoteStreamByUserRef.current.forEach((stream) => stream.getTracks().forEach((track) => {
@@ -348,6 +366,7 @@ export function useTeamCall({
     screenRecoveryTimersRef.current.clear();
     setRemoteStreams([]);
     setRemoteScreenSharingIds([]);
+    setRemoteCameraEnabled({});
     stopMedia();
     setIncoming(null);
     incomingRef.current = null;
@@ -622,7 +641,7 @@ export function useTeamCall({
       if (kind === "audio") setSelectedMicrophoneId(deviceId);
       else {
         setSelectedCameraId(deviceId);
-        setCameraOff(false);
+        setCameraOff(!replacementTrack.enabled);
       }
       replacementStream.getTracks().filter((track) => track !== replacementTrack).forEach((track) => track.stop());
       setStatus("Na chamada");
@@ -913,6 +932,12 @@ export function useTeamCall({
       const outgoingVideoTrack = screenStreamRef.current?.getVideoTracks()[0]
         || localStreamRef.current?.getVideoTracks().find((track) => track.enabled);
       const outgoingVideoStream = screenStreamRef.current || localStreamRef.current;
+      // Audio da tela tem seu proprio canal; silenciar o microfone nao o corta.
+      const screenAudio = screenStreamRef.current?.getAudioTracks()[0];
+      const screenAudioSender = screenAudio && screenStreamRef.current
+        ? peer.addTrack(screenAudio, screenStreamRef.current)
+        : peer.addTransceiver("audio", { direction: "sendrecv" }).sender;
+      screenAudioSendersRef.current.set(remoteUserId, screenAudioSender);
       if (outgoingVideoTrack && outgoingVideoStream) {
         const sender = peer.addTrack(outgoingVideoTrack, outgoingVideoStream);
         videoSendersRef.current.set(remoteUserId, sender);
@@ -937,11 +962,10 @@ export function useTeamCall({
       peer.ontrack = (event) => {
         const previous = remoteStreamByUserRef.current.get(remoteUserId);
         const previousTracks = previous?.getTracks() || [];
-        // A chamada usa uma faixa de audio e uma de video por participante.
-        // Substituir a faixa anterior evita que o elemento <video> continue
-        // preso à câmera/tela antiga, que permanece muted após replaceTrack.
+        // Microfone e som da tela coexistem. Video continua em um unico canal.
         const tracks = [
-          ...previousTracks.filter((track) => track.kind !== event.track.kind),
+          ...previousTracks.filter((track) => track.readyState !== "ended" &&
+            (event.track.kind === "video" ? track.kind !== "video" : track.id !== event.track.id)),
           event.track,
         ];
         const stream = new MediaStream(tracks);
@@ -980,6 +1004,7 @@ export function useTeamCall({
       peer.onconnectionstatechange = () => {
         const connectionState = peer?.connectionState || "";
         if (connectionState === "connected") {
+          publishMediaState();
           const currentAudioTrack = localStreamRef.current?.getAudioTracks().find((track) => track.readyState !== "ended") || null;
           const audioSender = audioSendersRef.current.get(remoteUserId);
           if (audioSender && currentAudioTrack && audioSender.track !== currentAudioTrack) {
@@ -1005,7 +1030,7 @@ export function useTeamCall({
     }
     if (createOffer) await negotiatePeer(remoteUserId, peer);
     return peer;
-  }, [callPayload, closePeer, negotiatePeer, sendSocketEvent, session.user.id]);
+  }, [callPayload, closePeer, negotiatePeer, publishMediaState, sendSocketEvent, session.user.id]);
 
   const requestRemoteScreenRefresh = useCallback(async (remoteUserId: string) => {
     // O emissor renegocia imediatamente com a faixa anexada. O receptor só
@@ -1229,6 +1254,13 @@ export function useTeamCall({
       showReaction(event.emoji, event.fromUserName || "Participante");
       return;
     }
+    if (event.type === "CALL_MEDIA_STATE") {
+      setRemoteCameraEnabled((current) => ({ ...current, [event.fromUserId!]: event.cameraEnabled === true }));
+      setRemoteScreenSharingIds((current) => event.screenSharing
+        ? Array.from(new Set([...current, event.fromUserId!]))
+        : current.filter((id) => id !== event.fromUserId));
+      return;
+    }
     if (event.type === "CALL_SCREEN_STARTED") {
       setRemoteScreenSharingIds((current) => current.includes(event.fromUserId as string) ? current : [...current, event.fromUserId as string]);
       setStatus(`${event.fromUserName || "Um participante"} está compartilhando a tela.`);
@@ -1244,6 +1276,7 @@ export function useTeamCall({
       return;
     }
     if (event.type === "CALL_ACCEPT") {
+      publishMediaState();
       stopConnectingSound();
       playCallSound("joined");
       setStatus("Na chamada");
@@ -1310,7 +1343,7 @@ export function useTeamCall({
       setStatus("Gravacao disponivel no chat por 24 horas.");
       return;
     }
-  }, [callPayload, closePeer, createPeer, finishCall, requestRemoteScreenRefresh, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
+  }, [callPayload, closePeer, createPeer, finishCall, publishMediaState, requestRemoteScreenRefresh, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;
@@ -1331,6 +1364,7 @@ export function useTeamCall({
     if (currentTrack && currentTrack.readyState !== "ended") {
       const enabling = !currentTrack.enabled;
       currentTrack.enabled = enabling;
+      publishMediaState();
       if (!screenStreamRef.current) await attachVideoTrack(enabling ? currentTrack : null, currentStream);
       setCameraOff(!enabling);
       setStatus(enabling ? "Câmera ativada e sendo transmitida" : "Câmera desativada");
@@ -1390,23 +1424,26 @@ export function useTeamCall({
       setCameraOff(true);
       setStatus(`${mediaAccessError(error, "camera")} Abra Dispositivos para escolher outra câmera.`);
     }
-  }, [attachVideoTrack, cameraPermission, refreshDevices, requestCameraPermission, selectedCameraId]);
+  }, [attachVideoTrack, cameraPermission, publishMediaState, refreshDevices, requestCameraPermission, selectedCameraId]);
 
   const stopScreenShare = useCallback(async () => {
     const activeScreen = screenStreamRef.current;
+    if (!activeScreen) return;
     screenStreamRef.current = null;
     setScreenStream(null);
+    setSharingScreen(false);
+    publishMediaState();
+    const call = activeRef.current;
+    if (call) sendSocketEvent({ type: "CALL_SCREEN_STOPPED", ...callPayload(call) });
+    await Promise.all(Array.from(screenAudioSendersRef.current.values()).map((sender) => sender.replaceTrack(null).catch(() => undefined)));
     const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null;
-    await attachVideoTrack(cameraTrack?.enabled ? cameraTrack : null, localStreamRef.current || activeScreen || new MediaStream());
     activeScreen?.getTracks().forEach((track) => {
       track.onended = null;
       track.stop();
     });
-    setSharingScreen(false);
-    const call = activeRef.current;
-    if (call) sendSocketEvent({ type: "CALL_SCREEN_STOPPED", ...callPayload(call) });
+    await attachVideoTrack(cameraTrack?.enabled && cameraTrack.readyState !== "ended" ? cameraTrack : null, localStreamRef.current || activeScreen).catch(() => undefined);
     setStatus("Transmissão de tela encerrada");
-  }, [attachVideoTrack, callPayload, sendSocketEvent]);
+  }, [attachVideoTrack, callPayload, publishMediaState, sendSocketEvent]);
 
   const toggleScreenShare = useCallback(async () => {
     const epoch = mediaEpochRef.current;
@@ -1421,6 +1458,7 @@ export function useTeamCall({
     }
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
+        audio: true,
         video: screenShareConstraints(screenShareQualityRef.current, screenShareFpsRef.current),
       });
       if (epoch !== mediaEpochRef.current) {
@@ -1432,14 +1470,17 @@ export function useTeamCall({
       screenTrack.contentHint = "detail";
       screenStreamRef.current = stream;
       setScreenStream(stream);
+      screenTrack.onended = () => { void stopScreenShare(); };
+      await Promise.all(Array.from(screenAudioSendersRef.current.values()).map((sender) => sender.replaceTrack(stream.getAudioTracks()[0] || null)));
       await attachVideoTrack(screenTrack, stream);
       if (epoch !== mediaEpochRef.current) return;
       screenTrack.onended = () => { void stopScreenShare(); };
       setSharingScreen(true);
       const call = activeRef.current;
       if (call) sendSocketEvent({ type: "CALL_SCREEN_STARTED", ...callPayload(call) });
-      setStatus("Sua tela está visível para os participantes");
+      setStatus(stream.getAudioTracks().length ? "Transmitindo tela com som" : "Transmitindo sem som. Para incluir áudio, escolha uma aba e marque Compartilhar áudio no navegador.");
     } catch (error) {
+      if (screenStreamRef.current) await stopScreenShare();
       setStatus(mediaAccessError(error, "tela"));
     }
   }, [attachVideoTrack, callPayload, sendSocketEvent, sharingScreen, stopScreenShare]);
@@ -1503,6 +1544,7 @@ export function useTeamCall({
     sharingScreen,
     screenStream,
     remoteScreenSharingIds,
+    remoteCameraEnabled,
     callElapsedSeconds,
     recording,
     recordingElapsedSeconds,

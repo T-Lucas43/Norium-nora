@@ -13,7 +13,7 @@ from app.modules.team import router as team
 _data = tempfile.TemporaryDirectory(prefix="norium-call-browser-")
 _users = [
     {"id": name, "nome": name.title(), "teamOwnerId": "owner", "status": "ativo", "permissions": {"chat": True}}
-    for name in ("owner", "member")
+    for name in ("owner", "member", "other")
 ]
 
 

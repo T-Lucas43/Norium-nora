@@ -12,6 +12,11 @@ class NoraReadQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("team", queries.resolve_read_query("e meu chat de equiper?", [])[0])
         self.assertEqual("operations", queries.resolve_read_query("Analise a Central de trabalho e priorize o que exige atenção", [])[0])
         self.assertEqual("operations", queries.resolve_read_query("Analise o Controle operacional e explique os alertas", [])[0])
+        self.assertEqual("operations", queries.resolve_read_query("Analise o Controle operacional, explique os alertas e recomende os próximos passos.", [])[0])
+        self.assertEqual("operations", queries.resolve_read_query("como está minha operação?", [])[0])
+        self.assertEqual("finance", queries.resolve_read_query("Analise meu financeiro atual, destaque riscos, próximos vencimentos e oportunidades de melhorar o caixa.", [])[0])
+        self.assertIsNone(queries.resolve_read_query("como usar a Central de trabalho?", []))
+        self.assertIsNone(queries.resolve_read_query("Explique o Controle operacional do Norium.", []))
         previous = [{"role": "user", "content": "como anda o desenvolvimento da minha equipe?"}, {"role": "assistant", "content": "Qual aspecto?"}]
         self.assertEqual("team", queries.resolve_read_query("tudo", previous)[0])
         self.assertIsNone(queries.resolve_read_query("envie uma mensagem para a equipe", []))
@@ -54,7 +59,7 @@ class NoraReadQueryTests(unittest.IsolatedAsyncioTestCase):
                 "unhealthyIntegrations": 1,
             },
             "briefing": {"priority": {"title": "Revisar proposta", "description": "Aguardando aprovação."}},
-            "alerts": [{"title": "Boleto próximo", "description": "Vence amanhã."}],
+            "alerts": [{"title": "Revisar proposta", "description": "Aguardando aprovação."}, {"title": "Boleto próximo", "description": "Vence amanhã."}],
             "approvals": [{"id": "approval-1"}],
             "integrations": [{"id": "gmail", "status": "attention"}],
             "myDay": {"tasks": [], "calendar": []},
@@ -67,6 +72,22 @@ class NoraReadQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Aprovações pendentes:** 2", result["response"])
         self.assertIn("Revisar proposta", result["response"])
         self.assertEqual(1, result["summary"]["unhealthyIntegrations"])
+        self.assertEqual(1, result["response"].count("Revisar proposta"))
+
+    async def test_financial_analysis_returns_real_totals_and_table_data(self) -> None:
+        finance = {
+            "resumo": {"saldo": 1200, "pendente": 1500, "vencidos": 1},
+            "lancamentos": [{"id": "expense-1", "title": "Hospedagem", "amount": 1500}],
+            "lembretes": [{"title": "Hospedagem", "amount": 1500, "dueDate": "2026-09-05"}],
+        }
+        with patch.object(queries, "list_finance", return_value=finance) as read:
+            intent, result = await queries.answer_read_query({"id": "owner"}, "finance", "analise meu financeiro")
+        read.assert_called_once_with("owner")
+        self.assertEqual("financeiro", intent)
+        self.assertEqual(finance, result["financeiro"])
+        self.assertIn("R$ 1.200,00", result["response"])
+        self.assertIn("total pendente supera", result["response"])
+        self.assertIn("Hospedagem", result["response"])
 
 
 if __name__ == "__main__":

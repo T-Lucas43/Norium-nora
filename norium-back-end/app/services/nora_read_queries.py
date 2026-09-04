@@ -34,10 +34,15 @@ def resolve_read_query(message: str, messages: list[Any]) -> tuple[str, str] | N
             text = normalize(previous)
     if re.search(r"\b(?:crie|criar|adicione|adicionar|exclua|excluir|apague|apagar|edite|editar|atualize|atualizar|mande|mandar|envie|enviar|avise|avisar|notifique|notificar|execute|executar|rode|rodar|ative|ativar|desative|desativar|pause|pausar)\b", text):
         return None
+    if re.search(r"\b(?:como (?:usar|funciona)|explique (?:a|o) (?:tela|controle)|para que serve)\b", text):
+        return None
+    if re.search(r"\b(?:analise|resuma|como (?:anda|esta))\b.*\b(?:meu financeiro|minhas financas|meu caixa)\b", text):
+        return "finance", text
     if (
         re.search(r"\b(?:central\s+de\s+trabalho|controle\s+operacional|resumo\s+(?:da|de)\s+operacao)\b", text)
         or re.search(r"\b(?:analise|resuma|priorize).*(?:central|operacao|controle|pendencias)\b", text)
         or re.search(r"\bo\s+que\s+(?:exige|precisa|merece).*(?:atencao|prioridade)\b", text)
+        or re.search(r"\bcomo (?:anda|esta) (?:a |minha )?operacao\b", text)
     ):
         return "operations", text
     if "dashboard" in text or re.search(r"\bmeu painel\b", text):
@@ -95,6 +100,8 @@ async def _operations(user: dict[str, Any]) -> dict[str, Any]:
     for alert in alerts:
         if not isinstance(alert, dict) or not alert.get("title"):
             continue
+        if priority and alert.get("title") == priority.get("title"):
+            continue
         line = f"{len(attention_lines) + 1}. **{alert['title']}**"
         if alert.get("description"):
             line += f" — {alert['description']}"
@@ -126,6 +133,30 @@ async def _operations(user: dict[str, Any]) -> dict[str, Any]:
         "myDay": overview.get("myDay") if isinstance(overview.get("myDay"), dict) else {},
         "generatedAt": overview.get("generatedAt"),
     }
+
+
+def _finance_analysis(user: dict[str, Any]) -> dict[str, Any]:
+    finance = list_finance(str(user.get("id") or "lucas123"))
+    summary = finance.get("resumo") or {}
+    balance = float(summary.get("saldo") or 0)
+    pending = float(summary.get("pendente") or 0)
+    overdue = int(summary.get("vencidos") or 0)
+    money = lambda value: f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    lines = [f"Seu saldo realizado é **{money(balance)}**, com **{money(pending)} a pagar** nos lançamentos pendentes."]
+    if overdue:
+        lines.append(f"Priorize a revisão dos **{overdue} registros vencidos** e confira cada vencimento antes de tomar uma decisão.")
+    if balance < 0:
+        lines.append("As saídas pagas superam as entradas registradas. Revise despesas recorrentes e acompanhe os recebimentos previstos.")
+    elif pending > balance:
+        lines.append("O total pendente supera o saldo realizado. Confira as datas de recebimento e pagamento para planejar o caixa.")
+    reminders = finance.get("lembretes") or []
+    if reminders:
+        lines.append("**Próximos vencimentos e pendências**\n" + "\n".join(
+            f"- **{item.get('title') or 'Registro'}**: {money(float(item.get('amount') or 0))}, vencimento {item.get('dueDate') or 'não informado'}."
+            for item in reminders[:5]
+        ))
+    lines.append("Os indicadores e lançamentos estão organizados abaixo. Esta análise usa os registros do Norium; o saldo não é uma consulta bancária.")
+    return {"status": "consulta", "response": "\n\n".join(lines), "financeiro": finance}
 
 
 def _member_from_query(text: str, members: list[dict[str, Any]], current_user_id: str) -> dict[str, Any] | None:
@@ -182,6 +213,8 @@ async def _team(user: dict[str, Any], text: str) -> dict[str, Any]:
 
 
 async def answer_read_query(user: dict[str, Any], domain: str, text: str) -> tuple[str, dict[str, Any]]:
+    if domain == "finance":
+        return "financeiro", _finance_analysis(user)
     if domain == "operations":
         return "operacoes", await _operations(user)
     if domain == "team":

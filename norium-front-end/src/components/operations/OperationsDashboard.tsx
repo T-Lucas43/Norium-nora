@@ -454,7 +454,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => onOpenNora?.("Analise o Controle operacional, explique os alertas e priorize as ações que devo executar agora.")} className="border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/10">
+            <Button onClick={() => onOpenNora?.("Analise o Controle operacional, explique os alertas e recomende os próximos passos.")} className="border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/10">
               <BrainCircuit size={16} /> Consultar a Nora
             </Button>
             <Button onClick={() => void loadOverview(true)}>

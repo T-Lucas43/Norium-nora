@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "../../types/auth";
 
@@ -78,11 +78,15 @@ function runtime() {
     localStream: null,
     remoteStreams: [],
     muted: false,
+    listenOnly: false,
+    microphonePermission: "unknown",
     cameraOff: true,
     cameraPermission: "unknown",
     sharingScreen: false,
     screenStream: null,
+    previewStream: null,
     remoteScreenSharingIds: [],
+    remoteCameraEnabled: {},
     callElapsedSeconds: 0,
     recording: false,
     recordingElapsedSeconds: 0,
@@ -93,6 +97,8 @@ function runtime() {
     connectionQuality: "good",
     reactions: [],
     status: "",
+    audioReady: false,
+    ringtoneAudible: false,
     isHost: false,
     devices: { microphones: [], cameras: [], speakers: [] },
     selectedMicrophoneId: "",
@@ -114,12 +120,17 @@ function runtime() {
     startRecording: vi.fn().mockResolvedValue(undefined),
     stopRecording: vi.fn().mockResolvedValue(undefined),
     sendReaction: vi.fn(),
+    meetingMessages: [],
+    sendMeetingMessage: vi.fn().mockResolvedValue(undefined),
+    toggleHand: vi.fn(),
     selectMicrophone: vi.fn().mockResolvedValue(undefined),
     selectCamera: vi.fn().mockResolvedValue(undefined),
     selectSpeaker: vi.fn(),
     selectScreenShareQuality: vi.fn().mockResolvedValue(undefined),
     selectScreenShareFps: vi.fn().mockResolvedValue(undefined),
     refreshDevices: vi.fn().mockResolvedValue(undefined),
+    prepareAudio: vi.fn().mockResolvedValue(true),
+    prepareCameraPreview: vi.fn().mockResolvedValue(true),
     handleSocketEvent: vi.fn().mockResolvedValue(undefined),
     heartbeat: vi.fn(),
     revokeAccess: vi.fn(),
@@ -129,6 +140,36 @@ function runtime() {
 function Probe({ name = "phase" }: { name?: string }) {
   const { snapshot } = useCallSession();
   return <output aria-label={name}>{`${snapshot.phase}:${snapshot.socketState}`}</output>;
+}
+
+function ReconnectProbe() {
+  const { snapshot } = useCallSession();
+  return <output aria-label="reconnection-result">{snapshot.reconnectionNotice || "none"}</output>;
+}
+
+function ConversationProbe() {
+  const { snapshot, commands } = useCallSession();
+  const conversation = snapshot.conversation;
+  return <>
+    <output aria-label="call-conversation">{conversation
+      ? `${conversation.thread.scope}:${conversation.thread.recipientId}:${conversation.messages.map((message) => message.text).join("|")}`
+      : "none"}</output>
+    <button type="button" onClick={() => void commands.sendMeetingMessage("Mensagem da chamada", [])}>Enviar na chamada</button>
+  </>;
+}
+
+function PrejoinProbe() {
+  const { snapshot, commands } = useCallSession();
+  return <>
+    <output aria-label="prejoin">{snapshot.prejoin
+      ? `${snapshot.prejoin.thread.scope}:${snapshot.prejoin.thread.recipientId}:${snapshot.prejoin.microphoneMode}:${snapshot.prejoin.cameraEnabled}`
+      : "none"}</output>
+    <button type="button" onClick={() => void commands.start({ scope: "direct", title: "Member", recipientId: "member" })}>Preparar direta</button>
+    <button type="button" onClick={() => commands.setEntryMicrophoneMode("listen-only")}>Somente escuta</button>
+    <button type="button" onClick={() => commands.setEntryCameraEnabled(true)}>Ativar câmera</button>
+    <button type="button" onClick={() => void commands.setEntryPreviewEnabled(true)}>Mostrar prévia</button>
+    <button type="button" onClick={() => void commands.enter()}>Entrar agora</button>
+  </>;
 }
 
 beforeEach(() => {
@@ -251,6 +292,101 @@ describe("CallSession", () => {
     expect(mocked.runtime?.handleSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ callId: "call_test" }));
     expect(onIncomingCall).toHaveBeenCalledOnce();
     expect(screen.getByLabelText("phase")).toHaveTextContent("ringing");
+  });
+
+  it.each([
+    { calls: [{ callId: "call_test" }], expected: "Chamada ainda ativa" },
+    { calls: [], expected: "Chamada perdida" },
+  ])("confirma o estado da chamada no servidor depois de reconectar: $expected", async ({ calls, expected }) => {
+    vi.useFakeTimers();
+    mocked.runtime!.active = {
+      callId: "call_test",
+      hostUserId: "owner",
+      startedAt: new Date().toISOString(),
+      mode: "audio",
+      title: "Time todo",
+      thread: { scope: "team", title: "Time todo" },
+    };
+    render(<CallSessionProvider session={authSession}><ReconnectProbe /></CallSessionProvider>);
+    await act(async () => { await Promise.resolve(); });
+    act(() => Socket.instances[0].open());
+    act(() => Socket.instances[0].disconnect());
+    await act(async () => { vi.advanceTimersByTime(1800); await Promise.resolve(); });
+    act(() => Socket.instances[1].open());
+    act(() => Socket.instances[1].receive({ type: "CALLS_STATE", calls }));
+
+    expect(screen.getByLabelText("reconnection-result")).toHaveTextContent(expected);
+  });
+
+  it("mantem a conversa direta da chamada independente da conversa aberta no drawer", async () => {
+    mocked.runtime!.active = {
+      callId: "call_direct",
+      mode: "audio",
+      title: "Member",
+      hostUserId: "owner",
+      startedAt: new Date().toISOString(),
+      thread: { scope: "direct", title: "Member", recipientId: "member" },
+    };
+    mocked.runtime!.meetingMessages = [{
+      id: "message-1",
+      senderId: "member",
+      senderName: "Member",
+      text: "Somente desta chamada",
+      attachments: [],
+      createdAt: new Date().toISOString(),
+    }];
+    mocked.runtime!.sendMeetingMessage = vi.fn().mockResolvedValue(undefined);
+
+    render(<CallSessionProvider session={authSession}><ConversationProbe /></CallSessionProvider>);
+
+    expect(screen.getByLabelText("call-conversation")).toHaveTextContent("direct:member:Somente desta chamada");
+    screen.getByRole("button", { name: "Enviar na chamada" }).click();
+    await waitFor(() => expect(mocked.runtime!.sendMeetingMessage).toHaveBeenCalledWith("Mensagem da chamada", []));
+  });
+
+  it("prepara a entrada e so inicia a chamada depois da confirmacao", async () => {
+    mocked.runtime!.prepareAudio = vi.fn().mockResolvedValue(true);
+    mocked.runtime!.prepareCameraPreview = vi.fn().mockResolvedValue(true);
+    render(<CallSessionProvider session={authSession}><PrejoinProbe /></CallSessionProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Preparar direta" }));
+    await waitFor(() => expect(screen.getByLabelText("prejoin")).toHaveTextContent("direct:member:muted:false"));
+    expect(mocked.runtime!.startCall).not.toHaveBeenCalled();
+    expect(mocked.runtime!.refreshDevices).toHaveBeenCalled();
+    expect(mocked.runtime!.prepareAudio).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ativar câmera" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar prévia" }));
+    await waitFor(() => expect(mocked.runtime!.prepareCameraPreview).toHaveBeenCalledWith(true));
+    fireEvent.click(screen.getByRole("button", { name: "Somente escuta" }));
+    expect(screen.getByLabelText("prejoin")).toHaveTextContent("direct:member:listen-only:false");
+    fireEvent.click(screen.getByRole("button", { name: "Entrar agora" }));
+
+    await waitFor(() => expect(mocked.runtime!.startCall).toHaveBeenCalledWith(
+      { scope: "direct", title: "Member", recipientId: "member" },
+      { microphoneMode: "listen-only", cameraEnabled: false },
+    ));
+  });
+
+  it("mantem a pre-entrada aberta quando o navegador nega o dispositivo", async () => {
+    mocked.runtime!.startCall = vi.fn().mockResolvedValue(false);
+    mocked.runtime!.microphonePermission = "denied";
+    render(<CallSessionProvider session={authSession}><PrejoinProbe /></CallSessionProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Preparar direta" }));
+    await waitFor(() => expect(screen.getByLabelText("prejoin")).not.toHaveTextContent("none"));
+    fireEvent.click(screen.getByRole("button", { name: "Entrar agora" }));
+
+    await waitFor(() => expect(mocked.runtime!.startCall).toHaveBeenCalled());
+    expect(screen.getByLabelText("prejoin")).toHaveTextContent("direct:member:muted:false");
+  });
+
+  it("prepara o audio depois de uma interacao valida do teclado", () => {
+    render(<CallSessionProvider session={authSession}><Probe /></CallSessionProvider>);
+
+    fireEvent.keyDown(window, { key: "Enter" });
+
+    expect(mocked.runtime!.prepareAudio).toHaveBeenCalledOnce();
   });
 
   it("recusa um segundo proprietario da sessao", () => {

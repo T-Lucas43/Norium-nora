@@ -4,6 +4,11 @@ export function callSessionView(snapshot: CallSessionSnapshot, commands: CallSes
   return {
     ...snapshot,
     acceptIncoming: commands.accept,
+    enterCall: commands.enter,
+    cancelEntry: commands.cancelEntry,
+    setEntryMicrophoneMode: commands.setEntryMicrophoneMode,
+    setEntryCameraEnabled: commands.setEntryCameraEnabled,
+    setEntryPreviewEnabled: commands.setEntryPreviewEnabled,
     rejectIncoming: commands.reject,
     endCall: commands.end,
     leaveCall: commands.leave,

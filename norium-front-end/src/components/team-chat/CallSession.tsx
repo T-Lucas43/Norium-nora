@@ -15,6 +15,7 @@ import type { AuthSession } from "../../types/auth";
 import { authenticatedWebSocketUrl, wsBaseUrl } from "../../utils/api";
 import {
   useTeamCallRuntime,
+  type CallMicrophoneMode,
   type TeamCallSocketEvent,
   type TeamCallThread,
 } from "./useTeamCall";
@@ -81,6 +82,15 @@ export type TeamSocketEvent = TeamCallSocketEvent & {
 
 type Runtime = ReturnType<typeof useTeamCallRuntime>;
 
+export type CallPrejoin = {
+  kind: "start" | "incoming" | "active";
+  thread: TeamCallThread;
+  title: string;
+  microphoneMode: CallMicrophoneMode;
+  cameraEnabled: boolean;
+  previewEnabled: boolean;
+};
+
 export type CallSessionSnapshot = Pick<Runtime,
   | "incoming"
   | "active"
@@ -89,10 +99,13 @@ export type CallSessionSnapshot = Pick<Runtime,
   | "localStream"
   | "remoteStreams"
   | "muted"
+  | "listenOnly"
+  | "microphonePermission"
   | "cameraOff"
   | "cameraPermission"
   | "sharingScreen"
   | "screenStream"
+  | "previewStream"
   | "remoteScreenSharingIds"
   | "remoteCameraEnabled"
   | "callElapsedSeconds"
@@ -108,6 +121,8 @@ export type CallSessionSnapshot = Pick<Runtime,
   | "meetingMessages"
   | "screenChangePending"
   | "status"
+  | "audioReady"
+  | "ringtoneAudible"
   | "isHost"
   | "devices"
   | "selectedMicrophoneId"
@@ -120,12 +135,25 @@ export type CallSessionSnapshot = Pick<Runtime,
   phase: CallSessionPhase;
   socketState: "connecting" | "open" | "reconnecting" | "closed";
   participantIds: string[];
+  prejoin: CallPrejoin | null;
+  reconnectionNotice: string;
+  conversation: {
+    callId: string;
+    thread: TeamCallThread;
+    participantIds: string[];
+    messages: Runtime["meetingMessages"];
+  } | null;
 };
 
 export type CallSessionCommands = {
   start: (thread: TeamCallThread) => Promise<void>;
   accept: () => Promise<void>;
   join: (call: TeamCallSocketEvent) => Promise<void>;
+  enter: () => Promise<void>;
+  cancelEntry: () => void;
+  setEntryMicrophoneMode: (mode: CallMicrophoneMode) => void;
+  setEntryCameraEnabled: (enabled: boolean) => void;
+  setEntryPreviewEnabled: (enabled: boolean) => Promise<void>;
   reject: () => void;
   end: () => Promise<void>;
   leave: () => Promise<void>;
@@ -191,6 +219,15 @@ function ActiveCallSessionProvider({
   const [phase, dispatch] = useReducer(transitionCallSession, "idle");
   const [socketState, setSocketState] = useState<CallSessionSnapshot["socketState"]>("connecting");
   const [participantIds, setParticipantIds] = useState<string[]>([]);
+  const [prejoin, setPrejoin] = useState<CallPrejoin | null>(null);
+  const [reconnectionNotice, setReconnectionNotice] = useState("");
+  const reconnectingCallIdRef = useRef("");
+  const entryTargetRef = useRef<{
+    kind: CallPrejoin["kind"];
+    thread: TeamCallThread;
+    call?: TeamCallSocketEvent;
+    callId?: string;
+  } | null>(null);
 
   const sendSocketEvent = useCallback((payload: Record<string, unknown>) => {
     const socket = socketRef.current;
@@ -201,6 +238,20 @@ function ActiveCallSessionProvider({
 
   const runtime = useTeamCallRuntime({ session, thread: DEFAULT_THREAD, sendSocketEvent });
   runtimeRef.current = runtime;
+
+  useEffect(() => {
+    const prepare = () => {
+      void runtimeRef.current?.prepareAudio();
+      window.removeEventListener("pointerdown", prepare, true);
+      window.removeEventListener("keydown", prepare, true);
+    };
+    window.addEventListener("pointerdown", prepare, true);
+    window.addEventListener("keydown", prepare, true);
+    return () => {
+      window.removeEventListener("pointerdown", prepare, true);
+      window.removeEventListener("keydown", prepare, true);
+    };
+  }, []);
 
   const publish = useCallback((event: TeamSocketEvent) => {
     if (event.type === "CONNECTED" || event.type === "PRESENCE") {
@@ -219,6 +270,9 @@ function ActiveCallSessionProvider({
 
     const scheduleReconnect = () => {
       if (cancelled || reconnectTimer !== null) return;
+      reconnectingCallIdRef.current = runtimeRef.current?.active?.callId
+        || runtimeRef.current?.incoming?.callId
+        || reconnectingCallIdRef.current;
       setSocketState("reconnecting");
       if (runtimeRef.current?.active) dispatch({ type: "SOCKET_LOST" });
       reconnectTimer = window.setTimeout(() => {
@@ -251,6 +305,14 @@ function ActiveCallSessionProvider({
             return;
           }
           if (!event.type) return;
+          if (event.type === "CALLS_STATE" && reconnectingCallIdRef.current) {
+            const callId = reconnectingCallIdRef.current;
+            const stillActive = event.calls?.some((call) => call.callId === callId) === true;
+            setReconnectionNotice(stillActive
+              ? "Chamada ainda ativa · conexão restabelecida."
+              : "Chamada perdida · ela foi encerrada enquanto você estava desconectado.");
+            reconnectingCallIdRef.current = "";
+          }
           publish(event);
           if (!event.type.startsWith("CALL")) return;
           if (event.type === "CALL_INVITE") {
@@ -336,24 +398,89 @@ function ActiveCallSessionProvider({
 
   const commands = useMemo<CallSessionCommands>(() => ({
     start: async (thread) => {
-      dispatch({ type: "JOIN_REQUESTED" });
-      await runtime.startCall(thread);
+      setReconnectionNotice("");
+      entryTargetRef.current = { kind: "start", thread };
+      setPrejoin({ kind: "start", thread, title: thread.title, microphoneMode: "muted", cameraEnabled: false, previewEnabled: false });
+      void runtime.prepareAudio();
+      await runtime.refreshDevices();
     },
     accept: async () => {
-      const callId = runtime.incoming?.callId;
-      dispatch({ type: "JOIN_REQUESTED" });
-      await runtime.acceptIncoming();
-      if (callId) callbacksRef.current.onCallDismissed?.(callId);
+      setReconnectionNotice("");
+      const call = runtime.incoming;
+      if (!call) return;
+      entryTargetRef.current = { kind: "incoming", thread: call.thread, callId: call.callId };
+      setPrejoin({ kind: "incoming", thread: call.thread, title: call.title, microphoneMode: "muted", cameraEnabled: false, previewEnabled: false });
+      void runtime.prepareAudio();
+      await runtime.refreshDevices();
     },
     join: async (call) => {
+      setReconnectionNotice("");
+      const thread: TeamCallThread = {
+        scope: call.scope || "team",
+        title: call.scope === "direct" ? call.fromUserName || "Chamada individual" : call.scope === "subteam" ? "Reunião da subequipe" : "Time todo",
+        recipientId: call.scope === "direct"
+          ? (call.fromUserId && call.fromUserId !== session.user.id ? call.fromUserId : call.recipientId)
+          : null,
+        subteamId: call.subteamId || null,
+      };
+      entryTargetRef.current = { kind: "active", thread, call };
+      setPrejoin({ kind: "active", thread, title: thread.title, microphoneMode: "muted", cameraEnabled: false, previewEnabled: false });
+      void runtime.prepareAudio();
+      await runtime.refreshDevices();
+    },
+    enter: async () => {
+      const target = entryTargetRef.current;
+      const entry = prejoin;
+      if (!target || !entry) return;
       dispatch({ type: "JOIN_REQUESTED" });
-      await runtime.joinActiveCall(call);
-      if (call.callId) callbacksRef.current.onCallDismissed?.(call.callId);
+      const options = { microphoneMode: entry.microphoneMode, cameraEnabled: entry.cameraEnabled };
+      let entered = false;
+      if (target.kind === "start") entered = (await runtime.startCall(target.thread, options)) !== false;
+      else if (target.kind === "incoming") entered = (await runtime.acceptIncoming(options)) !== false;
+      else if (target.call) entered = (await runtime.joinActiveCall(target.call, options)) !== false;
+      if (!entered) {
+        dispatch({ type: "FAILED" });
+        return;
+      }
+      const callId = target.callId || target.call?.callId;
+      if (callId) callbacksRef.current.onCallDismissed?.(callId);
+      entryTargetRef.current = null;
+      setPrejoin(null);
+    },
+    cancelEntry: () => {
+      void runtime.prepareCameraPreview(false);
+      entryTargetRef.current = null;
+      setPrejoin(null);
+    },
+    setEntryMicrophoneMode: (mode) => {
+      setPrejoin((current) => current ? {
+        ...current,
+        microphoneMode: mode,
+        ...(mode === "listen-only" ? { cameraEnabled: false, previewEnabled: false } : {}),
+      } : current);
+      if (mode === "listen-only") void runtime.prepareCameraPreview(false);
+    },
+    setEntryCameraEnabled: (enabled) => {
+      setPrejoin((current) => current ? {
+        ...current,
+        cameraEnabled: current.microphoneMode === "listen-only" ? false : enabled,
+        previewEnabled: enabled ? current.previewEnabled : false,
+      } : current);
+      if (!enabled) void runtime.prepareCameraPreview(false);
+    },
+    setEntryPreviewEnabled: async (enabled) => {
+      const current = prejoin;
+      if (!current || current.microphoneMode === "listen-only" || !current.cameraEnabled) return;
+      const available = await runtime.prepareCameraPreview(enabled);
+      setPrejoin((entry) => entry ? { ...entry, previewEnabled: enabled && available } : entry);
     },
     reject: () => {
       const callId = runtime.incoming?.callId;
       dispatch({ type: "END_REQUESTED" });
       runtime.rejectIncoming();
+      setReconnectionNotice("");
+      entryTargetRef.current = null;
+      setPrejoin(null);
       if (callId) callbacksRef.current.onCallDismissed?.(callId);
       dispatch({ type: "RESET" });
     },
@@ -380,12 +507,31 @@ function ActiveCallSessionProvider({
     toggleHand: runtime.toggleHand,
     sendMeetingMessage: runtime.sendMeetingMessage,
     selectMicrophone: runtime.selectMicrophone,
-    selectCamera: runtime.selectCamera,
+    selectCamera: async (deviceId) => {
+      await runtime.selectCamera(deviceId);
+      if (prejoin?.previewEnabled) await runtime.prepareCameraPreview(true, deviceId);
+    },
     selectSpeaker: runtime.selectSpeaker,
     selectScreenShareQuality: runtime.selectScreenShareQuality,
     selectScreenShareFps: runtime.selectScreenShareFps,
     refreshDevices: runtime.refreshDevices,
-  }), [publish, runtime, session.user.id]);
+  }), [prejoin, publish, runtime, session.user.id]);
+
+  const conversation = useMemo<CallSessionSnapshot["conversation"]>(() => {
+    const call = runtime.active;
+    if (!call) return null;
+    const directParticipant = call.thread.scope === "direct" ? call.thread.recipientId : null;
+    return {
+      callId: call.callId,
+      thread: call.thread,
+      participantIds: Array.from(new Set([
+        session.user.id,
+        ...(directParticipant ? [directParticipant] : []),
+        ...participantIds,
+      ])),
+      messages: runtime.meetingMessages,
+    };
+  }, [participantIds, runtime.active, runtime.meetingMessages, session.user.id]);
 
   const snapshot = useMemo<CallSessionSnapshot>(() => ({
     phase,
@@ -397,10 +543,13 @@ function ActiveCallSessionProvider({
     localStream: runtime.localStream,
     remoteStreams: runtime.remoteStreams,
     muted: runtime.muted,
+    listenOnly: runtime.listenOnly,
+    microphonePermission: runtime.microphonePermission,
     cameraOff: runtime.cameraOff,
     cameraPermission: runtime.cameraPermission,
     sharingScreen: runtime.sharingScreen,
     screenStream: runtime.screenStream,
+    previewStream: runtime.previewStream,
     remoteScreenSharingIds: runtime.remoteScreenSharingIds,
     remoteCameraEnabled: runtime.remoteCameraEnabled,
     callElapsedSeconds: runtime.callElapsedSeconds,
@@ -416,6 +565,8 @@ function ActiveCallSessionProvider({
     meetingMessages: runtime.meetingMessages,
     screenChangePending: runtime.screenChangePending,
     status: runtime.status,
+    audioReady: runtime.audioReady,
+    ringtoneAudible: runtime.ringtoneAudible,
     isHost: runtime.isHost,
     devices: runtime.devices,
     selectedMicrophoneId: runtime.selectedMicrophoneId,
@@ -425,7 +576,10 @@ function ActiveCallSessionProvider({
     screenShareFps: runtime.screenShareFps,
     supportsSpeakerSelection: runtime.supportsSpeakerSelection,
     participantIds,
-  }), [participantIds, phase, runtime, socketState]);
+    prejoin,
+    reconnectionNotice,
+    conversation,
+  }), [conversation, participantIds, phase, prejoin, reconnectionNotice, runtime, socketState]);
 
   const subscribe = useCallback((listener: (event: TeamSocketEvent) => void) => {
     listenersRef.current.add(listener);

@@ -303,3 +303,65 @@ Execução realizada em 2026-09-04 após atualizar a base de `fe69676` para `fb6
 | Integridade | `git diff --check`; busca por marcadores de conflito | aprovado; somente avisos locais LF/CRLF e nenhum marcador restante |
 
 A primeira execução focada após o merge encontrou dois erros no chat efêmero porque `active_call_for` não havia sido mantido na lista de imports do router durante a resolução. O import foi restaurado e a suíte repetida passou 47/47; não permanece falha aberta. O `.venv` contém as dependências da aplicação e executa `unittest`, mas não inclui `pytest`; nenhuma instalação foi necessária porque a suíte do repositório usa `unittest`. Os logs detalhados dos gates ficaram em `norium-back-end/artifacts` e `norium-front-end/artifacts`, ambos ignorados pelo Git.
+
+## Limite funcional de contexto, pré-entrada e reconexão
+
+Esta etapa mantém o protocolo público e o backend inalterados. O limite frontend ficou assim:
+
+```text
+diálogo de membro / convite / chamada disponível
+                    |
+                    v
+CallSession.commands.start|accept|join
+                    |
+                    +-- CallPrejoin (somente intenção e opções)
+                    |       +-- microfone ligado/desligado/somente escuta
+                    |       +-- dispositivo de microfone/câmera
+                    |       +-- câmera e prévia opcionais
+                    |
+                    v
+CallSession.commands.enter
+                    |
+                    v
+useTeamCallRuntime (permissões, mídia, WebRTC e protocolo)
+                    |
+                    +-- active.thread ------------------+
+                    +-- meetingMessages                 |
+                                                       v
+CallSession.snapshot.conversation ----------> TeamCallOverlay
+                                               chat exclusivo da chamada
+```
+
+- `CallSession` passa a criar `snapshot.conversation` exclusivamente a partir da chamada ativa: `callId`, `active.thread`, participantes da chamada e mensagens efêmeras do runtime. O overlay não recebe nem consulta a conversa selecionada no drawer. O envio continua chamando `sendMeetingMessage`, que usa somente o `callId` ativo no endpoint `/calls/{callId}/messages`; assim trocar a seleção do drawer não pode redirecionar texto ou anexos da chamada.
+- O clique de ligação no diálogo de membro entrega um `TeamCallThread` direto completo à sessão. A intenção fica em `entryTargetRef`, fora do snapshot público, até a confirmação na pré-entrada. O mesmo contexto é preservado ao entrar em uma chamada existente, inclusive quando o usuário atual é o anfitrião e `fromUserId` aponta para ele próprio.
+- `CallPrejoin` é uma interface explícita da sessão. O overlay apresenta opções e dispositivos; apenas `commands.enter` inicia ou aceita a chamada. Falha de permissão retorna `false` do runtime, mantém a tela aberta e conserva os estados `microphonePermission`/`cameraPermission` para uma orientação acessível. Cancelar ou trocar para somente escuta interrompe qualquer prévia pendente e suas tracks.
+- A aquisição de mídia é separada por intenção. Entrada com câmera desligada chama `getUserMedia` com `video: false`; modo somente escuta não chama `getUserMedia`; câmera só é solicitada ao ativar a opção e entrar ou ao pedir explicitamente a prévia. Entrada silenciada adquire apenas áudio e desabilita a track antes de publicar o convite/aceite.
+- `CallSession` continua sendo a proprietária única do socket. Depois de uma queda, o próximo `CALLS_STATE` do servidor decide entre “chamada ainda ativa” e “chamada perdida”; o drawer não infere esse resultado localmente.
+- O áudio de toque usa um único `AudioContext` reutilizável. A sessão tenta liberá-lo após a primeira interação de ponteiro ou teclado e também no gesto que abre a pré-entrada. Se o navegador ainda bloquear áudio, o convite mantém um alerta visual assertivo e o timer tenta novamente sem criar contexts, listeners ou timers duplicados.
+- O listener de `pagehide` do runtime é montado uma única vez e lê a rotina de limpeza mais recente por referência. Isso evita que uma mudança de identidade do transporte execute a limpeza durante um render e impede registros duplicados.
+- Pré-entrada e convite são diálogos com foco inicial, saída por `Escape`, nomes/descrições acessíveis e estados importantes em regiões `status`/`alert`. A pré-entrada também contém o foco por `Tab`; dentro da chamada há uma região persistente que anuncia microfone, câmera, compartilhamento e gravação.
+
+### Componentes alterados nesta etapa
+
+- `norium-front-end/src/components/team-chat/CallSession.tsx`: contexto direto da chamada, intenção de pré-entrada, comandos de entrada, preparação do áudio e reconciliação visual pós-reconexão.
+- `norium-front-end/src/components/team-chat/useTeamCall.ts`: opções de entrada, aquisição seletiva, prévia, estados de permissão, áudio compatível com autoplay e listener único de desmontagem.
+- `norium-front-end/src/components/team-chat/TeamCallOverlay.tsx`: pré-entrada acessível, fallback visual do toque, chat ligado a `snapshot.conversation` e indicadores persistentes.
+- `norium-front-end/src/components/team-chat/teamCallTypes.ts`: adaptação dos comandos novos para a view existente.
+- `CallSession.test.tsx`, `useTeamCall.test.tsx` e `TeamCallOverlay.test.tsx`: contexto direto/envio, dispositivo solicitado, entrada silenciada/somente escuta, falha de permissão, foco, autoplay e reconexão.
+
+Riscos já registrados continuam válidos: TURN ainda depende de configuração externa e não existe um teste navegador-a-navegador no gate. As APIs de mídia reais também podem variar entre navegadores; por isso erro de permissão/dispositivo permanece observável na pré-entrada e o toque conserva fallback visual. Nenhum desses riscos exige ou autorizou alteração de deploy nesta etapa.
+
+## Verificação após contexto direto e pré-entrada
+
+Execução realizada em 2026-09-04 no mesmo worktree isolado, sobre o commit `4845f96`, sem deploy:
+
+| Área | Comando | Resultado |
+| --- | --- | --- |
+| Frontend focado — sessão/chamada/overlay/socket | `npx vitest run src/components/team-chat/CallSession.test.tsx src/components/team-chat/useTeamCall.test.tsx src/components/team-chat/TeamCallOverlay.test.tsx src/hooks/useWebSockets.test.tsx --reporter=dot` | 4 arquivos e 40 testes aprovados |
+| Frontend completo | `npm test -- --run` | 65 arquivos e 441 testes aprovados em 9,19 s |
+| Backend completo, regressão | `.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"` | 449 testes aprovados em 21,518 s |
+| TypeScript | `npx tsc -b --pretty false` | aprovado |
+| Build de produção | `npm run build` | aprovado; 1.700 módulos transformados, build Vite em 1,25 s |
+| Análise estática | `npm run lint` | exit code 0; nenhum aviso no escopo; os mesmos 14 avisos preexistentes fora de chamadas |
+
+Os logs completos foram salvos em `norium-front-end/artifacts/team-call-ux-focused.log`, `team-call-ux-frontend-full.log`, `team-call-ux-production-build.log`, `team-call-ux-lint.log` e `norium-back-end/artifacts/team-call-ux-backend-full.log`; esses diretórios são ignorados pelo Git. As mensagens do backend são os mesmos cenários negativos intencionais já documentados. O build mantém o aviso preexistente de chunk geral acima de 500 kB. Não houve falha restante e nenhum fluxo de deploy foi executado.

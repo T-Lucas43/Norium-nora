@@ -127,6 +127,17 @@ type CallDevices = {
   speakers: MediaDeviceInfo[];
 };
 
+export type CallMicrophoneMode = "on" | "muted" | "listen-only";
+export type CallEntryOptions = {
+  microphoneMode: CallMicrophoneMode;
+  cameraEnabled: boolean;
+};
+
+const DEFAULT_ENTRY_OPTIONS: CallEntryOptions = {
+  microphoneMode: "on",
+  cameraEnabled: false,
+};
+
 type CallSound = "connecting" | "joined" | "left" | "ended" | "screen";
 type ConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
 type CameraPermission = "unknown" | "requesting" | "granted" | "denied" | "unavailable";
@@ -169,8 +180,22 @@ async function applyScreenShareSenderProfile(sender: RTCRtpSender, quality: Scre
   await sender.setParameters(parameters);
 }
 
+let callAudioContext: AudioContext | null = null;
+
+async function prepareCallAudio() {
+  if (typeof window === "undefined" || !window.AudioContext) return false;
+  try {
+    if (!callAudioContext || callAudioContext.state === "closed") callAudioContext = new AudioContext();
+    if (callAudioContext.state !== "running") await callAudioContext.resume();
+    return callAudioContext.state === "running";
+  } catch {
+    return false;
+  }
+}
+
 function playCallSound(sound: CallSound) {
-  if (typeof window === "undefined" || !window.AudioContext) return;
+  const context = callAudioContext;
+  if (!context || context.state !== "running") return false;
   const notes: Record<CallSound, Array<[number, number, number]>> = {
     connecting: [[440, 0, 0.12], [540, 0.18, 0.12]],
     joined: [[520, 0, 0.1], [660, 0.12, 0.1], [820, 0.24, 0.16]],
@@ -179,8 +204,6 @@ function playCallSound(sound: CallSound) {
     screen: [[660, 0, 0.12], [990, 0.16, 0.22]],
   };
   try {
-    const context = new AudioContext();
-    void context.resume().catch(() => undefined);
     const baseTime = context.currentTime + 0.01;
     for (const [frequency, offset, duration] of notes[sound]) {
       const oscillator = context.createOscillator();
@@ -194,9 +217,10 @@ function playCallSound(sound: CallSound) {
       oscillator.start(baseTime + offset);
       oscillator.stop(baseTime + offset + duration + 0.02);
     }
-    window.setTimeout(() => { void context.close(); }, 900);
+    return true;
   } catch {
     // Sons sao um reforco de UX e nunca devem interromper a chamada.
+    return false;
   }
 }
 
@@ -258,13 +282,18 @@ export function useTeamCallRuntime({
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Array<{ userId: string; stream: MediaStream }>>([]);
   const [muted, setMuted] = useState(false);
+  const [listenOnly, setListenOnly] = useState(false);
+  const [microphonePermission, setMicrophonePermission] = useState<CameraPermission>("unknown");
   const [cameraOff, setCameraOff] = useState(true);
   const [cameraPermission, setCameraPermission] = useState<CameraPermission>("unknown");
   const [sharingScreen, setSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
   const [remoteScreenSharingIds, setRemoteScreenSharingIds] = useState<string[]>([]);
   const [remoteCameraEnabled, setRemoteCameraEnabled] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState("");
+  const [audioReady, setAudioReady] = useState(false);
+  const [ringtoneAudible, setRingtoneAudible] = useState(false);
   const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
   const [recording, setRecording] = useState(false);
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
@@ -299,6 +328,8 @@ export function useTeamCallRuntime({
   const remoteStreamByUserRef = useRef(new Map<string, MediaStream>());
   const screenRecoveryTimersRef = useRef(new Map<string, number>());
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const previewStreamRef = useRef<MediaStream | null>(null);
+  const previewRequestRef = useRef(0);
   const screenShareQualityRef = useRef<ScreenShareQuality>("1080p");
   const screenShareFpsRef = useRef<ScreenShareFps>(30);
   const remoteStreamsRef = useRef<Array<{ userId: string; stream: MediaStream }>>([]);
@@ -317,6 +348,7 @@ export function useTeamCallRuntime({
   const recordingStopPromiseRef = useRef<Promise<void>>(Promise.resolve());
   const resolveRecordingStopRef = useRef<(() => void) | null>(null);
   const reactionTimersRef = useRef<number[]>([]);
+  const finishCallRef = useRef<(notify: boolean, sound?: CallSound | null) => void>(() => undefined);
 
   useEffect(() => {
     activeRef.current = active;
@@ -358,12 +390,21 @@ export function useTeamCallRuntime({
   const stopConnectingSound = useCallback(() => {
     if (connectingSoundTimerRef.current !== null) window.clearInterval(connectingSoundTimerRef.current);
     connectingSoundTimerRef.current = null;
+    setRingtoneAudible(false);
+  }, []);
+
+  const prepareAudio = useCallback(async () => {
+    const ready = await prepareCallAudio();
+    setAudioReady(ready);
+    return ready;
   }, []);
 
   const startConnectingSound = useCallback(() => {
     stopConnectingSound();
-    playCallSound("connecting");
-    connectingSoundTimerRef.current = window.setInterval(() => playCallSound("connecting"), 1500);
+    setRingtoneAudible(playCallSound("connecting"));
+    connectingSoundTimerRef.current = window.setInterval(() => {
+      if (playCallSound("connecting")) setRingtoneAudible(true);
+    }, 1500);
   }, [stopConnectingSound]);
 
   const callPayload = useCallback((call: ActiveCall) => ({
@@ -461,6 +502,10 @@ export function useTeamCallRuntime({
   }, []);
 
   const stopMedia = useCallback(() => {
+    previewRequestRef.current += 1;
+    previewStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
+    previewStreamRef.current = null;
+    setPreviewStream(null);
     screenStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
     screenStreamRef.current = null;
     setScreenStream(null);
@@ -510,6 +555,7 @@ export function useTeamCallRuntime({
     setActive(null);
     activeRef.current = null;
     setMuted(false);
+    setListenOnly(false);
     setCameraOff(true);
     setCallElapsedSeconds(0);
     if (callTimerRef.current !== null) window.clearInterval(callTimerRef.current);
@@ -534,14 +580,16 @@ export function useTeamCallRuntime({
     setStatus("");
   }, [callPayload, sendSocketEvent, stopConnectingSound, stopMedia]);
 
+  finishCallRef.current = finishCall;
+
   useEffect(() => {
     const leaveOnClose = () => {
       if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
-      finishCall(false);
+      finishCallRef.current(false);
     };
     window.addEventListener("pagehide", leaveOnClose);
     return () => { window.removeEventListener("pagehide", leaveOnClose); leaveOnClose(); };
-  }, [finishCall]);
+  }, []);
 
   const heartbeat = useCallback(() => {
     const call = activeRef.current;
@@ -583,6 +631,56 @@ export function useTeamCallRuntime({
     setSelectedCameraId((current) => current && nextDevices.cameras.some((device) => device.deviceId === current) ? current : "");
     setSelectedSpeakerId((current) => current && nextDevices.speakers.some((device) => device.deviceId === current) ? current : "");
   }, []);
+
+  const prepareCameraPreview = useCallback(async (enabled: boolean, deviceId = selectedCameraId) => {
+    const request = ++previewRequestRef.current;
+    previewStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
+    previewStreamRef.current = null;
+    setPreviewStream(null);
+    if (!enabled) return true;
+    if (window.isSecureContext === false || !navigator.mediaDevices?.getUserMedia) {
+      setCameraPermission("unavailable");
+      setStatus("A câmera exige uma conexão HTTPS segura e um navegador compatível.");
+      return false;
+    }
+    setCameraPermission("requesting");
+    let requestedStream: MediaStream | null = null;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+      requestedStream = stream;
+      if (request !== previewRequestRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return false;
+      }
+      const track = stream.getVideoTracks()[0];
+      if (!track) throw new DOMException("Nenhuma câmera respondeu.", "NotFoundError");
+      track.enabled = true;
+      track.onended = () => {
+        if (previewStreamRef.current !== stream) return;
+        previewStreamRef.current = null;
+        setPreviewStream(null);
+        setCameraPermission("unavailable");
+        setStatus("A câmera foi desconectada. Escolha outro dispositivo.");
+      };
+      previewStreamRef.current = stream;
+      setPreviewStream(stream);
+      setCameraPermission("granted");
+      return true;
+    } catch (error) {
+      requestedStream?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
+      const name = error instanceof DOMException ? error.name : "";
+      setCameraPermission(["NotAllowedError", "SecurityError"].includes(name) ? "denied" : "unavailable");
+      setStatus(`${mediaAccessError(error, "camera")} A chamada pode continuar somente por áudio.`);
+      return false;
+    }
+  }, [selectedCameraId]);
 
   useEffect(() => {
     const mediaDevices = navigator.mediaDevices;
@@ -647,47 +745,113 @@ export function useTeamCallRuntime({
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [active]);
 
-  const acquireMedia = useCallback(async (epoch = mediaEpochRef.current) => {
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este navegador nao permite acesso ao microfone.");
-    const audioPreferences: MediaTrackConstraints = {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-      ...(selectedMicrophoneId ? { deviceId: { exact: selectedMicrophoneId } } : {}),
-    };
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: audioPreferences, video: false });
-    } catch (error) {
-      const name = error instanceof DOMException ? error.name : "";
-      if (!selectedMicrophoneId || !["NotFoundError", "OverconstrainedError"].includes(name)) throw error;
-      setSelectedMicrophoneId("");
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false,
-      });
+  const acquireMedia = useCallback(async (
+    options: CallEntryOptions = DEFAULT_ENTRY_OPTIONS,
+    epoch = mediaEpochRef.current,
+  ) => {
+    if (options.microphoneMode === "listen-only" && !options.cameraEnabled) {
+      await prepareCameraPreview(false);
+      localStreamRef.current = null;
+      setLocalStream(null);
+      setMuted(true);
+      setListenOnly(true);
+      setCameraOff(true);
+      await refreshDevices().catch(() => undefined);
+      return null;
     }
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Este navegador nao permite acesso a dispositivos de mídia.");
+
+    let audioStream: MediaStream | null = null;
+    if (options.microphoneMode !== "listen-only") {
+      const audioPreferences: MediaTrackConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        ...(selectedMicrophoneId ? { deviceId: { exact: selectedMicrophoneId } } : {}),
+      };
+      setMicrophonePermission("requesting");
+      try {
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: audioPreferences, video: false });
+      } catch (error) {
+        const name = error instanceof DOMException ? error.name : "";
+        if (!selectedMicrophoneId || !["NotFoundError", "OverconstrainedError"].includes(name)) {
+          setMicrophonePermission(["NotAllowedError", "SecurityError"].includes(name) ? "denied" : "unavailable");
+          throw error;
+        }
+        setSelectedMicrophoneId("");
+        try {
+          audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            video: false,
+          });
+        } catch (fallbackError) {
+          const fallbackName = fallbackError instanceof DOMException ? fallbackError.name : "";
+          setMicrophonePermission(["NotAllowedError", "SecurityError"].includes(fallbackName) ? "denied" : "unavailable");
+          throw fallbackError;
+        }
+      }
+      setMicrophonePermission("granted");
+    }
+
+    let cameraStream: MediaStream | null = null;
+    if (options.cameraEnabled) {
+      cameraStream = previewStreamRef.current;
+      if (cameraStream) {
+        previewRequestRef.current += 1;
+        previewStreamRef.current = null;
+        setPreviewStream(null);
+      } else {
+        setCameraPermission("requesting");
+        try {
+          cameraStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              ...(selectedCameraId ? { deviceId: { exact: selectedCameraId } } : {}),
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          });
+          setCameraPermission("granted");
+        } catch (error) {
+          const name = error instanceof DOMException ? error.name : "";
+          setCameraPermission(["NotAllowedError", "SecurityError"].includes(name) ? "denied" : "unavailable");
+          audioStream?.getTracks().forEach((track) => track.stop());
+          throw error;
+        }
+      }
+    } else {
+      await prepareCameraPreview(false);
+    }
+
+    const stream = audioStream && cameraStream
+      ? new MediaStream([...audioStream.getAudioTracks(), ...cameraStream.getVideoTracks()])
+      : audioStream || cameraStream;
+    if (!stream) throw new Error("Nenhum dispositivo de mídia foi selecionado.");
     if (epoch !== mediaEpochRef.current) {
       stream.getTracks().forEach((track) => track.stop());
       throw new DOMException("Entrada cancelada.", "AbortError");
     }
     const audioTrack = stream.getAudioTracks()[0];
-    if (!audioTrack) {
+    if (options.microphoneMode !== "listen-only" && !audioTrack) {
       stream.getTracks().forEach((track) => track.stop());
       throw new DOMException("O microfone nao forneceu audio.", "NotFoundError");
     }
-    audioTrack.enabled = true;
-    if ("contentHint" in audioTrack) audioTrack.contentHint = "speech";
-    audioTrack.onended = () => {
-      setMuted(true);
-      setStatus("O microfone foi desconectado. Abra Dispositivos e escolha uma entrada de áudio.");
-    };
+    if (audioTrack) {
+      audioTrack.enabled = options.microphoneMode === "on";
+      if ("contentHint" in audioTrack) audioTrack.contentHint = "speech";
+      audioTrack.onended = () => {
+        setMuted(true);
+        setStatus("O microfone foi desconectado. Abra Dispositivos e escolha uma entrada de áudio.");
+      };
+    }
     localStreamRef.current = stream;
     setLocalStream(stream);
-    setCameraOff(true);
+    setMuted(options.microphoneMode !== "on");
+    setListenOnly(options.microphoneMode === "listen-only");
+    setCameraOff(!options.cameraEnabled);
     await refreshDevices().catch(() => undefined);
     return stream;
-  }, [refreshDevices, selectedMicrophoneId]);
+  }, [prepareCameraPreview, refreshDevices, selectedCameraId, selectedMicrophoneId]);
 
   const requestCameraPermission = useCallback(async () => {
     if (window.isSecureContext === false || !navigator.mediaDevices?.getUserMedia) {
@@ -733,7 +897,11 @@ export function useTeamCallRuntime({
   const replaceInputDevice = useCallback(async (kind: "audio" | "video", deviceId: string) => {
     const epoch = mediaEpochRef.current;
     const currentStream = localStreamRef.current;
-    if (!currentStream || !navigator.mediaDevices?.getUserMedia) return;
+    if (!currentStream || !navigator.mediaDevices?.getUserMedia) {
+      if (kind === "audio") setSelectedMicrophoneId(deviceId);
+      else setSelectedCameraId(deviceId);
+      return;
+    }
     if (kind === "video" && !currentStream.getVideoTracks().length) {
       setSelectedCameraId(deviceId);
       return;
@@ -1223,8 +1391,11 @@ export function useTeamCallRuntime({
     }
   }, [finishCall, stopRecording]);
 
-  const acceptCall = useCallback(async (pendingCall: IncomingCall) => {
-    if (activeRef.current || busyRef.current || endedCallIdsRef.current.has(pendingCall.callId)) return;
+  const acceptCall = useCallback(async (
+    pendingCall: IncomingCall,
+    entryOptions: CallEntryOptions = DEFAULT_ENTRY_OPTIONS,
+  ) => {
+    if (activeRef.current || busyRef.current || endedCallIdsRef.current.has(pendingCall.callId)) return false;
     busyRef.current = true;
     setBusy(true);
     const epoch = mediaEpochRef.current;
@@ -1233,10 +1404,8 @@ export function useTeamCallRuntime({
     setStatus("Conectando dispositivos...");
     startConnectingSound();
     try {
-      await requestCameraPermission();
-      if (epoch !== mediaEpochRef.current || incomingRef.current?.callId !== pendingCall.callId) return;
-      await acquireMedia(epoch);
-      if (epoch !== mediaEpochRef.current) return;
+      await acquireMedia(entryOptions, epoch);
+      if (epoch !== mediaEpochRef.current || incomingRef.current?.callId !== pendingCall.callId) return false;
       const call: ActiveCall = { ...pendingCall };
       activeRef.current = call;
       setActive(call);
@@ -1249,40 +1418,50 @@ export function useTeamCallRuntime({
       stopConnectingSound();
       playCallSound("joined");
       setStatus("Na chamada");
+      return true;
     } catch (error) {
-      if (epoch !== mediaEpochRef.current) return;
+      if (epoch !== mediaEpochRef.current) return false;
       finishCall(false);
       setStatus(mediaAccessError(error, "microfone"));
+      return false;
     } finally {
       if (epoch === mediaEpochRef.current) { busyRef.current = false; setBusy(false); }
     }
-  }, [acquireMedia, callPayload, finishCall, requestCameraPermission, sendSocketEvent, startConnectingSound, stopConnectingSound]);
+  }, [acquireMedia, callPayload, finishCall, sendSocketEvent, startConnectingSound, stopConnectingSound]);
 
-  const acceptIncoming = useCallback(async () => {
+  const acceptIncoming = useCallback(async (entryOptions: CallEntryOptions = DEFAULT_ENTRY_OPTIONS) => {
     const pendingCall = incomingRef.current;
-    if (pendingCall) await acceptCall(pendingCall);
+    return pendingCall ? acceptCall(pendingCall, entryOptions) : false;
   }, [acceptCall]);
 
-  const joinActiveCall = useCallback(async (event: TeamCallSocketEvent) => {
+  const joinActiveCall = useCallback(async (
+    event: TeamCallSocketEvent,
+    entryOptions: CallEntryOptions = DEFAULT_ENTRY_OPTIONS,
+  ) => {
     const pendingCall = incomingCallFromEvent(event, session.user.id);
-    if (pendingCall) await acceptCall(pendingCall);
+    return pendingCall ? acceptCall(pendingCall, entryOptions) : false;
   }, [acceptCall, session.user.id]);
 
-  const startCall = useCallback(async (targetThread: TeamCallThread = thread) => {
-    if (activeRef.current || busyRef.current) return;
+  const startCall = useCallback(async (
+    targetThread: TeamCallThread = thread,
+    entryOptions: CallEntryOptions = DEFAULT_ENTRY_OPTIONS,
+  ) => {
+    if (activeRef.current || busyRef.current) return false;
     const threadId = targetThread.scope === "team" ? "team" : targetThread.scope === "subteam"
       ? `subteam:${targetThread.subteamId}` : `direct:${[session.user.id, targetThread.recipientId].sort().join(":")}`;
     const existing = availableCallsRef.current.find((call) => call.threadId === threadId);
-    if (existing) { await joinActiveCall(existing); return; }
+    if (existing) return joinActiveCall(existing, entryOptions);
     busyRef.current = true;
     setBusy(true);
     const epoch = mediaEpochRef.current;
-    setStatus("Solicitando permissões da câmera e do microfone...");
+    setStatus(entryOptions.microphoneMode === "listen-only"
+      ? "Entrando em modo somente escuta..."
+      : entryOptions.cameraEnabled
+        ? "Solicitando acesso ao microfone e à câmera..."
+        : "Solicitando acesso ao microfone...");
     try {
-      await requestCameraPermission();
-      if (epoch !== mediaEpochRef.current) return;
-      await acquireMedia(epoch);
-      if (epoch !== mediaEpochRef.current) return;
+      await acquireMedia(entryOptions, epoch);
+      if (epoch !== mediaEpochRef.current) return false;
       const call: ActiveCall = {
         callId: callId(), mode: "audio", title: targetThread.title, thread: targetThread,
         hostUserId: session.user.id, startedAt: new Date().toISOString(),
@@ -1296,14 +1475,16 @@ export function useTeamCallRuntime({
       if (!sendSocketEvent({ type: "CALL_INVITE", ...callPayload(call) })) {
         throw new Error("A conexão em tempo real ainda não está pronta.");
       }
+      return true;
     } catch (error) {
-      if (epoch !== mediaEpochRef.current) return;
+      if (epoch !== mediaEpochRef.current) return false;
       finishCall(false);
       setStatus(mediaAccessError(error, "microfone"));
+      return false;
     } finally {
       if (epoch === mediaEpochRef.current) { busyRef.current = false; setBusy(false); }
     }
-  }, [acquireMedia, callPayload, finishCall, joinActiveCall, requestCameraPermission, sendSocketEvent, session.user.id, startConnectingSound, thread]);
+  }, [acquireMedia, callPayload, finishCall, joinActiveCall, sendSocketEvent, session.user.id, startConnectingSound, thread]);
 
   const rejectIncoming = useCallback(() => {
     const pendingCall = incomingRef.current;
@@ -1554,11 +1735,26 @@ export function useTeamCallRuntime({
     }
   }, [receiveHands, receiveMessages, syncMeetingChat, callPayload, closePeer, createPeer, finishCall, negotiationStateFor, publishMediaState, requestRemoteScreenRefresh, revokeAccess, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
 
-  const toggleMute = useCallback(() => {
+  const toggleMute = useCallback(async () => {
+    const currentAudio = localStreamRef.current?.getAudioTracks().find((track) => track.readyState !== "ended");
+    if (!currentAudio && muted) {
+      try {
+        const stream = await acquireMedia({ microphoneMode: "on", cameraEnabled: false });
+        const track = stream?.getAudioTracks()[0];
+        if (!track) return;
+        await Promise.all(Array.from(audioSendersRef.current.values()).map((sender) => sender.replaceTrack(track)));
+        setListenOnly(false);
+        setMuted(false);
+        setStatus("Microfone ativado");
+      } catch (error) {
+        setStatus(mediaAccessError(error, "microfone"));
+      }
+      return;
+    }
     const next = !muted;
     localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !next; });
     setMuted(next);
-  }, [muted]);
+  }, [acquireMedia, muted]);
 
   const toggleCamera = useCallback(async () => {
     const epoch = mediaEpochRef.current;
@@ -1758,10 +1954,13 @@ export function useTeamCallRuntime({
     localStream,
     remoteStreams,
     muted,
+    listenOnly,
+    microphonePermission,
     cameraOff,
     cameraPermission,
     sharingScreen,
     screenStream,
+    previewStream,
     remoteScreenSharingIds,
     remoteCameraEnabled,
     callElapsedSeconds,
@@ -1776,6 +1975,8 @@ export function useTeamCallRuntime({
     connectionQuality,
     reactions,
     status,
+    audioReady,
+    ringtoneAudible,
     startCall,
     acceptIncoming,
     joinActiveCall,
@@ -1812,5 +2013,7 @@ export function useTeamCallRuntime({
     selectScreenShareQuality: (quality: ScreenShareQuality) => applyCurrentScreenShareProfile(quality, screenShareFpsRef.current),
     selectScreenShareFps: (fps: ScreenShareFps) => applyCurrentScreenShareProfile(screenShareQualityRef.current, fps),
     refreshDevices,
+    prepareAudio,
+    prepareCameraPreview,
   };
 }

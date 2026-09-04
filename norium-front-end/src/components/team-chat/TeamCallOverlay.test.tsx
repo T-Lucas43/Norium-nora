@@ -5,8 +5,17 @@ import type { CallSessionCommands, CallSessionSnapshot } from "./CallSession";
 import type { ReturnTypeOfTeamCall } from "./teamCallTypes";
 
 function sessionProps(call: ReturnTypeOfTeamCall) {
+  const snapshot = {
+    ...call,
+    conversation: call.active ? {
+      callId: call.active.callId,
+      thread: call.active.thread,
+      participantIds: [call.active.hostUserId],
+      messages: call.meetingMessages || [],
+    } : null,
+  } as unknown as CallSessionSnapshot;
   return {
-    snapshot: call as unknown as CallSessionSnapshot,
+    snapshot,
     commands: {
       accept: call.acceptIncoming,
       reject: call.rejectIncoming,
@@ -28,11 +37,97 @@ function sessionProps(call: ReturnTypeOfTeamCall) {
       selectScreenShareQuality: call.selectScreenShareQuality,
       selectScreenShareFps: call.selectScreenShareFps,
       refreshDevices: call.refreshDevices,
+      enter: call.enterCall,
+      cancelEntry: call.cancelEntry,
+      setEntryMicrophoneMode: call.setEntryMicrophoneMode,
+      setEntryCameraEnabled: call.setEntryCameraEnabled,
+      setEntryPreviewEnabled: call.setEntryPreviewEnabled,
     } as unknown as CallSessionCommands,
   };
 }
 
 describe("tela da reuniao do Modo Equipe", () => {
+  it("mantem alerta visual e foco quando o toque ainda nao foi liberado pelo navegador", () => {
+    const call = {
+      incoming: {
+        callId: "call_incoming",
+        mode: "audio",
+        title: "Member",
+        hostUserId: "member",
+        fromUserId: "member",
+        fromUserName: "Member",
+        startedAt: new Date().toISOString(),
+        thread: { scope: "direct", title: "Member", recipientId: "member" },
+      },
+      active: null,
+      prejoin: null,
+      busy: false,
+      ringtoneAudible: false,
+      acceptIncoming: vi.fn(),
+      rejectIncoming: vi.fn(),
+    } as unknown as ReturnTypeOfTeamCall;
+
+    render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "member", nome: "Member" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+
+    const dialog = screen.getByRole("dialog", { name: "Member" });
+    expect(dialog).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent("alerta visual ativo");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(call.rejectIncoming).toHaveBeenCalledOnce();
+  });
+
+  it("oferece pre-entrada acessivel com dispositivos, somente escuta e erros claros", () => {
+    const call = {
+      incoming: null,
+      active: null,
+      prejoin: {
+        kind: "start",
+        title: "Member",
+        thread: { scope: "direct", title: "Member", recipientId: "member" },
+        microphoneMode: "muted",
+        cameraEnabled: false,
+        previewEnabled: false,
+      },
+      previewStream: null,
+      microphonePermission: "denied",
+      cameraPermission: "unavailable",
+      devices: {
+        microphones: [{ deviceId: "mic-1", kind: "audioinput", label: "Headset" }],
+        cameras: [{ deviceId: "cam-1", kind: "videoinput", label: "Webcam" }],
+        speakers: [],
+      },
+      selectedMicrophoneId: "",
+      selectedCameraId: "",
+      status: "Permita o acesso ao microfone nas configurações do navegador.",
+      enterCall: vi.fn(),
+      cancelEntry: vi.fn(),
+      setEntryMicrophoneMode: vi.fn(),
+      setEntryCameraEnabled: vi.fn(),
+      setEntryPreviewEnabled: vi.fn(),
+      selectMicrophone: vi.fn(),
+      selectCamera: vi.fn(),
+    } as unknown as ReturnTypeOfTeamCall;
+
+    render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "member", nome: "Member" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+
+    const dialog = screen.getByRole("dialog", { name: "Preparar entrada" });
+    expect(dialog).toHaveFocus();
+    expect(screen.getByRole("radio", { name: "Entrar com microfone ligado" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Entrar com microfone desligado" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Entrar somente para escutar" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Microfone para a chamada")).toHaveTextContent("Headset");
+    expect(screen.getByLabelText("Câmera para a chamada")).toHaveTextContent("Webcam");
+    expect(screen.getAllByRole("alert").map((alert) => alert.textContent).join(" ")).toContain("microfone");
+    expect(screen.getByText(/Câmera indisponível/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Entrar somente para escutar" }));
+    expect(call.setEntryMicrophoneMode).toHaveBeenCalledWith("listen-only");
+    fireEvent.click(screen.getByRole("button", { name: "Entrar na chamada" }));
+    expect(call.enterCall).toHaveBeenCalledOnce();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(call.cancelEntry).toHaveBeenCalledOnce();
+  });
+
   it("exibe reuniao unificada, duracao, camera, anexos e compartilhamento", () => {
     const call = {
       incoming: null,
@@ -90,6 +185,10 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByRole("button", { name: "Transmitir tela" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ativar câmera" })).toBeInTheDocument();
     expect(screen.getByRole("status", { name: "Qualidade da internet: Conexão excelente" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Estados da chamada" })).toHaveTextContent("Microfone: ligado");
+    expect(screen.getByRole("status", { name: "Estados da chamada" })).toHaveTextContent("Câmera: desligada");
+    expect(screen.getByRole("status", { name: "Estados da chamada" })).toHaveTextContent("Compartilhamento: desligado");
+    expect(screen.getByRole("status", { name: "Estados da chamada" })).toHaveTextContent("Gravação: ativa");
     expect(screen.getByText(/01:05/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Configurar qualidade da transmissão" }));

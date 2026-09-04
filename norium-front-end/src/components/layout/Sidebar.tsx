@@ -31,6 +31,7 @@ import {
 import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
 import BrandLogo from "./BrandLogo";
+import NoraAvatar from "./NoraAvatar";
 
 type NavigationItem = {
   title: string;
@@ -50,6 +51,7 @@ type SidebarProps = {
 };
 
 const navigation: NavigationItem[] = [
+  { title: "Nora", icon: BrainCircuit },
   { title: "Dashboard", icon: LayoutDashboard },
   { title: "Controle", icon: ClipboardCheck },
   { title: "Central", icon: Inbox },
@@ -70,7 +72,7 @@ const navigation: NavigationItem[] = [
   { title: "Chat da Equipe", icon: MessagesSquare },
   { title: "Clientes", icon: UserRoundCheck },
   { title: "Governanca", icon: ShieldCheck },
-  { title: "Brainstorm", icon: BrainCircuit },
+  { title: "Estúdio", icon: BrainCircuit },
   { title: "Mais", icon: Ellipsis },
 ];
 
@@ -155,13 +157,13 @@ export default function Sidebar({
               <button
                 key={item.title}
                 type="button"
-                className={`norium-sidebar-item ${active ? "is-active" : ""}`}
+                className={`norium-sidebar-item ${active ? "is-active" : ""} ${item.title === "Nora" ? "is-nora" : ""}`}
                 onClick={() => navigate(item.title)}
                 title={compact ? item.title : undefined}
                 aria-current={active ? "page" : undefined}
                aria-label={compact ? item.title : undefined}>
-                <span className="norium-sidebar-item-icon">
-                  <Icon size={18} />
+                <span className="norium-sidebar-item-icon" aria-hidden="true">
+                  {item.title === "Nora" ? <NoraAvatar variant="navigation" className="norium-sidebar-nora-avatar" /> : <Icon size={18} />}
                 </span>
                 {!compact && <span className="norium-sidebar-item-label">{item.title}</span>}
               </button>

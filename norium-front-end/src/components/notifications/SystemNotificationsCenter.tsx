@@ -141,7 +141,7 @@ export default function SystemNotificationsCenter({
     if (context.includes("financ") || context.includes("gasto") || context.includes("boleto")) return "Financeiro";
     if (context.includes("automa")) return "Automações";
     if (context.includes("equipe")) return "Equipe";
-    if (context.includes("brainstorm")) return "Brainstorm";
+    if (context.includes("brainstorm")) return "Estúdio";
     if (context.includes("relatorio") || context.includes("relatório")) return "Relatórios";
     return "Controle";
   }

@@ -185,6 +185,14 @@ class EmailAgent:
         messages = data.get("messages", [])
         if not messages:
             return {"session_id": None, "status": "consulta", "response": "Nao encontrei e-mails nesse filtro."}
+        if re.search(r"\b(?:primeiro|primeira|1o|1º)\b", normalized):
+            messages = messages[:1]
+        elif re.search(r"\b(?:segundo|segunda|2o|2º)\b", normalized):
+            messages = messages[1:2]
+        elif re.search(r"\b(?:terceiro|terceira|3o|3º)\b", normalized):
+            messages = messages[2:3]
+        if not messages:
+            return {"session_id": None, "status": "consulta", "response": "Não há um e-mail nessa posição no filtro atual."}
         lines = [
             f"- {msg.get('fromName')}: {msg.get('subject')} ({msg.get('dateLabel')})"
             for msg in messages
@@ -300,7 +308,7 @@ class EmailAgent:
 
     def _is_list_intent(self, value: str) -> bool:
         return any(word in value for word in [
-            "listar", "mostrar", "ver emails", "ver e-mails", "caixa de entrada", "nao lidos", "nao lido",
+            "listar", "mostrar", "mostre", "meus emails", "meus e-mails", "ver emails", "ver e-mails", "caixa de entrada", "nao lidos", "nao lido",
             "enviados", "enviado", "rascunhos", "spam", "lixeira", "com anexo", "anexos", "pesquisar email",
         ])
 

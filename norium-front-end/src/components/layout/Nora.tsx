@@ -1,7 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   Bot,
   BrainCircuit,
@@ -19,6 +17,7 @@ import {
   Mic,
   MicOff,
   Minimize2,
+  Paperclip,
   SendHorizontal,
   Settings2,
   SpellCheck,
@@ -36,11 +35,18 @@ import { authToken } from "../../core/api/config";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
 import { apiBaseUrl } from "../../utils/api";
 import NoraAvatar from "./NoraAvatar";
+import { NoraAutomationCards, NoraCalendar, NoraFinanceTable, NoraMarkdown, NoraTaskCards } from "../nora/NoraResponseContent";
+import { buildNoraResponseView, legacyFinanceView, legacyTaskView, type NoraResponseView, type NoraCalendarEvent as NoraAgendaEvent } from "../nora/responseView";
+import { drainNoraSseEvents, type NoraStreamEvent } from "../nora/noraStream";
+import { NoraFileCards, type NoraChatFile } from "../nora/NoraFiles";
 import Button from "../shared/Button";
 import { speechTextFromDisplay, takeNaturalSpeechSegments } from "./noraSpeech";
 
 interface NoraProps {
   open: boolean;
+  variant?: "drawer" | "page";
+  initialState?: NoraConversationState;
+  onStateChange?: (state: NoraConversationState, running: boolean) => void;
   onClose: () => void;
   conversaId?: string;
   profile?: PerfilOperador | null;
@@ -70,7 +76,9 @@ const SCREEN_LABELS: Record<string, string> = {
   Equipe: "Equipe",
   Clientes: "Clientes",
   Governanca: "Governança",
-  Brainstorm: "Brainstorm",
+  Brainstorm: "Estúdio",
+  "Estúdio": "Estúdio",
+  Nora: "Nora",
   Perfil: "Perfil",
   Configuracoes: "Configurações",
   "Configurações": "Configurações",
@@ -106,13 +114,25 @@ let finishActiveNoraAudio: (() => void) | null = null;
 let finishBrowserSpeech: (() => void) | null = null;
 let serverVoiceUnavailable = false;
 
-type Msg = {
+export type Msg = {
   role: "user" | "ai";
   text: string;
   agent?: NoraAgentKind;
   status?: string;
   emailMessages?: NoraEmailMessage[];
   agendaEvents?: NoraAgendaEvent[];
+  responseView?: NoraResponseView;
+  files?: NoraChatFile[];
+};
+
+export type NoraConversationState = {
+  messages: Msg[];
+  agendaSessionId?: string | null;
+  agendaAgentActive?: boolean;
+  emailSessionId?: string | null;
+  emailAgentActive?: boolean;
+  commercialSessionId?: string | null;
+  commercialAgentActive?: boolean;
 };
 
 type VoiceAccessStatus = "locked" | "requesting" | "unlocked" | "denied" | "unsupported";
@@ -162,17 +182,6 @@ type NoraEmailMessage = {
   bodyText?: string;
   bodyHtml?: string;
   attachments?: NoraEmailAttachment[];
-};
-
-type NoraAgendaEvent = {
-  id?: string;
-  titulo?: string;
-  title?: string;
-  inicio?: string;
-  fim?: string;
-  descricao?: string;
-  local?: string;
-  status?: string;
 };
 
 type SpeechRecognitionLike = {
@@ -228,6 +237,41 @@ function blobToDataUrl(blob: Blob) {
     reader.onerror = () => reject(reader.error || new Error("Falha ao ler o audio."));
     reader.readAsDataURL(blob);
   });
+}
+
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",", 2)[1] || "");
+    reader.onerror = () => reject(reader.error || new Error("Falha ao ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function inferFileMime(file: File) {
+  if (file.type) return file.type;
+  const extension = file.name.toLowerCase().split(".").pop();
+  return ({
+    pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp",
+    txt: "text/plain", csv: "text/csv", json: "application/json", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    doc: "application/msword", xls: "application/vnd.ms-excel", ppt: "application/vnd.ms-powerpoint", zip: "application/zip",
+    mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", webm: "video/webm", mp4: "video/mp4", mov: "video/quicktime",
+  } as Record<string, string>)[extension || ""] || "application/octet-stream";
+}
+
+function normalizeChatFiles(value: unknown): NoraChatFile[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const id = String(record.id || "").trim();
+    const name = String(record.name || record.fileName || "arquivo").trim();
+    const previewUrl = String(record.previewUrl || record.url || "").trim();
+    const downloadUrl = String(record.downloadUrl || record.url || previewUrl).trim();
+    if (!id || !previewUrl || !downloadUrl) return [];
+    return [{ id, name, mimeType: String(record.mimeType || "application/octet-stream"), size: Number(record.size || 0), previewUrl, downloadUrl, source: String(record.source || "") || undefined, createdAt: String(record.createdAt || "") || undefined }];
+  }).slice(0, 40);
 }
 
 function requestMicrophoneStream(timeoutMs = 12_000) {
@@ -322,6 +366,7 @@ async function tryServerNoraVoice(cleanText: string, onPlayback?: () => void): P
         Accept: "audio/mpeg",
         "Content-Type": "application/json",
         ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
       },
       body: JSON.stringify({
         text: cleanText,
@@ -592,12 +637,6 @@ function meaningfulLines(text: string) {
     .filter(Boolean);
 }
 
-function splitLabelValue(line: string) {
-  const match = line.match(/^([^:]{2,48}):\s*(.+)$/);
-  if (!match) return null;
-  return { label: match[1].trim(), value: match[2].trim() };
-}
-
 function normalizeLoose(value: string) {
   return value
     .normalize("NFD")
@@ -612,13 +651,7 @@ function isNoraCommentLine(line: string) {
   return /^(nora\s*:|ola\b|claro[,\s.!]|aqui\b|segue\b|resumo\b|posso\b|encontrei\b|separei\b|boa\b|ah\b|nota\b|detalhe\b|pronto\b|feito\b|beleza\b|perfeito\b|combinado\b)/.test(normalized);
 }
 
-function markdownFallback(text: string) {
-  return (
-    <div className="nora-message-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-    </div>
-  );
-}
+function markdownFallback(text: string) { return <NoraMarkdown text={text} />; }
 
 function NoraCommentary({ lines }: { lines: string[] }) {
   const text = lines.join("\n\n").trim();
@@ -640,71 +673,10 @@ function normalizeAgendaEvents(value: unknown): NoraAgendaEvent[] {
   return value.filter((item): item is NoraAgendaEvent => Boolean(item && typeof item === "object"));
 }
 
-function agendaEventTitle(event: NoraAgendaEvent) {
-  return String(event.titulo || event.title || "Compromisso sem titulo");
-}
-
-function agendaEventDate(event: NoraAgendaEvent) {
-  const start = String(event.inicio || "");
-  if (!start) return "";
-  const parsed = new Date(start);
-  if (Number.isNaN(parsed.getTime())) return start;
-  return parsed.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
-}
-
-function FinanceContent({ text }: { text: string }) {
-  const lines = meaningfulLines(text);
-  const rows = lines
-    .map((line) => {
-      const pair = splitLabelValue(line);
-      if (pair && /r\$|valor|saldo|entrada|saida|despesa|receita|boleto|pendente|pago|categoria|metodo/i.test(`${pair.label} ${pair.value}`)) {
-        return { ...pair, source: line };
-      }
-      const money = line.match(/R\$\s*[\d.,]+/i);
-      if (money) return { label: line.replace(money[0], "").replace(/[-–—:]+$/g, "").trim() || "Valor", value: money[0], source: line };
-      return null;
-    })
-    .filter(Boolean) as Array<{ label: string; value: string; source: string }>;
-  const rowSources = new Set(rows.map((row) => row.source));
-  const commentary = lines.filter((line) => !rowSources.has(line));
-
-  if (rows.length < 2) return markdownFallback(text);
-
-  return (
-    <div className="nora-finance-layout">
-      <NoraCommentary lines={commentary} />
-      <table className="w-full overflow-hidden rounded-xl text-left text-xs">
-        <tbody>
-          {rows.slice(0, 8).map((row) => (
-            <tr key={`${row.label}-${row.value}`} className="border-b border-current/10 last:border-b-0">
-              <th className="w-2/5 px-3 py-2 font-black uppercase opacity-70">{row.label}</th>
-              <td className="px-3 py-2 font-bold">{row.value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function EmailContent({ text, emailMessages = [], onOpenEmail }: { text: string; emailMessages?: NoraEmailMessage[]; onOpenEmail?: (messageId: string) => void }) {
   const lines = meaningfulLines(text);
   const commentary = lines.filter(isNoraCommentLine);
-  const commentarySet = new Set(commentary);
-  const fallbackRows: NoraEmailMessage[] = lines
-    .filter((line) => !commentarySet.has(line))
-    .slice(0, 7)
-    .map((line, index) => {
-      const clean = line.replace(/^assunto:\s*/i, "");
-      const parts = clean.split(/\s+-\s+|\s+—\s+|:\s+/).map((item) => item.trim()).filter(Boolean);
-      return {
-        id: `fallback-${index}`,
-        fromName: parts[0] || "Gmail",
-        subject: parts[1] || clean,
-        snippet: parts.slice(2).join(" - "),
-      } satisfies NoraEmailMessage;
-    });
-  const rows = emailMessages.length ? emailMessages.slice(0, 8) : fallbackRows;
+  const rows = emailMessages;
 
   if (!rows.length) return markdownFallback(text);
 
@@ -754,126 +726,17 @@ function EmailContent({ text, emailMessages = [], onOpenEmail }: { text: string;
   );
 }
 
-function TaskContent({ text }: { text: string }) {
-  const lines = meaningfulLines(text);
-  const details = lines
-    .map((line) => {
-      if (isNoraCommentLine(line)) return null;
-      const pair = splitLabelValue(line);
-      return pair ? { ...pair, source: line } : null;
-    })
-    .filter(Boolean) as Array<{ label: string; value: string; source: string }>;
-  const detailKeys = new Set(details.map((detail) => detail.source));
-  const commentary = lines.filter((line) => !detailKeys.has(line));
-
-  if (details.length < 2) return markdownFallback(text);
-
-  return (
-    <div>
-      <NoraCommentary lines={commentary} />
-      <div className="grid gap-2">
-        {details.slice(0, 8).map((detail) => (
-          <div key={`${detail.label}-${detail.value}`} className="rounded-xl border border-current/10 bg-black/10 px-3 py-2">
-            <p className="text-xs font-bold uppercase opacity-65">{detail.label}</p>
-            <p className="mt-1 text-xs font-bold">{detail.value}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AgendaContent({ text, events = [], onAgendaPrompt }: { text: string; events?: NoraAgendaEvent[]; onAgendaPrompt?: (prompt: string) => void }) {
-  const rawLines = meaningfulLines(text);
-  const commentary = rawLines.filter(isNoraCommentLine);
-  const commentarySet = new Set(commentary);
-  const lines = rawLines.filter((line) => !commentarySet.has(line)).slice(0, 7);
-  if (events.length) {
-    return (
-      <div>
-        <NoraCommentary lines={commentary.length ? commentary : ["Encontrei estes compromissos. Voce pode abrir a edicao de qualquer um deles por aqui."]} />
-        <div className="space-y-2">
-          {events.slice(0, 6).map((event, index) => {
-            const title = agendaEventTitle(event);
-            const date = agendaEventDate(event);
-            return (
-              <div key={`${event.id || title}-${index}`} className="rounded-xl border border-current/10 bg-black/10 p-3 text-xs">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="break-words font-black">{title}</p>
-                    {date && <p className="mt-1 font-semibold opacity-75">{date}</p>}
-                    {event.local && <p className="mt-1 break-words font-semibold opacity-75">{event.local}</p>}
-                  </div>
-                  <span className="shrink-0 rounded-full border border-current/15 px-2 py-1 text-xs font-bold uppercase opacity-70">
-                    Evento
-                  </span>
-                </div>
-                <Button
-                 
-                  onClick={() => onAgendaPrompt?.(`editar evento ${title}${date ? ` em ${date}` : ""}`)}
-                  className="mt-3 rounded-full border-current/15 py-1.5 uppercase opacity-90 hover:bg-current/[0.08]"
-                >
-                  Editar evento
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-  if (lines.length < 2) return markdownFallback(text);
-
-  return (
-    <div>
-      <NoraCommentary lines={commentary} />
-      <div className="space-y-2">
-        {lines.map((line, index) => (
-          <div key={`${line}-${index}`} className="relative rounded-xl border border-current/10 bg-black/10 px-3 py-2 pl-9 text-xs font-semibold">
-            <span className="absolute left-3 top-3 grid h-4 w-4 place-items-center rounded-full bg-current/15 text-xs font-bold">{index + 1}</span>
-            {line}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ChatContent({ text }: { text: string }) {
-  const lines = meaningfulLines(text);
-  if (lines.length < 2) return markdownFallback(text);
-
-  return (
-    <div className="space-y-2">
-      {lines.slice(0, 6).map((line, index) => (
-        <div key={`${line}-${index}`} className={`max-w-[92%] rounded-2xl px-3 py-2 text-xs font-semibold ${index % 2 === 0 ? "bg-black/[0.14]" : "ml-auto bg-white/[0.14]"}`}>
-          {line}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function NoraStructuredContent({
-  agent,
-  text,
-  emailMessages,
-  agendaEvents,
-  onOpenEmail,
-  onAgendaPrompt,
-}: {
-  agent: NoraAgentKind;
-  text: string;
-  emailMessages?: NoraEmailMessage[];
-  agendaEvents?: NoraAgendaEvent[];
-  onOpenEmail?: (messageId: string) => void;
-  onAgendaPrompt?: (prompt: string) => void;
+function NoraStructuredContent({ agent, text, emailMessages, agendaEvents, responseView, onOpenEmail, onAgendaPrompt }: {
+  agent: NoraAgentKind; text: string; emailMessages?: NoraEmailMessage[]; agendaEvents?: NoraAgendaEvent[];
+  responseView?: NoraResponseView; onOpenEmail?: (messageId: string) => void; onAgendaPrompt?: (prompt: string) => void;
 }) {
-  if (agent === "financeiro") return <FinanceContent text={text} />;
+  const view = responseView || (agent === "tarefas" ? legacyTaskView(text) : agent === "financeiro" ? legacyFinanceView(text) : undefined)
+    || (agent === "agenda" && agendaEvents?.length ? { kind: "agenda" as const, events: agendaEvents } : undefined);
+  if (view?.kind === "tasks") return <NoraTaskCards view={view} text={text} />;
+  if (view?.kind === "finance") return <NoraFinanceTable view={view} text={text} />;
+  if (view?.kind === "agenda") return <NoraCalendar view={view} text={text} onAgendaPrompt={onAgendaPrompt} />;
+  if (view?.kind === "automations") return <NoraAutomationCards view={view} text={text} />;
   if (agent === "email") return <EmailContent text={text} emailMessages={emailMessages} onOpenEmail={onOpenEmail} />;
-  if (agent === "tarefas") return <TaskContent text={text} />;
-  if (agent === "agenda") return <AgendaContent text={text} events={agendaEvents} onAgendaPrompt={onAgendaPrompt} />;
-  if (agent === "whatsapp" || agent === "mensagens") return <ChatContent text={text} />;
   return markdownFallback(text);
 }
 
@@ -909,9 +772,8 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
         transition={{ duration: 0.2 }}
         className="nora-user-message group ml-auto max-w-[82%] rounded-2xl px-4 py-3 text-sm font-semibold select-text"
       >
-        <div className="nora-message-markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
-        </div>
+        {msg.text && <NoraMarkdown text={msg.text} />}
+        {msg.files?.length ? <NoraFileCards files={msg.files} /> : null}
         <Button variant="ghost"
          
           onClick={copyMessage}
@@ -953,9 +815,11 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
             text={msg.text}
             emailMessages={msg.emailMessages}
             agendaEvents={msg.agendaEvents}
+            responseView={msg.responseView}
             onOpenEmail={onOpenEmail}
             onAgendaPrompt={onAgendaPrompt}
           />
+          {msg.files?.length ? <NoraFileCards files={msg.files} /> : null}
         </div>
         <span className="mt-2 flex items-center gap-2">
           <Button variant="ghost"
@@ -993,7 +857,11 @@ async function askNoraWhatsAppBackend(message: string, conversaId: string, prepa
 async function askAgendaAgent(message: string, sessionId: string | null, userId: string) {
   const res = await fetch(`${BACKEND_URL}/api/agenda/agente/mensagem`, {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      Accept: "application/json", "Content-Type": "application/json",
+      ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
+    },
     body: JSON.stringify({
       user_id: userId,
       session_id: sessionId,
@@ -1014,7 +882,11 @@ async function askAgendaAgent(message: string, sessionId: string | null, userId:
 async function askEmailAgent(message: string, sessionId: string | null, userId: string) {
   const res = await fetch(`${BACKEND_URL}/api/emails/gmail/agente/mensagem`, {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      Accept: "application/json", "Content-Type": "application/json",
+      ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
+    },
     body: JSON.stringify({
       user_id: userId,
       session_id: sessionId,
@@ -1040,6 +912,7 @@ async function askNaturalNoraStream(
   userId: string,
   screenContext: string,
   modelId: string | null,
+  attachmentIds: string[],
   signal: AbortSignal,
   handlers: {
     onDelta: (fullText: string, delta: string) => void;
@@ -1060,6 +933,7 @@ async function askNaturalNoraStream(
       Accept: "text/event-stream",
       "Content-Type": "application/json",
       ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
     },
     body: JSON.stringify({
       user_id: userId,
@@ -1070,7 +944,8 @@ async function askNaturalNoraStream(
       commercial_session_id: commercialSessionId,
       screen_context: screenContext || undefined,
       model_id: modelId || undefined,
-      routing_mode: modelId ? "manual" : "automatic",
+      routing_mode: modelId && modelId !== "auto" ? "manual" : "automatic",
+      attachment_ids: attachmentIds,
     }),
   });
 
@@ -1084,41 +959,37 @@ async function askNaturalNoraStream(
   let buffer = "";
   let fullText = "";
   let responseId = res.headers.get("X-Norium-Response-Id") || "";
+  let completed = false;
   if (responseId) handlers.onResponseId(responseId);
+
+  const consume = (parsed: NoraStreamEvent) => {
+    if (parsed.response_id && parsed.response_id !== responseId) {
+      responseId = parsed.response_id;
+      handlers.onResponseId(responseId);
+    }
+    if (parsed.type === "status" && parsed.state) handlers.onStatus(parsed.state as NoraRunState);
+    if (parsed.type === "done") {
+      completed = true;
+      handlers.onDone(parsed.metrics || {});
+    }
+    if ((parsed.type === "delta" || !parsed.type) && typeof parsed.delta === "string") {
+      fullText += parsed.delta;
+      handlers.onDelta(fullText, parsed.delta);
+    }
+  };
 
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
-    for (const event of events) {
-      const line = event.trim();
-      if (!line.startsWith("data:")) continue;
-      const data = line.slice("data:".length).trim();
-      try {
-        const parsed = JSON.parse(data) as {
-          type?: "status" | "delta" | "done";
-          state?: NoraRunState;
-          response_id?: string;
-          delta?: string;
-          metrics?: Record<string, number>;
-        };
-        if (parsed.response_id && parsed.response_id !== responseId) {
-          responseId = parsed.response_id;
-          handlers.onResponseId(responseId);
-        }
-        if (parsed.type === "status" && parsed.state) handlers.onStatus(parsed.state);
-        if (parsed.type === "done") handlers.onDone(parsed.metrics || {});
-        if ((parsed.type === "delta" || !parsed.type) && typeof parsed.delta === "string") {
-          fullText += parsed.delta;
-          handlers.onDelta(fullText, parsed.delta);
-        }
-      } catch {
-        // pedaco de evento incompleto ou malformado; ignora e segue
-      }
-    }
+    const drained = drainNoraSseEvents(buffer);
+    buffer = drained.rest;
+    drained.events.forEach(consume);
   }
+
+  buffer += decoder.decode();
+  drainNoraSseEvents(buffer, true).events.forEach(consume);
+  if (!completed || !fullText.trim()) throw new Error("A resposta progressiva terminou incompleta.");
 
   return { redirect: false, fullText, responseId };
 }
@@ -1136,6 +1007,7 @@ function recordNoraTelemetry(
     headers: {
       "Content-Type": "application/json",
       ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
     },
     body: JSON.stringify({ response_id: responseId, event, elapsed_ms: Math.max(0, elapsedMs), channel }),
   }).catch(() => undefined);
@@ -1150,6 +1022,7 @@ async function askNaturalNora(
   userId: string,
   screenContext: string,
   modelId: string | null,
+  attachmentIds: string[],
 ) {
   const payloadMessages = messages.slice(-6).map((message) => ({
     role: message.role === "user" ? "user" : "assistant",
@@ -1162,6 +1035,7 @@ async function askNaturalNora(
       Accept: "application/json",
       "Content-Type": "application/json",
       ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
     },
     body: JSON.stringify({
       user_id: userId,
@@ -1172,7 +1046,8 @@ async function askNaturalNora(
       commercial_session_id: commercialSessionId,
       screen_context: screenContext || undefined,
       model_id: modelId || undefined,
-      routing_mode: modelId ? "manual" : "automatic",
+      routing_mode: modelId && modelId !== "auto" ? "manual" : "automatic",
+      attachment_ids: attachmentIds,
     }),
   });
   const data = await res.json();
@@ -1184,7 +1059,7 @@ async function askNaturalNora(
     status: string;
     response: string;
     speech_text?: string;
-    agent_result?: Record<string, unknown> & { messages?: unknown; events?: unknown; event?: unknown };
+    agent_result?: Record<string, unknown> & { messages?: unknown; events?: unknown; event?: unknown; files?: unknown };
   };
 }
 
@@ -1264,22 +1139,22 @@ function interruptsActiveAgentSession(text: string) {
   );
 }
 
-export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "primary", activeTab, onOpenEmail, contextualRequest }: NoraProps) {
+export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "primary", activeTab, onOpenEmail, contextualRequest, variant = "drawer", initialState, onStateChange }: NoraProps) {
   const screenContext = buildScreenContext(activeTab, eventsBySource);
   const welcomeName = (profile?.nome || "").trim().split(/\s+/)[0] || "";
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [messages, setMessages] = useState<Msg[]>(() => initialState?.messages || []);
   const [runState, setRunState] = useState<NoraRunState>("idle");
   const loading = ACTIVE_NORA_STATES.has(runState);
-  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [showSuggestions, setShowSuggestions] = useState(!initialState?.messages.length);
   const [prepareWhatsAppApproval, setPrepareWhatsAppApproval] = useState(false);
   const [agentDraft, setAgentDraft] = useState<string | null>(null);
-  const [agendaSessionId, setAgendaSessionId] = useState<string | null>(null);
-  const [agendaAgentActive, setAgendaAgentActive] = useState(false);
-  const [emailSessionId, setEmailSessionId] = useState<string | null>(null);
-  const [emailAgentActive, setEmailAgentActive] = useState(false);
-  const [commercialSessionId, setCommercialSessionId] = useState<string | null>(null);
-  const [commercialAgentActive, setCommercialAgentActive] = useState(false);
+  const [agendaSessionId, setAgendaSessionId] = useState<string | null>(initialState?.agendaSessionId || null);
+  const [agendaAgentActive, setAgendaAgentActive] = useState(Boolean(initialState?.agendaAgentActive));
+  const [emailSessionId, setEmailSessionId] = useState<string | null>(initialState?.emailSessionId || null);
+  const [emailAgentActive, setEmailAgentActive] = useState(Boolean(initialState?.emailAgentActive));
+  const [commercialSessionId, setCommercialSessionId] = useState<string | null>(initialState?.commercialSessionId || null);
+  const [commercialAgentActive, setCommercialAgentActive] = useState(Boolean(initialState?.commercialAgentActive));
   const [listening, setListening] = useState(false);
   const [voicePreview, setVoicePreview] = useState("");
   const [transcribing, setTranscribing] = useState(false);
@@ -1292,7 +1167,11 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   const [modelChoice, setModelChoice] = useState(() => localStorage.getItem("norium:nora:model-choice") || "auto");
   const [autoModelId, setAutoModelId] = useState<string | null>(null);
   const [modelOptions, setModelOptions] = useState<Array<{ id: string; name: string; model: string }>>([]);
+  const [pendingFiles, setPendingFiles] = useState<NoraChatFile[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [fileError, setFileError] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -1335,10 +1214,39 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     return () => { active = false; };
   }, [open]);
 
-  const effectiveModelId = modelChoice === "auto" ? autoModelId : modelChoice;
+  useEffect(() => {
+    onStateChange?.({ messages, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive }, loading);
+  }, [messages, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive, loading, onStateChange]);
+
+  const effectiveModelId = modelChoice === "auto" ? "auto" : modelChoice;
 
   function setCycleState(cycleId: number, state: NoraRunState) {
     if (activeCycleRef.current === cycleId) setRunState(state);
+  }
+
+  async function uploadFiles(selected: FileList | null) {
+    const files = Array.from(selected || []).slice(0, Math.max(0, 8 - pendingFiles.length));
+    if (!files.length) return;
+    setUploadingFiles(true);
+    setFileError("");
+    try {
+      const uploaded: NoraChatFile[] = [];
+      for (const file of files) {
+        if (file.size > 24 * 1024 * 1024) throw new Error(`${file.name} ultrapassa o limite de 24 MB.`);
+        const result = await apiRequest<{ file: NoraChatFile }>("/api/nora/files", {
+          method: "POST",
+          timeoutMs: 90_000,
+          body: JSON.stringify({ fileName: file.name, mimeType: inferFileMime(file), dataBase64: await fileToBase64(file) }),
+        });
+        uploaded.push(result.file);
+      }
+      setPendingFiles((current) => [...current, ...uploaded].slice(0, 8));
+    } catch (reason) {
+      setFileError(reason instanceof Error ? reason.message : "Não foi possível anexar o arquivo.");
+    } finally {
+      setUploadingFiles(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   }
 
   function cancelActiveResponse(markCancelled = true) {
@@ -1399,6 +1307,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   }, [messages, runState, agentDraft]);
 
   useEffect(() => {
+    if (variant === "page") return;
     activeCycleRef.current += 1;
     requestAbortRef.current?.abort();
     requestAbortRef.current = null;
@@ -1417,7 +1326,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     setEmailAgentActive(false);
     setCommercialSessionId(null);
     setCommercialAgentActive(false);
-  }, [conversaId]);
+  }, [conversaId, variant]);
 
   useEffect(() => {
     if (!open || !contextualRequest?.prompt || contextualRequestHandledRef.current === contextualRequest.id) return;
@@ -1553,8 +1462,10 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   }
 
   async function sendMessage(text?: string, speakReply = false) {
-    const finalText = (text || input).trim();
-    if (!finalText) return;
+    const queuedFiles = pendingFiles;
+    const typedText = (text || input).trim();
+    const finalText = typedText || (queuedFiles.length === 1 ? `Enviei o arquivo ${queuedFiles[0].name}.` : queuedFiles.length > 1 ? `Enviei ${queuedFiles.length} arquivos.` : "");
+    if (!finalText || uploadingFiles) return;
 
     cancelActiveResponse(false);
     const cycleId = activeCycleRef.current;
@@ -1569,11 +1480,13 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     pinnedToBottomRef.current = true;
     setCycleState(cycleId, "submitting");
     setInput("");
+    setPendingFiles([]);
+    setFileError("");
     setVoiceError("");
     setShowSuggestions(false);
     setAgentDraft(null);
 
-    const currentMessages: Msg[] = [...messages, { role: "user", text: finalText }];
+    const currentMessages: Msg[] = [...messages, { role: "user", text: finalText, files: queuedFiles.length ? queuedFiles : undefined }];
     setMessages(currentMessages);
 
     try {
@@ -1583,6 +1496,8 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       let responseStatus = "";
       let responseEmailMessages: NoraEmailMessage[] | undefined;
       let responseAgendaEvents: NoraAgendaEvent[] | undefined;
+      let responseView: NoraResponseView | undefined;
+      let responseFiles: NoraChatFile[] | undefined;
       let handledInline = false;
       let speechWasQueued = false;
       let speechBuffer = "";
@@ -1591,8 +1506,8 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       const explicitEmailSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isAgendaIntent(finalText) || isCommercialIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
       const explicitAgendaSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isEmailIntent(finalText) || isCommercialIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
       const explicitCommercialSwitch = sessionInterrupted || isTaskIntent(finalText) || isFinanceIntent(finalText) || isEmailIntent(finalText) || isAgendaIntent(finalText) || isAutomationIntent(finalText) || isTeamIntent(finalText);
-      const continueEmailSession = emailAgentActive && !explicitEmailSwitch;
-      const continueAgendaSession = agendaAgentActive && !explicitAgendaSwitch;
+      const continueEmailSession = emailAgentActive && !explicitEmailSwitch && queuedFiles.length === 0;
+      const continueAgendaSession = agendaAgentActive && !explicitAgendaSwitch && queuedFiles.length === 0;
       const continueCommercialSession = commercialAgentActive && !explicitCommercialSwitch;
       const effectiveEmailSessionId = sessionInterrupted ? null : emailSessionId;
       const effectiveAgendaSessionId = sessionInterrupted ? null : agendaSessionId;
@@ -1639,6 +1554,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
         responseAgent = "agenda";
         responseStatus = result.status;
         responseAgendaEvents = result.events || (result.event ? [result.event] : undefined);
+        responseView = buildNoraResponseView("agenda", result);
         setAgendaSessionId(result.session_id);
         setAgendaAgentActive(Boolean(result.session_id && !["criado", "cancelado", "consulta", "atualizado"].includes(result.status)));
         response = result.response;
@@ -1669,6 +1585,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             userId,
             screenContext,
             effectiveModelId,
+            queuedFiles.map((file) => file.id),
             controller.signal,
             {
               onResponseId: (responseId) => {
@@ -1737,7 +1654,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               queueSpeechSegment(segment, cycleId);
             }
           }
-          response = streamResult.fullText || "Entendi, mas nao recebi resposta do agente.";
+          response = streamResult.fullText;
           responseSpeechText = speechTextFromDisplay(response);
           responseAgent = "geral";
           responseStatus = "chat";
@@ -1761,10 +1678,13 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             userId,
             screenContext,
             effectiveModelId,
+            queuedFiles.map((file) => file.id),
           );
           if (activeCycleRef.current !== cycleId) return;
           applyNaturalAgentEffects(result);
           responseAgent = naturalIntentToAgent(result.intent);
+          responseView = buildNoraResponseView(result.intent, result.agent_result);
+          responseFiles = normalizeChatFiles(result.agent_result?.files);
           responseStatus = result.status;
           if (result.intent === "email") {
             responseEmailMessages = normalizeEmailMessages(result.agent_result?.messages);
@@ -1775,7 +1695,10 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               responseAgendaEvents = [result.agent_result.event as NoraAgendaEvent];
             }
           }
-          response = result.response || "Entendi, mas nao recebi resposta do agente.";
+          if (!result.response?.trim()) {
+            throw new Error("A Nora recebeu uma resposta incompleta. Tente novamente em instantes.");
+          }
+          response = result.response;
           responseSpeechText = result.speech_text || speechTextFromDisplay(response);
         }
       }
@@ -1791,6 +1714,8 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             status: responseStatus,
             emailMessages: responseEmailMessages,
             agendaEvents: responseAgendaEvents,
+            responseView,
+            files: responseFiles,
           },
         ]);
       }
@@ -2079,6 +2004,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           Accept: "application/json",
           "Content-Type": "application/json",
           ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
         },
         body: JSON.stringify({
           conversa_id: conversaId,
@@ -2116,6 +2042,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           Accept: "application/json",
           "Content-Type": "application/json",
           ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
         },
         body: JSON.stringify({
           conversa_id: conversaId,
@@ -2196,21 +2123,21 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     <AnimatePresence>
       {open && (
         <>
-          <motion.div
+          {variant === "drawer" && <motion.div
             className="nora-drawer-backdrop fixed inset-0 z-40 bg-black/35 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={closeNora}
-          />
+          />}
 
           <motion.aside
-            initial={{ x: 500, opacity: 0 }}
+            initial={{ x: variant === "page" ? 0 : 500, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 500, opacity: 0 }}
             transition={{ type: "spring", stiffness: 120, damping: 18 }}
-            className={`nora-drawer fixed z-[90] flex max-w-[100vw] flex-col overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-2xl transition-all duration-300 ${
-              expanded
+            className={`nora-drawer ${variant === "page" ? "nora-page relative" : "fixed"} z-[90] flex max-w-[100vw] flex-col overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-2xl transition-all duration-300 ${
+              variant === "page" ? "" : expanded
                 ? "nora-drawer-expanded"
                 : "nora-drawer-side"
             }`}
@@ -2226,12 +2153,22 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                     Nora <span className="nora-online-dot" /> <span className="text-xs font-bold text-emerald-400">{loading ? NORA_STATE_LABELS[runState] : "Online"}</span>
                   </h2>
                   <p className="truncate text-xs font-semibold text-white/75">
-                    {conversaId ? `Contexto ativo: ${conversaId}` : "Sem conversa ativa"}
+                    {conversaId ? `Contexto ativo: ${conversaId}` : variant === "page" ? "Sua assistente no Norium" : "Pronta para ajudar no Norium"}
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setControlsOpen(true)}
+                  className="hidden h-9 max-w-52 items-center gap-2 rounded-lg border border-white/10 px-3 text-xs font-bold text-white/80 transition hover:bg-white/10 sm:flex"
+                  title="Trocar modelo da conversa"
+                  aria-label="Trocar modelo da conversa"
+                >
+                  <BrainCircuit size={14} />
+                  <span className="truncate">{modelChoice === "auto" ? "Modelo automático" : modelOptions.find((item) => item.id === modelChoice)?.name || "Modelo manual"}</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setControlsOpen((value) => !value)}
@@ -2244,7 +2181,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 >
                   <Settings2 size={18} />
                 </button>
-                <Button variant="ghost" size="sm" iconOnly
+                {variant === "drawer" && <><Button variant="ghost" size="sm" iconOnly
                   onClick={() => setExpanded((value) => !value)}
                   className="nora-expand-toggle hover:bg-white/10"
                   title={expanded ? "Voltar para lateral" : "Expandir Nora"}
@@ -2253,7 +2190,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 </Button>
                 <Button variant="ghost" size="sm" iconOnly aria-label="Fechar Nora" title="Fechar Nora" onClick={closeNora} className="hover:bg-white/10">
                   <X size={18} />
-                </Button>
+                </Button></>}
               </div>
             </div>
 
@@ -2269,10 +2206,10 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                   }}
                   className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none"
                 >
-                  <option value="auto">Automático por política</option>
+                  <option value="auto">Automático — alternar quando necessário</option>
                   {modelOptions.map((item) => <option key={item.id} value={item.id}>{item.name} / {item.model}</option>)}
                 </select>
-                <small className="mt-1.5 block text-[var(--text-secondary)]">{modelChoice === "auto" ? "O Norium escolhe por capacidade, privacidade e custo." : "Seleção manual para respostas gerais."}</small>
+                <small className="mt-1.5 block text-[var(--text-secondary)]">{modelChoice === "auto" ? `O Norium escolhe e troca em caso de falha, limite ou resposta vazia${autoModelId ? `; primeira opção: ${modelOptions.find((item) => item.id === autoModelId)?.name || "modelo disponível"}.` : "."}` : "Seleção manual para respostas gerais."}</small>
               </label>
               <label className={`flex items-center justify-between gap-3 rounded-lg border border-cyan-400/20 bg-[var(--surface)] px-3 py-2 text-xs font-bold ${conversaId ? "text-[var(--text)]" : "text-[var(--text-secondary)]"}`}>
                 <span>Preparar envio para aprovação</span>
@@ -2330,7 +2267,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               {messages.length === 0 && !loading && (
                 <div className="nora-empty-state">
                   <NoraAvatar className="nora-empty-avatar" />
-                  <h3>{welcomeName ? `Ola, ${welcomeName}` : "Ola"}</h3>
+                  <h3>{welcomeName ? `Olá, ${welcomeName}` : "Olá"}</h3>
                   <p>Como posso ajudar?</p>
                 </div>
               )}
@@ -2367,10 +2304,10 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
               {showSuggestions && (
                 <div className="nora-quick-suggestions mt-4">
-                  <p className="nora-suggestions-label text-xs font-bold mb-3 text-[var(--text-secondary)] uppercase tracking-wide">Sugestoes rapidas</p>
+                  <p className="nora-suggestions-label text-xs font-bold mb-3 text-[var(--text-secondary)] uppercase tracking-wide">Sugestões rápidas</p>
 
                   <div className="nora-suggestions-grid flex flex-wrap justify-center gap-2">
-                    {suggestions.map((suggestion) => {
+                    {suggestions.filter((suggestion) => variant !== "page" || !["summary", "agent", "question"].includes(suggestion.action)).map((suggestion) => {
                       const Icon = suggestion.icon;
                       return (
                         <Button
@@ -2392,6 +2329,22 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             </div>
 
             <div className="nora-composer border-t border-[var(--border)] p-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="sr-only"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.mp3,.wav,.ogg,.webm,.mp4,.mov"
+                onChange={(event) => void uploadFiles(event.target.files)}
+              />
+              {pendingFiles.length > 0 && (
+                <div className="nora-pending-files" aria-label="Arquivos anexados">
+                  {pendingFiles.map((file) => (
+                    <span key={file.id}><Paperclip size={13} /><strong title={file.name}>{file.name}</strong><button type="button" onClick={() => setPendingFiles((items) => items.filter((item) => item.id !== file.id))} aria-label={`Remover ${file.name}`}><X size={13} /></button></span>
+                  ))}
+                </div>
+              )}
+              {fileError && <p className="nora-file-composer-error">{fileError}</p>}
               {voiceIsLocked && (
                 <Button
                  
@@ -2427,6 +2380,16 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-1.5">
                 <button
                   type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingFiles || loading || pendingFiles.length >= 8}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-secondary)] transition hover:bg-[var(--surface-hover)] hover:text-cyan-300 disabled:opacity-45"
+                  title="Enviar arquivo para a Nora"
+                  aria-label="Enviar arquivo para a Nora"
+                >
+                  {uploadingFiles ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     if (voiceIsLocked) {
                       void unlockVoice().then((unlocked) => {
@@ -2452,10 +2415,13 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                  aria-label={voiceIsLocked ? "Desbloquear voz" : listening ? "Parar voz" : "Falar com a Nora"}>
                   {voiceIsLocked ? <Lock size={18} /> : listening ? <MicOff size={18} /> : <Mic size={18} />}
                 </button>
-                <input
+                <textarea
+                  aria-label="Mensagem para a Nora"
+                  maxLength={4000}
+                  rows={2}
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Enter") void sendMessage(); }}
+                  onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMessage(); } }}
                   placeholder={transcribing ? "Transcrevendo sua voz..." : listening ? "Ouvindo sua mensagem..." : "Escreva para a Nora..."}
                   className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm font-semibold outline-none text-[var(--text)] placeholder:text-[var(--text-secondary)]"
                 />
@@ -2464,6 +2430,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                   whileTap={{ scale: 0.94 }}
                   type="button"
                   onClick={() => loading ? cancelActiveResponse() : void sendMessage()}
+                  disabled={!loading && uploadingFiles}
                   aria-label={loading ? "Parar resposta da Nora" : "Enviar mensagem para a Nora"}
                   title={loading ? "Parar resposta" : "Enviar mensagem"}
                   className={`flex h-10 w-10 items-center justify-center rounded-lg text-white shadow-sm ${

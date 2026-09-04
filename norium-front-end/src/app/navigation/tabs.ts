@@ -33,6 +33,8 @@ export const TAB_PERMISSIONS: Record<string, PermissionKey | null> = {
   "Configurações": "perfil",
   Equipe: "equipe",
   Brainstorm: "equipe",
+  "Estúdio": "equipe",
+  Nora: "nora",
   Clientes: "central",
   Governanca: "equipe",
   Ajuda: "dashboard",
@@ -60,13 +62,15 @@ export const PRIMARY_TABS = [
   "Chat da Equipe",
   "Clientes",
   "Governanca",
-  "Brainstorm",
+  "Estúdio",
+  "Nora",
   "Mais",
 ];
 
 export const ACTIVE_TAB_STORAGE = "norium-active-tab";
 
 const TAB_ALIASES: Record<string, string> = {
+  Brainstorm: "Estúdio",
   Resumo: "Dashboard",
   Inbox: "Central",
   "E-mail": "E-mails",
@@ -100,7 +104,8 @@ export const TAB_ROUTES: Record<string, string> = {
   "Chat da Equipe": "chat-equipe",
   Clientes: "clientes",
   Governanca: "governanca",
-  Brainstorm: "brainstorm",
+  "Estúdio": "estudio",
+  Nora: "nora",
   Mais: "mais",
   Perfil: "perfil",
   "Configurações": "configuracoes",
@@ -108,6 +113,8 @@ export const TAB_ROUTES: Record<string, string> = {
 };
 
 const ROUTE_TABS = new Map(Object.entries(TAB_ROUTES).map(([tab, route]) => [route, tab]));
+
+ROUTE_TABS.set("brainstorm", "Estúdio");
 
 export function canonicalTab(tab: string) {
   return TAB_ALIASES[tab] || tab;

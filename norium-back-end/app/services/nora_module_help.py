@@ -14,6 +14,18 @@ class ModuleHelp:
 
 MODULE_HELP: tuple[ModuleHelp, ...] = (
     ModuleHelp(
+        module="nora",
+        aliases=("tela da nora", "espaco da nora", "histórico da nora", "historico da nora"),
+        response=(
+            "A Nora tem uma tela própria no menu lateral do Norium. Clique em Nova conversa para começar "
+            "e use o histórico lateral para buscar e retomar conversas anteriores. As mensagens são salvas "
+            "na sua conta e no espaço de trabalho atual. Você pode renomear, exportar e excluir conversas. "
+            "Peça ajuda para escrever, organizar tarefas, consultar e-mails, agenda e finanças. "
+            "As ações disponíveis respeitam suas permissões e as integrações conectadas. "
+            "O botão de microfone permite usar voz; as preferências ficam no botão de ajustes da conversa."
+        ),
+    ),
+    ModuleHelp(
         module="dashboard",
         aliases=("meu dashboard", "tela dashboard", "dashboard", "meu dia"),
         response=(
@@ -254,9 +266,11 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
     ),
     ModuleHelp(
         module="brainstorm",
-        aliases=("brainstorm colaborativo", "brainstorm", "sessao de ideias"),
+        aliases=("estudio", "estúdio", "brainstorm colaborativo", "brainstorm", "sessao de ideias"),
         response=(
-            "Brainstorm é um quadro colaborativo para transformar ideias em decisões.\n\n"
+            "O Estúdio (antigo Brainstorm) é um quadro colaborativo para transformar ideias em decisões.\n\n"
+            "Comece com Plano do projeto, Brainstorming, Lista de afazeres, Anotações de reunião, "
+            "Status do projeto ou Retrospectiva. Os modelos já trazem seções e cartões editáveis. "
             "Defina título, objetivo, responsável e duração; depois adicione notas, agrupe temas, conecte "
             "ideias e use votação quando necessário. O cronômetro é compartilhado. Quando a sessão termina, "
             "o quadro é bloqueado para novas alterações, preservando o resultado. Sessões anteriores podem "

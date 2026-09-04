@@ -225,9 +225,12 @@ export default function NoriumApp() {
     const contextualPrompt = typeof prompt === "string" ? prompt.trim() : "";
     if (contextualPrompt) {
       setNoraContextRequest({ id: Date.now(), prompt: contextualPrompt });
+      setIsNoraOpen(true);
+    } else {
+      setIsNoraOpen(false);
+      navigateTab("Nora");
     }
-    setIsNoraOpen(true);
-  }, [canAccessPermission]);
+  }, [canAccessPermission, navigateTab]);
 
   const openDeepLink = useCallback((link: NoriumDeepLink) => {
     localStorage.setItem("norium-deep-link", JSON.stringify(link));

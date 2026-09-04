@@ -665,6 +665,18 @@ def builtin_provider() -> dict[str, Any]:
     }
 
 
+def builtin_gemini_provider() -> dict[str, Any]:
+    configured = bool(os.getenv("GEMINI_API_KEY", "").strip())
+    return {
+        "id": "gemini-runtime", "name": "Google Gemini", "provider": "google",
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.7-flash").strip() or "gemini-3.7-flash",
+        "baseUrl": "https://generativelanguage.googleapis.com/v1beta", "enabled": configured,
+        "configured": configured, "capabilities": ["text", "tools", "json"],
+        "contextWindow": 1_000_000, "inputCostPerMillion": 0.75,
+        "outputCostPerMillion": 3.75, "dataPolicy": "external", "managed": True,
+    }
+
+
 def sanitize_provider(provider: dict[str, Any]) -> dict[str, Any]:
     safe = {key: value for key, value in provider.items() if key not in {"encryptedSecret", "secret"}}
     safe["configured"] = bool(provider.get("encryptedSecret")) or bool(provider.get("configured"))
@@ -692,7 +704,7 @@ async def save_provider(user: dict[str, Any], payload: dict[str, Any], provider_
 
 
 def all_providers(user_id: str) -> list[dict[str, Any]]:
-    return [builtin_provider(), *read_store(user_id)["modelProviders"]]
+    return [builtin_provider(), builtin_gemini_provider(), *read_store(user_id)["modelProviders"]]
 
 
 def route_model(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -745,6 +757,8 @@ async def test_provider(user: dict[str, Any], provider_id: str, timeout_seconds:
         raise HTTPException(status_code=404, detail="Provedor nao encontrado.")
     if provider_id == "nora-runtime":
         secret = os.getenv("GROQ_API_KEY", "").strip()
+    elif provider_id == "gemini-runtime":
+        secret = os.getenv("GEMINI_API_KEY", "").strip()
     else:
         encrypted = str(provider.get("encryptedSecret") or "")
         secret = decrypt_secret(encrypted) if encrypted else ""
@@ -752,10 +766,10 @@ async def test_provider(user: dict[str, Any], provider_id: str, timeout_seconds:
         return {"ok": False, "providerId": provider_id, "detail": "Salve uma credencial antes de testar."}
     base_url = str(provider.get("baseUrl") or "").rstrip("/")
     if not base_url:
-        base_url = "https://api.groq.com/openai/v1" if provider.get("provider") == "groq" else "https://api.anthropic.com/v1" if provider.get("provider") == "anthropic" else "https://api.openai.com/v1"
+        base_url = "https://api.groq.com/openai/v1" if provider.get("provider") == "groq" else "https://api.anthropic.com/v1" if provider.get("provider") == "anthropic" else "https://generativelanguage.googleapis.com/v1beta" if provider.get("provider") == "google" else "https://api.openai.com/v1"
     _, host = validate_public_url(base_url)
     await assert_public_dns(host)
-    headers = {"x-api-key": secret, "anthropic-version": "2023-06-01"} if provider.get("provider") == "anthropic" else {"Authorization": f"Bearer {secret}"}
+    headers = {"x-api-key": secret, "anthropic-version": "2023-06-01"} if provider.get("provider") == "anthropic" else {"x-goog-api-key": secret} if provider.get("provider") == "google" else {"Authorization": f"Bearer {secret}"}
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds, connect=min(8, timeout_seconds)), follow_redirects=False) as client:
             response = await client.get(f"{base_url}/models", headers=headers)
@@ -799,11 +813,38 @@ async def complete_with_provider(
 ) -> tuple[str, dict[str, Any]]:
     """Executa chat no adapter selecionado e registra consumo aproximado."""
     user_id = tenant_id(user)
+    if provider_id == "auto":
+        route = route_model(
+            user,
+            {
+                "requiredCapabilities": ["text"],
+                "privacy": "any",
+                "estimatedInputTokens": 1000,
+                "estimatedOutputTokens": 500,
+                "externalActionCommitted": False,
+            },
+        )
+        candidates = [route.get("selected"), *(route.get("fallback") or [])]
+        attempted: list[str] = []
+        for candidate in candidates:
+            candidate_id = str((candidate or {}).get("id") or "")
+            if not candidate_id or candidate_id in attempted:
+                continue
+            attempted.append(candidate_id)
+            try:
+                answer, metadata = await complete_with_provider(user, candidate_id, messages, system_prompt)
+                return answer, {**metadata, "mode": "automatic", "attemptedProviderIds": attempted}
+            except HTTPException as exc:
+                if exc.status_code not in {429, 502, 503, 504}:
+                    raise
+        raise HTTPException(status_code=503, detail="Nenhum modelo configurado conseguiu concluir a resposta agora.")
     provider = next((item for item in all_providers(user_id) if item["id"] == provider_id), None)
     if not provider:
         raise HTTPException(status_code=404, detail="Modelo selecionado nao foi encontrado.")
     if provider_id == "nora-runtime":
         secret = os.getenv("GROQ_API_KEY", "").strip()
+    elif provider_id == "gemini-runtime":
+        secret = os.getenv("GEMINI_API_KEY", "").strip()
     else:
         encrypted = str(provider.get("encryptedSecret") or "")
         secret = decrypt_secret(encrypted) if encrypted else ""
@@ -817,6 +858,8 @@ async def complete_with_provider(
         base_url = base_url or "https://api.openai.com/v1"
     elif provider_kind == "anthropic":
         base_url = base_url or "https://api.anthropic.com/v1"
+    elif provider_kind == "google":
+        base_url = base_url or "https://generativelanguage.googleapis.com/v1beta"
     if not base_url:
         raise HTTPException(status_code=409, detail="Configure a URL base do provedor.")
     _, host = validate_public_url(base_url)
@@ -834,6 +877,21 @@ async def complete_with_provider(
                     headers={"x-api-key": secret, "anthropic-version": "2023-06-01", "content-type": "application/json"},
                     json={"model": provider["model"], "system": system_prompt, "messages": safe_messages, "max_tokens": 1400},
                 )
+            elif provider_kind == "google":
+                transcript = "\n\n".join(
+                    f"{'Usuário' if item['role'] == 'user' else 'Nora'}: {item['content']}"
+                    for item in safe_messages
+                )
+                response = await client.post(
+                    f"{base_url}/interactions",
+                    headers={"x-goog-api-key": secret, "Content-Type": "application/json"},
+                    json={
+                        "model": provider["model"],
+                        "store": False,
+                        "input": f"{system_prompt}\n\nConversa recente:\n{transcript}",
+                        "generation_config": {"thinking_level": "low"},
+                    },
+                )
             else:
                 response = await client.post(
                     f"{base_url}/chat/completions",
@@ -849,6 +907,16 @@ async def complete_with_provider(
         answer = "".join(str(block.get("text") or "") for block in blocks if isinstance(block, dict))
         input_tokens = int((data.get("usage") or {}).get("input_tokens") or 0)
         output_tokens = int((data.get("usage") or {}).get("output_tokens") or 0)
+    elif provider_kind == "google":
+        steps = data.get("steps") if isinstance(data, dict) else []
+        answer = "".join(
+            str(content.get("text") or "")
+            for step in steps or [] if isinstance(step, dict) and step.get("type") == "model_output"
+            for content in step.get("content") or [] if isinstance(content, dict) and content.get("type") == "text"
+        )
+        usage_data = data.get("usage") or {} if isinstance(data, dict) else {}
+        input_tokens = int(usage_data.get("total_input_tokens") or usage_data.get("input_tokens") or 0)
+        output_tokens = int(usage_data.get("total_output_tokens") or usage_data.get("output_tokens") or 0)
     else:
         choices = data.get("choices") if isinstance(data, dict) else []
         answer = str(((choices or [{}])[0].get("message") or {}).get("content") or "")

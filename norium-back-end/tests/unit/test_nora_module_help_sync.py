@@ -26,6 +26,7 @@ TABS_FILE = (
 # explicito de proposito: um alias novo no frontend quebra o teste e obriga a
 # decidir se e sinonimo ou modulo novo, em vez de passar despercebido.
 TAB_ALIASES = {
+    "estudio": "brainstorm",
     "resumo": "dashboard",
     "inbox": "central",
     "gastos": "financeiro",

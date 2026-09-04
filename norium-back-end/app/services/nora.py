@@ -97,12 +97,16 @@ class NoraIAService:
                 )
                 last_status = response.status_code
                 if response.status_code == 200:
-                    self.model = model
                     data = response.json()
-                    return str(data["choices"][0]["message"]["content"])
-                if response.status_code not in {400, 404}:
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content")
+                    answer = content.strip() if isinstance(content, str) else ""
+                    if answer:
+                        self.model = model
+                        return answer
+                    continue
+                if response.status_code not in {400, 404, 429, 500, 502, 503, 504}:
                     break
-            return self._provider_error(last_status)
+            return self._provider_error(last_status) if last_status != 200 else "Não consegui gerar uma resposta completa agora. Tente novamente em instantes."
         except Exception:
             return "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."
 
@@ -124,6 +128,7 @@ class NoraIAService:
             client = self._http_client()
             last_status = 503
             for model in self._models():
+                received_text = False
                 async with client.stream(
                     "POST",
                     self.base_url,
@@ -131,7 +136,7 @@ class NoraIAService:
                     headers=self.headers,
                 ) as response:
                     last_status = response.status_code
-                    if response.status_code in {400, 404}:
+                    if response.status_code in {400, 404, 429, 500, 502, 503, 504}:
                         continue
                     if response.status_code != 200:
                         yield self._provider_error(response.status_code)
@@ -150,8 +155,13 @@ class NoraIAService:
                         choices = chunk.get("choices") or []
                         delta = choices[0].get("delta", {}).get("content") if choices else None
                         if delta:
+                            received_text = True
                             yield delta
-                    return
-            yield self._provider_error(last_status)
+                    if received_text:
+                        return
+            if last_status == 200:
+                yield "Não consegui gerar uma resposta completa agora. Tente novamente em instantes."
+            else:
+                yield self._provider_error(last_status)
         except Exception:
             yield "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."

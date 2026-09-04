@@ -128,7 +128,7 @@ class MarketplaceInstallPayload(StrictModel):
 
 class ModelProviderPayload(StrictModel):
     name: str = Field(min_length=2, max_length=120)
-    provider: Literal["groq", "openai", "openai-compatible", "anthropic"]
+    provider: Literal["groq", "openai", "openai-compatible", "anthropic", "google"]
     model: str = Field(min_length=2, max_length=180)
     baseUrl: str = Field(default="", max_length=2000)
     secret: str = Field(default="", max_length=20_000)

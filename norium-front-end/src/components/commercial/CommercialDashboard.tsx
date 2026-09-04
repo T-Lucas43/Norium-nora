@@ -834,7 +834,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                       <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{item.documentType === "proposal" ? <FileSignature size={19} /> : <FileCheck2 size={19} />}</span>
                       <button type="button" disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} className="min-w-0 text-left disabled:cursor-wait disabled:opacity-70">
                         <strong className="block truncate text-sm">{item.title}</strong>
-                        <small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.client?.name || "Cliente nao informado"} {item.brainstormId ? "- vinculado ao Brainstorm" : ""}</small>
+                        <small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.client?.name || "Cliente nao informado"} {item.brainstormId ? "- vinculado ao Estúdio" : ""}</small>
                       </button>
                       <span className="col-start-2 text-xs font-bold xl:col-auto">{formatMoney(item.amount, item.currency)}</span>
                       <span className="col-start-2 xl:col-auto"><StatusChip status={item.status} /></span>
@@ -1101,7 +1101,7 @@ function CreateProposalDialog({
   return (
     <Dialog
       title={draft ? "Revise antes de gerar a proposta" : "Briefing da nova proposta"}
-      subtitle={draft ? "Nada foi salvo ainda. Confirme a prévia detalhada pela Nora." : "O Brainstorm é opcional e só será vinculado se você o selecionar."}
+      subtitle={draft ? "Nada foi salvo ainda. Confirme a prévia detalhada pela Nora." : "A sessão do Estúdio é opcional e só será vinculada se você a selecionar."}
       onClose={onClose}
       wide
     >
@@ -1134,7 +1134,7 @@ function CreateProposalDialog({
           {localError && <StatusBanner tone="error">{localError}</StatusBanner>}
           <div className="grid gap-4 md:grid-cols-2">
             <FormField label="Cliente"><select value={clientId} onChange={(event) => setClientId(event.target.value)} className="commercial-field">{clients.map((item) => <option key={item.id} value={item.id}>{item.name}{item.company ? ` - ${item.company}` : ""}</option>)}</select></FormField>
-            <FormField label="Brainstorm de origem (opcional)"><select value={brainstormId} onChange={(event) => selectBrainstorm(event.target.value)} className="commercial-field"><option value="">Não vincular</option>{brainstorms.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></FormField>
+            <FormField label="Sessão do Estúdio (opcional)"><select value={brainstormId} onChange={(event) => selectBrainstorm(event.target.value)} className="commercial-field"><option value="">Não vincular</option>{brainstorms.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></FormField>
           </div>
           <FormField label="Título (opcional)"><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="A Nora também pode sugerir o título" className="commercial-field" /></FormField>
           <div className="grid gap-4 md:grid-cols-2">
@@ -1238,7 +1238,7 @@ export function LegacyCreateProposalDialog({
       ) : (
         <div className="space-y-4">
           <FormField label="Cliente"><select value={clientId} onChange={(event) => setClientId(event.target.value)} className="commercial-field">{clients.map((item) => <option key={item.id} value={item.id}>{item.name}{item.company ? ` · ${item.company}` : ""}</option>)}</select></FormField>
-          <FormField label="Brainstorm de origem"><select value={brainstormId} onChange={(event) => setBrainstormId(event.target.value)} className="commercial-field"><option value="">Sem vinculo</option>{brainstorms.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></FormField>
+          <FormField label="Sessão do Estúdio"><select value={brainstormId} onChange={(event) => setBrainstormId(event.target.value)} className="commercial-field"><option value="">Sem vinculo</option>{brainstorms.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></FormField>
           <FormField label="Titulo"><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Ex.: Desenvolvimento de plataforma de e-commerce" className="commercial-field" /></FormField>
           <div className="grid grid-cols-2 gap-3"><FormField label="Valor"><input value={amount} onChange={(event) => setAmount(Number(event.target.value))} type="number" min="0" className="commercial-field" /></FormField><FormField label="Validade"><input value={validUntil} onChange={(event) => setValidUntil(event.target.value)} type="date" className="commercial-field" /></FormField></div>
           <FormField label="Modelo"><select value={templateId} onChange={(event) => setTemplateId(event.target.value)} className="commercial-field"><option value="">Estrutura padrao</option>{templates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></FormField>

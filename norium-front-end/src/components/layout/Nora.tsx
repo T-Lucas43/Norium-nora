@@ -1952,7 +1952,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
   async function runSummary() {
     if (!conversaId) {
-      setMessages((prev) => [...prev, { role: "ai", text: "Abre uma conversa primeiro. Eu sou boa, mas clarividencia ainda nao esta no plano.", agent: "erro" }]);
+      setMessages((prev) => [...prev, { role: "ai", text: "Abra uma conversa para que eu possa resumir o histórico registrado.", agent: "erro" }]);
       return;
     }
 
@@ -1970,11 +1970,11 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       });
       const data = await res.json();
       if (activeCycleRef.current !== cycleId) return;
-      setMessages((prev) => [...prev, { role: "ai", text: data?.resumo || "Nao achei nada para resumir.", agent: "mensagens", status: "resumo" }]);
+      setMessages((prev) => [...prev, { role: "ai", text: data?.resumo || "Não há conteúdo registrado para resumir.", agent: "mensagens", status: "resumo" }]);
       setCycleState(cycleId, "completed");
-    } catch (error) {
+    } catch {
       if (controller.signal.aborted || activeCycleRef.current !== cycleId) return;
-      setMessages((prev) => [...prev, { role: "ai", text: "Falhei no resumo. O back-end resolveu tirar um cochilo.", agent: "erro" }]);
+      setMessages((prev) => [...prev, { role: "ai", text: "Não consegui acessar o histórico desta conversa agora. Tente novamente em instantes.", agent: "erro" }]);
       setCycleState(cycleId, "error");
     } finally {
       if (requestAbortRef.current === controller) requestAbortRef.current = null;
@@ -1983,7 +1983,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
   async function runAgentDraft() {
     if (!conversaId) {
-      setMessages((prev) => [...prev, { role: "ai", text: "Seleciona um chat antes de chamar o Agente de Mensagens. Ele trabalha com contexto, nao com chute.", agent: "erro" }]);
+      setMessages((prev) => [...prev, { role: "ai", text: "Selecione um chat para que eu use o contexto correto ao preparar o rascunho.", agent: "erro" }]);
       return;
     }
 
@@ -2054,7 +2054,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || "Falha ao enviar rascunho.");
       if (activeCycleRef.current !== cycleId) return;
-      setMessages((prev) => [...prev, { role: "ai", text: "Rascunho enviado pelo Agente de Mensagens. Trabalho limpo, sem fanfic.", agent: "mensagens", status: "enviado" }]);
+      setMessages((prev) => [...prev, { role: "ai", text: "Rascunho enviado pelo Agente de Mensagens e registrado no histórico.", agent: "mensagens", status: "enviado" }]);
       setAgentDraft(null);
       setCycleState(cycleId, "completed");
     } catch (err) {

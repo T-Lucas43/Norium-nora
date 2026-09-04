@@ -2667,6 +2667,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .nora-file-actions{display:flex;align-items:center;gap:5px}
 .nora-file-actions button,.nora-file-preview footer button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:31px;border:1px solid var(--border);border-radius:8px;background:var(--surface-hover);padding:5px 8px;color:var(--text);font-size:10px;font-weight:750;transition:.15s ease}
 .nora-file-actions button:hover,.nora-file-preview footer button:hover{border-color:#23bde0;color:#5ee5ff}
+.nora-file-actions button.is-saved{border-color:rgba(34,211,238,.45);background:rgba(8,145,178,.14);color:#67e8f9}
 .nora-user-message .nora-file-actions button{border-color:rgba(255,255,255,.25);background:rgba(0,0,0,.16);color:#fff}
 .nora-file-preview-backdrop{position:fixed;inset:0;z-index:200;display:grid;place-items:center;background:rgba(0,4,11,.78);padding:24px;backdrop-filter:blur(9px)}
 .nora-file-preview{display:grid;grid-template-rows:auto minmax(0,1fr) auto;width:min(1080px,96vw);height:min(820px,92vh);overflow:hidden;border:1px solid color-mix(in srgb,var(--primary) 35%,var(--border));border-radius:16px;background:var(--surface);box-shadow:0 30px 90px rgba(0,0,0,.55)}

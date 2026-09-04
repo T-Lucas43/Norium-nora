@@ -20,7 +20,6 @@ const Dashboard = lazy(() => import("../../components/dashboard/Dashboard"));
 const EmailDashboard = lazy(() => import("../../components/emails/EmailDashboard"));
 const FinanceDashboard = lazy(() => import("../../components/finance/FinanceDashboard"));
 const HelpDashboard = lazy(() => import("../../components/help/HelpDashboard"));
-const InboxUniversal = lazy(() => import("../../components/inbox/InboxUniversal"));
 const IntelligenceHubDashboard = lazy(() => import("../../components/intelligence/IntelligenceHubDashboard"));
 const MoreDashboard = lazy(() => import("../../components/more/MoreDashboard"));
 const OperationsDashboard = lazy(() => import("../../components/operations/OperationsDashboard"));
@@ -85,7 +84,6 @@ export default function AppPanels({
   onOpenNora,
   onOpenTeamChat,
   onProfileSaved,
-  onRefreshEvents,
   onSessionUpdate,
 }: AppPanelsProps) {
   const [noraVisited, setNoraVisited] = useState(activeTab === "Nora");
@@ -113,20 +111,12 @@ export default function AppPanels({
       )}
       {isPanelMounted("Inbox", "Central") && (
         <section className={activePanelClass("Inbox", "Central")}>
-          {coach("Central")}
-          <InboxUniversal eventsBySource={eventsBySource} connected={connected} onRefresh={onRefreshEvents} />
+          <WorkHubDashboard onNavigate={onNavigate} onOpenDeepLink={onOpenDeepLink} onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Controle") && (
         <section className={activePanelClass("Controle")}>
-          {coach("Controle")}
-          <OperationsDashboard onNavigate={onNavigate} userId={currentUser.id} />
-        </section>
-      )}
-      {isPanelMounted("Pendencias") && (
-        <section className={activePanelClass("Pendencias")}>
-          {coach("Pendencias")}
-          <WorkHubDashboard onNavigate={onNavigate} onOpenDeepLink={onOpenDeepLink} />
+          <OperationsDashboard onNavigate={onNavigate} onOpenNora={onOpenNora} userId={currentUser.id} />
         </section>
       )}
       {isPanelMounted("Notificacoes", "Notificações") && (
@@ -177,8 +167,7 @@ export default function AppPanels({
       )}
       {isPanelMounted("Gastos", "Financeiro") && (
         <section className={activePanelClass("Gastos", "Financeiro")}>
-          {coach("Gastos")}
-          <FinanceDashboard userId={currentUser.id} />
+          <FinanceDashboard userId={currentUser.id} onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Automacoes", "Automações") && (

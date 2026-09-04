@@ -9,21 +9,15 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  CircleDollarSign,
   ClipboardCheck,
   Download,
-  DatabaseBackup,
   FileCheck2,
-  FileStack,
   ExternalLink,
-  ListChecks,
   LoaderCircle,
   Pencil,
   Plus,
   RefreshCw,
-  Send,
   ShieldCheck,
-  SlidersHorizontal,
   Trash2,
   Undo2,
   X,
@@ -124,33 +118,6 @@ type OperationsOverview = {
   };
   alerts: ProactiveAlert[];
   memory: NoraMemory[];
-  templates: OperationTemplate[];
-  followUps: FollowUp[];
-  settings: OperationSettings;
-};
-
-type OperationTemplate = {
-  id: string;
-  name: string;
-  kind: "email" | "task" | "calendar" | "finance" | "automation" | "message";
-  description: string;
-  tags: string[];
-};
-
-type FollowUp = {
-  id: string;
-  title: string;
-  channel: string;
-  status: "open" | "done" | "cancelled" | "snoozed";
-  counterpart: string;
-  dueAt?: string | null;
-};
-
-type OperationSettings = {
-  autonomy: "confirm_all" | "balanced" | "autonomous";
-  dailyBriefing: boolean;
-  smartReminders: boolean;
-  followUpHours: number;
 };
 
 type ProactiveAlert = {
@@ -221,10 +188,11 @@ function entryTarget(entry: OperationEntry): string | null {
 
 type OperationsDashboardProps = {
   onNavigate?: (tab: string) => void;
+  onOpenNora?: (prompt?: string) => void;
   userId: string;
 };
 
-export default function OperationsDashboard({ onNavigate, userId }: OperationsDashboardProps) {
+export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: OperationsDashboardProps) {
   const [overview, setOverview] = useState<OperationsOverview | null>(() => cachedOverview(userId));
   const [loading, setLoading] = useState(!overview);
   const [refreshing, setRefreshing] = useState(false);
@@ -244,10 +212,6 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
   const [savingMemory, setSavingMemory] = useState(false);
   const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
   const [undoingReceiptId, setUndoingReceiptId] = useState<string | null>(null);
-  const [templateName, setTemplateName] = useState("");
-  const [templateKind, setTemplateKind] = useState<OperationTemplate["kind"]>("email");
-  const [followUpTitle, setFollowUpTitle] = useState("");
-  const [followUpDueAt, setFollowUpDueAt] = useState("");
 
   const loadOverview = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -460,90 +424,6 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
     }
   }
 
-  async function createTemplate() {
-    if (!templateName.trim()) return;
-    const response = await fetch(`${API_URL}/modelos`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ name: templateName.trim(), kind: templateKind, description: "", content: {}, tags: [] }),
-    });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao criar o modelo.");
-      return;
-    }
-    setTemplateName("");
-    setNotice("Modelo operacional criado.");
-    await loadOverview(true);
-  }
-
-  async function deleteTemplate(templateId: string) {
-    const response = await fetch(`${API_URL}/modelos/${templateId}`, { method: "DELETE", headers: headers() });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao excluir o modelo.");
-      return;
-    }
-    await loadOverview(true);
-  }
-
-  async function createFollowUp() {
-    if (!followUpTitle.trim()) return;
-    const response = await fetch(`${API_URL}/acompanhamentos`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ title: followUpTitle.trim(), channel: "other", dueAt: followUpDueAt || null, counterpart: "", description: "", metadata: {} }),
-    });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao criar o acompanhamento.");
-      return;
-    }
-    setFollowUpTitle("");
-    setFollowUpDueAt("");
-    setNotice("Acompanhamento adicionado.");
-    await loadOverview(true);
-  }
-
-  async function updateFollowUp(followUpId: string, status: FollowUp["status"]) {
-    const response = await fetch(`${API_URL}/acompanhamentos/${followUpId}`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ status }),
-    });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao atualizar o acompanhamento.");
-      return;
-    }
-    await loadOverview(true);
-  }
-
-  async function updateAutonomy(autonomy: OperationSettings["autonomy"]) {
-    const response = await fetch(`${API_URL}/configuracoes`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ autonomy }),
-    });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao atualizar a autonomia.");
-      return;
-    }
-    setNotice("Nivel de autonomia atualizado.");
-    await loadOverview(true);
-  }
-
-  async function downloadBackup() {
-    const response = await fetch(`${API_URL}/backup`, { headers: headers() });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao gerar o backup.");
-      return;
-    }
-    const url = URL.createObjectURL(await response.blob());
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "norium-backup.zip";
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setNotice("Backup do seu espaco gerado.");
-  }
-
   if (loading && !overview) {
     return (
       <div className="grid h-full min-h-[560px] place-items-center bg-[var(--background)] text-[var(--text-secondary)]">
@@ -564,16 +444,19 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
   return (
     <div className="h-full overflow-y-auto bg-[var(--background)] p-4 text-[var(--text)] sm:p-6 xl:p-8">
       <div className="mx-auto max-w-[1680px] space-y-5">
-        <header className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-4 overflow-hidden rounded-2xl border border-blue-400/20 bg-[linear-gradient(125deg,rgba(37,99,235,.12),rgba(8,145,178,.05)_48%,var(--surface)_80%)] p-5 shadow-xl shadow-black/10 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-4">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><ShieldCheck size={24} /></span>
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-blue-400">Governanca em tempo real</p>
+              <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-400">Operação em tempo real</p>
               <h1 className="mt-1 text-2xl font-black">Controle operacional</h1>
-              <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Aprovacoes, integracoes, auditoria e comprovantes em uma unica visao.</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Decisões, integrações e rastreabilidade em uma visão objetiva.</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => onOpenNora?.("Analise o Controle operacional, explique os alertas e priorize as ações que devo executar agora.")} className="border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/10">
+              <BrainCircuit size={16} /> Consultar a Nora
+            </Button>
             <Button onClick={() => void loadOverview(true)}>
               <RefreshCw className={refreshing ? "animate-spin" : ""} size={16} /> Atualizar
             </Button>
@@ -590,12 +473,10 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
           </div>
         )}
 
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+        <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <MetricCard icon={ClipboardCheck} label="Aprovacoes" value={summary.pendingApprovals} tone="amber" />
-          <MetricCard icon={ListChecks} label="Tarefas ativas" value={summary.activeTasks} tone="blue" />
           <MetricCard icon={AlertTriangle} label="Tarefas vencidas" value={summary.overdueTasks} tone="rose" />
           <MetricCard icon={CalendarDays} label="Agenda hoje" value={summary.todayEvents} tone="violet" />
-          <MetricCard icon={CircleDollarSign} label="Lembretes" value={summary.financialReminders} tone="emerald" />
           <MetricCard icon={Activity} label="Integracoes em atencao" value={summary.unhealthyIntegrations} tone="cyan" />
         </section>
 
@@ -627,54 +508,10 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
           </article>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-3">
-          <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
-              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><FileStack size={17} /></span><span><strong className="block text-sm font-bold">Modelos reutilizaveis</strong><small className="font-semibold text-[var(--text-secondary)]">{overview?.templates?.length || 0} modelo(s)</small></span></span>
-              <ChevronRight className="transition group-open:rotate-90" size={16} />
-            </summary>
-            <div className="space-y-3 border-t border-[var(--border)] p-4">
-              <div className="grid grid-cols-[1fr_120px_auto] gap-2">
-                <input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Nome do modelo" className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
-                <select value={templateKind} onChange={(event) => setTemplateKind(event.target.value as OperationTemplate["kind"])} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="email">E-mail</option><option value="task">Tarefa</option><option value="calendar">Agenda</option><option value="finance">Financeiro</option><option value="automation">Automacao</option><option value="message">Mensagem</option></select>
-                <Button variant="primary" size="sm" iconOnly onClick={() => void createTemplate()} disabled={!templateName.trim()} className="bg-blue-600" title="Criar modelo" aria-label="Criar modelo"><Plus size={15} /></Button>
-              </div>
-              <div className="max-h-40 space-y-2 overflow-y-auto">
-                {(overview?.templates || []).map((template) => <article key={template.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{template.name}</strong><small className="font-bold uppercase text-blue-300">{template.kind}</small></div><Button variant="danger" iconOnly onClick={() => void deleteTemplate(template.id)} className="h-7 w-7 text-rose-300 hover:bg-rose-500/10" title="Excluir modelo" aria-label="Excluir modelo"><Trash2 size={13} /></Button></article>)}
-                {(overview?.templates || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Crie respostas, tarefas e rotinas padronizadas.</p>}
-              </div>
-            </div>
-          </details>
-
-          <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
-              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><Send size={17} /></span><span><strong className="block text-sm font-bold">Aguardando resposta</strong><small className="font-semibold text-[var(--text-secondary)]">{(overview?.followUps || []).filter((item) => item.status === "open").length} aberto(s)</small></span></span>
-              <ChevronRight className="transition group-open:rotate-90" size={16} />
-            </summary>
-            <div className="space-y-3 border-t border-[var(--border)] p-4">
-              <input value={followUpTitle} onChange={(event) => setFollowUpTitle(event.target.value)} placeholder="O que precisa de retorno?" className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
-              <div className="grid grid-cols-[1fr_auto] gap-2"><input type="datetime-local" value={followUpDueAt} onChange={(event) => setFollowUpDueAt(event.target.value)} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold" /><Button variant="ghost" size="sm" onClick={() => void createFollowUp()} disabled={!followUpTitle.trim()} className="bg-cyan-600">Adicionar</Button></div>
-              <div className="max-h-32 space-y-2 overflow-y-auto">{(overview?.followUps || []).filter((item) => item.status === "open").map((item) => <article key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{item.title}</strong><small className="font-semibold text-[var(--text-secondary)]">{item.dueAt ? formatDate(item.dueAt) : "Sem prazo"}</small></div><Button variant="primary" iconOnly onClick={() => void updateFollowUp(item.id, "done")} className="h-7 w-7 text-emerald-300 hover:bg-emerald-500/10" title="Marcar como concluido" aria-label="Marcar como concluido"><Check size={14} /></Button></article>)}</div>
-            </div>
-          </details>
-
-          <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
-              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-violet-500/12 text-violet-300"><SlidersHorizontal size={17} /></span><span><strong className="block text-sm font-bold">Autonomia e dados</strong><small className="font-semibold text-[var(--text-secondary)]">Controle por usuario</small></span></span>
-              <ChevronRight className="transition group-open:rotate-90" size={16} />
-            </summary>
-            <div className="space-y-3 border-t border-[var(--border)] p-4">
-              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">Nivel de autonomia<select value={overview?.settings?.autonomy || "balanced"} onChange={(event) => void updateAutonomy(event.target.value as OperationSettings["autonomy"])} className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold normal-case text-[var(--text)]"><option value="confirm_all">Confirmar todas as acoes</option><option value="balanced">Equilibrado</option><option value="autonomous">Autonomo em baixo risco</option></select></label>
-              <p className="text-xs font-semibold leading-5 text-[var(--text-secondary)]">Envios, exclusoes e alteracoes sensiveis continuam protegidos pela Central de aprovacoes.</p>
-              <button type="button" onClick={() => void downloadBackup()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-xs font-bold hover:bg-[var(--surface-hover)]"><DatabaseBackup size={15} /> Baixar backup do meu espaco</button>
-            </div>
-          </details>
-        </section>
-
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,.65fr)]">
           <div className="space-y-5">
             <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <SectionHeader title="Central de aprovacoes" description="Acoes sensiveis ficam visiveis antes da decisao." icon={ClipboardCheck} action={`${pendingApprovals.length} pendente(s)`} />
+              <SectionHeader title="Aprovações pendentes" description="Ações sensíveis ficam visíveis antes da decisão." icon={ClipboardCheck} action={`${pendingApprovals.length} pendente(s)`} />
               <div className="divide-y divide-[var(--border)]">
                 {pendingApprovals.length === 0 ? (
                   <EmptyState icon={CheckCircle2} title="Tudo aprovado por aqui" description="Novas solicitacoes aparecerao automaticamente." />
@@ -836,7 +673,7 @@ function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; labe
 }
 
 function SectionHeader({ title, description, icon: Icon, action }: { title: string; description: string; icon: LucideIcon; action?: string }) {
-  return <header className="flex items-center justify-between gap-4 border-b border-[var(--border)] px-5 py-4"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><Icon size={17} /></span><div className="min-w-0"><h2 className="truncate font-black">{title}</h2><p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>{action && <span className="shrink-0 rounded-full bg-amber-500/12 px-3 py-1 text-xs font-bold uppercase text-amber-300">{action}</span>}</header>;
+  return <header className="flex flex-col items-start gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><Icon size={17} /></span><div className="min-w-0"><h2 className="font-black sm:truncate">{title}</h2><p className="text-xs font-semibold text-[var(--text-secondary)] sm:truncate">{description}</p></div></div>{action && <span className="shrink-0 rounded-full bg-amber-500/12 px-3 py-1 text-xs font-bold uppercase text-amber-300">{action}</span>}</header>;
 }
 
 function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {

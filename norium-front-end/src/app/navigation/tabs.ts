@@ -45,7 +45,6 @@ export const PRIMARY_TABS = [
   "Dashboard",
   "Controle",
   "Central",
-  "Pendencias",
   "E-mails",
   "Agenda",
   "Chat",
@@ -73,6 +72,8 @@ const TAB_ALIASES: Record<string, string> = {
   Brainstorm: "Estúdio",
   Resumo: "Dashboard",
   Inbox: "Central",
+  Pendencias: "Central",
+  "Pendências": "Central",
   "E-mail": "E-mails",
   Gastos: "Financeiro",
   Automacoes: "Automações",
@@ -86,7 +87,6 @@ export const TAB_ROUTES: Record<string, string> = {
   Dashboard: "dashboard",
   Controle: "controle",
   Central: "central",
-  Pendencias: "pendencias",
   "Notificações": "notificacoes",
   "E-mails": "emails",
   Agenda: "agenda",
@@ -115,6 +115,7 @@ export const TAB_ROUTES: Record<string, string> = {
 const ROUTE_TABS = new Map(Object.entries(TAB_ROUTES).map(([tab, route]) => [route, tab]));
 
 ROUTE_TABS.set("brainstorm", "Estúdio");
+ROUTE_TABS.set("pendencias", "Central");
 
 export function canonicalTab(tab: string) {
   return TAB_ALIASES[tab] || tab;

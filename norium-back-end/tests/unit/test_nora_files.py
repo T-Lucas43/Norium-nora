@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from reportlab.pdfgen import canvas
 
 from app.modules.nora.conversations import SavedMessage
-from app.services.nora_files import deterministic_file_command, owned_file, save_upload
+from app.services.nora_files import deterministic_file_command, list_library_files, owned_file, save_upload, set_library_status
 
 
 def sample_pdf(text: str = "Documento Norium") -> bytes:
@@ -40,9 +40,20 @@ class NoraFilesTests(unittest.TestCase):
         self.assertEqual(record["name"], "entrada.pdf")
         self.assertTrue(path.read_bytes().startswith(b"%PDF-"))
         self.assertIn("/api/nora/files/", artifact["previewUrl"])
+        self.assertFalse(artifact["inLibrary"])
         with self.assertRaises(HTTPException) as error:
             owned_file("user-b", artifact["id"])
         self.assertEqual(error.exception.status_code, 404)
+
+    def test_file_can_be_added_to_and_removed_from_library(self):
+        artifact = self.upload()
+        saved = set_library_status("user-a", artifact["id"], True)
+        self.assertTrue(saved["inLibrary"])
+        self.assertEqual([artifact["id"]], [item["id"] for item in list_library_files("user-a")])
+
+        removed = set_library_status("user-a", artifact["id"], False)
+        self.assertFalse(removed["inLibrary"])
+        self.assertEqual([], list_library_files("user-a"))
 
     def test_pdf_operation_runs_locally_and_reports_zero_tokens(self):
         artifact = self.upload()

@@ -15,6 +15,7 @@ import {
   Mail,
   MessageCircle,
   RefreshCw,
+  Sparkles,
   Target,
   UsersRound,
 } from "lucide-react";
@@ -134,9 +135,11 @@ function downloadBlob(blob: Blob, fileName: string) {
 export default function WorkHubDashboard({
   onNavigate,
   onOpenDeepLink,
+  onOpenNora,
 }: {
   onNavigate: (tab: string) => void;
   onOpenDeepLink: (link: DeepLink) => void;
+  onOpenNora: (prompt?: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<TabId>("pending");
   const [data, setData] = useState<WorkHubData | null>(null);
@@ -380,15 +383,18 @@ export default function WorkHubDashboard({
   return (
     <main className="min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
       <div className="mx-auto max-w-[1600px]">
-        <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <header className="flex flex-col gap-4 overflow-hidden rounded-2xl border border-blue-400/20 bg-[linear-gradient(125deg,rgba(37,99,235,.13),rgba(8,145,178,.06)_52%,var(--surface)_86%)] p-5 shadow-xl shadow-black/10 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase text-blue-400">Operação unificada</p>
-            <h1 className="mt-1 text-2xl font-black">Centro de pendências</h1>
+            <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-400">Operação unificada</p>
+            <h1 className="mt-1 text-2xl font-black">Central de trabalho</h1>
             <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
-              Tudo que exige atenção, com contexto, responsável e próximo passo.
+              Prioridades, atendimentos e próximos passos conectados em um só lugar.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => onOpenNora("Analise a Central de trabalho, priorize o que exige atenção agora e proponha os próximos passos.")} className="workhub-button is-nora">
+              <Sparkles size={16} /> Priorizar com a Nora
+            </button>
             <button type="button" onClick={() => void toggleFocus()} className={`workhub-button ${data?.focus.item.enabled ? "is-active" : ""}`}>
               <Focus size={16} /> {data?.focus.item.enabled ? "Encerrar foco" : "Modo foco"}
             </button>
@@ -398,7 +404,16 @@ export default function WorkHubDashboard({
           </div>
         </header>
 
-        <nav className="workhub-tabs" aria-label="Áreas do centro de pendências">
+        {data && <section className="workhub-kpis" aria-label="Resumo da Central">
+          <Kpi label="Prioridades abertas" value={data.pending.total} />
+          <Kpi label="Atendimentos em aberto" value={visibleInbox.length} />
+          <Kpi label="Ações nesta semana" value={data.weekly.actionsExecuted} />
+          <Kpi label="Horas economizadas" value={`${data.weekly.estimatedHoursSaved} h`} />
+        </section>}
+
+        {data?.pending.items[0] && <button type="button" className="workhub-recommendation" onClick={() => onOpenDeepLink(data.pending.items[0].deepLink)}><span><strong>Próxima prioridade</strong><small>{data.pending.items[0].title} · {data.pending.items[0].description}</small></span><span>Abrir item <ChevronRight size={14} /></span></button>}
+
+        <nav className="workhub-tabs" aria-label="Áreas da Central de trabalho">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (

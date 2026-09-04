@@ -70,7 +70,14 @@ from app.services.brainstorm_store import create_brainstorm_session, list_brains
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
 from app.modules.intelligence.service import complete_with_provider, create_browser_plan, safe_fetch
 from app.modules.nora.conversations import router as conversations_router
-from app.services.nora_files import deterministic_file_command, is_deterministic_file_request, owned_file, save_upload
+from app.services.nora_files import (
+    deterministic_file_command,
+    is_deterministic_file_request,
+    list_library_files,
+    owned_file,
+    save_upload,
+    set_library_status,
+)
 from app.modules.team.router import message_visible, read_pruned_chat_store, require_team_chat, team_id_for
 
 logger = logging.getLogger(__name__)
@@ -111,6 +118,10 @@ class NoraFileUpload(StrictModel):
     fileName: str = Field(min_length=1, max_length=180)
     mimeType: str = Field(min_length=3, max_length=180)
     dataBase64: str = Field(min_length=4, max_length=34_000_000)
+
+
+class NoraFileLibraryUpdate(StrictModel):
+    inLibrary: bool
 
 
 def browser_tool_request(text: str) -> tuple[str, str] | None:
@@ -464,6 +475,22 @@ def require_nora_permission(user: dict[str, Any] = Depends(current_user)) -> dic
 async def upload_nora_file(payload: NoraFileUpload, user: dict[str, Any] = Depends(require_nora_permission)):
     file = await asyncio.to_thread(save_upload, tenant_id(user), payload.fileName, payload.mimeType, payload.dataBase64)
     return {"file": file, "tokenUsage": 0}
+
+
+@router.get("/files/library")
+async def nora_file_library(user: dict[str, Any] = Depends(require_nora_permission)):
+    files = await asyncio.to_thread(list_library_files, tenant_id(user))
+    return {"files": files, "total": len(files)}
+
+
+@router.patch("/files/{file_id}/library")
+async def update_nora_file_library(
+    file_id: str,
+    payload: NoraFileLibraryUpdate,
+    user: dict[str, Any] = Depends(require_nora_permission),
+):
+    file = await asyncio.to_thread(set_library_status, tenant_id(user), file_id, payload.inLibrary)
+    return {"file": file}
 
 
 @router.get("/files/{file_id}/content")
@@ -1667,8 +1694,8 @@ async def resumir_conversa(conversa_id: str = Query(..., description="ID da conv
     if is_empty_history(historico_whats):
         return {
             "resumo": (
-                "O banco local nao tem mensagens recentes para essa conversa. Resumo cirurgico do nada: "
-                "zero fatos, zero combinados, zero motivo para a Nora inventar fanfic."
+                "O banco local não tem mensagens recentes para essa conversa. "
+                "Sem conteúdo registrado, não há fatos ou combinados que eu possa resumir com segurança."
             ),
             "empty_context": True,
         }
@@ -1677,7 +1704,7 @@ async def resumir_conversa(conversa_id: str = Query(..., description="ID da conv
         {
             "role": "user",
             "content": (
-                "Faca uma analise sarcastica, sincera, bem-humorada e precisa em topicos rapidos. "
+                "Faça uma análise profissional, clara e precisa em tópicos curtos. "
                 "Explique o que o cliente quer, o que ja foi combinado, riscos e proxima melhor resposta. "
                 f"Use apenas este historico real:\n\n{historico_whats}"
             ),

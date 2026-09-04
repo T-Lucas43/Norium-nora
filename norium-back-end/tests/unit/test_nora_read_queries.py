@@ -10,6 +10,8 @@ class NoraReadQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(("documents", "e meus documentos?"), queries.resolve_read_query("e meus documentos?", []))
         self.assertEqual(("reports", "e meus relatorios??"), queries.resolve_read_query("e meus relatórios??", []))
         self.assertEqual("team", queries.resolve_read_query("e meu chat de equiper?", [])[0])
+        self.assertEqual("operations", queries.resolve_read_query("Analise a Central de trabalho e priorize o que exige atenção", [])[0])
+        self.assertEqual("operations", queries.resolve_read_query("Analise o Controle operacional e explique os alertas", [])[0])
         previous = [{"role": "user", "content": "como anda o desenvolvimento da minha equipe?"}, {"role": "assistant", "content": "Qual aspecto?"}]
         self.assertEqual("team", queries.resolve_read_query("tudo", previous)[0])
         self.assertIsNone(queries.resolve_read_query("envie uma mensagem para a equipe", []))
@@ -39,6 +41,32 @@ class NoraReadQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, result["total"])
         self.assertNotIn("content", result["documents"][0])
         self.assertIn("Manual", result["response"])
+
+    async def test_operations_query_uses_live_control_overview(self) -> None:
+        overview = {
+            "generatedAt": "2026-09-04T12:00:00Z",
+            "summary": {
+                "pendingApprovals": 2,
+                "activeTasks": 8,
+                "overdueTasks": 1,
+                "todayEvents": 3,
+                "financialReminders": 2,
+                "unhealthyIntegrations": 1,
+            },
+            "briefing": {"priority": {"title": "Revisar proposta", "description": "Aguardando aprovação."}},
+            "alerts": [{"title": "Boleto próximo", "description": "Vence amanhã."}],
+            "approvals": [{"id": "approval-1"}],
+            "integrations": [{"id": "gmail", "status": "attention"}],
+            "myDay": {"tasks": [], "calendar": []},
+        }
+        with patch.object(queries, "operations_overview", return_value=overview):
+            intent, result = await queries.answer_read_query(
+                {"id": "owner"}, "operations", "priorize minha central"
+            )
+        self.assertEqual("operacoes", intent)
+        self.assertIn("Aprovações pendentes:** 2", result["response"])
+        self.assertIn("Revisar proposta", result["response"])
+        self.assertEqual(1, result["summary"]["unhealthyIntegrations"])
 
 
 if __name__ == "__main__":

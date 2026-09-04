@@ -139,8 +139,11 @@ async def get_team_productivity(user: dict[str, Any] = Depends(current_user)) ->
 
 
 @router.get("/resumo-semanal")
-async def get_weekly_summary(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    return await weekly_summary(user)
+async def get_weekly_summary(
+    user: dict[str, Any] = Depends(current_user),
+    include_team: bool = Query(default=True),
+) -> dict[str, Any]:
+    return await weekly_summary(user, include_team=include_team)
 
 
 @router.get("/foco")

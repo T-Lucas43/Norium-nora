@@ -137,6 +137,12 @@ async def shared_inbox(user: dict[str, Any]) -> dict[str, Any]:
         read_events(user_id),
         list_records(user_id, SHARED_INBOX_DB),
     )
+    return _shared_inbox_from_events(events, overrides)
+
+
+def _shared_inbox_from_events(
+    events: list[dict[str, Any]], overrides: list[dict[str, Any]],
+) -> dict[str, Any]:
     overrides_by_id = {str(item.get("eventId") or item.get("id")): item for item in overrides}
     items: list[dict[str, Any]] = []
     for event in events:
@@ -229,15 +235,16 @@ async def update_shared_inbox(
 
 async def pending_center(user: dict[str, Any]) -> dict[str, Any]:
     user_id = tenant_id(user)
-    events, approvals, followups, audits, shared = await asyncio.gather(
+    events, approvals, followups, audits, overrides, tasks_payload, finance = await asyncio.gather(
         read_events(user_id),
         list_items(user_id, APPROVAL_DB),
         list_items(user_id, FOLLOWUP_DB),
         list_items(user_id, AUDIT_DB),
-        shared_inbox(user),
+        list_records(user_id, SHARED_INBOX_DB),
+        asyncio.to_thread(list_tasks, user_id, status="todas"),
+        asyncio.to_thread(list_finance, user_id),
     )
-    tasks_payload = list_tasks(user_id, status="todas")
-    finance = list_finance(user_id)
+    shared = _shared_inbox_from_events(events, overrides)
     today = datetime.now(LOCAL_TZ).date()
     items: list[dict[str, Any]] = []
 
@@ -396,6 +403,10 @@ async def pending_center(user: dict[str, Any]) -> dict[str, Any]:
         "items": ordered,
         "total": len(ordered),
         "counts": kind_counts,
+        "inboxOpen": sum(
+            count for status, count in shared["statusCounts"].items()
+            if status not in {"resolvido", "arquivado"}
+        ),
         "generatedAt": now_iso(),
         "firstRecommended": ordered[0] if ordered else None,
     }
@@ -826,15 +837,16 @@ async def weekly_productivity(user: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def weekly_summary(user: dict[str, Any]) -> dict[str, Any]:
-    productivity = await weekly_productivity(user)
+async def weekly_summary(user: dict[str, Any], *, include_team: bool = True) -> dict[str, Any]:
+    # The Central header only needs aggregate activity, not every member's metrics.
+    productivity = await weekly_productivity(user) if include_team else {}
     user_id = tenant_id(user)
     events, receipts, audits = await asyncio.gather(
         read_events(user_id),
         list_items(user_id, RECEIPT_DB),
         list_items(user_id, AUDIT_DB),
     )
-    period_start = _parse_datetime(productivity["period"]["start"]) or datetime.now(timezone.utc) - timedelta(days=7)
+    period_start = _parse_datetime(productivity.get("period", {}).get("start")) or datetime.now(timezone.utc) - timedelta(days=7)
     recent_events = [item for item in events if (_parse_datetime(item.get("timestamp")) or datetime.min.replace(tzinfo=timezone.utc)) >= period_start]
     recent_receipts = [item for item in receipts if (_parse_datetime(item.get("timestamp")) or datetime.min.replace(tzinfo=timezone.utc)) >= period_start]
     saved_minutes = 0
@@ -1123,7 +1135,9 @@ async def usage_meter(user: dict[str, Any]) -> dict[str, Any]:
     user_id = tenant_id(user)
     events, receipts = await asyncio.gather(read_events(user_id), list_items(user_id, RECEIPT_DB))
     user_dir = get_user_dir(user_id)
-    storage_bytes = sum(path.stat().st_size for path in user_dir.rglob("*") if path.is_file())
+    storage_bytes = await asyncio.to_thread(
+        lambda: sum(path.stat().st_size for path in user_dir.rglob("*") if path.is_file())
+    )
     try:
         from app.routers.automacoes_router import read_store
 

@@ -97,3 +97,26 @@ class NoraHistoryTests(unittest.TestCase):
         invalid["state"]["messages"][0]["role"] = "system"
         self.assertEqual(self.client.put(self.url, json=invalid).status_code, 422)
         self.assertEqual(self.client.get("/api/nora/conversations/..").status_code, 404)
+
+    def test_structured_responses_survive_reopening_and_reject_invalid_shapes(self):
+        views = [
+            {"kind": "tasks", "total": 1, "items": [{"title": "Revisar", "priority": "alta"}]},
+            {"kind": "agenda", "date": "2026-09-04", "events": [{"titulo": "Reunião", "inicio": "2026-09-04T09:00:00-03:00"}]},
+            {"kind": "finance", "metrics": [{"label": "Saldo", "value": -120.50, "money": True}], "groups": [{"label": "Lançamentos", "total": 1, "rows": [{"title": "Internet", "amount": 120.50}]}]},
+        ]
+        for revision, view in enumerate(views):
+            payload = self.payload(revision)
+            payload["state"]["messages"][1]["responseView"] = view
+            saved = self.client.put(self.url, json=payload)
+            self.assertEqual(saved.status_code, 200, saved.text)
+            reopened = self.client.get(self.url).json()["state"]["messages"][1]["responseView"]
+            self.assertEqual(reopened["kind"], view["kind"])
+            if view["kind"] == "finance":
+                self.assertEqual(reopened["metrics"][0]["value"], -120.50)
+            elif view["kind"] == "agenda":
+                self.assertEqual(reopened["date"], "2026-09-04")
+            else:
+                self.assertEqual(reopened["items"][0]["title"], "Revisar")
+        invalid = self.payload(3)
+        invalid["state"]["messages"][1]["responseView"] = {"kind": "tasks", "items": "not-a-list", "total": 0}
+        self.assertEqual(self.client.put(self.url, json=invalid).status_code, 422)

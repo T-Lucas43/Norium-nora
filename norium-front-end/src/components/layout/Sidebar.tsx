@@ -157,13 +157,13 @@ export default function Sidebar({
               <button
                 key={item.title}
                 type="button"
-                className={`norium-sidebar-item ${active ? "is-active" : ""}`}
+                className={`norium-sidebar-item ${active ? "is-active" : ""} ${item.title === "Nora" ? "is-nora" : ""}`}
                 onClick={() => navigate(item.title)}
                 title={compact ? item.title : undefined}
                 aria-current={active ? "page" : undefined}
                aria-label={compact ? item.title : undefined}>
                 <span className="norium-sidebar-item-icon" aria-hidden="true">
-                  {item.title === "Nora" ? <NoraAvatar className="h-7 w-7 shrink-0" /> : <Icon size={18} />}
+                  {item.title === "Nora" ? <NoraAvatar variant="navigation" className="norium-sidebar-nora-avatar" /> : <Icon size={18} />}
                 </span>
                 {!compact && <span className="norium-sidebar-item-label">{item.title}</span>}
               </button>

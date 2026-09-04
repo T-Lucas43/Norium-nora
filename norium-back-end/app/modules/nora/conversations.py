@@ -11,6 +11,7 @@ from pydantic import Field, model_validator
 from app.core.tenant import read_user_db, write_user_db
 from app.routers.auth_router import current_user
 from app.shared.schemas import StrictModel
+from app.modules.nora.response_schema import ResponseView
 
 router = APIRouter(prefix="/conversations")
 history_lock = asyncio.Lock()
@@ -31,6 +32,7 @@ class SavedMessage(StrictModel):
     status: str | None = Field(default=None, max_length=100)
     emailMessages: list[dict[str, Any]] | None = Field(default=None, max_length=100)
     agendaEvents: list[dict[str, Any]] | None = Field(default=None, max_length=100)
+    responseView: ResponseView | None = None
 
 
 class ConversationState(StrictModel):

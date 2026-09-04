@@ -1,7 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   Bot,
   BrainCircuit,
@@ -36,6 +34,8 @@ import { authToken } from "../../core/api/config";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
 import { apiBaseUrl } from "../../utils/api";
 import NoraAvatar from "./NoraAvatar";
+import { NoraCalendar, NoraFinanceTable, NoraMarkdown, NoraTaskCards } from "../nora/NoraResponseContent";
+import { buildNoraResponseView, legacyFinanceView, legacyTaskView, type NoraResponseView, type NoraCalendarEvent as NoraAgendaEvent } from "../nora/responseView";
 import Button from "../shared/Button";
 import { speechTextFromDisplay, takeNaturalSpeechSegments } from "./noraSpeech";
 
@@ -118,6 +118,7 @@ export type Msg = {
   status?: string;
   emailMessages?: NoraEmailMessage[];
   agendaEvents?: NoraAgendaEvent[];
+  responseView?: NoraResponseView;
 };
 
 export type NoraConversationState = {
@@ -177,17 +178,6 @@ type NoraEmailMessage = {
   bodyText?: string;
   bodyHtml?: string;
   attachments?: NoraEmailAttachment[];
-};
-
-type NoraAgendaEvent = {
-  id?: string;
-  titulo?: string;
-  title?: string;
-  inicio?: string;
-  fim?: string;
-  descricao?: string;
-  local?: string;
-  status?: string;
 };
 
 type SpeechRecognitionLike = {
@@ -608,12 +598,6 @@ function meaningfulLines(text: string) {
     .filter(Boolean);
 }
 
-function splitLabelValue(line: string) {
-  const match = line.match(/^([^:]{2,48}):\s*(.+)$/);
-  if (!match) return null;
-  return { label: match[1].trim(), value: match[2].trim() };
-}
-
 function normalizeLoose(value: string) {
   return value
     .normalize("NFD")
@@ -628,13 +612,7 @@ function isNoraCommentLine(line: string) {
   return /^(nora\s*:|ola\b|claro[,\s.!]|aqui\b|segue\b|resumo\b|posso\b|encontrei\b|separei\b|boa\b|ah\b|nota\b|detalhe\b|pronto\b|feito\b|beleza\b|perfeito\b|combinado\b)/.test(normalized);
 }
 
-function markdownFallback(text: string) {
-  return (
-    <div className="nora-message-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-    </div>
-  );
-}
+function markdownFallback(text: string) { return <NoraMarkdown text={text} />; }
 
 function NoraCommentary({ lines }: { lines: string[] }) {
   const text = lines.join("\n\n").trim();
@@ -656,71 +634,10 @@ function normalizeAgendaEvents(value: unknown): NoraAgendaEvent[] {
   return value.filter((item): item is NoraAgendaEvent => Boolean(item && typeof item === "object"));
 }
 
-function agendaEventTitle(event: NoraAgendaEvent) {
-  return String(event.titulo || event.title || "Compromisso sem titulo");
-}
-
-function agendaEventDate(event: NoraAgendaEvent) {
-  const start = String(event.inicio || "");
-  if (!start) return "";
-  const parsed = new Date(start);
-  if (Number.isNaN(parsed.getTime())) return start;
-  return parsed.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
-}
-
-function FinanceContent({ text }: { text: string }) {
-  const lines = meaningfulLines(text);
-  const rows = lines
-    .map((line) => {
-      const pair = splitLabelValue(line);
-      if (pair && /r\$|valor|saldo|entrada|saida|despesa|receita|boleto|pendente|pago|categoria|metodo/i.test(`${pair.label} ${pair.value}`)) {
-        return { ...pair, source: line };
-      }
-      const money = line.match(/R\$\s*[\d.,]+/i);
-      if (money) return { label: line.replace(money[0], "").replace(/[-–—:]+$/g, "").trim() || "Valor", value: money[0], source: line };
-      return null;
-    })
-    .filter(Boolean) as Array<{ label: string; value: string; source: string }>;
-  const rowSources = new Set(rows.map((row) => row.source));
-  const commentary = lines.filter((line) => !rowSources.has(line));
-
-  if (rows.length < 2) return markdownFallback(text);
-
-  return (
-    <div className="nora-finance-layout">
-      <NoraCommentary lines={commentary} />
-      <table className="w-full overflow-hidden rounded-xl text-left text-xs">
-        <tbody>
-          {rows.slice(0, 8).map((row) => (
-            <tr key={`${row.label}-${row.value}`} className="border-b border-current/10 last:border-b-0">
-              <th className="w-2/5 px-3 py-2 font-black uppercase opacity-70">{row.label}</th>
-              <td className="px-3 py-2 font-bold">{row.value}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function EmailContent({ text, emailMessages = [], onOpenEmail }: { text: string; emailMessages?: NoraEmailMessage[]; onOpenEmail?: (messageId: string) => void }) {
   const lines = meaningfulLines(text);
   const commentary = lines.filter(isNoraCommentLine);
-  const commentarySet = new Set(commentary);
-  const fallbackRows: NoraEmailMessage[] = lines
-    .filter((line) => !commentarySet.has(line))
-    .slice(0, 7)
-    .map((line, index) => {
-      const clean = line.replace(/^assunto:\s*/i, "");
-      const parts = clean.split(/\s+-\s+|\s+—\s+|:\s+/).map((item) => item.trim()).filter(Boolean);
-      return {
-        id: `fallback-${index}`,
-        fromName: parts[0] || "Gmail",
-        subject: parts[1] || clean,
-        snippet: parts.slice(2).join(" - "),
-      } satisfies NoraEmailMessage;
-    });
-  const rows = emailMessages.length ? emailMessages.slice(0, 8) : fallbackRows;
+  const rows = emailMessages;
 
   if (!rows.length) return markdownFallback(text);
 
@@ -770,126 +687,16 @@ function EmailContent({ text, emailMessages = [], onOpenEmail }: { text: string;
   );
 }
 
-function TaskContent({ text }: { text: string }) {
-  const lines = meaningfulLines(text);
-  const details = lines
-    .map((line) => {
-      if (isNoraCommentLine(line)) return null;
-      const pair = splitLabelValue(line);
-      return pair ? { ...pair, source: line } : null;
-    })
-    .filter(Boolean) as Array<{ label: string; value: string; source: string }>;
-  const detailKeys = new Set(details.map((detail) => detail.source));
-  const commentary = lines.filter((line) => !detailKeys.has(line));
-
-  if (details.length < 2) return markdownFallback(text);
-
-  return (
-    <div>
-      <NoraCommentary lines={commentary} />
-      <div className="grid gap-2">
-        {details.slice(0, 8).map((detail) => (
-          <div key={`${detail.label}-${detail.value}`} className="rounded-xl border border-current/10 bg-black/10 px-3 py-2">
-            <p className="text-xs font-bold uppercase opacity-65">{detail.label}</p>
-            <p className="mt-1 text-xs font-bold">{detail.value}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AgendaContent({ text, events = [], onAgendaPrompt }: { text: string; events?: NoraAgendaEvent[]; onAgendaPrompt?: (prompt: string) => void }) {
-  const rawLines = meaningfulLines(text);
-  const commentary = rawLines.filter(isNoraCommentLine);
-  const commentarySet = new Set(commentary);
-  const lines = rawLines.filter((line) => !commentarySet.has(line)).slice(0, 7);
-  if (events.length) {
-    return (
-      <div>
-        <NoraCommentary lines={commentary.length ? commentary : ["Encontrei estes compromissos. Voce pode abrir a edicao de qualquer um deles por aqui."]} />
-        <div className="space-y-2">
-          {events.slice(0, 6).map((event, index) => {
-            const title = agendaEventTitle(event);
-            const date = agendaEventDate(event);
-            return (
-              <div key={`${event.id || title}-${index}`} className="rounded-xl border border-current/10 bg-black/10 p-3 text-xs">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="break-words font-black">{title}</p>
-                    {date && <p className="mt-1 font-semibold opacity-75">{date}</p>}
-                    {event.local && <p className="mt-1 break-words font-semibold opacity-75">{event.local}</p>}
-                  </div>
-                  <span className="shrink-0 rounded-full border border-current/15 px-2 py-1 text-xs font-bold uppercase opacity-70">
-                    Evento
-                  </span>
-                </div>
-                <Button
-                 
-                  onClick={() => onAgendaPrompt?.(`editar evento ${title}${date ? ` em ${date}` : ""}`)}
-                  className="mt-3 rounded-full border-current/15 py-1.5 uppercase opacity-90 hover:bg-current/[0.08]"
-                >
-                  Editar evento
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-  if (lines.length < 2) return markdownFallback(text);
-
-  return (
-    <div>
-      <NoraCommentary lines={commentary} />
-      <div className="space-y-2">
-        {lines.map((line, index) => (
-          <div key={`${line}-${index}`} className="relative rounded-xl border border-current/10 bg-black/10 px-3 py-2 pl-9 text-xs font-semibold">
-            <span className="absolute left-3 top-3 grid h-4 w-4 place-items-center rounded-full bg-current/15 text-xs font-bold">{index + 1}</span>
-            {line}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ChatContent({ text }: { text: string }) {
-  const lines = meaningfulLines(text);
-  if (lines.length < 2) return markdownFallback(text);
-
-  return (
-    <div className="space-y-2">
-      {lines.slice(0, 6).map((line, index) => (
-        <div key={`${line}-${index}`} className={`max-w-[92%] rounded-2xl px-3 py-2 text-xs font-semibold ${index % 2 === 0 ? "bg-black/[0.14]" : "ml-auto bg-white/[0.14]"}`}>
-          {line}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function NoraStructuredContent({
-  agent,
-  text,
-  emailMessages,
-  agendaEvents,
-  onOpenEmail,
-  onAgendaPrompt,
-}: {
-  agent: NoraAgentKind;
-  text: string;
-  emailMessages?: NoraEmailMessage[];
-  agendaEvents?: NoraAgendaEvent[];
-  onOpenEmail?: (messageId: string) => void;
-  onAgendaPrompt?: (prompt: string) => void;
+function NoraStructuredContent({ agent, text, emailMessages, agendaEvents, responseView, onOpenEmail, onAgendaPrompt }: {
+  agent: NoraAgentKind; text: string; emailMessages?: NoraEmailMessage[]; agendaEvents?: NoraAgendaEvent[];
+  responseView?: NoraResponseView; onOpenEmail?: (messageId: string) => void; onAgendaPrompt?: (prompt: string) => void;
 }) {
-  if (agent === "financeiro") return <FinanceContent text={text} />;
+  const view = responseView || (agent === "tarefas" ? legacyTaskView(text) : agent === "financeiro" ? legacyFinanceView(text) : undefined)
+    || (agent === "agenda" && agendaEvents?.length ? { kind: "agenda" as const, events: agendaEvents } : undefined);
+  if (view?.kind === "tasks") return <NoraTaskCards view={view} text={text} />;
+  if (view?.kind === "finance") return <NoraFinanceTable view={view} text={text} />;
+  if (view?.kind === "agenda") return <NoraCalendar view={view} text={text} onAgendaPrompt={onAgendaPrompt} />;
   if (agent === "email") return <EmailContent text={text} emailMessages={emailMessages} onOpenEmail={onOpenEmail} />;
-  if (agent === "tarefas") return <TaskContent text={text} />;
-  if (agent === "agenda") return <AgendaContent text={text} events={agendaEvents} onAgendaPrompt={onAgendaPrompt} />;
-  if (agent === "whatsapp" || agent === "mensagens") return <ChatContent text={text} />;
   return markdownFallback(text);
 }
 
@@ -925,9 +732,7 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
         transition={{ duration: 0.2 }}
         className="nora-user-message group ml-auto max-w-[82%] rounded-2xl px-4 py-3 text-sm font-semibold select-text"
       >
-        <div className="nora-message-markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
-        </div>
+        <NoraMarkdown text={msg.text} />
         <Button variant="ghost"
          
           onClick={copyMessage}
@@ -969,6 +774,7 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
             text={msg.text}
             emailMessages={msg.emailMessages}
             agendaEvents={msg.agendaEvents}
+            responseView={msg.responseView}
             onOpenEmail={onOpenEmail}
             onAgendaPrompt={onAgendaPrompt}
           />
@@ -1607,6 +1413,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       let responseStatus = "";
       let responseEmailMessages: NoraEmailMessage[] | undefined;
       let responseAgendaEvents: NoraAgendaEvent[] | undefined;
+      let responseView: NoraResponseView | undefined;
       let handledInline = false;
       let speechWasQueued = false;
       let speechBuffer = "";
@@ -1663,6 +1470,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
         responseAgent = "agenda";
         responseStatus = result.status;
         responseAgendaEvents = result.events || (result.event ? [result.event] : undefined);
+        responseView = buildNoraResponseView("agenda", result);
         setAgendaSessionId(result.session_id);
         setAgendaAgentActive(Boolean(result.session_id && !["criado", "cancelado", "consulta", "atualizado"].includes(result.status)));
         response = result.response;
@@ -1789,6 +1597,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           if (activeCycleRef.current !== cycleId) return;
           applyNaturalAgentEffects(result);
           responseAgent = naturalIntentToAgent(result.intent);
+          responseView = buildNoraResponseView(result.intent, result.agent_result);
           responseStatus = result.status;
           if (result.intent === "email") {
             responseEmailMessages = normalizeEmailMessages(result.agent_result?.messages);
@@ -1815,6 +1624,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             status: responseStatus,
             emailMessages: responseEmailMessages,
             agendaEvents: responseAgendaEvents,
+            responseView,
           },
         ]);
       }

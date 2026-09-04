@@ -225,6 +225,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
       </header>
 
       {snapshot.reconnectionNotice && <div role="status" aria-live="polite" className="border-b border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-center text-xs font-bold text-emerald-200">{snapshot.reconnectionNotice}</div>}
+      {snapshot.iceService && ["degraded", "unavailable"].includes(snapshot.iceService.status) && <div role="alert" className="border-b border-amber-400/30 bg-amber-500/10 px-4 py-2 text-center text-xs font-bold text-amber-100">{snapshot.iceService.detail}</div>}
       <div role="status" aria-label="Estados da chamada" aria-live="polite" className="flex flex-wrap items-center justify-center gap-2 border-b border-[var(--border)] px-4 py-2 text-xs font-bold">
         <span className={call.listenOnly || call.muted ? "text-amber-200" : "text-emerald-200"}>Microfone: {call.listenOnly ? "somente escuta" : call.muted ? "desligado" : "ligado"}</span>
         <span aria-hidden="true">·</span><span className={call.cameraOff ? "text-amber-200" : "text-emerald-200"}>Câmera: {call.cameraOff ? "desligada" : "ligada"}</span>
@@ -329,6 +330,7 @@ function CallPrejoin({ snapshot, commands }: { snapshot: CallSessionSnapshot; co
         </div>
       </div>
       <div aria-live="polite" className="mt-4 text-sm text-[var(--text-secondary)]">Microfone: {entry.microphoneMode === "on" ? "ligado" : entry.microphoneMode === "muted" ? "desligado ao entrar" : "não solicitado"} · Câmera: {entry.cameraEnabled ? "ligada ao entrar" : "não solicitada"}</div>
+      {snapshot.iceService && ["degraded", "unavailable"].includes(snapshot.iceService.status) && <p role="alert" className="mt-4 rounded-xl bg-amber-500/15 p-3 text-sm font-bold text-amber-100">{snapshot.iceService.detail}</p>}
       <footer className="mt-6 flex justify-end gap-3"><button type="button" onClick={commands.cancelEntry} className="rounded-xl px-4 py-2 text-sm font-bold hover:bg-white/10">Cancelar</button><button type="button" onClick={() => void commands.enter()} className="team-call-primary-button rounded-xl px-5 py-2.5 text-sm font-black text-white">Entrar na chamada</button></footer>
     </section>
   </div>;

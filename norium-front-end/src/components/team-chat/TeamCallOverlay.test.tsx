@@ -98,6 +98,11 @@ describe("tela da reuniao do Modo Equipe", () => {
       },
       selectedMicrophoneId: "",
       selectedCameraId: "",
+      iceService: {
+        status: "unavailable",
+        expiresAt: "",
+        detail: "TURN indisponível. Chamadas podem falhar em redes restritivas.",
+      },
       status: "Permita o acesso ao microfone nas configurações do navegador.",
       enterCall: vi.fn(),
       cancelEntry: vi.fn(),
@@ -119,6 +124,7 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByLabelText("Câmera para a chamada")).toHaveTextContent("Webcam");
     expect(screen.getAllByRole("alert").map((alert) => alert.textContent).join(" ")).toContain("microfone");
     expect(screen.getByText(/Câmera indisponível/)).toBeInTheDocument();
+    expect(screen.getByText(/TURN indisponível/)).toHaveAttribute("role", "alert");
 
     fireEvent.click(screen.getByRole("radio", { name: "Entrar somente para escutar" }));
     expect(call.setEntryMicrophoneMode).toHaveBeenCalledWith("listen-only");

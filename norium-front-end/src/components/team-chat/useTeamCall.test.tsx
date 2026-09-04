@@ -667,6 +667,85 @@ describe("chamadas do Modo Equipe", () => {
     unmount();
   });
 
+  it("renova peers ativos e coleta somente categorias ICE sanitizadas", async () => {
+    const peerInstances: TelemetryPeer[] = [];
+    const configurations: RTCConfiguration[] = [];
+    class TelemetryPeer {
+      signalingState: RTCSignalingState = "stable";
+      connectionState: RTCPeerConnectionState = "connected";
+      iceConnectionState: RTCIceConnectionState = "new";
+      localDescription: RTCSessionDescription | null = null;
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      oniceconnectionstatechange: (() => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+      onnegotiationneeded: (() => void) | null = null;
+      constructor(configuration: RTCConfiguration) {
+        configurations.push(configuration);
+        peerInstances.push(this);
+      }
+      addTransceiver() { return { sender: { track: null, replaceTrack: vi.fn() } } as unknown as RTCRtpTransceiver; }
+      createOffer = vi.fn().mockResolvedValue({ type: "offer", sdp: "offer" });
+      setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => { this.localDescription = description as RTCSessionDescription; });
+      setConfiguration = vi.fn((configuration: RTCConfiguration) => configurations.push(configuration));
+      restartIce = vi.fn();
+      close = vi.fn();
+      getStats = vi.fn().mockResolvedValue(new Map([
+        ["transport", { id: "transport", type: "transport", selectedCandidatePairId: "pair", privateDiagnostic: "do-not-collect" }],
+        ["pair", { id: "pair", type: "candidate-pair", state: "succeeded", nominated: true, localCandidateId: "local", remoteCandidateId: "remote" }],
+        ["local", { id: "local", type: "local-candidate", candidateType: "relay", protocol: "tcp", address: "10.0.0.10", port: 4444, candidate: "sensitive-local-candidate" }],
+        ["remote", { id: "remote", type: "remote-candidate", candidateType: "srflx", protocol: "udp", address: "198.51.100.7", port: 5555, candidate: "sensitive-remote-candidate" }],
+      ]));
+    }
+    vi.stubGlobal("RTCPeerConnection", TelemetryPeer);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { enumerateDevices: vi.fn().mockResolvedValue([]), addEventListener: vi.fn(), removeEventListener: vi.fn() },
+    });
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const firstServers = [{ urls: "turns:turn.example.test:5349", username: "first", credential: "first-secret" }];
+    const secondServers = [{ urls: "turns:turn.example.test:5349", username: "second", credential: "second-secret" }];
+    const { result, rerender, unmount } = renderHook(
+      ({ iceServers }) => useTeamCallRuntime({
+        session,
+        thread: { scope: "team", title: "Time todo" },
+        sendSocketEvent,
+        iceServers,
+        iceTransportPolicy: "relay",
+      }),
+      { initialProps: { iceServers: firstServers } },
+    );
+
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACCEPT",
+      callId: result.current.active?.callId,
+      fromUserId: "member",
+      fromUserName: "Member",
+    }));
+    expect(configurations[0]).toMatchObject({ iceServers: firstServers, iceTransportPolicy: "relay" });
+
+    rerender({ iceServers: secondServers });
+    expect(peerInstances[0].setConfiguration).toHaveBeenCalledWith(expect.objectContaining({ iceServers: secondServers }));
+    expect(peerInstances[0].restartIce).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      peerInstances[0].iceConnectionState = "connected";
+      peerInstances[0].oniceconnectionstatechange?.();
+      await Promise.resolve();
+    });
+    expect(result.current.iceTelemetry).toEqual({
+      lastState: "connected",
+      stateCounts: { connected: 1 },
+      pathTypeCounts: { relay: 1 },
+      lastSelectedPath: { localType: "relay", remoteType: "srflx", protocol: "tcp" },
+      relayObserved: true,
+    });
+    const serialized = JSON.stringify(result.current.iceTelemetry);
+    expect(serialized).not.toMatch(/10\.0\.0\.10|198\.51\.100\.7|4444|5555|candidate|privateDiagnostic/i);
+    unmount();
+  });
+
   it("libera o toque depois de uma interacao e mantem o alerta visual como fallback", async () => {
     const resume = vi.fn();
     class FakeAudioContext {

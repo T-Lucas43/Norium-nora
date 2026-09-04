@@ -5,6 +5,7 @@ import type { AuthSession } from "../../types/auth";
 const mocked = vi.hoisted(() => ({
   runtime: null as Record<string, any> | null,
   useTeamCallRuntime: vi.fn(),
+  apiRequest: vi.fn(),
 }));
 
 vi.mock("../../utils/api", () => ({
@@ -13,7 +14,12 @@ vi.mock("../../utils/api", () => ({
 }));
 
 vi.mock("./useTeamCall", () => ({
+  SAFE_STUN_SERVERS: [{ urls: "stun:stun.example.test:3478" }],
   useTeamCallRuntime: (...args: unknown[]) => mocked.useTeamCallRuntime(...args),
+}));
+
+vi.mock("../../core/api/client", () => ({
+  apiRequest: (...args: unknown[]) => mocked.apiRequest(...args),
 }));
 
 import {
@@ -147,6 +153,11 @@ function ReconnectProbe() {
   return <output aria-label="reconnection-result">{snapshot.reconnectionNotice || "none"}</output>;
 }
 
+function IceProbe() {
+  const { snapshot } = useCallSession();
+  return <output aria-label="ice-service">{`${snapshot.iceService.status}:${snapshot.iceService.expiresAt || "none"}:${snapshot.iceService.detail}`}</output>;
+}
+
 function ConversationProbe() {
   const { snapshot, commands } = useCallSession();
   const conversation = snapshot.conversation;
@@ -177,6 +188,20 @@ beforeEach(() => {
   mocked.runtime = runtime();
   mocked.useTeamCallRuntime.mockReset();
   mocked.useTeamCallRuntime.mockImplementation(() => mocked.runtime);
+  mocked.apiRequest.mockReset();
+  mocked.apiRequest.mockResolvedValue({
+    iceServers: [
+      { urls: ["stun:stun.example.test:3478"] },
+      {
+        urls: ["turns:turn.example.test:5349?transport=tcp"],
+        username: "temporary-user",
+        credential: "temporary-password",
+        credentialType: "password",
+      },
+    ],
+    expiresAt: "2099-01-01T00:10:00+00:00",
+    refreshAfter: "2099-01-01T00:08:00+00:00",
+  });
   vi.stubGlobal("WebSocket", Socket);
 });
 
@@ -187,6 +212,66 @@ afterEach(() => {
 });
 
 describe("CallSession", () => {
+  it("carrega credenciais ICE temporarias sem expo-las no snapshot", async () => {
+    render(<CallSessionProvider session={authSession}><IceProbe /></CallSessionProvider>);
+
+    await waitFor(() => expect(screen.getByLabelText("ice-service")).toHaveTextContent("ready:2099-01-01T00:10:00+00:00"));
+    expect(mocked.apiRequest).toHaveBeenCalledWith("/api/team-chat/calls/ice-servers", {
+      token: "test-token",
+      timeoutMs: 8000,
+    });
+    expect(mocked.useTeamCallRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      iceServers: expect.arrayContaining([
+        expect.objectContaining({ urls: ["turns:turn.example.test:5349?transport=tcp"] }),
+      ]),
+    }));
+    expect(screen.getByLabelText("ice-service").textContent).not.toContain("temporary-password");
+  });
+
+  it("renova credenciais ICE antes da expiracao em chamadas longas", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-04T12:00:00Z"));
+    mocked.apiRequest
+      .mockResolvedValueOnce({
+        iceServers: [{ urls: "turns:turn.example.test:5349", username: "first", credential: "first-secret" }],
+        expiresAt: "2026-09-04T12:01:00Z",
+        refreshAfter: "2026-09-04T12:00:01Z",
+      })
+      .mockResolvedValueOnce({
+        iceServers: [{ urls: "turns:turn.example.test:5349", username: "second", credential: "second-secret" }],
+        expiresAt: "2026-09-04T12:11:00Z",
+        refreshAfter: "2026-09-04T12:09:00Z",
+      });
+
+    const view = render(<CallSessionProvider session={authSession}><IceProbe /></CallSessionProvider>);
+    await act(async () => { await Promise.resolve(); });
+    expect(mocked.apiRequest).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      await Promise.resolve();
+    });
+
+    expect(mocked.apiRequest).toHaveBeenCalledTimes(2);
+    expect(mocked.useTeamCallRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      iceServers: [expect.objectContaining({ username: "second" })],
+    }));
+    view.unmount();
+  });
+
+  it("mantem fallback STUN e informa indisponibilidade sem vazar detalhes", async () => {
+    mocked.apiRequest.mockRejectedValue(new Error("upstream secret diagnostic"));
+    render(<CallSessionProvider session={authSession}><IceProbe /></CallSessionProvider>);
+
+    await waitFor(() => expect(screen.getByLabelText("ice-service")).toHaveTextContent("unavailable:none:TURN indisponível"));
+    expect(screen.getByLabelText("ice-service").textContent).not.toContain("upstream secret diagnostic");
+    const configuration = mocked.useTeamCallRuntime.mock.lastCall?.[0];
+    expect(configuration.iceServers).toEqual([
+      { urls: "stun:stun.example.test:3478" },
+    ]);
+    expect(JSON.stringify(configuration.iceServers)).not.toContain("credential");
+  });
+
   it("mantem as transicoes explicitas e permite recomecar depois de falha", () => {
     expect(transitionCallSession("idle", { type: "INVITE_RECEIVED" })).toBe("ringing");
     expect(transitionCallSession("ringing", { type: "JOIN_REQUESTED" })).toBe("joining");
@@ -208,7 +293,7 @@ describe("CallSession", () => {
     );
 
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
-    expect(mocked.useTeamCallRuntime).toHaveBeenCalledTimes(1);
+    expect(mocked.useTeamCallRuntime).toHaveBeenCalled();
     expect(screen.getByLabelText("first")).toHaveTextContent("idle:connecting");
     expect(screen.getByLabelText("second")).toHaveTextContent("idle:connecting");
 

@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import Field
 
@@ -49,6 +49,12 @@ from app.modules.team.recording_coordinator import (
     RecordingLimits,
     RecordingStart,
     RecordingUpload,
+)
+from app.modules.team.turn_credentials import (
+    TurnCredentialProvider,
+    TurnSubject,
+    TurnUnavailableError,
+    turn_provider_from_environment,
 )
 from app.modules.team.nora_mentions import generate_team_reply, has_nora_mention
 from app.routers.auth_router import current_user, read_user_store, sanitize_user, user_from_websocket_ticket
@@ -255,6 +261,14 @@ class PresenceManager:
 
 
 manager = PresenceManager()
+_turn_provider: TurnCredentialProvider | None = None
+
+
+def turn_credential_provider() -> TurnCredentialProvider:
+    global _turn_provider
+    if _turn_provider is None:
+        _turn_provider = turn_provider_from_environment()
+    return _turn_provider
 
 
 def now_iso() -> str:
@@ -689,6 +703,29 @@ async def list_active_calls(user: dict[str, Any] = Depends(current_user)) -> dic
     except CallError as exc:
         raise _as_http_error(exc) from exc
     return {"calls": calls}
+
+
+@router.get("/calls/ice-servers")
+async def get_call_ice_servers(
+    response: Response,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, object]:
+    require_team_chat(user)
+    if user.get("status") != "ativo" or not str(user.get("id") or "").strip():
+        raise HTTPException(status_code=403, detail="Somente membros ativos podem obter acesso TURN.")
+    no_store_headers = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
+    try:
+        document = turn_credential_provider().issue(
+            TurnSubject(team_id=team_id_for(user), user_id=str(user["id"]))
+        )
+    except TurnUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="O serviço TURN está temporariamente indisponível.",
+            headers=no_store_headers,
+        ) from exc
+    response.headers.update(no_store_headers)
+    return document.as_payload()
 
 
 @router.delete("/calls/{call_id}")

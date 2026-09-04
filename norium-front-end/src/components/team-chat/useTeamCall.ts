@@ -141,6 +141,20 @@ const DEFAULT_ENTRY_OPTIONS: CallEntryOptions = {
 type CallSound = "connecting" | "joined" | "left" | "ended" | "screen";
 type ConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
 type CameraPermission = "unknown" | "requesting" | "granted" | "denied" | "unavailable";
+export type IceTelemetryState = RTCIceConnectionState | "unknown";
+export type IcePathType = RTCIceCandidateType | "unknown";
+export type IcePathProtocol = "udp" | "tcp" | "tls" | "unknown";
+export type IceTelemetrySnapshot = {
+  lastState: IceTelemetryState;
+  stateCounts: Partial<Record<IceTelemetryState, number>>;
+  pathTypeCounts: Partial<Record<IcePathType, number>>;
+  lastSelectedPath: {
+    localType: IcePathType;
+    remoteType: IcePathType;
+    protocol: IcePathProtocol;
+  } | null;
+  relayObserved: boolean;
+};
 type PeerNegotiationState = {
   makingOffer: boolean;
   ignoreOffer: boolean;
@@ -224,20 +238,53 @@ function playCallSound(sound: CallSound) {
   }
 }
 
-function configuredIceServers(): RTCIceServer[] {
-  const raw = (import.meta.env.VITE_TEAM_CALL_ICE_SERVERS as string | undefined)?.trim();
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed as RTCIceServer[];
-    } catch {
-      // Uma configuracao invalida nao deve impedir chamadas na mesma rede.
-    }
-  }
-  return [
-    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-    { urls: "stun:stun.cloudflare.com:3478" },
-  ];
+export const SAFE_STUN_SERVERS: RTCIceServer[] = [
+  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+  { urls: "stun:stun.cloudflare.com:3478" },
+];
+
+const INITIAL_ICE_TELEMETRY: IceTelemetrySnapshot = {
+  lastState: "unknown",
+  stateCounts: {},
+  pathTypeCounts: {},
+  lastSelectedPath: null,
+  relayObserved: false,
+};
+
+function iceTelemetryState(value: string): IceTelemetryState {
+  return ["new", "checking", "connected", "completed", "failed", "disconnected", "closed"].includes(value)
+    ? value as RTCIceConnectionState
+    : "unknown";
+}
+
+function icePathType(value: unknown): IcePathType {
+  return typeof value === "string" && ["host", "srflx", "prflx", "relay"].includes(value)
+    ? value as RTCIceCandidateType
+    : "unknown";
+}
+
+function icePathProtocol(value: unknown): IcePathProtocol {
+  return typeof value === "string" && ["udp", "tcp", "tls"].includes(value.toLowerCase())
+    ? value.toLowerCase() as IcePathProtocol
+    : "unknown";
+}
+
+function selectedIcePath(report: RTCStatsReport): IceTelemetrySnapshot["lastSelectedPath"] {
+  const entries: Array<Record<string, unknown>> = [];
+  report.forEach((entry) => entries.push(entry as unknown as Record<string, unknown>));
+  const transport = entries.find((entry) => entry.type === "transport" && typeof entry.selectedCandidatePairId === "string");
+  const pair = transport
+    ? report.get(String(transport.selectedCandidatePairId)) as unknown as Record<string, unknown> | undefined
+    : entries.find((entry) => entry.type === "candidate-pair" && entry.state === "succeeded" && (entry.nominated === true || entry.selected === true));
+  if (!pair) return null;
+  const local = report.get(String(pair.localCandidateId || "")) as unknown as Record<string, unknown> | undefined;
+  const remote = report.get(String(pair.remoteCandidateId || "")) as unknown as Record<string, unknown> | undefined;
+  if (!local || !remote) return null;
+  return {
+    localType: icePathType(local.candidateType),
+    remoteType: icePathType(remote.candidateType),
+    protocol: icePathProtocol(local.relayProtocol || local.protocol),
+  };
 }
 
 function callId() {
@@ -263,10 +310,14 @@ export function useTeamCallRuntime({
   session,
   thread,
   sendSocketEvent,
+  iceServers = SAFE_STUN_SERVERS,
+  iceTransportPolicy = "all",
 }: {
   session: AuthSession;
   thread: TeamCallThread;
   sendSocketEvent: (payload: Record<string, unknown>) => boolean;
+  iceServers?: RTCIceServer[];
+  iceTransportPolicy?: RTCIceTransportPolicy;
 }) {
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
   const [active, setActive] = useState<ActiveCall | null>(null);
@@ -301,6 +352,7 @@ export function useTeamCallRuntime({
   const [recordingUploadedBytes, setRecordingUploadedBytes] = useState(0);
   const [recordingPendingBytes, setRecordingPendingBytes] = useState(0);
   const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>(navigator.onLine ? "connecting" : "offline");
+  const [iceTelemetry, setIceTelemetry] = useState<IceTelemetrySnapshot>(INITIAL_ICE_TELEMETRY);
   const [reactions, setReactions] = useState<Array<{ id: string; emoji: string; userName: string }>>([]);
   const [raisedHands, setRaisedHands] = useState<Record<string, string>>({});
   const handRevisionRef = useRef(-1);
@@ -349,6 +401,46 @@ export function useTeamCallRuntime({
   const resolveRecordingStopRef = useRef<(() => void) | null>(null);
   const reactionTimersRef = useRef<number[]>([]);
   const finishCallRef = useRef<(notify: boolean, sound?: CallSound | null) => void>(() => undefined);
+
+  const collectIceTelemetry = useCallback(async (peer: RTCPeerConnection) => {
+    const state = iceTelemetryState(peer.iceConnectionState || "unknown");
+    let selectedPath: IceTelemetrySnapshot["lastSelectedPath"] = null;
+    if (["connected", "completed"].includes(state) && typeof peer.getStats === "function") {
+      try {
+        selectedPath = selectedIcePath(await peer.getStats());
+      } catch {
+        // Telemetria nunca interfere no protocolo da chamada.
+      }
+    }
+    setIceTelemetry((current) => {
+      const pathTypeCounts = { ...current.pathTypeCounts };
+      if (selectedPath) pathTypeCounts[selectedPath.localType] = (pathTypeCounts[selectedPath.localType] || 0) + 1;
+      return {
+        lastState: state,
+        stateCounts: { ...current.stateCounts, [state]: (current.stateCounts[state] || 0) + 1 },
+        pathTypeCounts,
+        lastSelectedPath: selectedPath || current.lastSelectedPath,
+        relayObserved: current.relayObserved || selectedPath?.localType === "relay" || selectedPath?.remoteType === "relay",
+      };
+    });
+  }, []);
+
+  useEffect(() => {
+    const configuration: RTCConfiguration = {
+      iceServers,
+      iceTransportPolicy,
+      iceCandidatePoolSize: 4,
+      bundlePolicy: "max-bundle",
+    };
+    peersRef.current.forEach((peer) => {
+      try {
+        peer.setConfiguration(configuration);
+        peer.restartIce();
+      } catch {
+        setStatus("Não foi possível renovar a rota da chamada.");
+      }
+    });
+  }, [iceServers, iceTransportPolicy]);
 
   useEffect(() => {
     activeRef.current = active;
@@ -481,6 +573,7 @@ export function useTeamCallRuntime({
     const peer = peersRef.current.get(userId);
     if (peer) {
       peer.onicecandidate = null;
+      peer.oniceconnectionstatechange = null;
       peer.ontrack = null;
       peer.onconnectionstatechange = null;
       peer.onnegotiationneeded = null;
@@ -523,12 +616,14 @@ export function useTeamCallRuntime({
     confirmedCallIdRef.current = "";
     setMeetingMessages([]);
     setRaisedHands({});
+    setIceTelemetry(INITIAL_ICE_TELEMETRY);
     handRevisionRef.current = -1;
     announcedScreensRef.current.clear();
     if (notify && call) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
     stopConnectingSound();
     peersRef.current.forEach((peer) => {
       peer.onicecandidate = null;
+      peer.oniceconnectionstatechange = null;
       peer.ontrack = null;
       peer.onconnectionstatechange = null;
       peer.onnegotiationneeded = null;
@@ -1210,7 +1305,8 @@ export function useTeamCallRuntime({
     let peer = peersRef.current.get(remoteUserId);
     if (!peer) {
       peer = new RTCPeerConnection({
-        iceServers: configuredIceServers(),
+        iceServers,
+        iceTransportPolicy,
         iceCandidatePoolSize: 4,
         bundlePolicy: "max-bundle",
       });
@@ -1324,6 +1420,10 @@ export function useTeamCallRuntime({
         }
         if (connectionState === "closed") closePeer(remoteUserId);
       };
+      const telemetryPeer = peer;
+      peer.oniceconnectionstatechange = () => {
+        if (peersRef.current.get(remoteUserId) === telemetryPeer) void collectIceTelemetry(telemetryPeer);
+      };
       const negotiationPeer = peer;
       peer.onnegotiationneeded = () => {
         if (peersRef.current.get(remoteUserId) === negotiationPeer) {
@@ -1333,7 +1433,7 @@ export function useTeamCallRuntime({
     }
     if (createOffer) await negotiatePeer(remoteUserId, peer);
     return peer;
-  }, [callPayload, closePeer, negotiatePeer, negotiationStateFor, publishMediaState, sendSocketEvent, session.user.id]);
+  }, [callPayload, closePeer, collectIceTelemetry, iceServers, iceTransportPolicy, negotiatePeer, negotiationStateFor, publishMediaState, sendSocketEvent, session.user.id]);
 
   const requestRemoteScreenRefresh = useCallback(async (remoteUserId: string) => {
     // O emissor renegocia imediatamente com a faixa anexada. O receptor só
@@ -1973,6 +2073,7 @@ export function useTeamCallRuntime({
       ? Math.round((recordingUploadedBytes / (recordingUploadedBytes + recordingPendingBytes)) * 100)
       : 0,
     connectionQuality,
+    iceTelemetry,
     reactions,
     status,
     audioReady,

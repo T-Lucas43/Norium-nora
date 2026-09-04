@@ -12,8 +12,10 @@ import {
 } from "react";
 
 import type { AuthSession } from "../../types/auth";
+import { apiRequest } from "../../core/api/client";
 import { authenticatedWebSocketUrl, wsBaseUrl } from "../../utils/api";
 import {
+  SAFE_STUN_SERVERS,
   useTeamCallRuntime,
   type CallMicrophoneMode,
   type TeamCallSocketEvent,
@@ -22,7 +24,41 @@ import {
 
 const TEAM_SOCKET_URL = `${wsBaseUrl()}/api/team-chat/ws`;
 const RECONNECT_DELAY_MS = 1800;
+const ICE_REQUEST_TIMEOUT_MS = 8000;
+const ICE_RETRY_DELAY_MS = 30_000;
+const ICE_MIN_RENEWAL_DELAY_MS = 1000;
+const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
 const DEFAULT_THREAD: TeamCallThread = { scope: "team", title: "Time todo" };
+
+type TemporaryIceConfiguration = {
+  iceServers: RTCIceServer[];
+  expiresAt: string;
+  refreshAfter: string;
+};
+
+export type IceServiceSnapshot = {
+  status: "loading" | "ready" | "degraded" | "unavailable";
+  expiresAt: string;
+  detail: string;
+};
+
+const INITIAL_ICE_SERVICE: IceServiceSnapshot = {
+  status: "loading",
+  expiresAt: "",
+  detail: "Preparando conectividade da chamada.",
+};
+
+function validTemporaryIceConfiguration(value: TemporaryIceConfiguration) {
+  const expiresAt = Date.parse(value.expiresAt);
+  const refreshAfter = Date.parse(value.refreshAfter);
+  return Array.isArray(value.iceServers)
+    && value.iceServers.length > 0
+    && value.iceServers.every((server) => Boolean(server?.urls))
+    && Number.isFinite(expiresAt)
+    && expiresAt > Date.now()
+    && Number.isFinite(refreshAfter)
+    && refreshAfter < expiresAt;
+}
 
 export type CallSessionPhase =
   | "idle"
@@ -116,6 +152,7 @@ export type CallSessionSnapshot = Pick<Runtime,
   | "recordingPendingBytes"
   | "recordingUploadProgress"
   | "connectionQuality"
+  | "iceTelemetry"
   | "reactions"
   | "raisedHands"
   | "meetingMessages"
@@ -137,6 +174,7 @@ export type CallSessionSnapshot = Pick<Runtime,
   participantIds: string[];
   prejoin: CallPrejoin | null;
   reconnectionNotice: string;
+  iceService: IceServiceSnapshot;
   conversation: {
     callId: string;
     thread: TeamCallThread;
@@ -193,6 +231,7 @@ type CallSessionProviderProps = {
   onIncomingCall?: (event: TeamSocketEvent) => void;
   onCallDismissed?: (callId: string) => void;
   onTeamEvent?: (event: TeamSocketEvent) => void;
+  iceTransportPolicy?: RTCIceTransportPolicy;
 };
 
 export function CallSessionProvider(props: CallSessionProviderProps) {
@@ -208,6 +247,7 @@ function ActiveCallSessionProvider({
   onCallDismissed,
   onTeamEvent,
   resolveSocketUrl,
+  iceTransportPolicy = "all",
 }: CallSessionProviderProps) {
   const socketRef = useRef<WebSocket | null>(null);
   const listenersRef = useRef(new Set<(event: TeamSocketEvent) => void>());
@@ -221,6 +261,8 @@ function ActiveCallSessionProvider({
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [prejoin, setPrejoin] = useState<CallPrejoin | null>(null);
   const [reconnectionNotice, setReconnectionNotice] = useState("");
+  const [iceServers, setIceServers] = useState<RTCIceServer[]>(SAFE_STUN_SERVERS);
+  const [iceService, setIceService] = useState<IceServiceSnapshot>(INITIAL_ICE_SERVICE);
   const reconnectingCallIdRef = useRef("");
   const entryTargetRef = useRef<{
     kind: CallPrejoin["kind"];
@@ -236,8 +278,74 @@ function ActiveCallSessionProvider({
     return true;
   }, []);
 
-  const runtime = useTeamCallRuntime({ session, thread: DEFAULT_THREAD, sendSocketEvent });
+  const runtime = useTeamCallRuntime({
+    session,
+    thread: DEFAULT_THREAD,
+    sendSocketEvent,
+    iceServers,
+    iceTransportPolicy,
+  });
   runtimeRef.current = runtime;
+
+  useEffect(() => {
+    let cancelled = false;
+    let renewalTimer: number | null = null;
+    let currentExpiry = 0;
+
+    const schedule = (delayMs: number) => {
+      if (cancelled) return;
+      if (renewalTimer !== null) window.clearTimeout(renewalTimer);
+      renewalTimer = window.setTimeout(
+        () => void refresh(),
+        Math.min(MAX_BROWSER_TIMEOUT_MS, Math.max(ICE_MIN_RENEWAL_DELAY_MS, delayMs)),
+      );
+    };
+
+    const refresh = async () => {
+      try {
+        const configuration = await apiRequest<TemporaryIceConfiguration>("/api/team-chat/calls/ice-servers", {
+          token: session.token,
+          timeoutMs: ICE_REQUEST_TIMEOUT_MS,
+        });
+        if (cancelled) return;
+        if (!validTemporaryIceConfiguration(configuration)) throw new Error("Configuracao ICE temporaria invalida.");
+        currentExpiry = Date.parse(configuration.expiresAt);
+        setIceServers(configuration.iceServers);
+        setIceService({
+          status: "ready",
+          expiresAt: configuration.expiresAt,
+          detail: "Conectividade para redes restritivas disponível.",
+        });
+        schedule(Date.parse(configuration.refreshAfter) - Date.now());
+      } catch {
+        if (cancelled) return;
+        const credentialsStillValid = currentExpiry > Date.now();
+        if (credentialsStillValid) {
+          setIceService((current) => ({
+            ...current,
+            status: "degraded",
+            detail: "A renovação da conectividade está atrasada; tentando novamente.",
+          }));
+          schedule(Math.min(ICE_RETRY_DELAY_MS, Math.max(ICE_MIN_RENEWAL_DELAY_MS, currentExpiry - Date.now())));
+          return;
+        }
+        currentExpiry = 0;
+        setIceServers(SAFE_STUN_SERVERS);
+        setIceService({
+          status: "unavailable",
+          expiresAt: "",
+          detail: "TURN indisponível. Chamadas podem falhar em redes restritivas.",
+        });
+        schedule(ICE_RETRY_DELAY_MS);
+      }
+    };
+
+    void refresh();
+    return () => {
+      cancelled = true;
+      if (renewalTimer !== null) window.clearTimeout(renewalTimer);
+    };
+  }, [session.token]);
 
   useEffect(() => {
     const prepare = () => {
@@ -560,6 +668,7 @@ function ActiveCallSessionProvider({
     recordingPendingBytes: runtime.recordingPendingBytes,
     recordingUploadProgress: runtime.recordingUploadProgress,
     connectionQuality: runtime.connectionQuality,
+    iceTelemetry: runtime.iceTelemetry,
     reactions: runtime.reactions,
     raisedHands: runtime.raisedHands,
     meetingMessages: runtime.meetingMessages,
@@ -578,8 +687,9 @@ function ActiveCallSessionProvider({
     participantIds,
     prejoin,
     reconnectionNotice,
+    iceService,
     conversation,
-  }), [conversation, participantIds, phase, prejoin, reconnectionNotice, runtime, socketState]);
+  }), [conversation, iceService, participantIds, phase, prejoin, reconnectionNotice, runtime, socketState]);
 
   const subscribe = useCallback((listener: (event: TeamSocketEvent) => void) => {
     listenersRef.current.add(listener);

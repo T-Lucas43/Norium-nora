@@ -6,7 +6,9 @@ import TeamCallOverlay from "../../src/components/team-chat/TeamCallOverlay";
 import TeamActiveCallCard from "../../src/components/team-chat/TeamActiveCallCard";
 import "../../src/index.css";
 
-const requestedUser = new URLSearchParams(location.search).get("user");
+const fixtureParameters = new URLSearchParams(location.search);
+const requestedUser = fixtureParameters.get("user");
+const relayOnly = fixtureParameters.get("relay") === "1";
 const userId = requestedUser === "member" || requestedUser === "other" ? requestedUser : "owner";
 const members = [{ id: "owner", nome: "Owner" }, { id: "member", nome: "Member" }, { id: "other", nome: "Other" }];
 function syntheticVideo(label: string) {
@@ -63,6 +65,7 @@ export function Fixture() {
   return <CallSessionProvider
     session={session}
     resolveSocketUrl={async () => `ws://127.0.0.1:8000/api/team-chat/ws?ticket=${userId}`}
+    iceTransportPolicy={relayOnly ? "relay" : "all"}
   >
     <FixtureContent />
   </CallSessionProvider>;
@@ -74,6 +77,8 @@ function FixtureContent() {
   return <main style={{ maxWidth: 760, margin: "40px auto", padding: 24 }}>
     <h1>Teste local · {userId}</h1>
     <p>{connected ? "Conectado" : "Conectando"}</p>
+    <p data-testid="ice-service">ICE: {snapshot.iceService.status}</p>
+    <p data-testid="relay-observed">Relay observado: {snapshot.iceTelemetry.relayObserved ? "sim" : "não"}</p>
     <p>Reuniões ativas: {snapshot.availableCalls.length}</p>
     <button disabled={!connected || snapshot.busy} onClick={() => void commands.start({ scope: "team", title: "Time todo" })} className="m-4 rounded bg-blue-600 px-4 py-2 text-white">Iniciar reunião</button>
     {snapshot.availableCalls.map((meeting) => <TeamActiveCallCard key={meeting.callId} meeting={meeting} busy={snapshot.busy} onJoin={() => void commands.join(meeting)} />)}

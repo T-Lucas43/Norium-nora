@@ -263,7 +263,9 @@ export default function Header({
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => runCommand(command)}
                     >
-                      <span><Icon size={17} /></span>
+                      <span aria-hidden="true">
+                        {command.tab === "Nora" ? <NoraAvatar className="h-6 w-6 shrink-0" /> : <Icon size={17} />}
+                      </span>
                       <span>
                         <strong>{command.title}</strong>
                         <small>{command.description}</small>

@@ -31,6 +31,7 @@ import {
 import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
 import BrandLogo from "./BrandLogo";
+import NoraAvatar from "./NoraAvatar";
 
 type NavigationItem = {
   title: string;
@@ -161,8 +162,8 @@ export default function Sidebar({
                 title={compact ? item.title : undefined}
                 aria-current={active ? "page" : undefined}
                aria-label={compact ? item.title : undefined}>
-                <span className="norium-sidebar-item-icon">
-                  <Icon size={18} />
+                <span className="norium-sidebar-item-icon" aria-hidden="true">
+                  {item.title === "Nora" ? <NoraAvatar className="h-7 w-7 shrink-0" /> : <Icon size={18} />}
                 </span>
                 {!compact && <span className="norium-sidebar-item-label">{item.title}</span>}
               </button>

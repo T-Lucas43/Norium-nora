@@ -8,6 +8,7 @@ Este documento descreve a implementação existente sem alterar o comportamento 
 - Branch isolada: `codex/team-call-remediation-baseline`.
 - Base inicialmente preparada: `fe6967620700c92132253b1e4136dfda8b3fd418`.
 - Base sincronizada de `origin/main` em 2026-09-04: `fb671c3` (`feat: completar experiencia de reunioes e corrigir layout do chat`). A atualização também incorporou `4b4b974` (`feat: melhorar audio e controles individuais das chamadas`).
+- Atualidade reconfirmada durante a etapa TURN em 2026-09-04: `origin/main` havia avançado para `131aebf` (`fix: harden Nora web result parsing`). Os seis commits novos foram integrados no worktree isolado pelo merge `eaa381c`; `origin/main` é ancestral do resultado e não houve conflito. As mudanças remotas eram de Nora/Studio, além de configuração e composição adjacentes, sem alteração dos módulos de chamada.
 - Evidência de presença em `origin/main`: `git ls-tree -r --name-only origin/main` contém o router, `useTeamCall.ts`, `TeamCallOverlay.tsx`, `ParticipantAudio.tsx`, `meetingRecording.ts`, os testes de ciclo de vida e colaboração e o harness de navegador. A implementação deste documento foi reaplicada sobre essa base e os conflitos nos caminhos de chamada foram resolvidos preservando os dois conjuntos de comportamento.
 
 ## Arquitetura atual
@@ -85,7 +86,8 @@ A mídia não passa pelo backend: o frontend mantém uma conexão WebRTC por par
 - Em colisão de ofertas, o peer impolite ignora a oferta conflitante e seus candidatos; o peer polite cancela a tentativa local, faz rollback quando o signaling state exige, aplica a oferta remota e responde. Call ID, revisão e identidade atual do peer impedem que uma negociação antiga publique ou aplique SDP depois da limpeza.
 - Em falha a implementação chama `restartIce()` e renegocia; desconexão atualiza o estado visual para reconexão (`norium-front-end/src/components/team-chat/useTeamCall.ts:980-1004`).
 - A limpeza é determinística: handlers do peer são removidos antes de `close()`, mapas de senders/candidatos/negociação são esvaziados, tracks remotas perdem callbacks e todas as tracks locais/tela são paradas.
-- `VITE_TEAM_CALL_ICE_SERVERS` aceita JSON de `RTCIceServer[]`. Sem valor válido, o bundle usa somente STUN público do Google e Cloudflare (`norium-front-end/src/components/team-chat/useTeamCall.ts:145-159`, `norium-front-end/.env.example:6-8`).
+- A configuração ICE deixou de vir do build Vite. A `CallSession` obtém STUN + TURN/TLS por `GET /api/team-chat/calls/ice-servers`, conserva usuário/senha apenas em memória e entrega o array diretamente ao runtime. Ausência do serviço mantém somente STUN público e produz aviso acessível; nenhuma credencial permanente pode ser injetada no bundle.
+- A sessão renova as credenciais em `refreshAfter`. Peers já ativos recebem `setConfiguration`, `restartIce` e renegociação pelo handler existente. A telemetria guarda somente estado ICE, tipo de candidato selecionado (`host`, `srflx`, `prflx`, `relay`) e protocolo permitido; IP, endereço, porta, candidato completo e SDP não entram no snapshot nem em logs.
 - Tela usa `getDisplayMedia`, perfis 720p/1080p/1440p e 15/30/60 FPS, com ajuste de bitrate no sender (`norium-front-end/src/components/team-chat/useTeamCall.ts:87-114`, `:1395-1445`).
 
 ### Gravação
@@ -171,7 +173,7 @@ Railway mantém frontend e backend em serviços separados e exige volume persist
 
 ## Riscos já confirmados
 
-1. **TURN não faz parte do artefato Azure atual.** O fallback do código contém apenas STUN, e o próprio `.env.example` registra que redes corporativas restritas exigem TURN. O build da imagem não declara `ARG`/`ENV` para `VITE_TEAM_CALL_ICE_SERVERS`, e o workflow não passa build arg; assim o bundle Azure produzido pelo fluxo versionado fica no fallback STUN (`useTeamCall.ts:145-159`, `.env.example:6-8`, `Dockerfile.azure:1-7`, workflow `:108-118`).
+1. **A aplicação está pronta para TURN, mas este ambiente não possui o serviço externo.** O frontend não aceita mais configuração TURN no build. O backend valida e usa segredo apenas em runtime, porém `TEAM_CALL_TURN_URLS` e `TEAM_CALL_TURN_SHARED_SECRET` não estão configurados neste worktree/host. Assim, chamadas comuns mantêm fallback STUN, enquanto o gate relay-only termina objetivamente como bloqueado até existir um TURN/TLS real acessível.
 2. **Consentimento continua sendo uma garantia de cliente.** A captura só começa depois da confirmação explícita e todos recebem indicador/evento, mas o servidor não consegue provar que um navegador modificado mostrou o aviso. A proteção de servidor limita quem pode gravar, qual chamada e cliente podem enviar e por quanto tempo; conformidade que exija prova de consentimento persistida demandará um protocolo próprio e decisão jurídica/produtiva.
 3. **Retenção é periódica, não um relógio de exclusão em tempo real.** A exclusão ocorre sem leitura do usuário, no startup e a cada 60 segundos por default. Uma indisponibilidade do processo posterga a tarefa até o próximo startup; portanto o prazo observável é retenção mais o intervalo/indisponibilidade, embora o download continue condicionado ao registro e à visibilidade.
 4. **Estado e fan-out dependem de uma única réplica.** Tickets WebSocket, presença/conexões, o runtime do `CallCoordinator`, o contador de frequência de gravação e o scheduler são memória local; o estado durável continua em JSON no volume. O controle atual da Azure fixa uma réplica e evita divergência, mas a matriz de segurança já registra que escala horizontal exige banco transacional, rate limit compartilhado, eleição de tarefa e pub/sub (`auth/router.py:695-715`, `call_coordinator.py`, `recording_coordinator.py`, workflow `:171-193`, `docs/SECURITY_CONTROLS.md:17`).
@@ -205,7 +207,7 @@ O novo limite arquitetural foi implementado sem alteração deliberada do compor
 - `norium-front-end/src/components/team-chat/TeamChatDrawer.tsx` e `src/hooks/useWebSockets.ts`: somente chat/presença e apresentação de notificações; não devem abrir sockets nem interpretar protocolo de chamada.
 - Testes backend `test_team_call_lifecycle.py`/`test_team_collaboration.py` e frontend `CallSession.test.tsx`/`useTeamCall.test.tsx`/`TeamCallOverlay.test.tsx`/`useWebSockets.test.tsx`.
 - Harness `norium-front-end/tests/browser/calls.tsx` e `norium-back-end/tests/team_call_browser_app.py`, ou um teste E2E automatizado equivalente.
-- `norium-front-end/.env.example`, `Dockerfile.azure` e `.github/workflows/azure-container-apps.yml` para injetar e validar configuração TURN no build, caso essa seja a remediação aprovada.
+- Secret manager/configuração de runtime do backend para provisionar `TEAM_CALL_TURN_URLS` e `TEAM_CALL_TURN_SHARED_SECRET`; nenhum segredo TURN deve ser passado ao build do frontend ou ao `Dockerfile`.
 - Persistência/object storage e pub/sub somente se a próxima etapa ampliar o escopo para múltiplas réplicas; isso não deve ser introduzido incidentalmente.
 
 ## Linha de base executada
@@ -365,3 +367,77 @@ Execução realizada em 2026-09-04 no mesmo worktree isolado, sobre o commit `48
 | Análise estática | `npm run lint` | exit code 0; nenhum aviso no escopo; os mesmos 14 avisos preexistentes fora de chamadas |
 
 Os logs completos foram salvos em `norium-front-end/artifacts/team-call-ux-focused.log`, `team-call-ux-frontend-full.log`, `team-call-ux-production-build.log`, `team-call-ux-lint.log` e `norium-back-end/artifacts/team-call-ux-backend-full.log`; esses diretórios são ignorados pelo Git. As mensagens do backend são os mesmos cenários negativos intencionais já documentados. O build mantém o aviso preexistente de chunk geral acima de 500 kB. Não houve falha restante e nenhum fluxo de deploy foi executado.
+
+## Conectividade STUN e TURN/TLS
+
+### Novo limite arquitetural
+
+```text
+CallSession
+    |
+    +-- GET autenticado /calls/ice-servers -- renovação por refreshAfter
+    |                                                |
+    |                                                v
+    |                                      TurnCredentialProvider
+    |                                                |
+    |                                      HmacTurnCredentialProvider
+    |                                      (TURN REST/coturn compatível)
+    |
+    +-- credenciais somente em memória
+    +-- snapshot público: disponibilidade/validade, sem usuário ou senha
+    |
+    v
+useTeamCallRuntime
+    +-- RTCPeerConnection({ iceServers, iceTransportPolicy })
+    +-- renovação: setConfiguration -> restartIce -> negociação perfeita
+    +-- telemetria: estado + categoria do caminho, sem IP/SDP/candidato
+```
+
+- `TurnCredentialProvider` é a seam de backend. O adapter inicial `HmacTurnCredentialProvider` implementa o formato TURN REST compatível com coturn: usuário efêmero com expiração Unix e credencial HMAC-SHA1 em Base64. O identificador de equipe/usuário não é enviado em claro; o sufixo é opaco.
+- `GET /api/team-chat/calls/ice-servers` usa a autenticação já existente, exige permissão de equipe e conta ativa, associa a emissão a `teamId` + `userId` e devolve `iceServers`, `expiresAt` e `refreshAfter`. Respostas com credencial e respostas 503 têm `Cache-Control: no-store, private` e `Pragma: no-cache`. Diagnósticos internos do provedor não são repassados ao cliente.
+- A validação roda em `create_app`, antes de construir a aplicação. Configuração parcial, URL com credencial embutida, ausência de `turns:`, segredo curto/com whitespace, TTL fora de 60–3600 segundos e margem inválida interrompem o startup. Quando TURN é opcional e todas as variáveis estão ausentes, o endpoint informa indisponibilidade de forma estável; com `TEAM_CALL_TURN_REQUIRED=true`, ausência também interrompe o startup.
+- A `CallSession` é a única consumidora do endpoint. A credencial nunca aparece no snapshot ou em estado persistente. Falha inicial mantém STUN sem segredo; falha de renovação conserva a credencial ainda válida e marca estado degradado, depois volta a STUN quando expira. Renovação bem-sucedida atualiza também os peers de chamadas longas.
+- O runtime coleta somente valores enumerados: estado ICE, tipos local/remoto e protocolo. O teste injeta endereço, porta, candidato e diagnóstico privado nos stats e prova que nenhum deles aparece em `iceTelemetry`. O overlay mostra aviso acessível quando TURN está degradado ou indisponível.
+- `verify_turn_relay.py` inicializa fixture backend/frontend, abre dois contextos Chromium independentes, força `iceTransportPolicy: "relay"`, conecta duas `CallSession`s e consulta apenas as categorias do par ICE selecionado. O teste só aprova quando ambas as sessões possuem par real com candidato local `relay`; ausência de configuração termina com código 2 e estado `blocked`, não `skip` ou sucesso.
+
+### Contrato de configuração do backend
+
+| Variável | Regra/default |
+| --- | --- |
+| `TEAM_CALL_TURN_REQUIRED` | `false`; use `true` onde conectividade restrita é requisito operacional |
+| `TEAM_CALL_STUN_URLS` | CSV; default Google + Cloudflare |
+| `TEAM_CALL_TURN_URLS` | CSV `turn:`/`turns:` sem credenciais embutidas; ao menos uma URL `turns:` obrigatória quando configurado |
+| `TEAM_CALL_TURN_SHARED_SECRET` | segredo TURN REST, mínimo 32 caracteres ASCII sem whitespace; somente runtime backend |
+| `TEAM_CALL_TURN_TTL_SECONDS` | default 600; permitido 60–3600 |
+| `TEAM_CALL_TURN_REFRESH_MARGIN_SECONDS` | default 120; mínimo 15 e menor que o TTL |
+
+`norium-front-end/.env.example` não contém mais `VITE_TEAM_CALL_ICE_SERVERS`. `Dockerfile.azure` e o workflow não recebem segredo TURN em build args. O provisionamento futuro deve colocar as variáveis acima no secret manager/ambiente do backend; ele não foi executado nesta etapa.
+
+### Componentes alterados nesta etapa
+
+- `norium-back-end/app/modules/team/turn_credentials.py`: provider, adapter HMAC, documento efêmero, validação e modo indisponível.
+- `norium-back-end/app/modules/team/router.py`: adapter HTTP autenticado e não-cacheável.
+- `norium-back-end/app/bootstrap.py` e `norium-back-end/.env.example`: validação de startup e contrato de runtime.
+- `norium-front-end/src/components/team-chat/CallSession.tsx`: aquisição, validade, renovação, fallback e transporte da configuração apenas em memória.
+- `norium-front-end/src/components/team-chat/useTeamCall.ts`: configuração por injeção, atualização de peers, relay policy e telemetria sanitizada.
+- `norium-front-end/src/components/team-chat/TeamCallOverlay.tsx`: tratamento acessível de serviço degradado/indisponível.
+- Testes unitários correspondentes e `norium-front-end/tests/browser/verify_turn_relay.py`; `calls.tsx` ganhou somente o modo explícito `relay=1` para o harness.
+
+### Verificação após TURN efêmero
+
+Execução realizada em 2026-09-04 no mesmo worktree, depois de integrar `origin/main@131aebf`, sem deploy:
+
+| Área | Comando | Resultado |
+| --- | --- | --- |
+| Backend TURN focal | `.\.venv\Scripts\python.exe -m unittest tests.unit.test_turn_credentials` | 8 testes aprovados; emissão, TLS, configuração inválida/ausente, falha de startup, autenticação/autorização, 503 e headers sem cache |
+| Backend chamadas focado | `.\.venv\Scripts\python.exe -m unittest tests.unit.test_turn_credentials tests.unit.test_call_coordinator tests.unit.test_recording_coordinator tests.test_team_call_lifecycle tests.test_team_collaboration` | 66 testes aprovados em 0,855 s |
+| Backend completo | `.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"` | 475 testes aprovados em 15,477 s |
+| Frontend sessão/runtime/overlay/socket | `npx vitest run src/components/team-chat/CallSession.test.tsx src/components/team-chat/useTeamCall.test.tsx src/components/team-chat/TeamCallOverlay.test.tsx src/hooks/useWebSockets.test.tsx --reporter=dot` | 4 arquivos e 44 testes aprovados |
+| Frontend completo | `npm test -- --run` | 70 arquivos e 464 testes aprovados em 8,83 s |
+| TypeScript | `npx tsc -b --pretty false` | aprovado |
+| Build de produção | `npm run build` | aprovado; build Vite em 1,19 s |
+| Análise estática | `npm run lint` | exit code 0; 14 avisos preexistentes fora de chamadas |
+| Sintaxe do harness | `.\.venv\Scripts\python.exe -m py_compile ..\norium-front-end\tests\browser\verify_turn_relay.py tests\team_call_browser_app.py` | aprovado |
+| Relay-only real | `.\.venv\Scripts\python.exe ..\norium-front-end\tests\browser\verify_turn_relay.py` | código 2, `blocked: external_turn_not_configured`; faltam `TEAM_CALL_TURN_URLS` e `TEAM_CALL_TURN_SHARED_SECRET` para infraestrutura real |
+
+O único bloqueio restante para comprovar relay-only navegador-a-navegador é infraestrutura externa TURN/TLS acessível. Adapter, endpoint, renovação, telemetria, fixture e assertiva do par real estão implementados; o gate não foi falsificado. Os logs completos dos gates ficam em `norium-back-end/artifacts/team-call-turn-backend-full.log` e `norium-front-end/artifacts/team-call-turn-*.log`, ignorados pelo Git. Permanecem apenas avisos preexistentes: cenários negativos intencionais no backend, 14 avisos de lint fora do escopo e chunk geral acima de 500 kB no build. Nenhum deploy foi executado.

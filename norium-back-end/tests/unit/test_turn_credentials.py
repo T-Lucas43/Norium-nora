@@ -8,6 +8,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app import bootstrap
 from app.modules.team import router as team_router
 from app.modules.team.turn_credentials import (
     HmacTurnCredentialProvider,
@@ -68,6 +69,18 @@ class TurnCredentialProviderTests(unittest.TestCase):
                 "TEAM_CALL_TURN_SHARED_SECRET": SECRET,
             },
             {
+                "TEAM_CALL_TURN_URLS": "turns:",
+                "TEAM_CALL_TURN_SHARED_SECRET": SECRET,
+            },
+            {
+                "TEAM_CALL_TURN_URLS": "turns:turn.example.test:invalid?transport=tcp",
+                "TEAM_CALL_TURN_SHARED_SECRET": SECRET,
+            },
+            {
+                "TEAM_CALL_TURN_URLS": "turns:turn.example.test:5349?transport=http",
+                "TEAM_CALL_TURN_SHARED_SECRET": SECRET,
+            },
+            {
                 "TEAM_CALL_TURN_URLS": "turns:turn.example.test:5349?transport=tcp",
                 "TEAM_CALL_TURN_SHARED_SECRET": f" {SECRET}",
             },
@@ -85,6 +98,15 @@ class TurnCredentialProviderTests(unittest.TestCase):
     def test_required_provider_fails_validation_when_absent(self) -> None:
         with self.assertRaisesRegex(TurnConfigurationError, "obrigatório"):
             validate_turn_configuration({"TEAM_CALL_TURN_REQUIRED": "true"})
+
+    def test_application_startup_fails_on_invalid_turn_configuration(self) -> None:
+        with patch.object(
+            bootstrap,
+            "validate_turn_configuration",
+            side_effect=TurnConfigurationError("configuração TURN inválida"),
+        ):
+            with self.assertRaisesRegex(TurnConfigurationError, "TURN inválida"):
+                bootstrap.create_app()
 
 
 class TurnCredentialEndpointTests(unittest.TestCase):

@@ -9,6 +9,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Mapping, Protocol
+from urllib.parse import urlsplit
 
 
 DEFAULT_STUN_URLS = (
@@ -139,7 +140,28 @@ def _validate_urls(urls: tuple[str, ...], schemes: tuple[str, ...], name: str) -
     if not urls:
         raise TurnConfigurationError(f"{name} deve conter ao menos uma URL.")
     for url in urls:
-        if not url.startswith(schemes) or "@" in url or any(character.isspace() for character in url):
+        scheme, separator, remainder = url.partition(":")
+        authority, query_separator, query = remainder.partition("?")
+        try:
+            parsed_authority = urlsplit(f"//{authority}")
+            port = parsed_authority.port
+        except ValueError:
+            port = -1
+            parsed_authority = urlsplit("//")
+        allowed_query = not query_separator or (
+            scheme in {"turn", "turns"} and query in {"transport=udp", "transport=tcp"}
+        )
+        if (
+            not separator
+            or f"{scheme}:" not in schemes
+            or "@" in url
+            or any(character.isspace() for character in url)
+            or not parsed_authority.hostname
+            or parsed_authority.path
+            or parsed_authority.fragment
+            or port == -1
+            or not allowed_query
+        ):
             raise TurnConfigurationError(f"{name} contém uma URL inválida ou com credencial permanente.")
 
 

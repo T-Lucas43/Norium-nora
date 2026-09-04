@@ -14,7 +14,6 @@ import base64
 import binascii
 from html import unescape
 from urllib.parse import quote_plus
-from xml.etree import ElementTree
 from typing import Any, Literal, List
 
 import httpx
@@ -140,15 +139,23 @@ async def research_web(user: dict[str, Any], text: str, model_id: str | None) ->
         if not query:
             return {"status": "precisa_dados", "response": "Qual tema você quer que eu pesquise na web?", "webSources": []}
         feed = await safe_fetch(f"https://www.bing.com/search?format=rss&q={quote_plus(query[:300])}")
-        try:
-            root = ElementTree.fromstring(str(feed.get("text") or ""))
-            for item in root.findall(".//item")[:6]:
-                title = " ".join((item.findtext("title") or "Resultado").split())
-                url = (item.findtext("link") or "").strip()
-                excerpt = re.sub(r"<[^>]+>", " ", unescape(item.findtext("description") or ""))
-                if url:
-                    sources.append({"title": title[:240], "url": url, "excerpt": " ".join(excerpt.split())[:1200]})
-        except ElementTree.ParseError:
+        feed_text = str(feed.get("text") or "")[:500_000]
+        for item_match in list(re.finditer(r"<item\b[^>]*>(.*?)</item>", feed_text, flags=re.I | re.S))[:6]:
+            item_text = item_match.group(1)
+
+            def rss_field(tag: str) -> str:
+                match = re.search(rf"<{tag}\b[^>]*>(.*?)</{tag}>", item_text, flags=re.I | re.S)
+                if not match:
+                    return ""
+                value = re.sub(r"^\s*<!\[CDATA\[|\]\]>\s*$", "", match.group(1).strip(), flags=re.S)
+                return unescape(value).strip()
+
+            title = " ".join(re.sub(r"<[^>]+>", " ", rss_field("title") or "Resultado").split())
+            url = re.sub(r"<[^>]+>", "", rss_field("link")).strip()
+            excerpt = re.sub(r"<[^>]+>", " ", rss_field("description"))
+            if url:
+                sources.append({"title": title[:240], "url": url, "excerpt": " ".join(excerpt.split())[:1200]})
+        if not sources:
             sources.append({"title": "Resultados da pesquisa", "url": str(feed.get("url") or ""), "excerpt": str(feed.get("text") or "")[:12_000]})
     if not sources:
         return {"status": "sem_resultados", "response": "Não encontrei fontes públicas para essa pesquisa.", "webSources": []}

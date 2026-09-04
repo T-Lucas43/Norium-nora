@@ -15,7 +15,7 @@ function syntheticVideo(label: string) {
   canvas.width = 640; canvas.height = 360;
   const context = canvas.getContext("2d")!;
   const draw = () => {
-    context.fillStyle = label === "Tela" ? "#12539c" : "#156345";
+    context.fillStyle = label.startsWith("Tela") ? (label.endsWith("1") ? "#12539c" : "#8536b5") : "#156345";
     context.fillRect(0, 0, 640, 360);
     context.fillStyle = "white"; context.font = "30px sans-serif";
     context.fillText(`${label} · ${userId}`, 30, 80);
@@ -41,6 +41,7 @@ function syntheticAudio(frequency: number) {
   track.stop = () => { tone.stop(); void context.close(); stop(); };
   return destination.stream;
 }
+let displayNumber = 0;
 Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
   getUserMedia: async ({ video }: { video: unknown }) => {
     if (video) {
@@ -48,7 +49,12 @@ Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
     }
     return syntheticAudio(220);
   },
-  getDisplayMedia: async () => new MediaStream([...syntheticVideo("Tela").getTracks(), ...syntheticAudio(880).getTracks()]),
+  getDisplayMedia: async () => {
+    if ((window as any).__cancelNextDisplay) { (window as any).__cancelNextDisplay = false; throw new DOMException("Cancelado", "NotAllowedError"); }
+    const stream = new MediaStream([...syntheticVideo(`Tela ${++displayNumber}`).getTracks(), ...syntheticAudio(880).getTracks()]);
+    ((window as any).__displayStreams ||= []).push(stream);
+    return stream;
+  },
   enumerateDevices: async () => [],
   addEventListener() {}, removeEventListener() {},
 } });
@@ -79,7 +85,7 @@ export function Fixture() {
     <button disabled={!connected || call.busy} onClick={() => void call.startCall()} className="m-4 rounded bg-blue-600 px-4 py-2 text-white">Iniciar reunião</button>
     {call.availableCalls.map((meeting) => <TeamActiveCallCard key={meeting.callId} meeting={meeting} busy={call.busy} onJoin={() => void call.joinActiveCall(meeting)} />)}
     <p>{call.status}</p>
-    <TeamCallOverlay call={call} messages={[]} members={members} currentUserId={userId} onSendMessage={async () => {}} onDownloadAttachment={() => {}} />
+    <TeamCallOverlay call={call} members={members} currentUserId={userId} onDownloadAttachment={() => {}} />
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<Fixture />);

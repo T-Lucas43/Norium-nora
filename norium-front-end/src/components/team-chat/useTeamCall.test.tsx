@@ -410,13 +410,27 @@ describe("chamadas do Modo Equipe", () => {
     expect(result.current.screenShareQuality).toBe("720p");
     expect(result.current.screenShareFps).toBe(60);
 
+    getDisplayMedia.mockRejectedValueOnce(new DOMException("Cancelado", "NotAllowedError"));
+    await act(async () => result.current.changeScreenShare());
+    expect(result.current.screenStream).toBe(displayStream);
+    expect(screenTrack.stop).not.toHaveBeenCalled();
+    const nextScreenTrack = { ...screenTrack, id: "replacement-screen", stop: vi.fn() };
+    const nextDisplay = new FakeMediaStream([nextScreenTrack]) as unknown as MediaStream;
+    getDisplayMedia.mockResolvedValueOnce(nextDisplay);
+    await act(async () => result.current.changeScreenShare());
+    expect(replaceTrack).toHaveBeenLastCalledWith(nextScreenTrack);
+    expect(result.current.screenStream).toBe(nextDisplay);
+    expect(screenTrack.stop).toHaveBeenCalledOnce();
+    expect(screenAudioSender.replaceTrack).toHaveBeenLastCalledWith(null);
+    expect(sendSocketEvent.mock.calls.filter(([event]) => event.type === "CALL_SCREEN_STARTED")).toHaveLength(1);
+
     await act(async () => result.current.toggleScreenShare());
     expect(replaceTrack).toHaveBeenLastCalledWith(cameraTrack);
     expect(result.current.screenStream).toBeNull();
     expect(screenAudioSender.replaceTrack).toHaveBeenLastCalledWith(null);
     expect(screenAudioTrack.stop).toHaveBeenCalled();
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_SCREEN_STOPPED" }));
-    expect(peer.createOffer).toHaveBeenCalledTimes(4);
+    expect(peer.createOffer).toHaveBeenCalledTimes(5);
     await act(async () => result.current.toggleCamera());
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_MEDIA_STATE", cameraEnabled: false, screenSharing: false }));
     await act(async () => result.current.endCall());

@@ -749,12 +749,12 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     return () => window.cancelAnimationFrame(frame);
   }, [loading, messages.length, open, recipientId, scope, subteamId]);
 
-  async function sendMessage(overrideText?: string, overrideFiles?: File[], targetThread = call.active?.thread) {
+  async function sendMessage(overrideText?: string, overrideFiles?: File[]) {
     const outgoingText = overrideText ?? text;
     const outgoingFiles = overrideFiles ?? (overrideText === undefined ? files : []);
-    const outgoingScope = targetThread?.scope || scope;
-    const outgoingRecipientId = outgoingScope === "direct" ? targetThread?.recipientId || recipientId : null;
-    const outgoingSubteamId = outgoingScope === "subteam" ? targetThread?.subteamId || subteamId : null;
+    const outgoingScope = scope;
+    const outgoingRecipientId = outgoingScope === "direct" ? recipientId : null;
+    const outgoingSubteamId = outgoingScope === "subteam" ? subteamId : null;
     if ((!outgoingText.trim() && outgoingFiles.length === 0) || sending) return;
     setSending(true);
     setError("");
@@ -1168,10 +1168,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       )}
           <TeamCallOverlay
             call={call}
-            messages={messages}
             members={members}
             currentUserId={session.user.id}
-            onSendMessage={async (message, meetingFiles) => { await sendMessage(message, meetingFiles, call.active?.thread); }}
             onDownloadAttachment={(attachment) => { void downloadWithAuth(attachment.url, attachment.name, session.token); }}
           />
     </AnimatePresence>

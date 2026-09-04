@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import "webrtc-adapter";
 import type { AuthSession } from "../../types/auth";
 import { apiBaseUrl } from "../../utils/api";
+import { createMeetingRecording } from "./meetingRecording";
+import { prepareChatAttachments } from "./chatAttachments";
 
 const TEAM_CHAT_API = `${apiBaseUrl()}/api/team-chat`;
 
@@ -37,7 +39,13 @@ export type TeamCallSocketEvent = {
   event?: string;
   cameraEnabled?: boolean;
   screenSharing?: boolean;
+  raisedHands?: Record<string, string>;
+  handRevision?: number;
+  message?: MeetingMessage;
 };
+
+export type MeetingMessage = { id: string; senderId: string; senderName: string; text: string; createdAt: string;
+  attachments: Array<{ id: string; name: string; mimeType: string; size: number; url: string }> };
 
 type ActiveCall = {
   callId: string;
@@ -80,7 +88,7 @@ type CallDevices = {
   speakers: MediaDeviceInfo[];
 };
 
-type CallSound = "connecting" | "joined" | "left" | "ended";
+type CallSound = "connecting" | "joined" | "left" | "ended" | "screen";
 type ConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
 type CameraPermission = "unknown" | "requesting" | "granted" | "denied" | "unavailable";
 export type ScreenShareQuality = "720p" | "1080p" | "1440p";
@@ -122,9 +130,11 @@ function playCallSound(sound: CallSound) {
     joined: [[520, 0, 0.1], [660, 0.12, 0.1], [820, 0.24, 0.16]],
     left: [[520, 0, 0.12], [390, 0.16, 0.18]],
     ended: [[480, 0, 0.12], [360, 0.15, 0.14], [250, 0.32, 0.2]],
+    screen: [[660, 0, 0.12], [990, 0.16, 0.22]],
   };
   try {
     const context = new AudioContext();
+    void context.resume().catch(() => undefined);
     const baseTime = context.currentTime + 0.01;
     for (const [frequency, offset, duration] of notes[sound]) {
       const oscillator = context.createOscillator();
@@ -214,6 +224,14 @@ export function useTeamCall({
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
   const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>(navigator.onLine ? "connecting" : "offline");
   const [reactions, setReactions] = useState<Array<{ id: string; emoji: string; userName: string }>>([]);
+  const [raisedHands, setRaisedHands] = useState<Record<string, string>>({});
+  const handRevisionRef = useRef(-1);
+  const [meetingMessages, setMeetingMessages] = useState<MeetingMessage[]>([]);
+  const announcedScreensRef = useRef(new Set<string>());
+  const screenChangePendingRef = useRef(false);
+  const [screenChangePending, setScreenChangePending] = useState(false);
+  const remoteMediaRef = useRef({ screenIds: remoteScreenSharingIds, cameras: remoteCameraEnabled });
+  remoteMediaRef.current = { screenIds: remoteScreenSharingIds, cameras: remoteCameraEnabled };
   const [devices, setDevices] = useState<CallDevices>({ microphones: [], cameras: [], speakers: [] });
   const [selectedMicrophoneId, setSelectedMicrophoneId] = useState("");
   const [selectedCameraId, setSelectedCameraId] = useState("");
@@ -304,6 +322,52 @@ export function useTeamCall({
     subteamId: call.thread.subteamId || null,
   }), []);
 
+  const receiveHands = useCallback((event: TeamCallSocketEvent) => {
+    if (event.raisedHands && (event.handRevision ?? 0) >= handRevisionRef.current) {
+      handRevisionRef.current = event.handRevision ?? 0;
+      setRaisedHands(event.raisedHands);
+    }
+  }, []);
+
+  const receiveMessages = useCallback((messages: MeetingMessage[]) => {
+    setMeetingMessages((current) => Array.from(new Map([...current, ...messages].map((message) => [message.id, message])).values())
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+  }, []);
+
+  const syncMeetingChat = useCallback(async () => {
+    const call = activeRef.current;
+    if (!call) return;
+    try {
+      const response = await fetch(`${TEAM_CHAT_API}/calls/${call.callId}/messages?clientId=${encodeURIComponent(clientIdRef.current)}`, {
+        headers: { Authorization: `Bearer ${session.token}` },
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (activeRef.current?.callId === call.callId) receiveMessages(data.messages || []);
+    } catch { /* A próxima sincronização recupera mensagens após reconectar. */ }
+  }, [receiveMessages, session.token]);
+
+  const sendMeetingMessage = useCallback(async (text: string, files: File[]) => {
+    const call = activeRef.current;
+    if (!call) throw new Error("A reunião foi encerrada.");
+    const attachments = await prepareChatAttachments(files);
+    if (activeRef.current?.callId !== call.callId) throw new Error("A reunião foi encerrada.");
+    const response = await fetch(`${TEAM_CHAT_API}/calls/${call.callId}/messages`, {
+      method: "POST", headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId: clientIdRef.current, text, attachments }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "Não foi possível enviar a mensagem.");
+    if (activeRef.current?.callId === call.callId && data.message) receiveMessages([data.message]);
+  }, [receiveMessages, session.token]);
+
+  const toggleHand = useCallback(() => {
+    const call = activeRef.current;
+    if (call && !sendSocketEvent({ type: "CALL_HAND_STATE", ...callPayload(call), raised: !raisedHands[session.user.id] })) {
+      setStatus("A conexão caiu. Tente levantar a mão novamente ao reconectar.");
+    }
+  }, [callPayload, raisedHands, sendSocketEvent, session.user.id]);
+
   const publishMediaState = useCallback(() => {
     const call = activeRef.current;
     if (!call) return;
@@ -316,6 +380,7 @@ export function useTeamCall({
   useEffect(() => { if (active) publishMediaState(); }, [active, cameraOff, sharingScreen, publishMediaState]);
 
   const closePeer = useCallback((userId: string) => {
+    announcedScreensRef.current.delete(userId);
     const recoveryTimer = screenRecoveryTimersRef.current.get(userId);
     if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
     screenRecoveryTimersRef.current.delete(userId);
@@ -350,6 +415,10 @@ export function useTeamCall({
     busyRef.current = false;
     setBusy(false);
     confirmedCallIdRef.current = "";
+    setMeetingMessages([]);
+    setRaisedHands({});
+    handRevisionRef.current = -1;
+    announcedScreensRef.current.clear();
     if (notify && call) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
     stopConnectingSound();
     peersRef.current.forEach((peer) => peer.close());
@@ -650,113 +719,18 @@ export function useTeamCall({
     }
   }, [cameraOff, muted]);
 
-  const createMeetingRecordingStream = useCallback((mode: "audio" | "video") => {
-    if (!window.AudioContext) throw new Error("O navegador nao oferece mixagem de audio para gravacao.");
-    const output = new MediaStream();
-    const audioContext = new AudioContext();
-    void audioContext.resume().catch(() => undefined);
-    const audioDestination = audioContext.createMediaStreamDestination();
-    const connectedAudioTracks = new Set<string>();
-    const audioSources: MediaStreamAudioSourceNode[] = [];
-    const videos = new Map<string, HTMLVideoElement>();
-    let animationFrame = 0;
-    let audioSyncTimer = 0;
-    let canvasStream: MediaStream | null = null;
-
-    const currentSources = () => {
-      const result: Array<{ id: string; label: string; stream: MediaStream }> = [];
-      if (screenStreamRef.current?.getVideoTracks().length) {
-        result.push({ id: "screen", label: "Tela compartilhada", stream: screenStreamRef.current });
-      } else {
-        for (const item of remoteStreamsRef.current) result.push({ id: item.userId, label: `Participante ${item.userId}`, stream: item.stream });
-        if (localStreamRef.current) result.push({ id: "local", label: session.user.nome || "Voce", stream: localStreamRef.current });
-      }
-      return result;
-    };
-
-    const connectAvailableAudio = () => {
-      const allStreams = [localStreamRef.current, ...remoteStreamsRef.current.map((item) => item.stream)].filter(Boolean) as MediaStream[];
-      for (const stream of allStreams) {
-        for (const track of stream.getAudioTracks()) {
-          if (connectedAudioTracks.has(track.id)) continue;
-          const source = audioContext.createMediaStreamSource(new MediaStream([track]));
-          source.connect(audioDestination);
-          audioSources.push(source);
-          connectedAudioTracks.add(track.id);
-        }
-      }
-    };
-    connectAvailableAudio();
-    audioDestination.stream.getAudioTracks().forEach((track) => output.addTrack(track));
-
-    if (mode === "video") {
-      const canvas = document.createElement("canvas");
-      canvas.width = 1280;
-      canvas.height = 720;
-      const context = canvas.getContext("2d");
-      if (!context || typeof canvas.captureStream !== "function") {
-        void audioContext.close();
-        throw new Error("Este navegador nao permite compor a gravacao de video.");
-      }
-      canvasStream = canvas.captureStream(24);
-      canvasStream.getVideoTracks().forEach((track) => output.addTrack(track));
-
-      const draw = () => {
-        connectAvailableAudio();
-        const sources = currentSources();
-        context.fillStyle = "#090b0e";
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        const columns = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, sources.length))));
-        const rows = Math.max(1, Math.ceil(Math.max(1, sources.length) / columns));
-        const cellWidth = canvas.width / columns;
-        const cellHeight = canvas.height / rows;
-        sources.forEach((source, index) => {
-          let video = videos.get(source.id);
-          if (!video || video.srcObject !== source.stream) {
-            video?.pause();
-            video = document.createElement("video");
-            video.srcObject = source.stream;
-            video.muted = true;
-            video.playsInline = true;
-            void video.play().catch(() => undefined);
-            videos.set(source.id, video);
-          }
-          const x = (index % columns) * cellWidth;
-          const y = Math.floor(index / columns) * cellHeight;
-          if (video.readyState >= 2) context.drawImage(video, x, y, cellWidth, cellHeight);
-          context.fillStyle = "rgba(0,0,0,.58)";
-          context.fillRect(x + 18, y + cellHeight - 54, Math.min(cellWidth - 36, 320), 34);
-          context.fillStyle = "#fff";
-          context.font = "600 18px Arial";
-          context.fillText(source.label, x + 30, y + cellHeight - 31);
-        });
-        if (!sources.length) {
-          context.fillStyle = "#fff";
-          context.font = "700 30px Arial";
-          context.textAlign = "center";
-          context.fillText("Aguardando participantes...", canvas.width / 2, canvas.height / 2);
-          context.textAlign = "start";
-        }
-        animationFrame = window.requestAnimationFrame(draw);
-      };
-      draw();
-    } else {
-      audioSyncTimer = window.setInterval(connectAvailableAudio, 1000);
-    }
-
-    return {
-      stream: output,
-      cleanup: () => {
-        if (animationFrame) window.cancelAnimationFrame(animationFrame);
-        if (audioSyncTimer) window.clearInterval(audioSyncTimer);
-        videos.forEach((video) => { video.pause(); video.srcObject = null; });
-        canvasStream?.getTracks().forEach((track) => track.stop());
-        audioDestination.stream.getTracks().forEach((track) => track.stop());
-        audioSources.forEach((source) => source.disconnect());
-        void audioContext.close();
-      },
-    };
-  }, [session.user.nome]);
+  const createMeetingRecordingStream = useCallback(() => createMeetingRecording(() => {
+    const sources = remoteStreamsRef.current.map((item) => ({
+      id: `${item.userId}-${remoteMediaRef.current.screenIds.includes(item.userId) ? "screen" : "camera"}`,
+      label: `${remoteMediaRef.current.screenIds.includes(item.userId) ? "Tela de" : "Participante"} ${item.userId}`,
+      stream: item.stream, screen: remoteMediaRef.current.screenIds.includes(item.userId),
+      visible: remoteMediaRef.current.screenIds.includes(item.userId) || remoteMediaRef.current.cameras[item.userId] === true,
+    }));
+    if (localStreamRef.current) sources.push({ id: "local", label: session.user.nome || "Você", stream: localStreamRef.current,
+      screen: false, visible: localStreamRef.current.getVideoTracks().some((track) => track.enabled && track.readyState !== "ended") });
+    if (screenStreamRef.current) sources.push({ id: "local-screen", label: "Sua tela compartilhada", stream: screenStreamRef.current, screen: true, visible: true });
+    return sources;
+  }), [session.user.nome]);
 
   const stopRecording = useCallback(async () => {
     const recorder = mediaRecorderRef.current;
@@ -772,20 +746,13 @@ export function useTeamCall({
     }
     const epoch = mediaEpochRef.current;
     recordingStartPendingRef.current = true;
-    const recordingMode: "audio" | "video" = screenStreamRef.current?.getVideoTracks().length
-      || localStreamRef.current?.getVideoTracks().length
-      || remoteStreamsRef.current.some((item) => item.stream.getVideoTracks().length)
-      ? "video"
-      : "audio";
-    const candidates = recordingMode === "video"
-      ? ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
-      : ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+    const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
     const mimeType = candidates.find((candidate) => !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(candidate)) || "";
     let cleanup: (() => void) | null = null;
     let recordingId = "";
     try {
       setStatus("Preparando gravacao...");
-      const composition = createMeetingRecordingStream(recordingMode);
+      const composition = createMeetingRecordingStream();
       cleanup = composition.cleanup;
       const startResponse = await fetch(`${TEAM_CHAT_API}/recordings/start`, {
         method: "POST",
@@ -795,7 +762,7 @@ export function useTeamCall({
           scope: call.thread.scope,
           recipientId: call.thread.recipientId || null,
           subteamId: call.thread.subteamId || null,
-          mimeType: mimeType || (recordingMode === "video" ? "video/webm" : "audio/webm"),
+          mimeType: mimeType || "video/webm",
         }),
       });
       const startData = await startResponse.json().catch(() => ({}));
@@ -836,7 +803,7 @@ export function useTeamCall({
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(data?.detail || "Nao foi possivel finalizar a gravacao.");
-            if (activeRef.current?.callId === call.callId) setStatus("Gravacao salva no chat por 24 horas.");
+            if (activeRef.current?.callId === call.callId) setStatus("Gravação com tela e áudio salva no chat da equipe por 24 horas.");
           } catch (error) {
             if (activeRef.current?.callId === call.callId) setStatus(error instanceof Error ? error.message : "Falha ao salvar a gravacao.");
             await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}`, { method: "DELETE", headers: { Authorization: `Bearer ${session.token}` } }).catch(() => undefined);
@@ -1182,9 +1149,15 @@ export function useTeamCall({
   }, [callPayload, finishCall, sendSocketEvent]);
 
   const handleSocketEvent = useCallback(async (event: TeamCallSocketEvent) => {
-    if (event.type === "CALLS_STATE") { syncActiveCalls(event.calls || []); return; }
+    if (event.type === "CALLS_STATE") {
+      syncActiveCalls(event.calls || []);
+      const current = event.calls?.find((call) => call.callId === activeRef.current?.callId);
+      if (current) { receiveHands(current); if (confirmedCallIdRef.current) void syncMeetingChat(); }
+      return;
+    }
     if (event.type === "CALL_ACK" && event.callId === activeRef.current?.callId) {
       confirmedCallIdRef.current = event.callId || "";
+      if (event.event === "CALL_INVITE" || event.event === "CALL_ACCEPT") void syncMeetingChat();
       return;
     }
     if (event.type === "CALL_ERROR") {
@@ -1221,6 +1194,11 @@ export function useTeamCall({
       availableCallsRef.current = [...availableCallsRef.current.filter((call) => call.threadId !== event.threadId && call.callId !== event.callId), event];
       setAvailableCalls(availableCallsRef.current);
     }
+    if (event.callId === activeRef.current?.callId) {
+      receiveHands(event);
+      if (event.type === "CALL_CHAT_MESSAGE" && event.message) { receiveMessages([event.message]); return; }
+      if (event.type === "CALL_HAND_STATE") return;
+    }
     if (!event.callId || !event.fromUserId || (event.fromUserId === session.user.id && event.type !== "CALL_END")) {
       if (event.type === "CALL_ERROR" && event.detail) setStatus(event.detail);
       return;
@@ -1255,6 +1233,7 @@ export function useTeamCall({
       return;
     }
     if (event.type === "CALL_MEDIA_STATE") {
+      if (!event.screenSharing) announcedScreensRef.current.delete(event.fromUserId);
       setRemoteCameraEnabled((current) => ({ ...current, [event.fromUserId!]: event.cameraEnabled === true }));
       setRemoteScreenSharingIds((current) => event.screenSharing
         ? Array.from(new Set([...current, event.fromUserId!]))
@@ -1262,12 +1241,14 @@ export function useTeamCall({
       return;
     }
     if (event.type === "CALL_SCREEN_STARTED") {
+      if (!announcedScreensRef.current.has(event.fromUserId)) { announcedScreensRef.current.add(event.fromUserId); playCallSound("screen"); }
       setRemoteScreenSharingIds((current) => current.includes(event.fromUserId as string) ? current : [...current, event.fromUserId as string]);
       setStatus(`${event.fromUserName || "Um participante"} está compartilhando a tela.`);
       await requestRemoteScreenRefresh(event.fromUserId);
       return;
     }
     if (event.type === "CALL_SCREEN_STOPPED") {
+      announcedScreensRef.current.delete(event.fromUserId);
       const recoveryTimer = screenRecoveryTimersRef.current.get(event.fromUserId);
       if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
       screenRecoveryTimersRef.current.delete(event.fromUserId);
@@ -1343,7 +1324,7 @@ export function useTeamCall({
       setStatus("Gravacao disponivel no chat por 24 horas.");
       return;
     }
-  }, [callPayload, closePeer, createPeer, finishCall, publishMediaState, requestRemoteScreenRefresh, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
+  }, [receiveHands, receiveMessages, syncMeetingChat, callPayload, closePeer, createPeer, finishCall, publishMediaState, requestRemoteScreenRefresh, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;
@@ -1445,45 +1426,56 @@ export function useTeamCall({
     setStatus("Transmissão de tela encerrada");
   }, [attachVideoTrack, callPayload, publishMediaState, sendSocketEvent]);
 
-  const toggleScreenShare = useCallback(async () => {
+  const changeScreenShare = useCallback(async () => {
+    if (!activeRef.current || screenChangePendingRef.current) return;
+    if (!navigator.mediaDevices?.getDisplayMedia) { setStatus("Compartilhamento de tela indisponível neste navegador."); return; }
     const epoch = mediaEpochRef.current;
-    if (!activeRef.current) return;
-    if (sharingScreen) {
-      await stopScreenShare();
-      return;
-    }
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      setStatus("Compartilhamento de tela indisponivel neste navegador.");
-      return;
-    }
+    const previous = screenStreamRef.current;
+    screenChangePendingRef.current = true;
+    setScreenChangePending(true);
+    let next: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        audio: true,
-        video: screenShareConstraints(screenShareQualityRef.current, screenShareFpsRef.current),
-      });
-      if (epoch !== mediaEpochRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      const screenTrack = stream.getVideoTracks()[0];
-      if (!screenTrack) throw new Error("A tela selecionada nao forneceu video.");
+      next = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: screenShareConstraints(screenShareQualityRef.current, screenShareFpsRef.current) });
+      if (epoch !== mediaEpochRef.current) { next.getTracks().forEach((track) => track.stop()); return; }
+      // If sharing stopped while the picker was open, do not resurrect it.
+      if (previous && screenStreamRef.current !== previous) { next.getTracks().forEach((track) => track.stop()); return; }
+      const screenTrack = next.getVideoTracks()[0];
+      if (!screenTrack || screenTrack.readyState === "ended") throw new Error("A tela selecionada não forneceu vídeo.");
       screenTrack.contentHint = "detail";
-      screenStreamRef.current = stream;
-      setScreenStream(stream);
-      screenTrack.onended = () => { void stopScreenShare(); };
-      await Promise.all(Array.from(screenAudioSendersRef.current.values()).map((sender) => sender.replaceTrack(stream.getAudioTracks()[0] || null)));
-      await attachVideoTrack(screenTrack, stream);
-      if (epoch !== mediaEpochRef.current) return;
-      screenTrack.onended = () => { void stopScreenShare(); };
+      screenStreamRef.current = next;
+      await Promise.all(Array.from(screenAudioSendersRef.current.values()).map((sender) => sender.replaceTrack(next!.getAudioTracks()[0] || null)));
+      await attachVideoTrack(screenTrack, next);
+      if (epoch !== mediaEpochRef.current) { next.getTracks().forEach((track) => track.stop()); return; }
+      // Reuse the same senders and stop the previous capture only after replacement.
+      previous?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
+      const selected = next;
+      screenTrack.onended = () => { if (screenStreamRef.current === selected) void stopScreenShare(); };
+      setScreenStream(next);
       setSharingScreen(true);
+      publishMediaState();
       const call = activeRef.current;
-      if (call) sendSocketEvent({ type: "CALL_SCREEN_STARTED", ...callPayload(call) });
-      setStatus(stream.getAudioTracks().length ? "Transmitindo tela com som" : "Transmitindo sem som. Para incluir áudio, escolha uma aba e marque Compartilhar áudio no navegador.");
+      if (call && !previous) {
+        playCallSound("screen");
+        sendSocketEvent({ type: "CALL_SCREEN_STARTED", ...callPayload(call) });
+      }
+      setStatus(next.getAudioTracks().length ? "Transmitindo tela com som" : "Transmitindo sem som. Para incluir áudio, escolha uma aba e marque Compartilhar áudio no navegador.");
     } catch (error) {
-      if (screenStreamRef.current) await stopScreenShare();
-      setStatus(mediaAccessError(error, "tela"));
-    }
-  }, [attachVideoTrack, callPayload, sendSocketEvent, sharingScreen, stopScreenShare]);
+      next?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
+      if (epoch !== mediaEpochRef.current) return;
+      if (next) {
+        screenStreamRef.current = previous;
+        await Promise.all(Array.from(screenAudioSendersRef.current.values()).map((sender) => sender.replaceTrack(previous?.getAudioTracks()[0] || null).catch(() => undefined)));
+        const camera = localStreamRef.current?.getVideoTracks().find((track) => track.enabled && track.readyState !== "ended") || null;
+        await attachVideoTrack(previous?.getVideoTracks()[0] || camera, previous || localStreamRef.current || new MediaStream()).catch(() => undefined);
+      }
+      setStatus(error instanceof DOMException && error.name === "NotAllowedError" ? (previous ? "Troca cancelada. A transmissão atual continua." : "Compartilhamento cancelado.") : mediaAccessError(error, "tela"));
+    } finally { screenChangePendingRef.current = false; setScreenChangePending(false); }
+  }, [attachVideoTrack, callPayload, publishMediaState, sendSocketEvent, stopScreenShare]);
+
+  const toggleScreenShare = useCallback(async () => {
+    if (screenStreamRef.current) await stopScreenShare();
+    else await changeScreenShare();
+  }, [changeScreenShare, stopScreenShare]);
 
   const endCall = useCallback(async () => {
     const call = activeRef.current;
@@ -1561,6 +1553,12 @@ export function useTeamCall({
     startRecording,
     stopRecording,
     sendReaction,
+    raisedHands,
+    toggleHand,
+    meetingMessages,
+    sendMeetingMessage,
+    changeScreenShare,
+    screenChangePending,
     toggleMute,
     toggleCamera,
     requestCameraPermission,

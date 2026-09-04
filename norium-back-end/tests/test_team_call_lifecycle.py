@@ -25,6 +25,7 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.socket = MagicMock()
         self.socket.send_json = AsyncMock()
         self.patches = [
+            patch.object(team, "UPLOAD_DIR", Path(self.temp.name)),
             patch.object(team, "team_chat_path", return_value=str(Path(self.temp.name) / "team_chat.json")),
             patch.object(team, "read_user_store", AsyncMock(return_value={"users": [self.owner, self.member, self.other]})),
             patch.object(team, "read_profile_db", return_value={}),
@@ -42,6 +43,61 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
     async def send(self, event: str, user=None, **extra):
         await team.handle_call_event(self.socket, user or self.owner, {**self.invite, "type": event, **extra})
+
+    async def test_meeting_chat_is_private_ephemeral_and_cleans_attachments(self):
+        await self.send("CALL_INVITE")
+        payload = team.SendMeetingMessagePayload(clientId="owner-tab", text="Somente nesta reunião", attachments=[
+            team.AttachmentPayload(fileName="pauta.txt", mimeType="text/plain", dataUrl="data:text/plain;base64,cGF1dGE=")])
+        message = (await team.send_meeting_message(self.invite["callId"], payload, self.owner))["message"]
+        file_name = message["attachments"][0]["storedName"]
+        self.assertTrue((Path(self.temp.name) / file_name).exists())
+        self.assertFalse(any(item.get("text") == payload.text for item in team.read_chat_store("owner")["messages"]))
+        for action in (
+            team.list_meeting_messages(self.invite["callId"], "member-tab", self.member),
+            team.send_meeting_message(self.invite["callId"], payload, self.member),
+            team.download_attachment(file_name, self.member),
+            team.list_meeting_messages(self.invite["callId"], "old-tab", self.owner),
+        ):
+            with self.assertRaises(HTTPException):
+                await action
+        await self.send("CALL_ACCEPT", self.member, clientId="member-tab")
+        self.assertEqual([message], (await team.list_meeting_messages(self.invite["callId"], "member-tab", self.member))["messages"])
+        self.assertEqual(Path(self.temp.name) / file_name, (await team.download_attachment(file_name, self.member)).path)
+        await self.send("CALL_END")
+        self.assertFalse((Path(self.temp.name) / file_name).exists())
+        with self.assertRaises(HTTPException):
+            await team.download_attachment(file_name, self.owner)
+        await self.send("CALL_INVITE", callId="call_aaaaaaaaaaaaaaaa")
+        self.assertEqual([], (await team.list_meeting_messages("call_aaaaaaaaaaaaaaaa", "owner-tab", self.owner))["messages"])
+
+    async def test_expired_call_deletes_temporary_chat_files(self):
+        await self.send("CALL_INVITE")
+        message = (await team.send_meeting_message(self.invite["callId"], team.SendMeetingMessagePayload(
+            clientId="owner-tab", attachments=[team.AttachmentPayload(fileName="temp.txt", dataUrl="data:text/plain;base64,dGVtcA==")]), self.owner))["message"]
+        store = team.read_chat_store("owner")
+        store["activeCalls"][0]["lastHeartbeatAt"] = (datetime.now(timezone.utc) - timedelta(seconds=91)).isoformat()
+        team.write_chat_store("owner", store)
+        await team.active_calls_snapshot("owner")
+        self.assertFalse((Path(self.temp.name) / message["attachments"][0]["storedName"]).exists())
+
+    async def test_raised_hands_sync_in_order_and_clear_on_leave(self):
+        await self.send("CALL_INVITE")
+        await self.send("CALL_ACCEPT", self.member, clientId="member-tab")
+        await self.send("CALL_HAND_STATE", self.member, clientId="member-tab", raised=True)
+        await self.send("CALL_HAND_STATE", raised=True)
+        call = (await team.list_active_calls(self.owner))["calls"][0]
+        self.assertLessEqual(call["raisedHands"]["member"], call["raisedHands"]["owner"])
+        first_raised = call["raisedHands"]["member"]
+        await self.send("CALL_HAND_STATE", self.member, clientId="member-tab", raised=True)
+        self.assertEqual(first_raised, (await team.list_active_calls(self.owner))["calls"][0]["raisedHands"]["member"])
+        with self.assertRaises(HTTPException):
+            await self.send("CALL_HAND_STATE", raised="true")
+        self.manager.send_to_users.reset_mock()
+        await self.send("CALL_HAND_STATE", self.other, clientId="other-tab", raised=True)
+        self.manager.send_to_users.assert_not_awaited()
+        await self.send("CALL_HAND_STATE", raised=False)
+        await self.send("CALL_LEAVE", self.member, clientId="member-tab")
+        self.assertEqual({}, (await team.list_active_calls(self.owner))["calls"][0]["raisedHands"])
 
     async def test_concurrent_start_reserves_only_one_call_per_thread(self):
         await asyncio.gather(

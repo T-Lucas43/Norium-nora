@@ -63,6 +63,10 @@ class SendSubteamMessagePayload(StrictModel):
     attachments: list[AttachmentPayload] = Field(default=[], max_length=MAX_ATTACHMENTS_PER_MESSAGE)
 
 
+class SendMeetingMessagePayload(SendSubteamMessagePayload):
+    clientId: str = Field(min_length=1, max_length=100)
+
+
 class MarkMessagesReadPayload(StrictModel):
     messageIds: list[str] = Field(default_factory=list, max_length=100)
 
@@ -304,6 +308,14 @@ def purge_expired_recordings(store: dict[str, Any]) -> bool:
     return changed
 
 
+def clear_meeting_chat(call: dict[str, Any]) -> None:
+    for message in call.pop("meetingMessages", []):
+        for attachment in message.get("attachments", []):
+            name = str(attachment.get("storedName") or "")
+            if name and Path(name).name == name:
+                (UPLOAD_DIR / name).unlink(missing_ok=True)
+
+
 def purge_stale_active_calls(store: dict[str, Any]) -> bool:
     """Uma chamada precisa de heartbeat do organizador; registros antigos nao tocam."""
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=90)
@@ -316,6 +328,7 @@ def purge_stale_active_calls(store: dict[str, Any]) -> bool:
         heartbeat = parse_iso_datetime(call.get("lastHeartbeatAt") or call.get("startedAt"))
         thread_id = str(call.get("threadId") or "")
         if not heartbeat or heartbeat < cutoff or thread_id in threads:
+            clear_meeting_chat(call)
             remember_ended_call(store, str(call.get("callId") or ""))
             continue
         threads.add(thread_id)
@@ -357,6 +370,8 @@ def active_call_invite(call: dict[str, Any]) -> dict[str, Any]:
         "fromUserId": call.get("hostUserId"),
         "fromUserName": call.get("hostUserName"),
         "joinedUserIds": sorted(call.get("joinedClients", {})),
+        "raisedHands": call.get("raisedHands", {}),
+        "handRevision": call.get("handRevision", 0),
         "mode": "audio",
         "startedAt": call.get("startedAt"),
         "createdAt": call.get("startedAt"),
@@ -699,6 +714,7 @@ async def delete_active_call(call_id: str, user: dict[str, Any] = Depends(curren
         if str(call.get("hostUserId") or "") != user_id:
             raise HTTPException(status_code=403, detail="Somente o organizador pode encerrar a reuniao.")
         store["activeCalls"] = [item for item in store.get("activeCalls", []) if item.get("callId") != call_id]
+        clear_meeting_chat(call)
         remember_ended_call(store, call_id)
         ended_message = call_message(call, user_id, str(user.get("nome") or "Membro"), "call_ended")
         store.setdefault("messages", []).append(ended_message)
@@ -709,6 +725,54 @@ async def delete_active_call(call_id: str, user: dict[str, Any] = Depends(curren
     await manager.send_to_users(team_id, recipients, {"type": "TEAM_CHAT_MESSAGE", "message": ended_message})
     await broadcast_call_state(team_id)
     return {"callId": call_id, "ended": True, "deleted": True}
+
+
+def require_joined_call(store: dict[str, Any], call_id: str, user_id: str, client_id: str) -> dict[str, Any]:
+    call = active_call_for(store, call_id)
+    if not call:
+        raise HTTPException(status_code=404, detail="Esta reunião já foi encerrada.")
+    if call.get("joinedClients", {}).get(user_id) != client_id:
+        raise HTTPException(status_code=403, detail="Entre na reunião para usar este chat.")
+    return call
+
+
+@router.get("/calls/{call_id}/messages")
+async def list_meeting_messages(call_id: str, clientId: str = Query(min_length=1, max_length=100),
+                                user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    team_id = team_id_for(user)
+    await active_calls_snapshot(team_id)
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        call = require_joined_call(store, call_id, str(user["id"]), clientId)
+        return {"messages": call.get("meetingMessages", [])}
+
+
+@router.post("/calls/{call_id}/messages")
+async def send_meeting_message(call_id: str, payload: SendMeetingMessagePayload,
+                               user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    if not payload.text.strip() and not payload.attachments:
+        raise HTTPException(status_code=400, detail="Escreva uma mensagem ou anexe um arquivo.")
+    team_id, user_id = team_id_for(user), str(user["id"])
+    await active_calls_snapshot(team_id)
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        call = require_joined_call(store, call_id, user_id, payload.clientId)
+        messages = call.setdefault("meetingMessages", [])
+        if len(messages) >= 500:
+            raise HTTPException(status_code=409, detail="O chat desta reunião atingiu o limite de 500 mensagens.")
+        message = {"id": f"meeting_msg_{uuid.uuid4().hex}", "callId": call_id,
+                   "senderId": user_id, "senderName": str(user.get("nome") or "Membro"),
+                   "text": payload.text.strip(), "createdAt": now_iso(),
+                   "attachments": await asyncio.to_thread(save_attachments, payload.attachments)}
+        messages.append(message)
+        await asyncio.to_thread(write_chat_store, team_id, store)
+        recipients = set(call.get("joinedClients", {}))
+    await manager.send_to_users(team_id, recipients, {
+        "type": "CALL_CHAT_MESSAGE", "callId": call_id, "message": message,
+    })
+    return {"message": message}
 
 
 @router.get("/subteams")
@@ -1353,6 +1417,7 @@ async def abort_recording(recording_id: str, user: dict[str, Any] = Depends(curr
 async def download_attachment(file_name: str, user: dict[str, Any] = Depends(current_user)) -> FileResponse:
     require_team_chat(user)
     safe_file_name = Path(file_name).name
+    await active_calls_snapshot(team_id_for(user))
     store = await read_pruned_chat_store(team_id_for(user))
     user_id = str(user.get("id") or "")
     visible_file = any(
@@ -1363,6 +1428,12 @@ async def download_attachment(file_name: str, user: dict[str, Any] = Depends(cur
         )
         for message in store.get("messages", [])
         if isinstance(message, dict)
+    )
+    visible_file = visible_file or any(
+        user_id in call.get("joinedClients", {}) and any(
+            attachment.get("storedName") == safe_file_name
+            for message in call.get("meetingMessages", []) for attachment in message.get("attachments", [])
+        ) for call in store.get("activeCalls", [])
     )
     if not visible_file:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
@@ -1432,15 +1503,28 @@ async def handle_call_event(websocket: WebSocket, user: dict[str, Any], payload:
                 # Sair como organizador tem a mesma semantica de encerrar para todos.
                 if call.get("hostUserId") != user_id:
                     joined.pop(user_id, None)
+                    call.setdefault("raisedHands", {}).pop(user_id, None)
+                    call["handRevision"] = call.get("handRevision", 0) + 1
             elif event_type == "CALL_HEARTBEAT":
                 if call.get("hostUserId") == user_id:
                     call["lastHeartbeatAt"] = now_iso()
+        if event_type == "CALL_HAND_STATE":
+            if not isinstance(payload.get("raised"), bool):
+                raise HTTPException(status_code=400, detail="Estado de mão levantada inválido.")
+            hands = call.setdefault("raisedHands", {})
+            if payload["raised"]:
+                hands.setdefault(user_id, now_iso())
+            else:
+                hands.pop(user_id, None)
+            call["handRevision"] = call.get("handRevision", 0) + 1
         event = {
             **active_call_invite(call), "type": event_type,
             "fromUserId": user_id, "fromUserName": str(user.get("nome") or "Membro"),
             "clientId": client_id, "createdAt": now_iso(),
         }
         recipients = set(joined) - {user_id}
+        if event_type == "CALL_HAND_STATE":
+            recipients = set(joined)
         if event_type == "CALL_INVITE":
             recipients = participants - {user_id}
         if event_type == "CALL_SIGNAL":
@@ -1459,7 +1543,7 @@ async def handle_call_event(websocket: WebSocket, user: dict[str, Any], payload:
                 raise HTTPException(status_code=400, detail="Estado de midia invalido.")
             event["cameraEnabled"] = payload["cameraEnabled"]
             event["screenSharing"] = payload["screenSharing"]
-        if event_type in {"CALL_INVITE", "CALL_ACCEPT", "CALL_LEAVE", "CALL_HEARTBEAT"}:
+        if event_type in {"CALL_INVITE", "CALL_ACCEPT", "CALL_LEAVE", "CALL_HEARTBEAT", "CALL_HAND_STATE"}:
             await asyncio.to_thread(write_chat_store, team_id, store)
     if event_type == "CALL_LEAVE" and call.get("hostUserId") == user_id:
         await delete_active_call(call_id, user)
@@ -1519,7 +1603,7 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             except json.JSONDecodeError:
                 payload = {}
             event_type = str(payload.get("type") or "") if isinstance(payload, dict) else ""
-            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_REACTION", "CALL_MEDIA_STATE", "CALL_SCREEN_STARTED", "CALL_SCREEN_STOPPED", "CALL_LEAVE", "CALL_END", "CALL_HEARTBEAT"}:
+            if event_type not in {"CALL_INVITE", "CALL_ACCEPT", "CALL_REJECT", "CALL_SIGNAL", "CALL_REACTION", "CALL_HAND_STATE", "CALL_MEDIA_STATE", "CALL_SCREEN_STARTED", "CALL_SCREEN_STOPPED", "CALL_LEAVE", "CALL_END", "CALL_HEARTBEAT"}:
                 await websocket.send_json({"type": "ACK", "timestamp": now_iso()})
                 continue
             try:

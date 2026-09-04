@@ -26,11 +26,13 @@ async def fixture_ticket(ticket):
 
 
 _patches = [
+    patch.object(team, "UPLOAD_DIR", Path(_data.name)),
     patch.object(team, "team_chat_path", return_value=str(Path(_data.name) / "team_chat.json")),
     patch.object(team, "read_user_store", AsyncMock(return_value={"users": _users})),
     patch.object(team, "read_profile_db", return_value={}),
     patch.object(team, "user_from_websocket_ticket", fixture_ticket),
     patch.object(team, "emit_due_meeting_reminders", AsyncMock()),
+    patch.object(team, "record_team_event", AsyncMock()),
 ]
 for _patch in _patches:
     _patch.start()

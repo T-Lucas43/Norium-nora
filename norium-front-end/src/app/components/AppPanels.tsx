@@ -251,7 +251,7 @@ export default function AppPanels({
         </section>
       )}
       {isPanelMounted("Chat da Equipe") && (
-        <section className={activePanelClass("Chat da Equipe")}>
+        <section className="team-chat-page-intro">
           {coach("TeamChat")}
         </section>
       )}

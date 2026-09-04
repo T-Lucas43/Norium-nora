@@ -7056,6 +7056,7 @@ html.mail-fullscreen-open body{
 .dark .norium-module-coach__ask{ background:#090c10; }
 
 /* A tela completa reutiliza exatamente o motor do drawer, sem duplicar chat. */
+.team-chat-page-intro{ display:flow-root; min-width:0; flex:0 0 auto; }
 .team-chat-page{
   display:grid;
   grid-template-columns:240px minmax(0,1fr) 286px;
@@ -7181,6 +7182,7 @@ html.mail-fullscreen-open body{
   .team-call-stage-pinned > .team-call-remote-tile{ flex-shrink:0; height:38vh; min-height:280px; }
   .team-call-stage-pinned > .team-call-pinned-tile{ order:-1; height:60vh; min-height:360px; }
   .team-call-side-panel{ position:absolute; inset:64px 0 0 auto; z-index:40; }
+  .team-call-stage > .team-call-local-previews{ position:static; grid-column:1/-1; flex-shrink:0; align-self:end; justify-self:end; }
 }
 .team-call-screen-label{
   display:flex;
@@ -7263,3 +7265,6 @@ html.mail-fullscreen-open body{
   .team-call-top-control>span{ display:none; }
   .team-call-local-preview{ width:min(240px,64vw); }
 }
+
+.team-call-minimized{background:#0b1119;color:#f4f6f8;border-color:#28394d;width:420px;}
+.team-call-hands{background:#231e10;color:#f9ce66;border-color:#423923;}

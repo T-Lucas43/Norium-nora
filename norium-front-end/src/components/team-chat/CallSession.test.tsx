@@ -466,8 +466,11 @@ describe("CallSession", () => {
     expect(screen.getByLabelText("prejoin")).toHaveTextContent("direct:member:muted:false");
   });
 
-  it("prepara o audio depois de uma interacao valida do teclado", () => {
+  it("prepara o audio depois de uma interacao valida do teclado", async () => {
     render(<CallSessionProvider session={authSession}><Probe /></CallSessionProvider>);
+    await waitFor(() => expect(mocked.useTeamCallRuntime).toHaveBeenLastCalledWith(expect.objectContaining({
+      iceServers: expect.arrayContaining([expect.objectContaining({ username: "temporary-user" })]),
+    })));
 
     fireEvent.keyDown(window, { key: "Enter" });
 

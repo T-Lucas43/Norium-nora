@@ -46,7 +46,7 @@ SKILLS: tuple[NoraSkill, ...] = (
         ),
         supporting_terms=("mensagem", "contato", "grupo", "enviar", "mandar", "responder"),
         conflict_patterns=(
-            r"\bchat\s+(?:da|do)\s+(?:equipe|time)\b",
+            r"\bchat\s+(?:da|de|do)\s+(?:equip\w*|time)\b",
             r"\b(?:e-?mail|gmail)\b",
         ),
     ),
@@ -60,7 +60,7 @@ SKILLS: tuple[NoraSkill, ...] = (
             "envie o contrato para assinatura",
         ),
         strong_patterns=(
-            r"\bpropostas?\s+(?:comerciais?)?\b",
+            r"\bpropostas?\b",
             r"\bcontratos?\b",
             r"\b(?:gerar|criar|fazer|montar|preparar)\s+(?:uma\s+)?proposta\b",
             r"\b(?:gerar|criar|converter)\s+(?:um\s+)?contrato\b",
@@ -88,7 +88,7 @@ SKILLS: tuple[NoraSkill, ...] = (
             "envie uma mensagem interna para todos",
         ),
         strong_patterns=(
-            r"\bchat\s+(?:da|do)\s+(?:equipe|time)\b",
+            r"\bchat\s+(?:da|de|do)\s+(?:equip\w*|time)\b",
             r"\bchat\s+interno\b",
             r"\b(?:avise|avisar|notifique|notificar)\s+(?:a|o)?\s*(?:equipe|time)\b",
             r"\bmensagem\s+(?:interna|para\s+(?:a\s+)?equipe|para\s+o\s+time)\b",
@@ -172,13 +172,13 @@ SKILLS: tuple[NoraSkill, ...] = (
             "resuma meus e-mails nao lidos",
         ),
         strong_patterns=(
-            r"\b(?:e-?mail|emails|gmail)\b",
+            r"\b(?:e-?mails?|emails?|gmail)\b",
             r"\bcaixa\s+de\s+entrada\b",
             r"\b(?:destinatario|remetente|assunto|rascunho)\b",
             r"[\w.+-]+@[\w-]+\.[\w.-]+",
         ),
         supporting_terms=("ler", "leia", "listar", "resumir", "responda", "responder", "enviar", "redigir", "anexo"),
-        conflict_patterns=(r"\bchat\s+(?:da|do)\s+(?:equipe|time)\b", r"\bmensagem\s+no\s+whatsapp\b"),
+        conflict_patterns=(r"\bchat\s+(?:da|de|do)\s+(?:equip\w*|time)\b", r"\bmensagem\s+no\s+whatsapp\b"),
     ),
     NoraSkill(
         id="financeiro",

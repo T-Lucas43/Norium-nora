@@ -74,6 +74,16 @@ class NoraHistoryTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/nora/conversations").json(), [])
         self.assertEqual(self.client.put(self.url, json=self.payload(2)).status_code, 409)
 
+    def test_library_membership_is_persistent_and_revision_safe(self):
+        created = self.client.put(self.url, json={**self.payload(), "inLibrary": False}).json()
+        saved = self.client.patch(f"{self.url}/library", json={"revision": created["revision"], "inLibrary": True})
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertTrue(saved.json()["inLibrary"])
+        self.assertTrue(self.client.get(self.url).json()["inLibrary"])
+        self.assertTrue(self.client.get("/api/nora/conversations").json()[0]["inLibrary"])
+        conflict = self.client.patch(f"{self.url}/library", json={"revision": created["revision"], "inLibrary": False})
+        self.assertEqual(conflict.status_code, 409)
+
     def test_isolates_users_and_workspaces_and_requires_permission(self):
         self.assertEqual(self.client.put(self.url, json=self.payload()).status_code, 200)
         self.user = {"id": "person-b", "teamOwnerId": "person-a", "permissions": {"nora": True}}
@@ -103,6 +113,7 @@ class NoraHistoryTests(unittest.TestCase):
             {"kind": "tasks", "total": 1, "items": [{"title": "Revisar", "priority": "alta"}]},
             {"kind": "agenda", "date": "2026-09-04", "events": [{"titulo": "Reunião", "inicio": "2026-09-04T09:00:00-03:00"}]},
             {"kind": "finance", "metrics": [{"label": "Saldo", "value": -120.50, "money": True}], "groups": [{"label": "Lançamentos", "total": 1, "rows": [{"title": "Internet", "amount": 120.50}]}]},
+            {"kind": "automations", "total": 1, "active": 1, "items": [{"name": "Avisar equipe", "active": True, "actions": ["Criar tarefa"]}]},
         ]
         for revision, view in enumerate(views):
             payload = self.payload(revision)
@@ -115,8 +126,10 @@ class NoraHistoryTests(unittest.TestCase):
                 self.assertEqual(reopened["metrics"][0]["value"], -120.50)
             elif view["kind"] == "agenda":
                 self.assertEqual(reopened["date"], "2026-09-04")
+            elif view["kind"] == "automations":
+                self.assertEqual(reopened["items"][0]["name"], "Avisar equipe")
             else:
                 self.assertEqual(reopened["items"][0]["title"], "Revisar")
-        invalid = self.payload(3)
+        invalid = self.payload(len(views))
         invalid["state"]["messages"][1]["responseView"] = {"kind": "tasks", "items": "not-a-list", "total": 0}
         self.assertEqual(self.client.put(self.url, json=invalid).status_code, 422)

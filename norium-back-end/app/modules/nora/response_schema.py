@@ -79,4 +79,28 @@ class FinanceResponseView(StrictModel):
     groups: list[ResponseFinanceGroup] = Field(max_length=3)
 
 
-ResponseView = Annotated[TaskResponseView | AgendaResponseView | FinanceResponseView, Field(discriminator="kind")]
+class ResponseAutomation(StrictModel):
+    id: str | None = None
+    name: str
+    description: str | None = None
+    category: str | None = None
+    trigger: str | None = None
+    actions: list[str] = Field(default_factory=list, max_length=12)
+    status: str | None = None
+    active: bool
+    aiEnabled: bool | None = None
+    executions: int | None = Field(default=None, ge=0)
+    savedMinutes: int | None = Field(default=None, ge=0)
+    lastRunAt: str | None = None
+
+
+class AutomationResponseView(StrictModel):
+    kind: Literal["automations"]
+    items: list[ResponseAutomation] = Field(max_length=100)
+    total: int = Field(ge=0)
+    active: int = Field(ge=0)
+    runsToday: int | None = Field(default=None, ge=0)
+    savedMinutes: int | None = Field(default=None, ge=0)
+
+
+ResponseView = Annotated[TaskResponseView | AgendaResponseView | FinanceResponseView | AutomationResponseView, Field(discriminator="kind")]

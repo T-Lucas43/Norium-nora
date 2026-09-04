@@ -46,6 +46,7 @@ from app.services.nora_skills import (
     semantic_routing_prompt,
     skill_catalog_payload,
 )
+from app.services.nora_read_queries import answer_read_query, resolve_read_query
 from app.modules.operations.schemas import ApprovalCreate, NoraMemoryCreate
 from app.modules.commercial.nora_agent import cancel_commercial_session, handle_commercial_agent
 from app.modules.operations.service import (
@@ -690,7 +691,7 @@ def resposta_agente(
     session_kind: str | None = None,
     resolution: SkillResolution | None = None,
 ) -> dict[str, Any]:
-    response_text = result.get("response") or "O agente não retornou confirmação. Nenhuma execução foi assumida como concluída."
+    response_text = result.get("response") or result.get("answer") or "Não consegui concluir a resposta com dados verificáveis. Tente reformular o pedido."
     return {
         "intent": intent,
         "skill": intent,
@@ -973,6 +974,11 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
                 "response": social_response,
                 "speech_text": texto_para_voz(social_response),
             }
+
+        read_query = resolve_read_query(texto, payload.messages)
+        if read_query is not None:
+            read_intent, read_result = await answer_read_query(user, *read_query)
+            return resposta_agente(read_intent, read_result, resolution=resolution)
 
         module_help = answer_module_help(texto)
         if module_help is not None:
@@ -1280,6 +1286,7 @@ async def conversar_com_nora_natural_stream(
         or is_compound_request(texto)
         or browser_tool_request(texto) is not None
         or bool(payload.model_id and payload.model_id != "nora-runtime")
+        or resolve_read_query(texto, payload.messages) is not None
     )
 
     resolution = resolve_skill(texto)

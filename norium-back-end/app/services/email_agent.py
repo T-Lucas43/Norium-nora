@@ -300,7 +300,7 @@ class EmailAgent:
 
     def _is_list_intent(self, value: str) -> bool:
         return any(word in value for word in [
-            "listar", "mostrar", "ver emails", "ver e-mails", "caixa de entrada", "nao lidos", "nao lido",
+            "listar", "mostrar", "mostre", "meus emails", "meus e-mails", "ver emails", "ver e-mails", "caixa de entrada", "nao lidos", "nao lido",
             "enviados", "enviado", "rascunhos", "spam", "lixeira", "com anexo", "anexos", "pesquisar email",
         ])
 

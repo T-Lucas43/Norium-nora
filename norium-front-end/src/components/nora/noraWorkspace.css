@@ -9,3 +9,9 @@
 .nora-page .nora-suggestions-grid>.nora-quick-suggestion{display:flex!important}
 
 .app-shell:has(.app-panel-nora:not(.hidden)),.norium-workspace:has(.app-panel-nora:not(.hidden)){height:100dvh!important;min-height:0!important}.norium-workspace:has(.app-panel-nora:not(.hidden)){display:flex!important;flex-direction:column!important}.app-main:has(.app-panel-nora:not(.hidden)){display:flex!important;height:auto!important;min-height:0!important;flex:1!important}.app-panel.app-panel-nora{height:100%!important;flex:1!important}
+.nora-history-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:20px 0 8px;padding:4px;border:1px solid var(--border);border-radius:9px;background:var(--background)}
+.nora-history-tabs button{display:flex;align-items:center;justify-content:center;gap:5px;padding:8px 5px;border-radius:6px;color:var(--text-secondary);font-size:10px;font-weight:650}
+.nora-history-tabs button[aria-selected="true"]{background:var(--surface-hover);color:var(--text)}
+.nora-history-tabs span{font-size:9px;opacity:.7}
+.nora-conversation-action{padding:10px 5px;color:var(--text-secondary)}
+.nora-conversation-action.is-saved{color:#38bdf8}

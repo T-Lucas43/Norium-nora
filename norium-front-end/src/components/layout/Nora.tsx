@@ -34,8 +34,9 @@ import { authToken } from "../../core/api/config";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
 import { apiBaseUrl } from "../../utils/api";
 import NoraAvatar from "./NoraAvatar";
-import { NoraCalendar, NoraFinanceTable, NoraMarkdown, NoraTaskCards } from "../nora/NoraResponseContent";
+import { NoraAutomationCards, NoraCalendar, NoraFinanceTable, NoraMarkdown, NoraTaskCards } from "../nora/NoraResponseContent";
 import { buildNoraResponseView, legacyFinanceView, legacyTaskView, type NoraResponseView, type NoraCalendarEvent as NoraAgendaEvent } from "../nora/responseView";
+import { drainNoraSseEvents, type NoraStreamEvent } from "../nora/noraStream";
 import Button from "../shared/Button";
 import { speechTextFromDisplay, takeNaturalSpeechSegments } from "./noraSpeech";
 
@@ -696,6 +697,7 @@ function NoraStructuredContent({ agent, text, emailMessages, agendaEvents, respo
   if (view?.kind === "tasks") return <NoraTaskCards view={view} text={text} />;
   if (view?.kind === "finance") return <NoraFinanceTable view={view} text={text} />;
   if (view?.kind === "agenda") return <NoraCalendar view={view} text={text} onAgendaPrompt={onAgendaPrompt} />;
+  if (view?.kind === "automations") return <NoraAutomationCards view={view} text={text} />;
   if (agent === "email") return <EmailContent text={text} emailMessages={emailMessages} onOpenEmail={onOpenEmail} />;
   return markdownFallback(text);
 }
@@ -815,7 +817,11 @@ async function askNoraWhatsAppBackend(message: string, conversaId: string, prepa
 async function askAgendaAgent(message: string, sessionId: string | null, userId: string) {
   const res = await fetch(`${BACKEND_URL}/api/agenda/agente/mensagem`, {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      Accept: "application/json", "Content-Type": "application/json",
+      ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
+    },
     body: JSON.stringify({
       user_id: userId,
       session_id: sessionId,
@@ -836,7 +842,11 @@ async function askAgendaAgent(message: string, sessionId: string | null, userId:
 async function askEmailAgent(message: string, sessionId: string | null, userId: string) {
   const res = await fetch(`${BACKEND_URL}/api/emails/gmail/agente/mensagem`, {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    headers: {
+      Accept: "application/json", "Content-Type": "application/json",
+      ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
+    },
     body: JSON.stringify({
       user_id: userId,
       session_id: sessionId,
@@ -893,7 +903,7 @@ async function askNaturalNoraStream(
       commercial_session_id: commercialSessionId,
       screen_context: screenContext || undefined,
       model_id: modelId || undefined,
-      routing_mode: modelId ? "manual" : "automatic",
+      routing_mode: modelId && modelId !== "auto" ? "manual" : "automatic",
     }),
   });
 
@@ -907,41 +917,37 @@ async function askNaturalNoraStream(
   let buffer = "";
   let fullText = "";
   let responseId = res.headers.get("X-Norium-Response-Id") || "";
+  let completed = false;
   if (responseId) handlers.onResponseId(responseId);
+
+  const consume = (parsed: NoraStreamEvent) => {
+    if (parsed.response_id && parsed.response_id !== responseId) {
+      responseId = parsed.response_id;
+      handlers.onResponseId(responseId);
+    }
+    if (parsed.type === "status" && parsed.state) handlers.onStatus(parsed.state as NoraRunState);
+    if (parsed.type === "done") {
+      completed = true;
+      handlers.onDone(parsed.metrics || {});
+    }
+    if ((parsed.type === "delta" || !parsed.type) && typeof parsed.delta === "string") {
+      fullText += parsed.delta;
+      handlers.onDelta(fullText, parsed.delta);
+    }
+  };
 
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
-    for (const event of events) {
-      const line = event.trim();
-      if (!line.startsWith("data:")) continue;
-      const data = line.slice("data:".length).trim();
-      try {
-        const parsed = JSON.parse(data) as {
-          type?: "status" | "delta" | "done";
-          state?: NoraRunState;
-          response_id?: string;
-          delta?: string;
-          metrics?: Record<string, number>;
-        };
-        if (parsed.response_id && parsed.response_id !== responseId) {
-          responseId = parsed.response_id;
-          handlers.onResponseId(responseId);
-        }
-        if (parsed.type === "status" && parsed.state) handlers.onStatus(parsed.state);
-        if (parsed.type === "done") handlers.onDone(parsed.metrics || {});
-        if ((parsed.type === "delta" || !parsed.type) && typeof parsed.delta === "string") {
-          fullText += parsed.delta;
-          handlers.onDelta(fullText, parsed.delta);
-        }
-      } catch {
-        // pedaco de evento incompleto ou malformado; ignora e segue
-      }
-    }
+    const drained = drainNoraSseEvents(buffer);
+    buffer = drained.rest;
+    drained.events.forEach(consume);
   }
+
+  buffer += decoder.decode();
+  drainNoraSseEvents(buffer, true).events.forEach(consume);
+  if (!completed || !fullText.trim()) throw new Error("A resposta progressiva terminou incompleta.");
 
   return { redirect: false, fullText, responseId };
 }
@@ -997,7 +1003,7 @@ async function askNaturalNora(
       commercial_session_id: commercialSessionId,
       screen_context: screenContext || undefined,
       model_id: modelId || undefined,
-      routing_mode: modelId ? "manual" : "automatic",
+      routing_mode: modelId && modelId !== "auto" ? "manual" : "automatic",
     }),
   });
   const data = await res.json();
@@ -1164,7 +1170,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     onStateChange?.({ messages, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive }, loading);
   }, [messages, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive, loading, onStateChange]);
 
-  const effectiveModelId = modelChoice === "auto" ? autoModelId : modelChoice;
+  const effectiveModelId = modelChoice === "auto" ? "auto" : modelChoice;
 
   function setCycleState(cycleId: number, state: NoraRunState) {
     if (activeCycleRef.current === cycleId) setRunState(state);
@@ -1569,7 +1575,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               queueSpeechSegment(segment, cycleId);
             }
           }
-          response = streamResult.fullText || "Entendi, mas nao recebi resposta do agente.";
+          response = streamResult.fullText;
           responseSpeechText = speechTextFromDisplay(response);
           responseAgent = "geral";
           responseStatus = "chat";
@@ -1608,7 +1614,10 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               responseAgendaEvents = [result.agent_result.event as NoraAgendaEvent];
             }
           }
-          response = result.response || "Entendi, mas nao recebi resposta do agente.";
+          if (!result.response?.trim()) {
+            throw new Error("A Nora recebeu uma resposta incompleta. Tente novamente em instantes.");
+          }
+          response = result.response;
           responseSpeechText = result.speech_text || speechTextFromDisplay(response);
         }
       }
@@ -2070,6 +2079,16 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               <div className="flex items-center gap-1">
                 <button
                   type="button"
+                  onClick={() => setControlsOpen(true)}
+                  className="hidden h-9 max-w-52 items-center gap-2 rounded-lg border border-white/10 px-3 text-xs font-bold text-white/80 transition hover:bg-white/10 sm:flex"
+                  title="Trocar modelo da conversa"
+                  aria-label="Trocar modelo da conversa"
+                >
+                  <BrainCircuit size={14} />
+                  <span className="truncate">{modelChoice === "auto" ? "Modelo automático" : modelOptions.find((item) => item.id === modelChoice)?.name || "Modelo manual"}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setControlsOpen((value) => !value)}
                   className={`flex h-9 w-9 items-center justify-center rounded-lg text-white transition hover:bg-white/10 ${
                     controlsOpen ? "bg-white/10" : ""
@@ -2105,10 +2124,10 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                   }}
                   className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold outline-none"
                 >
-                  <option value="auto">Automático por política</option>
+                  <option value="auto">Automático — alternar quando necessário</option>
                   {modelOptions.map((item) => <option key={item.id} value={item.id}>{item.name} / {item.model}</option>)}
                 </select>
-                <small className="mt-1.5 block text-[var(--text-secondary)]">{modelChoice === "auto" ? "O Norium escolhe por capacidade, privacidade e custo." : "Seleção manual para respostas gerais."}</small>
+                <small className="mt-1.5 block text-[var(--text-secondary)]">{modelChoice === "auto" ? `O Norium escolhe e troca em caso de falha, limite ou resposta vazia${autoModelId ? `; primeira opção: ${modelOptions.find((item) => item.id === autoModelId)?.name || "modelo disponível"}.` : "."}` : "Seleção manual para respostas gerais."}</small>
               </label>
               <label className={`flex items-center justify-between gap-3 rounded-lg border border-cyan-400/20 bg-[var(--surface)] px-3 py-2 text-xs font-bold ${conversaId ? "text-[var(--text)]" : "text-[var(--text-secondary)]"}`}>
                 <span>Preparar envio para aprovação</span>

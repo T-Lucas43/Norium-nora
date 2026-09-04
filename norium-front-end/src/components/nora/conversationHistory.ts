@@ -1,12 +1,12 @@
 import { apiRequest } from "../../core/api/client";
 import type { NoraConversationState } from "../layout/Nora";
 
-export type ConversationSummary = { id: string; title: string; preview: string; messageCount: number; createdAt: string; updatedAt: string; revision: number };
+export type ConversationSummary = { id: string; title: string; preview: string; messageCount: number; createdAt: string; updatedAt: string; revision: number; inLibrary?: boolean };
 export type SavedConversation = ConversationSummary & { state: NoraConversationState };
 export const emptyConversationState = (): NoraConversationState => ({ messages: [] });
 export function draftConversation(): SavedConversation {
   const now = new Date().toISOString();
-  return { id: crypto.randomUUID(), title: "Nova conversa", preview: "", messageCount: 0, createdAt: now, updatedAt: now, revision: 0, state: emptyConversationState() };
+  return { id: crypto.randomUUID(), title: "Nova conversa", preview: "", messageCount: 0, createdAt: now, updatedAt: now, revision: 0, inLibrary: false, state: emptyConversationState() };
 }
 
 /** Serializes snapshots so a slow save cannot overwrite a newer response. */
@@ -47,7 +47,7 @@ export class ConversationWriter {
       try {
         const summary = await apiRequest<ConversationSummary>(`/api/nora/conversations/${this.conversation.id}`, {
           method: "PUT", token: this.token, headers: { "X-Norium-Workspace": this.workspace },
-          body: JSON.stringify({ title: this.conversation.title, revision: this.conversation.revision, state }),
+          body: JSON.stringify({ title: this.conversation.title, revision: this.conversation.revision, inLibrary: Boolean(this.conversation.inLibrary), state }),
         });
         Object.assign(this.conversation, summary);
         this.lastSaved = JSON.stringify(state);

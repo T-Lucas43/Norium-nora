@@ -48,6 +48,7 @@ class ConversationState(StrictModel):
 class ConversationSave(StrictModel):
     title: str = Field(min_length=1, max_length=160)
     revision: int = Field(ge=0)
+    inLibrary: bool = False
     state: ConversationState
 
     @model_validator(mode="after")
@@ -93,6 +94,7 @@ async def save_conversation(payload: ConversationSave, conversation_id: str = Pa
             "id": conversation_id, "title": payload.title.strip() or "Nova conversa",
             "createdAt": old.get("createdAt", timestamp), "updatedAt": timestamp,
             "revision": payload.revision + 1, "messageCount": len(state["messages"]),
+            "inLibrary": payload.inLibrary,
             "preview": next((item["text"][:180] for item in reversed(state["messages"]) if item["text"].strip()), ""),
         }
         index = read_index(user_id)
@@ -101,6 +103,34 @@ async def save_conversation(payload: ConversationSave, conversation_id: str = Pa
         record = {**summary, "state": state}
         write_user_db(user_id, conversation_db(conversation_id), record)
         index["conversations"] = [summary, *[item for item in index["conversations"] if item["id"] != conversation_id]]
+        write_user_db(user_id, INDEX, index)
+        return summary
+
+
+class ConversationLibraryUpdate(StrictModel):
+    revision: int = Field(ge=0)
+    inLibrary: bool
+
+
+@router.patch("/{conversation_id}/library")
+async def update_conversation_library(
+    payload: ConversationLibraryUpdate,
+    conversation_id: str = Path(pattern=ID_PATTERN),
+    user: dict = Depends(history_user),
+):
+    async with history_lock:
+        user_id = user["id"]
+        record = read_user_db(user_id, conversation_db(conversation_id), {})
+        if not record or record.get("deleted"):
+            raise HTTPException(404, "Conversa não encontrada.")
+        if payload.revision != record.get("revision", 0):
+            raise HTTPException(409, "Esta conversa mudou em outra janela. Reabra o histórico antes de continuar.")
+        timestamp = datetime.now(timezone.utc).isoformat()
+        record.update({"inLibrary": payload.inLibrary, "updatedAt": timestamp, "revision": payload.revision + 1})
+        summary = {key: value for key, value in record.items() if key != "state"}
+        write_user_db(user_id, conversation_db(conversation_id), record)
+        index = read_index(user_id)
+        index["conversations"] = [summary if item.get("id") == conversation_id else item for item in index["conversations"]]
         write_user_db(user_id, INDEX, index)
         return summary
 

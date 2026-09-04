@@ -34,4 +34,9 @@ describe("Nora display snapshots", () => {
     expect(validDateKey("2026-02-31")).toBeUndefined();
     expect(validDateKey("2026-09-04T09:00:00-03:00")).toBe("2026-09-04");
   });
+  it("builds bounded automation cards from real agent fields", () => {
+    const view = buildNoraResponseView("automacoes", { automacoes: { metrics: { total: 7, active: 6, runsToday: 2 }, automations: [{ id: "a", name: "Novo e-mail", active: true, trigger: "Gmail", actions: ["Resumir", "Criar tarefa"], logs: ["private"] }] } });
+    expect(view).toMatchObject({ kind: "automations", total: 7, active: 6, runsToday: 2, items: [{ name: "Novo e-mail", actions: ["Resumir", "Criar tarefa"] }] });
+    expect(JSON.stringify(view)).not.toContain("private");
+  });
 });

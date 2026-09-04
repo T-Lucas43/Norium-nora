@@ -159,6 +159,31 @@ class IntelligenceModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("encryptedSecret", metadata["provider"])
         self.assertEqual(1, len(read_store(account["id"])["modelUsage"]))
 
+    async def test_automatic_gateway_falls_back_from_groq_to_gemini_interactions(self) -> None:
+        account = user("automatic-gateway-owner")
+        real_async_client = httpx.AsyncClient
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            if "api.groq.com" in str(request.url):
+                return httpx.Response(429, json={"error": "limit"})
+            self.assertIn("generativelanguage.googleapis.com/v1beta/interactions", str(request.url))
+            self.assertEqual("gemini-secret", request.headers.get("x-goog-api-key"))
+            payload = __import__("json").loads(request.content)
+            self.assertEqual("gemini-3.7-flash", payload["model"])
+            self.assertIn("Conversa recente", payload["input"])
+            return httpx.Response(200, json={"steps": [{"type": "model_output", "content": [{"type": "text", "text": "Resposta pelo Gemini"}]}], "usage": {"total_input_tokens": 12, "total_output_tokens": 4}})
+
+        with (
+            patch.dict(os.environ, {"GROQ_API_KEY": "groq-secret", "GEMINI_API_KEY": "gemini-secret", "GEMINI_MODEL": "gemini-3.7-flash"}),
+            patch.object(service, "assert_public_dns", AsyncMock()),
+            patch.object(service.httpx, "AsyncClient", side_effect=lambda **_kwargs: real_async_client(transport=httpx.MockTransport(responder))),
+        ):
+            answer, metadata = await service.complete_with_provider(account, "auto", [{"role": "user", "content": "Explique IA"}], "Sistema")
+
+        self.assertEqual("Resposta pelo Gemini", answer)
+        self.assertEqual("gemini-runtime", metadata["provider"]["id"])
+        self.assertEqual(["nora-runtime", "gemini-runtime"], metadata["attemptedProviderIds"])
+
     def test_new_routes_follow_granular_permissions(self) -> None:
         free = user("free")
         free.update({"plan": "free", "permissions": auth_router.permissions_for_plan("free")})

@@ -361,7 +361,7 @@ async def handle_commercial_agent(
     proposals = data["proposals"]
     contracts = data["contracts"]
 
-    if _contains_any(normalized, ("listar", "liste", "mostrar", "mostre", "quais")):
+    if _contains_any(normalized, ("listar", "liste", "mostrar", "mostre", "quais", "minha proposta", "minhas propostas", "meu contrato", "meus contratos")):
         if "contrat" in normalized:
             if not contracts:
                 return _response("vazio", "Você ainda não possui contratos.")

@@ -80,6 +80,13 @@
 .nora-calendar-event .nora-event-description { display:block; white-space:pre-wrap; }
 .nora-calendar-undated { margin-top:18px; }
 .nora-response-view button:focus-visible,.nora-table-scroll:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
+.nora-automation-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.nora-automation-card{display:flex;min-width:0;flex-direction:column;gap:14px;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+.nora-automation-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.nora-automation-icon{display:grid;width:32px;height:32px;place-items:center;border-radius:9px;background:color-mix(in srgb,var(--primary) 14%,var(--surface));color:var(--primary)}
+.nora-automation-card h4{margin:5px 0 0;font-size:14px;font-weight:650;line-height:1.45}.nora-automation-card p{margin:7px 0 0;color:var(--text-secondary);font-size:11px;line-height:1.6}
+.nora-automation-trigger{display:flex;align-items:center;gap:8px;padding:10px;border:1px solid color-mix(in srgb,var(--border) 70%,transparent);border-radius:8px;background:var(--background);font-size:11px}.nora-automation-trigger>span{display:flex;min-width:0;flex-direction:column;gap:2px}.nora-automation-trigger small{color:var(--text-secondary);font-size:9px}.nora-automation-trigger svg{flex-shrink:0;color:var(--primary)}
+.nora-automation-actions{display:flex;flex-wrap:wrap;gap:6px}.nora-automation-actions span{padding:5px 7px;border-radius:6px;background:color-mix(in srgb,var(--primary) 9%,var(--surface));color:var(--text-secondary);font-size:9px;font-weight:600}
+.nora-automation-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:7px;margin-top:auto;padding-top:11px;border-top:1px solid color-mix(in srgb,var(--border) 65%,transparent);color:var(--text-secondary);font-size:9px}
 .nora-message-markdown .nora-table-scroll { margin:14px 0; border:1px solid var(--border); border-radius:10px; }
 .nora-message-markdown .nora-table-scroll table { margin:0; border:0; border-radius:0; }
 .nora-message-markdown .nora-table-scroll :is(th,td) { border-right:0; border-bottom-color:color-mix(in srgb,var(--border) 55%,transparent); padding:12px 14px; }
@@ -90,6 +97,7 @@
 @container (max-width:560px) {
   .nora-table-hint { display:block; }
   .nora-task-grid { grid-template-columns:1fr; }
+  .nora-automation-grid { grid-template-columns:1fr; }
   .nora-response-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .nora-calendar-layout { grid-template-columns:1fr; }
   .nora-calendar-schedule { border-left:0; border-top:1px solid var(--border); }

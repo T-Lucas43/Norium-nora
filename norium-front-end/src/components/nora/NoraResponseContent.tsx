@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, FolderKanban, MapPin, UserRound } from "lucide-react";
+import { Bot, CalendarDays, ChevronLeft, ChevronRight, Clock3, FolderKanban, MapPin, Play, UserRound, Zap } from "lucide-react";
 import { displayDate, displayLabel, eventOnDay, localDateKey, normalizeLabel, validDateKey, type NoraCalendarEvent, type NoraMetric, type NoraResponseView } from "./responseView";
 import "./noraResponses.css";
 import { navigateNoriumTab, tabPath } from "../../app/navigation/tabs";
@@ -65,6 +65,28 @@ export function NoraTaskCards({ view, text }: { view: Extract<NoraResponseView, 
       </div>
     </>}
     {!view.items.length && !view.project && !view.metrics?.length && <p className="nora-response-empty">Nenhuma tarefa encontrada neste filtro.</p>}
+  </section>;
+}
+
+export function NoraAutomationCards({ view, text }: { view: Extract<NoraResponseView, { kind: "automations" }>; text: string }) {
+  const [limit, setLimit] = useState(6);
+  const metrics: NoraMetric[] = [
+    { label: "Automações", value: view.total },
+    { label: "Ativas", value: view.active },
+    ...(view.runsToday === undefined ? [] : [{ label: "Execuções hoje", value: view.runsToday }]),
+    ...(view.savedMinutes === undefined ? [] : [{ label: "Minutos poupados", value: view.savedMinutes }]),
+  ];
+  return <section className="nora-response-view nora-automations-response" aria-label="Automações da consulta">
+    <Intro text={text} /><Metrics items={metrics} />
+    <div className="nora-response-section-heading"><h3><Zap size={16} /> Fluxos configurados</h3><ModuleLink tab="Automações">Abrir Automações</ModuleLink></div>
+    {view.items.length ? <div className="nora-automation-grid">{view.items.slice(0, limit).map((item, index) => <article className="nora-automation-card" key={`${item.id || item.name}-${index}`}>
+      <div className="nora-automation-card-top"><span className="nora-automation-icon">{item.aiEnabled ? <Bot size={16} /> : <Zap size={16} />}</span><span className="nora-response-status" data-status={item.active ? "ativo" : "inativo"}>{item.active ? "Ativa" : "Pausada"}</span></div>
+      <div><span className="nora-response-eyebrow">{item.category || "Automação"}</span><h4>{item.name}</h4>{item.description && <p>{item.description}</p>}</div>
+      <div className="nora-automation-trigger"><Play size={12} /><span><small>Gatilho</small>{item.trigger || "Manual"}</span></div>
+      {item.actions.length > 0 && <div className="nora-automation-actions" aria-label="Ações do fluxo">{item.actions.map((action) => <span key={action}>{action}</span>)}</div>}
+      <div className="nora-automation-meta"><span>{item.executions === undefined ? "Execuções não informadas" : `${item.executions} execuções`}</span><span>{item.savedMinutes === undefined ? "Economia não informada" : `${item.savedMinutes} min poupados`}</span></div>
+    </article>)}</div> : <p className="nora-response-empty">Nenhuma automação configurada.</p>}
+    <div className="nora-response-footer"><span>Exibindo {Math.min(limit, view.items.length)} de {view.total}</span>{limit < view.items.length && <button type="button" onClick={() => setLimit((current) => current + 6)}>Mostrar mais automações</button>}{limit >= view.items.length && view.total > view.items.length && <ModuleLink tab="Automações">Ver todas em Automações</ModuleLink>}</div>
   </section>;
 }
 

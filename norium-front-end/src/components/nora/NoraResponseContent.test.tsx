@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { NoraCalendar, NoraFinanceTable, NoraMarkdown, NoraTaskCards } from "./NoraResponseContent";
+import { NoraAutomationCards, NoraCalendar, NoraFinanceTable, NoraMarkdown, NoraTaskCards } from "./NoraResponseContent";
 import { eventOnDay } from "./responseView";
 
 describe("Nora structured responses", () => {
@@ -46,5 +46,13 @@ describe("Nora structured responses", () => {
     expect(screen.getByRole("heading", { name: "Resultado" })).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
+  });
+  it("renders automation details as distinct professional cards", () => {
+    render(<NoraAutomationCards text="Suas automações:" view={{ kind: "automations", total: 1, active: 1, runsToday: 2, items: [{ id: "a", name: "Novo e-mail", active: true, aiEnabled: true, trigger: "Gmail", actions: ["Resumir", "Criar tarefa"], executions: 4, savedMinutes: 40 }] }} />);
+    expect(screen.getByRole("region", { name: "Automações da consulta" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Novo e-mail" })).toBeInTheDocument();
+    expect(screen.getByText("Gmail")).toBeInTheDocument();
+    expect(screen.getByText("Criar tarefa")).toBeInTheDocument();
+    expect(screen.getByText("4 execuções")).toBeInTheDocument();
   });
 });

@@ -12,10 +12,16 @@ export type NoraFinanceRow = {
 };
 export type NoraMetric = { label: string; value: number; money?: boolean };
 export type NoraFinanceGroup = { label: string; rows: NoraFinanceRow[]; total: number };
+export type NoraAutomation = {
+  id?: string; name: string; description?: string; category?: string; trigger?: string;
+  actions: string[]; status?: string; active: boolean; aiEnabled?: boolean;
+  executions?: number; savedMinutes?: number; lastRunAt?: string;
+};
 export type NoraResponseView =
   | { kind: "tasks"; items: NoraTask[]; total: number; metrics?: NoraMetric[]; project?: { name: string; description?: string; category?: string; dueDate?: string } }
   | { kind: "agenda"; events: NoraCalendarEvent[]; date?: string }
-  | { kind: "finance"; metrics: NoraMetric[]; groups: NoraFinanceGroup[] };
+  | { kind: "finance"; metrics: NoraMetric[]; groups: NoraFinanceGroup[] }
+  | { kind: "automations"; items: NoraAutomation[]; total: number; active: number; runsToday?: number; savedMinutes?: number };
 
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const string = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -73,6 +79,24 @@ export function buildNoraResponseView(intent: string, value: unknown): NoraRespo
     append("Boletos", finance.boletos ?? result.boletos);
     if (!groups.length && !metrics.length) return undefined;
     return { kind: "finance", metrics, groups };
+  }
+  if (intent === "automacoes") {
+    const payload = record(result.automacoes);
+    const source = Array.isArray(payload.automations) ? payload.automations : result.automation ? [result.automation] : undefined;
+    if (!source) return undefined;
+    const items = objects(source).filter((item) => string(item.name)).slice(0, 100).map((item): NoraAutomation => ({
+      id: string(item.id), name: string(item.name)!, description: string(item.description), category: string(item.category),
+      trigger: string(item.trigger), actions: Array.isArray(item.actions) ? item.actions.flatMap((action) => string(action) ? [string(action)!] : []).slice(0, 12) : [],
+      status: string(item.status), active: typeof item.active === "boolean" ? item.active : string(item.status) === "ativa",
+      aiEnabled: typeof item.aiEnabled === "boolean" ? item.aiEnabled : undefined,
+      executions: number(item.executions), savedMinutes: number(item.savedMinutes), lastRunAt: string(item.lastRunAt),
+    }));
+    const metrics = record(payload.metrics);
+    return {
+      kind: "automations", items, total: Math.max(items.length, number(metrics.total) ?? items.length),
+      active: number(metrics.active) ?? items.filter((item) => item.active).length,
+      runsToday: number(metrics.runsToday), savedMinutes: number(metrics.savedMinutes),
+    };
   }
   return undefined;
 }

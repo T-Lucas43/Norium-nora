@@ -1,7 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "../../types/auth";
-import { useTeamCall } from "./useTeamCall";
+import {
+  fetchRecordingWithRetry,
+  recordingNeedsBackpressure,
+  useTeamCallRuntime,
+} from "./useTeamCall";
 
 const session = {
   token: "test-token",
@@ -50,7 +54,7 @@ describe("chamadas do Modo Equipe", () => {
       value: { getUserMedia },
     });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
-    const { result, unmount } = renderHook(() => useTeamCall({
+    const { result, unmount } = renderHook(() => useTeamCallRuntime({
       session,
       thread: { scope: "team", title: "Time todo" },
       sendSocketEvent,
@@ -79,6 +83,13 @@ describe("chamadas do Modo Equipe", () => {
     expect(result.current.cameraOff).toBe(true);
     expect(result.current.cameraPermission).toBe("granted");
     expect(cameraStop).toHaveBeenCalled();
+
+    vi.stubGlobal("MediaRecorder", class {});
+    const confirmRecording = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await act(async () => result.current.startRecording());
+    expect(confirmRecording).toHaveBeenCalledWith(expect.stringContaining("Todos os participantes serão avisados"));
+    expect(result.current.recording).toBe(false);
+    expect(result.current.status).toBe("Gravação não iniciada.");
 
     await act(async () => { await result.current.endCall(); });
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_END" }));
@@ -115,7 +126,7 @@ describe("chamadas do Modo Equipe", () => {
       value: { getUserMedia, enumerateDevices, addEventListener: vi.fn(), removeEventListener: vi.fn() },
     });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
-    const { result } = renderHook(() => useTeamCall({
+    const { result } = renderHook(() => useTeamCallRuntime({
       session,
       thread: { scope: "team", title: "Time todo" },
       sendSocketEvent,
@@ -169,7 +180,7 @@ describe("chamadas do Modo Equipe", () => {
     });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
     const memberSession = { ...session, user: { ...session.user, id: "member", nome: "Member", role: "member" as const } };
-    const { result } = renderHook(() => useTeamCall({
+    const { result } = renderHook(() => useTeamCallRuntime({
       session: memberSession,
       thread: { scope: "team", title: "Time todo" },
       sendSocketEvent,
@@ -195,7 +206,7 @@ describe("chamadas do Modo Equipe", () => {
 
   it("limpa convite pendente ao encerrar e ignora reenvio atrasado", async () => {
     const sendSocketEvent = vi.fn().mockReturnValue(true);
-    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    const { result } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
     const invite = { type: "CALL_INVITE", callId: "call_0123456789abcdef", fromUserId: "member", scope: "team" as const, threadId: "team" };
     await act(async () => result.current.handleSocketEvent(invite));
     expect(result.current.incoming?.callId).toBe(invite.callId);
@@ -212,7 +223,7 @@ describe("chamadas do Modo Equipe", () => {
     const stream = { getTracks: () => [audio], getAudioTracks: () => [audio], getVideoTracks: () => [] };
     Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValueOnce(camera).mockResolvedValueOnce(stream) } });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
-    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    const { result } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
     const invite = { type: "CALL_INVITE", callId: "call_0123456789abcdef", fromUserId: "member", scope: "team" as const, threadId: "team" };
     await act(async () => result.current.handleSocketEvent({ type: "CALLS_STATE", calls: [invite] }));
     expect(result.current.incoming).toBeNull();
@@ -234,7 +245,7 @@ describe("chamadas do Modo Equipe", () => {
     const audio = { kind: "audio", enabled: true, stop: vi.fn() };
     Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValueOnce(camera).mockReturnValueOnce(deferred) } });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
-    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    const { result } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
     const invite = { type: "CALL_INVITE", callId: "call_0123456789abcdef", fromUserId: "member", scope: "team" as const, threadId: "team" };
     await act(async () => result.current.handleSocketEvent(invite));
     let joining!: Promise<void>;
@@ -266,7 +277,7 @@ describe("chamadas do Modo Equipe", () => {
       getDisplayMedia: vi.fn().mockReturnValue(delayed),
     } });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
-    const { result, unmount } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    const { result, unmount } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
     await act(async () => result.current.startCall());
     let enabling!: Promise<void>;
     act(() => { enabling = kind === "camera" ? result.current.toggleCamera() : result.current.toggleScreenShare(); });
@@ -287,7 +298,7 @@ describe("chamadas do Modo Equipe", () => {
     const audio = { kind: "audio", enabled: true, stop: vi.fn() };
     Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn().mockReturnValueOnce(cameraPromise).mockResolvedValue({ getTracks: () => [audio], getAudioTracks: () => [audio], getVideoTracks: () => [] }) } });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
-    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    const { result } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
     let starting!: Promise<void>;
     await act(async () => { starting = result.current.startCall(); await result.current.startCall(); });
     await act(async () => { resolveCamera(camera); await starting; });
@@ -350,7 +361,7 @@ describe("chamadas do Modo Equipe", () => {
       value: { getUserMedia, getDisplayMedia, enumerateDevices: vi.fn().mockResolvedValue([]), addEventListener: vi.fn(), removeEventListener: vi.fn() },
     });
     const sendSocketEvent = vi.fn().mockReturnValue(true);
-    const { result } = renderHook(() => useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
+    const { result } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
 
     await act(async () => result.current.startCall());
     await act(async () => result.current.handleSocketEvent({ type: "CALL_ACCEPT", callId: result.current.active?.callId, fromUserId: "member", fromUserName: "Member" }));
@@ -434,5 +445,143 @@ describe("chamadas do Modo Equipe", () => {
     await act(async () => result.current.toggleCamera());
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_MEDIA_STATE", cameraEnabled: false, screenSharing: false }));
     await act(async () => result.current.endCall());
+  });
+
+  it("limita retentativas de upload e aplica backpressure antes de acumular memoria", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("offline"))
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    const retried = vi.fn();
+
+    const responsePromise = fetchRecordingWithRetry("/recording", { method: "PUT" }, retried);
+    await vi.advanceTimersByTimeAsync(200);
+    const response = await responsePromise;
+
+    expect(response.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(retried).toHaveBeenCalledWith(2);
+    expect(recordingNeedsBackpressure(24 * 1024 * 1024, 1)).toBe(true);
+    expect(recordingNeedsBackpressure(1, 3)).toBe(true);
+    expect(recordingNeedsBackpressure(1024, 1)).toBe(false);
+  });
+
+  it("resolve ofertas simultaneas com rollback no peer polite", async () => {
+    const permissionTrack = { kind: "video", enabled: true, readyState: "live", stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
+    const audioTrack = { kind: "audio", enabled: true, readyState: "live", stop: vi.fn(), onended: null } as unknown as MediaStreamTrack;
+    class FakeMediaStream {
+      tracks: MediaStreamTrack[];
+      constructor(tracks: MediaStreamTrack[] = []) { this.tracks = tracks; }
+      getTracks() { return this.tracks; }
+      getAudioTracks() { return this.tracks.filter((track) => track.kind === "audio"); }
+      getVideoTracks() { return this.tracks.filter((track) => track.kind === "video"); }
+    }
+    vi.stubGlobal("MediaStream", FakeMediaStream);
+    const permissionStream = new FakeMediaStream([permissionTrack]) as unknown as MediaStream;
+    const audioStream = new FakeMediaStream([audioTrack]) as unknown as MediaStream;
+    const peerInstances: PerfectPeer[] = [];
+    class PerfectPeer {
+      signalingState: RTCSignalingState = "stable";
+      connectionState: RTCPeerConnectionState = "new";
+      localDescription: RTCSessionDescription | null = null;
+      remoteDescription: RTCSessionDescription | null = null;
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+      onnegotiationneeded: (() => void) | null = null;
+      constructor() { peerInstances.push(this); }
+      addTrack(track: MediaStreamTrack) { return { track, replaceTrack: vi.fn() } as unknown as RTCRtpSender; }
+      addTransceiver() { return { sender: { track: null, replaceTrack: vi.fn() } } as unknown as RTCRtpTransceiver; }
+      createOffer = vi.fn().mockResolvedValue({ type: "offer", sdp: "local-offer" });
+      createAnswer = vi.fn().mockResolvedValue({ type: "answer", sdp: "local-answer" });
+      setLocalDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+        if (description.type === "rollback") {
+          this.localDescription = null;
+          this.signalingState = "stable";
+          return;
+        }
+        this.localDescription = description as RTCSessionDescription;
+        this.signalingState = description.type === "offer" ? "have-local-offer" : "stable";
+      });
+      setRemoteDescription = vi.fn(async (description: RTCSessionDescriptionInit) => {
+        this.remoteDescription = description as RTCSessionDescription;
+        this.signalingState = description.type === "offer" ? "have-remote-offer" : "stable";
+      });
+      addIceCandidate = vi.fn().mockResolvedValue(undefined);
+      close = vi.fn(() => { this.connectionState = "closed"; });
+      restartIce = vi.fn();
+    }
+    vi.stubGlobal("RTCPeerConnection", PerfectPeer);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn().mockResolvedValueOnce(permissionStream).mockResolvedValueOnce(audioStream),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result, unmount } = renderHook(() => useTeamCallRuntime({
+      session,
+      thread: { scope: "team", title: "Time todo" },
+      sendSocketEvent,
+    }));
+
+    await act(async () => result.current.startCall());
+    const activeCallId = result.current.active?.callId;
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACCEPT",
+      callId: activeCallId,
+      fromUserId: "member",
+      fromUserName: "Member",
+    }));
+    const peer = peerInstances[0];
+    expect(peer.signalingState).toBe("have-local-offer");
+
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_SIGNAL",
+      callId: activeCallId,
+      fromUserId: "member",
+      signal: { type: "offer", sdp: "remote-offer" },
+    }));
+
+    expect(peer.setLocalDescription).toHaveBeenCalledWith({ type: "rollback" });
+    expect(peer.setRemoteDescription).toHaveBeenCalledWith({ type: "offer", sdp: "remote-offer" });
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: "CALL_SIGNAL",
+      targetUserId: "member",
+      signal: expect.objectContaining({ type: "answer", sdp: "local-answer" }),
+    }));
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACCEPT",
+      callId: activeCallId,
+      fromUserId: "z-user",
+      fromUserName: "Z User",
+    }));
+    const impolitePeer = peerInstances[1];
+    expect(impolitePeer.signalingState).toBe("have-local-offer");
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_SIGNAL",
+      callId: activeCallId,
+      fromUserId: "z-user",
+      signal: { type: "offer", sdp: "colliding-offer" },
+    }));
+    expect(impolitePeer.setRemoteDescription).not.toHaveBeenCalled();
+    expect(impolitePeer.setLocalDescription).not.toHaveBeenCalledWith({ type: "rollback" });
+    expect(impolitePeer.createAnswer).not.toHaveBeenCalled();
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_KICK",
+      callId: activeCallId,
+      targetUserId: "owner",
+      reason: "access_revoked",
+    }));
+    expect(peer.close).toHaveBeenCalledOnce();
+    expect(impolitePeer.close).toHaveBeenCalledOnce();
+    expect(audioTrack.stop).toHaveBeenCalledOnce();
+    expect(result.current.active).toBeNull();
+    expect(result.current.status).toBe("Seu acesso à chamada foi revogado.");
+    unmount();
   });
 });

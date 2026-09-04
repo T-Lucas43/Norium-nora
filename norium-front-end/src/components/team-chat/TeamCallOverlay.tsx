@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } 
 import { createPortal } from "react-dom";
 import { Camera, CameraOff, Circle, Clock3, Download, Hand, Maximize2, Minimize2, MessageSquareText, Mic, MicOff, MonitorUp, Paperclip, PhoneOff, Pin, PinOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
 import ParticipantAudio from "./ParticipantAudio";
-import type { ReturnTypeOfTeamCall } from "./teamCallTypes";
+import type { CallSessionCommands, CallSessionSnapshot } from "./CallSession";
+import { callSessionView, type ReturnTypeOfTeamCall } from "./teamCallTypes";
 
 type MeetingAttachment = { id: string; name: string; mimeType: string; size: number; url: string; expiresAt?: string };
 type MeetingMessage = { id: string; senderId: string; senderName: string; text: string; attachments: MeetingAttachment[]; metadata?: Record<string, unknown>; createdAt: string };
 type MeetingMember = { id: string; nome: string; fotoUrl?: string };
 
 type TeamCallOverlayProps = {
-  call: ReturnTypeOfTeamCall;
+  snapshot: CallSessionSnapshot;
+  commands: CallSessionCommands;
   members: MeetingMember[];
   currentUserId: string;
   onDownloadAttachment: (attachment: MeetingAttachment) => void;
@@ -78,12 +80,18 @@ function durationLabel(seconds: number) {
   return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
 
+function bytesLabel(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(0, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function timeLabel(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function TeamCallOverlay({ call, members, currentUserId, onDownloadAttachment }: TeamCallOverlayProps) {
+export default function TeamCallOverlay({ snapshot, commands, members, currentUserId, onDownloadAttachment }: TeamCallOverlayProps) {
+  const call = callSessionView(snapshot, commands);
   const messages = call.meetingMessages || [];
   const raisedHands = call.raisedHands || {};
   const [minimized, setMinimized] = useState(false);
@@ -216,7 +224,7 @@ export default function TeamCallOverlay({ call, members, currentUserId, onDownlo
       {Object.keys(raisedHands).length > 0 && <div className="team-call-hands flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs" role="status" aria-label="Mãos levantadas"><Hand size={16} />{Object.entries(raisedHands).sort((a, b) => a[1].localeCompare(b[1])).map(([id], index) => <span key={id}>{index + 1}. {id === currentUserId ? "Você" : memberById.get(id)?.nome || "Participante"}</span>)}</div>}
       <div className="flex min-h-0 flex-1">
         <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 overflow-auto p-3 ${pinned && streams.length > 1 ? "team-call-stage-pinned" : streams.length > 1 ? "md:grid-cols-2" : ""}`}>
-          {call.recording && <div className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /> REC {durationLabel(call.recordingElapsedSeconds)}</div>}
+          {call.recording && <div role="status" aria-live="polite" className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /><span>REC {durationLabel(call.recordingElapsedSeconds)}</span><span className="font-semibold text-rose-100">Todos foram avisados</span>{call.isHost && call.recordingUploadState !== "idle" && <span className="font-semibold text-rose-100">{call.recordingUploadState === "retrying" ? "Tentando envio novamente" : call.recordingUploadState === "finalizing" ? "Finalizando" : `Upload ${call.recordingUploadProgress}% · ${bytesLabel(call.recordingUploadedBytes)} enviados${call.recordingPendingBytes ? ` · ${bytesLabel(call.recordingPendingBytes)} pendentes` : ""}`}</span>}</div>}
           {streams.length ? streams.map((item) => {
             const sharing = call.remoteScreenSharingIds.includes(item.userId);
             const participantName = memberById.get(item.userId)?.nome || "Participante";

@@ -9,7 +9,7 @@ import type { AppMode, AuthSession, PermissionKey } from "../types/auth";
 import { canUse } from "../types/auth";
 import { applyNoriumTheme } from "../utils/theme";
 import { authJson } from "../utils/authApi";
-import type { TeamCallSocketEvent } from "../components/team-chat/useTeamCall";
+import { CallSessionProvider } from "../components/team-chat/CallSession";
 import AppPanels from "./components/AppPanels";
 import { useAuthSession } from "./hooks/useAuthSession";
 import { useOperatorProfile } from "./hooks/useOperatorProfile";
@@ -71,7 +71,6 @@ export default function NoriumApp() {
   const [activeChatConversationId, setActiveChatConversationId] = useState<string | null>(null);
   const [teamChatOpen, setTeamChatOpen] = useState(false);
   const [teamChatMounted, setTeamChatMounted] = useState(false);
-  const [pendingTeamCall, setPendingTeamCall] = useState<TeamCallSocketEvent | null>(null);
   const [emailToOpenId, setEmailToOpenId] = useState<string | null>(null);
   const {
     appMode,
@@ -95,6 +94,8 @@ export default function NoriumApp() {
     clearTeamChatUnread,
     addTeamChatUnread,
     dismissSystemToast,
+    dismissCallNotifications,
+    handleTeamSocketEvent,
   } = useWebSockets(
     activeTab,
     Boolean(authSession),
@@ -207,33 +208,12 @@ export default function NoriumApp() {
   }, [activeTab, allowedTabs, authSession, canAccessTab, navigateTab]);
 
   useEffect(() => {
-    setPendingTeamCall(null);
     setTeamChatMounted(false);
   }, [authSession?.user.id]);
 
   useEffect(() => {
     if (teamChatOpen || activeTab === "Chat da Equipe") setTeamChatMounted(true);
   }, [activeTab, teamChatOpen]);
-
-  useEffect(() => {
-    const handleTeamCall = (event: Event) => {
-      const callEvent = (event as CustomEvent<TeamCallSocketEvent>).detail;
-      if (callEvent?.type === "CALLS_STATE") {
-        setPendingTeamCall((current) => current && callEvent.calls?.some((call) => call.callId === current.callId) ? current : null);
-        return;
-      }
-      if (!callEvent?.callId) return;
-      if (callEvent.type === "CALL_END") {
-        setPendingTeamCall((current) => current?.callId === callEvent.callId ? null : current);
-        return;
-      }
-      if (callEvent.type !== "CALL_INVITE") return;
-      setPendingTeamCall(callEvent);
-      if (activeTab !== "Chat da Equipe") setTeamChatOpen(true);
-    };
-    window.addEventListener("norium:team-call", handleTeamCall);
-    return () => window.removeEventListener("norium:team-call", handleTeamCall);
-  }, [activeTab]);
 
   const openNotifications = useCallback(() => {
     navigateTab("Notificações");
@@ -302,17 +282,33 @@ export default function NoriumApp() {
 
   if (appMode === "admin") {
     return (
-      <Suspense fallback={<AppLoading label="Carregando administracao..." />}>
-        <AdminDashboard
-          session={authSession}
-          onUseSystem={useSystemMode}
-          onSessionUpdate={updateSession}
-        />
-      </Suspense>
+      <CallSessionProvider
+        session={authSession}
+        onTeamEvent={handleTeamSocketEvent}
+        onCallDismissed={dismissCallNotifications}
+        onIncomingCall={() => setTeamChatOpen(true)}
+      >
+        <Suspense fallback={<AppLoading label="Carregando administracao..." />}>
+          <AdminDashboard
+            session={authSession}
+            onUseSystem={useSystemMode}
+            onSessionUpdate={updateSession}
+          />
+        </Suspense>
+      </CallSessionProvider>
     );
   }
 
   return (
+    <CallSessionProvider
+      session={authSession}
+      onTeamEvent={handleTeamSocketEvent}
+      onCallDismissed={dismissCallNotifications}
+      onIncomingCall={() => {
+        setTeamChatMounted(true);
+        if (activeTab !== "Chat da Equipe") setTeamChatOpen(true);
+      }}
+    >
     <div className="app-shell norium-modern-shell flex overflow-hidden bg-[var(--background)] font-sans antialiased">
       <a className="norium-skip-link" href="#norium-main">Pular para o conteudo</a>
       {canAccessPermission("nora") && isNoraOpen && (
@@ -424,14 +420,13 @@ export default function NoriumApp() {
                 onUnread={addTeamChatUnread}
                 onOpenNora={openNora}
                 onOpenCalendar={() => navigateTab("Agenda")}
-                initialCallEvent={pendingTeamCall}
-                onInitialCallHandled={(callId) => setPendingTeamCall((current) => current?.callId === callId ? null : current)}
               />
             </Suspense>
           )}
         </main>
       </div>
     </div>
+    </CallSessionProvider>
   );
 }
 

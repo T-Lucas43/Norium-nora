@@ -126,6 +126,26 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         other_owner_tab.send_json.assert_awaited_once_with(event)
         member_socket.send_json.assert_awaited_once_with(event)
 
+    async def test_call_signal_fanout_does_not_read_user_directory_per_ice_event(self) -> None:
+        manager = team_router.PresenceManager()
+        member_socket = MagicMock()
+        member_socket.send_json = AsyncMock()
+        manager.connections["owner"] = [member_socket]
+        manager.socket_user = {member_socket: "member"}
+        manager.socket_connection = {member_socket: "member-connection"}
+        manager.user_team = {"member": "owner"}
+        signal = {
+            "type": "CALL_SIGNAL",
+            "callId": "call_0123456789abcdef",
+            "signal": {"candidate": "candidate-1"},
+        }
+
+        with patch.object(team_router, "read_user_store", AsyncMock()) as read_users:
+            await manager.send_to_users("owner", {"member"}, signal)
+
+        read_users.assert_not_awaited()
+        member_socket.send_json.assert_awaited_once_with(signal)
+
     async def test_image_attachment_is_saved_and_returned_in_team_chat(self) -> None:
         image_bytes = b"\x89PNG\r\n\x1a\nteam-image"
         manager = team_router.PresenceManager()
@@ -275,10 +295,20 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_recording_is_uploaded_in_chunks_and_expires_after_24_hours(self) -> None:
         class ChunkRequest:
-            headers = {"content-length": "12"}
+            headers = {
+                "content-length": "12",
+                "X-Call-Client-Id": "owner-client",
+                "X-Recording-Chunk-Id": "chunk-1",
+            }
 
             async def stream(self):
                 yield b"webm-content"
+
+        class CompleteRequest:
+            headers = {
+                "X-Call-Client-Id": "owner-client",
+                "X-Recording-Operation-Id": "complete-1",
+            }
 
         with (
             patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),
@@ -286,10 +316,23 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
             patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
             patch.object(team_router, "read_profile_db", return_value={}),
             patch.object(team_router, "record_team_event", AsyncMock()),
+            patch.object(team_router, "_call_coordinator_instance", None),
+            patch.object(team_router, "_recording_coordinator_instance", None),
         ):
+            await team_router.call_coordinator().handle_event(
+                team_router.call_actor(self.owner, "owner-connection"),
+                {
+                    "type": "CALL_INVITE",
+                    "callId": "call_0123456789abcdef",
+                    "clientId": "owner-client",
+                    "scope": "team",
+                },
+            )
             started = await team_router.start_recording(
                 team_router.RecordingStartPayload(
                     callId="call_0123456789abcdef",
+                    clientId="owner-client",
+                    operationId="start-1",
                     scope="team",
                     mimeType="video/webm;codecs=vp8,opus",
                 ),
@@ -299,7 +342,7 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
             chunk_result = await team_router.append_recording_chunk(recording_id, ChunkRequest(), self.owner)  # type: ignore[arg-type]
             self.assertEqual(12, chunk_result["received"])
 
-            completed = await team_router.complete_recording(recording_id, self.owner)
+            completed = await team_router.complete_recording(recording_id, CompleteRequest(), self.owner)  # type: ignore[arg-type]
             attachment = completed["message"]["attachments"][0]
             expires_at = datetime.fromisoformat(attachment["expiresAt"])
             remaining = expires_at - datetime.now(timezone.utc)
@@ -309,7 +352,9 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
 
             store = team_router.read_chat_store("owner")
             store["messages"][-1]["attachments"][0]["expiresAt"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+            store["recordings"][-1]["expiresAt"] = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
             team_router.write_chat_store("owner", store)
+            await team_router.recording_coordinator().maintain(["owner"])
             listing = await team_router.list_messages(scope="team", recipientId=None, user=self.owner)
 
             expired_message = listing["messages"][-1]

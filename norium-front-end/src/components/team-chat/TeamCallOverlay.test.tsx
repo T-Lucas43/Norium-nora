@@ -1,7 +1,36 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import TeamCallOverlay from "./TeamCallOverlay";
+import type { CallSessionCommands, CallSessionSnapshot } from "./CallSession";
 import type { ReturnTypeOfTeamCall } from "./teamCallTypes";
+
+function sessionProps(call: ReturnTypeOfTeamCall) {
+  return {
+    snapshot: call as unknown as CallSessionSnapshot,
+    commands: {
+      accept: call.acceptIncoming,
+      reject: call.rejectIncoming,
+      end: call.endCall,
+      leave: call.leaveCall,
+      toggleMute: call.toggleMute,
+      toggleCamera: call.toggleCamera,
+      requestCameraPermission: call.requestCameraPermission,
+      toggleScreenShare: call.toggleScreenShare,
+      changeScreenShare: call.changeScreenShare,
+      startRecording: call.startRecording,
+      stopRecording: call.stopRecording,
+      sendReaction: call.sendReaction,
+      toggleHand: call.toggleHand,
+      sendMeetingMessage: call.sendMeetingMessage,
+      selectMicrophone: call.selectMicrophone,
+      selectCamera: call.selectCamera,
+      selectSpeaker: call.selectSpeaker,
+      selectScreenShareQuality: call.selectScreenShareQuality,
+      selectScreenShareFps: call.selectScreenShareFps,
+      refreshDevices: call.refreshDevices,
+    } as unknown as CallSessionCommands,
+  };
+}
 
 describe("tela da reuniao do Modo Equipe", () => {
   it("exibe reuniao unificada, duracao, camera, anexos e compartilhamento", () => {
@@ -17,8 +46,12 @@ describe("tela da reuniao do Modo Equipe", () => {
       cameraPermission: "granted",
       sharingScreen: false,
       callElapsedSeconds: 65,
-      recording: false,
-      recordingElapsedSeconds: 0,
+      recording: true,
+      recordingElapsedSeconds: 10,
+      recordingUploadState: "uploading",
+      recordingUploadedBytes: 1024,
+      recordingPendingBytes: 1024,
+      recordingUploadProgress: 50,
       connectionQuality: "good",
       reactions: [],
       status: "Na chamada",
@@ -49,9 +82,11 @@ describe("tela da reuniao do Modo Equipe", () => {
       selectScreenShareFps: vi.fn(),
     } as unknown as ReturnTypeOfTeamCall;
 
-    render(<TeamCallOverlay call={call} members={[{ id: "owner", nome: "Owner" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+    render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "owner", nome: "Owner" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: "Gravar reunião" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Parar gravação" })).toBeInTheDocument();
+    expect(screen.getByText("Todos foram avisados")).toBeInTheDocument();
+    expect(screen.getByText(/Upload 50%/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Transmitir tela" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Ativar câmera" })).toBeInTheDocument();
     expect(screen.getByRole("status", { name: "Qualidade da internet: Conexão excelente" })).toBeInTheDocument();
@@ -114,7 +149,7 @@ describe("tela da reuniao do Modo Equipe", () => {
       requestCameraPermission,
     } as unknown as ReturnTypeOfTeamCall;
 
-    render(<TeamCallOverlay call={call} members={[]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+    render(<TeamCallOverlay {...sessionProps(call)} members={[]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("Câmera > Permitir");
     fireEvent.click(screen.getByRole("button", { name: "Permitir câmera" }));
@@ -151,7 +186,7 @@ describe("tela da reuniao do Modo Equipe", () => {
       refreshDevices,
     } as unknown as ReturnTypeOfTeamCall;
 
-    render(<TeamCallOverlay call={call} members={[]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+    render(<TeamCallOverlay {...sessionProps(call)} members={[]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Selecionar câmera e dispositivos de áudio" }));
     expect(screen.getByText("Câmera · permissão pendente")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Permitir e listar câmeras" }));
@@ -188,7 +223,8 @@ describe("tela da reuniao do Modo Equipe", () => {
       toggleScreenShare: vi.fn(),
     } as unknown as ReturnTypeOfTeamCall;
 
-    render(<TeamCallOverlay call={{ ...call, meetingMessages: [{ id: "message-1", senderId: "owner", senderName: "Owner", text: "Texto com contraste", attachments: [], createdAt: new Date().toISOString() }] }} members={[]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+    const callWithMessage = { ...call, meetingMessages: [{ id: "message-1", senderId: "owner", senderName: "Owner", text: "Texto com contraste", attachments: [], createdAt: new Date().toISOString() }] } as unknown as ReturnTypeOfTeamCall;
+    render(<TeamCallOverlay {...sessionProps(callWithMessage)} members={[]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
 
     expect(screen.getByLabelText("Prévia da sua tela compartilhada")).toBeInTheDocument();
     expect(screen.getByLabelText("Mini visualização da sua tela compartilhada")).toBeInTheDocument();
@@ -244,8 +280,8 @@ describe("tela da reuniao do Modo Equipe", () => {
       isHost: true,
     } as unknown as ReturnTypeOfTeamCall;
 
-    const props = { call, messages: [], members: [{ id: "member", nome: "Fernando" }], currentUserId: "owner", onSendMessage: vi.fn(), onDownloadAttachment: vi.fn() };
-    const { rerender } = render(<TeamCallOverlay {...props} />);
+    const props = { members: [{ id: "member", nome: "Fernando" }], currentUserId: "owner", onDownloadAttachment: vi.fn() };
+    const { rerender } = render(<TeamCallOverlay {...sessionProps(call)} {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Ver tela de Fernando em tela cheia" }));
     expect(requestFullscreen).toHaveBeenCalledOnce();
     fireEvent.change(screen.getByRole("slider", { name: "Volume de Fernando" }), { target: { value: "175" } });
@@ -260,7 +296,8 @@ describe("tela da reuniao do Modo Equipe", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fixar transmissão de Fernando" }));
     expect(document.querySelector('[data-participant="member"]')).toHaveAttribute("data-pinned", "true");
     const oldVideo = screen.getByLabelText("Tela compartilhada por Fernando");
-    rerender(<TeamCallOverlay {...props} call={{ ...call, remoteScreenSharingIds: [], remoteCameraEnabled: { member: false } }} />);
+    const cameraOffCall = { ...call, remoteScreenSharingIds: [], remoteCameraEnabled: { member: false } } as unknown as ReturnTypeOfTeamCall;
+    rerender(<TeamCallOverlay {...sessionProps(cameraOffCall)} {...props} />);
     expect(oldVideo).toHaveProperty("srcObject", null);
     expect(screen.getByLabelText("Câmera de Fernando")).toHaveProperty("srcObject", null);
     expect(screen.getByText("Fernando está sem câmera")).toBeInTheDocument();
@@ -270,7 +307,8 @@ describe("tela da reuniao do Modo Equipe", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ouvir Fernando para mim" }));
     fireEvent.click(screen.getByRole("button", { name: "Fixar Fernando" }));
     expect(document.querySelector('[data-participant="member"]')).toHaveAttribute("data-pinned", "true");
-    rerender(<TeamCallOverlay {...props} call={{ ...call, remoteStreams: [] }} />);
+    const participantLeftCall = { ...call, remoteStreams: [] } as unknown as ReturnTypeOfTeamCall;
+    rerender(<TeamCallOverlay {...sessionProps(participantLeftCall)} {...props} />);
     expect(document.querySelector('[data-pinned]')).toBeNull();
   });
 });

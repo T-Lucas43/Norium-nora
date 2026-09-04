@@ -58,7 +58,11 @@ from app.modules.operations.router import router as operations_router
 from app.modules.platform.router import router as platform_router
 from app.modules.profile.router import router as perfil_router
 from app.modules.tasks.router import router as tarefas_router
-from app.modules.team.router import router as team_chat_router
+from app.modules.team.router import (
+    router as team_chat_router,
+    start_recording_maintenance,
+    stop_recording_maintenance,
+)
 from app.modules.system.router import router as system_router
 from app.modules.workhub.router import clients_router as workhub_clients_router
 from app.modules.workhub.router import router as workhub_router
@@ -180,12 +184,23 @@ def create_app() -> FastAPI:
     validate_wapi_webhook_configuration()
     configure_webhook_secret_log_redaction()
     app = FastAPI(title="Norium Engine Chat Central Unificado API")
+    app.router.add_event_handler("startup", start_recording_maintenance)
+    app.router.add_event_handler("shutdown", stop_recording_maintenance)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins(),
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID", "X-Norium-Workspace"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Request-ID",
+            "X-Norium-Workspace",
+            "X-Call-Client-Id",
+            "X-Recording-Chunk-Id",
+            "X-Recording-Operation-Id",
+        ],
     )
     app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
 

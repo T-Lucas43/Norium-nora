@@ -6,6 +6,43 @@ import { createMeetingRecording } from "./meetingRecording";
 import { prepareChatAttachments } from "./chatAttachments";
 
 const TEAM_CHAT_API = `${apiBaseUrl()}/api/team-chat`;
+const RECORDING_MAX_RETRIES = 3;
+const RECORDING_BACKPRESSURE_BYTES = 24 * 1024 * 1024;
+const RECORDING_BACKPRESSURE_CHUNKS = 3;
+
+export type RecordingUploadState = "idle" | "uploading" | "retrying" | "finalizing" | "failed";
+
+const wait = (milliseconds: number) => new Promise<void>((resolve) => {
+  window.setTimeout(resolve, milliseconds);
+});
+
+export async function fetchRecordingWithRetry(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  onRetry?: (attempt: number) => void,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= RECORDING_MAX_RETRIES; attempt += 1) {
+    try {
+      const response = await fetch(input, init);
+      if (response.ok || (response.status !== 408 && response.status < 500)) return response;
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < RECORDING_MAX_RETRIES) {
+      onRetry?.(attempt + 1);
+      await wait(200 * (2 ** (attempt - 1)));
+    }
+  }
+  if (lastError instanceof Error) throw lastError;
+  throw new Error("Falha ao enviar a gravacao.");
+}
+
+export function recordingNeedsBackpressure(pendingBytes: number, pendingChunks: number) {
+  return pendingBytes >= RECORDING_BACKPRESSURE_BYTES
+    || pendingChunks >= RECORDING_BACKPRESSURE_CHUNKS;
+}
 
 export type TeamThreadScope = "team" | "direct" | "subteam";
 
@@ -42,6 +79,8 @@ export type TeamCallSocketEvent = {
   raisedHands?: Record<string, string>;
   handRevision?: number;
   message?: MeetingMessage;
+  targetUserId?: string;
+  reason?: string;
 };
 
 export type MeetingMessage = { id: string; senderId: string; senderName: string; text: string; createdAt: string;
@@ -91,6 +130,13 @@ type CallDevices = {
 type CallSound = "connecting" | "joined" | "left" | "ended" | "screen";
 type ConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
 type CameraPermission = "unknown" | "requesting" | "granted" | "denied" | "unavailable";
+type PeerNegotiationState = {
+  makingOffer: boolean;
+  ignoreOffer: boolean;
+  isSettingRemoteAnswerPending: boolean;
+  polite: boolean;
+  revision: number;
+};
 export type ScreenShareQuality = "720p" | "1080p" | "1440p";
 export type ScreenShareFps = 15 | 30 | 60;
 
@@ -189,7 +235,7 @@ function mediaAccessError(error: unknown, device: "camera" | "microfone" | "tela
   return error instanceof Error ? error.message : `Nao foi possivel acessar ${target}.`;
 }
 
-export function useTeamCall({
+export function useTeamCallRuntime({
   session,
   thread,
   sendSocketEvent,
@@ -222,6 +268,9 @@ export function useTeamCall({
   const [callElapsedSeconds, setCallElapsedSeconds] = useState(0);
   const [recording, setRecording] = useState(false);
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
+  const [recordingUploadState, setRecordingUploadState] = useState<RecordingUploadState>("idle");
+  const [recordingUploadedBytes, setRecordingUploadedBytes] = useState(0);
+  const [recordingPendingBytes, setRecordingPendingBytes] = useState(0);
   const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>(navigator.onLine ? "connecting" : "offline");
   const [reactions, setReactions] = useState<Array<{ id: string; emoji: string; userName: string }>>([]);
   const [raisedHands, setRaisedHands] = useState<Record<string, string>>({});
@@ -246,6 +295,7 @@ export function useTeamCall({
   const screenAudioSendersRef = useRef(new Map<string, RTCRtpSender>());
   const videoSendersRef = useRef(new Map<string, RTCRtpSender>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
+  const peerNegotiationRef = useRef(new Map<string, PeerNegotiationState>());
   const remoteStreamByUserRef = useRef(new Map<string, MediaStream>());
   const screenRecoveryTimersRef = useRef(new Map<string, number>());
   const screenStreamRef = useRef<MediaStream | null>(null);
@@ -258,6 +308,9 @@ export function useTeamCall({
   const recordingIdRef = useRef("");
   const recordingQueueRef = useRef<Promise<void>>(Promise.resolve());
   const recordingErrorRef = useRef<Error | null>(null);
+  const recordingPendingBytesRef = useRef(0);
+  const recordingPendingChunksRef = useRef(0);
+  const recordingUploadedBytesRef = useRef(0);
   const recordingCleanupRef = useRef<(() => void) | null>(null);
   const recordingTimerRef = useRef<number | null>(null);
   const callTimerRef = useRef<number | null>(null);
@@ -384,13 +437,21 @@ export function useTeamCall({
     const recoveryTimer = screenRecoveryTimersRef.current.get(userId);
     if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
     screenRecoveryTimersRef.current.delete(userId);
-    peersRef.current.get(userId)?.close();
+    const peer = peersRef.current.get(userId);
+    if (peer) {
+      peer.onicecandidate = null;
+      peer.ontrack = null;
+      peer.onconnectionstatechange = null;
+      peer.onnegotiationneeded = null;
+      peer.close();
+    }
     peersRef.current.delete(userId);
     audioSendersRef.current.delete(userId);
     screenAudioSendersRef.current.delete(userId);
     setRemoteCameraEnabled((current) => { const next = { ...current }; delete next[userId]; return next; });
     videoSendersRef.current.delete(userId);
     pendingCandidatesRef.current.delete(userId);
+    peerNegotiationRef.current.delete(userId);
     remoteStreamByUserRef.current.get(userId)?.getTracks().forEach((track) => {
       track.onended = null;
     });
@@ -421,12 +482,19 @@ export function useTeamCall({
     announcedScreensRef.current.clear();
     if (notify && call) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
     stopConnectingSound();
-    peersRef.current.forEach((peer) => peer.close());
+    peersRef.current.forEach((peer) => {
+      peer.onicecandidate = null;
+      peer.ontrack = null;
+      peer.onconnectionstatechange = null;
+      peer.onnegotiationneeded = null;
+      peer.close();
+    });
     peersRef.current.clear();
     audioSendersRef.current.clear();
     screenAudioSendersRef.current.clear();
     videoSendersRef.current.clear();
     pendingCandidatesRef.current.clear();
+    peerNegotiationRef.current.clear();
     remoteStreamByUserRef.current.forEach((stream) => stream.getTracks().forEach((track) => {
       track.onended = null;
     }));
@@ -448,6 +516,12 @@ export function useTeamCall({
     callTimerRef.current = null;
     setRecording(false);
     setRecordingElapsedSeconds(0);
+    setRecordingUploadState("idle");
+    setRecordingUploadedBytes(0);
+    setRecordingPendingBytes(0);
+    recordingUploadedBytesRef.current = 0;
+    recordingPendingBytesRef.current = 0;
+    recordingPendingChunksRef.current = 0;
     if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
     recordingTimerRef.current = null;
     recordingCleanupRef.current?.();
@@ -462,28 +536,24 @@ export function useTeamCall({
 
   useEffect(() => {
     const leaveOnClose = () => {
-      const call = activeRef.current;
-      if (call) {
-        if (call.hostUserId === session.user.id) {
-          sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
-          void fetch(`${TEAM_CHAT_API}/calls/${encodeURIComponent(call.callId)}`, {
-            method: "DELETE", headers: { Authorization: `Bearer ${session.token}` }, keepalive: true,
-          }).catch(() => undefined);
-        } else sendSocketEvent({ type: "CALL_LEAVE", ...callPayload(call) });
-      }
       if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
       finishCall(false);
     };
     window.addEventListener("pagehide", leaveOnClose);
     return () => { window.removeEventListener("pagehide", leaveOnClose); leaveOnClose(); };
-  }, [callPayload, finishCall, sendSocketEvent, session.token, session.user.id]);
+  }, [finishCall]);
+
+  const heartbeat = useCallback(() => {
+    const call = activeRef.current;
+    return call ? sendSocketEvent({ type: "CALL_HEARTBEAT", ...callPayload(call) }) : false;
+  }, [callPayload, sendSocketEvent]);
 
   useEffect(() => {
     if (!active) return;
-    const heartbeat = () => sendSocketEvent({ type: "CALL_HEARTBEAT", ...callPayload(active) });
-    const timer = window.setInterval(heartbeat, 20000);
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 10000);
     return () => window.clearInterval(timer);
-  }, [active, callPayload, sendSocketEvent]);
+  }, [active, heartbeat]);
 
   useEffect(() => {
     if (!incoming) return;
@@ -744,27 +814,50 @@ export function useTeamCall({
       if (typeof MediaRecorder === "undefined") setStatus("Este navegador nao permite gravar reunioes.");
       return;
     }
+    const consented = window.confirm(
+      "Iniciar gravação desta reunião? Todos os participantes serão avisados. O áudio, o vídeo e a tela compartilhada poderão ser capturados e a gravação ficará disponível no chat por 24 horas.",
+    );
+    if (!consented) {
+      setStatus("Gravação não iniciada.");
+      return;
+    }
     const epoch = mediaEpochRef.current;
     recordingStartPendingRef.current = true;
     const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
     const mimeType = candidates.find((candidate) => !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(candidate)) || "";
     let cleanup: (() => void) | null = null;
     let recordingId = "";
+    const startOperationId = crypto.randomUUID();
+    const recordingHeaders = {
+      Authorization: `Bearer ${session.token}`,
+      "X-Call-Client-Id": clientIdRef.current,
+    };
+    const abortUpload = async (id: string) => {
+      await fetchRecordingWithRetry(`${TEAM_CHAT_API}/recordings/${id}`, {
+        method: "DELETE",
+        headers: {
+          ...recordingHeaders,
+          "X-Recording-Operation-Id": `abort-${startOperationId}`,
+        },
+      }).catch(() => undefined);
+    };
     try {
       setStatus("Preparando gravacao...");
       const composition = createMeetingRecordingStream();
       cleanup = composition.cleanup;
-      const startResponse = await fetch(`${TEAM_CHAT_API}/recordings/start`, {
+      const startResponse = await fetchRecordingWithRetry(`${TEAM_CHAT_API}/recordings/start`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           callId: call.callId,
+          clientId: clientIdRef.current,
+          operationId: startOperationId,
           scope: call.thread.scope,
           recipientId: call.thread.recipientId || null,
           subteamId: call.thread.subteamId || null,
           mimeType: mimeType || "video/webm",
         }),
-      });
+      }, () => setRecordingUploadState("retrying"));
       const startData = await startResponse.json().catch(() => ({}));
       if (!startResponse.ok) throw new Error(startData?.detail || "Nao foi possivel iniciar a gravacao.");
       recordingId = String(startData.recording?.id || "");
@@ -777,36 +870,72 @@ export function useTeamCall({
       recordingCleanupRef.current = cleanup;
       recordingQueueRef.current = Promise.resolve();
       recordingErrorRef.current = null;
+      recordingPendingBytesRef.current = 0;
+      recordingPendingChunksRef.current = 0;
+      recordingUploadedBytesRef.current = 0;
+      setRecordingPendingBytes(0);
+      setRecordingUploadedBytes(0);
+      setRecordingUploadState("uploading");
       recordingStopPromiseRef.current = new Promise<void>((resolve) => { resolveRecordingStopRef.current = resolve; });
       recorder.ondataavailable = (event) => {
         if (!event.data.size || recordingErrorRef.current) return;
+        const chunkId = crypto.randomUUID();
+        recordingPendingBytesRef.current += event.data.size;
+        recordingPendingChunksRef.current += 1;
+        setRecordingPendingBytes(recordingPendingBytesRef.current);
+        if (recordingNeedsBackpressure(recordingPendingBytesRef.current, recordingPendingChunksRef.current)
+          && recorder.state === "recording") recorder.pause();
         recordingQueueRef.current = recordingQueueRef.current.then(async () => {
-          const response = await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}/chunks`, {
+          setRecordingUploadState("uploading");
+          const response = await fetchRecordingWithRetry(`${TEAM_CHAT_API}/recordings/${recordingId}/chunks`, {
             method: "PUT",
-            headers: { Authorization: `Bearer ${session.token}`, "Content-Type": "application/octet-stream" },
+            headers: {
+              ...recordingHeaders,
+              "Content-Type": "application/octet-stream",
+              "X-Recording-Chunk-Id": chunkId,
+            },
             body: event.data,
-          });
+          }, () => setRecordingUploadState("retrying"));
           if (!response.ok) {
             const data = await response.json().catch(() => ({}));
             throw new Error(data?.detail || "Falha ao enviar um trecho da gravacao.");
           }
-        }).catch((error) => { recordingErrorRef.current = error instanceof Error ? error : new Error("Falha ao enviar a gravacao."); });
+          recordingUploadedBytesRef.current += event.data.size;
+          setRecordingUploadedBytes(recordingUploadedBytesRef.current);
+        }).catch((error) => {
+          recordingErrorRef.current = error instanceof Error ? error : new Error("Falha ao enviar a gravacao.");
+          setRecordingUploadState("failed");
+          if (recorder.state !== "inactive") recorder.stop();
+        }).finally(() => {
+          recordingPendingBytesRef.current = Math.max(0, recordingPendingBytesRef.current - event.data.size);
+          recordingPendingChunksRef.current = Math.max(0, recordingPendingChunksRef.current - 1);
+          setRecordingPendingBytes(recordingPendingBytesRef.current);
+          if (!recordingErrorRef.current && recorder.state === "paused"
+            && !recordingNeedsBackpressure(recordingPendingBytesRef.current, recordingPendingChunksRef.current)) {
+            recorder.resume();
+          }
+        });
       };
       recorder.onstop = () => {
         void (async () => {
           await recordingQueueRef.current;
           try {
             if (recordingErrorRef.current) throw recordingErrorRef.current;
-            const response = await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}/complete`, {
+            setRecordingUploadState("finalizing");
+            const response = await fetchRecordingWithRetry(`${TEAM_CHAT_API}/recordings/${recordingId}/complete`, {
               method: "POST",
-              headers: { Authorization: `Bearer ${session.token}` },
-            });
+              headers: {
+                ...recordingHeaders,
+                "X-Recording-Operation-Id": `complete-${startOperationId}`,
+              },
+            }, () => setRecordingUploadState("retrying"));
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(data?.detail || "Nao foi possivel finalizar a gravacao.");
             if (activeRef.current?.callId === call.callId) setStatus("Gravação com tela e áudio salva no chat da equipe por 24 horas.");
           } catch (error) {
+            setRecordingUploadState("failed");
             if (activeRef.current?.callId === call.callId) setStatus(error instanceof Error ? error.message : "Falha ao salvar a gravacao.");
-            await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}`, { method: "DELETE", headers: { Authorization: `Bearer ${session.token}` } }).catch(() => undefined);
+            await abortUpload(recordingId);
           } finally {
             recordingCleanupRef.current?.();
             recordingCleanupRef.current = null;
@@ -814,6 +943,9 @@ export function useTeamCall({
             recordingIdRef.current = "";
             setRecording(false);
             setRecordingElapsedSeconds(0);
+            setRecordingPendingBytes(0);
+            recordingPendingBytesRef.current = 0;
+            recordingPendingChunksRef.current = 0;
             if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
             recordingTimerRef.current = null;
             resolveRecordingStopRef.current?.();
@@ -825,28 +957,57 @@ export function useTeamCall({
       setRecording(true);
       setRecordingElapsedSeconds(0);
       recordingTimerRef.current = window.setInterval(() => setRecordingElapsedSeconds((current) => current + 1), 1000);
-      setStatus("Gravando reuniao");
+      setStatus("Gravando reunião · todos os participantes foram avisados");
     } catch (error) {
       cleanup?.();
-      if (recordingId) await fetch(`${TEAM_CHAT_API}/recordings/${recordingId}`, { method: "DELETE", headers: { Authorization: `Bearer ${session.token}` } }).catch(() => undefined);
+      setRecordingUploadState("failed");
+      if (recordingId) await abortUpload(recordingId);
       if (epoch === mediaEpochRef.current) setStatus(error instanceof Error ? error.message : "Nao foi possivel iniciar a gravacao.");
     } finally {
       recordingStartPendingRef.current = false;
     }
   }, [createMeetingRecordingStream, recording, session.token]);
 
+  const negotiationStateFor = useCallback((remoteUserId: string) => {
+    let state = peerNegotiationRef.current.get(remoteUserId);
+    if (!state) {
+      state = {
+        makingOffer: false,
+        ignoreOffer: false,
+        isSettingRemoteAnswerPending: false,
+        polite: session.user.id.localeCompare(remoteUserId) > 0,
+        revision: 0,
+      };
+      peerNegotiationRef.current.set(remoteUserId, state);
+    }
+    return state;
+  }, [session.user.id]);
+
   const negotiatePeer = useCallback(async (remoteUserId: string, peer: RTCPeerConnection) => {
     const call = activeRef.current;
-    if (!call || peer.signalingState !== "stable") return;
-    const offer = await peer.createOffer();
-    await peer.setLocalDescription(offer);
-    sendSocketEvent({
-      type: "CALL_SIGNAL",
-      ...callPayload(call),
-      targetUserId: remoteUserId,
-      signal: offer,
-    });
-  }, [callPayload, sendSocketEvent]);
+    const negotiation = negotiationStateFor(remoteUserId);
+    if (!call || negotiation.makingOffer || peer.signalingState !== "stable") return;
+    const revision = ++negotiation.revision;
+    try {
+      negotiation.makingOffer = true;
+      const offer = await peer.createOffer();
+      if (negotiation.revision !== revision
+        || peersRef.current.get(remoteUserId) !== peer
+        || activeRef.current?.callId !== call.callId) return;
+      await peer.setLocalDescription(offer);
+      if (negotiation.revision !== revision
+        || peersRef.current.get(remoteUserId) !== peer
+        || activeRef.current?.callId !== call.callId) return;
+      sendSocketEvent({
+        type: "CALL_SIGNAL",
+        ...callPayload(call),
+        targetUserId: remoteUserId,
+        signal: peer.localDescription || offer,
+      });
+    } finally {
+      if (negotiation.revision === revision) negotiation.makingOffer = false;
+    }
+  }, [callPayload, negotiationStateFor, sendSocketEvent]);
 
   const attachVideoTrack = useCallback(async (track: MediaStreamTrack | null, sourceStream: MediaStream) => {
     await Promise.all(Array.from(peersRef.current.entries()).map(async ([remoteUserId, peer]) => {
@@ -886,6 +1047,7 @@ export function useTeamCall({
         bundlePolicy: "max-bundle",
       });
       peersRef.current.set(remoteUserId, peer);
+      negotiationStateFor(remoteUserId);
       const localAudioTrack = localStreamRef.current?.getAudioTracks().find((track) => track.readyState !== "ended");
       if (localAudioTrack && localStreamRef.current) {
         const audioSender = peer.addTrack(localAudioTrack, localStreamRef.current);
@@ -917,7 +1079,7 @@ export function useTeamCall({
       }
       peer.onicecandidate = (event) => {
         const current = activeRef.current;
-        if (event.candidate && current) {
+        if (event.candidate && current && peersRef.current.get(remoteUserId) === peer) {
           sendSocketEvent({
             type: "CALL_SIGNAL",
             ...callPayload(current),
@@ -994,10 +1156,16 @@ export function useTeamCall({
         }
         if (connectionState === "closed") closePeer(remoteUserId);
       };
+      const negotiationPeer = peer;
+      peer.onnegotiationneeded = () => {
+        if (peersRef.current.get(remoteUserId) === negotiationPeer) {
+          void negotiatePeer(remoteUserId, negotiationPeer).catch(() => closePeer(remoteUserId));
+        }
+      };
     }
     if (createOffer) await negotiatePeer(remoteUserId, peer);
     return peer;
-  }, [callPayload, closePeer, negotiatePeer, publishMediaState, sendSocketEvent, session.user.id]);
+  }, [callPayload, closePeer, negotiatePeer, negotiationStateFor, publishMediaState, sendSocketEvent, session.user.id]);
 
   const requestRemoteScreenRefresh = useCallback(async (remoteUserId: string) => {
     // O emissor renegocia imediatamente com a faixa anexada. O receptor só
@@ -1078,7 +1246,6 @@ export function useTeamCall({
         throw new Error("A conexão da reunião foi interrompida. Tente ingressar novamente.");
       }
       dismissedInviteIdsRef.current.add(call.callId);
-      window.dispatchEvent(new CustomEvent("norium:team-call-dismiss", { detail: { callId: call.callId } }));
       stopConnectingSound();
       playCallSound("joined");
       setStatus("Na chamada");
@@ -1143,10 +1310,15 @@ export function useTeamCall({
     if (pendingCall) {
       dismissedInviteIdsRef.current.add(pendingCall.callId);
       sendSocketEvent({ type: "CALL_REJECT", ...callPayload(pendingCall) });
-      window.dispatchEvent(new CustomEvent("norium:team-call-dismiss", { detail: { callId: pendingCall.callId } }));
     }
     finishCall(false);
   }, [callPayload, finishCall, sendSocketEvent]);
+
+  const revokeAccess = useCallback((detail = "Seu acesso à chamada foi revogado.") => {
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+    finishCall(false);
+    setStatus(detail);
+  }, [finishCall]);
 
   const handleSocketEvent = useCallback(async (event: TeamCallSocketEvent) => {
     if (event.type === "CALLS_STATE") {
@@ -1186,6 +1358,15 @@ export function useTeamCall({
       if (incomingRef.current?.callId === event.callId || activeRef.current?.callId === event.callId) {
         void stopRecording();
         finishCall(false, "ended");
+      }
+      return;
+    }
+    if (event.type === "CALL_KICK" && event.callId) {
+      if (event.targetUserId && event.targetUserId !== session.user.id) return;
+      if (incomingRef.current?.callId === event.callId || activeRef.current?.callId === event.callId) {
+        revokeAccess(event.reason === "access_revoked"
+          ? "Seu acesso à chamada foi revogado."
+          : "Você foi removido desta chamada.");
       }
       return;
     }
@@ -1271,23 +1452,50 @@ export function useTeamCall({
       const peer = await createPeer(event.fromUserId, false);
       if (!peer) return;
       if ("type" in event.signal && event.signal.type) {
-        await peer.setRemoteDescription(event.signal as RTCSessionDescriptionInit);
+        const description = event.signal as RTCSessionDescriptionInit;
+        const negotiation = negotiationStateFor(event.fromUserId);
+        const readyForOffer = !negotiation.makingOffer
+          && (peer.signalingState === "stable" || negotiation.isSettingRemoteAnswerPending);
+        const offerCollision = description.type === "offer" && !readyForOffer;
+        negotiation.ignoreOffer = !negotiation.polite && offerCollision;
+        if (negotiation.ignoreOffer) return;
+        if (offerCollision) {
+          negotiation.revision += 1;
+          negotiation.makingOffer = false;
+        }
+        negotiation.isSettingRemoteAnswerPending = description.type === "answer";
+        try {
+          if (offerCollision && negotiation.polite && peer.signalingState !== "stable") {
+            await peer.setLocalDescription({ type: "rollback" });
+          }
+          await peer.setRemoteDescription(description);
+        } finally {
+          negotiation.isSettingRemoteAnswerPending = false;
+        }
+        if (peersRef.current.get(event.fromUserId) !== peer || activeRef.current?.callId !== call.callId) return;
         const pendingCandidates = pendingCandidatesRef.current.get(event.fromUserId) || [];
         for (const candidate of pendingCandidates) await peer.addIceCandidate(candidate);
         pendingCandidatesRef.current.delete(event.fromUserId);
-        if (event.signal.type === "offer") {
+        if (description.type === "offer") {
           const answer = await peer.createAnswer();
           await peer.setLocalDescription(answer);
+          if (peersRef.current.get(event.fromUserId) !== peer || activeRef.current?.callId !== call.callId) return;
           sendSocketEvent({
             type: "CALL_SIGNAL",
             ...callPayload(call),
             targetUserId: event.fromUserId,
-            signal: answer,
+            signal: peer.localDescription || answer,
           });
         }
       } else if ("candidate" in event.signal) {
+        const negotiation = negotiationStateFor(event.fromUserId);
+        if (negotiation.ignoreOffer) return;
         if (peer.remoteDescription) {
-          await peer.addIceCandidate(event.signal as RTCIceCandidateInit);
+          try {
+            await peer.addIceCandidate(event.signal as RTCIceCandidateInit);
+          } catch (error) {
+            if (!negotiation.ignoreOffer) throw error;
+          }
         } else {
           pendingCandidatesRef.current.set(event.fromUserId, [
             ...(pendingCandidatesRef.current.get(event.fromUserId) || []),
@@ -1311,20 +1519,40 @@ export function useTeamCall({
     if (event.type === "CALL_RECORDING_STARTED") {
       setRecording(true);
       setRecordingElapsedSeconds(0);
+      setRecordingUploadState("idle");
+      setRecordingUploadedBytes(0);
+      setRecordingPendingBytes(0);
       if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = window.setInterval(() => setRecordingElapsedSeconds((current) => current + 1), 1000);
       setStatus(`${event.fromUserName || "O organizador"} iniciou a gravacao.`);
       return;
     }
+    if (event.type === "CALL_RECORDING_STOPPED") {
+      if (mediaRecorderRef.current?.state !== "inactive") mediaRecorderRef.current?.stop();
+      setRecording(false);
+      setRecordingElapsedSeconds(0);
+      setRecordingPendingBytes(0);
+      if (event.reason === "failed" || event.reason === "expired") {
+        setRecordingUploadState("failed");
+        setStatus("A gravação foi interrompida pelo servidor.");
+      } else {
+        setRecordingUploadState("idle");
+      }
+      if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+      return;
+    }
     if (event.type === "CALL_RECORDING_AVAILABLE") {
       setRecording(false);
       setRecordingElapsedSeconds(0);
+      setRecordingUploadState("idle");
+      setRecordingPendingBytes(0);
       if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
       setStatus("Gravacao disponivel no chat por 24 horas.");
       return;
     }
-  }, [receiveHands, receiveMessages, syncMeetingChat, callPayload, closePeer, createPeer, finishCall, publishMediaState, requestRemoteScreenRefresh, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
+  }, [receiveHands, receiveMessages, syncMeetingChat, callPayload, closePeer, createPeer, finishCall, negotiationStateFor, publishMediaState, requestRemoteScreenRefresh, revokeAccess, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
 
   const toggleMute = useCallback(() => {
     const next = !muted;
@@ -1480,15 +1708,14 @@ export function useTeamCall({
   const endCall = useCallback(async () => {
     const call = activeRef.current;
     if (!call) return;
+    busyRef.current = true;
+    setBusy(true);
+    await stopRecording();
     endedCallIdsRef.current.add(call.callId);
     availableCallsRef.current = availableCallsRef.current.filter((item) => item.callId !== call.callId);
     setAvailableCalls(availableCallsRef.current);
     sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
-    window.dispatchEvent(new CustomEvent("norium:team-call", { detail: { type: "CALL_END", callId: call.callId, fromUserId: session.user.id } }));
-    void stopRecording();
     finishCall(false, "ended");
-    busyRef.current = true;
-    setBusy(true);
     let endedByServer = false;
     if (call) {
       try {
@@ -1506,11 +1733,11 @@ export function useTeamCall({
     busyRef.current = false;
     setBusy(false);
     if (!endedByServer) setStatus("O encerramento foi enviado. Aguardando confirmação do servidor.");
-  }, [callPayload, finishCall, sendSocketEvent, session.token, session.user.id, stopRecording]);
+  }, [callPayload, finishCall, sendSocketEvent, session.token, stopRecording]);
 
   const leaveCall = useCallback(async () => {
     const call = activeRef.current;
-    void stopRecording();
+    await stopRecording();
     if (call) sendSocketEvent({ type: "CALL_LEAVE", ...callPayload(call) });
     finishCall(false, "left");
   }, [callPayload, finishCall, sendSocketEvent, stopRecording]);
@@ -1540,6 +1767,12 @@ export function useTeamCall({
     callElapsedSeconds,
     recording,
     recordingElapsedSeconds,
+    recordingUploadState,
+    recordingUploadedBytes,
+    recordingPendingBytes,
+    recordingUploadProgress: recordingUploadedBytes + recordingPendingBytes > 0
+      ? Math.round((recordingUploadedBytes / (recordingUploadedBytes + recordingPendingBytes)) * 100)
+      : 0,
     connectionQuality,
     reactions,
     status,
@@ -1564,6 +1797,8 @@ export function useTeamCall({
     requestCameraPermission,
     toggleScreenShare,
     handleSocketEvent,
+    heartbeat,
+    revokeAccess,
     devices,
     selectedMicrophoneId,
     selectedCameraId,

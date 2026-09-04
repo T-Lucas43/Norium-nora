@@ -7,11 +7,10 @@ import type {
   SystemNotificationToast,
 } from "../types/omnichannel";
 import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../utils/api";
-import type { TeamCallSocketEvent } from "../components/team-chat/useTeamCall";
+import type { TeamSocketEvent } from "../components/team-chat/CallSession";
 
 const API_URL = `${apiBaseUrl()}/api/omnichannel/inbox`;
 const WS_URL = `${wsBaseUrl()}/api/omnichannel/ws`;
-const TEAM_WS_URL = `${wsBaseUrl()}/api/team-chat/ws`;
 const CALENDAR_SYNC_URL = `${apiBaseUrl()}/api/agenda/sync`;
 const GMAIL_SYNC_URL = `${apiBaseUrl()}/api/emails/gmail/sync-central`;
 const NOTIFICATION_STATE_URL = `${apiBaseUrl()}/api/omnichannel/notifications/state`;
@@ -26,27 +25,6 @@ type SocketMessage = {
   title?: string;
   description?: string;
   severity?: SystemNotificationSeverity;
-};
-
-type TeamSocketMessage = {
-  type?: string;
-  callId?: string;
-  scope?: "team" | "direct" | "subteam";
-  threadId?: string;
-  recipientId?: string | null;
-  subteamId?: string | null;
-  fromUserId?: string;
-  fromUserName?: string;
-  mode?: "audio" | "video";
-  startedAt?: string;
-  calls?: TeamCallSocketEvent[];
-  message?: {
-    id?: string;
-    senderId?: string;
-    senderName?: string;
-    text?: string;
-    metadata?: Record<string, unknown>;
-  };
 };
 
 type NotificationState = {
@@ -183,7 +161,6 @@ export function useWebSockets(
 
   const activeTabRef = useRef(activeTab);
   const socketRef = useRef<WebSocket | null>(null);
-  const teamSocketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const hasOpenedRef = useRef(false);
   const lastConnectionStateRef = useRef<"online" | "offline" | null>(null);
@@ -249,26 +226,11 @@ export function useWebSockets(
 
   useEffect(() => {
     const meetingNotifications = meetingNotificationsRef.current;
-    const onDismiss = (event: Event) => {
-      const callId = (event as CustomEvent<{ callId?: string }>).detail?.callId;
-      if (callId) dismissCallNotifications(callId);
-    };
-    const onEnd = (event: Event) => {
-      const payload = (event as CustomEvent<TeamCallSocketEvent>).detail;
-      if (payload?.type === "CALL_END" && payload.callId) {
-        endedTeamCallIdsRef.current.add(payload.callId);
-        dismissCallNotifications(payload.callId);
-      }
-    };
-    window.addEventListener("norium:team-call-dismiss", onDismiss);
-    window.addEventListener("norium:team-call", onEnd);
     return () => {
-      window.removeEventListener("norium:team-call-dismiss", onDismiss);
-      window.removeEventListener("norium:team-call", onEnd);
       meetingNotifications.forEach((notification) => notification.close());
       meetingNotifications.clear();
     };
-  }, [dismissCallNotifications]);
+  }, []);
 
   const pushSystemNotification = useCallback(
     (payload: {
@@ -339,6 +301,45 @@ export function useWebSockets(
     },
     [pushSystemNotification, userId],
   );
+
+  const handleTeamSocketEvent = useCallback((payload: TeamSocketEvent) => {
+    if (currentUserIdRef.current !== userId) return;
+    if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) notifyTeamMessage(payload.message);
+    if (payload.type === "CALL_END" && payload.callId) {
+      endedTeamCallIdsRef.current.add(payload.callId);
+      dismissCallNotifications(payload.callId);
+    }
+    if (payload.type === "CALLS_STATE") {
+      const activeIds = new Set((payload.calls || []).map((call) => call.callId));
+      for (const callId of seenTeamCallIdsRef.current) {
+        if (!activeIds.has(callId)) {
+          endedTeamCallIdsRef.current.add(callId);
+          dismissCallNotifications(callId);
+        }
+      }
+    }
+    if (payload.type !== "CALL_INVITE" || !payload.callId) return;
+    if (payload.fromUserId === userId || seenTeamCallIdsRef.current.has(payload.callId) || endedTeamCallIdsRef.current.has(payload.callId)) return;
+    seenTeamCallIdsRef.current.add(payload.callId);
+    if (seenTeamCallIdsRef.current.size > 100) {
+      const oldest = seenTeamCallIdsRef.current.values().next().value;
+      if (oldest) seenTeamCallIdsRef.current.delete(oldest);
+    }
+    pushSystemNotification({
+      id: `meeting_${payload.callId}`,
+      title: "Reunião iniciada",
+      description: `${payload.fromUserName || "Um membro da equipe"} convidou você para entrar.`,
+      severity: "info",
+      metadata: { source: "equipe", action: "call_started", callId: payload.callId },
+    });
+    if ("Notification" in window && document.visibilityState !== "visible" && Notification.permission === "granted") {
+      const notification = new Notification("Reunião iniciada no Norium", {
+        body: `${payload.fromUserName || "Um membro da equipe"} está chamando você.`,
+        tag: `norium-meeting-${payload.callId}`,
+      });
+      meetingNotificationsRef.current.set(payload.callId, notification);
+    }
+  }, [dismissCallNotifications, notifyTeamMessage, pushSystemNotification, userId]);
 
   const refreshEvents = useCallback(async () => {
     const requestedUserId = userId;
@@ -604,97 +605,6 @@ export function useWebSockets(
     };
   }, [enabled, handleSocketSystemMessage, notifyTeamMessage, pushSystemNotification, reportConnectionState, userId]);
 
-  useEffect(() => {
-    if (!enabled) return undefined;
-    let cancelled = false;
-    let reconnectTimer: number | null = null;
-
-    async function connectTeamSocket() {
-      if (cancelled) return;
-      const token = authToken();
-      if (!token) return;
-      let socket: WebSocket;
-      try {
-        const socketUrl = await authenticatedWebSocketUrl(TEAM_WS_URL, token);
-        if (cancelled) return;
-        socket = new WebSocket(socketUrl);
-      } catch {
-        if (!cancelled && reconnectTimer === null) {
-          reconnectTimer = window.setTimeout(() => {
-            reconnectTimer = null;
-            void connectTeamSocket();
-          }, 1800);
-        }
-        return;
-      }
-      teamSocketRef.current = socket;
-
-      socket.onmessage = (event) => {
-        if (currentUserIdRef.current !== userId) return;
-        try {
-          const payload = JSON.parse(String(event.data || "{}")) as TeamSocketMessage;
-          if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) notifyTeamMessage(payload.message);
-          if (payload.type === "CALL_END" && payload.callId) {
-            endedTeamCallIdsRef.current.add(payload.callId);
-            dismissCallNotifications(payload.callId);
-            window.dispatchEvent(new CustomEvent("norium:team-call", { detail: payload }));
-          }
-          if (payload.type === "CALLS_STATE") {
-            const activeIds = new Set((payload.calls || []).map((call) => call.callId));
-            for (const callId of seenTeamCallIdsRef.current) {
-              if (!activeIds.has(callId)) {
-                endedTeamCallIdsRef.current.add(callId);
-                dismissCallNotifications(callId);
-              }
-            }
-            window.dispatchEvent(new CustomEvent("norium:team-call", { detail: payload }));
-          }
-          if (payload.type === "CALL_INVITE" && payload.callId) {
-            if (payload.fromUserId === userId || seenTeamCallIdsRef.current.has(payload.callId) || endedTeamCallIdsRef.current.has(payload.callId)) return;
-            seenTeamCallIdsRef.current.add(payload.callId);
-            if (seenTeamCallIdsRef.current.size > 100) {
-              const oldest = seenTeamCallIdsRef.current.values().next().value;
-              if (oldest) seenTeamCallIdsRef.current.delete(oldest);
-            }
-            pushSystemNotification({
-              id: `meeting_${payload.callId}`,
-              title: "Reunião iniciada",
-              description: `${payload.fromUserName || "Um membro da equipe"} convidou você para entrar.`,
-              severity: "info",
-              metadata: { source: "equipe", action: "call_started", callId: payload.callId },
-            });
-            window.dispatchEvent(new CustomEvent("norium:team-call", { detail: payload }));
-            if ("Notification" in window && document.visibilityState !== "visible" && Notification.permission === "granted") {
-              const notification = new Notification("Reunião iniciada no Norium", {
-                body: `${payload.fromUserName || "Um membro da equipe"} está chamando você.`,
-                tag: `norium-meeting-${payload.callId}`,
-              });
-              meetingNotificationsRef.current.set(payload.callId, notification);
-            }
-          }
-        } catch {
-          // Pacotes de presenca ou incompatíveis nao bloqueiam o contador do chat.
-        }
-      };
-      socket.onclose = () => {
-        if (cancelled || currentUserIdRef.current !== userId || reconnectTimer !== null) return;
-        reconnectTimer = window.setTimeout(() => {
-          reconnectTimer = null;
-          void connectTeamSocket();
-        }, 1800);
-      };
-      socket.onerror = () => socket.close();
-    }
-
-    void connectTeamSocket();
-    return () => {
-      cancelled = true;
-      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
-      teamSocketRef.current?.close();
-      teamSocketRef.current = null;
-    };
-  }, [dismissCallNotifications, enabled, notifyTeamMessage, pushSystemNotification, userId]);
-
   return {
     connected: isolatedForCurrentUser ? connected : false,
     events: visibleEvents,
@@ -709,5 +619,7 @@ export function useWebSockets(
     clearTeamChatUnread,
     addTeamChatUnread,
     dismissSystemToast,
+    dismissCallNotifications,
+    handleTeamSocketEvent,
   };
 }

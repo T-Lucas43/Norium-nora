@@ -46,33 +46,35 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 async function setup() {
   const hook = renderHook(() => useWebSockets("Início", true, "member"));
-  await waitFor(() => expect(Socket.instances).toHaveLength(2));
-  const socket = Socket.instances.find((item) => item.url.includes("team-chat"))!;
-  return { ...hook, socket };
+  await waitFor(() => expect(Socket.instances).toHaveLength(1));
+  return {
+    ...hook,
+    receiveTeam: (payload: Record<string, unknown>) => hook.result.current.handleTeamSocketEvent(payload as never),
+  };
 }
 
 describe("meeting notification lifecycle", () => {
   it("closes desktop alerts, toasts and unread badges when the meeting ends", async () => {
-    const { result, socket, unmount } = await setup();
-    act(() => socket.receive(invite));
+    const { result, receiveTeam, unmount } = await setup();
+    act(() => receiveTeam(invite));
     expect(result.current.systemUnreadCount).toBe(1);
     expect(result.current.systemToasts).toHaveLength(1);
     expect(DesktopNotification.instances).toHaveLength(1);
-    act(() => socket.receive({ type: "CALL_END", callId: invite.callId }));
+    act(() => receiveTeam({ type: "CALL_END", callId: invite.callId }));
     expect(result.current.systemNotifications).toHaveLength(0);
     expect(result.current.systemToasts).toHaveLength(0);
     expect(result.current.systemUnreadCount).toBe(0);
     expect(DesktopNotification.instances[0].close).toHaveBeenCalled();
-    act(() => socket.receive(invite));
+    act(() => receiveTeam(invite));
     expect(result.current.systemNotifications).toHaveLength(0);
     unmount();
   });
 
   it("handles invite and end in the same batch without leaving unread counters", async () => {
-    const { result, socket, unmount } = await setup();
+    const { result, receiveTeam, unmount } = await setup();
     act(() => {
-      socket.receive(invite);
-      socket.receive({ type: "CALL_END", callId: invite.callId });
+      receiveTeam(invite);
+      receiveTeam({ type: "CALL_END", callId: invite.callId });
     });
     expect(result.current.systemNotifications).toHaveLength(0);
     expect(result.current.systemUnreadCount).toBe(0);
@@ -81,12 +83,12 @@ describe("meeting notification lifecycle", () => {
   });
 
   it("does not ring on snapshots and clears stale invitations after reconnection", async () => {
-    const { result, socket, unmount } = await setup();
-    act(() => socket.receive({ type: "CALLS_STATE", calls: [invite] }));
+    const { result, receiveTeam, unmount } = await setup();
+    act(() => receiveTeam({ type: "CALLS_STATE", calls: [invite] }));
     expect(result.current.systemNotifications).toHaveLength(0);
     expect(DesktopNotification.instances).toHaveLength(0);
-    act(() => socket.receive(invite));
-    act(() => socket.receive({ type: "CALLS_STATE", calls: [] }));
+    act(() => receiveTeam(invite));
+    act(() => receiveTeam({ type: "CALLS_STATE", calls: [] }));
     expect(result.current.systemNotifications).toHaveLength(0);
     expect(result.current.systemUnreadCount).toBe(0);
     expect(DesktopNotification.instances[0].close).toHaveBeenCalled();
@@ -94,10 +96,10 @@ describe("meeting notification lifecycle", () => {
   });
 
   it("dismisses alerts when joining or declining and does not alert on call-ended history", async () => {
-    const { result, socket, unmount } = await setup();
-    act(() => socket.receive(invite));
-    act(() => window.dispatchEvent(new CustomEvent("norium:team-call-dismiss", { detail: { callId: invite.callId } })));
-    act(() => socket.receive({ type: "TEAM_CHAT_MESSAGE", message: { id: "end", senderId: "owner", metadata: { action: "call_ended" } } }));
+    const { result, receiveTeam, unmount } = await setup();
+    act(() => receiveTeam(invite));
+    act(() => result.current.dismissCallNotifications(invite.callId));
+    act(() => receiveTeam({ type: "TEAM_CHAT_MESSAGE", message: { id: "end", senderId: "owner", metadata: { action: "call_ended" } } }));
     expect(result.current.systemToasts).toHaveLength(0);
     expect(result.current.systemUnreadCount).toBe(0);
     expect(result.current.teamChatUnreadCount).toBe(0);

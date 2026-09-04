@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CalendarDays, CalendarPlus, CheckCheck, Download, FileText, FolderOpen, Hash, ImageIcon, Images, Paperclip, Phone, PlayCircle, Plus, Send, Settings2, Users, UserRound, Video, Volume2, X } from "lucide-react";
 import { canUse, type AuthSession, type NoriumUser } from "../../types/auth";
-import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../../utils/api";
+import { apiBaseUrl, authToken } from "../../utils/api";
 import { downloadWithAuth } from "../../utils/download";
 import NoraAvatar from "../layout/NoraAvatar";
 import Button from "../shared/Button";
@@ -13,7 +13,12 @@ import TeamMemberPresenceDialog from "./TeamMemberPresenceDialog";
 import TeamMeetingMessageCard from "./TeamMeetingMessageCard";
 import TeamMeetingSchedulerDialog, { type TeamMeetingScheduleInput } from "./TeamMeetingSchedulerDialog";
 import { prepareChatAttachments } from "./chatAttachments";
-import { useTeamCall, type TeamCallSocketEvent, type TeamThreadScope } from "./useTeamCall";
+import {
+  useCallSession,
+  useTeamSocketEvents,
+  type TeamSocketEvent,
+  type TeamThreadScope,
+} from "./CallSession";
 
 type Attachment = {
   id: string;
@@ -57,12 +62,9 @@ type TeamChatDrawerProps = {
   onOpenNora?: (prompt?: string) => void;
   onOpenCalendar?: () => void;
   variant?: "drawer" | "page";
-  initialCallEvent?: TeamCallSocketEvent | null;
-  onInitialCallHandled?: (callId: string) => void;
 };
 
 const API_URL = `${apiBaseUrl()}/api/team-chat`;
-const WS_URL = `${wsBaseUrl()}/api/team-chat/ws`;
 const NORA_MENTION_AT_END = /(^|\s)@(n(?:o(?:r(?:a)?)?)?)?$/i;
 
 function readReceiptsFor(message: TeamMessage) {
@@ -490,7 +492,7 @@ function SubteamEditorDialog({
   );
 }
 
-export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenCalendar, variant = "drawer", initialCallEvent = null, onInitialCallHandled }: TeamChatDrawerProps) {
+export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenCalendar, variant = "drawer" }: TeamChatDrawerProps) {
   const [members, setMembers] = useState<NoriumUser[]>([]);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [subteams, setSubteams] = useState<Subteam[]>([]);
@@ -515,8 +517,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastScrolledThreadRef = useRef("");
-  const socketRef = useRef<WebSocket | null>(null);
-  const handledInitialCallRef = useRef("");
+  const handledIncomingCallRef = useRef("");
   const markedMessageIdsRef = useRef<Set<string>>(new Set());
 
   const recipientOptions = useMemo(
@@ -550,25 +551,11 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     recipientId: scope === "direct" ? recipientId : null,
     subteamId: scope === "subteam" ? subteamId : null,
   }), [recipientId, scope, subteamId, threadTitle]);
-  const sendSocketEvent = useCallback((payload: Record<string, unknown>) => {
-    if (socketRef.current?.readyState !== WebSocket.OPEN) {
-      return false;
-    }
-    socketRef.current.send(JSON.stringify(payload));
-    return true;
-  }, []);
-  const call = useTeamCall({ session, thread: callThread, sendSocketEvent });
-  const baseHandleCallSocketEvent = call.handleSocketEvent;
-  const handleCallSocketEvent = useCallback(async (event: TeamCallSocketEvent) => {
-    if (event.type === "CALL_INVITE" && !event.calls) {
-      const nextScope = event.scope || "team";
-      setScope(nextScope);
-      if (nextScope === "direct") setRecipientId(event.fromUserId || "");
-      if (nextScope === "subteam") setSubteamId(event.subteamId || "");
-      setContentTab("chat");
-    }
-    await baseHandleCallSocketEvent(event);
-  }, [baseHandleCallSocketEvent]);
+  const { snapshot: call, commands: callCommands } = useCallSession();
+  const startCall = useCallback(
+    (target = callThread) => callCommands.start(target),
+    [callCommands, callThread],
+  );
   const threadAttachments = useMemo(() => messages.flatMap((message) => message.attachments || []), [messages]);
   const photoAttachments = useMemo(() => threadAttachments.filter(isImageAttachment), [threadAttachments]);
   const mentionMatch = useMemo(() => text.match(NORA_MENTION_AT_END), [text]);
@@ -662,79 +649,37 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   }, [loadMessages, open]);
 
   useEffect(() => {
-    if (!open || !initialCallEvent?.callId || handledInitialCallRef.current === initialCallEvent.callId) return;
-    handledInitialCallRef.current = initialCallEvent.callId;
-    void handleCallSocketEvent(initialCallEvent)
-      .then(() => onInitialCallHandled?.(initialCallEvent.callId || ""))
-      .catch(() => setError("Falha ao abrir o convite da reuniao."));
-  }, [handleCallSocketEvent, initialCallEvent, onInitialCallHandled, open]);
+    const incoming = call.incoming;
+    if (!incoming || handledIncomingCallRef.current === incoming.callId) return;
+    handledIncomingCallRef.current = incoming.callId;
+    const nextScope = incoming.thread.scope;
+    setScope(nextScope);
+    if (nextScope === "direct") setRecipientId(incoming.thread.recipientId || incoming.fromUserId);
+    if (nextScope === "subteam") setSubteamId(incoming.thread.subteamId || "");
+    setContentTab("chat");
+  }, [call.incoming]);
 
-  const callSocketEnabled = open || Boolean(call.active || call.incoming);
-  const socketHandlersRef = useRef({ open, scope, recipientId, subteamId, loadSubteams, markMessagesRead, onUnread, handleCallSocketEvent });
-  socketHandlersRef.current = { open, scope, recipientId, subteamId, loadSubteams, markMessagesRead, onUnread, handleCallSocketEvent };
+  const socketHandlersRef = useRef({ open, scope, recipientId, subteamId, loadSubteams, markMessagesRead, onUnread });
+  socketHandlersRef.current = { open, scope, recipientId, subteamId, loadSubteams, markMessagesRead, onUnread };
 
-  useEffect(() => {
-    const onGlobalCall = (event: Event) => {
-      const payload = (event as CustomEvent<TeamCallSocketEvent>).detail;
-      if (payload?.type === "CALL_END" || payload?.type === "CALLS_STATE") {
-        void socketHandlersRef.current.handleCallSocketEvent(payload);
-      }
-    };
-    window.addEventListener("norium:team-call", onGlobalCall);
-    return () => window.removeEventListener("norium:team-call", onGlobalCall);
-  }, []);
-
-  useEffect(() => {
-    if (!callSocketEnabled) return;
-    const token = session.token || authToken();
-    if (!token) return;
-    let cancelled = false;
-    let reconnectTimer: number | undefined;
-    let socket: WebSocket | null = null;
-    const reconnect = () => {
-      if (!cancelled) reconnectTimer = window.setTimeout(() => void connect(), 1800);
-    };
-    const connect = async () => {
-      try {
-        const socketUrl = await authenticatedWebSocketUrl(WS_URL, token);
-        if (cancelled) return;
-        socket = new WebSocket(socketUrl);
-        socketRef.current = socket;
-        socket.onmessage = (event) => {
-          let payload: Record<string, any>;
-          try { payload = JSON.parse(String(event.data || "{}")); } catch { return; }
-          const handlers = socketHandlersRef.current;
-          if (payload.type === "PRESENCE" || payload.type === "CONNECTED") setOnlineUserIds(payload.onlineUserIds || []);
-          if (payload.type === "SUBTEAM_UPDATED") void handlers.loadSubteams();
-          if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) {
-            const message = payload.message as TeamMessage;
-            const expectedThread = handlers.scope === "team" ? "team" : handlers.scope === "subteam"
-              ? `subteam:${handlers.subteamId}` : `direct:${[session.user.id, handlers.recipientId].sort().join(":")}`;
-            if (message.threadId === expectedThread) {
-              setMessages((current) => [...current.filter((item) => item.id !== message.id), message]);
-              if (handlers.open) void handlers.markMessagesRead([message]);
-            } else if (handlers.open && !["call_started", "call_ended"].includes(String(message.metadata?.action || ""))) handlers.onUnread?.(1);
-          }
-          if (payload.type === "TEAM_MESSAGE_READ" && payload.messageId) {
-            const readBy = payload.readBy && typeof payload.readBy === "object" ? payload.readBy : {};
-            setMessages((current) => current.map((message) => message.id === payload.messageId ? { ...message, metadata: { ...(message.metadata || {}), readBy } } : message));
-          }
-          if (String(payload.type || "").startsWith("CALL")) {
-            void handlers.handleCallSocketEvent(payload as TeamCallSocketEvent).catch(() => setError("Falha na conexão da chamada. Tente novamente."));
-          }
-        };
-        socket.onclose = reconnect;
-        socket.onerror = () => socket?.close();
-      } catch { reconnect(); }
-    };
-    void connect();
-    return () => {
-      cancelled = true;
-      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
-      socket?.close();
-      socketRef.current = null;
-    };
-  }, [callSocketEnabled, session.token, session.user.id]);
+  useTeamSocketEvents((payload: TeamSocketEvent) => {
+    const handlers = socketHandlersRef.current;
+    if (payload.type === "PRESENCE" || payload.type === "CONNECTED") setOnlineUserIds(payload.onlineUserIds || []);
+    if (payload.type === "SUBTEAM_UPDATED") void handlers.loadSubteams();
+    if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) {
+      const message = payload.message as TeamMessage;
+      const expectedThread = handlers.scope === "team" ? "team" : handlers.scope === "subteam"
+        ? `subteam:${handlers.subteamId}` : `direct:${[session.user.id, handlers.recipientId].sort().join(":")}`;
+      if (message.threadId === expectedThread) {
+        setMessages((current) => [...current.filter((item) => item.id !== message.id), message]);
+        if (handlers.open) void handlers.markMessagesRead([message]);
+      } else if (handlers.open && !["call_started", "call_ended"].includes(String(message.metadata?.action || ""))) handlers.onUnread?.(1);
+    }
+    if (payload.type === "TEAM_MESSAGE_READ" && payload.messageId) {
+      const readBy = payload.readBy && typeof payload.readBy === "object" ? payload.readBy : {};
+      setMessages((current) => current.map((message) => message.id === payload.messageId ? { ...message, metadata: { ...(message.metadata || {}), readBy } } : message));
+    }
+  });
 
   useEffect(() => {
     if (!open || loading) return undefined;
@@ -902,7 +847,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             <div className="flex items-center gap-1">
               {onOpenCalendar && <Button variant="ghost" size="sm" iconOnly onClick={onOpenCalendar} aria-label="Abrir calendario"><CalendarDays size={17} /></Button>}
               <Button variant="ghost" size="sm" iconOnly onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} aria-label="Agendar reunião" title="Agendar reunião"><CalendarPlus size={17} /></Button>
-              <Button variant="ghost" size="sm" iconOnly disabled={!canStartCall} onClick={() => void call.startCall()} aria-label={activeMeeting ? "Ingressar na reunião" : "Iniciar reunião"}><Video size={17} /></Button>
+              <Button variant="ghost" size="sm" iconOnly disabled={!canStartCall} onClick={() => void startCall()} aria-label={activeMeeting ? "Ingressar na reunião" : "Iniciar reunião"}><Video size={17} /></Button>
               {variant === "drawer" ? (
                 <Button variant="ghost" size="sm" iconOnly onClick={onClose}><X size={18} /></Button>
               ) : (
@@ -955,7 +900,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             <button type="button" onClick={() => setContentTab("photos")} className={contentTab === "photos" ? "active" : ""}>Fotos <span>{photoAttachments.length}</span></button>
           </nav>
 
-          {activeMeeting && <div className="shrink-0 border-b border-[var(--border)] px-4 py-3"><TeamActiveCallCard meeting={activeMeeting} busy={call.busy || Boolean(call.active)} joined={call.active?.callId === activeMeeting.callId} onJoin={() => void call.joinActiveCall(activeMeeting)} /></div>}
+          {activeMeeting && <div className="shrink-0 border-b border-[var(--border)] px-4 py-3"><TeamActiveCallCard meeting={activeMeeting} busy={call.busy || Boolean(call.active)} joined={call.active?.callId === activeMeeting.callId} onJoin={() => void callCommands.join(activeMeeting)} /></div>}
           <div ref={listRef} className="team-chat-list min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
             {loading && <p className="text-center text-xs font-bold text-[var(--text-secondary)]">Carregando conversa...</p>}
             {contentTab === "chat" && !loading && messages.length === 0 && !activeMeeting && (
@@ -981,7 +926,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                       <span className="shrink-0 text-right">{formatMessageDateTime(message.createdAt)}</span>
                     </div>
                     {message.text && <NoraMessageContent message={message} />}
-                    {message.metadata?.action === "meeting_scheduled" && <TeamMeetingMessageCard metadata={message.metadata} currentUserId={session.user.id} onAddToCalendar={addMeetingToCalendar} onStart={() => void call.startCall()} />}
+                    {message.metadata?.action === "meeting_scheduled" && <TeamMeetingMessageCard metadata={message.metadata} currentUserId={session.user.id} onAddToCalendar={addMeetingToCalendar} onStart={() => void startCall()} />}
                     {message.attachments?.length > 0 && (
                       <div className="mt-2 grid gap-2">
                         {message.attachments.map((attachment) => (
@@ -1098,7 +1043,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
                 {scope === "team" ? "Canal interno para decisoes, atualizacoes e colaboracao entre todos os membros." : scope === "subteam" ? selectedSubteam?.description || "Comunidade reservada para os membros desta subequipe." : "Conversa reservada entre os participantes selecionados."}
               </p>
-              <div className="mt-4 grid grid-cols-2 gap-2"><Button className="w-full" variant="secondary" size="sm" onClick={() => void call.startCall()} disabled={!canStartCall} icon={<Video size={14} />}>{activeMeeting ? "Ingressar" : "Iniciar reunião"}</Button><Button className="w-full" variant="ghost" size="sm" onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} icon={<CalendarPlus size={14} />}>Agendar</Button></div>
+              <div className="mt-4 grid grid-cols-2 gap-2"><Button className="w-full" variant="secondary" size="sm" onClick={() => void startCall()} disabled={!canStartCall} icon={<Video size={14} />}>{activeMeeting ? "Ingressar" : "Iniciar reunião"}</Button><Button className="w-full" variant="ghost" size="sm" onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} icon={<CalendarPlus size={14} />}>Agendar</Button></div>
               <div className="mt-5 grid gap-2">
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <span className="text-xs font-bold text-[var(--text-secondary)]">Participantes</span>
@@ -1134,7 +1079,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                         <MessageAvatar name={member.nome} avatar={member.fotoUrl || ""} />
                         <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{member.nome}</strong><small className={actualOnlineUserIdSet.has(member.id) ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{actualOnlineUserIdSet.has(member.id) ? "Online agora" : "Offline"}</small></span>
                       </button>
-                      {member.id !== session.user.id && <button type="button" onClick={() => { setScope("direct"); setRecipientId(member.id); void call.startCall({ scope: "direct", title: member.nome, recipientId: member.id, subteamId: null }); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[var(--primary)] hover:bg-[var(--surface)]" aria-label={`Ligar individualmente para ${member.nome}`}><Phone size={15} /></button>}
+                      {member.id !== session.user.id && <button type="button" onClick={() => { setScope("direct"); setRecipientId(member.id); void startCall({ scope: "direct", title: member.nome, recipientId: member.id, subteamId: null }); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[var(--primary)] hover:bg-[var(--surface)]" aria-label={`Ligar individualmente para ${member.nome}`}><Phone size={15} /></button>}
                     </div>
                   ))}
                 </div>
@@ -1149,7 +1094,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             isCurrentUser={selectedMember.id === session.user.id}
             onClose={() => setSelectedMemberId(null)}
             onMessage={() => { setScope("direct"); setRecipientId(selectedMember.id); setContentTab("chat"); setSelectedMemberId(null); }}
-            onCall={() => { setSelectedMemberId(null); void call.startCall({ scope: "direct", title: selectedMember.nome, recipientId: selectedMember.id, subteamId: null }); }}
+            onCall={() => { setSelectedMemberId(null); void startCall({ scope: "direct", title: selectedMember.nome, recipientId: selectedMember.id, subteamId: null }); }}
           />}
           {meetingSchedulerOpen && <TeamMeetingSchedulerDialog
             scopeLabel={threadTitle}
@@ -1167,7 +1112,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
         </motion.aside>
       )}
           <TeamCallOverlay
-            call={call}
+            snapshot={call}
+            commands={callCommands}
             members={members}
             currentUserId={session.user.id}
             onDownloadAttachment={(attachment) => { void downloadWithAuth(attachment.url, attachment.name, session.token); }}

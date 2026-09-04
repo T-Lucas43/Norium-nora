@@ -1,5 +1,5 @@
 import { Users, Video } from "lucide-react";
-import type { TeamCallSocketEvent } from "./useTeamCall";
+import type { TeamCallSocketEvent } from "./CallSession";
 
 export default function TeamActiveCallCard({ meeting, busy, joined = false, onJoin }: {
   meeting: TeamCallSocketEvent;

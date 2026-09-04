@@ -207,3 +207,21 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("CALL_INVITE", types)
         snapshot = next(call.args[0] for call in socket.send_json.call_args_list if call.args[0]["type"] == "CALLS_STATE")
         self.assertEqual(self.invite["callId"], snapshot["calls"][0]["callId"])
+
+    async def test_directory_revocation_removes_connected_member_through_real_adapters(self):
+        await self.send("CALL_INVITE")
+        await self.send("CALL_ACCEPT", self.member, clientId="member-tab")
+        self.manager.send_to_users.reset_mock()
+
+        with patch.object(
+            team,
+            "read_user_store",
+            AsyncMock(return_value={"users": [self.owner, self.other]}),
+        ):
+            await team.call_coordinator().reconcile(team.call_actor(self.owner))
+
+        stored_call = team.read_chat_store("owner")["activeCalls"][0]
+        self.assertEqual(["owner"], sorted(stored_call["joinedClients"]))
+        kicks = [call for call in self.manager.send_to_users.call_args_list if call.args[2]["type"] == "CALL_KICK"]
+        self.assertEqual({"member"}, kicks[-1].args[1])
+        self.assertEqual("access_revoked", kicks[-1].args[2]["reason"])

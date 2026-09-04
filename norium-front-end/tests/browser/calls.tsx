@@ -1,8 +1,7 @@
-// Fixture de desenvolvimento: reutiliza hook, overlay e protocolo reais.
+// Fixture de desenvolvimento: reutiliza a sessao, overlay e protocolo reais.
 // Somente os dispositivos sao sinteticos; nao acessa camera/microfone fisicos.
-import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { useTeamCall } from "../../src/components/team-chat/useTeamCall";
+import { CallSessionProvider, useCallSession } from "../../src/components/team-chat/CallSession";
 import TeamCallOverlay from "../../src/components/team-chat/TeamCallOverlay";
 import TeamActiveCallCard from "../../src/components/team-chat/TeamActiveCallCard";
 import "../../src/index.css";
@@ -61,31 +60,25 @@ Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
 const session = { token: userId, user: { id: userId, nome: userId, permissions: {}, role: "owner" } } as any;
 
 export function Fixture() {
-  const socket = useRef<WebSocket | null>(null);
-  const [connected, setConnected] = useState(false);
-  const sendSocketEvent = useCallback((event: Record<string, unknown>) => {
-    if (socket.current?.readyState !== WebSocket.OPEN) return false;
-    socket.current.send(JSON.stringify(event));
-    return true;
-  }, []);
-  const call = useTeamCall({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent });
-  const handle = useRef(call.handleSocketEvent);
-  handle.current = call.handleSocketEvent;
-  useEffect(() => {
-    const ws = new WebSocket(`ws://127.0.0.1:8000/api/team-chat/ws?ticket=${userId}`);
-    socket.current = ws;
-    ws.onopen = () => setConnected(true);
-    ws.onmessage = (event) => void handle.current(JSON.parse(event.data));
-    return () => ws.close();
-  }, []);
+  return <CallSessionProvider
+    session={session}
+    resolveSocketUrl={async () => `ws://127.0.0.1:8000/api/team-chat/ws?ticket=${userId}`}
+  >
+    <FixtureContent />
+  </CallSessionProvider>;
+}
+
+function FixtureContent() {
+  const { snapshot, commands } = useCallSession();
+  const connected = snapshot.socketState === "open";
   return <main style={{ maxWidth: 760, margin: "40px auto", padding: 24 }}>
     <h1>Teste local · {userId}</h1>
     <p>{connected ? "Conectado" : "Conectando"}</p>
-    <p>Reuniões ativas: {call.availableCalls.length}</p>
-    <button disabled={!connected || call.busy} onClick={() => void call.startCall()} className="m-4 rounded bg-blue-600 px-4 py-2 text-white">Iniciar reunião</button>
-    {call.availableCalls.map((meeting) => <TeamActiveCallCard key={meeting.callId} meeting={meeting} busy={call.busy} onJoin={() => void call.joinActiveCall(meeting)} />)}
-    <p>{call.status}</p>
-    <TeamCallOverlay call={call} members={members} currentUserId={userId} onDownloadAttachment={() => {}} />
+    <p>Reuniões ativas: {snapshot.availableCalls.length}</p>
+    <button disabled={!connected || snapshot.busy} onClick={() => void commands.start({ scope: "team", title: "Time todo" })} className="m-4 rounded bg-blue-600 px-4 py-2 text-white">Iniciar reunião</button>
+    {snapshot.availableCalls.map((meeting) => <TeamActiveCallCard key={meeting.callId} meeting={meeting} busy={snapshot.busy} onJoin={() => void commands.join(meeting)} />)}
+    <p>{snapshot.status}</p>
+    <TeamCallOverlay snapshot={snapshot} commands={commands} members={members} currentUserId={userId} onDownloadAttachment={() => {}} />
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<Fixture />);

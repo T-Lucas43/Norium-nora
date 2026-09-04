@@ -1,5 +1,5 @@
 // Concentra o roteamento visual e carrega cada modulo somente quando necessario.
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { AuthSession } from "../../types/auth";
 import type {
   EventSource,
@@ -9,6 +9,7 @@ import type {
 } from "../../types/omnichannel";
 import ModuleCoach, { type GuidedModule } from "../../components/shared/ModuleCoach";
 
+const NoraWorkspace = lazy(() => import("../../components/nora/NoraWorkspace"));
 const AgendaDashboard = lazy(() => import("../../components/agenda/AgendaDashboard"));
 const AutomationsDashboard = lazy(() => import("../../components/automations/AutomationsDashboard"));
 const BrainstormDashboard = lazy(() => import("../../components/brainstorm/BrainstormDashboard"));
@@ -87,6 +88,8 @@ export default function AppPanels({
   onRefreshEvents,
   onSessionUpdate,
 }: AppPanelsProps) {
+  const [noraVisited, setNoraVisited] = useState(activeTab === "Nora");
+  useEffect(() => { if (activeTab === "Nora") setNoraVisited(true); }, [activeTab]);
   const currentUser = authSession.user;
   const activePanelClass = (...tabs: string[]) => (tabs.includes(activeTab) ? "app-panel" : "hidden");
   const isPanelMounted = (...tabs: string[]) => tabs.includes(activeTab);
@@ -267,8 +270,9 @@ export default function AppPanels({
           <PlatformDashboard session={authSession} onNavigate={onNavigate} />
         </section>
       )}
-      {isPanelMounted("Brainstorm") && (
-        <section className={activePanelClass("Brainstorm")}>
+      {(noraVisited || isPanelMounted("Nora")) && canUseNora && <section className={`${activePanelClass("Nora")} app-panel-nora`}><NoraWorkspace userId={currentUser.id} profile={profile} eventsBySource={eventsBySource} onOpenEmail={(id) => onOpenDeepLink({ tab: "E-mails", entityType: "email", entityId: id })} /></section>}
+      {isPanelMounted("Estúdio", "Brainstorm") && (
+        <section className={activePanelClass("Estúdio", "Brainstorm")}>
           {coach("Brainstorm")}
           <BrainstormDashboard session={authSession} onNavigate={onNavigate} />
         </section>

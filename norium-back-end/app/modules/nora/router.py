@@ -66,9 +66,11 @@ from app.services.nora_whatsapp_action import (
 from app.services.brainstorm_store import create_brainstorm_session, list_brainstorm_sessions
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
 from app.modules.intelligence.service import complete_with_provider, create_browser_plan
+from app.modules.nora.conversations import router as conversations_router
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/nora", tags=["Nora IA"])
+router.include_router(conversations_router)
 nora_service = NoraIAService()
 wapi_messaging = WapiMessagingService()
 agent_manager = AgentManager()

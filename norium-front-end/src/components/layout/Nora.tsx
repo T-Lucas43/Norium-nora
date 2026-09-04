@@ -41,6 +41,9 @@ import { speechTextFromDisplay, takeNaturalSpeechSegments } from "./noraSpeech";
 
 interface NoraProps {
   open: boolean;
+  variant?: "drawer" | "page";
+  initialState?: NoraConversationState;
+  onStateChange?: (state: NoraConversationState, running: boolean) => void;
   onClose: () => void;
   conversaId?: string;
   profile?: PerfilOperador | null;
@@ -70,7 +73,9 @@ const SCREEN_LABELS: Record<string, string> = {
   Equipe: "Equipe",
   Clientes: "Clientes",
   Governanca: "Governança",
-  Brainstorm: "Brainstorm",
+  Brainstorm: "Estúdio",
+  "Estúdio": "Estúdio",
+  Nora: "Nora",
   Perfil: "Perfil",
   Configuracoes: "Configurações",
   "Configurações": "Configurações",
@@ -106,13 +111,23 @@ let finishActiveNoraAudio: (() => void) | null = null;
 let finishBrowserSpeech: (() => void) | null = null;
 let serverVoiceUnavailable = false;
 
-type Msg = {
+export type Msg = {
   role: "user" | "ai";
   text: string;
   agent?: NoraAgentKind;
   status?: string;
   emailMessages?: NoraEmailMessage[];
   agendaEvents?: NoraAgendaEvent[];
+};
+
+export type NoraConversationState = {
+  messages: Msg[];
+  agendaSessionId?: string | null;
+  agendaAgentActive?: boolean;
+  emailSessionId?: string | null;
+  emailAgentActive?: boolean;
+  commercialSessionId?: string | null;
+  commercialAgentActive?: boolean;
 };
 
 type VoiceAccessStatus = "locked" | "requesting" | "unlocked" | "denied" | "unsupported";
@@ -322,6 +337,7 @@ async function tryServerNoraVoice(cleanText: string, onPlayback?: () => void): P
         Accept: "audio/mpeg",
         "Content-Type": "application/json",
         ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
       },
       body: JSON.stringify({
         text: cleanText,
@@ -1060,6 +1076,7 @@ async function askNaturalNoraStream(
       Accept: "text/event-stream",
       "Content-Type": "application/json",
       ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
     },
     body: JSON.stringify({
       user_id: userId,
@@ -1136,6 +1153,7 @@ function recordNoraTelemetry(
     headers: {
       "Content-Type": "application/json",
       ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
     },
     body: JSON.stringify({ response_id: responseId, event, elapsed_ms: Math.max(0, elapsedMs), channel }),
   }).catch(() => undefined);
@@ -1162,6 +1180,7 @@ async function askNaturalNora(
       Accept: "application/json",
       "Content-Type": "application/json",
       ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
     },
     body: JSON.stringify({
       user_id: userId,
@@ -1264,22 +1283,22 @@ function interruptsActiveAgentSession(text: string) {
   );
 }
 
-export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "primary", activeTab, onOpenEmail, contextualRequest }: NoraProps) {
+export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "primary", activeTab, onOpenEmail, contextualRequest, variant = "drawer", initialState, onStateChange }: NoraProps) {
   const screenContext = buildScreenContext(activeTab, eventsBySource);
   const welcomeName = (profile?.nome || "").trim().split(/\s+/)[0] || "";
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [messages, setMessages] = useState<Msg[]>(() => initialState?.messages || []);
   const [runState, setRunState] = useState<NoraRunState>("idle");
   const loading = ACTIVE_NORA_STATES.has(runState);
-  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [showSuggestions, setShowSuggestions] = useState(!initialState?.messages.length);
   const [prepareWhatsAppApproval, setPrepareWhatsAppApproval] = useState(false);
   const [agentDraft, setAgentDraft] = useState<string | null>(null);
-  const [agendaSessionId, setAgendaSessionId] = useState<string | null>(null);
-  const [agendaAgentActive, setAgendaAgentActive] = useState(false);
-  const [emailSessionId, setEmailSessionId] = useState<string | null>(null);
-  const [emailAgentActive, setEmailAgentActive] = useState(false);
-  const [commercialSessionId, setCommercialSessionId] = useState<string | null>(null);
-  const [commercialAgentActive, setCommercialAgentActive] = useState(false);
+  const [agendaSessionId, setAgendaSessionId] = useState<string | null>(initialState?.agendaSessionId || null);
+  const [agendaAgentActive, setAgendaAgentActive] = useState(Boolean(initialState?.agendaAgentActive));
+  const [emailSessionId, setEmailSessionId] = useState<string | null>(initialState?.emailSessionId || null);
+  const [emailAgentActive, setEmailAgentActive] = useState(Boolean(initialState?.emailAgentActive));
+  const [commercialSessionId, setCommercialSessionId] = useState<string | null>(initialState?.commercialSessionId || null);
+  const [commercialAgentActive, setCommercialAgentActive] = useState(Boolean(initialState?.commercialAgentActive));
   const [listening, setListening] = useState(false);
   const [voicePreview, setVoicePreview] = useState("");
   const [transcribing, setTranscribing] = useState(false);
@@ -1334,6 +1353,10 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       .catch(() => undefined);
     return () => { active = false; };
   }, [open]);
+
+  useEffect(() => {
+    onStateChange?.({ messages, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive }, loading);
+  }, [messages, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive, loading, onStateChange]);
 
   const effectiveModelId = modelChoice === "auto" ? autoModelId : modelChoice;
 
@@ -1399,6 +1422,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   }, [messages, runState, agentDraft]);
 
   useEffect(() => {
+    if (variant === "page") return;
     activeCycleRef.current += 1;
     requestAbortRef.current?.abort();
     requestAbortRef.current = null;
@@ -1417,7 +1441,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     setEmailAgentActive(false);
     setCommercialSessionId(null);
     setCommercialAgentActive(false);
-  }, [conversaId]);
+  }, [conversaId, variant]);
 
   useEffect(() => {
     if (!open || !contextualRequest?.prompt || contextualRequestHandledRef.current === contextualRequest.id) return;
@@ -2079,6 +2103,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           Accept: "application/json",
           "Content-Type": "application/json",
           ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
         },
         body: JSON.stringify({
           conversa_id: conversaId,
@@ -2116,6 +2141,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           Accept: "application/json",
           "Content-Type": "application/json",
           ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+      "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
         },
         body: JSON.stringify({
           conversa_id: conversaId,
@@ -2196,21 +2222,21 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     <AnimatePresence>
       {open && (
         <>
-          <motion.div
+          {variant === "drawer" && <motion.div
             className="nora-drawer-backdrop fixed inset-0 z-40 bg-black/35 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={closeNora}
-          />
+          />}
 
           <motion.aside
-            initial={{ x: 500, opacity: 0 }}
+            initial={{ x: variant === "page" ? 0 : 500, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 500, opacity: 0 }}
             transition={{ type: "spring", stiffness: 120, damping: 18 }}
-            className={`nora-drawer fixed z-[90] flex max-w-[100vw] flex-col overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-2xl transition-all duration-300 ${
-              expanded
+            className={`nora-drawer ${variant === "page" ? "nora-page relative" : "fixed"} z-[90] flex max-w-[100vw] flex-col overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-2xl transition-all duration-300 ${
+              variant === "page" ? "" : expanded
                 ? "nora-drawer-expanded"
                 : "nora-drawer-side"
             }`}
@@ -2226,7 +2252,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                     Nora <span className="nora-online-dot" /> <span className="text-xs font-bold text-emerald-400">{loading ? NORA_STATE_LABELS[runState] : "Online"}</span>
                   </h2>
                   <p className="truncate text-xs font-semibold text-white/75">
-                    {conversaId ? `Contexto ativo: ${conversaId}` : "Sem conversa ativa"}
+                    {conversaId ? `Contexto ativo: ${conversaId}` : variant === "page" ? "Sua assistente no Norium" : "Pronta para ajudar no Norium"}
                   </p>
                 </div>
               </div>
@@ -2244,7 +2270,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 >
                   <Settings2 size={18} />
                 </button>
-                <Button variant="ghost" size="sm" iconOnly
+                {variant === "drawer" && <><Button variant="ghost" size="sm" iconOnly
                   onClick={() => setExpanded((value) => !value)}
                   className="nora-expand-toggle hover:bg-white/10"
                   title={expanded ? "Voltar para lateral" : "Expandir Nora"}
@@ -2253,7 +2279,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 </Button>
                 <Button variant="ghost" size="sm" iconOnly aria-label="Fechar Nora" title="Fechar Nora" onClick={closeNora} className="hover:bg-white/10">
                   <X size={18} />
-                </Button>
+                </Button></>}
               </div>
             </div>
 
@@ -2330,7 +2356,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               {messages.length === 0 && !loading && (
                 <div className="nora-empty-state">
                   <NoraAvatar className="nora-empty-avatar" />
-                  <h3>{welcomeName ? `Ola, ${welcomeName}` : "Ola"}</h3>
+                  <h3>{welcomeName ? `Olá, ${welcomeName}` : "Olá"}</h3>
                   <p>Como posso ajudar?</p>
                 </div>
               )}
@@ -2367,10 +2393,10 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
 
               {showSuggestions && (
                 <div className="nora-quick-suggestions mt-4">
-                  <p className="nora-suggestions-label text-xs font-bold mb-3 text-[var(--text-secondary)] uppercase tracking-wide">Sugestoes rapidas</p>
+                  <p className="nora-suggestions-label text-xs font-bold mb-3 text-[var(--text-secondary)] uppercase tracking-wide">Sugestões rápidas</p>
 
                   <div className="nora-suggestions-grid flex flex-wrap justify-center gap-2">
-                    {suggestions.map((suggestion) => {
+                    {suggestions.filter((suggestion) => variant !== "page" || !["summary", "agent", "question"].includes(suggestion.action)).map((suggestion) => {
                       const Icon = suggestion.icon;
                       return (
                         <Button
@@ -2452,10 +2478,13 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                  aria-label={voiceIsLocked ? "Desbloquear voz" : listening ? "Parar voz" : "Falar com a Nora"}>
                   {voiceIsLocked ? <Lock size={18} /> : listening ? <MicOff size={18} /> : <Mic size={18} />}
                 </button>
-                <input
+                <textarea
+                  aria-label="Mensagem para a Nora"
+                  maxLength={4000}
+                  rows={2}
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Enter") void sendMessage(); }}
+                  onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMessage(); } }}
                   placeholder={transcribing ? "Transcrevendo sua voz..." : listening ? "Ouvindo sua mensagem..." : "Escreva para a Nora..."}
                   className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm font-semibold outline-none text-[var(--text)] placeholder:text-[var(--text-secondary)]"
                 />

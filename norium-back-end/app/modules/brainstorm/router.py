@@ -28,7 +28,7 @@ from app.services.nora import NoraIAService
 from app.services.task_store import create_task
 
 
-router = APIRouter(prefix="/api/brainstorm", tags=["Brainstorm colaborativo"])
+router = APIRouter(prefix="/api/brainstorm", tags=["Estúdio colaborativo"])
 nora_service = NoraIAService()
 
 
@@ -37,7 +37,7 @@ class BrainstormCreatePayload(StrictModel):
     objective: str = Field(default="", max_length=1200)
     responsibleId: str | None = Field(default=None, max_length=160)
     responsibleName: str | None = Field(default=None, max_length=160)
-    template: Literal["livre", "swot", "mapa-mental", "jornada", "retrospectiva"] = "livre"
+    template: Literal["livre", "swot", "mapa-mental", "jornada", "retrospectiva", "plano-projeto", "brainstorming", "lista-afazeres", "anotacoes-reuniao", "status-projeto"] = "livre"
     durationMinutes: int = Field(default=15, ge=1, le=240)
 
 
@@ -79,7 +79,7 @@ def require_brainstorm_access(user: dict[str, Any] = Depends(current_user)) -> d
     permissions = user.get("permissions") if isinstance(user.get("permissions"), dict) else {}
     if user.get("systemAdmin") or permissions.get("equipe"):
         return user
-    raise HTTPException(status_code=403, detail="Brainstorm colaborativo exige acesso ao modo Equipe.")
+    raise HTTPException(status_code=403, detail="Estúdio colaborativo exige acesso ao modo Equipe.")
 
 
 def can_manage_session(user: dict[str, Any], session: dict[str, Any]) -> bool:
@@ -133,7 +133,7 @@ async def create_session(payload: BrainstormCreatePayload, user: dict[str, Any] 
     session = await create_brainstorm_session(tenant_id, payload.model_dump(), user)
     await record_event(
         source="brainstorm",
-        title=f"Brainstorm criado: {session['title']}",
+        title=f"Sessão criada no Estúdio: {session['title']}",
         description=f"Responsavel: {session['responsibleName']}. {session.get('objective') or 'Sessao pronta para receber ideias.'}",
         metadata={"userId": tenant_id, "action": "brainstorm_created", "sessionId": session["id"]},
     )
@@ -220,7 +220,7 @@ async def convert_idea_to_task(session_id: str, payload: ConvertTaskPayload, use
     await record_event(
         source="brainstorm",
         title=f"Ideia convertida em tarefa: {title}",
-        description=f"Brainstorm: {session.get('title')}. Projeto: {payload.projectName or payload.projectId}.",
+        description=f"Estúdio: {session.get('title')}. Projeto: {payload.projectName or payload.projectId}.",
         metadata={"userId": tenant_id, "action": "brainstorm_task_created", "sessionId": session_id, "taskId": task.get("id")},
     )
     return {"status": "criada", "task": task}

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.tenant import read_user_db, write_user_db
+from app.services.studio_templates import build_template_board
 
 
 DB_NAME = "brainstorm"
@@ -160,7 +161,7 @@ async def create_brainstorm_session(
                 }
             ],
             "timer": {"durationMinutes": int(payload.get("durationMinutes") or 15), "endsAt": None, "running": False},
-            "board": {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
+            "board": build_template_board(template, objective),
             "history": [_history_entry("session_created", actor, f"Sessao '{title}' criada")],
         }
         store["sessions"] = [session, *store.get("sessions", [])][:MAX_SESSIONS]

@@ -16,6 +16,10 @@ describe("module page navigation", () => {
   });
 
   it("gives every module a stable application URL", () => {
+    expect(tabPath("Nora")).toBe("/app/nora");
+    expect(tabPath("Estúdio")).toBe("/app/estudio");
+    expect(tabPath("Brainstorm")).toBe("/app/estudio");
+    expect(tabFromPath("/app/brainstorm")).toBe("Estúdio");
     expect(tabPath("Documentos")).toBe("/app/documentos");
     expect(tabPath("Agente Navegador")).toBe("/app/navegador");
     expect(tabPath("E-mails")).toBe("/app/emails");

@@ -52,7 +52,7 @@ export default function MoreDashboard({ onNavigate, onOpenNora, onLogout }: More
         { title: "Financeiro", description: "Gastos, boletos, entradas, saidas e lembretes.", icon: Landmark, action: () => onNavigate("Gastos") },
         { title: "Automacoes", description: "Fluxos, gatilhos, execucoes e agentes da Nora.", icon: GitBranch, action: () => onNavigate("Automações") },
         { title: "Equipe", description: "Operadores, permissoes e grupos de trabalho.", icon: Users, action: () => onNavigate("Equipe") },
-        { title: "Brainstorm", description: "Quadros colaborativos, ideias, votacao, comentarios e decisoes.", icon: Lightbulb, action: () => onNavigate("Brainstorm") },
+        { title: "Estúdio", description: "Quadros colaborativos, ideias, votacao, comentarios e decisoes.", icon: Lightbulb, action: () => onNavigate("Estúdio") },
       ],
     },
     {

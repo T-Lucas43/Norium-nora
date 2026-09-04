@@ -216,7 +216,7 @@ const guides: Record<GuidedModule, ModuleGuide> = {
     ],
   },
   Brainstorm: {
-    title: "Brainstorm colaborativo",
+    title: "Estúdio colaborativo",
     description: "Organize ideias em tempo real, defina responsavel e encerre a sessao com decisoes claras.",
     topics: ["O cronometro delimita a dinamica", "Blocos podem ser agrupados e conectados", "Depois do encerramento a sessao fica bloqueada"],
     prompt: "Explique como conduzir um brainstorm no Norium e me ajude a preparar objetivo, duracao e estrutura da sessao.",

@@ -50,6 +50,7 @@ type SidebarProps = {
 };
 
 const navigation: NavigationItem[] = [
+  { title: "Nora", icon: BrainCircuit },
   { title: "Dashboard", icon: LayoutDashboard },
   { title: "Controle", icon: ClipboardCheck },
   { title: "Central", icon: Inbox },
@@ -70,7 +71,7 @@ const navigation: NavigationItem[] = [
   { title: "Chat da Equipe", icon: MessagesSquare },
   { title: "Clientes", icon: UserRoundCheck },
   { title: "Governanca", icon: ShieldCheck },
-  { title: "Brainstorm", icon: BrainCircuit },
+  { title: "Estúdio", icon: BrainCircuit },
   { title: "Mais", icon: Ellipsis },
 ];
 

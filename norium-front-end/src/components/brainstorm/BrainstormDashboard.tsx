@@ -61,6 +61,8 @@ import type { AuthSession, NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../../utils/api";
 import { showConfirm } from "../shared/AppDialogProvider";
 import Button from "../shared/Button";
+import StudioTemplates, { type StudioSessionForm } from "./StudioTemplates";
+import { STUDIO_TEMPLATES, studioTemplateTitle } from "./studioTemplateCatalog";
 
 
 type IdeaVariant = "sticky" | "text" | "shape" | "frame";
@@ -79,6 +81,8 @@ type IdeaData = Record<string, unknown> & {
   color: string;
   variant: IdeaVariant;
   category?: string;
+  completed?: boolean;
+  dueDate?: string;
   tags?: string[];
   responsibleId?: string;
   responsibleName?: string;
@@ -140,6 +144,8 @@ function IdeaCard({ data, selected }: NodeProps<IdeaNode>) {
       <p className="whitespace-pre-wrap break-words text-sm font-bold leading-5">{data.label || "Nova ideia"}</p>
       {data.description && <p className="mt-2 line-clamp-3 break-words text-xs font-semibold opacity-75">{data.description}</p>}
       <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs font-bold uppercase opacity-70">
+        {data.completed && <span className="inline-flex items-center gap-1"><Check size={12} /> Concluído</span>}
+        {data.dueDate && <span>{new Date(`${data.dueDate}T12:00:00`).toLocaleDateString("pt-BR")}</span>}
         {data.category && <span className="rounded-full border border-current/20 px-2 py-0.5">{data.category}</span>}
         {votes > 0 && <span className="inline-flex items-center gap-1"><ThumbsUp size={11} /> {votes}</span>}
         {comments > 0 && <span className="inline-flex items-center gap-1"><MessageSquareText size={11} /> {comments}</span>}
@@ -173,10 +179,10 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
         await new Promise((resolve) => window.setTimeout(resolve, 650 * (attempt + 1)));
         continue;
       }
-      if (!response.ok) throw new Error(data?.detail || "Falha ao acessar o Brainstorm.");
+      if (!response.ok) throw new Error(data?.detail || "Falha ao acessar o Estúdio.");
       return data as T;
     } catch (requestError) {
-      lastError = requestError instanceof Error ? requestError : new Error("Falha ao acessar o Brainstorm.");
+      lastError = requestError instanceof Error ? requestError : new Error("Falha ao acessar o Estúdio.");
       if (attempt < attempts - 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 650 * (attempt + 1)));
         continue;
@@ -184,7 +190,7 @@ async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
 
-  throw lastError || new Error("Falha ao acessar o Brainstorm.");
+  throw lastError || new Error("Falha ao acessar o Estúdio.");
 }
 
 async function fileToDataUrl(file: File) {
@@ -213,7 +219,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   const [inspectorMode, setInspectorMode] = useState<BrainstormPanel>("session");
   const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
   const [timerNow, setTimerNow] = useState(Date.now());
-  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(true);
+  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(() => window.innerWidth >= 1280);
   const [endAlertOpen, setEndAlertOpen] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const clientIdRef = useRef(`client_${crypto.randomUUID()}`);
@@ -494,7 +500,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
   async function importFiles(files: FileList | null) {
     if (!files?.length || boardLocked) return;
     const accepted = Array.from(files).filter((file) => file.size <= 2 * 1024 * 1024).slice(0, 5);
-    if (accepted.length !== files.length) setError("Cada arquivo do Brainstorm deve ter no maximo 2 MB; ate cinco arquivos sao aceitos por vez.");
+    if (accepted.length !== files.length) setError("Cada arquivo do Estúdio deve ter no maximo 2 MB; ate cinco arquivos sao aceitos por vez.");
     const created = await Promise.all(accepted.map(async (file, index): Promise<IdeaNode> => ({
       id: `idea_${crypto.randomUUID()}`,
       type: "idea",
@@ -581,7 +587,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
         <div className="flex min-w-0 items-center gap-3">
           <Button iconOnly onClick={onBack} title="Voltar às sessões" aria-label="Voltar às sessões"><ArrowLeft size={19} /></Button>
           <div className="min-w-0">
-            <div className="flex items-center gap-2"><span className="text-xs font-bold uppercase text-cyan-300">Brainstorm colaborativo</span>{saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} className="text-emerald-400" />}</div>
+            <div className="flex items-center gap-2"><span className="text-xs font-bold uppercase text-cyan-300">Estúdio colaborativo</span>{saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} className="text-emerald-400" />}</div>
             <h1 className="truncate text-lg font-black">{session.title}</h1>
             <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">Responsável: {session.responsibleName}{savedAt ? ` · salvo ${formatDate(savedAt)}` : ""}</p>
           </div>
@@ -686,6 +692,8 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
               <div><p className="mb-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Cor</p><div className="flex flex-wrap gap-2">{NOTE_COLORS.map((color) => <button key={color} onClick={() => updateSelected({ color }, true)} className={`h-8 w-8 rounded-full border-2 ${selectedNode.data.color === color ? "border-white" : "border-transparent"}`} style={{ background: color }} title={color}  aria-label={color} />)}</div></div>
               <label className="brainstorm-field"><span>Categoria</span><input value={selectedNode.data.category || ""} onChange={(event) => updateSelected({ category: event.target.value })} onBlur={() => void persistBoard(nodes, edges, "Categoria editada")} placeholder="Ex.: produto, marketing" /></label>
               <label className="brainstorm-field"><span>Responsável</span><select value={selectedNode.data.responsibleId || ""} onChange={(event) => { const member = members.find((item) => item.id === event.target.value); updateSelected({ responsibleId: member?.id || "", responsibleName: member?.nome || "" }, true); }}><option value="">A definir</option>{members.map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}</select></label>
+              <label className="brainstorm-field"><span>Prazo</span><input type="date" value={selectedNode.data.dueDate || ""} onChange={(event) => updateSelected({ dueDate: event.target.value }, true)} /></label>
+              <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={Boolean(selectedNode.data.completed)} onChange={(event) => updateSelected({ completed: event.target.checked }, true)} /> Item concluído</label>
               {selectedNode.data.file && <a href={selectedNode.data.file.dataUrl} download={selectedNode.data.file.name} className="brainstorm-secondary-button"><FolderOpen size={15} /> Baixar {selectedNode.data.file.name}</a>}
               <div className="grid grid-cols-2 gap-2"><button onClick={toggleVote} className="brainstorm-secondary-button"><ThumbsUp size={15} /> Votar ({selectedNode.data.votes?.length || 0})</button><button onClick={() => void convertTask()} className="brainstorm-secondary-button"><ListChecks size={15} /> Virar tarefa</button></div>
               <section className="border-t border-[var(--border)] pt-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-bold"><MessageSquareText size={16} /> Comentários</h3><div className="space-y-2">{(selectedNode.data.comments || []).map((item) => <article key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="flex justify-between gap-2 text-xs font-bold"><span>{item.authorName}</span><time className="text-[var(--text-secondary)]">{formatDate(item.timestamp)}</time></div><p className="mt-1 whitespace-pre-wrap break-words text-xs font-semibold text-[var(--text-secondary)]">{item.text}</p></article>)}</div><div className="mt-2 flex gap-2"><input value={comment} onChange={(event) => setComment(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addComment(); }} placeholder="Comentar..." className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs outline-none" /><Button variant="primary" iconOnly onClick={addComment}><Plus size={16} /></Button></div></section>
@@ -706,7 +714,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
 
               {inspectorMode === "reports" && <section><p className="text-xs font-bold uppercase text-cyan-300">Relatórios</p><h2 className="mt-1 text-lg font-black">Resultado da sessão</h2><div className="mt-4 grid grid-cols-2 gap-2">{[["Ideias", nodes.length], ["Conexões", edges.length], ["Votos", nodes.reduce((total, node) => total + (node.data.votes?.length || 0), 0)], ["Comentários", nodes.reduce((total, node) => total + (node.data.comments?.length || 0), 0)]].map(([label, value]) => <div key={String(label)} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><small className="font-bold text-[var(--text-secondary)]">{label}</small><strong className="mt-1 block text-xl">{value}</strong></div>)}</div><Button variant="secondary" className="mt-4 w-full" onClick={downloadBoardReport}><BarChart3 size={15} /> Exportar relatório JSON</Button></section>}
 
-              {inspectorMode === "settings" && <section><p className="text-xs font-bold uppercase text-cyan-300">Configurações</p><h2 className="mt-1 text-lg font-black">Quadro e sessão</h2><div className="mt-4 grid gap-2"><button disabled={boardLocked} onClick={toggleTimer} className="brainstorm-secondary-button"><Clock3 size={15} /> {session.timer?.running ? "Pausar timer" : "Iniciar timer"}</button><button disabled={boardLocked} onClick={clusterIdeas} className="brainstorm-secondary-button"><LayoutGrid size={15} /> Agrupar por categoria</button><button disabled={boardLocked} onClick={() => void persistBoard(nodes, edges)} className="brainstorm-secondary-button"><Save size={15} /> Salvar agora</button></div><div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold text-[var(--text-secondary)]">Status: <strong className="text-[var(--text)]">{session.status}</strong><br />Modelo: <strong className="text-[var(--text)]">{session.template}</strong><br />Responsável: <strong className="text-[var(--text)]">{session.responsibleName}</strong></div></section>}
+              {inspectorMode === "settings" && <section><p className="text-xs font-bold uppercase text-cyan-300">Configurações</p><h2 className="mt-1 text-lg font-black">Quadro e sessão</h2><div className="mt-4 grid gap-2"><button disabled={boardLocked} onClick={toggleTimer} className="brainstorm-secondary-button"><Clock3 size={15} /> {session.timer?.running ? "Pausar timer" : "Iniciar timer"}</button><button disabled={boardLocked} onClick={clusterIdeas} className="brainstorm-secondary-button"><LayoutGrid size={15} /> Agrupar por categoria</button><button disabled={boardLocked} onClick={() => void persistBoard(nodes, edges)} className="brainstorm-secondary-button"><Save size={15} /> Salvar agora</button></div><div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold text-[var(--text-secondary)]">Status: <strong className="text-[var(--text)]">{session.status}</strong><br />Modelo: <strong className="text-[var(--text)]">{studioTemplateTitle(session.template)}</strong><br />Responsável: <strong className="text-[var(--text)]">{session.responsibleName}</strong></div></section>}
 
               <section className="rounded-lg border border-cyan-300/20 bg-cyan-400/5 p-4"><h3 className="flex items-center gap-2 font-black"><Sparkles size={17} className="text-cyan-300" /> Nora no quadro</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Usa somente o conteúdo real da sessão para apoiar a decisão.</p><div className="mt-3 grid gap-2"><button onClick={() => void askNora("resumir")} className="brainstorm-secondary-button"><Bot size={15} /> Resumir ideias</button><button onClick={() => void askNora("gerar_ideias")} className="brainstorm-secondary-button"><Lightbulb size={15} /> Sugerir ideias</button><button onClick={() => void askNora("proximos_passos")} className="brainstorm-secondary-button"><ListChecks size={15} /> Próximos passos</button><button onClick={() => void askNora("analisar_impacto")} className="brainstorm-secondary-button"><BarChart3 size={15} /> Analisar impacto</button></div>{noraLoading && <Loader2 className="mx-auto mt-4 animate-spin text-cyan-300" />}{noraResult && <p className="mt-4 whitespace-pre-wrap break-words rounded-lg bg-[var(--background)] p-3 text-xs font-semibold leading-5 select-text">{noraResult}</p>}</section>
 
@@ -721,7 +729,7 @@ function BoardEditor({ sessionId, authSession, onBack }: { sessionId: string; au
           <section role="alertdialog" aria-modal="true" aria-labelledby="brainstorm-ended-title" className="w-full max-w-lg rounded-xl border border-amber-200/35 bg-[#071a46] p-7 text-center text-white shadow-2xl shadow-black/45">
             <span className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-amber-200/35 bg-amber-300/15 text-amber-200"><AlertTriangle size={30} /></span>
             <p className="mt-5 text-xs font-bold uppercase tracking-wide text-amber-200">Tempo esgotado</p>
-            <h2 id="brainstorm-ended-title" className="mt-2 text-2xl font-black">Brainstorm encerrado</h2>
+            <h2 id="brainstorm-ended-title" className="mt-2 text-2xl font-black">Sessão encerrada</h2>
             <p className="mx-auto mt-3 max-w-md text-sm font-semibold leading-6 text-white/75">O prazo desta sessao terminou. Para preservar o resultado da equipe, o quadro agora esta em modo somente leitura e nenhuma nova alteracao sera aceita.</p>
             <Button variant="ghost" size="lg" onClick={() => setEndAlertOpen(false)} className="mt-6 bg-amber-300 text-blue-950 hover:bg-amber-200"><LockKeyhole size={17} /> Ver resultado final</Button>
           </section>
@@ -748,7 +756,7 @@ export default function BrainstormDashboard({
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"todos" | BrainstormSession["status"]>("todos");
-  const [form, setForm] = useState({ title: "", objective: "", responsibleId: session.user.id, template: "livre", durationMinutes: 15 });
+
   const [editForm, setEditForm] = useState({ title: "", objective: "", responsibleId: session.user.id, template: "livre", durationMinutes: 15, status: "ativo" as BrainstormSession["status"] });
 
   const load = useCallback(async () => {
@@ -762,7 +770,7 @@ export default function BrainstormDashboard({
       setSessions(sessionData);
       setMembers(usersData.users || [session.user]);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Falha ao carregar brainstorms.");
+      setError(requestError instanceof Error ? requestError.message : "Falha ao carregar sessões.");
     } finally {
       setLoading(false);
     }
@@ -770,23 +778,19 @@ export default function BrainstormDashboard({
 
   useEffect(() => { void load(); }, [load]);
 
-  async function createSession() {
+  async function createSession(form: StudioSessionForm) {
     if (!form.title.trim()) return;
     setError("");
-    try {
-      const responsible = members.find((member) => member.id === form.responsibleId) || session.user;
-      const created = await jsonRequest<BrainstormSession>("/api/brainstorm/sessions", { method: "POST", body: JSON.stringify({ ...form, responsibleName: responsible.nome, title: form.title.trim(), objective: form.objective.trim(), durationMinutes: Number(form.durationMinutes) }) });
-      setSessions((current) => [created, ...current]);
-      setCreating(false);
-      setSelectedSessionId(created.id);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Falha ao criar sessão.");
-    }
+    const responsible = members.find((member) => member.id === form.responsibleId) || session.user;
+    const created = await jsonRequest<BrainstormSession>("/api/brainstorm/sessions", { method: "POST", body: JSON.stringify({ ...form, responsibleName: responsible.nome, title: form.title.trim(), objective: form.objective.trim(), durationMinutes: Number(form.durationMinutes) }) });
+    setSessions((current) => [created, ...current]);
+    setCreating(false);
+    setSelectedSessionId(created.id);
   }
 
   async function deleteSession(item: BrainstormSession) {
     const confirmed = await showConfirm({
-      title: "Excluir brainstorm?",
+      title: "Excluir sessão?",
       description: `A sessao "${item.title}" e todos os seus itens serao removidos. Esta acao nao pode ser desfeita.`,
       confirmLabel: "Excluir sessao",
       tone: "danger",
@@ -809,7 +813,7 @@ export default function BrainstormDashboard({
   }
 
   async function shareSession(item: BrainstormSession) {
-    const shareData = { title: `Brainstorm: ${item.title}`, text: item.objective || "Brainstorm colaborativo no Norium", url: window.location.href };
+    const shareData = { title: `Estúdio: ${item.title}`, text: item.objective || "Estúdio colaborativo no Norium", url: window.location.href };
     try {
       if (navigator.share) await navigator.share(shareData);
       else await navigator.clipboard.writeText(`${shareData.title}\n${shareData.text}\n${shareData.url}`);
@@ -884,7 +888,7 @@ export default function BrainstormDashboard({
     <div className="h-full overflow-y-auto bg-[var(--background)] p-4 text-[var(--text)] sm:p-6 lg:p-8">
       <div className="mx-auto max-w-[1500px]">
         <header className="flex flex-col gap-5 border-b border-[var(--border)] pb-6 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex min-w-0 items-start gap-4"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-cyan-500/15 text-cyan-300"><Lightbulb size={24} /></span><div><p className="text-xs font-bold uppercase text-cyan-300">Colaboração visual em tempo real</p><h1 className="mt-1 text-2xl font-black sm:text-3xl">Brainstorm da equipe</h1><p className="mt-2 max-w-2xl text-sm font-semibold text-[var(--text-secondary)]">Organize ideias, conecte hipóteses, vote, comente e transforme decisões em tarefas.</p></div></div>
+          <div className="flex min-w-0 items-start gap-4"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-cyan-500/15 text-cyan-300"><Lightbulb size={24} /></span><div><p className="text-xs font-bold uppercase text-cyan-300">Colaboração visual em tempo real</p><h1 className="mt-1 text-2xl font-black sm:text-3xl">Estúdio</h1><p className="mt-2 max-w-2xl text-sm font-semibold text-[var(--text-secondary)]">Organize ideias, conecte hipóteses, vote, comente e transforme decisões em tarefas.</p></div></div>
           <Button variant="ghost" size="lg" onClick={() => setCreating(true)} className="bg-gradient-to-r from-blue-600 to-cyan-500 shadow-lg shadow-blue-950/20"><Plus size={18} /> Nova sessão</Button>
         </header>
 
@@ -950,7 +954,7 @@ export default function BrainstormDashboard({
                 {item.status === "encerrado" ? (
                   <Button onClick={() => setSelectedSessionId(item.id)} className="col-span-2 border-violet-400/25 bg-violet-400/10 text-violet-200 hover:bg-violet-400/15"><BarChart3 size={15} /> Ver resultado final</Button>
                 ) : (
-                  <Button onClick={() => createProposalFromSession(item)} className="col-span-2 border-cyan-400/25 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/15"><FileSignature size={15} /> Criar proposta deste brainstorm</Button>
+                  <Button onClick={() => createProposalFromSession(item)} className="col-span-2 border-cyan-400/25 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/15"><FileSignature size={15} /> Criar proposta desta sessão</Button>
                 )}
                 <Button iconOnly onClick={() => openSessionProperties(item)} className="text-cyan-200 hover:bg-cyan-400/10" title="Editar propriedades" aria-label="Editar propriedades"><Settings2 size={16} /></Button>
               </div>
@@ -981,7 +985,7 @@ export default function BrainstormDashboard({
               <label className="brainstorm-field"><span>Objetivo</span><textarea value={editForm.objective} onChange={(event) => setEditForm((current) => ({ ...current, objective: event.target.value }))} rows={4} /></label>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="brainstorm-field"><span>Responsavel</span><select value={editForm.responsibleId} onChange={(event) => setEditForm((current) => ({ ...current, responsibleId: event.target.value }))}>{members.map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}</select></label>
-                <label className="brainstorm-field"><span>Modelo</span><select value={editForm.template} onChange={(event) => setEditForm((current) => ({ ...current, template: event.target.value }))}><option value="livre">Quadro livre</option><option value="mapa-mental">Mapa mental</option><option value="swot">SWOT</option><option value="jornada">Jornada</option><option value="retrospectiva">Retrospectiva</option></select></label>
+                <label className="brainstorm-field"><span>Modelo</span><select value={editForm.template} onChange={(event) => setEditForm((current) => ({ ...current, template: event.target.value }))}><option value="livre">Quadro livre</option>{STUDIO_TEMPLATES.filter((item) => item.id !== "retrospectiva").map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}<option value="mapa-mental">Mapa mental</option><option value="swot">SWOT</option><option value="jornada">Jornada</option><option value="retrospectiva">Retrospectiva</option></select></label>
                 <label className="brainstorm-field"><span>Duracao do timer (minutos)</span><input type="number" min={1} max={240} value={editForm.durationMinutes} onChange={(event) => setEditForm((current) => ({ ...current, durationMinutes: Number(event.target.value) }))} /></label>
                 <label className="brainstorm-field"><span>Status</span><select disabled={Boolean(editing.timer?.finishedAt)} value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as BrainstormSession["status"] }))}><option value="ativo">Ativo</option><option value="encerrado">Encerrado</option><option value="arquivado">Arquivado</option></select></label>
               </div>
@@ -995,7 +999,7 @@ export default function BrainstormDashboard({
         </div>
       )}
 
-      {creating && <div className="fixed inset-0 z-[110] grid place-items-center bg-blue-950/70 p-4 backdrop-blur-sm"><div className="w-full max-w-xl rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl"><header className="flex items-center justify-between border-b border-[var(--border)] p-5"><div><p className="text-xs font-bold uppercase text-cyan-300">Nova reunião visual</p><h2 className="text-lg font-black">Criar sessão de brainstorm</h2></div><Button variant="ghost" size="sm" iconOnly onClick={() => setCreating(false)}><X size={18} /></Button></header><div className="grid gap-4 p-5"><label className="brainstorm-field"><span>Título da sessão</span><input autoFocus value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} placeholder="Ex.: Planejamento do lançamento" /></label><label className="brainstorm-field"><span>Objetivo</span><textarea value={form.objective} onChange={(event) => setForm((current) => ({ ...current, objective: event.target.value }))} rows={3} placeholder="Qual problema a equipe quer resolver?" /></label><div className="grid gap-4 sm:grid-cols-2"><label className="brainstorm-field"><span>Responsável</span><select value={form.responsibleId} onChange={(event) => setForm((current) => ({ ...current, responsibleId: event.target.value }))}>{members.map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}</select></label><label className="brainstorm-field"><span>Modelo</span><select value={form.template} onChange={(event) => setForm((current) => ({ ...current, template: event.target.value }))}><option value="livre">Quadro livre</option><option value="mapa-mental">Mapa mental</option><option value="swot">SWOT</option><option value="jornada">Jornada</option><option value="retrospectiva">Retrospectiva</option></select></label></div><label className="brainstorm-field"><span>Duração do timer</span><input type="number" min={1} max={240} value={form.durationMinutes} onChange={(event) => setForm((current) => ({ ...current, durationMinutes: Number(event.target.value) }))} /></label></div><footer className="flex justify-end gap-2 border-t border-[var(--border)] p-5"><Button onClick={() => setCreating(false)}>Cancelar</Button><Button variant="primary" onClick={() => void createSession()} disabled={!form.title.trim()}><Check size={16} className="mr-2 inline" /> Criar sessão</Button></footer></div></div>}
+      {creating && <StudioTemplates members={members} userId={session.user.id} onClose={() => setCreating(false)} onCreate={createSession} />}
     </div>
   );
 }

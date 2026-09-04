@@ -33,6 +33,7 @@ class SavedMessage(StrictModel):
     emailMessages: list[dict[str, Any]] | None = Field(default=None, max_length=100)
     agendaEvents: list[dict[str, Any]] | None = Field(default=None, max_length=100)
     responseView: ResponseView | None = None
+    files: list[dict[str, Any]] | None = Field(default=None, max_length=20)
 
 
 class ConversationState(StrictModel):

@@ -96,7 +96,7 @@ async def _team(user: dict[str, Any], text: str) -> dict[str, Any]:
     messages = [item for item in store.get("messages", []) if isinstance(item, dict) and item.get("threadId") == thread_id and message_visible(item, user_id)]
     if target and re.search(r"\bminhas?\s+mensagens?\b", text):
         messages = [item for item in messages if str(item.get("senderId") or "") == user_id]
-    safe_messages = [{"id": item.get("id"), "senderName": item.get("senderName"), "text": item.get("text"), "createdAt": item.get("createdAt"), "scope": item.get("scope")} for item in messages[-20:]]
+    safe_messages = [{"id": item.get("id"), "senderName": item.get("senderName"), "text": item.get("text"), "createdAt": item.get("createdAt"), "scope": item.get("scope"), "attachments": item.get("attachments") if isinstance(item.get("attachments"), list) else []} for item in messages[-20:]]
     task_payload = list_tasks(user_id, status="todas")
     stats = task_payload.get("stats") if isinstance(task_payload.get("stats"), dict) else {}
     wants_development = bool(re.search(r"\b(?:desenvolvimento|desempenho|produtividade|andamento|como anda|como esta)\b", text))
@@ -111,7 +111,19 @@ async def _team(user: dict[str, Any], text: str) -> dict[str, Any]:
     else:
         target_label = str(target.get("nome") or target.get("email") or "equipe") if target else "equipe"
         response = f"Consultei o chat com {target_label} e não há mensagens nesse filtro."
-    return {"status": "consulta", "response": response, "messages": safe_messages, "member": {"id": target.get("id"), "name": target.get("nome") or target.get("email")} if target else None, "stats": stats}
+    attachments = [attachment for item in safe_messages for attachment in item.get("attachments", []) if isinstance(attachment, dict)]
+    files = [{
+        "id": str(item.get("id") or item.get("storedName") or "team-file"),
+        "name": str(item.get("name") or item.get("fileName") or "arquivo"),
+        "mimeType": str(item.get("mimeType") or "application/octet-stream"),
+        "size": int(item.get("size") or 0),
+        "previewUrl": str(item.get("url") or ""),
+        "downloadUrl": str(item.get("url") or ""),
+        "source": "team-chat",
+    } for item in attachments if item.get("url")]
+    if files and re.search(r"\b(?:midia|midias|anexo|anexos|arquivo|arquivos|foto|fotos|video|videos)\b", text):
+        response = f"Encontrei {len(files)} arquivo(s) visível(is) no chat da equipe. Eles estão disponíveis abaixo para visualizar ou baixar."
+    return {"status": "consulta", "response": response, "messages": safe_messages, "files": files[:40], "member": {"id": target.get("id"), "name": target.get("nome") or target.get("email")} if target else None, "stats": stats}
 
 
 async def answer_read_query(user: dict[str, Any], domain: str, text: str) -> tuple[str, dict[str, Any]]:

@@ -31,6 +31,8 @@ from app.modules.commercial.service import (
     submit_proposal,
 )
 from app.services.brainstorm_store import list_brainstorm_sessions
+from app.modules.commercial.pdf_export import build_commercial_pdf
+from app.services.nora_files import save_bytes
 
 
 _sessions: dict[str, dict[str, Any]] = {}
@@ -170,7 +172,7 @@ async def _proposal_preview(user: dict[str, Any], session_id: str, state: dict[s
         deadline=str(state.get("deadline") or ""),
         deliverablesNotes=str(state.get("deliverables") or ""),
         exclusions=str(state.get("exclusions") or ""),
-        notes=str(state.get("notes") or ""),
+        notes="\n\n".join(part for part in (str(state.get("notes") or ""), str(state.get("companyResearch") or "")) if part),
         amount=float(state.get("amount") or 0),
         currency="BRL",
         tone="consultive",
@@ -241,6 +243,8 @@ async def _persist_proposal(user: dict[str, Any], session_id: str, state: dict[s
             },
         ),
     )
+    pdf_bytes, pdf_name = build_commercial_pdf(proposal, "proposal")
+    artifact = save_bytes(str(user.get("id") or "lucas123"), pdf_bytes, pdf_name, "application/pdf", source="commercial:proposal")
     _sessions.pop(session_id, None)
     return _response(
         "criada",
@@ -254,6 +258,7 @@ async def _persist_proposal(user: dict[str, Any], session_id: str, state: dict[s
         ),
         None,
         proposal=proposal,
+        files=[artifact],
     )
 
 
@@ -261,10 +266,13 @@ async def handle_commercial_agent(
     user: dict[str, Any],
     message: str,
     session_id: str | None = None,
+    company_research: str | None = None,
 ) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     normalized = _normalize(message)
     state = _sessions.get(session_id or "")
+    if state is not None and company_research:
+        state["companyResearch"] = company_research[:12_000]
 
     if state:
         if _contains_any(normalized, ("cancelar", "cancele", "desistir", "parar")):
@@ -482,6 +490,7 @@ async def handle_commercial_agent(
             "amount": 0,
             "validUntil": (date.today() + timedelta(days=15)).isoformat(),
             "category": _infer_category(message),
+            "companyResearch": (company_research or "")[:12_000],
         }
         _sessions[new_session_id] = state
         if wants_brainstorm and not brainstorm:

@@ -661,6 +661,23 @@ def _process_native(operation: str, paths: list[Path], options: dict[str, Any]) 
     return [(_pdf_bytes(writer), f"{operation}-resultado.pdf", "application/pdf")]
 
 
+def process_native_documents(
+    operation: str,
+    paths: list[Path],
+    options: dict[str, Any] | None = None,
+) -> list[tuple[bytes, str, str]]:
+    """Ponto público para fluxos internos que processam arquivos sem chamar IA."""
+    if operation not in NATIVE_PDF_OPERATIONS:
+        raise ValueError("Operação de PDF não suportada pelo processamento local.")
+    if not paths:
+        raise ValueError("Envie ao menos um arquivo para processar.")
+    if operation in {"merge", "compare"} and len(paths) < 2:
+        raise ValueError("Esta operação exige pelo menos dois arquivos.")
+    if operation not in {"merge", "compare", "images_to_pdf"} and len(paths) != 1:
+        raise ValueError("Esta operação aceita um arquivo por vez.")
+    return _process_native(operation, paths, options or {})
+
+
 async def _persist_outputs(
     tenant_id: str,
     job: dict[str, Any],

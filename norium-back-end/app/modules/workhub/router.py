@@ -10,6 +10,7 @@ from fastapi.responses import Response
 
 from app.modules.auth.router import current_user
 from app.modules.workhub.repository import BACKUP_DB, GOALS_DB, PUSH_DB, list_records, remove_record
+from app.modules.workhub.pending import PendingSource, pending_source
 from app.modules.workhub.schemas import (
     BackupRestorePayload,
     DataImportPayload,
@@ -51,6 +52,13 @@ clients_router = APIRouter(prefix="/api/clientes", tags=["Clientes"])
 @router.get("/pendencias")
 async def get_pending_center(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     return await pending_center(user)
+
+
+@router.get("/pendencias/fontes/{source}")
+async def get_pending_source(
+    source: PendingSource, user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    return await pending_source(user, source)
 
 
 @router.get("/meu-dia")

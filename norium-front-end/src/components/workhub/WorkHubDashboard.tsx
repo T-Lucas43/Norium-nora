@@ -70,8 +70,15 @@ type Goal = {
 
 type TeamMember = { id: string; nome: string; email: string };
 
+export type PendingData = { items: PendingItem[]; total: number; counts: Record<string, number>; inboxOpen?: number | null; complete?: boolean };
+
 export type WorkHubData = {
-  pending: { items: PendingItem[]; total: number; counts: Record<string, number>; inboxOpen: number };
+  pending: PendingData;
+  pendingActivity: PendingData;
+  pendingTasks: PendingData;
+  pendingFinance: PendingData;
+  pendingMessages: PendingData;
+  pendingIntegrations: PendingData;
   inbox: { items: InboxItem[]; total: number; statusCounts: Record<string, number> };
   goals: { items: Goal[] };
   productivity: {
@@ -143,7 +150,7 @@ export default function WorkHubDashboard({
   onOpenNora: (prompt?: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<TabId>("pending");
-  const { data, loading, tabLoading, errors: loadErrors, refresh: load } = useWorkHubData(activeTab);
+  const { data, loading, tabLoading, sources, errors: loadErrors, refresh: load } = useWorkHubData(activeTab);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -367,7 +374,7 @@ export default function WorkHubDashboard({
         </header>
 
         <section className="workhub-kpis" aria-label="Resumo da Central">
-          <Kpi label="Prioridades abertas" value={data.pending?.total ?? "—"} />
+          <Kpi label="Prioridades abertas" value={data.pending ? `${data.pending.total}${data.pending.complete ? "" : "+"}` : "—"} />
           <Kpi label="Atendimentos em aberto" value={data.pending?.inboxOpen ?? "—"} />
           <Kpi label="Ações nesta semana" value={data.weekly?.actionsExecuted ?? "—"} />
           <Kpi label="Horas economizadas" value={data.weekly ? `${data.weekly.estimatedHoursSaved} h` : "—"} />
@@ -387,6 +394,12 @@ export default function WorkHubDashboard({
           })}
         </nav>
 
+        {(activeTab === "pending" || activeTab === "followups") && <div className="workhub-sources" aria-label="Fontes das pendências">
+          {sources.map((source) => <span key={source.key} className={`workhub-source is-${source.status}`}>
+            {source.status === "loading" ? <LoaderCircle size={13} className="animate-spin" /> : source.status === "ready" ? <Check size={13} /> : <CircleAlert size={13} />}
+            {source.label}<small>{source.status === "loading" ? "Atualizando" : source.status === "error" ? "Atualização pendente" : "Atualizado"}</small>
+          </span>)}
+        </div>}
         {loadErrors.map((failure) => <div key={failure.key} className="workhub-feedback is-error" role="alert"><span>{failure.label}: {failure.message}</span><button type="button" className="workhub-button" onClick={() => void failure.retry()}>Tentar novamente</button></div>)}
         {tabLoading && <div className="workhub-feedback" role="status"><LoaderCircle className="animate-spin" size={18} /> Carregando {tabs.find((tab) => tab.id === activeTab)?.label.toLocaleLowerCase("pt-BR")}...</div>}
         {error && <div className="workhub-feedback is-error">{error}</div>}
@@ -396,7 +409,7 @@ export default function WorkHubDashboard({
           <section className="workhub-panel">
             <div className="workhub-section-heading">
               <div><h2>Pendências consolidadas</h2><p>Aprovações, atrasos, falhas e mensagens sem resposta.</p></div>
-              <strong>{data.pending.total} item(ns)</strong>
+              <strong>{data.pending.total} item(ns){!data.pending.complete && " · parcial"}</strong>
             </div>
             <div className="workhub-list">
               {visiblePending.map((item) => {
@@ -412,7 +425,7 @@ export default function WorkHubDashboard({
                 </button>
                 );
               })}
-              {!data.pending.items.length && <div className="workhub-empty"><Check size={24} /><strong>Nenhuma pendência.</strong></div>}
+              {!data.pending.items.length && <div className="workhub-empty">{data.pending.complete ? <Check size={24} /> : <CircleAlert size={24} />}<strong>{data.pending.complete ? "Nenhuma pendência." : "Nenhum item nas fontes carregadas."}</strong>{!data.pending.complete && <span>O total será consolidado quando todas as fontes estiverem disponíveis.</span>}</div>}
             </div>
             {data.pending.items.length > 0 && (
               <footer className="workhub-pagination">
@@ -481,7 +494,7 @@ export default function WorkHubDashboard({
                   <span className="workhub-row-signal" /><span className="workhub-row-copy"><strong>{item.title}</strong><small>{item.description}</small></span><time>{formatDate(item.timestamp)}</time>
                 </button>
               ))}
-              {!data.pending.items.some((item) => item.kind === "followup") && <div className="workhub-empty"><MessageSquareReply size={24} /><strong>Nenhum follow-up aberto.</strong><span>Execute a detecção para analisar canais e prazos.</span></div>}
+              {!data.pending.items.some((item) => item.kind === "followup") && <div className="workhub-empty"><MessageSquareReply size={24} /><strong>{data.pendingActivity ? "Nenhum follow-up aberto." : "Aguardando os acompanhamentos."}</strong>{data.pendingActivity && <span>Execute a detecção para analisar canais e prazos.</span>}</div>}
             </div>
           </section>
         )}

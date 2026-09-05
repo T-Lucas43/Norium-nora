@@ -6,7 +6,7 @@ import uuid
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from app.core.tenant import get_user_dir, read_user_db, write_user_db
 from app.modules.auth.router import read_user_store, sanitize_user
@@ -25,7 +25,6 @@ from app.modules.operations.schemas import FollowUpCreate
 from app.modules.operations.service import (
     actor_payload,
     create_follow_up,
-    integration_health,
     now_iso,
     record_audit,
 )
@@ -141,7 +140,7 @@ async def shared_inbox(user: dict[str, Any]) -> dict[str, Any]:
 
 
 def _shared_inbox_from_events(
-    events: list[dict[str, Any]], overrides: list[dict[str, Any]],
+    events: Sequence[dict[str, Any]], overrides: Sequence[dict[str, Any]],
 ) -> dict[str, Any]:
     overrides_by_id = {str(item.get("eventId") or item.get("id")): item for item in overrides}
     items: list[dict[str, Any]] = []
@@ -234,16 +233,24 @@ async def update_shared_inbox(
 
 
 async def pending_center(user: dict[str, Any]) -> dict[str, Any]:
-    user_id = tenant_id(user)
-    events, approvals, followups, audits, overrides, tasks_payload, finance = await asyncio.gather(
-        read_events(user_id),
-        list_items(user_id, APPROVAL_DB),
-        list_items(user_id, FOLLOWUP_DB),
-        list_items(user_id, AUDIT_DB),
-        list_records(user_id, SHARED_INBOX_DB),
-        asyncio.to_thread(list_tasks, user_id, status="todas"),
-        asyncio.to_thread(list_finance, user_id),
-    )
+    from app.modules.workhub.pending import pending_overview
+
+    return await pending_overview(user)
+
+
+def pending_from_records(
+    *,
+    events: Sequence[dict[str, Any]] = (),
+    approvals: Sequence[dict[str, Any]] = (),
+    followups: Sequence[dict[str, Any]] = (),
+    audits: Sequence[dict[str, Any]] = (),
+    overrides: Sequence[dict[str, Any]] = (),
+    tasks_payload: dict[str, Any] | None = None,
+    finance: dict[str, Any] | None = None,
+    integrations: Sequence[dict[str, Any]] = (),
+) -> dict[str, Any]:
+    tasks_payload = tasks_payload or {}
+    finance = finance or {}
     shared = _shared_inbox_from_events(events, overrides)
     today = datetime.now(LOCAL_TZ).date()
     items: list[dict[str, Any]] = []
@@ -361,7 +368,6 @@ async def pending_center(user: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-    integrations = await asyncio.to_thread(integration_health, user_id, events, audits)
     for integration in integrations:
         if integration.get("connected"):
             continue

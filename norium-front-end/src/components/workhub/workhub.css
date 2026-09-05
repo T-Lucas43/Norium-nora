@@ -284,3 +284,9 @@
 @media (max-width: 430px) {
   .workhub-kpis, .workhub-usage, .workhub-day-grid, .workhub-goals, .workhub-data-actions { grid-template-columns: 1fr; }
 }
+.workhub-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.workhub-source { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-secondary); font-size: 11px; background: var(--surface); }
+.workhub-source small { font-size: 10px; opacity: .75; }
+.workhub-source.is-ready svg { color: #34d399; }
+.workhub-source.is-loading svg { color: #22d3ee; }
+.workhub-source.is-error svg { color: #fbbf24; }

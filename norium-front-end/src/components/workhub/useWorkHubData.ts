@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../../core/api/client";
-import type { WorkHubData } from "./WorkHubDashboard";
+import type { PendingData, WorkHubData } from "./WorkHubDashboard";
 
-type Resource = keyof WorkHubData;
+type Resource = Exclude<keyof WorkHubData, "pending">;
+const prioritySources = [
+  { key: "pendingActivity", label: "Aprovações e acompanhamentos" },
+  { key: "pendingTasks", label: "Tarefas" },
+  { key: "pendingFinance", label: "Financeiro" },
+  { key: "pendingMessages", label: "Mensagens" },
+  { key: "pendingIntegrations", label: "Integrações" },
+] as const;
+const priorityKeys = prioritySources.map((source) => source.key);
 export type WorkHubTab = "pending" | "inbox" | "followups" | "team" | "data";
 const resources: Record<Resource, { path: string; label: string }> = {
-  pending: { path: "/api/operacao/pendencias", label: "Pendências" },
+  pendingActivity: { path: "/api/operacao/pendencias/fontes/activity", label: "Aprovações e acompanhamentos" },
+  pendingTasks: { path: "/api/operacao/pendencias/fontes/tasks", label: "Tarefas" },
+  pendingFinance: { path: "/api/operacao/pendencias/fontes/finance", label: "Financeiro" },
+  pendingMessages: { path: "/api/operacao/pendencias/fontes/messages", label: "Mensagens" },
+  pendingIntegrations: { path: "/api/operacao/pendencias/fontes/integrations", label: "Integrações" },
   focus: { path: "/api/operacao/foco", label: "Modo foco" },
   weekly: { path: "/api/operacao/resumo-semanal?include_team=false", label: "Resumo semanal" },
   inbox: { path: "/api/operacao/inbox-compartilhada", label: "Caixa compartilhada" },
@@ -16,13 +28,13 @@ const resources: Record<Resource, { path: string; label: string }> = {
   backups: { path: "/api/operacao/backups", label: "Backups" },
 };
 const tabResources: Record<WorkHubTab, Resource[]> = {
-  pending: ["pending"],
+  pending: priorityKeys,
   inbox: ["inbox", "members"],
-  followups: ["pending"],
+  followups: ["pendingActivity"],
   team: ["goals", "productivity"],
   data: ["usage", "backups"],
 };
-const headerResources: Resource[] = ["pending", "focus", "weekly"];
+const headerResources: Resource[] = [...priorityKeys, "focus", "weekly"];
 
 // Independent requests keep slow secondary sections from blocking priorities.
 // Data belongs to this mounted workspace only; no cross-account global cache.
@@ -44,7 +56,7 @@ export function useWorkHubData(activeTab: WorkHubTab) {
     setErrors((current) => ({ ...current, [key]: undefined }));
     task.promise = (async () => {
       try {
-        const result = await apiRequest<WorkHubData[typeof key]>(resources[key].path, { signal: task.controller.signal });
+        const result = await apiRequest<WorkHubData[typeof key]>(resources[key].path, { signal: task.controller.signal, timeoutMs: 12_000 });
         if (requests.current.get(key) !== task) return;
         dataRef.current = { ...dataRef.current, [key]: result };
         setData(dataRef.current);
@@ -79,10 +91,20 @@ export function useWorkHubData(activeTab: WorkHubTab) {
   }, [activeTab, request]);
 
   const visibleResources = new Set([...headerResources, ...tabResources[activeTab]]);
+  const priorities = useMemo<PendingData | undefined>(() => {
+    const loaded = priorityKeys.flatMap((key) => data[key] ? [data[key]!] : []);
+    if (!loaded.length) return undefined;
+    const items = loaded.flatMap((part) => part.items).sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
+    const counts: Record<string, number> = {};
+    for (const item of items) counts[item.kind] = (counts[item.kind] || 0) + 1;
+    return { items, total: items.length, counts, inboxOpen: data.pendingMessages?.inboxOpen,
+      complete: priorityKeys.every((key) => data[key] && !errors[key] && !pending[key]) };
+  }, [data, errors, pending]);
   return {
-    data, refresh,
+    data: { ...data, pending: priorities }, refresh,
+    sources: prioritySources.map((source) => ({ ...source, status: errors[source.key] ? "error" : pending[source.key] || !data[source.key] ? "loading" : "ready" })),
     loading: Object.values(pending).some(Boolean),
-    tabLoading: tabResources[activeTab].some((key) => !data[key] && !errors[key]),
+    tabLoading: activeTab === "pending" ? !priorities && priorityKeys.some((key) => !errors[key]) : tabResources[activeTab].some((key) => !data[key] && !errors[key]),
     errors: (Object.entries(errors) as Array<[Resource, string | undefined]>)
       .filter(([key, message]) => visibleResources.has(key) && message)
       .map(([key, message]) => ({ key, label: resources[key].label, message, retry: () => request(key, true) })),

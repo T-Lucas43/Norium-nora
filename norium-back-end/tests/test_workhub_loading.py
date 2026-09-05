@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from app.modules.workhub import service
+from app.modules.workhub import pending
 
 
 class WorkHubLoadingTests(unittest.IsolatedAsyncioTestCase):
@@ -27,7 +28,7 @@ class WorkHubLoadingTests(unittest.IsolatedAsyncioTestCase):
             patch.object(service, "list_items", AsyncMock(return_value=[])),
             patch.object(service, "list_tasks", return_value={"tasks": []}),
             patch.object(service, "list_finance", return_value={"lembretes": []}),
-            patch.object(service, "integration_health", return_value=[]),
+            patch.object(pending, "read_integration_health", AsyncMock(return_value=[])),
         ):
             result = await service.pending_center(self.user)
         read.assert_awaited_once_with(self.user["id"])

@@ -12,6 +12,7 @@ import {
   ListChecks,
   LockKeyhole,
   Menu,
+  Mail,
   MonitorCheck,
   RefreshCw,
   Settings2,
@@ -32,6 +33,8 @@ import LocalThemeToggle from "../layout/LocalThemeToggle";
 import { showConfirm } from "../shared/AppDialogProvider";
 import Button from "../shared/Button";
 import AdminFinanceDashboard from "./finance/AdminFinanceDashboard";
+import SystemEmailSettings from "./SystemEmailSettings";
+import ManualEmailSender from "./ManualEmailSender";
 
 interface AdminDashboardProps {
   session: AuthSession;
@@ -72,7 +75,7 @@ interface AdminMonitoring {
   googleRedirectUri: string;
 }
 
-type AdminSection = "overview" | "users" | "plans" | "teams" | "permissions" | "integrations" | "settings" | "logs" | "monitoring" | "backup" | "audit";
+type AdminSection = "overview" | "users" | "plans" | "teams" | "permissions" | "integrations" | "settings" | "emails" | "logs" | "monitoring" | "backup" | "audit";
 
 const managementNavigation: Array<{ id: AdminSection; label: string; icon: LucideIcon }> = [
   { id: "users", label: "Usuários", icon: UsersRound },
@@ -80,6 +83,7 @@ const managementNavigation: Array<{ id: AdminSection; label: string; icon: Lucid
   { id: "teams", label: "Equipes", icon: Building2 },
   { id: "permissions", label: "Permissões", icon: ShieldCheck },
   { id: "integrations", label: "Integrações", icon: Link2 },
+  { id: "emails", label: "E-mails", icon: Mail },
   { id: "settings", label: "Configurações", icon: Settings2 },
 ];
 
@@ -349,6 +353,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
 
         {activeArea === "finance" ? <AdminFinanceDashboard session={session} /> : (
           <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5"><div className="mx-auto max-w-[1440px] space-y-4">
+            {activeSection === "emails" && <><ManualEmailSender token={session.token} /><SystemEmailSettings token={session.token} /></>}
             {(notice || error) && <div role={error ? "alert" : "status"} className={`rounded-lg border px-4 py-3 text-xs font-bold ${error ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>{error || notice}</div>}
             {(activeSection === "overview" || activeSection === "users") && <><div className="grid gap-4 xl:grid-cols-[330px_minmax(0,1fr)]"><div className="space-y-4">{activeSection === "overview" && <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-xl shadow-black/10"><div className="mb-3"><h2 className="text-sm font-black">Resumo geral</h2><p className="mt-1 text-[10px] font-semibold text-[var(--text-secondary)]">Visão rápida do sistema</p></div><div className="grid grid-cols-2 gap-2">{stats.map((stat) => { const Icon = stat.icon; return <div key={stat.label} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><Icon size={16} className={stat.tone} /><p className="mt-3 text-lg font-black">{stat.value}</p><p className="text-[9px] font-bold text-[var(--text-secondary)]">{stat.label}</p></div>; })}</div></section>}{userList}</div>{selectedUserPanel}</div>{planCards}</>}
             {activeSection === "plans" && <AdminSectionFrame eyebrow="Gerenciar" title="Planos" description={`Aplique um plano diretamente ao usuário selecionado: ${selectedUser.nome}.`} icon={ListChecks}>{planCards}</AdminSectionFrame>}

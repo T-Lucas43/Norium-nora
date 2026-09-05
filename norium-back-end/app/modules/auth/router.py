@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import Field, field_validator
 
@@ -801,7 +801,7 @@ async def login(payload: LoginPayload, request: Request) -> dict[str, Any]:
 
 
 @router.post("/register")
-async def register(payload: RegisterPayload, request: Request) -> dict[str, Any]:
+async def register(payload: RegisterPayload, request: Request, background: BackgroundTasks = None) -> dict[str, Any]:
     client_host = request.client.host if request.client else "unknown"
     await register_limiter.check(client_host)
     if not payload.acceptedTerms or not payload.acceptedPrivacy:
@@ -838,6 +838,9 @@ async def register(payload: RegisterPayload, request: Request) -> dict[str, Any]
         store.setdefault("users", []).append(user)
         append_admin_audit(store, user, "user_registered", target=user, detail="Nova conta criada pelo cadastro publico.")
         await write_user_store(store)
+    if background is not None:
+        from app.modules.auth.email_router import request_action
+        background.add_task(request_action, user["email"], "verify")
     return {
         "token": create_token(user),
         "user": sanitize_user(user),
@@ -973,7 +976,7 @@ async def list_users(user: dict[str, Any] = Depends(current_user)) -> dict[str, 
 
 
 @router.post("/users")
-async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends(current_user), background: BackgroundTasks = None) -> dict[str, Any]:
     if not can_manage_team(user):
         raise HTTPException(status_code=403, detail="Sem permissao para criar usuarios.")
     assert_team_plan(user)
@@ -1011,6 +1014,9 @@ async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends
         store.setdefault("users", []).append(new_user)
         append_admin_audit(store, user, "user_created", target=new_user, detail="Usuario criado pelo painel administrativo.")
         await write_user_store(store)
+    if background is not None:
+        from app.modules.auth.email_router import request_action
+        background.add_task(request_action, new_user["email"], "verify")
     return {"user": sanitize_user(new_user)}
 
 

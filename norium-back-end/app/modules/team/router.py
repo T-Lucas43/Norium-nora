@@ -483,14 +483,15 @@ def short_text(value: str, limit: int = 150) -> str:
     return text if len(text) <= limit else f"{text[:limit - 3]}..."
 
 
-async def record_team_event(team_id: str, title: str, description: str, metadata: dict[str, Any] | None = None) -> None:
+async def record_team_event(team_id: str, title: str, description: str, metadata: dict[str, Any] | None = None, *, user_ids: set[str] | None = None) -> None:
     try:
-        await record_event(
-            source="equipe",
-            title=title,
-            description=description,
-            metadata={"userId": team_id, **(metadata or {})},
-        )
+        for participant_id in sorted(user_ids if user_ids is not None else {team_id}):
+            await record_event(
+                source="equipe",
+                title=title,
+                description=description,
+                metadata={**(metadata or {}), "userId": participant_id},
+            )
     except Exception:
         # O chat interno nao deve falhar se a Central estiver temporariamente indisponivel.
         return
@@ -1059,7 +1060,10 @@ async def persist_message(
             "recipientId": recipient_id,
             "subteamId": subteam_id,
         },
+        user_ids=participant_ids,
     )
+    from app.services.system_email import notify_team_participants
+    await notify_team_participants(participant_ids - {user_id}, message["id"], "Nova mensagem no chat da equipe")
     if nora_triggered:
         asyncio.create_task(
             respond_to_nora_mention(
@@ -1343,6 +1347,35 @@ async def _audit_recording(team_id: str, action: str, metadata: dict[str, Any]) 
     )
 
 
+async def _publish_recording_event(
+    team_id: str,
+    recipients: set[str],
+    payload: dict[str, Any],
+) -> None:
+    await manager.send_to_users(team_id, recipients, payload)
+    if payload.get("type") != "CALL_RECORDING_AVAILABLE":
+        return
+    recording_id = str(payload.get("recordingId") or "")
+    from app.services.system_email import notify_team_participants
+
+    await notify_team_participants(
+        recipients,
+        f"recording_{recording_id}",
+        "Gravação de reunião disponível",
+    )
+    await record_team_event(
+        team_id,
+        "Gravacao de reuniao concluida",
+        "A gravacao ficara disponivel por 24 horas.",
+        {
+            "action": "meeting_recording",
+            "callId": payload.get("callId"),
+            "recordingId": recording_id,
+        },
+        user_ids=recipients,
+    )
+
+
 def recording_coordinator() -> RecordingCoordinator:
     global _recording_coordinator_instance
     if _recording_coordinator_instance is None:
@@ -1355,9 +1388,7 @@ def recording_coordinator() -> RecordingCoordinator:
             files=LocalRecordingFiles(UPLOAD_DIR),
             call_access=CallCoordinatorRecordingAccess(call_coordinator),
             events=CallbackRecordingEvents(
-                publish=lambda team_id, recipients, payload: manager.send_to_users(
-                    team_id, recipients, payload,
-                ),
+                publish=_publish_recording_event,
                 audit=_audit_recording,
             ),
             clock=SystemClock(),

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import asyncio
+from contextlib import asynccontextmanager, suppress
 import logging
 import os
 import re
@@ -52,6 +54,7 @@ from app.modules.intelligence.router import (
     marketplace_router,
     models_router,
 )
+from app.modules.auth.email_router import router as account_email_router
 from app.modules.mail.router import router as gmail_router
 from app.modules.nora.router import router as nora_router
 from app.modules.operations.router import router as operations_router
@@ -137,7 +140,7 @@ def rate_limit_bucket(path: str) -> str:
         return "message"
     if path.startswith(("/api/admin", "/api/auth/admin")):
         return "admin"
-    if path.startswith(("/api/auth/login", "/api/auth/register")):
+    if path.startswith(("/api/auth/login", "/api/auth/register", "/api/auth/forgot-password", "/api/auth/reset-password", "/api/auth/verify-email")):
         return "auth"
     if "/public/" in path or "/publico/" in path or path.startswith("/health"):
         return "public"
@@ -189,9 +192,25 @@ def create_app() -> FastAPI:
     validate_turn_configuration()
     validate_sfu_configuration()
     configure_webhook_secret_log_redaction()
-    app = FastAPI(title="Norium Engine Chat Central Unificado API")
-    app.router.add_event_handler("startup", start_recording_maintenance)
-    app.router.add_event_handler("shutdown", stop_recording_maintenance)
+    @asynccontextmanager
+    async def lifespan(_app):
+        from app.services.system_email import worker
+        from app.services.system_email_reminders import worker as reminder_worker
+        await start_recording_maintenance()
+        delivery = asyncio.create_task(worker())
+        reminders = asyncio.create_task(reminder_worker())
+        try:
+            yield
+        finally:
+            await stop_recording_maintenance()
+            delivery.cancel()
+            reminders.cancel()
+            with suppress(asyncio.CancelledError):
+                await delivery
+            with suppress(asyncio.CancelledError):
+                await reminders
+
+    app = FastAPI(title="Norium Engine Chat Central Unificado API", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins(),
@@ -337,6 +356,7 @@ def create_app() -> FastAPI:
     # A ordem é mantida para preservar a documentação e a resolução das rotas.
     app.include_router(nora_router)
     app.include_router(auth_router)
+    app.include_router(account_email_router)
     app.include_router(admin_finance_router)
     app.include_router(agenda_router)
     app.include_router(integracoes_google_router)

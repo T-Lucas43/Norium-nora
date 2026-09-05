@@ -9,7 +9,7 @@ Este documento descreve a implementação existente sem alterar o comportamento 
 - Base inicialmente preparada: `fe6967620700c92132253b1e4136dfda8b3fd418`.
 - Base sincronizada de `origin/main` em 2026-09-04: `fb671c3` (`feat: completar experiencia de reunioes e corrigir layout do chat`). A atualização também incorporou `4b4b974` (`feat: melhorar audio e controles individuais das chamadas`).
 - Atualidade reconfirmada durante a etapa TURN em 2026-09-04: `origin/main` havia avançado para `131aebf` (`fix: harden Nora web result parsing`). Os seis commits novos foram integrados no worktree isolado pelo merge `eaa381c`; `origin/main` é ancestral do resultado e não houve conflito. As mudanças remotas eram de Nora/Studio, além de configuração e composição adjacentes, sem alteração dos módulos de chamada.
-- Atualidade reconfirmada ao fechar a etapa 8A em 2026-09-05: `origin/main` avançou oito commits até `18df659` (`chore: expose validated build identity for release verification`). A comparação desde `131aebf` não mostrou alteração nos caminhos de chamadas; a integração ocorreu sem conflito e `origin/main@18df659` é ancestral do resultado final.
+- Atualidade reconfirmada ao fechar a etapa 8A em 2026-09-05: `origin/main` avançou nove commits até `25e395c` (`build: retain dependency cache when stamping release identity`). A comparação desde `131aebf` não mostrou alteração nos caminhos de chamadas; o último avanço alterou somente `Dockerfile.azure`, as integrações ocorreram sem conflito e `origin/main@25e395c` é ancestral do resultado final.
 - Evidência de presença em `origin/main`: `git ls-tree -r --name-only origin/main` contém o router, `useTeamCall.ts`, `TeamCallOverlay.tsx`, `ParticipantAudio.tsx`, `meetingRecording.ts`, os testes de ciclo de vida e colaboração e o harness de navegador. A implementação deste documento foi reaplicada sobre essa base e os conflitos nos caminhos de chamada foram resolvidos preservando os dois conjuntos de comportamento.
 
 ## Arquitetura atual
@@ -532,7 +532,7 @@ Execução em 2026-09-05, no worktree isolado, sem deploy:
 | Análise estática | `npm run lint` | aprovado; 13 avisos preexistentes fora de chamadas |
 | Protótipo local | `npm run prototype` na branch/commit descartável acima | matriz 2/4/6, autenticação negativa e screen share aprovadas; resultados reproduzíveis e limitações registradas |
 
-A tabela registra a repetição final depois de integrar `origin/main@18df659`. Os únicos avisos permanecem os cenários negativos intencionais do backend, um aviso de depreciação do `pypdf`, os 13 avisos de lint fora do escopo e o aviso de tamanho de chunk do Vite. Nenhum teste falhou ao final e nenhum comando de deploy foi executado.
+A tabela registra a repetição final depois de integrar todo o código da aplicação de `origin/main@18df659`; o avanço seguinte até `25e395c` alterou somente o `Dockerfile.azure` e foi integrado depois dos gates, sem afetar seus insumos. Os únicos avisos permanecem os cenários negativos intencionais do backend, um aviso de depreciação do `pypdf`, os 13 avisos de lint fora do escopo e o aviso de tamanho de chunk do Vite. Nenhum teste falhou ao final e nenhum comando de deploy foi executado.
 
 ### Riscos confirmados e componentes condicionados à 8B
 

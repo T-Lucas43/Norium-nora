@@ -15,8 +15,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Literal, Protocol
 
+from app.modules.team.call_configuration import DEFAULT_MESH_MAX_PARTICIPANTS
+
 
 CALL_ID_PATTERN = re.compile(r"call_[a-f0-9]{16,64}")
+MEDIA_TRANSPORT_KINDS = frozenset({"mesh", "sfu"})
 CALL_TIMEOUT = timedelta(seconds=90)
 PARTICIPANT_DISCONNECT_GRACE = timedelta(seconds=8)
 PARTICIPANT_HEARTBEAT_TIMEOUT = timedelta(seconds=30)
@@ -46,10 +49,11 @@ PERSISTED_EVENTS = {
 class CallError(Exception):
     """Erro de dominio que o adapter de transporte converte para seu protocolo."""
 
-    def __init__(self, status_code: int, detail: str) -> None:
+    def __init__(self, status_code: int, detail: str, *, code: str = "call_error") -> None:
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -203,7 +207,13 @@ def active_call_for(store: dict[str, Any], call_id: str) -> dict[str, Any] | Non
     )
 
 
+def _media_transport(call: dict[str, Any]) -> str:
+    value = str(call.get("mediaTransport") or "mesh")
+    return value if value in MEDIA_TRANSPORT_KINDS else "mesh"
+
+
 def active_call_invite(call: dict[str, Any]) -> dict[str, Any]:
+    sessions = _participant_sessions(call)
     return {
         "type": "CALL_INVITE",
         "callId": call.get("callId"),
@@ -214,6 +224,9 @@ def active_call_invite(call: dict[str, Any]) -> dict[str, Any]:
         "fromUserId": call.get("hostUserId"),
         "fromUserName": call.get("hostUserName"),
         "joinedUserIds": sorted(call.get("joinedClients", {})),
+        "joinedCount": len(sessions),
+        "maxParticipants": int(call.get("maxParticipants") or DEFAULT_MESH_MAX_PARTICIPANTS),
+        "mediaTransport": _media_transport(call),
         "raisedHands": copy.deepcopy(call.get("raisedHands", {})),
         "handRevision": int(call.get("handRevision") or 0),
         "mode": "audio",
@@ -353,12 +366,16 @@ class CallCoordinator:
         authorizer: TeamCallAuthorizer,
         clock: Clock | None = None,
         message_id_factory: Callable[[], str] | None = None,
+        max_participants: int = DEFAULT_MESH_MAX_PARTICIPANTS,
     ) -> None:
+        if max_participants < 2:
+            raise ValueError("max_participants deve ser maior ou igual a 2.")
         self._store = store
         self._publisher = publisher
         self._authorizer = authorizer
         self._clock = clock or SystemClock()
         self._message_id_factory = message_id_factory or (lambda: f"team_msg_{uuid.uuid4().hex}")
+        self._max_participants = max_participants
         self._teams: dict[str, _TeamRuntime] = {}
 
     def _runtime(self, team_id: str) -> _TeamRuntime:
@@ -396,6 +413,8 @@ class CallCoordinator:
             runtime.ended_call_ids = dict(state.ended_call_ids)
             runtime.loaded = True
             for call in runtime.calls.values():
+                call["maxParticipants"] = self._max_participants
+                call["mediaTransport"] = _media_transport(call)
                 _participant_sessions(call)
                 _sync_joined_clients(call)
         expired = _purge_stale_runtime(runtime, self._now()) if expire else []
@@ -728,6 +747,8 @@ class CallCoordinator:
             "recipientId": recipient_id,
             "subteamId": subteam_id,
             "participantIds": sorted(participants),
+            "maxParticipants": self._max_participants,
+            "mediaTransport": "mesh",
             "joinedClients": {actor.user_id: client_id},
             "participantSessions": {
                 actor.user_id: {
@@ -788,6 +809,15 @@ class CallCoordinator:
         if event_type == "CALL_LEAVE" and not isinstance(session, dict):
             return _Effects(), [{"type": "CALL_ACK", "callId": call_id, "event": event_type}]
         if event_type == "CALL_ACCEPT":
+            if actor.user_id not in sessions and len(sessions) >= self._max_participants:
+                raise CallError(
+                    409,
+                    (
+                        f"Esta chamada atingiu o limite de {self._max_participants} participantes. "
+                        "Tente novamente quando houver uma vaga."
+                    ),
+                    code="call_capacity_reached",
+                )
             session = {
                 "clientId": client_id,
                 "connectionId": connection_id,

@@ -140,6 +140,122 @@ class CallCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         calls = await self.coordinator.active_calls_for(self.owner)
         self.assertEqual(["owner"], calls[0]["joinedUserIds"])
 
+    async def test_capacity_is_atomic_and_rejection_has_stable_contract(self) -> None:
+        coordinator = CallCoordinator(
+            store=self.store,
+            publisher=self.publisher,
+            authorizer=TeamCallAuthorizer(self.directory),
+            clock=self.clock,
+            max_participants=2,
+        )
+        await coordinator.handle_event(self.owner, event(
+            "CALL_INVITE",
+            maxParticipants=99,
+            mediaTransport="sfu",
+        ))
+
+        outcomes = await asyncio.gather(
+            coordinator.handle_event(self.member, event("CALL_ACCEPT", client="member")),
+            coordinator.handle_event(self.other, event("CALL_ACCEPT", client="other")),
+            return_exceptions=True,
+        )
+
+        failures = [outcome for outcome in outcomes if isinstance(outcome, CallError)]
+        self.assertEqual(1, len(failures))
+        self.assertEqual(409, failures[0].status_code)
+        self.assertEqual("call_capacity_reached", failures[0].code)
+        self.assertEqual(
+            "Esta chamada atingiu o limite de 2 participantes. Tente novamente quando houver uma vaga.",
+            failures[0].detail,
+        )
+        call = (await coordinator.active_calls_for(self.owner))[0]
+        self.assertEqual(2, call["joinedCount"])
+        self.assertEqual(2, call["maxParticipants"])
+        self.assertEqual("mesh", call["mediaTransport"])
+
+    async def test_server_selected_transport_survives_reload(self) -> None:
+        await self.coordinator.handle_event(self.owner, event("CALL_INVITE"))
+        self.store.states["owner"].active_calls[0]["mediaTransport"] = "sfu"
+        reloaded = CallCoordinator(
+            store=self.store,
+            publisher=self.publisher,
+            authorizer=TeamCallAuthorizer(self.directory),
+            clock=self.clock,
+        )
+
+        calls = await reloaded.active_calls_for(self.owner, refresh=True)
+
+        self.assertEqual("sfu", calls[0]["mediaTransport"])
+
+    async def test_reentry_at_capacity_replaces_session_without_taking_a_slot(self) -> None:
+        coordinator = CallCoordinator(
+            store=self.store,
+            publisher=self.publisher,
+            authorizer=TeamCallAuthorizer(self.directory),
+            clock=self.clock,
+            max_participants=2,
+        )
+        await coordinator.handle_event(self.owner, event("CALL_INVITE"))
+        await coordinator.handle_event(self.member, event("CALL_ACCEPT", client="member"))
+
+        await coordinator.handle_event(self.member, event("CALL_ACCEPT", client="member-new"))
+
+        stored = self.store.states["owner"].active_calls[0]
+        self.assertEqual(2, len(stored["participantSessions"]))
+        self.assertEqual("member-new-tab", stored["participantSessions"]["member"]["clientId"])
+
+    async def test_disconnected_session_holds_capacity_until_grace_expires(self) -> None:
+        coordinator = CallCoordinator(
+            store=self.store,
+            publisher=self.publisher,
+            authorizer=TeamCallAuthorizer(self.directory),
+            clock=self.clock,
+            max_participants=2,
+        )
+        connected_member = CallActor(
+            user_id="member",
+            team_id="owner",
+            name="Member",
+            attributes={"connectionId": "member-connection"},
+        )
+        await coordinator.handle_event(self.owner, event("CALL_INVITE"))
+        await coordinator.handle_event(
+            connected_member,
+            event("CALL_ACCEPT", client="member"),
+        )
+        await coordinator.connection_closed(connected_member, "member-connection")
+
+        with self.assertRaises(CallError) as error:
+            await coordinator.handle_event(self.other, event("CALL_ACCEPT", client="other"))
+        self.assertEqual("call_capacity_reached", error.exception.code)
+
+        self.clock.advance(seconds=9)
+        await coordinator.reconcile(self.owner)
+        await coordinator.handle_event(self.other, event("CALL_ACCEPT", client="other"))
+        call = (await coordinator.active_calls_for(self.owner))[0]
+        self.assertEqual(["other", "owner"], call["joinedUserIds"])
+
+    async def test_idempotent_leave_releases_capacity_for_next_participant(self) -> None:
+        coordinator = CallCoordinator(
+            store=self.store,
+            publisher=self.publisher,
+            authorizer=TeamCallAuthorizer(self.directory),
+            clock=self.clock,
+            max_participants=2,
+        )
+        await coordinator.handle_event(self.owner, event("CALL_INVITE"))
+        await coordinator.handle_event(self.member, event("CALL_ACCEPT", client="member"))
+        first = await coordinator.handle_event(self.member, event("CALL_LEAVE", client="member"))
+        second = await coordinator.handle_event(self.member, event("CALL_LEAVE", client="member"))
+
+        await coordinator.handle_event(self.other, event("CALL_ACCEPT", client="other"))
+
+        self.assertEqual("CALL_ACK", first.direct_messages[0]["type"])
+        self.assertEqual("CALL_ACK", second.direct_messages[0]["type"])
+        call = (await coordinator.active_calls_for(self.owner))[0]
+        self.assertEqual(["other", "owner"], call["joinedUserIds"])
+        self.assertEqual(2, call["joinedCount"])
+
     async def test_end_and_missing_call_are_idempotent(self) -> None:
         await self.coordinator.handle_event(self.owner, event("CALL_INVITE"))
         first = await self.coordinator.end_call(self.owner, "call_0123456789abcdef")

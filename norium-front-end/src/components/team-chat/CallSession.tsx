@@ -21,6 +21,10 @@ import {
   type TeamCallSocketEvent,
   type TeamCallThread,
 } from "./useTeamCall";
+import {
+  type MediaTransportFactory,
+  type MediaTransportKind,
+} from "./media/MediaTransport";
 
 const TEAM_SOCKET_URL = `${wsBaseUrl()}/api/team-chat/ws`;
 const RECONNECT_DELAY_MS = 1800;
@@ -153,6 +157,8 @@ export type CallSessionSnapshot = Pick<Runtime,
   | "recordingUploadProgress"
   | "connectionQuality"
   | "iceTelemetry"
+  | "mediaTransportState"
+  | "mediaTransportFailure"
   | "reactions"
   | "raisedHands"
   | "meetingMessages"
@@ -174,6 +180,8 @@ export type CallSessionSnapshot = Pick<Runtime,
   participantIds: string[];
   prejoin: CallPrejoin | null;
   reconnectionNotice: string;
+  failureNotice: string;
+  mediaTransport: MediaTransportKind;
   iceService: IceServiceSnapshot;
   conversation: {
     callId: string;
@@ -211,6 +219,7 @@ export type CallSessionCommands = {
   selectScreenShareQuality: Runtime["selectScreenShareQuality"];
   selectScreenShareFps: Runtime["selectScreenShareFps"];
   refreshDevices: Runtime["refreshDevices"];
+  dismissFailure: () => void;
 };
 
 export type CallSession = {
@@ -232,6 +241,7 @@ type CallSessionProviderProps = {
   onCallDismissed?: (callId: string) => void;
   onTeamEvent?: (event: TeamSocketEvent) => void;
   iceTransportPolicy?: RTCIceTransportPolicy;
+  mediaTransports?: readonly MediaTransportFactory[];
 };
 
 export function CallSessionProvider(props: CallSessionProviderProps) {
@@ -248,6 +258,7 @@ function ActiveCallSessionProvider({
   onTeamEvent,
   resolveSocketUrl,
   iceTransportPolicy = "all",
+  mediaTransports,
 }: CallSessionProviderProps) {
   const socketRef = useRef<WebSocket | null>(null);
   const listenersRef = useRef(new Set<(event: TeamSocketEvent) => void>());
@@ -261,6 +272,7 @@ function ActiveCallSessionProvider({
   const [participantIds, setParticipantIds] = useState<string[]>([]);
   const [prejoin, setPrejoin] = useState<CallPrejoin | null>(null);
   const [reconnectionNotice, setReconnectionNotice] = useState("");
+  const [failureNotice, setFailureNotice] = useState("");
   const [iceServers, setIceServers] = useState<RTCIceServer[]>(SAFE_STUN_SERVERS);
   const [iceService, setIceService] = useState<IceServiceSnapshot>(INITIAL_ICE_SERVICE);
   const reconnectingCallIdRef = useRef("");
@@ -284,6 +296,7 @@ function ActiveCallSessionProvider({
     sendSocketEvent,
     iceServers,
     iceTransportPolicy,
+    mediaTransports,
   });
   runtimeRef.current = runtime;
 
@@ -446,7 +459,12 @@ function ActiveCallSessionProvider({
               setParticipantIds([]);
             }
           }
-          if (event.type === "CALL_ERROR") dispatch({ type: "FAILED" });
+          if (event.type === "CALL_ERROR" && event.code === "call_capacity_reached") {
+            setFailureNotice(event.detail || "Não foi possível concluir a ação na chamada.");
+          }
+          if (event.type === "CALL_ERROR") {
+            dispatch({ type: "FAILED" });
+          }
           void runtimeRef.current?.handleSocketEvent(event).catch(() => dispatch({ type: "FAILED" }));
         };
         socket.onclose = (event) => {
@@ -507,6 +525,7 @@ function ActiveCallSessionProvider({
   const commands = useMemo<CallSessionCommands>(() => ({
     start: async (thread) => {
       setReconnectionNotice("");
+      setFailureNotice("");
       entryTargetRef.current = { kind: "start", thread };
       setPrejoin({ kind: "start", thread, title: thread.title, microphoneMode: "muted", cameraEnabled: false, previewEnabled: false });
       void runtime.prepareAudio();
@@ -514,6 +533,7 @@ function ActiveCallSessionProvider({
     },
     accept: async () => {
       setReconnectionNotice("");
+      setFailureNotice("");
       const call = runtime.incoming;
       if (!call) return;
       entryTargetRef.current = { kind: "incoming", thread: call.thread, callId: call.callId };
@@ -523,6 +543,7 @@ function ActiveCallSessionProvider({
     },
     join: async (call) => {
       setReconnectionNotice("");
+      setFailureNotice("");
       const thread: TeamCallThread = {
         scope: call.scope || "team",
         title: call.scope === "direct" ? call.fromUserName || "Chamada individual" : call.scope === "subteam" ? "Reunião da subequipe" : "Time todo",
@@ -623,6 +644,7 @@ function ActiveCallSessionProvider({
     selectScreenShareQuality: runtime.selectScreenShareQuality,
     selectScreenShareFps: runtime.selectScreenShareFps,
     refreshDevices: runtime.refreshDevices,
+    dismissFailure: () => setFailureNotice(""),
   }), [prejoin, publish, runtime, session.user.id]);
 
   const conversation = useMemo<CallSessionSnapshot["conversation"]>(() => {
@@ -669,6 +691,8 @@ function ActiveCallSessionProvider({
     recordingUploadProgress: runtime.recordingUploadProgress,
     connectionQuality: runtime.connectionQuality,
     iceTelemetry: runtime.iceTelemetry,
+    mediaTransportState: runtime.mediaTransportState,
+    mediaTransportFailure: runtime.mediaTransportFailure,
     reactions: runtime.reactions,
     raisedHands: runtime.raisedHands,
     meetingMessages: runtime.meetingMessages,
@@ -687,9 +711,11 @@ function ActiveCallSessionProvider({
     participantIds,
     prejoin,
     reconnectionNotice,
+    failureNotice,
+    mediaTransport: runtime.mediaTransport,
     iceService,
     conversation,
-  }), [conversation, iceService, participantIds, phase, prejoin, reconnectionNotice, runtime, socketState]);
+  }), [conversation, failureNotice, iceService, participantIds, phase, prejoin, reconnectionNotice, runtime, socketState]);
 
   const subscribe = useCallback((listener: (event: TeamSocketEvent) => void) => {
     listenersRef.current.add(listener);

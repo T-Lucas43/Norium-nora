@@ -22,6 +22,7 @@ from app.shared.schemas import StrictModel
 
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, read_profile_db, write_json_file
 from app.modules.team.call_adapters import CallbackCallPublisher, CallbackTeamDirectory, JsonCallStateStore
+from app.modules.team.call_configuration import mesh_max_participants_from_environment
 from app.modules.team.call_coordinator import (
     CallActor,
     CallCoordinator,
@@ -664,6 +665,7 @@ def call_coordinator() -> CallCoordinator:
             store=store,
             publisher=publisher,
             authorizer=TeamCallAuthorizer(directory),
+            max_participants=mesh_max_participants_from_environment(),
         )
     return _call_coordinator_instance
 
@@ -683,7 +685,11 @@ def call_actor(user: dict[str, Any], connection_id: str | None = None) -> CallAc
 
 
 def _as_http_error(error: CallError) -> HTTPException:
-    return HTTPException(status_code=error.status_code, detail=error.detail)
+    return HTTPException(
+        status_code=error.status_code,
+        detail=error.detail,
+        headers={"X-Call-Error-Code": error.code},
+    )
 
 
 async def active_calls_snapshot(team_id: str) -> list[dict[str, Any]]:
@@ -1536,7 +1542,12 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             if not raw:
                 continue
             if len(raw) > 120_000:
-                await websocket.send_json({"type": "CALL_ERROR", "detail": "Sinal de chamada acima do limite."})
+                await websocket.send_json({
+                    "type": "CALL_ERROR",
+                    "code": "call_payload_too_large",
+                    "status": 413,
+                    "detail": "Sinal de chamada acima do limite.",
+                })
                 continue
             try:
                 payload = json.loads(raw)
@@ -1549,7 +1560,13 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             try:
                 await handle_call_event(websocket, user, payload, connection_id)
             except HTTPException as exc:
-                await websocket.send_json({"type": "CALL_ERROR", "callId": payload.get("callId"), "detail": exc.detail})
+                await websocket.send_json({
+                    "type": "CALL_ERROR",
+                    "callId": payload.get("callId"),
+                    "code": (exc.headers or {}).get("X-Call-Error-Code", "call_error"),
+                    "status": exc.status_code,
+                    "detail": exc.detail,
+                })
     except WebSocketDisconnect:
         pass
     finally:

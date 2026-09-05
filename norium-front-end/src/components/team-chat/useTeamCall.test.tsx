@@ -6,6 +6,11 @@ import {
   recordingNeedsBackpressure,
   useTeamCallRuntime,
 } from "./useTeamCall";
+import type {
+  MediaTransport,
+  MediaTransportFactory,
+  MediaTransportSnapshot,
+} from "./media/MediaTransport";
 
 const session = {
   token: "test-token",
@@ -89,6 +94,117 @@ describe("chamadas do Modo Equipe", () => {
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_END" }));
     expect(audioStop).toHaveBeenCalled();
     unmount();
+  });
+
+  it("seleciona mesh ou SFU por chamada e ignora eventos atrasados da anterior", async () => {
+    const instances: Array<MediaTransport & { receive: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
+    const makeFactory = (kind: "mesh" | "sfu"): MediaTransportFactory => ({
+      kind,
+      create: () => {
+        const snapshot: MediaTransportSnapshot = {
+          state: "connected", failure: null,
+          remoteStreams: [], connectionQuality: "good",
+          iceTelemetry: { lastState: "unknown", stateCounts: {}, pathTypeCounts: {}, lastSelectedPath: null, relayObserved: false },
+        };
+        const receive = vi.fn().mockResolvedValue(undefined);
+        const close = vi.fn().mockResolvedValue(undefined);
+        const transport = {
+          kind,
+          open: vi.fn().mockResolvedValue(undefined),
+          receive,
+          updateLocalMedia: vi.fn().mockResolvedValue(undefined),
+          updateIce: vi.fn(),
+          updateScreenProfile: vi.fn().mockResolvedValue(undefined),
+          snapshot: () => snapshot,
+          subscribe: (listener: (value: MediaTransportSnapshot) => void) => { listener(snapshot); return vi.fn(); },
+          close,
+        } as MediaTransport & { receive: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> };
+        instances.push(transport);
+        return transport;
+      },
+    });
+    const mesh = makeFactory("mesh");
+    const sfu = makeFactory("sfu");
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useTeamCallRuntime({
+      session,
+      thread: { scope: "team", title: "Time todo" },
+      sendSocketEvent,
+      mediaTransports: [mesh, sfu],
+    }));
+
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const oldCallId = result.current.active?.callId || "";
+    expect(result.current.mediaTransport).toBe("mesh");
+    expect(instances).toHaveLength(1);
+    await act(async () => result.current.leaveCall());
+    expect(instances[0].close).toHaveBeenCalledOnce();
+
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_INVITE", callId: "call_sfu", threadId: "team", scope: "team",
+      fromUserId: "member", fromUserName: "Member", mediaTransport: "sfu",
+    }));
+    await act(async () => result.current.acceptIncoming({ microphoneMode: "listen-only", cameraEnabled: false }));
+    expect(result.current.mediaTransport).toBe("sfu");
+    expect(instances).toHaveLength(2);
+
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_SIGNAL", callId: "call_sfu", fromUserId: "member",
+      signal: { type: "offer", sdp: "current" },
+    }));
+    expect(instances).toHaveLength(2);
+    expect(instances[1].receive).toHaveBeenCalledWith(expect.objectContaining({ callId: "call_sfu" }));
+
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_SIGNAL", callId: oldCallId, fromUserId: "member",
+      signal: { type: "offer", sdp: "stale" },
+    }));
+    expect(instances[1].receive).not.toHaveBeenCalledWith(expect.objectContaining({ callId: oldCallId }));
+  });
+
+  it("sempre encerra a captura local mesmo se o adapter falhar ao fechar", async () => {
+    const audioTrack = {
+      kind: "audio", enabled: true, readyState: "live", stop: vi.fn(), onended: null,
+    } as unknown as MediaStreamTrack;
+    const audioStream = {
+      getTracks: () => [audioTrack], getAudioTracks: () => [audioTrack], getVideoTracks: () => [],
+    } as unknown as MediaStream;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn().mockResolvedValue(audioStream) },
+    });
+    const snapshot: MediaTransportSnapshot = {
+      state: "connected", failure: null, remoteStreams: [], connectionQuality: "good",
+      iceTelemetry: { lastState: "unknown", stateCounts: {}, pathTypeCounts: {}, lastSelectedPath: null, relayObserved: false },
+    };
+    const close = vi.fn(() => { throw new Error("adapter close failed"); });
+    const failingFactory: MediaTransportFactory = {
+      kind: "mesh",
+      create: () => ({
+        kind: "mesh",
+        open: vi.fn().mockResolvedValue(undefined),
+        receive: vi.fn().mockResolvedValue(undefined),
+        updateLocalMedia: vi.fn().mockResolvedValue(undefined),
+        updateIce: vi.fn(),
+        updateScreenProfile: vi.fn().mockResolvedValue(undefined),
+        snapshot: () => snapshot,
+        subscribe: (listener) => { listener(snapshot); return vi.fn(); },
+        close,
+      }),
+    };
+    const { result } = renderHook(() => useTeamCallRuntime({
+      session,
+      thread: { scope: "team", title: "Time todo" },
+      sendSocketEvent: vi.fn().mockReturnValue(true),
+      mediaTransports: [failingFactory],
+    }));
+
+    await act(async () => result.current.startCall());
+    await act(async () => result.current.leaveCall());
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(audioTrack.stop).toHaveBeenCalledOnce();
+    expect(result.current.active).toBeNull();
   });
 
   it("entra em modo somente escuta sem solicitar microfone nem camera", async () => {

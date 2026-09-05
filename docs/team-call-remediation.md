@@ -441,3 +441,116 @@ Execução realizada em 2026-09-04 no mesmo worktree, depois de integrar `origin
 | Relay-only real | `.\.venv\Scripts\python.exe ..\norium-front-end\tests\browser\verify_turn_relay.py` | código 2, `blocked: external_turn_not_configured`; faltam `TEAM_CALL_TURN_URLS` e `TEAM_CALL_TURN_SHARED_SECRET` para infraestrutura real |
 
 O único bloqueio restante para comprovar relay-only navegador-a-navegador é infraestrutura externa TURN/TLS acessível. Adapter, endpoint, renovação, telemetria, fixture e assertiva do par real estão implementados; o gate não foi falsificado. Os logs completos dos gates ficam em `norium-back-end/artifacts/team-call-turn-backend-full.log` e `norium-front-end/artifacts/team-call-turn-*.log`, ignorados pelo Git. Permanecem apenas avisos preexistentes: cenários negativos intencionais no backend, 14 avisos de lint fora do escopo e chunk geral acima de 500 kB no build. Nenhum deploy foi executado.
+
+## Etapa 8A — limite mesh, fronteira de mídia e avaliação de SFU
+
+Esta etapa prepara coexistência técnica e uma decisão informada, sem habilitar SFU no produto. O ADR permanece proposto e a implementação de produção da etapa 8B está bloqueada até escolha explícita do responsável.
+
+### Limite determinístico do mesh
+
+- `TEAM_CALL_MESH_MAX_PARTICIPANTS` define a capacidade por chamada mesh. A validação ocorre na inicialização e aceita somente inteiro maior ou igual a 2.
+- O default conservador é **6**. Esse número foi escolhido durante a implementação porque a quantidade no pedido original chegou truncada; não é um limite público aprovado e precisa ser confirmado pelo responsável.
+- O `CallCoordinator` verifica capacidade dentro do lock por equipe. A tentativa excedente recebe status `409`, código estável `call_capacity_reached` e mensagem útil com o limite; a recusa ocorre antes de admitir o participante ou encaminhar sinalização aos peers.
+- Vagas contam participantes com sessão, não abas. Reentrada ou segunda aba do mesmo participante não consome vaga adicional; uma sessão desconectada dentro da tolerância de 8 segundos ainda ocupa a sua. `leave` idempotente libera a vaga exatamente uma vez.
+- A chamada armazena `maxParticipants` e `mediaTransport`. O servidor preserva a seleção e ignora tentativas do cliente de sobrescrevê-la; chamadas legadas ou valor inválido usam `mesh`.
+- O frontend mostra a falha de capacidade como alerta acessível e descartável. A recusa é atômica no servidor, porém a implementação atual captura mídia local antes do ACK de `CALL_ACCEPT` e só então limpa as tracks ao receber o erro. Portanto esta etapa **não** implementa nem afirma um preflight sem captura.
+
+### Novo limite profundo de `MediaTransport`
+
+```text
+CallSession (uma por aplicação autenticada)
+    +-- socket global / ciclo de chamada / reconexão
+    +-- dispositivos e captura local
+    +-- chat direto / gravação / toque / consentimento
+    |
+    +-- valor mediaTransport armazenado na chamada pelo servidor
+            |
+            v
+      MediaTransportFactory
+            |
+            +-- MeshMediaTransport (produção durante a coexistência)
+            |       +-- peers e negociação perfeita
+            |       +-- publicação/recepção de tracks
+            |       +-- streams remotos e ICE sanitizado
+            |
+            +-- LiveKitMediaTransport (somente protótipo descartável nesta etapa)
+```
+
+`MediaTransport` não envolve ou replica o contrato inteiro de `useTeamCallRuntime`. É uma porta estreita por chamada: `open`, eventos de participante/sinal, atualização de mídia/ICE/perfil de tela, snapshot/assinatura e `close`. O snapshot contém somente streams remotos, qualidade de conexão e telemetria ICE sanitizada. Socket global, chat, gravação, toque, dispositivos e captura continuam sob `CallSession`.
+
+`MeshMediaTransport` possui os peers, senders, candidatos pendentes, estado de negociação perfeita, streams remotos, recuperação, telemetria ICE e limpeza determinística que antes estavam concentrados no hook. A fábrica é resolvida pelo valor imutável da chamada; cada chamada recebe uma instância nova, fechada idempotentemente. Assim uma chamada mesh pode ser seguida por uma futura chamada SFU no mesmo provider/socket, mas uma chamada ativa nunca troca de transporte no meio da sessão. Um adapter indisponível falha de forma explícita, sem fallback silencioso.
+
+Componentes alterados para essa fronteira:
+
+- `norium-front-end/src/components/team-chat/media/MediaTransport.ts`: tipos, contrato profundo e resolução da fábrica.
+- `norium-front-end/src/components/team-chat/media/MeshMediaTransport.ts`: implementação mesh extraída.
+- `norium-front-end/src/components/team-chat/useTeamCall.ts`: conserva ciclo/captura/gravação e delega somente o motor de mídia.
+- `norium-front-end/src/components/team-chat/CallSession.tsx`: fornece as fábricas e apresenta a capacidade/seleção originada pelo servidor.
+- `norium-back-end/app/modules/team/call_configuration.py`, `call_coordinator.py`, `router.py`, `app/bootstrap.py` e `.env.example`: configuração, admissão atômica, persistência e erro estável.
+- Testes de `MediaTransport`, `CallSession`, runtime, coordenador, configuração e WebSocket: instância por chamada, seleção server-side, sinalização/limpeza e corridas de capacidade.
+
+### Pesquisa, ADR e recomendação
+
+- A comparação factual de LiveKit Cloud/self-hosted, Cloudflare Realtime SFU, mediasoup v3 e Daily usa documentação oficial e está em `docs/research/team-call-sfu-options.md`.
+- O ADR proposto, com hospedagem, autenticação, regiões/latência, gravação, screen share, observabilidade, custo, privacidade, lock-in e encaixe na arquitetura atual, está em `docs/adr/0002-team-call-sfu.md`.
+- A recomendação é **LiveKit Cloud atrás de `MediaTransport`**, com LiveKit self-hosted como escape arquitetural. Cloudflare Realtime SFU é a alternativa se custo por tráfego e controle do WebRTC bruto dominarem e a equipe aceitar construir gravação e QoE. A recomendação não constitui contratação nem autorização de rollout.
+
+### Protótipo descartável e medições
+
+O protótipo está isolado na branch `codex/team-call-sfu-prototype`, commit `1a1c23c9a8a25213fa47a888cfd43822d30351fc`, em `prototypes/team-call-livekit-sfu`. Ele é reproduzido, nesse diretório, por:
+
+```powershell
+npm run prototype
+```
+
+A execução real usou LiveKit self-hosted v1.13.6 em loopback, `livekit-client` 2.22.2, Chrome headless, áudio sintético e vídeo 320×180 a 10 fps sem simulcast. Cada participante tinha token, contexto de navegador, página e sessão próprios; cada degrau ficou 20 segundos sob carga.
+
+| Participantes | Conexão p50 | Primeira mídia remota p50 | CPU SFU (100% = 1 core) | Pico RAM SFU | Upload médio/cliente | Resultado |
+| ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 2 | 634 ms | 941 ms | 2,9% | 95,6 MiB | 244,9 Kbit/s | estável |
+| 4 | 190 ms | 427 ms | 5,8% | 124,5 MiB | 244,9 Kbit/s | estável |
+| 6 | 196 ms | 478 ms | 8,9% | 171,3 MiB | 248,9 Kbit/s | estável |
+
+Todos os participantes permaneceram conectados, receberam as tracks esperadas e produziram upload; não houve erro de página, falha de estado/conexão, desconexão inesperada nem participante com upload zero. Em duas sessões, uma track sintética `screen_share` foi recebida em 96 ms e removida no receptor em 42 ms. O endpoint de token temporário recusou credencial ausente com `401` e associação divergente entre equipe, chamada, participante e cliente com `403`.
+
+O resultado confirma que, com SFU, o uplink não se multiplica pela quantidade de peers remotos. Isso não significa literalmente um único fluxo: microfone, câmera, tela e simulcast podem produzir várias tracks/camadas.
+
+Limitações objetivas: servidor e navegadores rodaram na mesma máquina; loopback remove RTT, perda, jitter, NAT, TURN e distância regional. BrowserContexts e sessões eram independentes, mas compartilhavam o processo Chrome headless. CPU do renderer veio de `Performance.TaskDuration` e memória do cliente mede heap JavaScript, não o working set do Chrome. A mídia sintética é pequena e uniforme, e o primeiro degrau inclui aquecimento. Não foram comprovados LiveKit Cloud, edge brasileiro, SLA, residência, custo real, TURN/TLS, autoscaling, gravação/Egress, renovação longa, reconexão ou revogação durante mídia. O bloqueio externo do gate relay-only TURN continua registrado na seção anterior e não foi mascarado pelo protótipo local.
+
+### Verificação da etapa 8A
+
+Execução em 2026-09-05, no worktree isolado, sem deploy:
+
+| Área | Comando | Resultado |
+| --- | --- | --- |
+| Backend completo | `.\.venv\Scripts\python.exe -m unittest discover -s tests -q` | 484 testes aprovados em 19,244 s (`OK`) |
+| Frontend focado — runtime/sessão/transporte | `npm test -- --run src/components/team-chat/useTeamCall.test.tsx src/components/team-chat/CallSession.test.tsx src/components/team-chat/media/MediaTransport.test.ts` | 3 arquivos e 39 testes aprovados |
+| Frontend completo | `npm test` | 71 arquivos e 471 testes aprovados |
+| Build de produção | `npm run build` | aprovado; apenas o aviso preexistente de chunk geral acima de 500 kB |
+| Análise estática | `npm run lint` | aprovado; 14 avisos preexistentes fora de chamadas |
+| Protótipo local | `npm run prototype` na branch/commit descartável acima | matriz 2/4/6, autenticação negativa e screen share aprovadas; resultados reproduzíveis e limitações registradas |
+
+Uma rodada completa intermediária do frontend, anterior ao último teste da extração, já havia aprovado 70 arquivos e 470 testes. A tabela registra a repetição final com 71/471. Os únicos avisos permanecem os cenários negativos intencionais do backend, os 14 avisos de lint fora do escopo e o aviso de tamanho de chunk do Vite. Nenhum teste falhou ao final e nenhum comando de deploy foi executado.
+
+### Riscos confirmados e componentes condicionados à 8B
+
+Além dos riscos históricos acima, permanecem confirmados:
+
+1. O default 6 é provisório e precisa de decisão de produto; não deve ser elevado com base apenas no benchmark SFU local.
+2. O servidor recusa capacidade antes da admissão, mas o cliente captura mídia antes do ACK. Um preflight futuro precisa evitar captura desnecessária sem criar reserva fantasma ou corrida de vagas.
+3. Estado de negócio no NOrium e estado de mídia no provedor serão dois planos de controle. Webhooks atrasados, duplicados ou fora de ordem não podem ressuscitar chamada ou participante.
+4. O protótipo self-hosted local não prova o serviço Cloud, região, rede restritiva, disponibilidade, residência, preço ou operação. TURN externo continua sendo bloqueio separado.
+5. E2EE entra em tensão com gravação/Egress: um gravador que interpreta a mídia precisa receber chaves ou a política deve escolher outro fluxo, sempre preservando consentimento, quotas, auditoria e retenção.
+6. A saída self-hosted compartilha SDK/protocolo, mas exige Redis, TURN/TLS, balanceamento, Egress, observabilidade, upgrades e plantão; não é fallback operacional gratuito.
+
+Se — e somente se — o responsável aceitar o ADR, a etapa 8B poderá alterar:
+
+- provider backend de JWT curto, escolha de região e reconciliação idempotente de webhooks;
+- política server-side que seleciona `sfu` para chamadas novas/coorte interna;
+- `LiveKitMediaTransport` de produção, mantendo tipos do SDK dentro do adapter;
+- revogação, reconexão, múltiplas abas, indisponibilidade e rotação/renovação de token no plano SFU;
+- telemetria sanitizada e SLOs em região/redes reais;
+- adapter de Egress somente após decisão de E2EE, consentimento, custódia, retenção e custo;
+- rollout e rollback apenas de chamadas novas, nunca migração de transporte no meio de uma chamada.
+
+**Ponto de parada:** a etapa 8A está documentada e verificada, mas o ADR continua `proposed` com `decision_owner: pending`. Não iniciar 8B, provisionar LiveKit Cloud, inserir segredo, alterar o transporte padrão, contratar serviço, migrar gravação ou fazer deploy até decisão explícita do responsável.

@@ -4,6 +4,15 @@ import type { AuthSession } from "../../types/auth";
 import { apiBaseUrl } from "../../utils/api";
 import { createMeetingRecording } from "./meetingRecording";
 import { prepareChatAttachments } from "./chatAttachments";
+import {
+  resolveMediaTransportFactory,
+  type MediaTransport,
+  type MediaTransportFactory,
+  type MediaTransportKind,
+  type MediaTransportLocalMedia,
+  type MediaTransportSnapshot,
+} from "./media/MediaTransport";
+import { MeshMediaTransportFactory } from "./media/MeshMediaTransport";
 
 const TEAM_CHAT_API = `${apiBaseUrl()}/api/team-chat`;
 const RECORDING_MAX_RETRIES = 3;
@@ -55,6 +64,8 @@ export type TeamCallThread = {
 
 export type TeamCallSocketEvent = {
   type: string;
+  code?: string;
+  status?: number;
   callId?: string;
   scope?: TeamThreadScope;
   threadId?: string;
@@ -81,6 +92,9 @@ export type TeamCallSocketEvent = {
   message?: MeetingMessage;
   targetUserId?: string;
   reason?: string;
+  joinedCount?: number;
+  maxParticipants?: number;
+  mediaTransport?: "mesh" | "sfu";
 };
 
 export type MeetingMessage = { id: string; senderId: string; senderName: string; text: string; createdAt: string;
@@ -93,6 +107,7 @@ type ActiveCall = {
   thread: TeamCallThread;
   hostUserId: string;
   startedAt: string;
+  mediaTransport: MediaTransportKind;
 };
 
 type IncomingCall = ActiveCall & {
@@ -112,6 +127,7 @@ function incomingCallFromEvent(event: TeamCallSocketEvent, currentUserId: string
     fromUserName: event.fromUserName || "Membro",
     hostUserId: event.fromUserId,
     startedAt: event.startedAt || new Date().toISOString(),
+    mediaTransport: event.mediaTransport || "mesh",
     thread: {
       scope,
       title,
@@ -139,29 +155,8 @@ const DEFAULT_ENTRY_OPTIONS: CallEntryOptions = {
 };
 
 type CallSound = "connecting" | "joined" | "left" | "ended" | "screen";
-type ConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
 type CameraPermission = "unknown" | "requesting" | "granted" | "denied" | "unavailable";
-export type IceTelemetryState = RTCIceConnectionState | "unknown";
-export type IcePathType = RTCIceCandidateType | "unknown";
-export type IcePathProtocol = "udp" | "tcp" | "tls" | "unknown";
-export type IceTelemetrySnapshot = {
-  lastState: IceTelemetryState;
-  stateCounts: Partial<Record<IceTelemetryState, number>>;
-  pathTypeCounts: Partial<Record<IcePathType, number>>;
-  lastSelectedPath: {
-    localType: IcePathType;
-    remoteType: IcePathType;
-    protocol: IcePathProtocol;
-  } | null;
-  relayObserved: boolean;
-};
-type PeerNegotiationState = {
-  makingOffer: boolean;
-  ignoreOffer: boolean;
-  isSettingRemoteAnswerPending: boolean;
-  polite: boolean;
-  revision: number;
-};
+export type { IceTelemetrySnapshot } from "./media/MediaTransport";
 export type ScreenShareQuality = "720p" | "1080p" | "1440p";
 export type ScreenShareFps = 15 | 30 | 60;
 
@@ -178,20 +173,6 @@ function screenShareConstraints(quality: ScreenShareQuality, fps: ScreenShareFps
     height: { ideal: profile.height, max: profile.height },
     frameRate: { ideal: fps, max: fps },
   };
-}
-
-async function applyScreenShareSenderProfile(sender: RTCRtpSender, quality: ScreenShareQuality, fps: ScreenShareFps) {
-  if (typeof sender.getParameters !== "function" || typeof sender.setParameters !== "function") return;
-  const parameters = sender.getParameters();
-  if (!parameters.encodings?.length) return;
-  const profile = SCREEN_SHARE_PROFILES[quality];
-  parameters.encodings = parameters.encodings.map((encoding) => ({
-    ...encoding,
-    active: true,
-    maxBitrate: Math.round(profile.maxBitrate * Math.max(0.65, fps / 30)),
-    maxFramerate: fps,
-  }));
-  await sender.setParameters(parameters);
 }
 
 let callAudioContext: AudioContext | null = null;
@@ -243,49 +224,19 @@ export const SAFE_STUN_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.cloudflare.com:3478" },
 ];
 
-const INITIAL_ICE_TELEMETRY: IceTelemetrySnapshot = {
-  lastState: "unknown",
-  stateCounts: {},
-  pathTypeCounts: {},
-  lastSelectedPath: null,
-  relayObserved: false,
+const EMPTY_MEDIA_TRANSPORT_SNAPSHOT: MediaTransportSnapshot = {
+  state: "idle",
+  failure: null,
+  remoteStreams: [],
+  connectionQuality: typeof navigator === "undefined" || navigator.onLine ? "good" : "offline",
+  iceTelemetry: {
+    lastState: "unknown",
+    stateCounts: {},
+    pathTypeCounts: {},
+    lastSelectedPath: null,
+    relayObserved: false,
+  },
 };
-
-function iceTelemetryState(value: string): IceTelemetryState {
-  return ["new", "checking", "connected", "completed", "failed", "disconnected", "closed"].includes(value)
-    ? value as RTCIceConnectionState
-    : "unknown";
-}
-
-function icePathType(value: unknown): IcePathType {
-  return typeof value === "string" && ["host", "srflx", "prflx", "relay"].includes(value)
-    ? value as RTCIceCandidateType
-    : "unknown";
-}
-
-function icePathProtocol(value: unknown): IcePathProtocol {
-  return typeof value === "string" && ["udp", "tcp", "tls"].includes(value.toLowerCase())
-    ? value.toLowerCase() as IcePathProtocol
-    : "unknown";
-}
-
-function selectedIcePath(report: RTCStatsReport): IceTelemetrySnapshot["lastSelectedPath"] {
-  const entries: Array<Record<string, unknown>> = [];
-  report.forEach((entry) => entries.push(entry as unknown as Record<string, unknown>));
-  const transport = entries.find((entry) => entry.type === "transport" && typeof entry.selectedCandidatePairId === "string");
-  const pair = transport
-    ? report.get(String(transport.selectedCandidatePairId)) as unknown as Record<string, unknown> | undefined
-    : entries.find((entry) => entry.type === "candidate-pair" && entry.state === "succeeded" && (entry.nominated === true || entry.selected === true));
-  if (!pair) return null;
-  const local = report.get(String(pair.localCandidateId || "")) as unknown as Record<string, unknown> | undefined;
-  const remote = report.get(String(pair.remoteCandidateId || "")) as unknown as Record<string, unknown> | undefined;
-  if (!local || !remote) return null;
-  return {
-    localType: icePathType(local.candidateType),
-    remoteType: icePathType(remote.candidateType),
-    protocol: icePathProtocol(local.relayProtocol || local.protocol),
-  };
-}
 
 function callId() {
   return `call_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -312,12 +263,14 @@ export function useTeamCallRuntime({
   sendSocketEvent,
   iceServers = SAFE_STUN_SERVERS,
   iceTransportPolicy = "all",
+  mediaTransports,
 }: {
   session: AuthSession;
   thread: TeamCallThread;
   sendSocketEvent: (payload: Record<string, unknown>) => boolean;
   iceServers?: RTCIceServer[];
   iceTransportPolicy?: RTCIceTransportPolicy;
+  mediaTransports?: readonly MediaTransportFactory[];
 }) {
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
   const [active, setActive] = useState<ActiveCall | null>(null);
@@ -331,7 +284,8 @@ export function useTeamCallRuntime({
   const dismissedInviteIdsRef = useRef(new Set<string>());
   const clientIdRef = useRef(crypto.randomUUID());
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<Array<{ userId: string; stream: MediaStream }>>([]);
+  const [mediaTransportSnapshot, setMediaTransportSnapshot] = useState<MediaTransportSnapshot>(EMPTY_MEDIA_TRANSPORT_SNAPSHOT);
+  const [mediaTransportKind, setMediaTransportKind] = useState<MediaTransportKind>("mesh");
   const [muted, setMuted] = useState(false);
   const [listenOnly, setListenOnly] = useState(false);
   const [microphonePermission, setMicrophonePermission] = useState<CameraPermission>("unknown");
@@ -351,8 +305,6 @@ export function useTeamCallRuntime({
   const [recordingUploadState, setRecordingUploadState] = useState<RecordingUploadState>("idle");
   const [recordingUploadedBytes, setRecordingUploadedBytes] = useState(0);
   const [recordingPendingBytes, setRecordingPendingBytes] = useState(0);
-  const [connectionQuality, setConnectionQuality] = useState<ConnectionQuality>(navigator.onLine ? "connecting" : "offline");
-  const [iceTelemetry, setIceTelemetry] = useState<IceTelemetrySnapshot>(INITIAL_ICE_TELEMETRY);
   const [reactions, setReactions] = useState<Array<{ id: string; emoji: string; userName: string }>>([]);
   const [raisedHands, setRaisedHands] = useState<Record<string, string>>({});
   const handRevisionRef = useRef(-1);
@@ -371,14 +323,27 @@ export function useTeamCallRuntime({
   const activeRef = useRef<ActiveCall | null>(null);
   const incomingRef = useRef<IncomingCall | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const peersRef = useRef(new Map<string, RTCPeerConnection>());
-  const audioSendersRef = useRef(new Map<string, RTCRtpSender>());
-  const screenAudioSendersRef = useRef(new Map<string, RTCRtpSender>());
-  const videoSendersRef = useRef(new Map<string, RTCRtpSender>());
-  const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
-  const peerNegotiationRef = useRef(new Map<string, PeerNegotiationState>());
-  const remoteStreamByUserRef = useRef(new Map<string, MediaStream>());
-  const screenRecoveryTimersRef = useRef(new Map<string, number>());
+  const mediaTransportRef = useRef<MediaTransport | null>(null);
+  const mediaTransportCallIdRef = useRef("");
+  const mediaTransportOpenRef = useRef<Promise<MediaTransport> | null>(null);
+  const unsubscribeMediaTransportRef = useRef<(() => void) | null>(null);
+  const iceConfigurationRef = useRef<RTCConfiguration>({});
+  iceConfigurationRef.current = {
+    iceServers,
+    iceTransportPolicy,
+    iceCandidatePoolSize: 4,
+    bundlePolicy: "max-bundle",
+  };
+  const meshTransportFactoryRef = useRef<MediaTransportFactory | null>(null);
+  if (!meshTransportFactoryRef.current) {
+    meshTransportFactoryRef.current = new MeshMediaTransportFactory(() => iceConfigurationRef.current);
+  }
+  const mediaTransportFactoriesRef = useRef<readonly MediaTransportFactory[]>([]);
+  const customMeshTransport = mediaTransports?.find((factory) => factory.kind === "mesh");
+  mediaTransportFactoriesRef.current = [
+    customMeshTransport || meshTransportFactoryRef.current,
+    ...(mediaTransports || []).filter((factory) => factory.kind !== "mesh"),
+  ];
   const screenStreamRef = useRef<MediaStream | null>(null);
   const previewStreamRef = useRef<MediaStream | null>(null);
   const previewRequestRef = useRef(0);
@@ -402,44 +367,8 @@ export function useTeamCallRuntime({
   const reactionTimersRef = useRef<number[]>([]);
   const finishCallRef = useRef<(notify: boolean, sound?: CallSound | null) => void>(() => undefined);
 
-  const collectIceTelemetry = useCallback(async (peer: RTCPeerConnection) => {
-    const state = iceTelemetryState(peer.iceConnectionState || "unknown");
-    let selectedPath: IceTelemetrySnapshot["lastSelectedPath"] = null;
-    if (["connected", "completed"].includes(state) && typeof peer.getStats === "function") {
-      try {
-        selectedPath = selectedIcePath(await peer.getStats());
-      } catch {
-        // Telemetria nunca interfere no protocolo da chamada.
-      }
-    }
-    setIceTelemetry((current) => {
-      const pathTypeCounts = { ...current.pathTypeCounts };
-      if (selectedPath) pathTypeCounts[selectedPath.localType] = (pathTypeCounts[selectedPath.localType] || 0) + 1;
-      return {
-        lastState: state,
-        stateCounts: { ...current.stateCounts, [state]: (current.stateCounts[state] || 0) + 1 },
-        pathTypeCounts,
-        lastSelectedPath: selectedPath || current.lastSelectedPath,
-        relayObserved: current.relayObserved || selectedPath?.localType === "relay" || selectedPath?.remoteType === "relay",
-      };
-    });
-  }, []);
-
   useEffect(() => {
-    const configuration: RTCConfiguration = {
-      iceServers,
-      iceTransportPolicy,
-      iceCandidatePoolSize: 4,
-      bundlePolicy: "max-bundle",
-    };
-    peersRef.current.forEach((peer) => {
-      try {
-        peer.setConfiguration(configuration);
-        peer.restartIce();
-      } catch {
-        setStatus("Não foi possível renovar a rota da chamada.");
-      }
-    });
+    mediaTransportRef.current?.updateIce(iceConfigurationRef.current);
   }, [iceServers, iceTransportPolicy]);
 
   useEffect(() => {
@@ -468,8 +397,8 @@ export function useTeamCallRuntime({
   }, [active]);
 
   useEffect(() => {
-    remoteStreamsRef.current = remoteStreams;
-  }, [remoteStreams]);
+    remoteStreamsRef.current = mediaTransportSnapshot.remoteStreams;
+  }, [mediaTransportSnapshot.remoteStreams]);
 
   const showReaction = useCallback((emoji: string, userName: string) => {
     const id = crypto.randomUUID();
@@ -565,34 +494,91 @@ export function useTeamCallRuntime({
 
   useEffect(() => { if (active) publishMediaState(); }, [active, cameraOff, sharingScreen, publishMediaState]);
 
-  const closePeer = useCallback((userId: string) => {
-    announcedScreensRef.current.delete(userId);
-    const recoveryTimer = screenRecoveryTimersRef.current.get(userId);
-    if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
-    screenRecoveryTimersRef.current.delete(userId);
-    const peer = peersRef.current.get(userId);
-    if (peer) {
-      peer.onicecandidate = null;
-      peer.oniceconnectionstatechange = null;
-      peer.ontrack = null;
-      peer.onconnectionstatechange = null;
-      peer.onnegotiationneeded = null;
-      peer.close();
+  const transportMedia = useCallback((
+    outgoingVideoTrack?: MediaStreamTrack | null,
+    outgoingVideoStream?: MediaStream | null,
+  ): MediaTransportLocalMedia => ({
+    localStream: localStreamRef.current,
+    screenStream: screenStreamRef.current,
+    ...(outgoingVideoTrack !== undefined ? { outgoingVideoTrack } : {}),
+    ...(outgoingVideoStream !== undefined ? { outgoingVideoStream } : {}),
+    screenShareQuality: screenShareQualityRef.current,
+    screenShareFps: screenShareFpsRef.current,
+  }), []);
+
+  const closeMediaTransport = useCallback(() => {
+    const transport = mediaTransportRef.current;
+    const unsubscribe = unsubscribeMediaTransportRef.current;
+    mediaTransportRef.current = null;
+    mediaTransportCallIdRef.current = "";
+    mediaTransportOpenRef.current = null;
+    unsubscribeMediaTransportRef.current = null;
+    try {
+      const closing = transport?.close();
+      if (closing) void closing.catch(() => undefined);
+    } catch {
+      // A falha de um adapter não pode impedir a limpeza da captura local.
     }
-    peersRef.current.delete(userId);
-    audioSendersRef.current.delete(userId);
-    screenAudioSendersRef.current.delete(userId);
-    setRemoteCameraEnabled((current) => { const next = { ...current }; delete next[userId]; return next; });
-    videoSendersRef.current.delete(userId);
-    pendingCandidatesRef.current.delete(userId);
-    peerNegotiationRef.current.delete(userId);
-    remoteStreamByUserRef.current.get(userId)?.getTracks().forEach((track) => {
-      track.onended = null;
-    });
-    remoteStreamByUserRef.current.delete(userId);
-    setRemoteStreams((current) => current.filter((item) => item.userId !== userId));
-    setRemoteScreenSharingIds((current) => current.filter((item) => item !== userId));
+    try {
+      unsubscribe?.();
+    } catch {
+      // Listeners externos também não podem bloquear a limpeza da sessão.
+    }
+    remoteStreamsRef.current = [];
+    setMediaTransportSnapshot(EMPTY_MEDIA_TRANSPORT_SNAPSHOT);
+    setMediaTransportKind("mesh");
   }, []);
+
+  const ensureMediaTransport = useCallback(async (call: ActiveCall) => {
+    if (mediaTransportRef.current && mediaTransportCallIdRef.current === call.callId) {
+      return mediaTransportOpenRef.current
+        ? await mediaTransportOpenRef.current
+        : mediaTransportRef.current;
+    }
+    closeMediaTransport();
+    const factory = resolveMediaTransportFactory(call.mediaTransport, mediaTransportFactoriesRef.current);
+    const transport = factory.create({
+      emitSignal: (callId, targetUserId, signal) => {
+        const current = activeRef.current;
+        if (!current || current.callId !== callId) return false;
+        return sendSocketEvent({
+          type: "CALL_SIGNAL",
+          ...callPayload(current),
+          targetUserId,
+          signal,
+        });
+      },
+      onConnected: publishMediaState,
+      onStatus: setStatus,
+    });
+    mediaTransportRef.current = transport;
+    mediaTransportCallIdRef.current = call.callId;
+    setMediaTransportKind(factory.kind);
+    unsubscribeMediaTransportRef.current = transport.subscribe((snapshot) => {
+      remoteStreamsRef.current = snapshot.remoteStreams;
+      setMediaTransportSnapshot(snapshot);
+    });
+    transport.updateIce(iceConfigurationRef.current);
+    const opening = (async () => {
+      await transport.open({ callId: call.callId, selfUserId: session.user.id }, transportMedia());
+      if (mediaTransportRef.current !== transport
+        || mediaTransportCallIdRef.current !== call.callId
+        || activeRef.current?.callId !== call.callId) {
+        await transport.close().catch(() => undefined);
+        throw new Error("A chamada foi encerrada durante a conexão da mídia.");
+      }
+      return transport;
+    })();
+    mediaTransportOpenRef.current = opening;
+    try {
+      return await opening;
+    } catch (error) {
+      if (mediaTransportRef.current === transport) closeMediaTransport();
+      throw error;
+    } finally {
+      if (mediaTransportOpenRef.current === opening) mediaTransportOpenRef.current = null;
+    }
+  }, [callPayload, closeMediaTransport, publishMediaState, sendSocketEvent, session.user.id, transportMedia]);
 
   const stopMedia = useCallback(() => {
     previewRequestRef.current += 1;
@@ -616,32 +602,11 @@ export function useTeamCallRuntime({
     confirmedCallIdRef.current = "";
     setMeetingMessages([]);
     setRaisedHands({});
-    setIceTelemetry(INITIAL_ICE_TELEMETRY);
     handRevisionRef.current = -1;
     announcedScreensRef.current.clear();
     if (notify && call) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
     stopConnectingSound();
-    peersRef.current.forEach((peer) => {
-      peer.onicecandidate = null;
-      peer.oniceconnectionstatechange = null;
-      peer.ontrack = null;
-      peer.onconnectionstatechange = null;
-      peer.onnegotiationneeded = null;
-      peer.close();
-    });
-    peersRef.current.clear();
-    audioSendersRef.current.clear();
-    screenAudioSendersRef.current.clear();
-    videoSendersRef.current.clear();
-    pendingCandidatesRef.current.clear();
-    peerNegotiationRef.current.clear();
-    remoteStreamByUserRef.current.forEach((stream) => stream.getTracks().forEach((track) => {
-      track.onended = null;
-    }));
-    remoteStreamByUserRef.current.clear();
-    screenRecoveryTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-    screenRecoveryTimersRef.current.clear();
-    setRemoteStreams([]);
+    closeMediaTransport();
     setRemoteScreenSharingIds([]);
     setRemoteCameraEnabled({});
     stopMedia();
@@ -670,10 +635,9 @@ export function useTeamCallRuntime({
     reactionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     reactionTimersRef.current = [];
     setReactions([]);
-    setConnectionQuality(navigator.onLine ? "good" : "offline");
     if (sound) playCallSound(sound);
     setStatus("");
-  }, [callPayload, sendSocketEvent, stopConnectingSound, stopMedia]);
+  }, [callPayload, closeMediaTransport, sendSocketEvent, stopConnectingSound, stopMedia]);
 
   finishCallRef.current = finishCall;
 
@@ -784,61 +748,6 @@ export function useTeamCallRuntime({
     mediaDevices.addEventListener("devicechange", handleDeviceChange);
     return () => mediaDevices.removeEventListener("devicechange", handleDeviceChange);
   }, [refreshDevices]);
-
-  useEffect(() => {
-    const updateNetwork = () => setConnectionQuality(navigator.onLine ? (activeRef.current ? "connecting" : "good") : "offline");
-    window.addEventListener("online", updateNetwork);
-    window.addEventListener("offline", updateNetwork);
-    return () => {
-      window.removeEventListener("online", updateNetwork);
-      window.removeEventListener("offline", updateNetwork);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!active) return undefined;
-    let cancelled = false;
-    const measure = async () => {
-      if (!navigator.onLine) {
-        if (!cancelled) setConnectionQuality("offline");
-        return;
-      }
-      const peers = Array.from(peersRef.current.values());
-      if (!peers.length) {
-        if (!cancelled) setConnectionQuality("connecting");
-        return;
-      }
-      if (peers.some((peer) => ["failed", "disconnected", "closed"].includes(peer.connectionState))) {
-        if (!cancelled) setConnectionQuality("poor");
-        return;
-      }
-      let highestRoundTrip = 0;
-      let lostPackets = 0;
-      let receivedPackets = 0;
-      await Promise.all(peers.map(async (peer) => {
-        const report = await peer.getStats();
-        report.forEach((entry) => {
-          if (entry.type === "candidate-pair" && entry.state === "succeeded" && entry.currentRoundTripTime) {
-            highestRoundTrip = Math.max(highestRoundTrip, Number(entry.currentRoundTripTime));
-          }
-          if (entry.type === "inbound-rtp") {
-            lostPackets += Number(entry.packetsLost || 0);
-            receivedPackets += Number(entry.packetsReceived || 0);
-          }
-        });
-      })).catch(() => undefined);
-      const lossPercentage = lostPackets + receivedPackets > 0 ? (lostPackets / (lostPackets + receivedPackets)) * 100 : 0;
-      const nextQuality: ConnectionQuality = highestRoundTrip > 0.65 || lossPercentage > 8
-        ? "poor"
-        : highestRoundTrip > 0.3 || lossPercentage > 3
-          ? "fair"
-          : "good";
-      if (!cancelled) setConnectionQuality(nextQuality);
-    };
-    void measure();
-    const timer = window.setInterval(() => { void measure(); }, 3500);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [active]);
 
   const acquireMedia = useCallback(async (
     options: CallEntryOptions = DEFAULT_ENTRY_OPTIONS,
@@ -1015,20 +924,6 @@ export function useTeamCallRuntime({
       replacementTrack.enabled = kind === "audio" ? !muted : !cameraOff;
       if (kind === "audio" && "contentHint" in replacementTrack) replacementTrack.contentHint = "speech";
 
-      // Durante a transmissao de tela, a nova camera fica preparada localmente
-      // e passa a ser enviada quando o compartilhamento terminar.
-      if (kind === "audio" || !screenStreamRef.current) {
-        await Promise.all(Array.from(peersRef.current.entries()).map(async ([remoteUserId, peer]) => {
-          const sender = kind === "video"
-            ? videoSendersRef.current.get(remoteUserId)
-            : audioSendersRef.current.get(remoteUserId) || peer.getSenders().find((item) => item.track?.kind === kind);
-          if (sender) {
-            await sender.replaceTrack(replacementTrack);
-            if (kind === "audio") audioSendersRef.current.set(remoteUserId, sender);
-          }
-        }));
-      }
-
       if (epoch !== mediaEpochRef.current) {
         replacementStream.getTracks().forEach((track) => track.stop());
         return;
@@ -1040,6 +935,7 @@ export function useTeamCallRuntime({
       ]);
       localStreamRef.current = nextStream;
       setLocalStream(nextStream);
+      await mediaTransportRef.current?.updateLocalMedia(transportMedia());
       if (kind === "audio") setSelectedMicrophoneId(deviceId);
       else {
         setSelectedCameraId(deviceId);
@@ -1050,7 +946,7 @@ export function useTeamCallRuntime({
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Nao foi possivel trocar o dispositivo.");
     }
-  }, [cameraOff, muted]);
+  }, [cameraOff, muted, transportMedia]);
 
   const createMeetingRecordingStream = useCallback(() => createMeetingRecording(() => {
     const sources = remoteStreamsRef.current.map((item) => ({
@@ -1231,235 +1127,9 @@ export function useTeamCallRuntime({
     }
   }, [createMeetingRecordingStream, recording, session.token]);
 
-  const negotiationStateFor = useCallback((remoteUserId: string) => {
-    let state = peerNegotiationRef.current.get(remoteUserId);
-    if (!state) {
-      state = {
-        makingOffer: false,
-        ignoreOffer: false,
-        isSettingRemoteAnswerPending: false,
-        polite: session.user.id.localeCompare(remoteUserId) > 0,
-        revision: 0,
-      };
-      peerNegotiationRef.current.set(remoteUserId, state);
-    }
-    return state;
-  }, [session.user.id]);
-
-  const negotiatePeer = useCallback(async (remoteUserId: string, peer: RTCPeerConnection) => {
-    const call = activeRef.current;
-    const negotiation = negotiationStateFor(remoteUserId);
-    if (!call || negotiation.makingOffer || peer.signalingState !== "stable") return;
-    const revision = ++negotiation.revision;
-    try {
-      negotiation.makingOffer = true;
-      const offer = await peer.createOffer();
-      if (negotiation.revision !== revision
-        || peersRef.current.get(remoteUserId) !== peer
-        || activeRef.current?.callId !== call.callId) return;
-      await peer.setLocalDescription(offer);
-      if (negotiation.revision !== revision
-        || peersRef.current.get(remoteUserId) !== peer
-        || activeRef.current?.callId !== call.callId) return;
-      sendSocketEvent({
-        type: "CALL_SIGNAL",
-        ...callPayload(call),
-        targetUserId: remoteUserId,
-        signal: peer.localDescription || offer,
-      });
-    } finally {
-      if (negotiation.revision === revision) negotiation.makingOffer = false;
-    }
-  }, [callPayload, negotiationStateFor, sendSocketEvent]);
-
   const attachVideoTrack = useCallback(async (track: MediaStreamTrack | null, sourceStream: MediaStream) => {
-    await Promise.all(Array.from(peersRef.current.entries()).map(async ([remoteUserId, peer]) => {
-      const existingSender = videoSendersRef.current.get(remoteUserId);
-      if (existingSender) {
-        const transceiver = typeof peer.getTransceivers === "function"
-          ? peer.getTransceivers().find((item) => item.sender === existingSender)
-          : undefined;
-        if (track && transceiver && transceiver.direction !== "sendrecv") transceiver.direction = "sendrecv";
-        await existingSender.replaceTrack(track);
-        if (track && screenStreamRef.current?.getVideoTracks().includes(track)) {
-          await applyScreenShareSenderProfile(existingSender, screenShareQualityRef.current, screenShareFpsRef.current).catch(() => undefined);
-        }
-        // replaceTrack(null -> tela) não libera quadros em alguns navegadores
-        // sem um novo SDP. O emissor renegocia já com a faixa ativa.
-        await negotiatePeer(remoteUserId, peer);
-        return;
-      }
-      if (!track) return;
-      const sender = peer.addTrack(track, sourceStream);
-      videoSendersRef.current.set(remoteUserId, sender);
-      if (screenStreamRef.current?.getVideoTracks().includes(track)) {
-        await applyScreenShareSenderProfile(sender, screenShareQualityRef.current, screenShareFpsRef.current).catch(() => undefined);
-      }
-      await negotiatePeer(remoteUserId, peer);
-    }));
-  }, [negotiatePeer]);
-
-  const createPeer = useCallback(async (remoteUserId: string, createOffer: boolean) => {
-    const call = activeRef.current;
-    if (!call || remoteUserId === session.user.id) return null;
-    let peer = peersRef.current.get(remoteUserId);
-    if (!peer) {
-      peer = new RTCPeerConnection({
-        iceServers,
-        iceTransportPolicy,
-        iceCandidatePoolSize: 4,
-        bundlePolicy: "max-bundle",
-      });
-      peersRef.current.set(remoteUserId, peer);
-      negotiationStateFor(remoteUserId);
-      const localAudioTrack = localStreamRef.current?.getAudioTracks().find((track) => track.readyState !== "ended");
-      if (localAudioTrack && localStreamRef.current) {
-        const audioSender = peer.addTrack(localAudioTrack, localStreamRef.current);
-        audioSendersRef.current.set(remoteUserId, audioSender);
-      } else {
-        // Mantem um canal de audio negociado mesmo se o dispositivo for
-        // conectado alguns instantes depois de entrar na reuniao.
-        const transceiver = peer.addTransceiver("audio", { direction: "sendrecv" });
-        audioSendersRef.current.set(remoteUserId, transceiver.sender);
-      }
-      const outgoingVideoTrack = screenStreamRef.current?.getVideoTracks()[0]
-        || localStreamRef.current?.getVideoTracks().find((track) => track.enabled);
-      const outgoingVideoStream = screenStreamRef.current || localStreamRef.current;
-      // Audio da tela tem seu proprio canal; silenciar o microfone nao o corta.
-      const screenAudio = screenStreamRef.current?.getAudioTracks()[0];
-      const screenAudioSender = screenAudio && screenStreamRef.current
-        ? peer.addTrack(screenAudio, screenStreamRef.current)
-        : peer.addTransceiver("audio", { direction: "sendrecv" }).sender;
-      screenAudioSendersRef.current.set(remoteUserId, screenAudioSender);
-      if (outgoingVideoTrack && outgoingVideoStream) {
-        const sender = peer.addTrack(outgoingVideoTrack, outgoingVideoStream);
-        videoSendersRef.current.set(remoteUserId, sender);
-      } else {
-        // Reserva o canal de video durante a negociacao inicial. Assim camera
-        // e tela podem ser ativadas depois com replaceTrack, sem depender de
-        // uma segunda negociacao WebRTC que pode colidir ou ser ignorada.
-        const transceiver = peer.addTransceiver("video", { direction: "sendrecv" });
-        videoSendersRef.current.set(remoteUserId, transceiver.sender);
-      }
-      peer.onicecandidate = (event) => {
-        const current = activeRef.current;
-        if (event.candidate && current && peersRef.current.get(remoteUserId) === peer) {
-          sendSocketEvent({
-            type: "CALL_SIGNAL",
-            ...callPayload(current),
-            targetUserId: remoteUserId,
-            signal: event.candidate.toJSON(),
-          });
-        }
-      };
-      peer.ontrack = (event) => {
-        const previous = remoteStreamByUserRef.current.get(remoteUserId);
-        const previousTracks = previous?.getTracks() || [];
-        // Microfone e som da tela coexistem. Video continua em um unico canal.
-        const tracks = [
-          ...previousTracks.filter((track) => track.readyState !== "ended" &&
-            (event.track.kind === "video" ? track.kind !== "video" : track.id !== event.track.id)),
-          event.track,
-        ];
-        const stream = new MediaStream(tracks);
-        remoteStreamByUserRef.current.set(remoteUserId, stream);
-        if (event.track.kind === "video") {
-          const markVideoReceived = () => {
-            const recoveryTimer = screenRecoveryTimersRef.current.get(remoteUserId);
-            if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
-            screenRecoveryTimersRef.current.delete(remoteUserId);
-            if (recoveryTimer !== undefined) setStatus("Transmissão de tela recebida");
-          };
-          if (!event.track.muted) markVideoReceived();
-          else event.track.addEventListener("unmute", markVideoReceived, { once: true });
-        }
-        event.track.onended = () => {
-          const current = remoteStreamByUserRef.current.get(remoteUserId);
-          if (!current) return;
-          const remainingTracks = current.getTracks().filter((track) => track !== event.track && (!event.track.id || track.id !== event.track.id));
-          if (!remainingTracks.length) {
-            remoteStreamByUserRef.current.delete(remoteUserId);
-            setRemoteStreams((items) => items.filter((item) => item.userId !== remoteUserId));
-            return;
-          }
-          const nextStream = new MediaStream(remainingTracks);
-          remoteStreamByUserRef.current.set(remoteUserId, nextStream);
-          setRemoteStreams((items) => [
-            ...items.filter((item) => item.userId !== remoteUserId),
-            { userId: remoteUserId, stream: nextStream },
-          ]);
-        };
-        setRemoteStreams((current) => [
-          ...current.filter((item) => item.userId !== remoteUserId),
-          { userId: remoteUserId, stream },
-        ]);
-      };
-      peer.onconnectionstatechange = () => {
-        const connectionState = peer?.connectionState || "";
-        if (connectionState === "connected") {
-          publishMediaState();
-          const currentAudioTrack = localStreamRef.current?.getAudioTracks().find((track) => track.readyState !== "ended") || null;
-          const audioSender = audioSendersRef.current.get(remoteUserId);
-          if (audioSender && currentAudioTrack && audioSender.track !== currentAudioTrack) {
-            void audioSender.replaceTrack(currentAudioTrack).catch(() => undefined);
-          }
-          setStatus("Na chamada · áudio conectado");
-          return;
-        }
-        if (connectionState === "failed") {
-          // Uma troca de rede pode invalidar o par ICE. Tentar uma nova rota e
-          // renegociar evita encerrar a midia dos dois lados prematuramente.
-          peer?.restartIce();
-          if (peer) void negotiatePeer(remoteUserId, peer).catch(() => closePeer(remoteUserId));
-          return;
-        }
-        if (connectionState === "disconnected") {
-          setConnectionQuality("poor");
-          setStatus("Reconectando áudio e vídeo...");
-          return;
-        }
-        if (connectionState === "closed") closePeer(remoteUserId);
-      };
-      const telemetryPeer = peer;
-      peer.oniceconnectionstatechange = () => {
-        if (peersRef.current.get(remoteUserId) === telemetryPeer) void collectIceTelemetry(telemetryPeer);
-      };
-      const negotiationPeer = peer;
-      peer.onnegotiationneeded = () => {
-        if (peersRef.current.get(remoteUserId) === negotiationPeer) {
-          void negotiatePeer(remoteUserId, negotiationPeer).catch(() => closePeer(remoteUserId));
-        }
-      };
-    }
-    if (createOffer) await negotiatePeer(remoteUserId, peer);
-    return peer;
-  }, [callPayload, closePeer, collectIceTelemetry, iceServers, iceTransportPolicy, negotiatePeer, negotiationStateFor, publishMediaState, sendSocketEvent, session.user.id]);
-
-  const requestRemoteScreenRefresh = useCallback(async (remoteUserId: string) => {
-    // O emissor renegocia imediatamente com a faixa anexada. O receptor só
-    // cria uma oferta de recuperação se nenhum quadro chegar, evitando glare
-    // entre duas ofertas simultâneas.
-    const peer = await createPeer(remoteUserId, false);
-    const previousTimer = screenRecoveryTimersRef.current.get(remoteUserId);
-    if (previousTimer !== undefined) window.clearTimeout(previousTimer);
-    const recoveryTimer = window.setTimeout(() => {
-      screenRecoveryTimersRef.current.delete(remoteUserId);
-      const remoteVideoReady = remoteStreamByUserRef.current
-        .get(remoteUserId)
-        ?.getVideoTracks()
-        .some((track) => track.readyState === "live" && !track.muted);
-      if (remoteVideoReady) return;
-      const currentPeer = peersRef.current.get(remoteUserId);
-      if (!currentPeer) return;
-      if (["failed", "disconnected"].includes(currentPeer.connectionState)) currentPeer.restartIce();
-      setStatus("Reconectando a transmissão de tela...");
-      void negotiatePeer(remoteUserId, currentPeer).catch(() => {
-        setStatus("Não foi possível receber a tela. Peça ao participante para interromper e compartilhar novamente.");
-      });
-    }, 3500);
-    screenRecoveryTimersRef.current.set(remoteUserId, recoveryTimer);
-    return peer;
-  }, [createPeer, negotiatePeer]);
+    await mediaTransportRef.current?.updateLocalMedia(transportMedia(track, sourceStream));
+  }, [transportMedia]);
 
   const applyCurrentScreenShareProfile = useCallback(async (quality: ScreenShareQuality, fps: ScreenShareFps) => {
     screenShareQualityRef.current = quality;
@@ -1470,11 +1140,7 @@ export function useTeamCallRuntime({
     if (screenTrack?.readyState === "live" && typeof screenTrack.applyConstraints === "function") {
       await screenTrack.applyConstraints(screenShareConstraints(quality, fps)).catch(() => undefined);
     }
-    if (screenTrack) {
-      await Promise.all(Array.from(videoSendersRef.current.values()).map((sender) => (
-        applyScreenShareSenderProfile(sender, quality, fps).catch(() => undefined)
-      )));
-    }
+    if (screenTrack) await mediaTransportRef.current?.updateScreenProfile(quality, fps);
     if (screenTrack) setStatus(`Transmitindo em ${quality} · ${fps} FPS`);
   }, []);
 
@@ -1496,6 +1162,12 @@ export function useTeamCallRuntime({
     entryOptions: CallEntryOptions = DEFAULT_ENTRY_OPTIONS,
   ) => {
     if (activeRef.current || busyRef.current || endedCallIdsRef.current.has(pendingCall.callId)) return false;
+    try {
+      resolveMediaTransportFactory(pendingCall.mediaTransport, mediaTransportFactoriesRef.current);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "O transporte de mídia desta chamada não está disponível.");
+      return false;
+    }
     busyRef.current = true;
     setBusy(true);
     const epoch = mediaEpochRef.current;
@@ -1511,6 +1183,7 @@ export function useTeamCallRuntime({
       setActive(call);
       setIncoming(null);
       incomingRef.current = null;
+      await ensureMediaTransport(call);
       if (!sendSocketEvent({ type: "CALL_ACCEPT", ...callPayload(call) })) {
         throw new Error("A conexão da reunião foi interrompida. Tente ingressar novamente.");
       }
@@ -1527,7 +1200,7 @@ export function useTeamCallRuntime({
     } finally {
       if (epoch === mediaEpochRef.current) { busyRef.current = false; setBusy(false); }
     }
-  }, [acquireMedia, callPayload, finishCall, sendSocketEvent, startConnectingSound, stopConnectingSound]);
+  }, [acquireMedia, callPayload, ensureMediaTransport, finishCall, sendSocketEvent, startConnectingSound, stopConnectingSound]);
 
   const acceptIncoming = useCallback(async (entryOptions: CallEntryOptions = DEFAULT_ENTRY_OPTIONS) => {
     const pendingCall = incomingRef.current;
@@ -1565,11 +1238,13 @@ export function useTeamCallRuntime({
       const call: ActiveCall = {
         callId: callId(), mode: "audio", title: targetThread.title, thread: targetThread,
         hostUserId: session.user.id, startedAt: new Date().toISOString(),
+        mediaTransport: "mesh",
       };
       activeRef.current = call;
       setActive(call);
       setIncoming(null);
       incomingRef.current = null;
+      await ensureMediaTransport(call);
       setStatus(targetThread.scope === "direct" ? "Chamando participante..." : "Chamando a equipe...");
       startConnectingSound();
       if (!sendSocketEvent({ type: "CALL_INVITE", ...callPayload(call) })) {
@@ -1584,7 +1259,7 @@ export function useTeamCallRuntime({
     } finally {
       if (epoch === mediaEpochRef.current) { busyRef.current = false; setBusy(false); }
     }
-  }, [acquireMedia, callPayload, finishCall, joinActiveCall, sendSocketEvent, session.user.id, startConnectingSound, thread]);
+  }, [acquireMedia, callPayload, ensureMediaTransport, finishCall, joinActiveCall, sendSocketEvent, session.user.id, startConnectingSound, thread]);
 
   const rejectIncoming = useCallback(() => {
     const pendingCall = incomingRef.current;
@@ -1706,16 +1381,18 @@ export function useTeamCallRuntime({
       if (!announcedScreensRef.current.has(event.fromUserId)) { announcedScreensRef.current.add(event.fromUserId); playCallSound("screen"); }
       setRemoteScreenSharingIds((current) => current.includes(event.fromUserId as string) ? current : [...current, event.fromUserId as string]);
       setStatus(`${event.fromUserName || "Um participante"} está compartilhando a tela.`);
-      await requestRemoteScreenRefresh(event.fromUserId);
+      await (await ensureMediaTransport(call)).receive({
+        type: "screen-started", callId: call.callId, userId: event.fromUserId, clientId: event.clientId,
+      });
       return;
     }
     if (event.type === "CALL_SCREEN_STOPPED") {
       announcedScreensRef.current.delete(event.fromUserId);
-      const recoveryTimer = screenRecoveryTimersRef.current.get(event.fromUserId);
-      if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer);
-      screenRecoveryTimersRef.current.delete(event.fromUserId);
       setRemoteScreenSharingIds((current) => current.filter((item) => item !== event.fromUserId));
       setStatus(`${event.fromUserName || "Um participante"} encerrou o compartilhamento.`);
+      await (await ensureMediaTransport(call)).receive({
+        type: "screen-stopped", callId: call.callId, userId: event.fromUserId, clientId: event.clientId,
+      });
       return;
     }
     if (event.type === "CALL_ACCEPT") {
@@ -1723,67 +1400,18 @@ export function useTeamCallRuntime({
       stopConnectingSound();
       playCallSound("joined");
       setStatus("Na chamada");
-      await createPeer(event.fromUserId, true);
+      await (await ensureMediaTransport(call)).receive({
+        type: "participant-joined", callId: call.callId, userId: event.fromUserId, clientId: event.clientId,
+      });
       if (activeRef.current?.callId === call.callId && screenStreamRef.current) {
         sendSocketEvent({ type: "CALL_SCREEN_STARTED", ...callPayload(call) });
       }
       return;
     }
     if (event.type === "CALL_SIGNAL" && event.signal) {
-      const peer = await createPeer(event.fromUserId, false);
-      if (!peer) return;
-      if ("type" in event.signal && event.signal.type) {
-        const description = event.signal as RTCSessionDescriptionInit;
-        const negotiation = negotiationStateFor(event.fromUserId);
-        const readyForOffer = !negotiation.makingOffer
-          && (peer.signalingState === "stable" || negotiation.isSettingRemoteAnswerPending);
-        const offerCollision = description.type === "offer" && !readyForOffer;
-        negotiation.ignoreOffer = !negotiation.polite && offerCollision;
-        if (negotiation.ignoreOffer) return;
-        if (offerCollision) {
-          negotiation.revision += 1;
-          negotiation.makingOffer = false;
-        }
-        negotiation.isSettingRemoteAnswerPending = description.type === "answer";
-        try {
-          if (offerCollision && negotiation.polite && peer.signalingState !== "stable") {
-            await peer.setLocalDescription({ type: "rollback" });
-          }
-          await peer.setRemoteDescription(description);
-        } finally {
-          negotiation.isSettingRemoteAnswerPending = false;
-        }
-        if (peersRef.current.get(event.fromUserId) !== peer || activeRef.current?.callId !== call.callId) return;
-        const pendingCandidates = pendingCandidatesRef.current.get(event.fromUserId) || [];
-        for (const candidate of pendingCandidates) await peer.addIceCandidate(candidate);
-        pendingCandidatesRef.current.delete(event.fromUserId);
-        if (description.type === "offer") {
-          const answer = await peer.createAnswer();
-          await peer.setLocalDescription(answer);
-          if (peersRef.current.get(event.fromUserId) !== peer || activeRef.current?.callId !== call.callId) return;
-          sendSocketEvent({
-            type: "CALL_SIGNAL",
-            ...callPayload(call),
-            targetUserId: event.fromUserId,
-            signal: peer.localDescription || answer,
-          });
-        }
-      } else if ("candidate" in event.signal) {
-        const negotiation = negotiationStateFor(event.fromUserId);
-        if (negotiation.ignoreOffer) return;
-        if (peer.remoteDescription) {
-          try {
-            await peer.addIceCandidate(event.signal as RTCIceCandidateInit);
-          } catch (error) {
-            if (!negotiation.ignoreOffer) throw error;
-          }
-        } else {
-          pendingCandidatesRef.current.set(event.fromUserId, [
-            ...(pendingCandidatesRef.current.get(event.fromUserId) || []),
-            event.signal as RTCIceCandidateInit,
-          ]);
-        }
-      }
+      await (await ensureMediaTransport(call)).receive({
+        type: "signal", callId: call.callId, userId: event.fromUserId, clientId: event.clientId, signal: event.signal,
+      });
       return;
     }
     if (event.type === "CALL_REJECT") {
@@ -1792,7 +1420,11 @@ export function useTeamCallRuntime({
       return;
     }
     if (event.type === "CALL_LEAVE") {
-      closePeer(event.fromUserId);
+      await (await ensureMediaTransport(call)).receive({
+        type: "participant-left", callId: call.callId, userId: event.fromUserId, clientId: event.clientId,
+      });
+      setRemoteCameraEnabled((current) => { const next = { ...current }; delete next[event.fromUserId!]; return next; });
+      setRemoteScreenSharingIds((current) => current.filter((item) => item !== event.fromUserId));
       playCallSound("left");
       setStatus(`${event.fromUserName || "Um participante"} saiu da reuniao.`);
       return;
@@ -1833,7 +1465,7 @@ export function useTeamCallRuntime({
       setStatus("Gravacao disponivel no chat por 24 horas.");
       return;
     }
-  }, [receiveHands, receiveMessages, syncMeetingChat, callPayload, closePeer, createPeer, finishCall, negotiationStateFor, publishMediaState, requestRemoteScreenRefresh, revokeAccess, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
+  }, [receiveHands, receiveMessages, syncMeetingChat, callPayload, ensureMediaTransport, finishCall, publishMediaState, revokeAccess, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
 
   const toggleMute = useCallback(async () => {
     const currentAudio = localStreamRef.current?.getAudioTracks().find((track) => track.readyState !== "ended");
@@ -1842,7 +1474,7 @@ export function useTeamCallRuntime({
         const stream = await acquireMedia({ microphoneMode: "on", cameraEnabled: false });
         const track = stream?.getAudioTracks()[0];
         if (!track) return;
-        await Promise.all(Array.from(audioSendersRef.current.values()).map((sender) => sender.replaceTrack(track)));
+        await mediaTransportRef.current?.updateLocalMedia(transportMedia());
         setListenOnly(false);
         setMuted(false);
         setStatus("Microfone ativado");
@@ -1854,7 +1486,7 @@ export function useTeamCallRuntime({
     const next = !muted;
     localStreamRef.current?.getAudioTracks().forEach((track) => { track.enabled = !next; });
     setMuted(next);
-  }, [acquireMedia, muted]);
+  }, [acquireMedia, muted, transportMedia]);
 
   const toggleCamera = useCallback(async () => {
     const epoch = mediaEpochRef.current;
@@ -1940,7 +1572,6 @@ export function useTeamCallRuntime({
     publishMediaState();
     const call = activeRef.current;
     if (call) sendSocketEvent({ type: "CALL_SCREEN_STOPPED", ...callPayload(call) });
-    await Promise.all(Array.from(screenAudioSendersRef.current.values()).map((sender) => sender.replaceTrack(null).catch(() => undefined)));
     const cameraTrack = localStreamRef.current?.getVideoTracks()[0] || null;
     activeScreen?.getTracks().forEach((track) => {
       track.onended = null;
@@ -1967,7 +1598,6 @@ export function useTeamCallRuntime({
       if (!screenTrack || screenTrack.readyState === "ended") throw new Error("A tela selecionada não forneceu vídeo.");
       screenTrack.contentHint = "detail";
       screenStreamRef.current = next;
-      await Promise.all(Array.from(screenAudioSendersRef.current.values()).map((sender) => sender.replaceTrack(next!.getAudioTracks()[0] || null)));
       await attachVideoTrack(screenTrack, next);
       if (epoch !== mediaEpochRef.current) { next.getTracks().forEach((track) => track.stop()); return; }
       // Reuse the same senders and stop the previous capture only after replacement.
@@ -1988,7 +1618,6 @@ export function useTeamCallRuntime({
       if (epoch !== mediaEpochRef.current) return;
       if (next) {
         screenStreamRef.current = previous;
-        await Promise.all(Array.from(screenAudioSendersRef.current.values()).map((sender) => sender.replaceTrack(previous?.getAudioTracks()[0] || null).catch(() => undefined)));
         const camera = localStreamRef.current?.getVideoTracks().find((track) => track.enabled && track.readyState !== "ended") || null;
         await attachVideoTrack(previous?.getVideoTracks()[0] || camera, previous || localStreamRef.current || new MediaStream()).catch(() => undefined);
       }
@@ -2052,7 +1681,7 @@ export function useTeamCallRuntime({
     busy,
     syncActiveCalls,
     localStream,
-    remoteStreams,
+    remoteStreams: mediaTransportSnapshot.remoteStreams,
     muted,
     listenOnly,
     microphonePermission,
@@ -2072,8 +1701,11 @@ export function useTeamCallRuntime({
     recordingUploadProgress: recordingUploadedBytes + recordingPendingBytes > 0
       ? Math.round((recordingUploadedBytes / (recordingUploadedBytes + recordingPendingBytes)) * 100)
       : 0,
-    connectionQuality,
-    iceTelemetry,
+    connectionQuality: mediaTransportSnapshot.connectionQuality,
+    iceTelemetry: mediaTransportSnapshot.iceTelemetry,
+    mediaTransport: mediaTransportKind,
+    mediaTransportState: mediaTransportSnapshot.state,
+    mediaTransportFailure: mediaTransportSnapshot.failure,
     reactions,
     status,
     audioReady,

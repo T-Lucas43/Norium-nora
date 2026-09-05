@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "../../types/auth";
+import type { MediaTransportFactory } from "./media/MediaTransport";
 
 const mocked = vi.hoisted(() => ({
   runtime: null as Record<string, any> | null,
@@ -101,6 +102,10 @@ function runtime() {
     recordingPendingBytes: 0,
     recordingUploadProgress: 0,
     connectionQuality: "good",
+    iceTelemetry: { lastState: "unknown", stateCounts: {}, pathTypeCounts: {}, lastSelectedPath: null, relayObserved: false },
+    mediaTransport: "mesh",
+    mediaTransportState: "connected",
+    mediaTransportFailure: null,
     reactions: [],
     status: "",
     audioReady: false,
@@ -153,9 +158,22 @@ function ReconnectProbe() {
   return <output aria-label="reconnection-result">{snapshot.reconnectionNotice || "none"}</output>;
 }
 
+function FailureProbe() {
+  const { snapshot, commands } = useCallSession();
+  return <>
+    <output aria-label="call-failure">{snapshot.failureNotice || "none"}</output>
+    <button type="button" onClick={commands.dismissFailure}>Dispensar falha</button>
+  </>;
+}
+
 function IceProbe() {
   const { snapshot } = useCallSession();
   return <output aria-label="ice-service">{`${snapshot.iceService.status}:${snapshot.iceService.expiresAt || "none"}:${snapshot.iceService.detail}`}</output>;
+}
+
+function TransportProbe() {
+  const { snapshot } = useCallSession();
+  return <output aria-label="media-transport">{snapshot.mediaTransport}</output>;
 }
 
 function ConversationProbe() {
@@ -300,6 +318,28 @@ describe("CallSession", () => {
     view.unmount();
     expect(Socket.instances[0].close).toHaveBeenCalledOnce();
     expect(Socket.instances[0].onclose).toBeNull();
+  });
+
+  it("encaminha uma fabrica SFU estreita para selecao por chamada", async () => {
+    const create = vi.fn();
+    const sfuFactory = {
+      kind: "sfu" as const,
+      create,
+    } satisfies MediaTransportFactory;
+    mocked.runtime!.mediaTransport = "sfu";
+    render(
+      <CallSessionProvider
+        session={authSession}
+        mediaTransports={[sfuFactory]}
+      >
+        <TransportProbe />
+      </CallSessionProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByLabelText("media-transport")).toHaveTextContent("sfu"));
+    expect(mocked.useTeamCallRuntime).toHaveBeenCalledWith(expect.objectContaining({ mediaTransports: [sfuFactory] }));
+    expect(create).not.toHaveBeenCalled();
+    expect(Socket.instances).toHaveLength(1);
   });
 
   it("reconecta com um unico temporizador e reutiliza a mesma sessao", async () => {
@@ -483,5 +523,21 @@ describe("CallSession", () => {
         <CallSessionProvider session={authSession}><Probe /></CallSessionProvider>
       </CallSessionProvider>,
     )).toThrow("CallSessionProvider must be mounted only once.");
+  });
+
+  it("mantem a rejeicao de capacidade util ate o usuario dispensar", async () => {
+    render(<CallSessionProvider session={authSession}><FailureProbe /></CallSessionProvider>);
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+
+    act(() => Socket.instances[0].receive({
+      type: "CALL_ERROR",
+      code: "call_capacity_reached",
+      callId: "call_full",
+      detail: "Esta chamada atingiu o limite de 6 participantes. Tente novamente quando alguém sair.",
+    }));
+
+    expect(screen.getByLabelText("call-failure")).toHaveTextContent("limite de 6 participantes");
+    fireEvent.click(screen.getByRole("button", { name: "Dispensar falha" }));
+    expect(screen.getByLabelText("call-failure")).toHaveTextContent("none");
   });
 });

@@ -149,6 +149,17 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
     return createPortal(<div role="status" aria-live="assertive" className="fixed right-4 top-4 z-[182] max-w-sm rounded-xl border border-amber-400/40 bg-[#171b21] p-4 text-sm font-bold text-amber-100 shadow-2xl">{snapshot.reconnectionNotice}</div>, document.body);
   }
 
+  if (!call.active && !call.incoming && snapshot.failureNotice) {
+    return createPortal(
+      <section role="alert" aria-live="assertive" className="fixed right-4 top-4 z-[183] max-w-sm rounded-xl border border-rose-400/40 bg-[#171b21] p-4 text-sm text-rose-100 shadow-2xl">
+        <strong className="block">Não foi possível entrar na chamada</strong>
+        <p className="mt-1">{snapshot.failureNotice}</p>
+        <button type="button" onClick={commands.dismissFailure} className="mt-3 rounded-lg border border-rose-300/30 px-3 py-1.5 text-xs font-black hover:bg-rose-500/15" aria-label="Fechar aviso">Fechar</button>
+      </section>,
+      document.body,
+    );
+  }
+
   if (call.incoming && !call.active) {
     return createPortal(
       <div className="team-call-incoming-backdrop fixed inset-0 z-[180] grid place-items-center p-4">

@@ -47,6 +47,25 @@ function sessionProps(call: ReturnTypeOfTeamCall) {
 }
 
 describe("tela da reuniao do Modo Equipe", () => {
+  it("mostra rejeicao de capacidade mesmo sem chamada ativa", () => {
+    const dismissFailure = vi.fn();
+    const call = {
+      incoming: null,
+      active: null,
+      prejoin: null,
+      reconnectionNotice: "",
+      failureNotice: "Esta chamada atingiu o limite de 6 participantes. Tente novamente quando alguém sair.",
+    } as unknown as ReturnTypeOfTeamCall;
+    const props = sessionProps(call);
+    props.commands.dismissFailure = dismissFailure;
+
+    render(<TeamCallOverlay {...props} members={[]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("limite de 6 participantes");
+    fireEvent.click(screen.getByRole("button", { name: "Fechar aviso" }));
+    expect(dismissFailure).toHaveBeenCalledOnce();
+  });
+
   it("mantem alerta visual e foco quando o toque ainda nao foi liberado pelo navegador", () => {
     const call = {
       incoming: {

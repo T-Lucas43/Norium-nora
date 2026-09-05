@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -207,6 +208,41 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("CALL_INVITE", types)
         snapshot = next(call.args[0] for call in socket.send_json.call_args_list if call.args[0]["type"] == "CALLS_STATE")
         self.assertEqual(self.invite["callId"], snapshot["calls"][0]["callId"])
+
+    async def test_mesh_capacity_error_over_websocket_has_stable_code(self):
+        with (
+            patch.object(team, "_call_coordinator_instance", None),
+            patch.dict(team.os.environ, {"TEAM_CALL_MESH_MAX_PARTICIPANTS": "2"}),
+        ):
+            await self.send("CALL_INVITE")
+            await self.send("CALL_ACCEPT", self.member, clientId="member-tab")
+            socket = MagicMock()
+            socket.accept = AsyncMock()
+            socket.send_json = AsyncMock()
+            socket.receive_text = AsyncMock(side_effect=[
+                json.dumps({
+                    **self.invite,
+                    "type": "CALL_ACCEPT",
+                    "clientId": "other-tab",
+                }),
+                WebSocketDisconnect(),
+            ])
+            with (
+                patch.object(team, "user_from_websocket_ticket", AsyncMock(return_value=self.other)),
+                patch.object(team, "emit_due_meeting_reminders", AsyncMock()),
+                patch.object(team, "_reconcile_closed_connection", AsyncMock()),
+            ):
+                await team.team_chat_ws(socket, "test-ticket")
+
+        errors = [
+            call.args[0]
+            for call in socket.send_json.call_args_list
+            if call.args[0].get("type") == "CALL_ERROR"
+        ]
+        self.assertEqual(1, len(errors))
+        self.assertEqual(409, errors[0]["status"])
+        self.assertEqual("call_capacity_reached", errors[0]["code"])
+        self.assertIn("limite de 2 participantes", errors[0]["detail"])
 
     async def test_directory_revocation_removes_connected_member_through_real_adapters(self):
         await self.send("CALL_INVITE")

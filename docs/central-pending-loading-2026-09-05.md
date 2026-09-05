@@ -12,6 +12,7 @@ O erro observado era da Central (`/api/operacao/pendencias`). A publicação ant
 - Cards recebem títulos, descrições curtas e referências para abrir o registro. Corpos de e-mail, anexos e metadados completos não são transmitidos na lista de prioridades.
 - Leituras demoradas geram registros de duração por fonte, sem conteúdo privado ou credenciais. As verificações de propriedade da integração permanecem aplicadas.
 - As verificações de integração usam no máximo duas threads próprias, sem ocupar o pool de leitura dos dados. O contexto de workspace é propagado e consultas simultâneas não criam cópias da mesma leitura. Um teste mantém duas contas bloqueadas e confirma que as leituras comuns continuam livres.
+- A imagem publicada recebe o identificador do commit no build. `/health` informa esse identificador somente quando ele é um SHA válido, permitindo distinguir a versão efetivamente em execução da versão apenas enviada ao GitHub, sem expor variáveis de ambiente ou diagnósticos privados.
 
 ## Verificação
 

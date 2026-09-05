@@ -110,6 +110,8 @@ jobs:
         with:
           context: .
           file: ./Dockerfile.azure
+          build-args: |
+            NORIUM_RELEASE_SHA=${{ github.sha }}
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest

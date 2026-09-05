@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -31,6 +33,9 @@ async def root(request: Request):
 
 @router.get("/health")
 async def health() -> dict[str, Any]:
+    revision = os.getenv("NORIUM_RELEASE_SHA", "")
+    if re.fullmatch(r"[0-9a-f]{40}", revision):
+        return {"status": "ok", "revision": revision}
     return {"status": "ok"}
 
 

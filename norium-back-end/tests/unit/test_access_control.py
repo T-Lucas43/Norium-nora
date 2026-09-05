@@ -213,7 +213,12 @@ class AccessControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("member", preview["user"]["id"])
 
     async def test_diagnostics_are_admin_only_and_health_is_minimal(self) -> None:
-        self.assertEqual({"status": "ok"}, await system_router.health())
+        with patch.dict("os.environ", {"NORIUM_RELEASE_SHA": ""}):
+            self.assertEqual({"status": "ok"}, await system_router.health())
+        with patch.dict("os.environ", {"NORIUM_RELEASE_SHA": "a" * 40}):
+            self.assertEqual({"status": "ok", "revision": "a" * 40}, await system_router.health())
+        with patch.dict("os.environ", {"NORIUM_RELEASE_SHA": "unexpected-private-value"}):
+            self.assertEqual({"status": "ok"}, await system_router.health())
         with self.assertRaises(HTTPException) as error:
             await system_router.diagnostics(account("member", role="member"))
         self.assertEqual(403, error.exception.status_code)

@@ -9,6 +9,7 @@ import os
 import tempfile
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,36 @@ from typing import Any
 logger = logging.getLogger(__name__)
 _locks_guard = threading.Lock()
 _path_locks: dict[str, threading.RLock] = {}
+_cache_guard = threading.Lock()
+_cache: OrderedDict[str, tuple[tuple[int, int, int], Any, int]] = OrderedDict()
+_cache_bytes = 0
+_CACHE_BYTES_LIMIT = 16 * 1024 * 1024
+_CACHE_ITEMS_LIMIT = 128
+
+
+def _signature(path: Path) -> tuple[int, int, int]:
+    stat = path.stat()
+    return stat.st_mtime_ns, stat.st_size, stat.st_ino
+
+
+def _discard_cached(key: str) -> None:
+    global _cache_bytes
+    entry = _cache.pop(key, None)
+    if entry is not None:
+        _cache_bytes -= entry[2]
+
+
+def _remember(key: str, signature: tuple[int, int, int], payload: Any) -> None:
+    global _cache_bytes
+    size = signature[1]
+    with _cache_guard:
+        _discard_cached(key)
+        if size > _CACHE_BYTES_LIMIT // 2:
+            return
+        while _cache and (_cache_bytes + size > _CACHE_BYTES_LIMIT or len(_cache) >= _CACHE_ITEMS_LIMIT):
+            _discard_cached(next(iter(_cache)))
+        _cache[key] = (signature, payload, size)
+        _cache_bytes += size
 
 
 def _lock_for(path: Path) -> threading.RLock:
@@ -34,11 +65,25 @@ def _fallback_copy(fallback: Any) -> Any:
 def read_json(path: str | Path, fallback: Any) -> Any:
     """Lê um banco JSON sem compartilhar por engano o objeto de fallback."""
     file_path = Path(path)
+    key = str(file_path.resolve())
     with _lock_for(file_path):
-        if not file_path.exists():
-            return _fallback_copy(fallback)
         try:
-            return json.loads(file_path.read_text(encoding="utf-8"))
+            signature = _signature(file_path)
+            with _cache_guard:
+                cached = _cache.get(key)
+                if cached is not None and cached[0] == signature:
+                    _cache.move_to_end(key)
+                    return copy.deepcopy(cached[1])
+                _discard_cached(key)
+            payload = json.loads(file_path.read_text(encoding="utf-8"))
+            # An external writer may replace the file while it is being read.
+            if _signature(file_path) == signature:
+                _remember(key, signature, copy.deepcopy(payload))
+            return payload
+        except FileNotFoundError:
+            with _cache_guard:
+                _discard_cached(key)
+            return _fallback_copy(fallback)
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             logger.warning("Falha ao ler banco JSON %s: %s", file_path, exc)
             return _fallback_copy(fallback)
@@ -60,7 +105,7 @@ def write_json(path: str | Path, payload: Any) -> None:
                 suffix=".tmp",
                 delete=False,
             ) as temporary_file:
-                json.dump(payload, temporary_file, ensure_ascii=False, indent=2)
+                json.dump(payload, temporary_file, ensure_ascii=False, separators=(",", ":"))
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
                 temporary_path = Path(temporary_file.name)
@@ -68,6 +113,8 @@ def write_json(path: str | Path, payload: Any) -> None:
             for attempt in range(7):
                 try:
                     os.replace(temporary_path, file_path)
+                    with _cache_guard:
+                        _discard_cached(str(file_path.resolve()))
                     temporary_path = None
                     break
                 except PermissionError:

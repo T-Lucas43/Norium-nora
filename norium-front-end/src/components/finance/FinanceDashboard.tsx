@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Search,
   Save,
+  Sparkles,
   Trash2,
   TrendingDown,
   TrendingUp,
@@ -203,7 +204,7 @@ function formFromLancamento(item: Lancamento): LancamentoForm {
   };
 }
 
-export default function FinanceDashboard({ userId = "primary" }: { userId?: string }) {
+export default function FinanceDashboard({ userId = "primary", onOpenNora }: { userId?: string; onOpenNora?: (prompt?: string) => void }) {
   const [data, setData] = useState<FinanceData>(fallbackData);
   const [lancamentoForm, setLancamentoForm] = useState<LancamentoForm>(emptyLancamento);
   const [editForm, setEditForm] = useState<LancamentoForm>(emptyLancamento);
@@ -589,23 +590,30 @@ export default function FinanceDashboard({ userId = "primary" }: { userId?: stri
   const showBoletos = activeView === "overview" || activeView === "boletos";
   const showScheduled = activeView === "overview" || activeView === "scheduled";
   const showAside = createPanel !== null || activeView === "overview" || activeView === "scheduled";
+  const totalMovimentado = data.resumo.entradas + data.resumo.saidas;
+  const percentualSaidas = totalMovimentado > 0 ? Math.round((data.resumo.saidas / totalMovimentado) * 100) : 0;
+  const financeStatus = data.resumo.vencidos > 0 ? `${data.resumo.vencidos} vencimento(s) pedem atenção` : data.resumo.saldo >= 0 ? "Fluxo financeiro saudável" : "Saldo abaixo do esperado";
 
   return (
     <div className="norium-finance flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
-      <header className="shrink-0 border-b border-[var(--border)] bg-[var(--surface)] px-8 py-6">
+      <header className="shrink-0 border-b border-[var(--border)] bg-[linear-gradient(120deg,color-mix(in_srgb,var(--surface)_94%,#2563eb_6%),var(--surface))] px-5 py-6 sm:px-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/12 text-blue-300">
+            <span className="grid h-12 w-12 place-items-center rounded-xl border border-blue-400/20 bg-blue-500/12 text-blue-300 shadow-lg shadow-blue-950/20">
               <Wallet size={24} />
             </span>
             <div>
-              <h1 className="text-xl font-black">Gastos</h1>
+              <p className="mb-1 text-[10px] font-black uppercase tracking-[.18em] text-cyan-400">Gestão financeira</p>
+              <h1 className="text-2xl font-black tracking-tight">Financeiro</h1>
               <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                Lancamentos, boletos, anexos e lembretes de pagamento.
+                Visão clara do caixa, compromissos e documentos financeiros.
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => onOpenNora?.("Analise meu financeiro atual, destaque riscos, próximos vencimentos e oportunidades de melhorar o caixa.")} className="border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/10">
+              <Sparkles size={15} /> Analisar com a Nora
+            </Button>
             <Button variant="primary"
               onClick={() => {
                 setCreatePanel("entry");
@@ -637,7 +645,7 @@ export default function FinanceDashboard({ userId = "primary" }: { userId?: stri
         </div>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-6">
+      <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
         {(error || notice) && (
           <div className="fixed right-6 top-24 z-50 max-w-[420px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl shadow-black/30">
             <div className={`text-sm font-bold ${error ? "text-amber-200" : "text-emerald-200"}`}>
@@ -647,7 +655,7 @@ export default function FinanceDashboard({ userId = "primary" }: { userId?: stri
           </div>
         )}
 
-        <nav className="mb-4 flex max-w-full gap-1 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1">
+        <nav className="mb-5 flex max-w-full gap-1 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-sm">
           {([
             ["overview", "Visao geral", data.lancamentos.length + data.programados.length],
             ["entries", "Lancamentos", data.lancamentos.length],
@@ -676,12 +684,29 @@ export default function FinanceDashboard({ userId = "primary" }: { userId?: stri
 
         <div className={`grid gap-4 ${showAside ? "xl:grid-cols-[minmax(0,1fr)_380px]" : ""}`}>
           <section className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               <Metric icon={TrendingUp} label="Entradas pagas" value={money(data.resumo.entradas)} tone="emerald" />
               <Metric icon={TrendingDown} label="Saidas pagas" value={money(data.resumo.saidas)} tone="rose" />
               <Metric icon={Wallet} label="Saldo" value={money(data.resumo.saldo)} tone="blue" />
               <Metric icon={AlertTriangle} label="Pendente" value={money(data.resumo.pendente)} tone="amber" />
             </div>
+
+            {activeView === "overview" && (
+              <section className="grid gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm lg:grid-cols-[minmax(0,1fr)_minmax(280px,.55fr)]">
+                <div>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-blue-300">Leitura do período</p><h2 className="mt-1 text-lg font-black">{financeStatus}</h2></div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${data.resumo.vencidos > 0 || data.resumo.saldo < 0 ? "bg-amber-500/12 text-amber-200" : "bg-emerald-500/12 text-emerald-200"}`}>{data.resumo.vencidos > 0 ? "Requer ação" : "Em dia"}</span>
+                  </div>
+                  <div className="mt-5 h-2 overflow-hidden rounded-full bg-[var(--background)]"><span className="block h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${Math.min(100, percentualSaidas)}%` }} /></div>
+                  <div className="mt-2 flex justify-between text-xs font-bold text-[var(--text-secondary)]"><span>Saídas no fluxo movimentado</span><strong className="text-[var(--text)]">{percentualSaidas}%</strong></div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-[var(--background)] p-4"><span className="text-xs font-bold text-[var(--text-secondary)]">Vencidos</span><strong className="mt-2 block text-2xl font-black text-amber-200">{data.resumo.vencidos}</strong></div>
+                  <div className="rounded-xl bg-[var(--background)] p-4"><span className="text-xs font-bold text-[var(--text-secondary)]">Recorrências</span><strong className="mt-2 block text-2xl font-black text-cyan-200">{data.resumo.programadosAtivos}</strong></div>
+                </div>
+              </section>
+            )}
 
             {(error || notice) && (
               <div className={`rounded-lg border px-4 py-3 text-sm font-bold ${error ? "border-amber-400/25 bg-amber-500/10 text-amber-200" : "border-emerald-400/25 bg-emerald-500/10 text-emerald-200"}`}>
@@ -1350,8 +1375,8 @@ function Metric({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: s
     amber: "bg-amber-500/10 text-amber-200",
   };
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-      <span className={`mb-4 grid h-10 w-10 place-items-center rounded-lg ${tones[tone]}`}>
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-400/25">
+      <span className={`mb-5 grid h-10 w-10 place-items-center rounded-xl ${tones[tone]}`}>
         <Icon size={19} />
       </span>
       <p className="text-xl font-black">{value}</p>

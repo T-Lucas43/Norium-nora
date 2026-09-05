@@ -17,7 +17,6 @@ import {
   Mail,
   MessageSquare,
   MessagesSquare,
-  ListChecks,
   ScrollText,
   LibraryBig,
   Store,
@@ -32,6 +31,7 @@ import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
 import BrandLogo from "./BrandLogo";
 import NoraAvatar from "./NoraAvatar";
+import { preloadPanel } from "../../app/navigation/panelModules";
 
 type NavigationItem = {
   title: string;
@@ -55,7 +55,6 @@ const navigation: NavigationItem[] = [
   { title: "Dashboard", icon: LayoutDashboard },
   { title: "Controle", icon: ClipboardCheck },
   { title: "Central", icon: Inbox },
-  { title: "Pendencias", icon: ListChecks },
   { title: "E-mails", icon: Mail },
   { title: "Agenda", icon: CalendarDays },
   { title: "Chat", icon: MessageSquare },
@@ -159,6 +158,8 @@ export default function Sidebar({
                 type="button"
                 className={`norium-sidebar-item ${active ? "is-active" : ""} ${item.title === "Nora" ? "is-nora" : ""}`}
                 onClick={() => navigate(item.title)}
+                onPointerEnter={() => preloadPanel(item.title)}
+                onFocus={() => preloadPanel(item.title)}
                 title={compact ? item.title : undefined}
                 aria-current={active ? "page" : undefined}
                aria-label={compact ? item.title : undefined}>

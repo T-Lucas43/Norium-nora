@@ -1,5 +1,6 @@
 // Cliente HTTP unico: autenticacao, timeout e erros nao se repetem nas telas.
 import { apiBaseUrl, authToken } from "./config";
+import { requestScope } from "./sessionScope";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -88,6 +89,7 @@ function waitForRetry(delayMs: number, signal?: AbortSignal | null) {
 }
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const scope = requestScope();
   const url = requestUrl(path);
   const { token = authToken(), timeoutMs = 20_000, headers: customHeaders, signal, ...init } = options;
   const headers = new Headers(customHeaders);
@@ -127,6 +129,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
         signal: timeoutController.signal,
       });
       const payload = await response.json().catch(() => null);
+      if (scope !== requestScope()) throw new ApiError("A sessão ou o ambiente mudou. Atualize a página.", 499);
       if (!response.ok) {
         const apiError = new ApiError(apiErrorMessage(payload, "Falha na API do Norium."), response.status, payload);
         if (attempt + 1 < maxAttempts && [502, 503, 504].includes(response.status)) {
@@ -173,6 +176,7 @@ export async function authenticatedWebSocketUrl(url: string, token?: string | nu
 
 /** Usa a mesma autenticacao e identificacao de workspace para respostas binarias. */
 export async function apiBlobRequest(path: string, options: ApiRequestOptions = {}): Promise<Blob> {
+  const scope = requestScope();
   const url = requestUrl(path);
   const { token = authToken(), timeoutMs = 60_000, headers: customHeaders, signal, ...init } = options;
   const headers = new Headers(customHeaders);
@@ -193,7 +197,9 @@ export async function apiBlobRequest(path: string, options: ApiRequestOptions = 
       const payload = await response.json().catch(() => null);
       throw new ApiError(apiErrorMessage(payload, "Falha ao gerar o arquivo no Norium."), response.status, payload);
     }
-    return await response.blob();
+    const blob = await response.blob();
+    if (scope !== requestScope()) throw new ApiError("A sessão ou o ambiente mudou. Atualize a página.", 499);
+    return blob;
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (signal?.aborted) throw new ApiError("Operacao cancelada.", 499);

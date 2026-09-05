@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -9,21 +9,15 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  CircleDollarSign,
   ClipboardCheck,
   Download,
-  DatabaseBackup,
   FileCheck2,
-  FileStack,
   ExternalLink,
-  ListChecks,
   LoaderCircle,
   Pencil,
   Plus,
   RefreshCw,
-  Send,
   ShieldCheck,
-  SlidersHorizontal,
   Trash2,
   Undo2,
   X,
@@ -31,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { apiBaseUrl, authToken } from "../../utils/api";
+import { useOperationsData, type OperationSection } from "./useOperationsData";
 import { showConfirm } from "../shared/AppDialogProvider";
 import Button from "../shared/Button";
 
@@ -102,7 +97,7 @@ type FinancialReminder = {
   daysUntil: number;
 };
 
-type OperationsOverview = {
+export type OperationsOverview = {
   generatedAt: string;
   summary: Summary;
   myDay: {
@@ -124,33 +119,6 @@ type OperationsOverview = {
   };
   alerts: ProactiveAlert[];
   memory: NoraMemory[];
-  templates: OperationTemplate[];
-  followUps: FollowUp[];
-  settings: OperationSettings;
-};
-
-type OperationTemplate = {
-  id: string;
-  name: string;
-  kind: "email" | "task" | "calendar" | "finance" | "automation" | "message";
-  description: string;
-  tags: string[];
-};
-
-type FollowUp = {
-  id: string;
-  title: string;
-  channel: string;
-  status: "open" | "done" | "cancelled" | "snoozed";
-  counterpart: string;
-  dueAt?: string | null;
-};
-
-type OperationSettings = {
-  autonomy: "confirm_all" | "balanced" | "autonomous";
-  dailyBriefing: boolean;
-  smartReminders: boolean;
-  followUpHours: number;
 };
 
 type ProactiveAlert = {
@@ -174,27 +142,12 @@ type NoraMemory = {
 type TimelineMode = "receipts" | "audit";
 
 const API_URL = `${apiBaseUrl()}/api/operacao`;
-const CACHE_KEY = "norium-operations-overview";
-
-function cacheKey(userId: string) {
-  return `${CACHE_KEY}:${userId}`;
-}
-
 function headers(): HeadersInit {
   const token = authToken();
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-}
-
-function cachedOverview(userId: string): OperationsOverview | null {
-  try {
-    const payload = sessionStorage.getItem(cacheKey(userId));
-    return payload ? (JSON.parse(payload) as OperationsOverview) : null;
-  } catch {
-    return null;
-  }
 }
 
 function formatDate(value?: string | null, includeDate = true) {
@@ -221,13 +174,17 @@ function entryTarget(entry: OperationEntry): string | null {
 
 type OperationsDashboardProps = {
   onNavigate?: (tab: string) => void;
+  onOpenNora?: (prompt?: string) => void;
   userId: string;
 };
 
-export default function OperationsDashboard({ onNavigate, userId }: OperationsDashboardProps) {
-  const [overview, setOverview] = useState<OperationsOverview | null>(() => cachedOverview(userId));
-  const [loading, setLoading] = useState(!overview);
-  const [refreshing, setRefreshing] = useState(false);
+export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: OperationsDashboardProps) {
+  const { overview, ready, errors: sectionErrors, refreshing, refresh: loadOverview, loadSection } = useOperationsData(userId);
+  const sectionStatus = (section: OperationSection, label: string) => (
+    <div role={sectionErrors[section] ? "alert" : "status"} className="flex min-h-28 items-center justify-center gap-3 p-5 text-sm text-[var(--text-secondary)]">
+      {sectionErrors[section] ? <><AlertTriangle size={18} /><span>{label} indisponíveis no momento.</span><Button size="sm" onClick={() => void loadSection(section, true)}>Tentar novamente</Button></> : <><LoaderCircle size={18} className="animate-spin" /><span>Carregando {label.toLocaleLowerCase("pt-BR")}...</span></>}
+    </div>
+  );
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("receipts");
@@ -244,41 +201,6 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
   const [savingMemory, setSavingMemory] = useState(false);
   const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
   const [undoingReceiptId, setUndoingReceiptId] = useState<string | null>(null);
-  const [templateName, setTemplateName] = useState("");
-  const [templateKind, setTemplateKind] = useState<OperationTemplate["kind"]>("email");
-  const [followUpTitle, setFollowUpTitle] = useState("");
-  const [followUpDueAt, setFollowUpDueAt] = useState("");
-
-  const loadOverview = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true);
-    else setLoading(true);
-    try {
-      const response = await fetch(`${API_URL}/resumo`, { headers: headers() });
-      if (!response.ok) throw new Error((await response.text()) || "Falha ao carregar o controle operacional.");
-      const payload = (await response.json()) as OperationsOverview;
-      setOverview(payload);
-      sessionStorage.setItem(cacheKey(userId), JSON.stringify(payload));
-      setError("");
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Controle operacional indisponivel.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [userId]);
-
-  useEffect(() => {
-    void loadOverview(Boolean(sessionStorage.getItem(cacheKey(userId))));
-    const timer = window.setInterval(() => void loadOverview(true), 30_000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void loadOverview(true);
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [loadOverview, userId]);
 
   const pendingApprovals = useMemo(
     () => (overview?.approvals || []).filter((approval) => approval.status === "pending"),
@@ -460,120 +382,25 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
     }
   }
 
-  async function createTemplate() {
-    if (!templateName.trim()) return;
-    const response = await fetch(`${API_URL}/modelos`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ name: templateName.trim(), kind: templateKind, description: "", content: {}, tags: [] }),
-    });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao criar o modelo.");
-      return;
-    }
-    setTemplateName("");
-    setNotice("Modelo operacional criado.");
-    await loadOverview(true);
-  }
-
-  async function deleteTemplate(templateId: string) {
-    const response = await fetch(`${API_URL}/modelos/${templateId}`, { method: "DELETE", headers: headers() });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao excluir o modelo.");
-      return;
-    }
-    await loadOverview(true);
-  }
-
-  async function createFollowUp() {
-    if (!followUpTitle.trim()) return;
-    const response = await fetch(`${API_URL}/acompanhamentos`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ title: followUpTitle.trim(), channel: "other", dueAt: followUpDueAt || null, counterpart: "", description: "", metadata: {} }),
-    });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao criar o acompanhamento.");
-      return;
-    }
-    setFollowUpTitle("");
-    setFollowUpDueAt("");
-    setNotice("Acompanhamento adicionado.");
-    await loadOverview(true);
-  }
-
-  async function updateFollowUp(followUpId: string, status: FollowUp["status"]) {
-    const response = await fetch(`${API_URL}/acompanhamentos/${followUpId}`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ status }),
-    });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao atualizar o acompanhamento.");
-      return;
-    }
-    await loadOverview(true);
-  }
-
-  async function updateAutonomy(autonomy: OperationSettings["autonomy"]) {
-    const response = await fetch(`${API_URL}/configuracoes`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ autonomy }),
-    });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao atualizar a autonomia.");
-      return;
-    }
-    setNotice("Nivel de autonomia atualizado.");
-    await loadOverview(true);
-  }
-
-  async function downloadBackup() {
-    const response = await fetch(`${API_URL}/backup`, { headers: headers() });
-    if (!response.ok) {
-      setError((await response.text()) || "Falha ao gerar o backup.");
-      return;
-    }
-    const url = URL.createObjectURL(await response.blob());
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "norium-backup.zip";
-    anchor.click();
-    URL.revokeObjectURL(url);
-    setNotice("Backup do seu espaco gerado.");
-  }
-
-  if (loading && !overview) {
-    return (
-      <div className="grid h-full min-h-[560px] place-items-center bg-[var(--background)] text-[var(--text-secondary)]">
-        <span className="flex items-center gap-3 text-sm font-bold"><LoaderCircle className="animate-spin" size={19} /> Preparando o controle operacional...</span>
-      </div>
-    );
-  }
-
-  const summary = overview?.summary || {
-    pendingApprovals: 0,
-    activeTasks: 0,
-    overdueTasks: 0,
-    todayEvents: 0,
-    financialReminders: 0,
-    unhealthyIntegrations: 0,
-  };
+  const summary = overview.summary || {};
+  const alertsReady = ready.summary && ready.history && ready.integrations;
 
   return (
     <div className="h-full overflow-y-auto bg-[var(--background)] p-4 text-[var(--text)] sm:p-6 xl:p-8">
       <div className="mx-auto max-w-[1680px] space-y-5">
-        <header className="flex flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-4 overflow-hidden rounded-2xl border border-blue-400/20 bg-[linear-gradient(125deg,rgba(37,99,235,.12),rgba(8,145,178,.05)_48%,var(--surface)_80%)] p-5 shadow-xl shadow-black/10 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-4">
             <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><ShieldCheck size={24} /></span>
             <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-blue-400">Governanca em tempo real</p>
+              <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-400">Operação em tempo real</p>
               <h1 className="mt-1 text-2xl font-black">Controle operacional</h1>
-              <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Aprovacoes, integracoes, auditoria e comprovantes em uma unica visao.</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Decisões, integrações e rastreabilidade em uma visão objetiva.</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => onOpenNora?.("Analise o Controle operacional, explique os alertas e recomende os próximos passos.")} className="border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/10">
+              <BrainCircuit size={16} /> Consultar a Nora
+            </Button>
             <Button onClick={() => void loadOverview(true)}>
               <RefreshCw className={refreshing ? "animate-spin" : ""} size={16} /> Atualizar
             </Button>
@@ -590,13 +417,13 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
           </div>
         )}
 
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-          <MetricCard icon={ClipboardCheck} label="Aprovacoes" value={summary.pendingApprovals} tone="amber" />
-          <MetricCard icon={ListChecks} label="Tarefas ativas" value={summary.activeTasks} tone="blue" />
-          <MetricCard icon={AlertTriangle} label="Tarefas vencidas" value={summary.overdueTasks} tone="rose" />
-          <MetricCard icon={CalendarDays} label="Agenda hoje" value={summary.todayEvents} tone="violet" />
-          <MetricCard icon={CircleDollarSign} label="Lembretes" value={summary.financialReminders} tone="emerald" />
-          <MetricCard icon={Activity} label="Integracoes em atencao" value={summary.unhealthyIntegrations} tone="cyan" />
+        {Object.values(sectionErrors).some(Boolean) && <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">Algumas seções não puderam ser atualizadas. Os dados já carregados continuam disponíveis. Use Atualizar para tentar novamente.</div>}
+
+        <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <MetricCard icon={ClipboardCheck} label="Aprovacoes" value={ready.approvals ? summary.pendingApprovals : undefined} tone="amber" />
+          <MetricCard icon={AlertTriangle} label="Tarefas vencidas" value={ready.summary ? summary.overdueTasks : undefined} tone="rose" />
+          <MetricCard icon={CalendarDays} label="Agenda hoje" value={ready.summary ? summary.todayEvents : undefined} tone="violet" />
+          <MetricCard icon={Activity} label="Integracoes em atencao" value={ready.integrations ? summary.unhealthyIntegrations : undefined} tone="cyan" />
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,.75fr)_minmax(0,1.25fr)]">
@@ -605,17 +432,17 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/15 text-blue-300"><BrainCircuit size={20} /></span>
               <div>
                 <p className="text-xs font-bold uppercase text-blue-300">Briefing da Nora</p>
-                <h2 className="mt-1 font-black">{overview?.briefing?.greeting || "Resumo"}. {overview?.briefing?.title || "Seu painel esta atualizado"}</h2>
-                <p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{overview?.briefing?.description || "Os dados operacionais estao sendo consolidados."}</p>
-                <p className="mt-3 text-xs font-bold uppercase text-[var(--text-secondary)]">Atualizado em {formatDate(overview?.briefing?.generatedAt || overview?.generatedAt)}</p>
+                <h2 className="mt-1 font-black">{ready.summary ? `${overview.briefing?.greeting}. ${overview.briefing?.title}` : "Seu resumo operacional"}</h2>
+                {ready.summary ? <p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{overview.briefing?.description}</p> : sectionStatus("summary", "Indicadores")}
+                {ready.summary && <p className="mt-3 text-xs font-bold uppercase text-[var(--text-secondary)]">Atualizado em {formatDate(overview.briefing?.generatedAt || overview.generatedAt)}</p>}
               </div>
             </div>
           </article>
           <article className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <SectionHeader title="Alertas proativos" description="Pendencias calculadas com seus dados reais." icon={BellRing} action={`${overview?.alerts?.length || 0} alerta(s)`} />
+            <SectionHeader title="Alertas proativos" description="Pendencias calculadas com seus dados reais." icon={BellRing} action={alertsReady ? `${overview.alerts?.length || 0} alerta(s)` : "Verificando fontes"} />
             <div className="grid max-h-52 gap-2 overflow-y-auto p-3 sm:grid-cols-2">
               {(overview?.alerts || []).length === 0 ? (
-                <p className="col-span-full rounded-lg border border-dashed border-[var(--border)] p-5 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhum alerta operacional neste momento.</p>
+                <p className="col-span-full rounded-lg border border-dashed border-[var(--border)] p-5 text-center text-xs font-semibold text-[var(--text-secondary)]">{alertsReady ? "Nenhum alerta operacional neste momento." : "Aguardando os dados para verificar os alertas."}</p>
               ) : (overview?.alerts || []).map((alert) => (
                 <button key={alert.id} type="button" onClick={() => onNavigate?.(alert.tab)} className="flex min-w-0 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left hover:bg-[var(--surface-hover)]">
                   <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${alert.severity === "error" ? "bg-rose-400" : alert.severity === "warning" ? "bg-amber-400" : "bg-blue-400"}`} />
@@ -627,56 +454,12 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
           </article>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-3">
-          <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
-              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><FileStack size={17} /></span><span><strong className="block text-sm font-bold">Modelos reutilizaveis</strong><small className="font-semibold text-[var(--text-secondary)]">{overview?.templates?.length || 0} modelo(s)</small></span></span>
-              <ChevronRight className="transition group-open:rotate-90" size={16} />
-            </summary>
-            <div className="space-y-3 border-t border-[var(--border)] p-4">
-              <div className="grid grid-cols-[1fr_120px_auto] gap-2">
-                <input value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Nome do modelo" className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
-                <select value={templateKind} onChange={(event) => setTemplateKind(event.target.value as OperationTemplate["kind"])} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="email">E-mail</option><option value="task">Tarefa</option><option value="calendar">Agenda</option><option value="finance">Financeiro</option><option value="automation">Automacao</option><option value="message">Mensagem</option></select>
-                <Button variant="primary" size="sm" iconOnly onClick={() => void createTemplate()} disabled={!templateName.trim()} className="bg-blue-600" title="Criar modelo" aria-label="Criar modelo"><Plus size={15} /></Button>
-              </div>
-              <div className="max-h-40 space-y-2 overflow-y-auto">
-                {(overview?.templates || []).map((template) => <article key={template.id} className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{template.name}</strong><small className="font-bold uppercase text-blue-300">{template.kind}</small></div><Button variant="danger" iconOnly onClick={() => void deleteTemplate(template.id)} className="h-7 w-7 text-rose-300 hover:bg-rose-500/10" title="Excluir modelo" aria-label="Excluir modelo"><Trash2 size={13} /></Button></article>)}
-                {(overview?.templates || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Crie respostas, tarefas e rotinas padronizadas.</p>}
-              </div>
-            </div>
-          </details>
-
-          <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
-              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><Send size={17} /></span><span><strong className="block text-sm font-bold">Aguardando resposta</strong><small className="font-semibold text-[var(--text-secondary)]">{(overview?.followUps || []).filter((item) => item.status === "open").length} aberto(s)</small></span></span>
-              <ChevronRight className="transition group-open:rotate-90" size={16} />
-            </summary>
-            <div className="space-y-3 border-t border-[var(--border)] p-4">
-              <input value={followUpTitle} onChange={(event) => setFollowUpTitle(event.target.value)} placeholder="O que precisa de retorno?" className="h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold outline-none focus:border-blue-500" />
-              <div className="grid grid-cols-[1fr_auto] gap-2"><input type="datetime-local" value={followUpDueAt} onChange={(event) => setFollowUpDueAt(event.target.value)} className="h-9 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold" /><Button variant="ghost" size="sm" onClick={() => void createFollowUp()} disabled={!followUpTitle.trim()} className="bg-cyan-600">Adicionar</Button></div>
-              <div className="max-h-32 space-y-2 overflow-y-auto">{(overview?.followUps || []).filter((item) => item.status === "open").map((item) => <article key={item.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="min-w-0 flex-1"><strong className="block truncate text-xs font-bold">{item.title}</strong><small className="font-semibold text-[var(--text-secondary)]">{item.dueAt ? formatDate(item.dueAt) : "Sem prazo"}</small></div><Button variant="primary" iconOnly onClick={() => void updateFollowUp(item.id, "done")} className="h-7 w-7 text-emerald-300 hover:bg-emerald-500/10" title="Marcar como concluido" aria-label="Marcar como concluido"><Check size={14} /></Button></article>)}</div>
-            </div>
-          </details>
-
-          <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <summary className="flex cursor-pointer list-none items-center justify-between p-4 hover:bg-[var(--surface-hover)]">
-              <span className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-violet-500/12 text-violet-300"><SlidersHorizontal size={17} /></span><span><strong className="block text-sm font-bold">Autonomia e dados</strong><small className="font-semibold text-[var(--text-secondary)]">Controle por usuario</small></span></span>
-              <ChevronRight className="transition group-open:rotate-90" size={16} />
-            </summary>
-            <div className="space-y-3 border-t border-[var(--border)] p-4">
-              <label className="block text-xs font-bold uppercase text-[var(--text-secondary)]">Nivel de autonomia<select value={overview?.settings?.autonomy || "balanced"} onChange={(event) => void updateAutonomy(event.target.value as OperationSettings["autonomy"])} className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold normal-case text-[var(--text)]"><option value="confirm_all">Confirmar todas as acoes</option><option value="balanced">Equilibrado</option><option value="autonomous">Autonomo em baixo risco</option></select></label>
-              <p className="text-xs font-semibold leading-5 text-[var(--text-secondary)]">Envios, exclusoes e alteracoes sensiveis continuam protegidos pela Central de aprovacoes.</p>
-              <button type="button" onClick={() => void downloadBackup()} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-xs font-bold hover:bg-[var(--surface-hover)]"><DatabaseBackup size={15} /> Baixar backup do meu espaco</button>
-            </div>
-          </details>
-        </section>
-
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,.65fr)]">
           <div className="space-y-5">
             <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <SectionHeader title="Central de aprovacoes" description="Acoes sensiveis ficam visiveis antes da decisao." icon={ClipboardCheck} action={`${pendingApprovals.length} pendente(s)`} />
+              <SectionHeader title="Aprovações pendentes" description="Ações sensíveis ficam visíveis antes da decisão." icon={ClipboardCheck} action={ready.approvals ? `${pendingApprovals.length} pendente(s)` : undefined} />
               <div className="divide-y divide-[var(--border)]">
-                {pendingApprovals.length === 0 ? (
+                {!ready.approvals ? sectionStatus("approvals", "Aprovações") : pendingApprovals.length === 0 ? (
                   <EmptyState icon={CheckCircle2} title="Tudo aprovado por aqui" description="Novas solicitacoes aparecerao automaticamente." />
                 ) : pendingApprovals.map((approval) => (
                   <article key={approval.id} className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -701,7 +484,7 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
                 <div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[var(--border)] p-1"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>{timelineMode === "audit" && <Button size="sm" onClick={() => void exportAudit()}><Download size={14} /> Exportar CSV</Button>}</div>
               </div>
               <div className="max-h-[390px] divide-y divide-[var(--border)] overflow-y-auto">
-                {timeline.length === 0 ? (
+                {!ready.history ? sectionStatus("history", "Registros") : timeline.length === 0 ? (
                   <EmptyState icon={FileCheck2} title="Historico pronto para registrar" description="As proximas acoes concluidas aparecerao aqui." />
                 ) : timeline.map((entry) => (
                   <article key={entry.id} className="flex items-start gap-3 px-5 py-4">
@@ -735,6 +518,7 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
             <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <SectionHeader title="Saude das integracoes" description="Estado local e ultima sincronizacao." icon={Activity} />
               <div className="divide-y divide-[var(--border)]">
+                {!ready.integrations && sectionStatus("integrations", "Integrações")}
                 {(overview?.integrations || []).map((integration) => (
                   <article key={integration.id} className="flex items-start gap-3 px-4 py-4">
                     <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${integration.status === "online" ? "bg-emerald-500/12 text-emerald-300" : "bg-amber-500/12 text-amber-300"}`}>{integration.status === "online" ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span>
@@ -775,7 +559,7 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
 
             <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 hover:bg-[var(--surface-hover)]">
-                <span className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><BrainCircuit size={17} /></span><span className="min-w-0"><strong className="block truncate text-sm font-bold">Memoria controlada da Nora</strong><small className="block truncate font-semibold text-[var(--text-secondary)]">{overview?.memory?.length || 0} preferencia(s) salva(s)</small></span></span>
+                <span className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><BrainCircuit size={17} /></span><span className="min-w-0"><strong className="block truncate text-sm font-bold">Memoria controlada da Nora</strong><small className="block truncate font-semibold text-[var(--text-secondary)]">{ready.memory ? `${overview.memory?.length || 0} preferência(s) salva(s)` : "Preferências ainda não consultadas"}</small></span></span>
                 <ChevronRight className="shrink-0 transition group-open:rotate-90" size={16} />
               </summary>
               <div className="space-y-3 border-t border-[var(--border)] p-4">
@@ -794,7 +578,8 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
                       <Button variant="danger" size="sm" iconOnly disabled={deletingMemoryId === memory.id} onClick={() => void deleteMemory(memory.id)} className="text-rose-300 hover:bg-rose-500/10" aria-label={`Remover ${memory.key}`}>{deletingMemoryId === memory.id ? <LoaderCircle className="animate-spin" size={14} /> : <Trash2 size={14} />}</Button>
                     </article>
                   ))}
-                  {(overview?.memory || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhuma preferencia salva. A Nora tambem aprende quando voce diz "lembre que...".</p>}
+                  {!ready.memory && sectionStatus("memory", "Preferências")}
+                  {ready.memory && (overview?.memory || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhuma preferencia salva. A Nora tambem aprende quando voce diz "lembre que...".</p>}
                 </div>
               </div>
             </details>
@@ -830,13 +615,13 @@ export default function OperationsDashboard({ onNavigate, userId }: OperationsDa
   );
 }
 
-function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value: number; tone: "amber" | "blue" | "rose" | "violet" | "emerald" | "cyan" }) {
+function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value?: number; tone: "amber" | "blue" | "rose" | "violet" | "emerald" | "cyan" }) {
   const tones = { amber: "bg-amber-500/12 text-amber-300", blue: "bg-blue-500/12 text-blue-300", rose: "bg-rose-500/12 text-rose-300", violet: "bg-violet-500/12 text-violet-300", emerald: "bg-emerald-500/12 text-emerald-300", cyan: "bg-cyan-500/12 text-cyan-300" };
-  return <article className="flex min-h-28 items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${tones[tone]}`}><Icon size={20} /></span><div className="min-w-0"><strong className="block text-2xl font-black">{value}</strong><span className="mt-1 block text-xs font-bold leading-4 text-[var(--text-secondary)]">{label}</span></div></article>;
+  return <article className="flex min-h-28 items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${tones[tone]}`}><Icon size={20} /></span><div className="min-w-0"><strong className="block text-2xl font-black">{value ?? "—"}</strong><span className="mt-1 block text-xs font-bold leading-4 text-[var(--text-secondary)]">{label}</span></div></article>;
 }
 
 function SectionHeader({ title, description, icon: Icon, action }: { title: string; description: string; icon: LucideIcon; action?: string }) {
-  return <header className="flex items-center justify-between gap-4 border-b border-[var(--border)] px-5 py-4"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><Icon size={17} /></span><div className="min-w-0"><h2 className="truncate font-black">{title}</h2><p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div></div>{action && <span className="shrink-0 rounded-full bg-amber-500/12 px-3 py-1 text-xs font-bold uppercase text-amber-300">{action}</span>}</header>;
+  return <header className="flex flex-col items-start gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-300"><Icon size={17} /></span><div className="min-w-0"><h2 className="font-black sm:truncate">{title}</h2><p className="text-xs font-semibold text-[var(--text-secondary)] sm:truncate">{description}</p></div></div>{action && <span className="shrink-0 rounded-full bg-amber-500/12 px-3 py-1 text-xs font-bold uppercase text-amber-300">{action}</span>}</header>;
 }
 
 function ModeButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {

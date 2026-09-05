@@ -15,12 +15,14 @@ import {
   Mail,
   MessageCircle,
   RefreshCw,
+  Sparkles,
   Target,
   UsersRound,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, authToken } from "../../utils/api";
 import { apiRequest } from "../../core/api/client";
+import { useWorkHubData, type WorkHubTab } from "./useWorkHubData";
 import { showConfirm, showPrompt } from "../shared/AppDialogProvider";
 
 type DeepLink = {
@@ -68,8 +70,15 @@ type Goal = {
 
 type TeamMember = { id: string; nome: string; email: string };
 
-type WorkHubData = {
-  pending: { items: PendingItem[]; total: number; counts: Record<string, number> };
+export type PendingData = { items: PendingItem[]; total: number; counts: Record<string, number>; inboxOpen?: number | null; complete?: boolean };
+
+export type WorkHubData = {
+  pending: PendingData;
+  pendingActivity: PendingData;
+  pendingTasks: PendingData;
+  pendingFinance: PendingData;
+  pendingMessages: PendingData;
+  pendingIntegrations: PendingData;
   inbox: { items: InboxItem[]; total: number; statusCounts: Record<string, number> };
   goals: { items: Goal[] };
   productivity: {
@@ -105,7 +114,7 @@ type WorkHubData = {
   members: { members: TeamMember[] };
 };
 
-type TabId = "pending" | "inbox" | "followups" | "team" | "data";
+type TabId = WorkHubTab;
 
 const tabs: Array<{ id: TabId; label: string; icon: typeof Inbox }> = [
   { id: "pending", label: "Pendências", icon: CircleAlert },
@@ -134,13 +143,14 @@ function downloadBlob(blob: Blob, fileName: string) {
 export default function WorkHubDashboard({
   onNavigate,
   onOpenDeepLink,
+  onOpenNora,
 }: {
   onNavigate: (tab: string) => void;
   onOpenDeepLink: (link: DeepLink) => void;
+  onOpenNora: (prompt?: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<TabId>("pending");
-  const [data, setData] = useState<WorkHubData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, tabLoading, sources, errors: loadErrors, refresh: load } = useWorkHubData(activeTab);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -152,46 +162,18 @@ export default function WorkHubDashboard({
   const [pendingPageSize, setPendingPageSize] = useState(10);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const [pending, inbox, goals, productivity, weekly, focus, usage, backups, members] =
-        await Promise.all([
-          apiRequest<WorkHubData["pending"]>("/api/operacao/pendencias"),
-          apiRequest<WorkHubData["inbox"]>("/api/operacao/inbox-compartilhada"),
-          apiRequest<WorkHubData["goals"]>("/api/operacao/metas"),
-          apiRequest<WorkHubData["productivity"]>("/api/operacao/produtividade-equipe"),
-          apiRequest<WorkHubData["weekly"]>("/api/operacao/resumo-semanal"),
-          apiRequest<WorkHubData["focus"]>("/api/operacao/foco"),
-          apiRequest<WorkHubData["usage"]>("/api/operacao/uso-plano"),
-          apiRequest<WorkHubData["backups"]>("/api/operacao/backups"),
-          apiRequest<WorkHubData["members"]>("/api/team-chat/members").catch(() => ({ members: [] })),
-        ]);
-      setData({ pending, inbox, goals, productivity, weekly, focus, usage, backups, members });
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Não foi possível carregar o centro de trabalho.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   const visibleInbox = useMemo(() => {
-    const items = data?.inbox.items || [];
+    const items = data.inbox?.items || [];
     if (inboxFilter === "todos") return items;
     if (inboxFilter === "meus") return items.filter((item) => item.assignedToId);
     return items.filter((item) => !["resolvido", "arquivado"].includes(item.status));
-  }, [data?.inbox.items, inboxFilter]);
+  }, [data.inbox?.items, inboxFilter]);
 
-  const pendingPageCount = Math.max(1, Math.ceil((data?.pending.items.length || 0) / pendingPageSize));
+  const pendingPageCount = Math.max(1, Math.ceil((data.pending?.items.length || 0) / pendingPageSize));
   const visiblePending = useMemo(() => {
     const start = (pendingPage - 1) * pendingPageSize;
-    return (data?.pending.items || []).slice(start, start + pendingPageSize);
-  }, [data?.pending.items, pendingPage, pendingPageSize]);
+    return (data.pending?.items || []).slice(start, start + pendingPageSize);
+  }, [data.pending?.items, pendingPage, pendingPageSize]);
 
   useEffect(() => {
     setPendingPage((current) => Math.min(current, pendingPageCount));
@@ -244,7 +226,7 @@ export default function WorkHubDashboard({
   }
 
   async function toggleFocus() {
-    const current = data?.focus.item;
+    const current = data.focus?.item;
     await mutate(
       "focus",
       () =>
@@ -367,30 +349,23 @@ export default function WorkHubDashboard({
     );
   }
 
-  if (loading && !data) {
-    return (
-      <main className="grid min-h-[calc(100dvh-74px)] place-items-center bg-[var(--background)] text-[var(--text)]">
-        <div className="flex items-center gap-3 text-sm font-bold text-[var(--text-secondary)]">
-          <LoaderCircle className="animate-spin text-blue-400" size={20} /> Organizando suas prioridades...
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main className="min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
       <div className="mx-auto max-w-[1600px]">
-        <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <header className="flex flex-col gap-4 overflow-hidden rounded-2xl border border-blue-400/20 bg-[linear-gradient(125deg,rgba(37,99,235,.13),rgba(8,145,178,.06)_52%,var(--surface)_86%)] p-5 shadow-xl shadow-black/10 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase text-blue-400">Operação unificada</p>
-            <h1 className="mt-1 text-2xl font-black">Centro de pendências</h1>
+            <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-400">Operação unificada</p>
+            <h1 className="mt-1 text-2xl font-black">Central de trabalho</h1>
             <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
-              Tudo que exige atenção, com contexto, responsável e próximo passo.
+              Prioridades, atendimentos e próximos passos conectados em um só lugar.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => void toggleFocus()} className={`workhub-button ${data?.focus.item.enabled ? "is-active" : ""}`}>
-              <Focus size={16} /> {data?.focus.item.enabled ? "Encerrar foco" : "Modo foco"}
+            <button type="button" onClick={() => onOpenNora("Analise a Central de trabalho, priorize o que exige atenção agora e proponha os próximos passos.")} className="workhub-button is-nora">
+              <Sparkles size={16} /> Priorizar com a Nora
+            </button>
+            <button type="button" onClick={() => void toggleFocus()} disabled={!data.focus || busy === "focus"} className={`workhub-button ${data.focus?.item.enabled ? "is-active" : ""}`}>
+              <Focus size={16} /> {data.focus?.item.enabled ? "Encerrar foco" : "Modo foco"}
             </button>
             <button type="button" onClick={() => void load()} className="workhub-icon-button" title="Atualizar" aria-label="Atualizar">
               <RefreshCw className={loading ? "animate-spin" : ""} size={17} />
@@ -398,26 +373,43 @@ export default function WorkHubDashboard({
           </div>
         </header>
 
-        <nav className="workhub-tabs" aria-label="Áreas do centro de pendências">
+        <section className="workhub-kpis" aria-label="Resumo da Central">
+          <Kpi label="Prioridades abertas" value={data.pending ? `${data.pending.total}${data.pending.complete ? "" : "+"}` : "—"} />
+          <Kpi label="Atendimentos em aberto" value={data.pending?.inboxOpen ?? "—"} />
+          <Kpi label="Ações nesta semana" value={data.weekly?.actionsExecuted ?? "—"} />
+          <Kpi label="Horas economizadas" value={data.weekly ? `${data.weekly.estimatedHoursSaved} h` : "—"} />
+        </section>
+
+        {data.pending?.items[0] && <button type="button" className="workhub-recommendation" onClick={() => onOpenDeepLink(data.pending!.items[0].deepLink)}><span><strong>Próxima prioridade</strong><small>{data.pending.items[0].title} · {data.pending.items[0].description}</small></span><span>Abrir item <ChevronRight size={14} /></span></button>}
+
+        <nav className="workhub-tabs" aria-label="Áreas da Central de trabalho">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
               <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={activeTab === tab.id ? "is-active" : ""}>
                 <Icon size={16} /> {tab.label}
-                {tab.id === "pending" && Boolean(data?.pending.total) && <span>{data?.pending.total}</span>}
+                {tab.id === "pending" && Boolean(data.pending?.total) && <span>{data.pending?.total}</span>}
               </button>
             );
           })}
         </nav>
 
+        {(activeTab === "pending" || activeTab === "followups") && <div className="workhub-sources" aria-label="Fontes das pendências">
+          {sources.map((source) => <span key={source.key} className={`workhub-source is-${source.status}`}>
+            {source.status === "loading" ? <LoaderCircle size={13} className="animate-spin" /> : source.status === "ready" ? <Check size={13} /> : <CircleAlert size={13} />}
+            {source.label}<small>{source.status === "loading" ? "Atualizando" : source.status === "error" ? "Atualização pendente" : "Atualizado"}</small>
+          </span>)}
+        </div>}
+        {loadErrors.map((failure) => <div key={failure.key} className="workhub-feedback is-error" role="alert"><span>{failure.label}: {failure.message}</span><button type="button" className="workhub-button" onClick={() => void failure.retry()}>Tentar novamente</button></div>)}
+        {tabLoading && <div className="workhub-feedback" role="status"><LoaderCircle className="animate-spin" size={18} /> Carregando {tabs.find((tab) => tab.id === activeTab)?.label.toLocaleLowerCase("pt-BR")}...</div>}
         {error && <div className="workhub-feedback is-error">{error}</div>}
         {notice && <div className="workhub-feedback is-success"><Check size={16} /> {notice}</div>}
 
-        {activeTab === "pending" && data && (
+        {activeTab === "pending" && data.pending && (
           <section className="workhub-panel">
             <div className="workhub-section-heading">
               <div><h2>Pendências consolidadas</h2><p>Aprovações, atrasos, falhas e mensagens sem resposta.</p></div>
-              <strong>{data.pending.total} item(ns)</strong>
+              <strong>{data.pending.total} item(ns){!data.pending.complete && " · parcial"}</strong>
             </div>
             <div className="workhub-list">
               {visiblePending.map((item) => {
@@ -433,7 +425,7 @@ export default function WorkHubDashboard({
                 </button>
                 );
               })}
-              {!data.pending.items.length && <div className="workhub-empty"><Check size={24} /><strong>Nenhuma pendência.</strong></div>}
+              {!data.pending.items.length && <div className="workhub-empty">{data.pending.complete ? <Check size={24} /> : <CircleAlert size={24} />}<strong>{data.pending.complete ? "Nenhuma pendência." : "Nenhum item nas fontes carregadas."}</strong>{!data.pending.complete && <span>O total será consolidado quando todas as fontes estiverem disponíveis.</span>}</div>}
             </div>
             {data.pending.items.length > 0 && (
               <footer className="workhub-pagination">
@@ -455,7 +447,7 @@ export default function WorkHubDashboard({
           </section>
         )}
 
-        {activeTab === "inbox" && data && (
+        {activeTab === "inbox" && data.inbox && (
           <section className="workhub-panel">
             <div className="workhub-section-heading">
               <div><h2>Caixa de entrada compartilhada</h2><p>Atribua responsável, status, prioridade e prazo de atendimento.</p></div>
@@ -470,12 +462,12 @@ export default function WorkHubDashboard({
                     <span className={`source-${item.source}`}>{item.source}</span>
                     <span><strong>{item.title}</strong><small>{item.counterpart || item.description}</small></span>
                   </button>
-                  <select value={item.assignedToId || ""} onChange={(event) => {
-                    const member = data.members.members.find((candidate) => candidate.id === event.target.value);
+                  <select disabled={!data.members} value={item.assignedToId || ""} onChange={(event) => {
+                    const member = (data.members?.members || []).find((candidate) => candidate.id === event.target.value);
                     void updateInbox(item, { assignedToId: member?.id || null, assignedToName: member?.nome || null });
                   }}>
                     <option value="">Sem responsável</option>
-                    {data.members.members.map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}
+                    {(data.members?.members || []).map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}
                   </select>
                   <select value={item.status} onChange={(event) => void updateInbox(item, { status: event.target.value })}>
                     <option value="novo">Novo</option><option value="em_atendimento">Em atendimento</option><option value="aguardando">Aguardando</option><option value="resolvido">Resolvido</option><option value="arquivado">Arquivado</option>
@@ -488,7 +480,7 @@ export default function WorkHubDashboard({
           </section>
         )}
 
-        {activeTab === "followups" && data && (
+        {activeTab === "followups" && data.pending && (
           <section className="workhub-panel">
             <div className="workhub-section-heading">
               <div><h2>Follow-ups inteligentes</h2><p>A Nora detecta conversas paradas e prazos próximos sem executar nada sem sua decisão.</p></div>
@@ -502,12 +494,12 @@ export default function WorkHubDashboard({
                   <span className="workhub-row-signal" /><span className="workhub-row-copy"><strong>{item.title}</strong><small>{item.description}</small></span><time>{formatDate(item.timestamp)}</time>
                 </button>
               ))}
-              {!data.pending.items.some((item) => item.kind === "followup") && <div className="workhub-empty"><MessageSquareReply size={24} /><strong>Nenhum follow-up aberto.</strong><span>Execute a detecção para analisar canais e prazos.</span></div>}
+              {!data.pending.items.some((item) => item.kind === "followup") && <div className="workhub-empty"><MessageSquareReply size={24} /><strong>{data.pendingActivity ? "Nenhum follow-up aberto." : "Aguardando os acompanhamentos."}</strong>{data.pendingActivity && <span>Execute a detecção para analisar canais e prazos.</span>}</div>}
             </div>
           </section>
         )}
 
-        {activeTab === "team" && data && (
+        {activeTab === "team" && (
           <section className="workhub-panel">
             <div className="workhub-section-heading"><div><h2>Metas e indicadores da equipe</h2><p>Resultados úteis por responsável, sem pontuação artificial.</p></div></div>
             <div className="workhub-goal-form">
@@ -517,20 +509,20 @@ export default function WorkHubDashboard({
               <button type="button" className="workhub-button" onClick={() => void createGoal()}><Target size={16} /> Criar meta</button>
             </div>
             <div className="workhub-goals">
-              {data.goals.items.map((goal) => {
+              {data.goals?.items.map((goal) => {
                 const progress = Math.min(100, Math.round((Number(goal.current || 0) / Math.max(goal.target, 1)) * 100));
                 return <article key={goal.id}><div><strong>{goal.title}</strong><small>{goal.current || 0} de {goal.target} · {goal.assigneeName || "Equipe"}</small></div><div className="workhub-progress"><span style={{ width: `${progress}%` }} /></div><b>{progress}%</b></article>;
               })}
             </div>
             <div className="workhub-team-table">
               <div className="workhub-team-head"><span>Membro</span><span>Concluídas</span><span>Pendentes</span><span>Em execução</span><span>Vencidas</span><span>Atendimentos</span></div>
-              {data.productivity.members.map((member) => <div key={member.userId}><strong>{member.name}</strong><span>{member.completedTasks}</span><span>{member.pendingTasks}</span><span>{member.inProgressTasks}</span><span>{member.overdueTasks}</span><span>{member.messagesHandled}</span></div>)}
+              {data.productivity?.members.map((member) => <div key={member.userId}><strong>{member.name}</strong><span>{member.completedTasks}</span><span>{member.pendingTasks}</span><span>{member.inProgressTasks}</span><span>{member.overdueTasks}</span><span>{member.messagesHandled}</span></div>)}
             </div>
-            <div className="workhub-weekly"><strong>{data.weekly.headline}</strong><span>{data.weekly.estimatedHoursSaved} h estimadas economizadas · {data.weekly.actionsExecuted} ações comprovadas</span></div>
+            {data.weekly && <div className="workhub-weekly"><strong>{data.weekly.headline}</strong><span>{data.weekly.estimatedHoursSaved} h estimadas economizadas · {data.weekly.actionsExecuted} ações comprovadas</span></div>}
           </section>
         )}
 
-        {activeTab === "data" && data && (
+        {activeTab === "data" && (
           <section className="workhub-panel">
             <div className="workhub-section-heading"><div><h2>Dados, dispositivos e continuidade</h2><p>Importe, exporte, proteja e acompanhe o uso da conta.</p></div></div>
             <div className="workhub-data-actions">
@@ -546,15 +538,15 @@ export default function WorkHubDashboard({
               if (file) void importCsv(file);
               event.currentTarget.value = "";
             }} />
-            <div className="workhub-usage">
+            {data.usage && <div className="workhub-usage">
               <Kpi label="Ações da Nora" value={data.usage.item.noraActions} />
               <Kpi label="Eventos" value={data.usage.item.events} />
               <Kpi label="Automações" value={data.usage.item.automations} />
               <Kpi label="Execuções" value={data.usage.item.automationExecutions} />
               <Kpi label="Integrações" value={data.usage.item.integrations} />
               <Kpi label="Armazenamento MB" value={data.usage.item.storageMb} />
-            </div>
-            <div className="workhub-backups">
+            </div>}
+            {data.backups && <div className="workhub-backups">
               <h3>Backups disponíveis</h3>
               {data.backups.items.map((backup) => <article key={backup.id}><span><strong>{formatDate(backup.createdAt)}</strong><small>{backup.files.length} arquivo(s) · {(backup.sizeBytes / 1024).toFixed(1)} KB</small></span><button type="button" title="Restaurar backup" onClick={async () => {
                 const confirmed = await showConfirm({
@@ -566,7 +558,7 @@ export default function WorkHubDashboard({
                 if (confirmed) void mutate(`restore:${backup.id}`, () => apiRequest(`/api/operacao/backups/${backup.id}/restaurar`, { method: "POST", body: JSON.stringify({ confirmation: "RESTAURAR" }) }), "Backup restaurado.");
               }} aria-label="Restaurar backup"><ArchiveRestore size={16} /></button></article>)}
               {!data.backups.items.length && <p>Nenhum backup manual criado.</p>}
-            </div>
+            </div>}
           </section>
         )}
       </div>

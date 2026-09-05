@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { mailApiRequest as apiJson } from "../api";
 import { mailboxCacheKey, mailboxSessionCache } from "../mailboxCache";
+import { requestScope } from "../../../core/api/sessionScope";
 import { buildMessagesPath } from "../queryBuilder";
 import type { GmailMessage, MailQuickFilter, MailboxSnapshot, MessageListResponse } from "../types";
 
@@ -73,6 +74,7 @@ export function useMailbox({
   const fetchMessages = useCallback(
     async (append = false, pageToken?: string | null, silent = false) => {
       const requestKey = mailboxCacheKey(userId, folder, filter, searchQuery);
+      const scope = requestScope();
       const requestId = `${requestKey}::${pageToken || "first"}`;
       if (inFlightRef.current.has(requestId)) return;
       inFlightRef.current.add(requestId);
@@ -89,6 +91,7 @@ export function useMailbox({
           query: searchQuery,
           pageToken,
         }));
+        if (scope !== requestScope()) return;
         const incomingMessages = data.messages || [];
         const previousMessages = append ? cacheRef.current.get(requestKey)?.messages || [] : [];
         const nextMessages = append
@@ -121,6 +124,7 @@ export function useMailbox({
   );
 
   const prefetchMailbox = useCallback(async (targetFolder: string) => {
+    const scope = requestScope();
     const requestKey = mailboxCacheKey(userId, targetFolder, "all", "");
     const requestId = `${requestKey}::first`;
     if (cacheRef.current.has(requestKey) || inFlightRef.current.has(requestId)) return;
@@ -132,6 +136,7 @@ export function useMailbox({
         filter: "all",
         query: "",
       }));
+      if (scope !== requestScope()) return;
       cacheRef.current.set(requestKey, {
         messages: data.messages || [],
         nextPageToken: data.nextPageToken || null,

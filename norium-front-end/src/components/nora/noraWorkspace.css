@@ -13,5 +13,14 @@
 .nora-history-tabs button{display:flex;align-items:center;justify-content:center;gap:5px;padding:8px 5px;border-radius:6px;color:var(--text-secondary);font-size:10px;font-weight:650}
 .nora-history-tabs button[aria-selected="true"]{background:var(--surface-hover);color:var(--text)}
 .nora-history-tabs span{font-size:9px;opacity:.7}
+.nora-library-files{border-bottom:1px solid var(--border);padding:4px 0 12px}
+.nora-library-files-heading,.nora-library-conversation-label{display:flex;align-items:center;justify-content:space-between;margin:8px 7px;color:var(--text-secondary);font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.nora-library-files-heading strong{display:grid;min-width:20px;height:20px;place-items:center;border-radius:999px;background:rgba(37,99,235,.14);color:#60a5fa;font-size:9px}
+.nora-library-files-state{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 10px;text-align:center;color:var(--text-secondary);font-size:10px;line-height:1.5}
+.nora-library-files-state strong{color:var(--text);font-size:11px}.nora-library-files-state svg{color:#38bdf8}.nora-library-files-state.is-error{color:#fda4af}.nora-library-files-state button{margin-top:3px;color:#67e8f9;font-weight:750}
+.nora-library-conversation-label{justify-content:flex-start;margin-top:16px}
+.nora-library-files .nora-file-grid{margin:0}
+.nora-library-files .nora-file-card{grid-template-columns:32px minmax(0,1fr);gap:8px;min-height:0;padding:8px}
+.nora-library-files .nora-file-icon{width:32px;height:32px;border-radius:8px}.nora-library-files .nora-file-actions{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.nora-library-files .nora-file-actions button{min-width:0;padding:5px 3px}.nora-library-files .nora-file-actions button span{display:none}
 .nora-conversation-action{padding:10px 5px;color:var(--text-secondary)}
 .nora-conversation-action.is-saved{color:#38bdf8}

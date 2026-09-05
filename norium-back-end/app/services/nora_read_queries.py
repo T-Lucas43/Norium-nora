@@ -5,6 +5,7 @@ import unicodedata
 from typing import Any
 
 from app.modules.automations.router import read_store as read_automation_store, response_payload as automation_payload
+from app.modules.operations.service import operations_overview
 from app.modules.platform.service import list_collection
 from app.modules.team.router import message_visible, normalize_thread_id, read_pruned_chat_store, require_team_chat, team_id_for, visible_team_members
 from app.services.finance_store import list_finance
@@ -33,6 +34,17 @@ def resolve_read_query(message: str, messages: list[Any]) -> tuple[str, str] | N
             text = normalize(previous)
     if re.search(r"\b(?:crie|criar|adicione|adicionar|exclua|excluir|apague|apagar|edite|editar|atualize|atualizar|mande|mandar|envie|enviar|avise|avisar|notifique|notificar|execute|executar|rode|rodar|ative|ativar|desative|desativar|pause|pausar)\b", text):
         return None
+    if re.search(r"\b(?:como (?:usar|funciona)|explique (?:a|o) (?:tela|controle)|para que serve)\b", text):
+        return None
+    if re.search(r"\b(?:analise|resuma|como (?:anda|esta))\b.*\b(?:meu financeiro|minhas financas|meu caixa)\b", text):
+        return "finance", text
+    if (
+        re.search(r"\b(?:central\s+de\s+trabalho|controle\s+operacional|resumo\s+(?:da|de)\s+operacao)\b", text)
+        or re.search(r"\b(?:analise|resuma|priorize).*(?:central|operacao|controle|pendencias)\b", text)
+        or re.search(r"\bo\s+que\s+(?:exige|precisa|merece).*(?:atencao|prioridade)\b", text)
+        or re.search(r"\bcomo (?:anda|esta) (?:a |minha )?operacao\b", text)
+    ):
+        return "operations", text
     if "dashboard" in text or re.search(r"\bmeu painel\b", text):
         return "dashboard", text
     if re.search(r"\brelatorios?\b", text) and not re.search(r"\bcomo (?:usar|funciona)\b", text):
@@ -71,6 +83,80 @@ async def _documents(user: dict[str, Any]) -> dict[str, Any]:
         lines = "\n".join(f"- **{item.get('title') or item.get('fileName') or 'Documento'}**" + (f" — {item['pageCount']} página(s)" if item.get("pageCount") is not None else "") for item in documents[:12])
         response = f"Encontrei {len(items)} documento(s) na base de conhecimento:\n\n{lines}"
     return {"status": "consulta", "response": response, "documents": documents, "total": len(items)}
+
+
+async def _operations(user: dict[str, Any]) -> dict[str, Any]:
+    overview = await operations_overview(user)
+    summary = overview.get("summary") if isinstance(overview.get("summary"), dict) else {}
+    briefing = overview.get("briefing") if isinstance(overview.get("briefing"), dict) else {}
+    alerts = overview.get("alerts") if isinstance(overview.get("alerts"), list) else []
+    approvals = overview.get("approvals") if isinstance(overview.get("approvals"), list) else []
+    integrations = overview.get("integrations") if isinstance(overview.get("integrations"), list) else []
+
+    priority = briefing.get("priority") if isinstance(briefing.get("priority"), dict) else None
+    attention_lines: list[str] = []
+    if priority and priority.get("title"):
+        attention_lines.append(f"1. **{priority['title']}** — {priority.get('description') or 'revise os detalhes na Central.'}")
+    for alert in alerts:
+        if not isinstance(alert, dict) or not alert.get("title"):
+            continue
+        if priority and alert.get("title") == priority.get("title"):
+            continue
+        line = f"{len(attention_lines) + 1}. **{alert['title']}**"
+        if alert.get("description"):
+            line += f" — {alert['description']}"
+        attention_lines.append(line)
+        if len(attention_lines) >= 4:
+            break
+
+    response = (
+        "A operação está atualizada com os dados reais da Central e do Controle operacional.\n\n"
+        f"- **Aprovações pendentes:** {summary.get('pendingApprovals', 0)}\n"
+        f"- **Tarefas ativas:** {summary.get('activeTasks', 0)}, sendo {summary.get('overdueTasks', 0)} vencida(s)\n"
+        f"- **Compromissos de hoje:** {summary.get('todayEvents', 0)}\n"
+        f"- **Alertas financeiros:** {summary.get('financialReminders', 0)}\n"
+        f"- **Integrações que exigem atenção:** {summary.get('unhealthyIntegrations', 0)}"
+    )
+    if attention_lines:
+        response += "\n\n**Prioridades recomendadas**\n\n" + "\n".join(attention_lines)
+    else:
+        response += "\n\nNão há alerta crítico registrado agora. Você pode seguir pelas tarefas ativas e pelos compromissos de hoje."
+
+    return {
+        "status": "consulta",
+        "response": response,
+        "summary": summary,
+        "briefing": briefing,
+        "alerts": alerts[:8],
+        "approvals": approvals[:12],
+        "integrations": integrations,
+        "myDay": overview.get("myDay") if isinstance(overview.get("myDay"), dict) else {},
+        "generatedAt": overview.get("generatedAt"),
+    }
+
+
+def _finance_analysis(user: dict[str, Any]) -> dict[str, Any]:
+    finance = list_finance(str(user.get("id") or "lucas123"))
+    summary = finance.get("resumo") or {}
+    balance = float(summary.get("saldo") or 0)
+    pending = float(summary.get("pendente") or 0)
+    overdue = int(summary.get("vencidos") or 0)
+    money = lambda value: f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    lines = [f"Seu saldo realizado é **{money(balance)}**, com **{money(pending)} a pagar** nos lançamentos pendentes."]
+    if overdue:
+        lines.append(f"Priorize a revisão dos **{overdue} registros vencidos** e confira cada vencimento antes de tomar uma decisão.")
+    if balance < 0:
+        lines.append("As saídas pagas superam as entradas registradas. Revise despesas recorrentes e acompanhe os recebimentos previstos.")
+    elif pending > balance:
+        lines.append("O total pendente supera o saldo realizado. Confira as datas de recebimento e pagamento para planejar o caixa.")
+    reminders = finance.get("lembretes") or []
+    if reminders:
+        lines.append("**Próximos vencimentos e pendências**\n" + "\n".join(
+            f"- **{item.get('title') or 'Registro'}**: {money(float(item.get('amount') or 0))}, vencimento {item.get('dueDate') or 'não informado'}."
+            for item in reminders[:5]
+        ))
+    lines.append("Os indicadores e lançamentos estão organizados abaixo. Esta análise usa os registros do Norium; o saldo não é uma consulta bancária.")
+    return {"status": "consulta", "response": "\n\n".join(lines), "financeiro": finance}
 
 
 def _member_from_query(text: str, members: list[dict[str, Any]], current_user_id: str) -> dict[str, Any] | None:
@@ -127,6 +213,10 @@ async def _team(user: dict[str, Any], text: str) -> dict[str, Any]:
 
 
 async def answer_read_query(user: dict[str, Any], domain: str, text: str) -> tuple[str, dict[str, Any]]:
+    if domain == "finance":
+        return "financeiro", _finance_analysis(user)
+    if domain == "operations":
+        return "operacoes", await _operations(user)
     if domain == "team":
         return "equipe", await _team(user, text)
     if domain == "documents":

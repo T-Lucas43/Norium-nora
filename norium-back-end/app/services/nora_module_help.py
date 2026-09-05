@@ -36,7 +36,7 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
             "2. Revise a atividade recente e a agenda de hoje.\n"
             "3. Abra os atalhos para ir diretamente ao e-mail, conversa, tarefa ou compromisso.\n"
             "4. Use o painel da Nora para pedir uma priorização do que merece atenção.\n\n"
-            "O Centro de pendências fica reservado ao que ainda exige decisão ou correção; o Meu Dia permanece aqui."
+            "A Central de trabalho reúne pendências e a caixa compartilhada; o Meu Dia permanece no Dashboard."
         ),
     ),
     ModuleHelp(
@@ -98,16 +98,15 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
     ),
     ModuleHelp(
         module="central",
-        aliases=("central de atividades", "central"),
+        aliases=("central de trabalho", "central de atividades", "central"),
         response=(
-            "A Central de atividades separa os acontecimentos por canal, para você acompanhar "
-            "Gmail, WhatsApp, Agenda, Tarefas, Gastos, Equipe, Automações e Relatórios sem misturar "
-            "tudo em uma única lista.\n\n"
+            "A Central de trabalho unificou a antiga Central e o Centro de pendências. Ela reúne prioridades, "
+            "caixa compartilhada, follow-ups, metas da equipe e gestão de dados.\n\n"
             "Como usar:\n"
-            "1. Confira primeiro os canais com contador ou atividade recente.\n"
-            "2. Role cada painel de forma independente.\n"
+            "1. Confira os indicadores e a próxima prioridade sugerida.\n"
+            "2. Alterne entre Pendências, Caixa compartilhada, Follow-ups, Metas e equipe e Dados e segurança.\n"
             "3. Clique em um evento para abrir exatamente o item na tela de origem.\n"
-            "4. Reordene ou redimensione os painéis conforme sua rotina.\n\n"
+            "4. Use Priorizar com a Nora para consultar os dados atuais e organizar os próximos passos.\n\n"
             "Para decidir o que exige atenção agora, priorize erros de integração, vencimentos, "
             "mensagens sem resposta e itens que aguardam aprovação."
         ),
@@ -117,7 +116,7 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         aliases=("controle operacional", "controle"),
         response=(
             "O Controle operacional reúne aprovações, saúde das integrações, auditoria, memória da "
-            "Nora, modelos e ações que podem ser desfeitas.\n\n"
+            "Nora, alertas e ações que podem ser desfeitas.\n\n"
             "Ordem recomendada:\n"
             "1. Revise aprovações pendentes antes de autorizar ações sensíveis.\n"
             "2. Verifique integrações com erro ou sincronização atrasada.\n"
@@ -130,7 +129,7 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         module="pendencias",
         aliases=("centro de pendencias", "pendencias"),
         response=(
-            "O Centro de pendências concentra o que ainda precisa de decisão ou ação: aprovações, "
+            "O antigo Centro de pendências agora fica na aba Pendências da Central de trabalho. Ela concentra aprovações, "
             "e-mails e conversas sem resposta, tarefas vencidas, pagamentos próximos e automações com erro.\n\n"
             "Sugestão de prioridade:\n"
             "1. Falhas de integração e automação que interrompem outros fluxos.\n"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Badge, BarChart3, Building2, Check, CheckCircle2, Clock3, ListChecks, Lock, MessageCircle, PlayCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound, type LucideIcon } from "lucide-react";
 import type { AuthSession, NoriumTeam, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
@@ -69,6 +69,8 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   const [report, setReport] = useState<TeamTaskReport | null>(null);
   const [team, setTeam] = useState<NoriumTeam | null>(null);
   const [teamName, setTeamName] = useState("");
+  const memberProfiles = useRef(new Map<string, NoriumUser>());
+  const [detailsRevision, setDetailsRevision] = useState(0);
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) || users[0] || session.user,
@@ -76,29 +78,36 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   );
 
   const refresh = useCallback(async () => {
+    setDetailsRevision((current) => current + 1);
     setLoading(true);
     setError("");
     try {
-      const [data, reportData, teamData, memberData] = await Promise.all([
-        authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token),
-        authJson<TeamTaskReport>("/api/tarefas/relatorio-equipe", session.token),
-        authJson<{ team: NoriumTeam }>("/api/auth/team-profile", session.token),
-        authJson<{ members: NoriumUser[] }>("/api/team-chat/members", session.token).catch(() => ({ members: [] })),
-      ]);
-      const profileById = new Map(memberData.members.map((member) => [member.id, member]));
-      setUsers(data.users.map((user) => ({ ...user, ...profileById.get(user.id) })));
-      setReport(reportData);
-      setTeam(teamData.team);
-      setTeamName(teamData.team.name);
-      if (!data.users.some((user) => user.id === selectedUserId)) {
-        setSelectedUserId(data.users[0]?.id || session.user.id);
-      }
+      const data = await authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token);
+      setUsers(data.users.map((user) => ({ ...user, ...memberProfiles.current.get(user.id) })));
+      setSelectedUserId((current) => data.users.some((user) => user.id === current) ? current : data.users[0]?.id || session.user.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nao foi possivel carregar a equipe.");
     } finally {
       setLoading(false);
     }
-  }, [selectedUserId, session.token, session.user.id]);
+  }, [session.token, session.user.id]);
+
+  useEffect(() => {
+    if (!detailsRevision) return;
+    let active = true;
+    const failed = (err: unknown) => { if (active) setError(err instanceof Error ? err.message : "Não foi possível atualizar os indicadores da equipe."); };
+    void authJson<TeamTaskReport>("/api/tarefas/relatorio-equipe", session.token)
+      .then((payload) => { if (active) setReport(payload); }).catch(failed);
+    void authJson<{ team: NoriumTeam }>("/api/auth/team-profile", session.token)
+      .then((payload) => { if (active) { setTeam(payload.team); setTeamName(payload.team.name); } }).catch(failed);
+    void authJson<{ members: NoriumUser[] }>("/api/team-chat/members", session.token)
+      .then((payload) => {
+        if (!active) return;
+        memberProfiles.current = new Map(payload.members.map((member) => [member.id, member]));
+        setUsers((current) => current.map((user) => ({ ...user, ...memberProfiles.current.get(user.id) })));
+      }).catch(failed);
+    return () => { active = false; };
+  }, [detailsRevision, session.token]);
 
   async function saveTeamName() {
     const normalized = teamName.trim();

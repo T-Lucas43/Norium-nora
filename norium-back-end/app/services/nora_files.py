@@ -119,6 +119,7 @@ def _artifact(record: dict[str, Any]) -> dict[str, Any]:
         "downloadUrl": f"{content_url}?download=true",
         "source": str(record.get("source") or "nora"),
         "createdAt": record.get("createdAt"),
+        "inLibrary": bool(record.get("inLibrary", False)),
     }
 
 
@@ -142,11 +143,39 @@ def save_bytes(user_id: str, content: bytes, filename: str, mime_type: str, *, s
         "storageName": path.name,
         "source": source,
         "createdAt": _now_iso(),
+        "inLibrary": False,
     }
     store = read_user_db(user_id, DB_NAME, {"files": []})
     items = [item for item in store.get("files", []) if isinstance(item, dict)]
     write_user_db(user_id, DB_NAME, {"files": [record, *items][:MAX_FILES]})
     return _artifact(record)
+
+
+def list_library_files(user_id: str) -> list[dict[str, Any]]:
+    store = read_user_db(user_id, DB_NAME, {"files": []})
+    records = [
+        item for item in store.get("files", [])
+        if isinstance(item, dict) and bool(item.get("inLibrary", False))
+    ]
+    records.sort(key=lambda item: str(item.get("createdAt") or ""), reverse=True)
+    return [_artifact(record) for record in records]
+
+
+def set_library_status(user_id: str, file_id: str, in_library: bool) -> dict[str, Any]:
+    # Validate ownership and the backing file before persisting the marker.
+    owned_file(user_id, file_id)
+    store = read_user_db(user_id, DB_NAME, {"files": []})
+    records = [item for item in store.get("files", []) if isinstance(item, dict)]
+    updated: dict[str, Any] | None = None
+    for record in records:
+        if record.get("id") == file_id:
+            record["inLibrary"] = bool(in_library)
+            updated = record
+            break
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
+    write_user_db(user_id, DB_NAME, {"files": records[:MAX_FILES]})
+    return _artifact(updated)
 
 
 def save_upload(user_id: str, file_name: str, mime_type: str, data_base64: str) -> dict[str, Any]:

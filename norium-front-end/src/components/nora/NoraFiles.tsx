@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Download, Eye, File, FileImage, FileText, Loader2, X } from "lucide-react";
-import { apiBlobRequest } from "../../core/api/client";
+import { Bookmark, Download, Eye, File, FileImage, FileText, Library, Loader2, X } from "lucide-react";
+import { apiBlobRequest, apiRequest } from "../../core/api/client";
 import { apiBaseUrl } from "../../core/api/config";
 
 export type NoraChatFile = {
@@ -13,6 +13,7 @@ export type NoraChatFile = {
   downloadUrl: string;
   source?: string;
   createdAt?: string;
+  inLibrary?: boolean;
 };
 
 function readableSize(size: number) {
@@ -54,16 +55,27 @@ function FileIcon({ file }: { file: NoraChatFile }) {
   return <File size={20} />;
 }
 
-export function NoraFileCards({ files }: { files: NoraChatFile[] }) {
+export function NoraFileCards({ files, compact = false, onLibraryChange }: { files: NoraChatFile[]; compact?: boolean; onLibraryChange?: (file: NoraChatFile) => void }) {
   const [preview, setPreview] = useState<NoraChatFile | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewText, setPreviewText] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [libraryState, setLibraryState] = useState<Record<string, boolean>>({});
+  const [libraryBusy, setLibraryBusy] = useState("");
 
   useEffect(() => () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
   }, [previewUrl]);
+
+  useEffect(() => {
+    const syncLibrary = (event: Event) => {
+      const file = (event as CustomEvent<NoraChatFile>).detail;
+      if (file?.id) setLibraryState((state) => ({ ...state, [file.id]: Boolean(file.inLibrary) }));
+    };
+    window.addEventListener("nora:file-library-changed", syncLibrary);
+    return () => window.removeEventListener("nora:file-library-changed", syncLibrary);
+  }, []);
 
   async function openPreview(file: NoraChatFile) {
     setPreview(file);
@@ -102,10 +114,29 @@ export function NoraFileCards({ files }: { files: NoraChatFile[] }) {
     }
   }
 
+  async function toggleLibrary(file: NoraChatFile) {
+    const current = libraryState[file.id] ?? Boolean(file.inLibrary);
+    setLibraryBusy(file.id);
+    setError("");
+    try {
+      const response = await apiRequest<{ file: NoraChatFile }>(`/api/nora/files/${encodeURIComponent(file.id)}/library`, {
+        method: "PATCH",
+        body: JSON.stringify({ inLibrary: !current }),
+      });
+      setLibraryState((state) => ({ ...state, [file.id]: Boolean(response.file.inLibrary) }));
+      onLibraryChange?.(response.file);
+      window.dispatchEvent(new CustomEvent("nora:file-library-changed", { detail: response.file }));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível atualizar a biblioteca.");
+    } finally {
+      setLibraryBusy("");
+    }
+  }
+
   if (!files.length) return null;
   return (
     <>
-      <div className="nora-file-grid" aria-label="Arquivos desta mensagem">
+      <div className={`nora-file-grid ${compact ? "is-compact" : ""}`} aria-label="Arquivos desta mensagem">
         {files.map((file) => (
           <article key={`${file.id}-${file.name}`} className="nora-file-card">
             <span className="nora-file-icon"><FileIcon file={file} /></span>
@@ -115,6 +146,9 @@ export function NoraFileCards({ files }: { files: NoraChatFile[] }) {
             </span>
             <span className="nora-file-actions">
               {canPreview(file) && <button type="button" onClick={() => void openPreview(file)} title={`Visualizar ${file.name}`} aria-label={`Visualizar ${file.name}`}><Eye size={15} /><span>Visualizar</span></button>}
+              <button type="button" className={(libraryState[file.id] ?? file.inLibrary) ? "is-saved" : ""} disabled={libraryBusy === file.id} onClick={() => void toggleLibrary(file)} title={`${(libraryState[file.id] ?? file.inLibrary) ? "Remover da" : "Adicionar à"} biblioteca`} aria-label={`${(libraryState[file.id] ?? file.inLibrary) ? "Remover da" : "Adicionar à"} biblioteca: ${file.name}`}>
+                {libraryBusy === file.id ? <Loader2 className="animate-spin" size={15} /> : <Bookmark size={15} fill={(libraryState[file.id] ?? file.inLibrary) ? "currentColor" : "none"} />}<span>{(libraryState[file.id] ?? file.inLibrary) ? "Salvo" : "Biblioteca"}</span>
+              </button>
               <button type="button" onClick={() => void download(file)} title={`Baixar ${file.name}`} aria-label={`Baixar ${file.name}`}><Download size={15} /><span>Baixar</span></button>
             </span>
           </article>
@@ -140,4 +174,43 @@ export function NoraFileCards({ files }: { files: NoraChatFile[] }) {
       , document.body)}
     </>
   );
+}
+
+export function NoraFileLibrary({ query = "", onCountChange }: { query?: string; onCountChange?: (count: number) => void }) {
+  const [files, setFiles] = useState<NoraChatFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadLibrary = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await apiRequest<{ files: NoraChatFile[]; total: number }>("/api/nora/files/library");
+      setFiles(response.files);
+      onCountChange?.(response.total);
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Não foi possível carregar os arquivos.");
+    } finally {
+      setLoading(false);
+    }
+  }, [onCountChange]);
+
+  useEffect(() => {
+    void loadLibrary();
+    const refresh = () => void loadLibrary();
+    window.addEventListener("nora:file-library-changed", refresh);
+    return () => window.removeEventListener("nora:file-library-changed", refresh);
+  }, [loadLibrary]);
+
+  const normalized = query.trim().toLocaleLowerCase("pt-BR");
+  const visible = normalized ? files.filter((file) => file.name.toLocaleLowerCase("pt-BR").includes(normalized)) : files;
+  if (loading) return <div className="nora-library-files-state"><Loader2 className="animate-spin" size={17} /> Carregando arquivos...</div>;
+  if (error) return <div className="nora-library-files-state is-error">{error}<button type="button" onClick={() => void loadLibrary()}>Tentar novamente</button></div>;
+  if (!visible.length) return <div className="nora-library-files-state"><Library size={22} /><strong>{query ? "Nenhum arquivo encontrado" : "Nenhum arquivo salvo"}</strong><span>{query ? "Tente buscar por outro nome." : "Nos PDFs do chat, use Biblioteca para guardar aqui."}</span></div>;
+  return <section className="nora-library-files" aria-label="Arquivos da biblioteca"><div className="nora-library-files-heading"><span>Arquivos</span><strong>{visible.length}</strong></div><NoraFileCards files={visible} compact onLibraryChange={(updated) => {
+    if (!updated.inLibrary) {
+      setFiles((items) => items.filter((item) => item.id !== updated.id));
+      onCountChange?.(Math.max(0, files.length - 1));
+    }
+  }} /></section>;
 }

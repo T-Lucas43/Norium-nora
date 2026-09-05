@@ -43,6 +43,14 @@
   font-size: 10px;
 }
 
+.workhub-button.is-nora {
+  border-color: transparent;
+  background: linear-gradient(110deg, #2563eb, #0891b2);
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(3, 105, 161, .18);
+}
+.workhub-button.is-nora:hover { border-color: transparent; background: linear-gradient(110deg, #1d4ed8, #0e7490); color: #fff; }
+
 .workhub-icon-button {
   width: 38px;
   padding: 0;
@@ -65,7 +73,7 @@
 
 .workhub-panel {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 14px;
   background: var(--surface);
   padding: clamp(16px, 2vw, 24px);
 }
@@ -94,7 +102,7 @@
 
 .workhub-kpis, .workhub-usage {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-top: 16px;
 }
@@ -102,9 +110,10 @@
 .workhub-kpi {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--background);
-  padding: 14px;
+  border-radius: 13px;
+  background: var(--surface);
+  padding: 16px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .08);
 }
 
 .workhub-kpi strong { display: block; overflow-wrap: anywhere; font-size: 22px; font-weight: 900; }
@@ -118,7 +127,7 @@
   gap: 16px;
   margin-top: 14px;
   border: 1px solid rgba(59, 130, 246, .45);
-  border-radius: 7px;
+  border-radius: 13px;
   background: rgba(37, 99, 235, .11);
   padding: 14px;
   text-align: left;
@@ -275,3 +284,9 @@
 @media (max-width: 430px) {
   .workhub-kpis, .workhub-usage, .workhub-day-grid, .workhub-goals, .workhub-data-actions { grid-template-columns: 1fr; }
 }
+.workhub-sources { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.workhub-source { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-secondary); font-size: 11px; background: var(--surface); }
+.workhub-source small { font-size: 10px; opacity: .75; }
+.workhub-source.is-ready svg { color: #34d399; }
+.workhub-source.is-loading svg { color: #22d3ee; }
+.workhub-source.is-error svg { color: #fbbf24; }

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from app.core.request_context import current_workspace_id
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, write_json_file
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -27,7 +28,7 @@ def now_iso() -> str:
 
 
 def load_workspace(user_id: str = "lucas123") -> dict[str, Any]:
-    db = _read_db()
+    db = _read_db(user_id)
     if user_id not in db:
         db[user_id] = {
             "lancamentos": [],
@@ -56,7 +57,7 @@ def list_finance(user_id: str = "lucas123") -> dict[str, Any]:
 
 
 def create_lancamento(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
     lancamento = normalize_lancamento(
         {
@@ -84,7 +85,7 @@ def create_lancamento(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def update_lancamento(user_id: str, lancamento_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
     items = workspace.setdefault("lancamentos", [])
     for index, item in enumerate(items):
@@ -106,7 +107,7 @@ def update_lancamento(user_id: str, lancamento_id: str, updates: dict[str, Any])
 
 
 def delete_lancamento(user_id: str, lancamento_id: str) -> bool:
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
     items = workspace.setdefault("lancamentos", [])
     before = len(items)
@@ -124,9 +125,9 @@ def restore_lancamento(user_id: str, snapshot: dict[str, Any]) -> dict[str, Any]
     lancamento_id = str(snapshot.get("id") or "").strip()
     if not lancamento_id:
         return None
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
-    db = _read_db()
+    db = _read_db(user_id)
     items = workspace.setdefault("lancamentos", [])
     restored = normalize_lancamento({**snapshot, "id": lancamento_id, "updatedAt": now_iso()})
     for index, current in enumerate(items):
@@ -142,7 +143,7 @@ def restore_lancamento(user_id: str, snapshot: dict[str, Any]) -> dict[str, Any]
 
 
 def create_programado(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
     programado = normalize_programado(
         {
@@ -168,7 +169,7 @@ def create_programado(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def update_programado(user_id: str, programado_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
     items = workspace.setdefault("programados", [])
     for index, item in enumerate(items):
@@ -188,7 +189,7 @@ def update_programado(user_id: str, programado_id: str, updates: dict[str, Any])
 
 
 def delete_programado(user_id: str, programado_id: str) -> bool:
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
     items = workspace.setdefault("programados", [])
     before = len(items)
@@ -202,7 +203,7 @@ def delete_programado(user_id: str, programado_id: str) -> bool:
 
 
 def save_boletos(user_id: str, boletos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
     normalized = [normalize_boleto(item) for item in boletos]
     existing = {item.get("id"): item for item in workspace.get("boletos", []) if item.get("id")}
@@ -216,7 +217,7 @@ def save_boletos(user_id: str, boletos: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def add_attachment(user_id: str, lancamento_id: str, *, file_name: str, mime_type: str, data_url: str) -> dict[str, Any] | None:
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
     target = next((item for item in workspace.setdefault("lancamentos", []) if item.get("id") == lancamento_id), None)
     if not target:
@@ -248,7 +249,7 @@ def add_attachment(user_id: str, lancamento_id: str, *, file_name: str, mime_typ
 
 
 def remove_attachment(user_id: str, lancamento_id: str, attachment_id: str) -> dict[str, Any] | None:
-    db = _read_db()
+    db = _read_db(user_id)
     workspace = load_workspace(user_id)
     removed: dict[str, Any] | None = None
 
@@ -487,24 +488,22 @@ def _local_today() -> datetime:
     return datetime.now(timezone(timedelta(hours=-3)))
 
 
-def _read_db() -> dict[str, Any]:
-    db: dict[str, Any] = {}
-    legacy_payload = read_json_file(FINANCE_PATH, {})
-    if isinstance(legacy_payload, dict):
-        db.update({str(key): value for key, value in legacy_payload.items() if isinstance(value, dict)})
-
-    data_root = get_data_root()
-    for user_dir in data_root.glob("user_*"):
-        if not user_dir.is_dir():
-            continue
-        user_id = user_dir.name.removeprefix("user_")
-        payload = read_json_file(user_dir / "financeiro_db.json", {})
+def _read_db(user_id: str) -> dict[str, Any]:
+    # Finance has no cross-account sharing. Never enumerate other tenants.
+    path = Path(get_user_db_path(user_id, "financeiro"))
+    if path.exists():
+        payload = read_json_file(path, {})
         if isinstance(payload, dict):
-            if "lancamentos" in payload or "programados" in payload:
-                db[user_id] = payload
-            elif isinstance(payload.get(user_id), dict):
-                db[user_id] = payload[user_id]
-    return db
+            if "lancamentos" in payload or "programados" in payload or "boletos" in payload:
+                return {user_id: payload}
+            if isinstance(payload.get(user_id), dict):
+                return {user_id: payload[user_id]}
+        return {}
+    if current_workspace_id() == "primary":
+        legacy = read_json_file(FINANCE_PATH, {})
+        if isinstance(legacy, dict) and isinstance(legacy.get(user_id), dict):
+            return {user_id: legacy[user_id]}
+    return {}
 
 
 def _write_db(payload: dict[str, Any]) -> None:

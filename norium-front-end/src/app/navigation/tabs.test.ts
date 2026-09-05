@@ -23,6 +23,8 @@ describe("module page navigation", () => {
     expect(tabPath("Documentos")).toBe("/app/documentos");
     expect(tabPath("Agente Navegador")).toBe("/app/navegador");
     expect(tabPath("E-mails")).toBe("/app/emails");
+    expect(tabPath("Pendencias")).toBe("/app/central");
+    expect(tabFromPath("/app/pendencias")).toBe("Central");
   });
 
   it("restores a module directly from its page URL", () => {

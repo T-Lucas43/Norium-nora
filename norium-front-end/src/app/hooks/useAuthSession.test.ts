@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AUTH_TOKEN_STORAGE } from "../../core/api/config";
 import { useAuthSession } from "./useAuthSession";
+import { mailboxSessionCache } from "../../features/mail/mailboxCache";
 
 const authJson = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/authApi", () => ({ authJson }));
@@ -52,10 +53,28 @@ describe("useAuthSession", () => {
     const { result } = renderHook(() => useAuthSession());
     await waitFor(() => expect(result.current.authLoading).toBe(false));
 
+    mailboxSessionCache.set("u3::private", { messages: [], nextPageToken: null, resultSize: 0, cachedAt: 0 });
+    sessionStorage.setItem("norium-operations-overview:u3:primary", "private-data");
+    localStorage.setItem("norium-workspace-id", "workspace-a");
+
     act(() => result.current.clearSession());
 
     expect(localStorage.getItem(AUTH_TOKEN_STORAGE)).toBeNull();
     expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE)).toBeNull();
     expect(result.current.authSession).toBeNull();
+    expect(mailboxSessionCache.size).toBe(0);
+    expect(sessionStorage.getItem("norium-operations-overview:u3:primary")).toBeNull();
+    expect(localStorage.getItem("norium-workspace-id")).toBeNull();
+  });
+
+  it("does not restore an older session after logout during startup", async () => {
+    localStorage.setItem(AUTH_TOKEN_STORAGE, "old-token");
+    let finish!: (value: unknown) => void;
+    authJson.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const { result } = renderHook(() => useAuthSession());
+    act(() => result.current.clearSession());
+    await act(async () => finish({ user: { id: "old-user" }, availableModes: ["app"] }));
+    expect(result.current.authSession).toBeNull();
+    expect(localStorage.getItem(AUTH_TOKEN_STORAGE)).toBeNull();
   });
 });

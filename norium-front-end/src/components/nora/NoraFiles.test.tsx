@@ -12,11 +12,12 @@ const pdf: NoraChatFile = {
 };
 
 describe("NoraFileCards", () => {
-  it("exibe metadados e ações de visualizar e baixar", () => {
+  it("exibe metadados e ações de visualizar, salvar e baixar", () => {
     render(<NoraFileCards files={[pdf]} />);
     expect(screen.getByText("relatorio-financeiro.pdf")).toBeInTheDocument();
     expect(screen.getByText("PDF · 2 KB")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Visualizar relatorio-financeiro.pdf" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Adicionar à biblioteca: relatorio-financeiro.pdf" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Baixar relatorio-financeiro.pdf" })).toBeInTheDocument();
   });
 });

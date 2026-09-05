@@ -11,6 +11,7 @@ O erro observado era da Central (`/api/operacao/pendencias`). A publicação ant
 - O endpoint agregado continua disponível para consumidores existentes, com `complete` e `sources` explícitos quando uma fonte não terminou.
 - Cards recebem títulos, descrições curtas e referências para abrir o registro. Corpos de e-mail, anexos e metadados completos não são transmitidos na lista de prioridades.
 - Leituras demoradas geram registros de duração por fonte, sem conteúdo privado ou credenciais. As verificações de propriedade da integração permanecem aplicadas.
+- As verificações de integração usam no máximo duas threads próprias, sem ocupar o pool de leitura dos dados. O contexto de workspace é propagado e consultas simultâneas não criam cópias da mesma leitura. Um teste mantém duas contas bloqueadas e confirma que as leituras comuns continuam livres.
 
 ## Verificação
 

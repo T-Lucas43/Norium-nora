@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import os
 import uuid
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from weakref import WeakKeyDictionary
 
 from app.core.tenant import read_profile_db, get_data_root
 from app.core.request_context import current_workspace_id
@@ -660,6 +663,18 @@ def _last_event_by_source(events: list[dict[str, Any]], source: str) -> str | No
 
 
 _integration_reads: dict[tuple[int, str, str, str], asyncio.Task] = {}
+_integration_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="integration-health")
+_integration_slots: WeakKeyDictionary = WeakKeyDictionary()
+
+
+async def _load_integration_health(user_id: str, events: list[dict[str, Any]], audits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    loop = asyncio.get_running_loop()
+    slots = _integration_slots.setdefault(loop, asyncio.Semaphore(2))
+    # Locked W-API reads must never exhaust the default pool used by JSON stores.
+    # Acquire before submission so waiting accounts don't fill an executor queue.
+    async with slots:
+        context = contextvars.copy_context()
+        return await loop.run_in_executor(_integration_executor, context.run, integration_health, user_id, events, audits)
 
 
 async def read_integration_health(user_id: str, events: list[dict[str, Any]], audits: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -668,7 +683,7 @@ async def read_integration_health(user_id: str, events: list[dict[str, Any]], au
     key = (id(asyncio.get_running_loop()), str(get_data_root()), user_id, current_workspace_id())
     task = _integration_reads.get(key)
     if task is None or task.done():
-        task = asyncio.create_task(asyncio.to_thread(integration_health, user_id, events, audits))
+        task = asyncio.create_task(_load_integration_health(user_id, events, audits))
         _integration_reads[key] = task
         def finished(completed: asyncio.Task) -> None:
             if _integration_reads.get(key) is completed:

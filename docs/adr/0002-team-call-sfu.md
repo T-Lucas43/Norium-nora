@@ -136,6 +136,7 @@ O primeiro cenário inclui aquecimento de servidor, SDK e navegador; os seguinte
 - A recusa de capacidade é atômica no servidor, mas o cliente atual adquire mídia antes do ACK de admissão e só então encerra as tracks ao receber `call_capacity_reached`. Uma futura autorização/preflight pode evitar essa captura transitória, desde que seu desenho preserve idempotência e não crie uma reserva abandonada.
 - Haverá dois planos de controle a reconciliar: negócio/presença no NOrium e mídia no LiveKit. Webhooks atrasados, duplicados ou fora de ordem não podem ressuscitar chamada nem participante.
 - O backend precisará gerir segredo, TTL, grants, rotação, webhooks e indisponibilidade do provedor. Falha do SFU deve produzir mensagem útil, sem fallback que viole autorização ou capacidade.
+- O host atualmente materializa a chamada de negócio em `CALL_INVITE`, enquanto um adapter SFU pode precisar de token antes de abrir a sala. A etapa 8B deve introduzir uma reserva/autorização idempotente e curta antes do ingresso, sem criar chamadas fantasmas; o protótipo não altera nem valida essa ordem no produto.
 - O custo varia com minutos, downstream, resolução, assinaturas e Egress; sem dados de uso não existe estimativa confiável.
 - Pinning brasileiro e Analytics API dependem do plano Scale. Fixar `sa` reduz opções automáticas de failover e o grupo brasileiro documentado possui uma localização.
 - A saída self-hosted preserva SDK/protocolo, mas perde serviços gerenciados e exige Redis, TURN/TLS, balanceamento, Egress, métricas, atualizações e plantão.

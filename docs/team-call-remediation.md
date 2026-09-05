@@ -9,6 +9,7 @@ Este documento descreve a implementação existente sem alterar o comportamento 
 - Base inicialmente preparada: `fe6967620700c92132253b1e4136dfda8b3fd418`.
 - Base sincronizada de `origin/main` em 2026-09-04: `fb671c3` (`feat: completar experiencia de reunioes e corrigir layout do chat`). A atualização também incorporou `4b4b974` (`feat: melhorar audio e controles individuais das chamadas`).
 - Atualidade reconfirmada durante a etapa TURN em 2026-09-04: `origin/main` havia avançado para `131aebf` (`fix: harden Nora web result parsing`). Os seis commits novos foram integrados no worktree isolado pelo merge `eaa381c`; `origin/main` é ancestral do resultado e não houve conflito. As mudanças remotas eram de Nora/Studio, além de configuração e composição adjacentes, sem alteração dos módulos de chamada.
+- Atualidade reconfirmada ao fechar a etapa 8A em 2026-09-05: `origin/main` avançou oito commits até `18df659` (`chore: expose validated build identity for release verification`). A comparação desde `131aebf` não mostrou alteração nos caminhos de chamadas; a integração ocorreu sem conflito e `origin/main@18df659` é ancestral do resultado final.
 - Evidência de presença em `origin/main`: `git ls-tree -r --name-only origin/main` contém o router, `useTeamCall.ts`, `TeamCallOverlay.tsx`, `ParticipantAudio.tsx`, `meetingRecording.ts`, os testes de ciclo de vida e colaboração e o harness de navegador. A implementação deste documento foi reaplicada sobre essa base e os conflitos nos caminhos de chamada foram resolvidos preservando os dois conjuntos de comportamento.
 
 ## Arquitetura atual
@@ -476,9 +477,9 @@ CallSession (uma por aplicação autenticada)
             +-- LiveKitMediaTransport (somente protótipo descartável nesta etapa)
 ```
 
-`MediaTransport` não envolve ou replica o contrato inteiro de `useTeamCallRuntime`. É uma porta estreita por chamada: `open`, eventos de participante/sinal, atualização de mídia/ICE/perfil de tela, snapshot/assinatura e `close`. O snapshot contém somente streams remotos, qualidade de conexão e telemetria ICE sanitizada. Socket global, chat, gravação, toque, dispositivos e captura continuam sob `CallSession`.
+`MediaTransport` não envolve ou replica o contrato inteiro de `useTeamCallRuntime`. É uma porta estreita por chamada: `open` e `close` assíncronos, eventos de participante/sinal, atualização de mídia/ICE/perfil de tela e snapshot/assinatura. O snapshot contém somente estado/falha normalizados, streams remotos, qualidade de conexão e telemetria ICE sanitizada. Socket global, chat, gravação, toque, dispositivos e captura continuam sob `CallSession`.
 
-`MeshMediaTransport` possui os peers, senders, candidatos pendentes, estado de negociação perfeita, streams remotos, recuperação, telemetria ICE e limpeza determinística que antes estavam concentrados no hook. A fábrica é resolvida pelo valor imutável da chamada; cada chamada recebe uma instância nova, fechada idempotentemente. Assim uma chamada mesh pode ser seguida por uma futura chamada SFU no mesmo provider/socket, mas uma chamada ativa nunca troca de transporte no meio da sessão. Um adapter indisponível falha de forma explícita, sem fallback silencioso.
+`MeshMediaTransport` possui os peers, senders, candidatos pendentes, estado de negociação perfeita, streams remotos, recuperação, telemetria ICE e limpeza determinística que antes estavam concentrados no hook. Eventos de mídia carregam `clientId`: quando outra aba assume o mesmo participante, sinais e saídas atrasados da conexão anterior são descartados. A fábrica é resolvida pelo valor imutável da chamada; cada chamada recebe uma instância nova, fechada idempotentemente. O runtime solta suas referências antes do fechamento e continua a limpeza de tracks locais mesmo se o adapter falhar. Assim uma chamada mesh pode ser seguida por uma futura chamada SFU no mesmo provider/socket, mas uma chamada ativa nunca troca de transporte no meio da sessão. Um adapter indisponível falha de forma explícita, sem fallback silencioso.
 
 Componentes alterados para essa fronteira:
 
@@ -523,14 +524,15 @@ Execução em 2026-09-05, no worktree isolado, sem deploy:
 
 | Área | Comando | Resultado |
 | --- | --- | --- |
-| Backend completo | `.\.venv\Scripts\python.exe -m unittest discover -s tests -q` | 484 testes aprovados em 19,244 s (`OK`) |
-| Frontend focado — runtime/sessão/transporte | `npm test -- --run src/components/team-chat/useTeamCall.test.tsx src/components/team-chat/CallSession.test.tsx src/components/team-chat/media/MediaTransport.test.ts` | 3 arquivos e 39 testes aprovados |
-| Frontend completo | `npm test` | 71 arquivos e 471 testes aprovados |
+| Backend focado — coordenador/configuração/WebSocket | `.\.venv\Scripts\python.exe -m unittest tests.unit.test_call_coordinator tests.unit.test_team_call_configuration tests.test_team_call_lifecycle -q` | 40 testes aprovados em 0,574 s (`OK`) |
+| Backend completo | `.\.venv\Scripts\python.exe -m unittest discover -s tests -q` | 515 testes aprovados em 26,902 s (`OK`) |
+| Frontend focado — runtime/sessão/transporte | `npm test -- --run src/components/team-chat/useTeamCall.test.tsx src/components/team-chat/CallSession.test.tsx src/components/team-chat/media/MediaTransport.test.ts` | 3 arquivos e 41 testes aprovados |
+| Frontend completo | `npm test` | 76 arquivos e 502 testes aprovados |
 | Build de produção | `npm run build` | aprovado; apenas o aviso preexistente de chunk geral acima de 500 kB |
-| Análise estática | `npm run lint` | aprovado; 14 avisos preexistentes fora de chamadas |
+| Análise estática | `npm run lint` | aprovado; 13 avisos preexistentes fora de chamadas |
 | Protótipo local | `npm run prototype` na branch/commit descartável acima | matriz 2/4/6, autenticação negativa e screen share aprovadas; resultados reproduzíveis e limitações registradas |
 
-Uma rodada completa intermediária do frontend, anterior ao último teste da extração, já havia aprovado 70 arquivos e 470 testes. A tabela registra a repetição final com 71/471. Os únicos avisos permanecem os cenários negativos intencionais do backend, os 14 avisos de lint fora do escopo e o aviso de tamanho de chunk do Vite. Nenhum teste falhou ao final e nenhum comando de deploy foi executado.
+A tabela registra a repetição final depois de integrar `origin/main@18df659`. Os únicos avisos permanecem os cenários negativos intencionais do backend, um aviso de depreciação do `pypdf`, os 13 avisos de lint fora do escopo e o aviso de tamanho de chunk do Vite. Nenhum teste falhou ao final e nenhum comando de deploy foi executado.
 
 ### Riscos confirmados e componentes condicionados à 8B
 
@@ -542,6 +544,7 @@ Além dos riscos históricos acima, permanecem confirmados:
 4. O protótipo self-hosted local não prova o serviço Cloud, região, rede restritiva, disponibilidade, residência, preço ou operação. TURN externo continua sendo bloqueio separado.
 5. E2EE entra em tensão com gravação/Egress: um gravador que interpreta a mídia precisa receber chaves ou a política deve escolher outro fluxo, sempre preservando consentimento, quotas, auditoria e retenção.
 6. A saída self-hosted compartilha SDK/protocolo, mas exige Redis, TURN/TLS, balanceamento, Egress, observabilidade, upgrades e plantão; não é fallback operacional gratuito.
+7. O host hoje cria a chamada de negócio ao publicar `CALL_INVITE`. Um adapter SFU de produção que precise de token antes de abrir mídia exigirá, na 8B, reserva/autorização idempotente anterior ao ingresso; o protótipo não resolve essa ordem e nenhum `LiveKitMediaTransport` foi ligado ao produto nesta etapa.
 
 Se — e somente se — o responsável aceitar o ADR, a etapa 8B poderá alterar:
 

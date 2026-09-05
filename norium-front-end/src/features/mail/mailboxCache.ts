@@ -2,11 +2,12 @@
 // Extraido de EmailDashboard.tsx sem alteracao de comportamento.
 import type { MailQuickFilter, MailboxSnapshot } from "./types";
 import { resolveMailboxFolder } from "./queryBuilder";
+import { workspaceScope } from "../../core/api/sessionScope";
 
 export const mailboxSessionCache = new Map<string, MailboxSnapshot>();
 
 export function mailboxCacheKey(userId: string, folder: string, filter: MailQuickFilter, query: string) {
-  return `${userId}::${resolveMailboxFolder(folder, filter)}::${filter}::${query.trim()}`;
+  return `${userId}::${JSON.stringify([workspaceScope(), resolveMailboxFolder(folder, filter), filter, query.trim()])}`;
 }
 
 /** Invalida so as entradas do usuario informado, preservando as dos demais. */

@@ -763,20 +763,23 @@ export default function BrainstormDashboard({
     setLoading(true);
     setError("");
     try {
-      const [sessionData, usersData] = await Promise.all([
-        jsonRequest<BrainstormSession[]>("/api/brainstorm/sessions"),
-        jsonRequest<{ users: NoriumUser[] }>("/api/auth/users").catch(() => ({ users: [session.user] })),
-      ]);
+      const sessionData = await jsonRequest<BrainstormSession[]>("/api/brainstorm/sessions");
       setSessions(sessionData);
-      setMembers(usersData.users || [session.user]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Falha ao carregar sessões.");
     } finally {
       setLoading(false);
     }
-  }, [session.user]);
+  }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    void jsonRequest<{ users: NoriumUser[] }>("/api/auth/users")
+      .then((payload) => { if (active) setMembers(payload.users || [session.user]); })
+      .catch(() => { if (active) setMembers([session.user]); });
+    return () => { active = false; };
+  }, [session.user]);
 
   async function createSession(form: StudioSessionForm) {
     if (!form.title.trim()) return;

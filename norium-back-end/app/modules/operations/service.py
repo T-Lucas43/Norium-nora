@@ -1063,14 +1063,18 @@ async def global_search(user: dict[str, Any], query: str, limit: int = 20) -> di
 
 async def operations_overview(user: dict[str, Any]) -> dict[str, Any]:
     user_id = str(user.get("id") or "lucas123")
-    events = await read_events(user_id)
-    approvals = await list_items(user_id, APPROVAL_DB)
-    audits = await list_items(user_id, AUDIT_DB)
-    receipts = await list_items(user_id, RECEIPT_DB)
-    templates = await list_items(user_id, TEMPLATE_DB)
-    follow_ups = await list_items(user_id, FOLLOWUP_DB)
-    tasks = list_tasks(user_id, status="todas")
-    finance = list_finance(user_id)
+    events, approvals, audits, receipts, templates, follow_ups, tasks, finance, memory, settings = await asyncio.gather(
+        read_events(user_id),
+        list_items(user_id, APPROVAL_DB),
+        list_items(user_id, AUDIT_DB),
+        list_items(user_id, RECEIPT_DB),
+        list_items(user_id, TEMPLATE_DB),
+        list_items(user_id, FOLLOWUP_DB),
+        asyncio.to_thread(list_tasks, user_id, status="todas"),
+        asyncio.to_thread(list_finance, user_id),
+        list_nora_memory(user),
+        get_operation_settings(user),
+    )
     task_stats = tasks.get("stats") if isinstance(tasks.get("stats"), dict) else {}
     finance_summary = finance.get("resumo") if isinstance(finance.get("resumo"), dict) else {}
 
@@ -1086,8 +1090,6 @@ async def operations_overview(user: dict[str, Any]) -> dict[str, Any]:
         "unhealthyIntegrations": len([item for item in integrations if item.get("status") != "online"]),
     }
     alerts = _proactive_alerts(tasks.get("tasks") or [], finance, events, integrations, audits)
-    memory = await list_nora_memory(user)
-    settings = await get_operation_settings(user)
     return {
         "generatedAt": now_iso(),
         "summary": summary,

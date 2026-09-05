@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BookOpen,
@@ -114,48 +114,61 @@ export default function PlatformDashboard({ session, onNavigate }: PlatformDashb
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
+  const loadedAreas = useRef(new Set<PlatformArea>());
+  const requestVersion = useRef(0);
   const load = useCallback(async () => {
-    setLoading(true);
+    const version = ++requestVersion.current;
+    setLoading(!loadedAreas.current.has(area));
     setError("");
     try {
-      const [summaryPayload, companies, absences, forms, knowledge, signatures, rules, sla, vault] =
-        await Promise.all([
-          apiRequest<PlatformSummary>("/api/plataforma/resumo"),
-          apiRequest<{ items: Workspace[] }>("/api/plataforma/empresas"),
+      if (area === "overview") {
+        const payload = await apiRequest<PlatformSummary>("/api/plataforma/resumo");
+        if (version !== requestVersion.current) return;
+        setSummary(payload);
+      } else if (area === "companies") {
+        const payload = await apiRequest<{ items: Workspace[] }>("/api/plataforma/empresas");
+        if (version !== requestVersion.current) return;
+        setData((current) => ({ ...current, companies: payload.items }));
+      } else if (area === "service") {
+        const [absences, forms, sla, members] = await Promise.all([
           apiRequest<{ items: JsonItem[] }>("/api/plataforma/ausencias"),
-          apiRequest<{ items: JsonItem[]; submissions: JsonItem[] }>("/api/plataforma/formularios"),
+          apiRequest<{ items: JsonItem[] }>("/api/plataforma/formularios"),
+          apiRequest<{ policies: JsonItem[] }>("/api/plataforma/sla"),
+          apiRequest<{ users: NoriumUser[] }>("/api/auth/users"),
+        ]);
+        if (version !== requestVersion.current) return;
+        setUsers(members.users);
+        setData((current) => ({ ...current, absences: absences.items, forms: forms.items, policies: sla.policies }));
+      } else if (area === "knowledge") {
+        const [knowledge, signatures] = await Promise.all([
           apiRequest<{ items: JsonItem[] }>("/api/plataforma/conhecimento"),
           apiRequest<{ items: JsonItem[] }>("/api/plataforma/assinaturas"),
-          apiRequest<{ items: JsonItem[] }>("/api/plataforma/regras-aprovacao"),
-          apiRequest<{ policies: JsonItem[]; cases: JsonItem[] }>("/api/plataforma/sla"),
-          apiRequest<{ items: JsonItem[] }>("/api/plataforma/cofre").catch(() => ({ items: [] })),
         ]);
-      const teamUsers = await apiRequest<{ users: NoriumUser[] }>("/api/auth/users").catch(() => ({ users: [] }));
-      const audit = await apiRequest<{ items: AuditEntry[] }>("/api/operacao/auditoria?limit=5").catch(() => ({ items: [] }));
-      setSummary(summaryPayload);
-      setUsers(teamUsers.users);
-      setAuditPreview(audit.items);
-      setData({
-        companies: companies.items,
-        absences: absences.items,
-        forms: forms.items,
-        submissions: forms.submissions,
-        knowledge: knowledge.items,
-        signatures: signatures.items,
-        rules: rules.items,
-        policies: sla.policies,
-        cases: sla.cases,
-        vault: vault.items,
-      });
+        if (version !== requestVersion.current) return;
+        setData((current) => ({ ...current, knowledge: knowledge.items, signatures: signatures.items }));
+      } else {
+        const [rules, vault, members, audit] = await Promise.all([
+          apiRequest<{ items: JsonItem[] }>("/api/plataforma/regras-aprovacao"),
+          apiRequest<{ items: JsonItem[] }>("/api/plataforma/cofre"),
+          apiRequest<{ users: NoriumUser[] }>("/api/auth/users"),
+          apiRequest<{ items: AuditEntry[] }>("/api/operacao/auditoria?limit=5"),
+        ]);
+        if (version !== requestVersion.current) return;
+        setUsers(members.users);
+        setAuditPreview(audit.items);
+        setData((current) => ({ ...current, rules: rules.items, vault: vault.items }));
+      }
+      loadedAreas.current.add(area);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel carregar a governanca.");
+      if (version === requestVersion.current) setError(requestError instanceof Error ? requestError.message : "Não foi possível carregar esta área.");
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
-  }, []);
+  }, [area]);
 
   useEffect(() => {
     void load();
+    return () => { requestVersion.current += 1; };
   }, [load]);
 
   const mutate = useCallback(

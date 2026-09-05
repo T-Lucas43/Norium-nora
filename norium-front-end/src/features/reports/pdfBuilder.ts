@@ -1,6 +1,5 @@
 // Geracao de PDF (jsPDF) do relatorio operacional e financeiro - extraido de
 // ReportsDashboard.tsx para separar a logica de exportacao da renderizacao.
-import { jsPDF } from "jspdf";
 import type { EventSource, OmnichannelEvent, SystemNotification } from "../../types/omnichannel";
 import type { FinanceMetrics, PdfColor, PdfLine, Period, ProductivityMetrics, ReportCustomizerState, ReportSource } from "./types";
 import { classifyEvent, formatDate, formatFinanceDate, formatGeneratedAt, formatSavedTime, money, periodLabels, sourceLabels } from "./metrics";
@@ -162,6 +161,7 @@ async function loadReportLogo(logoUrl: string) {
 }
 
 async function createPdfBlob(lines: PdfLine[], logoUrl: string, themeName: PdfThemeName = "dark") {
+  const { jsPDF } = await import("jspdf");
   const theme = themeName === "light" ? lightPdfTheme : pdfTheme;
   const document = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait", compress: true });
   const pageWidth = document.internal.pageSize.getWidth();

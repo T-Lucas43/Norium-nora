@@ -31,6 +31,7 @@ import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
 import BrandLogo from "./BrandLogo";
 import NoraAvatar from "./NoraAvatar";
+import { preloadPanel } from "../../app/navigation/panelModules";
 
 type NavigationItem = {
   title: string;
@@ -157,6 +158,8 @@ export default function Sidebar({
                 type="button"
                 className={`norium-sidebar-item ${active ? "is-active" : ""} ${item.title === "Nora" ? "is-nora" : ""}`}
                 onClick={() => navigate(item.title)}
+                onPointerEnter={() => preloadPanel(item.title)}
+                onFocus={() => preloadPanel(item.title)}
                 title={compact ? item.title : undefined}
                 aria-current={active ? "page" : undefined}
                aria-label={compact ? item.title : undefined}>

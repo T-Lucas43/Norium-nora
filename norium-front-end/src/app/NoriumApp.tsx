@@ -11,6 +11,7 @@ import { applyNoriumTheme } from "../utils/theme";
 import { authJson } from "../utils/authApi";
 import type { TeamCallSocketEvent } from "../components/team-chat/useTeamCall";
 import AppPanels from "./components/AppPanels";
+import { preloadPanel } from "./navigation/panelModules";
 import { useAuthSession } from "./hooks/useAuthSession";
 import { useOperatorProfile } from "./hooks/useOperatorProfile";
 import {
@@ -143,6 +144,7 @@ export default function NoriumApp() {
 
   const navigateTab = useCallback((tab: string, options: { replace?: boolean } = {}) => {
     const nextTab = canonicalTab(tab);
+    preloadPanel(nextTab);
     setActiveTab(nextTab);
     navigateNoriumTab(nextTab, options);
   }, []);

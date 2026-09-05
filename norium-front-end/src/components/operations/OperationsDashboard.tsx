@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { apiBaseUrl, authToken } from "../../utils/api";
+import { apiRequest } from "../../core/api/client";
 import { showConfirm } from "../shared/AppDialogProvider";
 import Button from "../shared/Button";
 
@@ -144,7 +145,7 @@ const API_URL = `${apiBaseUrl()}/api/operacao`;
 const CACHE_KEY = "norium-operations-overview";
 
 function cacheKey(userId: string) {
-  return `${CACHE_KEY}:${userId}`;
+  return `${CACHE_KEY}:${userId}:${localStorage.getItem("norium-workspace-id") || "primary"}`;
 }
 
 function headers(): HeadersInit {
@@ -158,7 +159,8 @@ function headers(): HeadersInit {
 function cachedOverview(userId: string): OperationsOverview | null {
   try {
     const payload = sessionStorage.getItem(cacheKey(userId));
-    return payload ? (JSON.parse(payload) as OperationsOverview) : null;
+    const cached = payload ? JSON.parse(payload) as { savedAt?: number; data?: OperationsOverview } : null;
+    return cached?.savedAt && Date.now() - cached.savedAt < 60_000 ? cached.data || null : null;
   } catch {
     return null;
   }
@@ -217,11 +219,9 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/resumo`, { headers: headers() });
-      if (!response.ok) throw new Error((await response.text()) || "Falha ao carregar o controle operacional.");
-      const payload = (await response.json()) as OperationsOverview;
+      const payload = await apiRequest<OperationsOverview>("/api/operacao/resumo");
       setOverview(payload);
-      sessionStorage.setItem(cacheKey(userId), JSON.stringify(payload));
+      sessionStorage.setItem(cacheKey(userId), JSON.stringify({ savedAt: Date.now(), data: payload }));
       setError("");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Controle operacional indisponivel.");

@@ -18,6 +18,31 @@ function mockSuccessfulBlobFetch(blob = new Blob(["media"], { type: "image/png" 
   } as unknown as Response);
 }
 
+describe("response isolation", () => {
+  it.each(["token", "workspace"])("rejects a late JSON response after changing %s", async (change) => {
+    localStorage.setItem(AUTH_TOKEN_STORAGE, "session-a");
+    let finish!: (value: unknown) => void;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true, json: () => new Promise((resolve) => { finish = resolve; }) } as unknown as Response);
+    const pending = apiRequest("/api/clientes");
+    await Promise.resolve();
+    if (change === "token") localStorage.setItem(AUTH_TOKEN_STORAGE, "session-b");
+    else localStorage.setItem("norium-workspace-id", "workspace-b");
+    finish({ private: "account-a-data" });
+    await expect(pending).rejects.toMatchObject({ status: 499 });
+  });
+
+  it("rejects a PDF that finishes after logout", async () => {
+    localStorage.setItem(AUTH_TOKEN_STORAGE, "session-a");
+    let finish!: (value: Blob) => void;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true, blob: () => new Promise((resolve) => { finish = resolve; }) } as unknown as Response);
+    const pending = apiBlobRequest("/api/nora/files/id/content");
+    await Promise.resolve();
+    localStorage.removeItem(AUTH_TOKEN_STORAGE);
+    finish(new Blob(["private PDF"]));
+    await expect(pending).rejects.toMatchObject({ status: 499 });
+  });
+});
+
 describe("apiErrorMessage", () => {
   it("preserva a explicacao de validacao retornada pelo FastAPI", () => {
     expect(apiErrorMessage({

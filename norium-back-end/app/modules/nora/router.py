@@ -505,6 +505,7 @@ async def nora_file_content(
         media_type=str(record.get("mimeType") or "application/octet-stream"),
         filename=str(record.get("name") or path.name),
         content_disposition_type="attachment" if download else "inline",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
     )
 
 

@@ -10,6 +10,7 @@ from reportlab.pdfgen import canvas
 
 from app.modules.nora.conversations import SavedMessage
 from app.services.nora_files import deterministic_file_command, list_library_files, owned_file, save_upload, set_library_status
+from app.core.request_context import set_request_context, reset_request_context
 
 
 def sample_pdf(text: str = "Documento Norium") -> bytes:
@@ -54,6 +55,26 @@ class NoraFilesTests(unittest.TestCase):
         removed = set_library_status("user-a", artifact["id"], False)
         self.assertFalse(removed["inLibrary"])
         self.assertEqual([], list_library_files("user-a"))
+
+    def test_library_and_file_ids_cannot_cross_users_or_workspaces(self):
+        context = set_request_context("isolation-test", "workspace-a")
+        try:
+            artifact = self.upload("user-a")
+            set_library_status("user-a", artifact["id"], True)
+            self.assertEqual([], list_library_files("user-b"))
+            with self.assertRaises(HTTPException) as denied:
+                set_library_status("user-b", artifact["id"], True)
+            self.assertEqual(denied.exception.status_code, 404)
+        finally:
+            reset_request_context(context)
+        context = set_request_context("isolation-test", "workspace-b")
+        try:
+            self.assertEqual([], list_library_files("user-a"))
+            with self.assertRaises(HTTPException) as denied:
+                owned_file("user-a", artifact["id"])
+            self.assertEqual(denied.exception.status_code, 404)
+        finally:
+            reset_request_context(context)
 
     def test_pdf_operation_runs_locally_and_reports_zero_tokens(self):
         artifact = self.upload()

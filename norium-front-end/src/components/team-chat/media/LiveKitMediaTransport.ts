@@ -35,11 +35,19 @@ type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 const SFU_ACCESS_TIMEOUT_MS = 8000;
 
 export class HttpLiveKitAccessProvider implements LiveKitAccessProvider {
+  private readonly token: string;
+  private readonly endpointBase: string;
+  private readonly request: FetchLike;
+
   constructor(
-    private readonly token: string,
-    private readonly endpointBase = `${apiBaseUrl()}/api/team-chat`,
-    private readonly request: FetchLike = (input, init) => fetch(input, init),
-  ) {}
+    token: string,
+    endpointBase = `${apiBaseUrl()}/api/team-chat`,
+    request: FetchLike = (input, init) => fetch(input, init),
+  ) {
+    this.token = token;
+    this.endpointBase = endpointBase;
+    this.request = request;
+  }
 
   async getAccess(callId: string, clientId: string, signal?: AbortSignal): Promise<LiveKitAccess> {
     const controller = new AbortController();
@@ -255,6 +263,8 @@ class LiveKitSdkRoomClient implements LiveKitRoomClient {
 export class LiveKitMediaTransport implements MediaTransport {
   readonly kind = "sfu" as const;
 
+  private readonly dependencies: MediaTransportDependencies;
+  private readonly access: LiveKitAccessProvider;
   private readonly listeners = new Set<(snapshot: MediaTransportSnapshot) => void>();
   private readonly createRoom: () => LiveKitRoomClient;
   private room: LiveKitRoomClient | null = null;
@@ -270,10 +280,12 @@ export class LiveKitMediaTransport implements MediaTransport {
   private accessAbortController: AbortController | null = null;
 
   constructor(
-    private readonly dependencies: MediaTransportDependencies,
-    private readonly access: LiveKitAccessProvider,
+    dependencies: MediaTransportDependencies,
+    access: LiveKitAccessProvider,
     options: LiveKitMediaTransportOptions = {},
   ) {
+    this.dependencies = dependencies;
+    this.access = access;
     this.createRoom = options.createRoom || (() => new LiveKitSdkRoomClient());
   }
 
@@ -587,10 +599,16 @@ export class LiveKitMediaTransport implements MediaTransport {
 export class LiveKitMediaTransportFactory implements MediaTransportFactory {
   readonly kind = "sfu" as const;
 
+  private readonly access: LiveKitAccessProvider;
+  private readonly options: LiveKitMediaTransportOptions;
+
   constructor(
-    private readonly access: LiveKitAccessProvider,
-    private readonly options: LiveKitMediaTransportOptions = {},
-  ) {}
+    access: LiveKitAccessProvider,
+    options: LiveKitMediaTransportOptions = {},
+  ) {
+    this.access = access;
+    this.options = options;
+  }
 
   create(dependencies: MediaTransportDependencies) {
     return new LiveKitMediaTransport(dependencies, this.access, this.options);

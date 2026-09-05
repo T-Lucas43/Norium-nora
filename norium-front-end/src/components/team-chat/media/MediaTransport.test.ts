@@ -68,7 +68,7 @@ describe("MediaTransport", () => {
       onConnected: vi.fn(),
       onStatus: vi.fn(),
     }, {});
-    transport.open({ callId: "call_current", selfUserId: "owner" }, {
+    transport.open({ callId: "call_current", selfUserId: "owner", clientId: "owner-tab" }, {
       localStream: null, screenStream: null, screenShareQuality: "1080p", screenShareFps: 30,
     });
 

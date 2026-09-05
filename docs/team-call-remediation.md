@@ -557,3 +557,86 @@ Se — e somente se — o responsável aceitar o ADR, a etapa 8B poderá alterar
 - rollout e rollback apenas de chamadas novas, nunca migração de transporte no meio de uma chamada.
 
 **Decisão:** o responsável aprovou o ADR em 2026-09-05. A etapa 8B pode avançar de forma incremental, mantendo configuração desabilitada por padrão. A aprovação não autoriza provisionar LiveKit Cloud, inserir segredo de produção, alterar o transporte padrão para todos, contratar serviço, migrar gravação ou fazer deploy.
+
+## Etapa 8B.1 — integração LiveKit dormente
+
+Esta fatia implementa o primeiro passo reversível autorizado pelo ADR. Ela adiciona o contrato de admissão, o emissor de credenciais efêmeras e o adapter de mídia de produção, mas mantém todas as chamadas reais em `mesh`. Não houve provisionamento, segredo real, seleção de coorte, migração de gravação ou deploy.
+
+### Limite arquitetural implementado
+
+```text
+CALL_INVITE / CALL_ACCEPT
+        |
+        v
+CallCoordinator — autoridade de chamada, participante, cliente e capacidade
+        |
+        +-- CALL_ACK { mediaTransport, joinedCount, maxParticipants }
+        |                                      |
+        |                                      v
+        |                              CallSession / MediaTransport
+        |                                  |              |
+        |                                  |              +-- LiveKitMediaTransport
+        |                                  +-- MeshMediaTransport       (default)
+        |
+        +-- media_context(callId, clientId, transport="sfu")
+                         |
+                         v
+POST /calls/{callId}/media-token
+        |
+        v
+SfuTokenProvider -> LiveKitTokenProvider -> URL WSS + JWT curto
+```
+
+- O servidor admite a operação antes de abrir o transporte ou pedir token ao provedor. O ACK é autoritativo e carrega o transporte e a capacidade persistidos na chamada. Timeout ou falha depois da admissão provoca compensação idempotente com `CALL_END` para o anfitrião ou `CALL_LEAVE` para o participante.
+- `CallCoordinator.media_context` revalida equipe ativa, participante ativo, cliente exato e transporte esperado. Cada aba recebe um `mediaSessionId` opaco próprio; repetição da mesma admissão pelo mesmo cliente conserva o identificador, enquanto outra aba o substitui. Eventos antigos não podem obter token para a sessão nova.
+- `POST /api/team-chat/calls/{callId}/media-token` exige a autenticação existente e o `clientId` admitido. Sucesso e erro de domínio usam `Cache-Control: no-store`; o provedor nunca é chamado para cliente obsoleto ou chamada não-SFU.
+- `LiveKitTokenProvider` aceita apenas URL `wss:`, chave/segredo válidos e TTL entre 60 e 600 segundos. O JWT usa identidade derivada e opaca, restringe ingresso à sala da chamada e concede somente publicação de microfone, câmera, tela/áudio de tela e assinatura; não há grants administrativos nem segredo no frontend.
+- `LiveKitMediaTransport` é o único arquivo da aplicação que importa `livekit-client`. Ele conecta após o token efêmero, publica somente tracks já capturadas pela `CallSession`, normaliza participantes pela metadata mínima `userId`, expõe reconexão/encerramento pelo contrato comum e não registra token, SDP, candidato ou IP.
+- Fechar a sessão invalida a geração da abertura, aborta a requisição de token e desconecta uma sala que tenha concluído tardiamente. Para duas abas do mesmo usuário, a identidade mais nova substitui a antiga e uma desconexão atrasada não remove a mídia vigente.
+
+### Contrato de configuração
+
+| Variável | Regra/default |
+| --- | --- |
+| `TEAM_CALL_SFU_ENABLED` | `false`; apenas habilita a emissão configurada de tokens, não seleciona chamadas SFU |
+| `TEAM_CALL_LIVEKIT_URL` | URL `wss:` do serviço; vazia quando desabilitado |
+| `TEAM_CALL_LIVEKIT_API_KEY` | chave somente do backend; vazia quando desabilitado |
+| `TEAM_CALL_LIVEKIT_API_SECRET` | segredo ASCII de pelo menos 32 caracteres, somente no runtime backend |
+| `TEAM_CALL_SFU_TOKEN_TTL_SECONDS` | default 300; permitido 60–600 |
+
+A validação ocorre em `create_app`. Configuração parcial ou insegura interrompe o startup quando o recurso é habilitado. O bundle contém apenas o SDK cliente; nenhuma chave permanente ou variável LiveKit é exposta por `VITE_*`.
+
+### Componentes alterados nesta fatia
+
+- `norium-back-end/app/modules/team/sfu_tokens.py`: porta do provedor, adapter LiveKit, JWT curto, grants mínimos e validação.
+- `norium-back-end/app/modules/team/call_coordinator.py`: transporte/capacidade autoritativos no ACK e autorização ligada à sessão de mídia.
+- `norium-back-end/app/modules/team/router.py`: endpoint fino, autenticação, resposta não-cacheável e composição do provider; a seleção SFU não está ligada.
+- `norium-back-end/app/bootstrap.py` e `.env.example`: validação e contrato de configuração. A integração de `origin/main@3130c7f` preservou também o lifespan de e-mail e a manutenção periódica de gravações.
+- `norium-front-end/src/components/team-chat/media/LiveKitMediaTransport.ts`: adapter e cliente HTTP estreitos, cancelamento e limpeza determinística.
+- `MediaTransport.ts`, `CallSession.tsx` e `useTeamCall.ts`: registro dormente da fábrica e protocolo ACK-antes-de-transporte com compensação.
+- Testes unitários correspondentes no backend e frontend.
+
+### Bloqueio objetivo antes de ativar uma coorte
+
+O `router` constrói o `CallCoordinator` sem `media_transport_for_team`; portanto o default continua `mesh`, mesmo com `TEAM_CALL_SFU_ENABLED=true`. Isso é intencional. Ainda não existe um plano administrativo que execute `RemoveParticipant`/encerramento de sala no LiveKit nem reconciliação de webhooks assinados, deduplicados e fora de ordem. Um JWT já emitido não é revogado apenas pela expiração ou pela recusa de reemissão.
+
+Assim, esta fatia não afirma chamada Cloud, relay-only SFU, revogação imediata no provedor nem rollout. O único próximo marco é implementar uma porta de controle de mídia com remoção/encerramento server-side e webhooks verificados/deduplicados; somente depois disso uma coorte interna poderá selecionar `sfu`. Egress continua fora desse próximo marco.
+
+### Verificação da etapa 8B.1
+
+Execução em 2026-09-05, no worktree isolado e depois de integrar `origin/main@3130c7f`, sem deploy:
+
+| Área | Comando | Resultado |
+| --- | --- | --- |
+| Backend focado — token/coordenador/configuração/ciclo | `.\.venv\Scripts\python.exe -m unittest tests.unit.test_sfu_tokens tests.unit.test_call_coordinator tests.unit.test_team_call_configuration tests.test_team_call_lifecycle -q` | 52 testes aprovados em 0,608 s |
+| Integração do merge — e-mail | `.\.venv\Scripts\python.exe -m unittest tests.unit.test_system_email -q` | 18 testes aprovados em 1,188 s |
+| Integração do merge — gravação | teste isolado `test_recording_is_uploaded_in_chunks_and_expires_after_24_hours` | aprovado; finalização pelo coordenador, notificação e retenção preservadas |
+| Backend completo | `.\.venv\Scripts\python.exe -m unittest discover -s tests -q` | 545 testes aprovados em 27,018 s |
+| Frontend focado final — adapters | `npm test -- --run src/components/team-chat/media/LiveKitMediaTransport.test.ts src/components/team-chat/media/MediaTransport.test.ts` | 2 arquivos e 16 testes aprovados |
+| Frontend completo final | `npm test -- --run` | 79 arquivos e 523 testes aprovados em 9,72 s |
+| Build de produção | `npm run build` | aprovado; TypeScript e Vite, 1.726 módulos transformados e build Vite em 1,37 s |
+| Análise estática | `npm run lint` | exit code 0; 13 avisos preexistentes fora de chamadas |
+
+A primeira tentativa do build detectou propriedades TypeScript declaradas no construtor, incompatíveis com `erasableSyntaxOnly`, e um fixture legado sem `clientId`. Ambos foram corrigidos mecanicamente; os 16 testes diretamente afetados, o build, o lint e a suíte frontend completa foram repetidos sobre o estado final e passaram. Permanece apenas o aviso preexistente de chunk geral acima de 500 kB. As mensagens do backend no log são cenários negativos intencionais dos testes, não falhas.
+
+Logs completos: `norium-back-end/artifacts/team-call-8b-backend-full.log`, `norium-front-end/artifacts/team-call-8b-frontend-full.log`, `norium-front-end/artifacts/team-call-8b-production-build.log` e `norium-front-end/artifacts/team-call-8b-lint.log`; os diretórios de artefatos são ignorados pelo Git.

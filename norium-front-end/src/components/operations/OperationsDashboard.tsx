@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 
 import { apiBaseUrl, authToken } from "../../utils/api";
-import { apiRequest } from "../../core/api/client";
+import { useOperationsData, type OperationSection } from "./useOperationsData";
 import { showConfirm } from "../shared/AppDialogProvider";
 import Button from "../shared/Button";
 
@@ -97,7 +97,7 @@ type FinancialReminder = {
   daysUntil: number;
 };
 
-type OperationsOverview = {
+export type OperationsOverview = {
   generatedAt: string;
   summary: Summary;
   myDay: {
@@ -142,28 +142,12 @@ type NoraMemory = {
 type TimelineMode = "receipts" | "audit";
 
 const API_URL = `${apiBaseUrl()}/api/operacao`;
-const CACHE_KEY = "norium-operations-overview";
-
-function cacheKey(userId: string) {
-  return `${CACHE_KEY}:${userId}:${localStorage.getItem("norium-workspace-id") || "primary"}`;
-}
-
 function headers(): HeadersInit {
   const token = authToken();
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-}
-
-function cachedOverview(userId: string): OperationsOverview | null {
-  try {
-    const payload = sessionStorage.getItem(cacheKey(userId));
-    const cached = payload ? JSON.parse(payload) as { savedAt?: number; data?: OperationsOverview } : null;
-    return cached?.savedAt && Date.now() - cached.savedAt < 60_000 ? cached.data || null : null;
-  } catch {
-    return null;
-  }
 }
 
 function formatDate(value?: string | null, includeDate = true) {
@@ -195,9 +179,12 @@ type OperationsDashboardProps = {
 };
 
 export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: OperationsDashboardProps) {
-  const [overview, setOverview] = useState<OperationsOverview | null>(() => cachedOverview(userId));
-  const [loading, setLoading] = useState(!overview);
-  const [refreshing, setRefreshing] = useState(false);
+  const { overview, ready, errors: sectionErrors, refreshing, refresh: loadOverview, loadSection } = useOperationsData(userId);
+  const sectionStatus = (section: OperationSection, label: string) => (
+    <div role={sectionErrors[section] ? "alert" : "status"} className="flex min-h-28 items-center justify-center gap-3 p-5 text-sm text-[var(--text-secondary)]">
+      {sectionErrors[section] ? <><AlertTriangle size={18} /><span>{label} indisponíveis no momento.</span><Button size="sm" onClick={() => void loadSection(section, true)}>Tentar novamente</Button></> : <><LoaderCircle size={18} className="animate-spin" /><span>Carregando {label.toLocaleLowerCase("pt-BR")}...</span></>}
+    </div>
+  );
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [timelineMode, setTimelineMode] = useState<TimelineMode>("receipts");
@@ -214,35 +201,6 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
   const [savingMemory, setSavingMemory] = useState(false);
   const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
   const [undoingReceiptId, setUndoingReceiptId] = useState<string | null>(null);
-
-  const loadOverview = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true);
-    else setLoading(true);
-    try {
-      const payload = await apiRequest<OperationsOverview>("/api/operacao/resumo");
-      setOverview(payload);
-      sessionStorage.setItem(cacheKey(userId), JSON.stringify({ savedAt: Date.now(), data: payload }));
-      setError("");
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Controle operacional indisponivel.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [userId]);
-
-  useEffect(() => {
-    void loadOverview(Boolean(sessionStorage.getItem(cacheKey(userId))));
-    const timer = window.setInterval(() => void loadOverview(true), 30_000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void loadOverview(true);
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [loadOverview, userId]);
 
   const pendingApprovals = useMemo(
     () => (overview?.approvals || []).filter((approval) => approval.status === "pending"),
@@ -424,22 +382,8 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
     }
   }
 
-  if (loading && !overview) {
-    return (
-      <div className="grid h-full min-h-[560px] place-items-center bg-[var(--background)] text-[var(--text-secondary)]">
-        <span className="flex items-center gap-3 text-sm font-bold"><LoaderCircle className="animate-spin" size={19} /> Preparando o controle operacional...</span>
-      </div>
-    );
-  }
-
-  const summary = overview?.summary || {
-    pendingApprovals: 0,
-    activeTasks: 0,
-    overdueTasks: 0,
-    todayEvents: 0,
-    financialReminders: 0,
-    unhealthyIntegrations: 0,
-  };
+  const summary = overview.summary || {};
+  const alertsReady = ready.summary && ready.history && ready.integrations;
 
   return (
     <div className="h-full overflow-y-auto bg-[var(--background)] p-4 text-[var(--text)] sm:p-6 xl:p-8">
@@ -473,11 +417,13 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
           </div>
         )}
 
+        {Object.values(sectionErrors).some(Boolean) && <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">Algumas seções não puderam ser atualizadas. Os dados já carregados continuam disponíveis. Use Atualizar para tentar novamente.</div>}
+
         <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-          <MetricCard icon={ClipboardCheck} label="Aprovacoes" value={summary.pendingApprovals} tone="amber" />
-          <MetricCard icon={AlertTriangle} label="Tarefas vencidas" value={summary.overdueTasks} tone="rose" />
-          <MetricCard icon={CalendarDays} label="Agenda hoje" value={summary.todayEvents} tone="violet" />
-          <MetricCard icon={Activity} label="Integracoes em atencao" value={summary.unhealthyIntegrations} tone="cyan" />
+          <MetricCard icon={ClipboardCheck} label="Aprovacoes" value={ready.approvals ? summary.pendingApprovals : undefined} tone="amber" />
+          <MetricCard icon={AlertTriangle} label="Tarefas vencidas" value={ready.summary ? summary.overdueTasks : undefined} tone="rose" />
+          <MetricCard icon={CalendarDays} label="Agenda hoje" value={ready.summary ? summary.todayEvents : undefined} tone="violet" />
+          <MetricCard icon={Activity} label="Integracoes em atencao" value={ready.integrations ? summary.unhealthyIntegrations : undefined} tone="cyan" />
         </section>
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,.75fr)_minmax(0,1.25fr)]">
@@ -486,17 +432,17 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/15 text-blue-300"><BrainCircuit size={20} /></span>
               <div>
                 <p className="text-xs font-bold uppercase text-blue-300">Briefing da Nora</p>
-                <h2 className="mt-1 font-black">{overview?.briefing?.greeting || "Resumo"}. {overview?.briefing?.title || "Seu painel esta atualizado"}</h2>
-                <p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{overview?.briefing?.description || "Os dados operacionais estao sendo consolidados."}</p>
-                <p className="mt-3 text-xs font-bold uppercase text-[var(--text-secondary)]">Atualizado em {formatDate(overview?.briefing?.generatedAt || overview?.generatedAt)}</p>
+                <h2 className="mt-1 font-black">{ready.summary ? `${overview.briefing?.greeting}. ${overview.briefing?.title}` : "Seu resumo operacional"}</h2>
+                {ready.summary ? <p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{overview.briefing?.description}</p> : sectionStatus("summary", "Indicadores")}
+                {ready.summary && <p className="mt-3 text-xs font-bold uppercase text-[var(--text-secondary)]">Atualizado em {formatDate(overview.briefing?.generatedAt || overview.generatedAt)}</p>}
               </div>
             </div>
           </article>
           <article className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-            <SectionHeader title="Alertas proativos" description="Pendencias calculadas com seus dados reais." icon={BellRing} action={`${overview?.alerts?.length || 0} alerta(s)`} />
+            <SectionHeader title="Alertas proativos" description="Pendencias calculadas com seus dados reais." icon={BellRing} action={alertsReady ? `${overview.alerts?.length || 0} alerta(s)` : "Verificando fontes"} />
             <div className="grid max-h-52 gap-2 overflow-y-auto p-3 sm:grid-cols-2">
               {(overview?.alerts || []).length === 0 ? (
-                <p className="col-span-full rounded-lg border border-dashed border-[var(--border)] p-5 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhum alerta operacional neste momento.</p>
+                <p className="col-span-full rounded-lg border border-dashed border-[var(--border)] p-5 text-center text-xs font-semibold text-[var(--text-secondary)]">{alertsReady ? "Nenhum alerta operacional neste momento." : "Aguardando os dados para verificar os alertas."}</p>
               ) : (overview?.alerts || []).map((alert) => (
                 <button key={alert.id} type="button" onClick={() => onNavigate?.(alert.tab)} className="flex min-w-0 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-left hover:bg-[var(--surface-hover)]">
                   <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${alert.severity === "error" ? "bg-rose-400" : alert.severity === "warning" ? "bg-amber-400" : "bg-blue-400"}`} />
@@ -511,9 +457,9 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,.65fr)]">
           <div className="space-y-5">
             <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <SectionHeader title="Aprovações pendentes" description="Ações sensíveis ficam visíveis antes da decisão." icon={ClipboardCheck} action={`${pendingApprovals.length} pendente(s)`} />
+              <SectionHeader title="Aprovações pendentes" description="Ações sensíveis ficam visíveis antes da decisão." icon={ClipboardCheck} action={ready.approvals ? `${pendingApprovals.length} pendente(s)` : undefined} />
               <div className="divide-y divide-[var(--border)]">
-                {pendingApprovals.length === 0 ? (
+                {!ready.approvals ? sectionStatus("approvals", "Aprovações") : pendingApprovals.length === 0 ? (
                   <EmptyState icon={CheckCircle2} title="Tudo aprovado por aqui" description="Novas solicitacoes aparecerao automaticamente." />
                 ) : pendingApprovals.map((approval) => (
                   <article key={approval.id} className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -538,7 +484,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
                 <div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[var(--border)] p-1"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>{timelineMode === "audit" && <Button size="sm" onClick={() => void exportAudit()}><Download size={14} /> Exportar CSV</Button>}</div>
               </div>
               <div className="max-h-[390px] divide-y divide-[var(--border)] overflow-y-auto">
-                {timeline.length === 0 ? (
+                {!ready.history ? sectionStatus("history", "Registros") : timeline.length === 0 ? (
                   <EmptyState icon={FileCheck2} title="Historico pronto para registrar" description="As proximas acoes concluidas aparecerao aqui." />
                 ) : timeline.map((entry) => (
                   <article key={entry.id} className="flex items-start gap-3 px-5 py-4">
@@ -572,6 +518,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
             <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <SectionHeader title="Saude das integracoes" description="Estado local e ultima sincronizacao." icon={Activity} />
               <div className="divide-y divide-[var(--border)]">
+                {!ready.integrations && sectionStatus("integrations", "Integrações")}
                 {(overview?.integrations || []).map((integration) => (
                   <article key={integration.id} className="flex items-start gap-3 px-4 py-4">
                     <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-lg ${integration.status === "online" ? "bg-emerald-500/12 text-emerald-300" : "bg-amber-500/12 text-amber-300"}`}>{integration.status === "online" ? <CheckCircle2 size={19} /> : <AlertTriangle size={19} />}</span>
@@ -612,7 +559,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
 
             <details className="group overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 hover:bg-[var(--surface-hover)]">
-                <span className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><BrainCircuit size={17} /></span><span className="min-w-0"><strong className="block truncate text-sm font-bold">Memoria controlada da Nora</strong><small className="block truncate font-semibold text-[var(--text-secondary)]">{overview?.memory?.length || 0} preferencia(s) salva(s)</small></span></span>
+                <span className="flex min-w-0 items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-500/12 text-cyan-300"><BrainCircuit size={17} /></span><span className="min-w-0"><strong className="block truncate text-sm font-bold">Memoria controlada da Nora</strong><small className="block truncate font-semibold text-[var(--text-secondary)]">{ready.memory ? `${overview.memory?.length || 0} preferência(s) salva(s)` : "Preferências ainda não consultadas"}</small></span></span>
                 <ChevronRight className="shrink-0 transition group-open:rotate-90" size={16} />
               </summary>
               <div className="space-y-3 border-t border-[var(--border)] p-4">
@@ -631,7 +578,8 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
                       <Button variant="danger" size="sm" iconOnly disabled={deletingMemoryId === memory.id} onClick={() => void deleteMemory(memory.id)} className="text-rose-300 hover:bg-rose-500/10" aria-label={`Remover ${memory.key}`}>{deletingMemoryId === memory.id ? <LoaderCircle className="animate-spin" size={14} /> : <Trash2 size={14} />}</Button>
                     </article>
                   ))}
-                  {(overview?.memory || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhuma preferencia salva. A Nora tambem aprende quando voce diz "lembre que...".</p>}
+                  {!ready.memory && sectionStatus("memory", "Preferências")}
+                  {ready.memory && (overview?.memory || []).length === 0 && <p className="rounded-lg border border-dashed border-[var(--border)] p-3 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhuma preferencia salva. A Nora tambem aprende quando voce diz "lembre que...".</p>}
                 </div>
               </div>
             </details>
@@ -667,9 +615,9 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
   );
 }
 
-function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value: number; tone: "amber" | "blue" | "rose" | "violet" | "emerald" | "cyan" }) {
+function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value?: number; tone: "amber" | "blue" | "rose" | "violet" | "emerald" | "cyan" }) {
   const tones = { amber: "bg-amber-500/12 text-amber-300", blue: "bg-blue-500/12 text-blue-300", rose: "bg-rose-500/12 text-rose-300", violet: "bg-violet-500/12 text-violet-300", emerald: "bg-emerald-500/12 text-emerald-300", cyan: "bg-cyan-500/12 text-cyan-300" };
-  return <article className="flex min-h-28 items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${tones[tone]}`}><Icon size={20} /></span><div className="min-w-0"><strong className="block text-2xl font-black">{value}</strong><span className="mt-1 block text-xs font-bold leading-4 text-[var(--text-secondary)]">{label}</span></div></article>;
+  return <article className="flex min-h-28 items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${tones[tone]}`}><Icon size={20} /></span><div className="min-w-0"><strong className="block text-2xl font-black">{value ?? "—"}</strong><span className="mt-1 block text-xs font-bold leading-4 text-[var(--text-secondary)]">{label}</span></div></article>;
 }
 
 function SectionHeader({ title, description, icon: Icon, action }: { title: string; description: string; icon: LucideIcon; action?: string }) {

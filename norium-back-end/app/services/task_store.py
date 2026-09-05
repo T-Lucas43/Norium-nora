@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from app.core.request_context import current_workspace_id
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, write_json_file
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -65,8 +66,9 @@ def default_project(user_id: str = "lucas123") -> dict[str, Any]:
     }
 
 
-def load_workspace(user_id: str = "lucas123") -> dict[str, Any]:
-    db = _read_db()
+def load_workspace(user_id: str = "lucas123", *, db: dict[str, Any] | None = None) -> dict[str, Any]:
+    if db is None:
+        db = _read_db()
     if user_id not in db:
         db[user_id] = {
             "columns": DEFAULT_COLUMNS,
@@ -76,13 +78,13 @@ def load_workspace(user_id: str = "lucas123") -> dict[str, Any]:
             "createdAt": now_iso(),
             "updatedAt": now_iso(),
         }
-        _write_db(db)
+        _write_db({user_id: db[user_id]})
     else:
         workspace = db[user_id]
         changed = ensure_workspace_defaults(workspace, user_id)
         if changed:
             db[user_id] = workspace
-            _write_db(db)
+            _write_db({user_id: db[user_id]})
     return db[user_id]
 
 
@@ -107,8 +109,7 @@ def ensure_workspace_defaults(workspace: dict[str, Any], user_id: str) -> bool:
 def list_projects(user_id: str = "lucas123") -> dict[str, Any]:
     db = _read_db()
     if user_id not in db:
-        load_workspace(user_id)
-        db = _read_db()
+        load_workspace(user_id, db=db)
 
     projects: list[dict[str, Any]] = []
     for owner_id, workspace in db.items():
@@ -126,8 +127,7 @@ def list_projects(user_id: str = "lucas123") -> dict[str, Any]:
 
 def create_project(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     db = _read_db()
-    workspace = load_workspace(user_id)
-    db = _read_db()
+    workspace = load_workspace(user_id, db=db)
     project = normalize_project(
         {
             **payload,
@@ -143,7 +143,7 @@ def create_project(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     workspace.setdefault("projects", []).insert(0, project)
     workspace["updatedAt"] = now_iso()
     db[user_id] = workspace
-    _write_db(db)
+    _write_db({user_id: db[user_id]})
     return project
 
 
@@ -184,7 +184,7 @@ def update_project(user_id: str, project_id: str, updates: dict[str, Any]) -> di
         projects[index] = normalize_project(changed, owner_id)
         workspace["updatedAt"] = now_iso()
         db[owner_id] = workspace
-        _write_db(db)
+        _write_db({owner_id: workspace})
         return projects[index]
     return None
 
@@ -203,7 +203,7 @@ def delete_project(user_id: str, project_id: str) -> bool:
         workspace["projects"] = [default_project(owner_id)]
     workspace["updatedAt"] = now_iso()
     db[owner_id] = workspace
-    _write_db(db)
+    _write_db({owner_id: workspace})
     return True
 
 
@@ -219,7 +219,7 @@ def list_tasks(
     due: str | None = None,
 ) -> dict[str, Any]:
     db = _read_db()
-    workspace = load_workspace(user_id)
+    workspace = load_workspace(user_id, db=db)
     all_tasks = visible_tasks_for_user(db, user_id, project_id)
     tasks = list(all_tasks)
     today = _local_today()
@@ -269,7 +269,7 @@ def create_task(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         owner_id, workspace, project = resolved
     else:
         owner_id = user_id
-        workspace = load_workspace(user_id)
+        workspace = load_workspace(user_id, db=db)
         project = default_project(user_id)
     task = normalize_task(
         {
@@ -296,7 +296,7 @@ def create_task(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     workspace.setdefault("tasks", []).append(task)
     workspace["updatedAt"] = now_iso()
     db[owner_id] = workspace
-    _write_db(db)
+    _write_db({owner_id: workspace})
     return task
 
 
@@ -322,7 +322,7 @@ def update_task(user_id: str, task_id: str, updates: dict[str, Any]) -> dict[str
         tasks[index] = normalize_task(changed)
         workspace["updatedAt"] = now_iso()
         db[owner_id] = workspace
-        _write_db(db)
+        _write_db({owner_id: workspace})
         return tasks[index]
     return None
 
@@ -340,7 +340,7 @@ def delete_task(user_id: str, task_id: str) -> bool:
         return False
     workspace["updatedAt"] = now_iso()
     db[owner_id] = workspace
-    _write_db(db)
+    _write_db({owner_id: workspace})
     return True
 
 
@@ -350,8 +350,7 @@ def restore_task(user_id: str, snapshot: dict[str, Any]) -> dict[str, Any] | Non
     if not task_id:
         return None
     db = _read_db()
-    workspace = load_workspace(user_id)
-    db = _read_db()
+    workspace = load_workspace(user_id, db=db)
     tasks = workspace.setdefault("tasks", [])
     restored = normalize_task({**snapshot, "id": task_id, "updatedAt": now_iso()})
     for index, current in enumerate(tasks):
@@ -362,7 +361,7 @@ def restore_task(user_id: str, snapshot: dict[str, Any]) -> dict[str, Any] | Non
         tasks.append(restored)
     workspace["updatedAt"] = now_iso()
     db[user_id] = workspace
-    _write_db(db)
+    _write_db({user_id: db[user_id]})
     return restored
 
 
@@ -385,7 +384,7 @@ def add_comment(user_id: str, task_id: str, author: str, text: str) -> dict[str,
         task["updatedAt"] = now_iso()
         workspace["updatedAt"] = now_iso()
         db[owner_id] = workspace
-        _write_db(db)
+        _write_db({owner_id: workspace})
         return comment
     return None
 
@@ -418,7 +417,7 @@ def add_attachment(user_id: str, task_id: str, *, file_name: str, mime_type: str
         task["updatedAt"] = now_iso()
         workspace["updatedAt"] = now_iso()
         db[owner_id] = workspace
-        _write_db(db)
+        _write_db({owner_id: workspace})
         return attachment
     return None
 
@@ -674,7 +673,7 @@ def _local_today() -> datetime:
 
 def _read_db() -> dict[str, Any]:
     db: dict[str, Any] = {}
-    legacy_payload = read_json_file(TASKS_PATH, {})
+    legacy_payload = read_json_file(TASKS_PATH, {}) if current_workspace_id() == "primary" else {}
     if isinstance(legacy_payload, dict):
         db.update({str(key): value for key, value in legacy_payload.items() if isinstance(value, dict)})
 
@@ -683,7 +682,8 @@ def _read_db() -> dict[str, Any]:
         if not user_dir.is_dir():
             continue
         user_id = user_dir.name.removeprefix("user_")
-        payload = read_json_file(user_dir / "tarefas_db.json", {})
+        workspace_dir = user_dir if current_workspace_id() == "primary" else user_dir / f"workspace_{current_workspace_id()}"
+        payload = read_json_file(workspace_dir / "tarefas_db.json", {})
         if isinstance(payload, dict):
             if "tasks" in payload or "projects" in payload:
                 db[user_id] = payload

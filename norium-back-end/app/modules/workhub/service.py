@@ -361,7 +361,7 @@ async def pending_center(user: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-    integrations = integration_health(user_id, events, audits)
+    integrations = await asyncio.to_thread(integration_health, user_id, events, audits)
     for integration in integrations:
         if integration.get("connected"):
             continue

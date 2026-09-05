@@ -7,7 +7,9 @@ import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from app.core.tenant import read_profile_db
+from app.core.tenant import read_profile_db, get_data_root
+from app.core.request_context import current_workspace_id
+from fastapi import HTTPException
 from app.modules.clients.repository import list_clients
 from app.modules.inbox.router import manager, read_events, record_event
 from app.modules.operations.repository import (
@@ -657,6 +659,29 @@ def _last_event_by_source(events: list[dict[str, Any]], source: str) -> str | No
     return next((str(event.get("timestamp")) for event in events if event.get("source") == source), None)
 
 
+_integration_reads: dict[tuple[int, str, str, str], asyncio.Task] = {}
+
+
+async def read_integration_health(user_id: str, events: list[dict[str, Any]], audits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # The W-API ownership store may wait on a process/SQLite lock. Keep that wait
+    # off the event loop and reuse unfinished work when the browser retries.
+    key = (id(asyncio.get_running_loop()), str(get_data_root()), user_id, current_workspace_id())
+    task = _integration_reads.get(key)
+    if task is None or task.done():
+        task = asyncio.create_task(asyncio.to_thread(integration_health, user_id, events, audits))
+        _integration_reads[key] = task
+        def finished(completed: asyncio.Task) -> None:
+            if _integration_reads.get(key) is completed:
+                _integration_reads.pop(key, None)
+            if not completed.cancelled():
+                completed.exception()
+        task.add_done_callback(finished)
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=8)
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="A verificação das integrações ainda está em andamento. Tente atualizar esta seção.") from None
+
+
 def integration_health(user_id: str, events: list[dict[str, Any]], audits: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     profile = read_profile_db(user_id, {})
     gmail_connected = _token_connected(profile, "gmailToken")
@@ -856,8 +881,9 @@ def _daily_briefing(summary: dict[str, int], alerts: list[dict[str, Any]]) -> di
     highlights = [
         f'{summary.get("todayEvents", 0)} compromisso(s) hoje',
         f'{summary.get("activeTasks", 0)} tarefa(s) ativa(s)',
-        f'{summary.get("pendingApprovals", 0)} aprovacao(oes) pendente(s)',
     ]
+    if "pendingApprovals" in summary:
+        highlights.append(f'{summary["pendingApprovals"]} aprovacao(oes) pendente(s)')
     return {
         "greeting": greeting,
         "title": "Seu resumo operacional esta pronto",
@@ -1079,7 +1105,7 @@ async def operations_overview(user: dict[str, Any]) -> dict[str, Any]:
     finance_summary = finance.get("resumo") if isinstance(finance.get("resumo"), dict) else {}
 
     pending_approvals = [item for item in approvals if item.get("status") == "pending"]
-    integrations = integration_health(user_id, events, audits)
+    integrations = await read_integration_health(user_id, events, audits)
     today_events = _today_calendar_events(events)
     summary = {
         "pendingApprovals": len(pending_approvals),

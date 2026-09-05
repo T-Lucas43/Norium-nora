@@ -33,6 +33,7 @@ import {
 
 const AdminDashboard = lazy(() => import("../components/admin/AdminDashboard"));
 const AuthScreen = lazy(() => import("../components/auth/AuthScreen"));
+const AccountEmailAction = lazy(() => import("../components/auth/AccountEmailAction"));
 const Nora = lazy(() => import("../components/layout/Nora"));
 const PublicAccess = lazy(() => import("../components/public/PublicAccess"));
 const LegalPage = lazy(() => import("../components/public/LegalPage"));
@@ -269,6 +270,14 @@ export default function NoriumApp() {
     window.addEventListener("norium:deep-link", handleDeepLink);
     return () => window.removeEventListener("norium:deep-link", handleDeepLink);
   }, [openDeepLink]);
+
+  const emailAction = currentHash.match(/^#\/(redefinir-senha|confirmar-email)\/([A-Za-z0-9_-]{32,128})$/);
+  if (emailAction) {
+    return <Suspense fallback={<AppLoading label="Abrindo acesso seguro..." />}><AccountEmailAction
+      key={currentHash} mode={emailAction[1] === "redefinir-senha" ? "reset" : "verify"} token={emailAction[2]}
+      onReset={clearSession} onBack={() => { window.location.hash = ""; }}
+    /></Suspense>;
+  }
 
   if (publicRoute) {
     return (

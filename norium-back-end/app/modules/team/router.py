@@ -983,6 +983,8 @@ async def persist_message(
             "subteamId": subteam_id,
         },
     )
+    from app.services.system_email import notify_team_participants
+    await notify_team_participants(participant_ids - {user_id}, message["id"], "Nova mensagem no chat da equipe")
     if nora_triggered:
         asyncio.create_task(
             respond_to_nora_mention(
@@ -1392,6 +1394,8 @@ async def complete_recording(recording_id: str, user: dict[str, Any] = Depends(c
         await asyncio.to_thread(write_chat_store, team_id, store)
     await manager.send_to_users(team_id, participant_ids, {"type": "TEAM_CHAT_MESSAGE", "message": message})
     await manager.send_to_users(team_id, participant_ids, {"type": "CALL_RECORDING_AVAILABLE", "callId": recording.get("callId"), "recordingId": recording_id, "expiresAt": expires_at.isoformat(), "fromUserId": user_id, "fromUserName": recording.get("createdByName") or "Membro"})
+    from app.services.system_email import notify_team_participants
+    await notify_team_participants(participant_ids, "recording_" + recording_id, "Gravação de reunião disponível")
     await record_team_event(team_id, "Gravacao de reuniao concluida", "A gravacao ficara disponivel por 24 horas.", {"action": "meeting_recording", "callId": recording.get("callId"), "recordingId": recording_id})
     return {"message": message, "expiresAt": expires_at.isoformat()}
 

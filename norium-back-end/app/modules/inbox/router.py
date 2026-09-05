@@ -269,6 +269,10 @@ async def record_event(
     event_payload, changed = await persist_event(event, resolved_user_id)
     if changed and broadcast:
         await manager.broadcast(resolved_user_id, {"type": "NEW_EVENT", "event": event_payload})
+    if changed:
+        from app.services.system_email import notify_event
+        from app.core.request_context import current_workspace_id
+        await notify_event(event_payload, current_workspace_id())
     return event_payload
 
 

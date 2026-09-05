@@ -3,6 +3,7 @@ import { ArrowRight, LockKeyhole, ShieldCheck, Sparkles, UserPlus } from "lucide
 import type { AppMode, AuthSession, UserPlan } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import BrandLogo from "../layout/BrandLogo";
+import AccountEmailAction from "./AccountEmailAction";
 import { navigateNoriumView } from "../../app/navigation/view";
 
 interface AuthScreenProps {
@@ -28,6 +29,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [planSession, setPlanSession] = useState<AuthSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [forgot, setForgot] = useState(false);
 
   async function submit() {
     setError("");
@@ -85,6 +87,8 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
       setLoading(false);
     }
   }
+
+  if (forgot) return <AccountEmailAction mode="forgot" onBack={() => setForgot(false)} />;
 
   if (planSession) {
     return (
@@ -302,6 +306,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
           >
             {mode === "login" ? "Criar novo cadastro" : "Já tenho acesso"}
           </button>
+          {mode === "login" && <button type="button" onClick={() => setForgot(true)} className="mt-4 w-full py-2 text-sm font-semibold text-[var(--primary)]">Esqueci minha senha</button>}
           <nav className="mt-5 flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs font-bold text-[var(--text-secondary)]">
             <a className="hover:text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("terms"); }}>Termos de Uso</a>
             <a className="hover:text-[var(--primary)] hover:underline" href="/" onClick={(event) => { event.preventDefault(); navigateNoriumView("privacy"); }}>Politica de Privacidade</a>

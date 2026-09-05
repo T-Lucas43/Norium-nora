@@ -146,6 +146,10 @@ def queue_security_notice(user: dict) -> None:
 
 
 def queue_welcome(users: list[dict]) -> dict:
+    return queue_campaign(users, WELCOME_CAMPAIGN, "welcome", WELCOME_TITLE, WELCOME_DESCRIPTION, "/app/nora", "Conversar com a Nora")
+
+
+def queue_campaign(users: list[dict], campaign: str, kind: str, title: str, description: str, path: str = "/app", button: str = "Abrir Norium") -> dict:
     """One explicit administrative campaign, deduplicated even across restarts."""
     if not ready():
         raise ValueError("Configure e ative o envio primeiro.")
@@ -159,21 +163,27 @@ def queue_welcome(users: list[dict]) -> dict:
                 skipped += 1
                 continue
             digest = hashlib.sha256(recipient.encode()).hexdigest()
-            inserted = connection.execute("INSERT OR IGNORE INTO email_campaign_recipients VALUES(?,?)", (WELCOME_CAMPAIGN, digest)).rowcount
+            inserted = connection.execute("INSERT OR IGNORE INTO email_campaign_recipients VALUES(?,?)", (campaign, digest)).rowcount
             if not inserted:
                 existing += 1
                 continue
-            payload = render_message(user.get("nome", ""), WELCOME_TITLE, WELCOME_DESCRIPTION, public_url + "/app/nora", "Conversar com a Nora")
-            _enqueue(connection, {**user, "email": recipient}, "welcome", payload, WELCOME_CAMPAIGN + "_" + digest, time.time() + 7 * 86400)
+            payload = render_message(user.get("nome", ""), title, description, public_url + path, button)
+            payload["html"] = payload["html"].replace("line-height:1.7;color", "white-space:pre-wrap;line-height:1.7;color")
+            _enqueue(connection, {**user, "email": recipient}, kind, payload, campaign + "_" + digest, time.time() + 7 * 86400)
             queued += 1
     return {"queued": queued, "alreadyQueued": existing, "skipped": skipped}
 
 
 def delivery_status() -> dict:
-    with database() as connection:
-        counts = {row["state"]: row["total"] for row in connection.execute("SELECT CASE WHEN state IN ('pending','sending') AND expires<=? THEN 'expired' ELSE state END AS state,count(*) total FROM email_outbox GROUP BY 1", (time.time(),))}
-        recent = [dict(row) for row in connection.execute("SELECT kind,state,attempts,error,created FROM email_outbox ORDER BY created DESC LIMIT 10")]
-    return {"counts": counts, "recent": recent, "welcome": {"title": WELCOME_TITLE, "description": WELCOME_DESCRIPTION}}
+    try:
+        with database() as connection:
+            counts = {row["state"]: row["total"] for row in connection.execute("SELECT CASE WHEN state IN ('pending','sending') AND expires<=? THEN 'expired' ELSE state END AS state,count(*) total FROM email_outbox GROUP BY 1", (time.time(),))}
+            recent = [dict(row) for row in connection.execute("SELECT kind,state,attempts,error,created FROM email_outbox ORDER BY created DESC LIMIT 10")]
+        return {"available": True, "counts": counts, "recent": recent, "welcome": {"title": WELCOME_TITLE, "description": WELCOME_DESCRIPTION}}
+    except (sqlite3.Error, OSError) as error:
+        code = getattr(error, "sqlite_errorname", type(error).__name__)
+        logger.error("system_email_storage_unavailable code=%s", code)
+        return {"available": False, "error": f"O armazenamento da fila está indisponível ({code}). Os envios permanecem bloqueados até a correção.", "counts": {}, "recent": [], "welcome": {"title": WELCOME_TITLE, "description": WELCOME_DESCRIPTION}}
 
 
 def preferences(user: dict) -> dict:
@@ -280,7 +290,7 @@ async def deliver_one() -> bool:
     user = find_user(await read_user_store(), job["user_id"])
     pref = preferences(user or {})
     allowed = user and user.get("status") == "ativo" and str(user.get("email", "")).lower() == job["recipient"].lower()
-    if job["kind"] == "welcome":
+    if job["kind"] in {"welcome", "manual"}:
         allowed = allowed and pref["enabled"]
     if job["kind"] in SOURCES:
         allowed = allowed and user.get("emailVerifiedAt") and pref["enabled"] and pref["sources"].get(job["kind"])

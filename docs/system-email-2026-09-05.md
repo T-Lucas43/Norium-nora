@@ -4,13 +4,15 @@ O Norium possui uma integração transacional com a caixa `suporte@norium-ai.com
 
 ## Ativação
 
-1. Entre no modo administrativo e abra **Configurações → E-mail do sistema**.
+1. Entre no modo administrativo e abra a aba **E-mails → E-mail do sistema**.
 2. Confira o endereço HTTPS público do Norium. Ele é usado nos links das mensagens.
 3. Informe a senha da caixa de suporte e ative os envios. O servidor armazena a senha criptografada; a API nunca a devolve ao navegador.
 4. Use **Enviar teste para minha conta** e **Atualizar status dos envios**. “Aceito pelo servidor” confirma aceitação SMTP, não garante a caixa de entrada do destinatário.
 5. O botão **Enviar boas-vindas aos cadastrados** dispara o texto apresentado no próprio painel para cada conta ativa, respeitando a preferência geral de notificações. Endereços repetidos entram apenas uma vez. Abrir a página não dispara mensagens.
 
 O envio em massa foi solicitado explicitamente pelo proprietário durante esta tarefa. Não ocorre automaticamente em novos deployments. O registro permanente da campanha evita novo disparo ao repetir o comando ou reiniciar o servidor. Ao corrigir a senha SMTP, mensagens com falha e ainda válidas podem voltar à fila.
+
+A aba **E-mails** também permite escrever um assunto e uma mensagem, buscar usuários, selecionar os destinatários, pré-visualizar e enviar manualmente. O servidor recebe identificadores dos usuários e resolve seus endereços cadastrados, sem aceitar destinatários externos arbitrários. Cada disparo possui identificador estável para retentativas e respeita contas inativas e preferências de notificação. Conteúdo é texto, com HTML escapado e parágrafos preservados; não há execução de HTML enviado pelo administrador.
 
 ## Comportamento
 

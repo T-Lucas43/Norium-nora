@@ -217,3 +217,23 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(0, reminders.queue_due(self.user, "primary", now))
         self.assertEqual(2, reminders.queue_due(self.user, "workspace-2", now))
         self.assertEqual(0, reminders.queue_due(self.user, "workspace-2", now))
+
+    async def test_manual_email_uses_registered_recipients_and_dispatch_deduplication(self):
+        app = FastAPI()
+        app.include_router(routes.router)
+        app.dependency_overrides[routes.require_admin] = lambda: self.user
+        payload = {"recipientIds": ["bob"], "subject": "Atualização", "message": "Primeiro parágrafo.\n\nSegundo parágrafo.", "dispatchId": "manual-dispatch-test-1"}
+        with patch.object(routes.limiter, "check", new=AsyncMock()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                first = await client.post("/api/auth/admin/system-email/send", json=payload)
+                again = await client.post("/api/auth/admin/system-email/send", json=payload)
+                unknown = await client.post("/api/auth/admin/system-email/send", json={**payload, "recipientIds": ["missing"]})
+                arbitrary = await client.post("/api/auth/admin/system-email/send", json={**payload, "email": "external@example.invalid"})
+        self.assertEqual(1, first.json()["queued"])
+        self.assertEqual(0, again.json()["queued"])
+        self.assertEqual(422, unknown.status_code)
+        self.assertEqual(422, arbitrary.status_code)
+        job = mail.claim_delivery()
+        self.assertEqual("bob@example.invalid", job["recipient"])
+        self.assertEqual("manual", job["kind"])
+        self.assertIn("white-space:pre-wrap", json.loads(mail.cipher().decrypt(job["payload"].encode()))["html"])

@@ -45,6 +45,20 @@ class ConfigRequest(StrictModel):
     publicUrl: str = Field(max_length=500)
 
 
+class ManualEmailRequest(StrictModel):
+    recipientIds: list[str] = Field(min_length=1, max_length=200)
+    subject: str = Field(min_length=1, max_length=140)
+    message: str = Field(min_length=1, max_length=10000)
+    dispatchId: str = Field(min_length=16, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+
+    @field_validator("subject", "message")
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError("Preencha o assunto e a mensagem.")
+        return value.strip()
+
+
 async def request_action(email: str, purpose: Literal["reset", "verify"]) -> None:
     try:
         user = auth.find_user_by_email(await auth.read_user_store(), email)
@@ -138,7 +152,9 @@ def require_admin(user: dict = Depends(auth.current_user)):
 
 @router.get("/admin/system-email")
 async def mail_status(_user: dict = Depends(require_admin)):
-    return {**await asyncio.to_thread(mail.configuration_status), "delivery": await asyncio.to_thread(mail.delivery_status)}
+    config = await asyncio.to_thread(mail.configuration_status)
+    delivery = await asyncio.to_thread(mail.delivery_status)
+    return {**config, "ready": config["ready"] and delivery["available"], "delivery": delivery}
 
 
 @router.post("/admin/system-email/welcome")
@@ -150,6 +166,27 @@ async def welcome_campaign(user: dict = Depends(require_admin)):
     except ValueError as error:
         raise HTTPException(503, str(error)) from None
     return {**result, "message": "Boas-vindas enfileiradas para envio individual. Acompanhe o status de entrega."}
+
+
+@router.get("/admin/system-email/recipients")
+async def mail_recipients(_user: dict = Depends(require_admin)):
+    users = (await auth.read_user_store()).get("users", [])
+    return {"users": [{"id": item["id"], "name": item.get("nome", ""), "email": item["email"], "enabled": bool(mail.preferences(item)["enabled"])} for item in users if item.get("status") == "ativo"]}
+
+
+@router.post("/admin/system-email/send")
+async def manual_mail(payload: ManualEmailRequest, user: dict = Depends(require_admin)):
+    await limiter.check("manual:" + user["id"])
+    store = await auth.read_user_store()
+    ids = set(payload.recipientIds)
+    recipients = [item for item in store.get("users", []) if item.get("id") in ids]
+    if {item["id"] for item in recipients} != ids:
+        raise HTTPException(422, "Um dos usuários selecionados não existe mais. Atualize a lista.")
+    try:
+        result = await asyncio.to_thread(mail.queue_campaign, recipients, f'manual_{user["id"]}_{payload.dispatchId}', "manual", payload.subject, payload.message)
+    except ValueError as error:
+        raise HTTPException(503, str(error)) from None
+    return {**result, "message": "Mensagens enfileiradas para envio individual."}
 
 
 @router.put("/admin/system-email")

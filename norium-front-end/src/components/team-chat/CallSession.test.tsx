@@ -11,6 +11,7 @@ const mocked = vi.hoisted(() => ({
 
 vi.mock("../../utils/api", () => ({
   authenticatedWebSocketUrl: async (url: string) => url,
+  apiBaseUrl: () => "http://localhost",
   wsBaseUrl: () => "ws://localhost",
 }));
 
@@ -340,6 +341,17 @@ describe("CallSession", () => {
     expect(mocked.useTeamCallRuntime).toHaveBeenCalledWith(expect.objectContaining({ mediaTransports: [sfuFactory] }));
     expect(create).not.toHaveBeenCalled();
     expect(Socket.instances).toHaveLength(1);
+  });
+
+  it("registra o transporte LiveKit dormente sem solicitar credenciais", async () => {
+    render(<CallSessionProvider session={authSession}><TransportProbe /></CallSessionProvider>);
+
+    await waitFor(() => expect(mocked.useTeamCallRuntime).toHaveBeenCalled());
+    const options = mocked.useTeamCallRuntime.mock.calls.at(-1)?.[0] as {
+      mediaTransports?: readonly MediaTransportFactory[];
+    };
+    expect(options.mediaTransports?.map((factory) => factory.kind)).toContain("sfu");
+    expect(options.mediaTransports?.find((factory) => factory.kind === "sfu")?.create).toBeTypeOf("function");
   });
 
   it("reconecta com um unico temporizador e reutiliza a mesma sessao", async () => {

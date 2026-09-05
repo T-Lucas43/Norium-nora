@@ -556,4 +556,4 @@ Se — e somente se — o responsável aceitar o ADR, a etapa 8B poderá alterar
 - adapter de Egress somente após decisão de E2EE, consentimento, custódia, retenção e custo;
 - rollout e rollback apenas de chamadas novas, nunca migração de transporte no meio de uma chamada.
 
-**Ponto de parada:** a etapa 8A está documentada e verificada, mas o ADR continua `proposed` com `decision_owner: pending`. Não iniciar 8B, provisionar LiveKit Cloud, inserir segredo, alterar o transporte padrão, contratar serviço, migrar gravação ou fazer deploy até decisão explícita do responsável.
+**Decisão:** o responsável aprovou o ADR em 2026-09-05. A etapa 8B pode avançar de forma incremental, mantendo configuração desabilitada por padrão. A aprovação não autoriza provisionar LiveKit Cloud, inserir segredo de produção, alterar o transporte padrão para todos, contratar serviço, migrar gravação ou fazer deploy.

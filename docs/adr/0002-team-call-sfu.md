@@ -1,12 +1,13 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-05
-decision_owner: pending
+decision_owner: requester
+decision_date: 2026-09-05
 ---
 
 # ADR 0002 — SFU para chamadas de equipe atrás de `MediaTransport`
 
-Propomos usar **LiveKit Cloud** como primeiro SFU de produção, preservando uma saída para **LiveKit self-hosted** e isolando ambos atrás de `MediaTransport`. A proposta reduz o trabalho inicial de mídia, gravação e observabilidade sem transferir ao fornecedor a autoridade sobre chamada, equipe ou participante; ela permanece **aguardando decisão do responsável** e não autoriza a etapa 8B, contratação, provisionamento ou deploy.
+Foi aprovado usar **LiveKit Cloud** como primeiro SFU de produção, preservando uma saída para **LiveKit self-hosted** e isolando ambos atrás de `MediaTransport`. A decisão reduz o trabalho inicial de mídia, gravação e observabilidade sem transferir ao fornecedor a autoridade sobre chamada, equipe ou participante. Ela autoriza a implementação incremental da etapa 8B, mas não autoriza contratação, provisionamento, inserção de segredo de produção ou deploy.
 
 A pesquisa factual que sustenta esta comparação, com fontes oficiais e lacunas separadas de inferências, está em [Pesquisa de opções SFU](../research/team-call-sfu-options.md).
 
@@ -44,9 +45,7 @@ WebSocket NOrium <--> CallCoordinator                   +--> sinalização e mí
              anfitrião, auditoria e política de gravação
 ```
 
-## Decisão proposta
-
-Se este ADR for aceito:
+## Decisão
 
 1. Chamadas elegíveis para SFU usarão LiveKit Cloud, com região escolhida por política do backend. LiveKit self-hosted será a rota de saída arquitetural, não um compromisso operacional imediato.
 2. O backend autenticará o usuário e revalidará equipe, chamada ativa e participante antes de emitir um JWT curto, restrito à sala e às permissões necessárias. Chaves de API nunca serão entregues ao bundle ou persistidas no cliente. O modelo oficial usa [tokens com grants](https://docs.livekit.io/frontends/reference/tokens-grants/) e possui um [exemplo de endpoint de autenticação para FastAPI](https://docs.livekit.io/frontends/build/authentication/endpoint/).
@@ -175,6 +174,6 @@ O rollback troca a política de seleção apenas para chamadas ainda não criada
 5. O plano Scale é aceitável para pinning e Analytics, ou essas capacidades precisam ser substituídas pela telemetria do NOrium?
 6. Quais SLOs e limiares mínimos tornam as medições do protótipo aceitáveis?
 
-## Ponto de parada
+## Aprovação e limites
 
-Este ADR permanece **Proposto — aguardando decisão do responsável**. A pesquisa, o limite de coexistência, a fronteira de transporte e as medições locais encerram a etapa 8A; elas não autorizam adoção. Até aprovação explícita (`status: accepted`), ficam fora de escopo: criar conta ou recurso LiveKit Cloud, inserir segredo de produção, alterar o transporte padrão, migrar gravações, provisionar infraestrutura, iniciar a etapa 8B ou fazer deploy.
+O responsável aprovou este ADR em 2026-09-05. A etapa 8B pode avançar em fatias reversíveis atrás de configuração desabilitada por padrão. Continuam fora de escopo sem autorização separada: criar conta ou recurso LiveKit Cloud, inserir segredo de produção, alterar o transporte padrão para todos, migrar gravações, provisionar infraestrutura, contratar serviço ou fazer deploy.

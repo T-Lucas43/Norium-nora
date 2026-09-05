@@ -25,6 +25,10 @@ import {
   type MediaTransportFactory,
   type MediaTransportKind,
 } from "./media/MediaTransport";
+import {
+  HttpLiveKitAccessProvider,
+  LiveKitMediaTransportFactory,
+} from "./media/LiveKitMediaTransport";
 
 const TEAM_SOCKET_URL = `${wsBaseUrl()}/api/team-chat/ws`;
 const RECONNECT_DELAY_MS = 1800;
@@ -282,6 +286,13 @@ function ActiveCallSessionProvider({
     call?: TeamCallSocketEvent;
     callId?: string;
   } | null>(null);
+  const configuredMediaTransports = useMemo<readonly MediaTransportFactory[]>(() => {
+    if (mediaTransports?.some((factory) => factory.kind === "sfu")) return mediaTransports;
+    return [
+      ...(mediaTransports || []),
+      new LiveKitMediaTransportFactory(new HttpLiveKitAccessProvider(session.token)),
+    ];
+  }, [mediaTransports, session.token]);
 
   const sendSocketEvent = useCallback((payload: Record<string, unknown>) => {
     const socket = socketRef.current;
@@ -296,7 +307,7 @@ function ActiveCallSessionProvider({
     sendSocketEvent,
     iceServers,
     iceTransportPolicy,
-    mediaTransports,
+    mediaTransports: configuredMediaTransports,
   });
   runtimeRef.current = runtime;
 

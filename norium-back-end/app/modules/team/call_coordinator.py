@@ -311,6 +311,18 @@ def _sync_joined_clients(call: dict[str, Any]) -> None:
     }
 
 
+def _call_ack(call: dict[str, Any], event_type: str) -> dict[str, Any]:
+    invite = active_call_invite(call)
+    return {
+        "type": "CALL_ACK",
+        "callId": invite["callId"],
+        "event": event_type,
+        "mediaTransport": invite["mediaTransport"],
+        "joinedCount": invite["joinedCount"],
+        "maxParticipants": invite["maxParticipants"],
+    }
+
+
 def _clear_raised_hand(call: dict[str, Any], user_id: str) -> None:
     hands = call.setdefault("raisedHands", {})
     if isinstance(hands, dict) and hands.pop(user_id, None) is not None:
@@ -367,16 +379,36 @@ class CallCoordinator:
         clock: Clock | None = None,
         message_id_factory: Callable[[], str] | None = None,
         max_participants: int = DEFAULT_MESH_MAX_PARTICIPANTS,
+        sfu_max_participants: int | None = None,
+        media_transport_for_team: Callable[[str], str] | None = None,
+        media_session_id_factory: Callable[[], str] | None = None,
     ) -> None:
-        if max_participants < 2:
-            raise ValueError("max_participants deve ser maior ou igual a 2.")
+        if max_participants < 2 or (
+            sfu_max_participants is not None and sfu_max_participants < 2
+        ):
+            raise ValueError("limites de participantes devem ser maiores ou iguais a 2.")
         self._store = store
         self._publisher = publisher
         self._authorizer = authorizer
         self._clock = clock or SystemClock()
         self._message_id_factory = message_id_factory or (lambda: f"team_msg_{uuid.uuid4().hex}")
         self._max_participants = max_participants
+        # A capacidade maior do SFU ainda nao e uma promessa de produto. Sem
+        # injecao explicita, novas chamadas SFU de teste herdam o limite mesh.
+        self._sfu_max_participants = (
+            max_participants if sfu_max_participants is None else sfu_max_participants
+        )
+        self._media_transport_for_team = media_transport_for_team or (lambda _team_id: "mesh")
+        self._media_session_id_factory = media_session_id_factory or (
+            lambda: f"media_{uuid.uuid4().hex}"
+        )
         self._teams: dict[str, _TeamRuntime] = {}
+
+    def _new_call_transport(self, team_id: str) -> str:
+        return "sfu" if self._media_transport_for_team(team_id) == "sfu" else "mesh"
+
+    def _participant_limit(self, media_transport: str) -> int:
+        return self._sfu_max_participants if media_transport == "sfu" else self._max_participants
 
     def _runtime(self, team_id: str) -> _TeamRuntime:
         loop = asyncio.get_running_loop()
@@ -413,8 +445,9 @@ class CallCoordinator:
             runtime.ended_call_ids = dict(state.ended_call_ids)
             runtime.loaded = True
             for call in runtime.calls.values():
-                call["maxParticipants"] = self._max_participants
                 call["mediaTransport"] = _media_transport(call)
+                if not isinstance(call.get("maxParticipants"), int) or call["maxParticipants"] < 2:
+                    call["maxParticipants"] = self._participant_limit(call["mediaTransport"])
                 _participant_sessions(call)
                 _sync_joined_clients(call)
         expired = _purge_stale_runtime(runtime, self._now()) if expire else []
@@ -489,6 +522,43 @@ class CallCoordinator:
             session = _participant_sessions(call).get(actor.user_id)
             if not isinstance(session, dict) or str(session.get("clientId") or "") != client_id:
                 raise CallError(409, "Cliente nao esta associado a chamada.")
+            context = copy.deepcopy(call)
+        await self._publish(actor.team_id, effects)
+        return context
+
+    async def media_context(
+        self,
+        actor: CallActor,
+        call_id: str,
+        client_id: str,
+        *,
+        expected_transport: str,
+    ) -> dict[str, Any]:
+        """Autoriza acesso a midia contra a chamada e a sessao vigentes."""
+        self._validate_call_id(call_id)
+        runtime = self._runtime(actor.team_id)
+        async with runtime.lock:
+            effects = await self._prepare_locked(actor.team_id, runtime, refresh=True)
+            call = runtime.calls.get(call_id)
+            if not call:
+                raise CallError(404, "Chamada ativa nao encontrada.", code="call_not_found")
+            await self._authorizer.require_active_participant(actor, call)
+            session = _participant_sessions(call).get(actor.user_id)
+            if not isinstance(session, dict) or str(session.get("clientId") or "") != client_id:
+                raise CallError(
+                    409,
+                    "Cliente nao esta associado a chamada.",
+                    code="call_session_mismatch",
+                )
+            if _media_transport(call) != expected_transport:
+                raise CallError(
+                    409,
+                    "Esta chamada usa outro transporte de midia.",
+                    code="call_transport_mismatch",
+                )
+            if not str(session.get("mediaSessionId") or ""):
+                session["mediaSessionId"] = self._media_session_id_factory()
+                await self._persist_locked(actor.team_id, runtime)
             context = copy.deepcopy(call)
         await self._publish(actor.team_id, effects)
         return context
@@ -740,6 +810,7 @@ class CallCoordinator:
             }]
         now = self._now().isoformat()
         client_id = str(payload.get("clientId") or "legacy")[:100]
+        media_transport = self._new_call_transport(actor.team_id)
         call = {
             "callId": call_id,
             "scope": scope,
@@ -747,13 +818,14 @@ class CallCoordinator:
             "recipientId": recipient_id,
             "subteamId": subteam_id,
             "participantIds": sorted(participants),
-            "maxParticipants": self._max_participants,
-            "mediaTransport": "mesh",
+            "maxParticipants": self._participant_limit(media_transport),
+            "mediaTransport": media_transport,
             "joinedClients": {actor.user_id: client_id},
             "participantSessions": {
                 actor.user_id: {
                     "clientId": client_id,
                     "connectionId": _connection_id(actor),
+                    "mediaSessionId": self._media_session_id_factory(),
                     "lastHeartbeatAt": now,
                     "disconnectedAt": None,
                 },
@@ -791,7 +863,7 @@ class CallCoordinator:
             ],
             broadcast_state=True,
         )
-        return effects, [{"type": "CALL_ACK", "callId": call_id, "event": "CALL_INVITE"}]
+        return effects, [_call_ack(call, "CALL_INVITE")]
 
     async def _route_existing_locked(
         self,
@@ -809,18 +881,26 @@ class CallCoordinator:
         if event_type == "CALL_LEAVE" and not isinstance(session, dict):
             return _Effects(), [{"type": "CALL_ACK", "callId": call_id, "event": event_type}]
         if event_type == "CALL_ACCEPT":
-            if actor.user_id not in sessions and len(sessions) >= self._max_participants:
+            participant_limit = int(call.get("maxParticipants") or self._participant_limit(_media_transport(call)))
+            if actor.user_id not in sessions and len(sessions) >= participant_limit:
                 raise CallError(
                     409,
                     (
-                        f"Esta chamada atingiu o limite de {self._max_participants} participantes. "
+                        f"Esta chamada atingiu o limite de {participant_limit} participantes. "
                         "Tente novamente quando houver uma vaga."
                     ),
                     code="call_capacity_reached",
                 )
+            same_client_media_session_id = (
+                str(session.get("mediaSessionId") or "")
+                if isinstance(session, dict)
+                and str(session.get("clientId") or "") == client_id
+                else ""
+            )
             session = {
                 "clientId": client_id,
                 "connectionId": connection_id,
+                "mediaSessionId": same_client_media_session_id or self._media_session_id_factory(),
                 "lastHeartbeatAt": self._now().isoformat(),
                 "disconnectedAt": None,
             }
@@ -949,10 +1029,15 @@ class CallCoordinator:
             }))
         if event_type != "CALL_HEARTBEAT":
             publications.append((recipients, event))
+        direct_message = (
+            _call_ack(call, event_type)
+            if event_type == "CALL_ACCEPT"
+            else {"type": "CALL_ACK", "callId": call_id, "event": event_type}
+        )
         return _Effects(
             publications=publications,
             broadcast_state=event_type in {"CALL_ACCEPT", "CALL_LEAVE"},
-        ), [{"type": "CALL_ACK", "callId": call_id, "event": event_type}]
+        ), [direct_message]
 
     def _event_payload(
         self,

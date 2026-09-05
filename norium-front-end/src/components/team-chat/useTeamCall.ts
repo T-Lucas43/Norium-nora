@@ -7,6 +7,7 @@ import { prepareChatAttachments } from "./chatAttachments";
 import {
   resolveMediaTransportFactory,
   type MediaTransport,
+  type MediaTransportFailure,
   type MediaTransportFactory,
   type MediaTransportKind,
   type MediaTransportLocalMedia,
@@ -18,6 +19,7 @@ const TEAM_CHAT_API = `${apiBaseUrl()}/api/team-chat`;
 const RECORDING_MAX_RETRIES = 3;
 const RECORDING_BACKPRESSURE_BYTES = 24 * 1024 * 1024;
 const RECORDING_BACKPRESSURE_CHUNKS = 3;
+const ADMISSION_ACK_TIMEOUT_MS = 8000;
 
 export type RecordingUploadState = "idle" | "uploading" | "retrying" | "finalizing" | "failed";
 
@@ -108,6 +110,14 @@ type ActiveCall = {
   hostUserId: string;
   startedAt: string;
   mediaTransport: MediaTransportKind;
+};
+
+type PendingAdmission = {
+  call: ActiveCall;
+  event: "CALL_INVITE" | "CALL_ACCEPT";
+  epoch: number;
+  timeoutId: number | null;
+  bufferedEvents: TeamCallSocketEvent[];
 };
 
 type IncomingCall = ActiveCall & {
@@ -322,6 +332,8 @@ export function useTeamCallRuntime({
   const [screenShareFps, setScreenShareFps] = useState<ScreenShareFps>(30);
   const activeRef = useRef<ActiveCall | null>(null);
   const incomingRef = useRef<IncomingCall | null>(null);
+  const pendingAdmissionRef = useRef<PendingAdmission | null>(null);
+  const handleSocketEventRef = useRef<(event: TeamCallSocketEvent) => Promise<void>>(async () => undefined);
   const localStreamRef = useRef<MediaStream | null>(null);
   const mediaTransportRef = useRef<MediaTransport | null>(null);
   const mediaTransportCallIdRef = useRef("");
@@ -437,6 +449,61 @@ export function useTeamCallRuntime({
     subteamId: call.thread.subteamId || null,
   }), []);
 
+  const clearPendingAdmission = useCallback((expected?: PendingAdmission) => {
+    const pending = pendingAdmissionRef.current;
+    if (!pending || (expected && pending !== expected)) return;
+    if (pending.timeoutId !== null) window.clearTimeout(pending.timeoutId);
+    pendingAdmissionRef.current = null;
+  }, []);
+
+  const compensateServerAdmission = useCallback((call: ActiveCall) => {
+    sendSocketEvent({
+      type: call.hostUserId === session.user.id ? "CALL_END" : "CALL_LEAVE",
+      ...callPayload(call),
+    });
+  }, [callPayload, sendSocketEvent, session.user.id]);
+
+  const abandonAdmission = useCallback((
+    pending: PendingAdmission,
+    detail: string,
+    compensate: boolean,
+  ) => {
+    if (pendingAdmissionRef.current !== pending) return;
+    clearPendingAdmission(pending);
+    if (compensate) compensateServerAdmission(pending.call);
+    finishCallRef.current(false);
+    setStatus(detail);
+  }, [clearPendingAdmission, compensateServerAdmission]);
+
+  const beginAdmission = useCallback((
+    call: ActiveCall,
+    event: PendingAdmission["event"],
+    epoch: number,
+  ) => {
+    clearPendingAdmission();
+    const pending: PendingAdmission = {
+      call,
+      event,
+      epoch,
+      timeoutId: null,
+      bufferedEvents: [],
+    };
+    pendingAdmissionRef.current = pending;
+    pending.timeoutId = window.setTimeout(() => {
+      abandonAdmission(
+        pending,
+        "Não foi possível confirmar sua entrada na chamada. Tente novamente.",
+        true,
+      );
+    }, ADMISSION_ACK_TIMEOUT_MS);
+    if (!sendSocketEvent({ type: event, ...callPayload(call) })) {
+      clearPendingAdmission(pending);
+      throw new Error(event === "CALL_INVITE"
+        ? "A conexão em tempo real ainda não está pronta."
+        : "A conexão da reunião foi interrompida. Tente ingressar novamente.");
+    }
+  }, [abandonAdmission, callPayload, clearPendingAdmission, sendSocketEvent]);
+
   const receiveHands = useCallback((event: TeamCallSocketEvent) => {
     if (event.raisedHands && (event.handRevision ?? 0) >= handRevisionRef.current) {
       handRevisionRef.current = event.handRevision ?? 0;
@@ -485,7 +552,7 @@ export function useTeamCallRuntime({
 
   const publishMediaState = useCallback(() => {
     const call = activeRef.current;
-    if (!call) return;
+    if (!call || confirmedCallIdRef.current !== call.callId) return;
     sendSocketEvent({ type: "CALL_MEDIA_STATE", ...callPayload(call),
       cameraEnabled: !!localStreamRef.current?.getVideoTracks().some((track) => track.enabled && track.readyState !== "ended"),
       screenSharing: !!screenStreamRef.current,
@@ -550,6 +617,13 @@ export function useTeamCallRuntime({
       },
       onConnected: publishMediaState,
       onStatus: setStatus,
+      onTerminated: (failure: MediaTransportFailure) => {
+        const current = activeRef.current;
+        if (!current || current.callId !== call.callId) return;
+        compensateServerAdmission(current);
+        finishCallRef.current(false);
+        setStatus(failure.detail);
+      },
     });
     mediaTransportRef.current = transport;
     mediaTransportCallIdRef.current = call.callId;
@@ -560,7 +634,11 @@ export function useTeamCallRuntime({
     });
     transport.updateIce(iceConfigurationRef.current);
     const opening = (async () => {
-      await transport.open({ callId: call.callId, selfUserId: session.user.id }, transportMedia());
+      await transport.open({
+        callId: call.callId,
+        selfUserId: session.user.id,
+        clientId: clientIdRef.current,
+      }, transportMedia());
       if (mediaTransportRef.current !== transport
         || mediaTransportCallIdRef.current !== call.callId
         || activeRef.current?.callId !== call.callId) {
@@ -578,7 +656,7 @@ export function useTeamCallRuntime({
     } finally {
       if (mediaTransportOpenRef.current === opening) mediaTransportOpenRef.current = null;
     }
-  }, [callPayload, closeMediaTransport, publishMediaState, sendSocketEvent, session.user.id, transportMedia]);
+  }, [callPayload, closeMediaTransport, compensateServerAdmission, publishMediaState, sendSocketEvent, session.user.id, transportMedia]);
 
   const stopMedia = useCallback(() => {
     previewRequestRef.current += 1;
@@ -596,6 +674,7 @@ export function useTeamCallRuntime({
 
   const finishCall = useCallback((notify: boolean, sound: CallSound | null = null) => {
     const call = activeRef.current;
+    clearPendingAdmission();
     mediaEpochRef.current += 1;
     busyRef.current = false;
     setBusy(false);
@@ -637,9 +716,80 @@ export function useTeamCallRuntime({
     setReactions([]);
     if (sound) playCallSound(sound);
     setStatus("");
-  }, [callPayload, closeMediaTransport, sendSocketEvent, stopConnectingSound, stopMedia]);
+  }, [callPayload, clearPendingAdmission, closeMediaTransport, sendSocketEvent, stopConnectingSound, stopMedia]);
 
   finishCallRef.current = finishCall;
+
+  const completeAdmission = useCallback(async (event: TeamCallSocketEvent) => {
+    const pending = pendingAdmissionRef.current;
+    if (
+      !pending
+      || event.callId !== pending.call.callId
+      || event.event !== pending.event
+    ) {
+      return false;
+    }
+    if (event.mediaTransport !== "mesh" && event.mediaTransport !== "sfu") {
+      abandonAdmission(
+        pending,
+        "O servidor não confirmou o transporte de mídia da chamada.",
+        true,
+      );
+      return true;
+    }
+
+    clearPendingAdmission(pending);
+    const current = activeRef.current;
+    if (
+      !current
+      || current.callId !== pending.call.callId
+      || pending.epoch !== mediaEpochRef.current
+    ) {
+      return true;
+    }
+    const admittedCall: ActiveCall = {
+      ...current,
+      mediaTransport: event.mediaTransport,
+    };
+    activeRef.current = admittedCall;
+    setActive(admittedCall);
+    confirmedCallIdRef.current = admittedCall.callId;
+
+    try {
+      await ensureMediaTransport(admittedCall);
+      if (
+        activeRef.current?.callId !== admittedCall.callId
+        || pending.epoch !== mediaEpochRef.current
+      ) {
+        return true;
+      }
+      if (pending.event === "CALL_ACCEPT") {
+        dismissedInviteIdsRef.current.add(admittedCall.callId);
+        stopConnectingSound();
+        playCallSound("joined");
+        setStatus("Na chamada");
+      }
+      for (const bufferedEvent of pending.bufferedEvents) {
+        await handleSocketEventRef.current(bufferedEvent);
+      }
+    } catch (error) {
+      if (activeRef.current?.callId === admittedCall.callId) {
+        compensateServerAdmission(admittedCall);
+        finishCall(false);
+        setStatus(error instanceof Error
+          ? error.message
+          : "Não foi possível conectar a mídia da chamada.");
+      }
+    }
+    return true;
+  }, [
+    abandonAdmission,
+    clearPendingAdmission,
+    compensateServerAdmission,
+    ensureMediaTransport,
+    finishCall,
+    stopConnectingSound,
+  ]);
 
   useEffect(() => {
     const leaveOnClose = () => {
@@ -652,7 +802,9 @@ export function useTeamCallRuntime({
 
   const heartbeat = useCallback(() => {
     const call = activeRef.current;
-    return call ? sendSocketEvent({ type: "CALL_HEARTBEAT", ...callPayload(call) }) : false;
+    return call && confirmedCallIdRef.current === call.callId
+      ? sendSocketEvent({ type: "CALL_HEARTBEAT", ...callPayload(call) })
+      : false;
   }, [callPayload, sendSocketEvent]);
 
   useEffect(() => {
@@ -1183,14 +1335,8 @@ export function useTeamCallRuntime({
       setActive(call);
       setIncoming(null);
       incomingRef.current = null;
-      await ensureMediaTransport(call);
-      if (!sendSocketEvent({ type: "CALL_ACCEPT", ...callPayload(call) })) {
-        throw new Error("A conexão da reunião foi interrompida. Tente ingressar novamente.");
-      }
-      dismissedInviteIdsRef.current.add(call.callId);
-      stopConnectingSound();
-      playCallSound("joined");
-      setStatus("Na chamada");
+      setStatus("Aguardando autorização para entrar...");
+      beginAdmission(call, "CALL_ACCEPT", epoch);
       return true;
     } catch (error) {
       if (epoch !== mediaEpochRef.current) return false;
@@ -1200,7 +1346,7 @@ export function useTeamCallRuntime({
     } finally {
       if (epoch === mediaEpochRef.current) { busyRef.current = false; setBusy(false); }
     }
-  }, [acquireMedia, callPayload, ensureMediaTransport, finishCall, sendSocketEvent, startConnectingSound, stopConnectingSound]);
+  }, [acquireMedia, beginAdmission, finishCall, startConnectingSound]);
 
   const acceptIncoming = useCallback(async (entryOptions: CallEntryOptions = DEFAULT_ENTRY_OPTIONS) => {
     const pendingCall = incomingRef.current;
@@ -1244,12 +1390,9 @@ export function useTeamCallRuntime({
       setActive(call);
       setIncoming(null);
       incomingRef.current = null;
-      await ensureMediaTransport(call);
       setStatus(targetThread.scope === "direct" ? "Chamando participante..." : "Chamando a equipe...");
       startConnectingSound();
-      if (!sendSocketEvent({ type: "CALL_INVITE", ...callPayload(call) })) {
-        throw new Error("A conexão em tempo real ainda não está pronta.");
-      }
+      beginAdmission(call, "CALL_INVITE", epoch);
       return true;
     } catch (error) {
       if (epoch !== mediaEpochRef.current) return false;
@@ -1259,7 +1402,7 @@ export function useTeamCallRuntime({
     } finally {
       if (epoch === mediaEpochRef.current) { busyRef.current = false; setBusy(false); }
     }
-  }, [acquireMedia, callPayload, ensureMediaTransport, finishCall, joinActiveCall, sendSocketEvent, session.user.id, startConnectingSound, thread]);
+  }, [acquireMedia, beginAdmission, finishCall, joinActiveCall, session.user.id, startConnectingSound, thread]);
 
   const rejectIncoming = useCallback(() => {
     const pendingCall = incomingRef.current;
@@ -1283,13 +1426,23 @@ export function useTeamCallRuntime({
       if (current) { receiveHands(current); if (confirmedCallIdRef.current) void syncMeetingChat(); }
       return;
     }
-    if (event.type === "CALL_ACK" && event.callId === activeRef.current?.callId) {
-      confirmedCallIdRef.current = event.callId || "";
-      if (event.event === "CALL_INVITE" || event.event === "CALL_ACCEPT") void syncMeetingChat();
+    if (event.type === "CALL_ACK") {
+      const admitted = await completeAdmission(event);
+      if (admitted && (event.event === "CALL_INVITE" || event.event === "CALL_ACCEPT")) {
+        void syncMeetingChat();
+      }
       return;
     }
     if (event.type === "CALL_ERROR") {
-      if (event.callId && event.callId === activeRef.current?.callId && !confirmedCallIdRef.current) finishCall(false);
+      const pending = pendingAdmissionRef.current;
+      if (pending && event.callId === pending.call.callId) {
+        abandonAdmission(
+          pending,
+          event.detail || "Não foi possível entrar na chamada.",
+          false,
+        );
+        return;
+      }
       if (event.detail) setStatus(event.detail);
       return;
     }
@@ -1365,6 +1518,21 @@ export function useTeamCallRuntime({
     }
     const call = activeRef.current;
     if (!call || call.callId !== event.callId) return;
+    const pending = pendingAdmissionRef.current;
+    if (
+      pending?.call.callId === call.callId
+      && [
+        "CALL_ACCEPT",
+        "CALL_SIGNAL",
+        "CALL_MEDIA_STATE",
+        "CALL_SCREEN_STARTED",
+        "CALL_SCREEN_STOPPED",
+        "CALL_LEAVE",
+      ].includes(event.type)
+    ) {
+      pending.bufferedEvents.push(event);
+      return;
+    }
     if (event.type === "CALL_REACTION" && event.emoji) {
       showReaction(event.emoji, event.fromUserName || "Participante");
       return;
@@ -1465,7 +1633,9 @@ export function useTeamCallRuntime({
       setStatus("Gravacao disponivel no chat por 24 horas.");
       return;
     }
-  }, [receiveHands, receiveMessages, syncMeetingChat, callPayload, ensureMediaTransport, finishCall, publishMediaState, revokeAccess, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
+  }, [abandonAdmission, completeAdmission, receiveHands, receiveMessages, syncMeetingChat, callPayload, ensureMediaTransport, finishCall, publishMediaState, revokeAccess, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
+
+  handleSocketEventRef.current = handleSocketEvent;
 
   const toggleMute = useCallback(async () => {
     const currentAudio = localStreamRef.current?.getAudioTracks().find((track) => track.readyState !== "ended");

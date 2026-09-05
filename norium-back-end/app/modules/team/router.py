@@ -57,6 +57,12 @@ from app.modules.team.turn_credentials import (
     TurnUnavailableError,
     turn_provider_from_environment,
 )
+from app.modules.team.sfu_tokens import (
+    SfuTokenProvider,
+    SfuTokenSubject,
+    SfuUnavailableError,
+    sfu_provider_from_environment,
+)
 from app.modules.team.nora_mentions import generate_team_reply, has_nora_mention
 from app.routers.auth_router import current_user, read_user_store, sanitize_user, user_from_websocket_ticket
 from app.routers.inbox_router import record_event
@@ -111,6 +117,10 @@ class SendSubteamMessagePayload(StrictModel):
 
 
 class SendMeetingMessagePayload(SendSubteamMessagePayload):
+    clientId: str = Field(min_length=1, max_length=100)
+
+
+class SfuTokenPayload(StrictModel):
     clientId: str = Field(min_length=1, max_length=100)
 
 
@@ -263,6 +273,7 @@ class PresenceManager:
 
 manager = PresenceManager()
 _turn_provider: TurnCredentialProvider | None = None
+_sfu_provider: SfuTokenProvider | None = None
 
 
 def turn_credential_provider() -> TurnCredentialProvider:
@@ -270,6 +281,13 @@ def turn_credential_provider() -> TurnCredentialProvider:
     if _turn_provider is None:
         _turn_provider = turn_provider_from_environment()
     return _turn_provider
+
+
+def sfu_token_provider() -> SfuTokenProvider:
+    global _sfu_provider
+    if _sfu_provider is None:
+        _sfu_provider = sfu_provider_from_environment()
+    return _sfu_provider
 
 
 def now_iso() -> str:
@@ -728,6 +746,49 @@ async def get_call_ice_servers(
         raise HTTPException(
             status_code=503,
             detail="O serviço TURN está temporariamente indisponível.",
+            headers=no_store_headers,
+        ) from exc
+    response.headers.update(no_store_headers)
+    return document.as_payload()
+
+
+@router.post("/calls/{call_id}/media-token")
+async def create_call_media_token(
+    call_id: str,
+    payload: SfuTokenPayload,
+    response: Response,
+    user: dict[str, Any] = Depends(current_user),
+    provider: SfuTokenProvider = Depends(sfu_token_provider),
+) -> dict[str, str]:
+    require_team_chat(user)
+    if user.get("status") != "ativo" or not str(user.get("id") or "").strip():
+        raise HTTPException(status_code=403, detail="Somente membros ativos podem acessar a chamada.")
+    actor = call_actor(user)
+    no_store_headers = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
+    try:
+        context = await call_coordinator().media_context(
+            actor,
+            call_id,
+            payload.clientId,
+            expected_transport="sfu",
+        )
+        session = context["participantSessions"][actor.user_id]
+        document = provider.issue(SfuTokenSubject(
+            team_id=actor.team_id,
+            call_id=call_id,
+            user_id=actor.user_id,
+            media_session_id=str(session["mediaSessionId"]),
+        ))
+    except CallError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers={**no_store_headers, "X-Call-Error-Code": exc.code},
+        ) from exc
+    except SfuUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="O transporte de mídia está temporariamente indisponível.",
             headers=no_store_headers,
         ) from exc
     response.headers.update(no_store_headers)

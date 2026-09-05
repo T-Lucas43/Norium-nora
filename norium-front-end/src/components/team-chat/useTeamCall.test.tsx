@@ -135,6 +135,9 @@ describe("chamadas do Modo Equipe", () => {
 
     await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
     const oldCallId = result.current.active?.callId || "";
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACK", callId: oldCallId, event: "CALL_INVITE", mediaTransport: "mesh",
+    }));
     expect(result.current.mediaTransport).toBe("mesh");
     expect(instances).toHaveLength(1);
     await act(async () => result.current.leaveCall());
@@ -145,6 +148,9 @@ describe("chamadas do Modo Equipe", () => {
       fromUserId: "member", fromUserName: "Member", mediaTransport: "sfu",
     }));
     await act(async () => result.current.acceptIncoming({ microphoneMode: "listen-only", cameraEnabled: false }));
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACK", callId: "call_sfu", event: "CALL_ACCEPT", mediaTransport: "sfu",
+    }));
     expect(result.current.mediaTransport).toBe("sfu");
     expect(instances).toHaveLength(2);
 
@@ -160,6 +166,119 @@ describe("chamadas do Modo Equipe", () => {
       signal: { type: "offer", sdp: "stale" },
     }));
     expect(instances[1].receive).not.toHaveBeenCalledWith(expect.objectContaining({ callId: oldCallId }));
+  });
+
+  it("aguarda o ACK autoritativo antes de abrir SFU e tolera estado anterior ao ACK", async () => {
+    const open = vi.fn().mockResolvedValue(undefined);
+    const snapshot: MediaTransportSnapshot = {
+      state: "connected", failure: null, remoteStreams: [], connectionQuality: "good",
+      iceTelemetry: { lastState: "unknown", stateCounts: {}, pathTypeCounts: {}, lastSelectedPath: null, relayObserved: false },
+    };
+    const sfuFactory: MediaTransportFactory = {
+      kind: "sfu",
+      create: () => ({
+        kind: "sfu",
+        open,
+        receive: vi.fn().mockResolvedValue(undefined),
+        updateLocalMedia: vi.fn().mockResolvedValue(undefined),
+        updateIce: vi.fn(),
+        updateScreenProfile: vi.fn().mockResolvedValue(undefined),
+        snapshot: () => snapshot,
+        subscribe: (listener) => { listener(snapshot); return vi.fn(); },
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+    };
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useTeamCallRuntime({
+      session,
+      thread: { scope: "team", title: "Time todo" },
+      sendSocketEvent,
+      mediaTransports: [sfuFactory],
+    }));
+
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const invitation = sendSocketEvent.mock.calls.find(([event]) => event.type === "CALL_INVITE")?.[0];
+    const callId = invitation.callId as string;
+    expect(open).not.toHaveBeenCalled();
+
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_SESSION", callId, fromUserId: "owner", clientId: invitation.clientId,
+    }));
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALLS_STATE",
+      calls: [{ type: "CALL_INVITE", callId, scope: "team", threadId: "team", fromUserId: "owner", mediaTransport: "sfu" }],
+    }));
+    expect(result.current.active?.callId).toBe(callId);
+    expect(open).not.toHaveBeenCalled();
+
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACK", callId, event: "CALL_INVITE", mediaTransport: "sfu",
+    }));
+
+    expect(open).toHaveBeenCalledWith(
+      { callId, selfUserId: "owner", clientId: invitation.clientId },
+      expect.objectContaining({ localStream: null }),
+    );
+    expect(result.current.mediaTransport).toBe("sfu");
+  });
+
+  it("compensa uma admissao cujo transporte falha antes de limpar a sessao", async () => {
+    const failure = new Error("Não foi possível conectar a mídia da chamada.");
+    const snapshot: MediaTransportSnapshot = {
+      state: "failed",
+      failure: { code: "sfu_connect_failed", detail: failure.message, retryable: true },
+      remoteStreams: [], connectionQuality: "offline",
+      iceTelemetry: { lastState: "failed", stateCounts: { failed: 1 }, pathTypeCounts: {}, lastSelectedPath: null, relayObserved: false },
+    };
+    const failingSfu: MediaTransportFactory = {
+      kind: "sfu",
+      create: () => ({
+        kind: "sfu",
+        open: vi.fn().mockRejectedValue(failure),
+        receive: vi.fn().mockResolvedValue(undefined),
+        updateLocalMedia: vi.fn().mockResolvedValue(undefined),
+        updateIce: vi.fn(),
+        updateScreenProfile: vi.fn().mockResolvedValue(undefined),
+        snapshot: () => snapshot,
+        subscribe: (listener) => { listener(snapshot); return vi.fn(); },
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+    };
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useTeamCallRuntime({
+      session,
+      thread: { scope: "team", title: "Time todo" },
+      sendSocketEvent,
+      mediaTransports: [failingSfu],
+    }));
+
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const callId = result.current.active?.callId;
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACK", callId, event: "CALL_INVITE", mediaTransport: "sfu",
+    }));
+
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_END", callId }));
+    expect(result.current.active).toBeNull();
+    expect(result.current.status).toBe(failure.message);
+  });
+
+  it("encerra no servidor uma admissao sem ACK antes de limpar a captura", async () => {
+    vi.useFakeTimers();
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result } = renderHook(() => useTeamCallRuntime({
+      session,
+      thread: { scope: "team", title: "Time todo" },
+      sendSocketEvent,
+    }));
+
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const callId = result.current.active?.callId;
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_100); });
+
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_END", callId }));
+    expect(result.current.active).toBeNull();
+    expect(result.current.status).toContain("confirmar sua entrada");
   });
 
   it("sempre encerra a captura local mesmo se o adapter falhar ao fechar", async () => {
@@ -200,6 +319,10 @@ describe("chamadas do Modo Equipe", () => {
     }));
 
     await act(async () => result.current.startCall());
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACK", callId: result.current.active?.callId,
+      event: "CALL_INVITE", mediaTransport: "mesh",
+    }));
     await act(async () => result.current.leaveCall());
 
     expect(close).toHaveBeenCalledOnce();
@@ -564,6 +687,10 @@ describe("chamadas do Modo Equipe", () => {
     const { result } = renderHook(() => useTeamCallRuntime({ session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent }));
 
     await act(async () => result.current.startCall());
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACK", callId: result.current.active?.callId,
+      event: "CALL_INVITE", mediaTransport: "mesh",
+    }));
     await act(async () => result.current.handleSocketEvent({ type: "CALL_ACCEPT", callId: result.current.active?.callId, fromUserId: "member", fromUserName: "Member" }));
     const peer = peerInstances[0];
     await act(async () => {
@@ -730,6 +857,10 @@ describe("chamadas do Modo Equipe", () => {
     await act(async () => result.current.startCall());
     const activeCallId = result.current.active?.callId;
     await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACK", callId: activeCallId,
+      event: "CALL_INVITE", mediaTransport: "mesh",
+    }));
+    await act(async () => result.current.handleSocketEvent({
       type: "CALL_ACCEPT",
       callId: activeCallId,
       fromUserId: "member",
@@ -833,6 +964,10 @@ describe("chamadas do Modo Equipe", () => {
     );
 
     await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACK", callId: result.current.active?.callId,
+      event: "CALL_INVITE", mediaTransport: "mesh",
+    }));
     await act(async () => result.current.handleSocketEvent({
       type: "CALL_ACCEPT",
       callId: result.current.active?.callId,

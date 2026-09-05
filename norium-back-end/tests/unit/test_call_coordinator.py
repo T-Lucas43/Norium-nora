@@ -187,6 +187,125 @@ class CallCoordinatorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("sfu", calls[0]["mediaTransport"])
 
+    async def test_server_selects_sfu_for_new_call_and_ack_reports_admission(self) -> None:
+        coordinator = CallCoordinator(
+            store=self.store,
+            publisher=self.publisher,
+            authorizer=TeamCallAuthorizer(self.directory),
+            clock=self.clock,
+            media_transport_for_team=lambda team_id: "sfu" if team_id == "owner" else "mesh",
+            sfu_max_participants=25,
+        )
+
+        result = await coordinator.handle_event(self.owner, event(
+            "CALL_INVITE",
+            mediaTransport="mesh",
+        ))
+
+        self.assertEqual(({
+            "type": "CALL_ACK",
+            "callId": "call_0123456789abcdef",
+            "event": "CALL_INVITE",
+            "mediaTransport": "sfu",
+            "joinedCount": 1,
+            "maxParticipants": 25,
+        },), result.direct_messages)
+        self.assertEqual(
+            "sfu",
+            self.store.states["owner"].active_calls[0]["mediaTransport"],
+        )
+
+    async def test_sfu_media_context_revalidates_member_and_exact_client(self) -> None:
+        coordinator = CallCoordinator(
+            store=self.store,
+            publisher=self.publisher,
+            authorizer=TeamCallAuthorizer(self.directory),
+            clock=self.clock,
+            media_transport_for_team=lambda _team_id: "sfu",
+        )
+        await coordinator.handle_event(self.owner, event("CALL_INVITE"))
+
+        context = await coordinator.media_context(
+            self.owner,
+            "call_0123456789abcdef",
+            "owner-tab",
+            expected_transport="sfu",
+        )
+        self.assertEqual("sfu", context["mediaTransport"])
+
+        with self.assertRaises(CallError) as stale_client:
+            await coordinator.media_context(
+                self.owner,
+                "call_0123456789abcdef",
+                "stale-tab",
+                expected_transport="sfu",
+            )
+        self.assertEqual("call_session_mismatch", stale_client.exception.code)
+
+        self.directory.members.remove("owner")
+        with self.assertRaises(CallError) as revoked_member:
+            await coordinator.media_context(
+                self.owner,
+                "call_0123456789abcdef",
+                "owner-tab",
+                expected_transport="sfu",
+            )
+        self.assertEqual(403, revoked_member.exception.status_code)
+
+    async def test_sfu_reentry_rotates_persisted_media_session_identity(self) -> None:
+        media_session_ids = iter(("media-session-one", "media-session-two"))
+        coordinator = CallCoordinator(
+            store=self.store,
+            publisher=self.publisher,
+            authorizer=TeamCallAuthorizer(self.directory),
+            clock=self.clock,
+            media_transport_for_team=lambda _team_id: "sfu",
+            media_session_id_factory=lambda: next(media_session_ids),
+        )
+        await coordinator.handle_event(self.owner, event("CALL_INVITE", client="old"))
+        first = await coordinator.media_context(
+            self.owner,
+            "call_0123456789abcdef",
+            "old-tab",
+            expected_transport="sfu",
+        )
+
+        await coordinator.handle_event(self.owner, event("CALL_ACCEPT", client="new"))
+        second = await coordinator.media_context(
+            self.owner,
+            "call_0123456789abcdef",
+            "new-tab",
+            expected_transport="sfu",
+        )
+
+        self.assertEqual("media-session-one", first["participantSessions"]["owner"]["mediaSessionId"])
+        self.assertEqual("media-session-two", second["participantSessions"]["owner"]["mediaSessionId"])
+
+    async def test_idempotent_accept_preserves_media_session_identity(self) -> None:
+        media_session_ids = iter(("media-session-one", "must-not-be-used"))
+        coordinator = CallCoordinator(
+            store=self.store,
+            publisher=self.publisher,
+            authorizer=TeamCallAuthorizer(self.directory),
+            clock=self.clock,
+            media_transport_for_team=lambda _team_id: "sfu",
+            media_session_id_factory=lambda: next(media_session_ids),
+        )
+        await coordinator.handle_event(self.owner, event("CALL_INVITE"))
+
+        await coordinator.handle_event(self.owner, event("CALL_ACCEPT"))
+        context = await coordinator.media_context(
+            self.owner,
+            "call_0123456789abcdef",
+            "owner-tab",
+            expected_transport="sfu",
+        )
+
+        self.assertEqual(
+            "media-session-one",
+            context["participantSessions"]["owner"]["mediaSessionId"],
+        )
+
     async def test_reentry_at_capacity_replaces_session_without_taking_a_slot(self) -> None:
         coordinator = CallCoordinator(
             store=self.store,

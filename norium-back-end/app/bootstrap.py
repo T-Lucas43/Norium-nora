@@ -65,6 +65,7 @@ from app.modules.team.router import (
 )
 from app.modules.team.turn_credentials import validate_turn_configuration
 from app.modules.team.call_configuration import validate_team_call_configuration
+from app.modules.team.sfu_tokens import validate_sfu_configuration
 from app.modules.system.router import router as system_router
 from app.modules.workhub.router import clients_router as workhub_clients_router
 from app.modules.workhub.router import router as workhub_router
@@ -186,6 +187,7 @@ def create_app() -> FastAPI:
     validate_wapi_webhook_configuration()
     validate_team_call_configuration()
     validate_turn_configuration()
+    validate_sfu_configuration()
     configure_webhook_secret_log_redaction()
     app = FastAPI(title="Norium Engine Chat Central Unificado API")
     app.router.add_event_handler("startup", start_recording_maintenance)

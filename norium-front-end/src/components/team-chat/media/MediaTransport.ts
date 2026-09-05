@@ -1,6 +1,7 @@
 export type MediaTransportKind = "mesh" | "sfu";
 
 export type MediaTransportConnectionQuality = "offline" | "connecting" | "poor" | "fair" | "good";
+export type MediaTransportFailure = { code: string; detail: string; retryable: boolean };
 export type IceTelemetryState = RTCIceConnectionState | "unknown";
 export type IcePathType = RTCIceCandidateType | "unknown";
 export type IcePathProtocol = "udp" | "tcp" | "tls" | "unknown";
@@ -19,7 +20,7 @@ export type IceTelemetrySnapshot = {
 
 export type MediaTransportSnapshot = {
   state: "idle" | "connecting" | "connected" | "failed";
-  failure: { code: string; detail: string; retryable: boolean } | null;
+  failure: MediaTransportFailure | null;
   remoteStreams: Array<{ userId: string; stream: MediaStream }>;
   connectionQuality: MediaTransportConnectionQuality;
   iceTelemetry: IceTelemetrySnapshot;
@@ -28,6 +29,7 @@ export type MediaTransportSnapshot = {
 export type MediaTransportCall = {
   callId: string;
   selfUserId: string;
+  clientId: string;
 };
 
 export type MediaTransportLocalMedia = {
@@ -54,6 +56,7 @@ export type MediaTransportDependencies = {
   ) => boolean;
   onConnected: () => void;
   onStatus: (message: string) => void;
+  onTerminated?: (failure: MediaTransportFailure) => void;
 };
 
 /**

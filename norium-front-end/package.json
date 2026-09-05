@@ -19,6 +19,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.42.0",
     "jspdf": "^4.2.1",
+    "livekit-client": "2.22.2",
     "lucide-react": "^1.21.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

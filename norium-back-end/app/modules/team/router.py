@@ -524,14 +524,15 @@ def short_text(value: str, limit: int = 150) -> str:
     return text if len(text) <= limit else f"{text[:limit - 3]}..."
 
 
-async def record_team_event(team_id: str, title: str, description: str, metadata: dict[str, Any] | None = None) -> None:
+async def record_team_event(team_id: str, title: str, description: str, metadata: dict[str, Any] | None = None, *, user_ids: set[str] | None = None) -> None:
     try:
-        await record_event(
-            source="equipe",
-            title=title,
-            description=description,
-            metadata={"userId": team_id, **(metadata or {})},
-        )
+        for participant_id in sorted(user_ids if user_ids is not None else {team_id}):
+            await record_event(
+                source="equipe",
+                title=title,
+                description=description,
+                metadata={**(metadata or {}), "userId": participant_id},
+            )
     except Exception:
         # O chat interno nao deve falhar se a Central estiver temporariamente indisponivel.
         return
@@ -982,6 +983,7 @@ async def persist_message(
             "recipientId": recipient_id,
             "subteamId": subteam_id,
         },
+        user_ids=participant_ids,
     )
     from app.services.system_email import notify_team_participants
     await notify_team_participants(participant_ids - {user_id}, message["id"], "Nova mensagem no chat da equipe")
@@ -1396,7 +1398,7 @@ async def complete_recording(recording_id: str, user: dict[str, Any] = Depends(c
     await manager.send_to_users(team_id, participant_ids, {"type": "CALL_RECORDING_AVAILABLE", "callId": recording.get("callId"), "recordingId": recording_id, "expiresAt": expires_at.isoformat(), "fromUserId": user_id, "fromUserName": recording.get("createdByName") or "Membro"})
     from app.services.system_email import notify_team_participants
     await notify_team_participants(participant_ids, "recording_" + recording_id, "Gravação de reunião disponível")
-    await record_team_event(team_id, "Gravacao de reuniao concluida", "A gravacao ficara disponivel por 24 horas.", {"action": "meeting_recording", "callId": recording.get("callId"), "recordingId": recording_id})
+    await record_team_event(team_id, "Gravacao de reuniao concluida", "A gravacao ficara disponivel por 24 horas.", {"action": "meeting_recording", "callId": recording.get("callId"), "recordingId": recording_id}, user_ids=participant_ids)
     return {"message": message, "expiresAt": expires_at.isoformat()}
 
 

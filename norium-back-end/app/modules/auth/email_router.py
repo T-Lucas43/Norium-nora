@@ -204,8 +204,5 @@ async def test_mail(user: dict = Depends(require_admin)):
         raise HTTPException(503, "Configure e ative o envio primeiro.")
     key = "test_" + secrets.token_hex(16)
     payload = mail.render_message(user.get("nome", ""), "Teste de envio", "O envio de mensagens do Norium foi configurado. Esta mensagem foi solicitada pelo administrador.", mail.configuration()["publicUrl"] + "/app", "Abrir Norium")
-    def enqueue():
-        with mail.database() as connection:
-            mail._enqueue(connection, user, "test", payload, key, time.time() + 3600)
-    await asyncio.to_thread(enqueue)
+    await asyncio.to_thread(mail.enqueue_direct, user, "test", payload, key, time.time() + 3600)
     return {"message": "Teste colocado na fila para o e-mail da sua conta.", "id": key}

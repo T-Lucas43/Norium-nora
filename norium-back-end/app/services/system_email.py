@@ -10,10 +10,9 @@ import logging
 import os
 import secrets
 import smtplib
-import sqlite3
 import ssl
+import threading
 import time
-from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -22,7 +21,7 @@ from urllib.parse import urlsplit
 from cryptography.fernet import Fernet
 
 from app.core.security import auth_secret
-from app.core.tenant import get_data_root, get_system_db_path, read_json_file, write_json_file
+from app.core.tenant import get_system_db_path, read_json_file, write_json_file
 
 SENDER = "suporte@norium-ai.com"
 SOURCES = {"calendar", "kanban", "financeiro", "equipe", "automacoes", "brainstorm", "relatorios", "sistema", "clientes"}
@@ -30,6 +29,7 @@ SOURCE_NAMES = {"calendar": "Agenda", "kanban": "Tarefas", "financeiro": "Financ
 SOURCE_PATHS = {"calendar": "agenda", "kanban": "tarefas", "financeiro": "financeiro", "equipe": "chat-equipe", "automacoes": "automacoes", "brainstorm": "estudio", "relatorios": "relatorios", "clientes": "clientes"}
 logger = logging.getLogger(__name__)
 smtp_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="system-smtp")
+store_lock = threading.RLock()
 WELCOME_CAMPAIGN = "nora-welcome-v1"
 WELCOME_TITLE = "Boas-vindas ao Norium! Aqui quem fala é a Nora"
 WELCOME_DESCRIPTION = "Aqui quem fala é a Nora. Boas-vindas ao Norium! Estou aqui para ajudar você a organizar tarefas, acompanhar reuniões e consultar as informações da sua operação. No meu chat, você pode fazer perguntas e pedir ajuda para aproveitar os recursos do sistema. Acesse sua conta e vamos começar!"
@@ -61,8 +61,12 @@ def save_configuration(password: str, enabled: bool, public_url: str) -> dict:
         raise ValueError("Informe a senha da caixa de suporte para ativar os envios.")
     write_json_file(get_system_db_path("system_email_config"), config)
     if enabled and password:
-        with database() as connection:
-            connection.execute("UPDATE email_outbox SET state='pending',attempts=0,next_attempt=0,error=NULL WHERE state='failed' AND expires>?", (time.time(),))
+        with store_lock:
+            store = read_store()
+            for job in store["outbox"]:
+                if job.get("state") == "failed" and job.get("expires", 0) > time.time():
+                    job.update(state="pending", attempts=0, next_attempt=0, error=None)
+            write_store(store)
     return configuration_status()
 
 
@@ -73,34 +77,48 @@ def configuration_status() -> dict:
             "publicUrl": config.get("publicUrl", ""), "ready": ready()}
 
 
-@contextmanager
-def database():
-    connection = sqlite3.connect(get_data_root() / "system_email.sqlite3", timeout=3)
-    connection.row_factory = sqlite3.Row
-    try:
-        connection.execute("CREATE TABLE IF NOT EXISTS email_tokens (digest TEXT PRIMARY KEY, user_id TEXT, email TEXT, purpose TEXT, version INTEGER, created REAL, expires REAL, used INTEGER DEFAULT 0)")
-        connection.execute("CREATE INDEX IF NOT EXISTS email_tokens_user ON email_tokens(user_id, purpose, created)")
-        connection.execute("CREATE TABLE IF NOT EXISTS email_outbox (id TEXT PRIMARY KEY, user_id TEXT, recipient TEXT, kind TEXT, payload TEXT, created REAL, expires REAL, state TEXT DEFAULT 'pending', attempts INTEGER DEFAULT 0, next_attempt REAL DEFAULT 0, lease TEXT, lease_until REAL DEFAULT 0, error TEXT)")
-        connection.execute("CREATE INDEX IF NOT EXISTS email_outbox_due ON email_outbox(state,next_attempt,expires)")
-        connection.execute("CREATE TABLE IF NOT EXISTS email_campaign_recipients (campaign TEXT, recipient_digest TEXT, PRIMARY KEY(campaign,recipient_digest))")
-        connection.commit()
-        yield connection
-        connection.commit()
-    finally:
-        connection.close()
+def read_store() -> dict:
+    raw = read_json_file(get_system_db_path("system_email"), {})
+    if not isinstance(raw, dict):
+        raw = {}
+    return {
+        "version": 1,
+        "tokens": raw.get("tokens", []) if isinstance(raw.get("tokens"), list) else [],
+        "outbox": raw.get("outbox", []) if isinstance(raw.get("outbox"), list) else [],
+        "campaigns": raw.get("campaigns", {}) if isinstance(raw.get("campaigns"), dict) else {},
+    }
+
+
+def write_store(store: dict) -> None:
+    write_json_file(get_system_db_path("system_email"), store)
 
 
 def render_message(name: str, title: str, description: str, link: str, button: str) -> dict:
     text = f"Olá, {name}.\n\n{title}\n\n{description}\n\n{button}: {link}\n\nNorium • {SENDER}\nGerencie notificações na sua conta do Norium."
     esc = html.escape
     body = f'<html lang="pt-BR"><body style="margin:0;background:#080c12;color:#eaf2ff;font-family:Arial,sans-serif"><table role="presentation" width="100%"><tr><td style="padding:32px 16px"><table role="presentation" style="max-width:600px;width:100%;margin:auto;background:#101822;border:1px solid #26364b;border-radius:16px"><tr><td style="padding:32px"><div style="color:#22d3ee;font-size:20px;font-weight:bold">NORIUM</div><p style="color:#aabbd0">Olá, {esc(name)}.</p><h1 style="font-size:24px;line-height:1.3">{esc(title)}</h1><p style="line-height:1.7;color:#c2d0e2">{esc(description)}</p><p style="margin:30px 0"><a href="{esc(link, quote=True)}" style="display:inline-block;background:#1765ee;color:white;padding:14px 22px;border-radius:9px;text-decoration:none;font-weight:bold">{esc(button)}</a></p><p style="font-size:12px;color:#9aacc2">Se o botão não abrir, copie este endereço:<br>{esc(link)}</p><hr style="border:0;border-top:1px solid #26364b"><p style="font-size:12px;color:#9aacc2">Norium · {SENDER}<br>Gerencie notificações na sua conta do Norium.</p></td></tr></table></td></tr></table></body></html>'
+    body = body.replace('<body', '<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body', 1)
+    body = body.replace('font-size:12px;color:#9aacc2', 'font-size:12px;overflow-wrap:anywhere;word-break:break-word;color:#9aacc2')
     return {"subject": f"Norium — {title}"[:180], "text": text, "html": body}
 
 
-def _enqueue(connection, user: dict, kind: str, payload: dict, key: str, expires: float) -> bool:
+def _enqueue(store: dict, user: dict, kind: str, payload: dict, key: str, expires: float) -> bool:
+    if any(job.get("id") == key for job in store["outbox"]):
+        return False
     encrypted = cipher().encrypt(json.dumps(payload, ensure_ascii=False).encode()).decode()
-    return connection.execute("INSERT OR IGNORE INTO email_outbox(id,user_id,recipient,kind,payload,created,expires) VALUES(?,?,?,?,?,?,?)",
-                              (key, user["id"], user["email"], kind, encrypted, time.time(), expires)).rowcount == 1
+    store["outbox"].append({"id": key, "user_id": user["id"], "recipient": user["email"], "kind": kind,
+                            "payload": encrypted, "created": time.time(), "expires": expires, "state": "pending",
+                            "attempts": 0, "next_attempt": 0, "lease": "", "lease_until": 0, "error": None})
+    return True
+
+
+def enqueue_direct(user: dict, kind: str, payload: dict, key: str, expires: float) -> bool:
+    with store_lock:
+        store = read_store()
+        inserted = _enqueue(store, user, kind, payload, key, expires)
+        if inserted:
+            write_store(store)
+        return inserted
 
 
 def issue_action(user: dict, purpose: str) -> bool:
@@ -114,26 +132,34 @@ def issue_action(user: dict, purpose: str) -> bool:
     title = "Redefina sua senha" if purpose == "reset" else "Confirme seu e-mail"
     description = "Recebemos uma solicitação de redefinição de senha. O link é válido por 30 minutos e pode ser usado uma única vez. Se não foi você, ignore esta mensagem." if purpose == "reset" else "Confirme que este endereço pertence a você para receber as notificações da sua conta. O link é válido por 24 horas e pode ser usado uma única vez."
     payload = render_message(user.get("nome", ""), title, description, link, title)
-    with database() as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        recent = connection.execute("SELECT count(*), max(created) FROM email_tokens WHERE user_id=? AND purpose=? AND created>?", (user["id"], purpose, now - 3600)).fetchone()
-        if recent[0] >= 3 or (recent[1] and now - recent[1] < 60):
+    with store_lock:
+        store = read_store()
+        recent = [item for item in store["tokens"] if item.get("user_id") == user["id"] and item.get("purpose") == purpose and item.get("created", 0) > now - 3600]
+        latest = max((item.get("created", 0) for item in recent), default=0)
+        if len(recent) >= 3 or (latest and now - latest < 60):
             return False
-        connection.execute("UPDATE email_tokens SET used=1 WHERE user_id=? AND purpose=?", (user["id"], purpose))
-        connection.execute("UPDATE email_outbox SET state='skipped',payload='' WHERE user_id=? AND kind=? AND state='pending'", (user["id"], purpose))
-        connection.execute("INSERT INTO email_tokens(digest,user_id,email,purpose,version,created,expires) VALUES(?,?,?,?,?,?,?)", (digest, user["id"], user["email"], purpose, int(user.get("sessionVersion") or 0), now, expires))
-        _enqueue(connection, user, purpose, payload, digest, expires)
+        for item in store["tokens"]:
+            if item.get("user_id") == user["id"] and item.get("purpose") == purpose:
+                item["used"] = True
+        for job in store["outbox"]:
+            if job.get("user_id") == user["id"] and job.get("kind") == purpose and job.get("state") == "pending":
+                job.update(state="skipped", payload="")
+        store["tokens"].append({"digest": digest, "user_id": user["id"], "email": user["email"], "purpose": purpose,
+                                "version": int(user.get("sessionVersion") or 0), "created": now, "expires": expires, "used": False})
+        _enqueue(store, user, purpose, payload, digest, expires)
+        write_store(store)
     return True
 
 
 def consume_action(token: str, purpose: str) -> dict | None:
     digest = hashlib.sha256(token.encode()).hexdigest()
-    with database() as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        row = connection.execute("SELECT * FROM email_tokens WHERE digest=? AND purpose=? AND used=0 AND expires>?", (digest, purpose, time.time())).fetchone()
+    with store_lock:
+        store = read_store()
+        row = next((item for item in store["tokens"] if item.get("digest") == digest and item.get("purpose") == purpose and not item.get("used") and item.get("expires", 0) > time.time()), None)
         if row is None:
             return None
-        connection.execute("UPDATE email_tokens SET used=1 WHERE digest=?", (digest,))
+        row["used"] = True
+        write_store(store)
         return dict(row)
 
 
@@ -141,8 +167,7 @@ def queue_security_notice(user: dict) -> None:
     if not ready():
         return
     payload = render_message(user.get("nome", ""), "Sua senha foi alterada", "A senha da sua conta foi redefinida e as sessões anteriores foram encerradas. Se você não reconhece essa alteração, entre em contato com o suporte.", configuration()["publicUrl"] + "/app", "Acessar minha conta")
-    with database() as connection:
-        _enqueue(connection, user, "security", payload, secrets.token_hex(24), time.time() + 86400)
+    enqueue_direct(user, "security", payload, secrets.token_hex(24), time.time() + 86400)
 
 
 def queue_welcome(users: list[dict]) -> dict:
@@ -155,33 +180,40 @@ def queue_campaign(users: list[dict], campaign: str, kind: str, title: str, desc
         raise ValueError("Configure e ative o envio primeiro.")
     queued = existing = skipped = 0
     public_url = configuration()["publicUrl"]
-    with database() as connection:
-        connection.execute("BEGIN IMMEDIATE")
+    with store_lock:
+        store = read_store()
+        recipients = store["campaigns"].setdefault(campaign, [])
         for user in users:
             recipient = str(user.get("email") or "").strip().lower()
             if user.get("status") != "ativo" or not user.get("id") or "@" not in recipient or any(character.isspace() for character in recipient) or not preferences(user)["enabled"]:
                 skipped += 1
                 continue
             digest = hashlib.sha256(recipient.encode()).hexdigest()
-            inserted = connection.execute("INSERT OR IGNORE INTO email_campaign_recipients VALUES(?,?)", (campaign, digest)).rowcount
-            if not inserted:
+            if digest in recipients:
                 existing += 1
                 continue
+            recipients.append(digest)
             payload = render_message(user.get("nome", ""), title, description, public_url + path, button)
             payload["html"] = payload["html"].replace("line-height:1.7;color", "white-space:pre-wrap;line-height:1.7;color")
-            _enqueue(connection, {**user, "email": recipient}, kind, payload, campaign + "_" + digest, time.time() + 7 * 86400)
+            _enqueue(store, {**user, "email": recipient}, kind, payload, campaign + "_" + digest, time.time() + 7 * 86400)
             queued += 1
+        write_store(store)
     return {"queued": queued, "alreadyQueued": existing, "skipped": skipped}
 
 
 def delivery_status() -> dict:
     try:
-        with database() as connection:
-            counts = {row["state"]: row["total"] for row in connection.execute("SELECT CASE WHEN state IN ('pending','sending') AND expires<=? THEN 'expired' ELSE state END AS state,count(*) total FROM email_outbox GROUP BY 1", (time.time(),))}
-            recent = [dict(row) for row in connection.execute("SELECT kind,state,attempts,error,created FROM email_outbox ORDER BY created DESC LIMIT 10")]
+        with store_lock:
+            store = read_store()
+        counts: dict[str, int] = {}
+        now = time.time()
+        for job in store["outbox"]:
+            state = "expired" if job.get("state") in {"pending", "sending"} and job.get("expires", 0) <= now else job.get("state", "pending")
+            counts[state] = counts.get(state, 0) + 1
+        recent = [{key: job.get(key) for key in ("kind", "state", "attempts", "error", "created")} for job in sorted(store["outbox"], key=lambda item: item.get("created", 0), reverse=True)[:10]]
         return {"available": True, "counts": counts, "recent": recent, "welcome": {"title": WELCOME_TITLE, "description": WELCOME_DESCRIPTION}}
-    except (sqlite3.Error, OSError) as error:
-        code = getattr(error, "sqlite_errorname", type(error).__name__)
+    except OSError as error:
+        code = type(error).__name__
         logger.error("system_email_storage_unavailable code=%s", code)
         return {"available": False, "error": f"O armazenamento da fila está indisponível ({code}). Os envios permanecem bloqueados até a correção.", "counts": {}, "recent": [], "welcome": {"title": WELCOME_TITLE, "description": WELCOME_DESCRIPTION}}
 
@@ -204,8 +236,7 @@ def queue_notification(user: dict, event: dict, workspace: str = "primary", life
     link = configuration()["publicUrl"] + "/app/" + SOURCE_PATHS.get(source, "central")
     payload = render_message(user.get("nome", ""), title, description, link, "Abrir no Norium")
     key = hashlib.sha256(f'{user["id"]}:{workspace}:{event["id"]}'.encode()).hexdigest()
-    with database() as connection:
-        return _enqueue(connection, user, source, payload, key, time.time() + lifetime)
+    return enqueue_direct(user, source, payload, key, time.time() + lifetime)
 
 
 async def notify_event(event: dict, workspace: str) -> None:
@@ -243,23 +274,39 @@ async def notify_team_participants(participant_ids: set[str], event_id: str, tit
 
 def claim_delivery() -> dict | None:
     now = time.time()
-    with database() as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        connection.execute("DELETE FROM email_outbox WHERE expires<?", (now - 7 * 86400,))
-        connection.execute("DELETE FROM email_tokens WHERE expires<?", (now - 7 * 86400,))
-        connection.execute("UPDATE email_outbox SET state='failed',error='delivery' WHERE state='sending' AND lease_until<? AND attempts>=5", (now,))
-        row = connection.execute("SELECT * FROM email_outbox WHERE attempts<5 AND expires>? AND next_attempt<=? AND (state='pending' OR (state='sending' AND lease_until<?)) ORDER BY CASE WHEN kind IN ('reset','verify','test','security') THEN 0 ELSE 1 END, created LIMIT 1", (now, now, now)).fetchone()
-        if row is None:
+    with store_lock:
+        store = read_store()
+        original_outbox_size = len(store["outbox"])
+        original_token_size = len(store["tokens"])
+        store["outbox"] = [job for job in store["outbox"] if job.get("expires", 0) >= now - 7 * 86400]
+        store["tokens"] = [item for item in store["tokens"] if item.get("expires", 0) >= now - 7 * 86400]
+        dirty = len(store["outbox"]) != original_outbox_size or len(store["tokens"]) != original_token_size
+        for job in store["outbox"]:
+            if job.get("state") == "sending" and job.get("lease_until", 0) < now and job.get("attempts", 0) >= 5:
+                job.update(state="failed", error="delivery")
+                dirty = True
+        candidates = [job for job in store["outbox"] if job.get("attempts", 0) < 5 and job.get("expires", 0) > now and job.get("next_attempt", 0) <= now and (job.get("state") == "pending" or (job.get("state") == "sending" and job.get("lease_until", 0) < now))]
+        candidates.sort(key=lambda job: (0 if job.get("kind") in {"reset", "verify", "test", "security"} else 1, job.get("created", 0)))
+        if not candidates:
+            if dirty:
+                write_store(store)
             return None
         lease = secrets.token_hex(16)
-        connection.execute("UPDATE email_outbox SET state='sending',lease=?,lease_until=?,attempts=attempts+1 WHERE id=?", (lease, now + 300, row["id"]))
-        return {**dict(row), "lease": lease, "attempts": row["attempts"] + 1}
+        row = candidates[0]
+        row.update(state="sending", lease=lease, lease_until=now + 300, attempts=row.get("attempts", 0) + 1)
+        write_store(store)
+        return dict(row)
 
 
 def finish_delivery(job: dict, state: str, error: str = "") -> None:
-    with database() as connection:
-        connection.execute("UPDATE email_outbox SET state=?,error=?,next_attempt=?,payload=CASE WHEN ? IN ('sent','skipped') THEN '' ELSE payload END WHERE id=? AND lease=?",
-                           (state, error, time.time() + min(3600, 60 * 2 ** job["attempts"]), state, job["id"], job["lease"]))
+    with store_lock:
+        store = read_store()
+        row = next((item for item in store["outbox"] if item.get("id") == job["id"] and item.get("lease") == job["lease"]), None)
+        if row:
+            row.update(state=state, error=error or None, next_attempt=time.time() + min(3600, 60 * 2 ** job["attempts"]))
+            if state in {"sent", "skipped"}:
+                row["payload"] = ""
+            write_store(store)
 
 
 def send_smtp(job: dict) -> None:
@@ -296,9 +343,9 @@ async def deliver_one() -> bool:
         allowed = allowed and user.get("emailVerifiedAt") and pref["enabled"] and pref["sources"].get(job["kind"])
     if job["kind"] in {"reset", "verify"} and allowed:
         def action_is_current():
-            with database() as connection:
-                record = connection.execute("SELECT version FROM email_tokens WHERE digest=? AND used=0 AND expires>?", (job["id"], time.time())).fetchone()
-                return record is not None and record["version"] == int(user.get("sessionVersion") or 0)
+            with store_lock:
+                record = next((item for item in read_store()["tokens"] if item.get("digest") == job["id"] and not item.get("used") and item.get("expires", 0) > time.time()), None)
+            return record is not None and record["version"] == int(user.get("sessionVersion") or 0)
         allowed = await asyncio.to_thread(action_is_current)
     if not allowed:
         await asyncio.to_thread(finish_delivery, job, "skipped")

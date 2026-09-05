@@ -39,10 +39,15 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
     def event(self, source="kanban", user_id="alice", event_id="task-1"):
         return {"id": event_id, "source": source, "title": "Nova tarefa", "description": "private body", "metadata": {"userId": user_id}}
 
+    def update_store(self, callback):
+        with mail.store_lock:
+            store = mail.read_store()
+            callback(store)
+            mail.write_store(store)
+
     def token(self, purpose="reset"):
         self.assertTrue(mail.issue_action(self.user, purpose))
-        with mail.database() as db:
-            row = dict(db.execute("SELECT * FROM email_outbox WHERE kind=? ORDER BY created DESC LIMIT 1", (purpose,)).fetchone())
+        row = next(job for job in reversed(mail.read_store()["outbox"]) if job["kind"] == purpose)
         payload = json.loads(mail.cipher().decrypt(row["payload"].encode()))
         token = payload["text"].split(f'/app#/{"redefinir-senha" if purpose == "reset" else "confirmar-email"}/')[1].split()[0]
         return token, row
@@ -53,7 +58,7 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("fake-smtp-password", json.dumps(config))
         self.assertNotIn("passwordEncrypted", mail.configuration_status())
         self.assertNotIn(token, row["payload"])
-        raw = (Path(self.directory.name) / "system_email.sqlite3").read_bytes()
+        raw = (Path(self.directory.name) / "system_email_db.json").read_bytes()
         self.assertNotIn(token.encode(), raw)
         self.assertNotIn(b"fake-smtp-password", raw)
         self.assertEqual("fake-smtp-password", mail.cipher().decrypt(config["passwordEncrypted"].encode()).decode())
@@ -65,8 +70,7 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
             results = list(pool.map(lambda _: mail.consume_action(token, "reset"), range(2)))
         self.assertEqual(1, sum(item is not None for item in results))
         verify_token, _ = self.token("verify")
-        with mail.database() as db:
-            db.execute("UPDATE email_tokens SET expires=?", (time.time() - 1,))
+        self.update_store(lambda store: [item.update(expires=time.time() - 1) for item in store["tokens"]])
         self.assertIsNone(mail.consume_action(verify_token, "verify"))
 
     async def test_reset_revokes_sessions_only_for_token_owner(self):
@@ -83,8 +87,7 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
     async def test_reset_rejects_changed_email_session_or_disabled_user(self):
         for attribute, value in [("email", "new@example.invalid"), ("sessionVersion", 3), ("status", "inativo")]:
             with self.subTest(attribute=attribute):
-                with mail.database() as db:
-                    db.execute("DELETE FROM email_tokens")
+                self.update_store(lambda store: store.update(tokens=[]))
                 original = self.user[attribute]
                 token, _ = self.token()
                 self.user[attribute] = value
@@ -135,8 +138,7 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         users = [self.user, self.other, {**self.user, "id": "duplicate"}, {**self.other, "id": "inactive", "status": "inativo"}]
         self.assertEqual({"queued": 2, "alreadyQueued": 1, "skipped": 1}, mail.queue_welcome(users))
         self.assertEqual(0, mail.queue_welcome(users)["queued"])
-        with mail.database() as db:
-            db.execute("DELETE FROM email_outbox")
+        self.update_store(lambda store: store.update(outbox=[]))
         self.assertEqual(0, mail.queue_welcome(users)["queued"])
 
     async def test_delivery_checks_current_recipient_and_preference_before_sending(self):
@@ -156,8 +158,7 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("authentication", status["recent"][0]["error"])
         self.assertNotIn("secret-error", json.dumps(status))
         self.assertIsNone(mail.claim_delivery())
-        with mail.database() as db:
-            db.execute("UPDATE email_outbox SET next_attempt=0")
+        self.update_store(lambda store: [job.update(next_attempt=0) for job in store["outbox"]])
         with ThreadPoolExecutor(max_workers=2) as pool:
             claimed = list(pool.map(lambda _: mail.claim_delivery(), range(2)))
         self.assertEqual(1, sum(job is not None for job in claimed))
@@ -184,8 +185,7 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
                 unknown = await client.post("/api/auth/forgot-password", json={"email": "missing@example.invalid"})
         self.assertEqual(200, known.status_code)
         self.assertEqual(known.json(), unknown.json())
-        with mail.database() as db:
-            self.assertEqual(1, db.execute("SELECT count(*) FROM email_tokens").fetchone()[0])
+        self.assertEqual(1, len(mail.read_store()["tokens"]))
 
     async def test_unconfigured_delivery_stays_disabled(self):
         mail.save_configuration("", False, "https://norium.example.invalid")
@@ -198,8 +198,13 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
     async def test_team_notifications_only_reach_resolved_participants(self):
         await mail.notify_team_participants({"bob"}, "direct-1", "Nova mensagem")
         await mail.notify_event({**self.event("equipe"), "metadata": {"userId": "alice", "action": "team_message_created"}}, "primary")
-        with mail.database() as db:
-            self.assertEqual(["bob"], [row[0] for row in db.execute("SELECT user_id FROM email_outbox")])
+        self.assertEqual(["bob"], [job["user_id"] for job in mail.read_store()["outbox"]])
+
+    async def test_private_team_event_does_not_copy_content_to_nonparticipant_owner(self):
+        from app.modules.team import router as team
+        with patch.object(team, "record_event", new=AsyncMock()) as record:
+            await team.record_team_event("owner-outside-conversation", "Mensagem direta", "Conteúdo privado", {"userId": "wrong-owner"}, user_ids={"alice", "bob"})
+        self.assertEqual({"alice", "bob"}, {call.kwargs["metadata"]["userId"] for call in record.await_args_list})
 
     async def test_due_reminders_use_own_workspace_and_do_not_repeat(self):
         from datetime import datetime, timezone
@@ -237,3 +242,20 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("bob@example.invalid", job["recipient"])
         self.assertEqual("manual", job["kind"])
         self.assertIn("white-space:pre-wrap", json.loads(mail.cipher().decrypt(job["payload"].encode()))["html"])
+
+    async def test_admin_status_survives_unavailable_queue_without_exposing_password(self):
+        app = FastAPI()
+        app.include_router(routes.router)
+        app.dependency_overrides[routes.require_admin] = lambda: self.user
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            status = await client.get("/api/auth/admin/system-email")
+            self.assertEqual(200, status.status_code)
+            self.assertTrue(status.json()["ready"])
+            self.assertTrue(status.json()["passwordConfigured"])
+            self.assertNotIn("passwordEncrypted", status.text)
+            with patch.object(mail, "read_store", side_effect=OSError("do not expose raw storage errors")):
+                unavailable = await client.get("/api/auth/admin/system-email")
+            self.assertEqual(200, unavailable.status_code)
+            self.assertFalse(unavailable.json()["ready"])
+            self.assertFalse(unavailable.json()["delivery"]["available"])
+            self.assertNotIn("do not expose", unavailable.text)

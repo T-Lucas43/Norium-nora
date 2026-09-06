@@ -635,19 +635,19 @@ export default function ReportsDashboard({ eventsBySource, notifications, connec
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
           {[
-            { label: "Eventos filtrados", value: totalEvents, icon: Activity, color: "text-blue-400 bg-blue-500/10" },
-            { label: "Produtividade", value: `${productivity.score}%`, icon: Gauge, color: "text-emerald-400 bg-emerald-500/10" },
-            { label: "Tempo economizado", value: formatSavedTime(productivity.savedMinutes), icon: Clock3, color: "text-cyan-400 bg-cyan-500/10" },
-            { label: "Canais ativos", value: activeChannels, icon: TrendingUp, color: "text-sky-400 bg-sky-500/10" },
-            { label: "Tempo real", value: connected ? "Online" : "Reconectando", icon: RefreshCw, color: "text-amber-400 bg-amber-500/10" },
+            { label: "Eventos filtrados", value: totalEvents, icon: Activity, tone: "blue", color: "text-blue-400 bg-blue-500/10" },
+            { label: "Produtividade", value: `${productivity.score}%`, icon: Gauge, tone: "emerald", color: "text-emerald-400 bg-emerald-500/10" },
+            { label: "Tempo economizado", value: formatSavedTime(productivity.savedMinutes), icon: Clock3, tone: "cyan", color: "text-cyan-400 bg-cyan-500/10" },
+            { label: "Canais ativos", value: activeChannels, icon: TrendingUp, tone: "blue", color: "text-sky-400 bg-sky-500/10" },
+            { label: "Tempo real", value: connected ? "Online" : "Reconectando", icon: RefreshCw, tone: "amber", color: "text-amber-400 bg-amber-500/10" },
           ].map((card) => {
             const Icon = card.icon;
             return (
-              <article key={card.label} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+              <article key={card.label} data-metric-tone={card.tone} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">{card.label}</p>
-                    <h2 className="mt-3 break-words text-3xl font-black leading-tight text-[var(--text)]">{card.value}</h2>
+                    <h2 className="metric-value mt-3 break-words text-3xl font-black leading-tight">{card.value}</h2>
                   </div>
                   <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${card.color}`}>
                     <Icon size={20} />

@@ -1,10 +1,10 @@
+import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Ban,
   BadgeCheck,
   Copy,
   FileCheck2,
-  FileClock,
   FilePlus2,
   FileSignature,
   FileText,
@@ -764,21 +764,15 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   }
 
   return (
-    <main className="min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
+    <main className="clean-workspace documents-workspace min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
       <div className="mx-auto max-w-[1660px]">
-        <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-start gap-3">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><FileSignature size={23} /></span>
-            <div><h1 className="text-2xl font-black">Documentos</h1><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Crie, organize, aprove, assine e processe documentos comerciais em um só lugar.</p></div>
-          </div>
-          <div className="flex flex-wrap gap-2">
+        <WorkspaceHeader title="Documentos" description="Organize propostas, contratos e arquivos do início à assinatura." icon={FileText}>
             <Button variant="secondary" loading={loading} onClick={() => void load()} icon={<RefreshCw size={15} />}>Atualizar</Button>
             <Button variant="secondary" onClick={() => setImportOpen(true)} icon={<Upload size={15} />}>Importar</Button>
             <Button variant="secondary" onClick={() => void openPdfTools()} icon={<Wrench size={15} />}>Ferramentas PDF</Button>
             <Button variant="secondary" onClick={() => onOpenNora("Quero criar ou revisar um documento comercial. Pergunte o tipo, cliente, origem, escopo, valor, validade, entregaveis e assinantes antes de executar qualquer acao.")} icon={<Sparkles size={15} />}>Criar com Nora</Button>
-            <Button onClick={openCreate} icon={<Plus size={16} />}>Novo documento</Button>
-          </div>
-        </header>
+            <Button variant="primary" className="workspace-primary" onClick={openCreate} icon={<Plus size={16} />}>Novo documento</Button>
+</WorkspaceHeader>
 
         {error && (
           <StatusBanner
@@ -792,20 +786,16 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
 
         {loading ? <LoadingState label="Carregando documentos comerciais..." /> : data && (
           <>
-            <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
-              <Metric label="Total" value={data.summary.documentCount} icon={FileText} onClick={() => { setView("all"); setStatusFilter("all"); }} />
-              <Metric label="Rascunhos" value={data.summary.draftCount} icon={FileClock} onClick={() => { setView("proposals"); setStatusFilter("draft"); }} />
-              <Metric label="Em aprovacao" value={data.summary.reviewCount} icon={UsersRound} onClick={() => { setView("proposals"); setStatusFilter("in_review"); }} />
-              <Metric label="Em negociacao" value={data.summary.negotiationCount} icon={Send} onClick={() => { setView("proposals"); setStatusFilter("negotiating"); }} />
-              <Metric label="Aguard. assinatura" value={data.summary.awaitingSignatureCount} icon={FileSignature} onClick={() => { setView("contracts"); setStatusFilter("awaiting_signatures"); }} />
-              <Metric label="Assinados" value={data.summary.signedCount} icon={BadgeCheck} onClick={() => { setView("contracts"); setStatusFilter("signed"); }} />
-              <Metric label="A vencer" value={data.summary.expiringCount} icon={FileClock} onClick={() => { setView("proposals"); setStatusFilter("all"); }} />
-              <Metric label="Arquivados" value={data.summary.archivedCount} icon={FileCheck2} onClick={() => { setView("all"); setStatusFilter("archived"); }} />
+            <section className="workspace-metrics documents-metrics mt-5">
+              <Metric tone="blue" label="Total" value={data.summary.documentCount} icon={FileText} onClick={() => { setView("all"); setStatusFilter("all"); }} />
+              <Metric tone="amber" label="Em aprovação" value={data.summary.reviewCount} icon={UsersRound} onClick={() => { setView("proposals"); setStatusFilter("in_review"); }} />
+              <Metric tone="amber" label="Aguardando assinatura" value={data.summary.awaitingSignatureCount} icon={FileSignature} onClick={() => { setView("contracts"); setStatusFilter("awaiting_signatures"); }} />
+              <Metric tone="emerald" label="Assinados" value={data.summary.signedCount} icon={BadgeCheck} onClick={() => { setView("contracts"); setStatusFilter("signed"); }} />
             </section>
 
             <section className="mt-5 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <div className="flex flex-col gap-3 border-b border-[var(--border)] p-4 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex overflow-x-auto">
+              <div className="documents-toolbar flex gap-3 border-b border-[var(--border)] p-4">
+                <div className="workspace-tabs" aria-label="Tipos de documento">
                   <ViewTab active={view === "all"} label="Todos" count={data.summary.documentCount} onClick={() => { setView("all"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "proposals"} label="Propostas" count={data.proposals.length} onClick={() => { setView("proposals"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "contracts"} label="Contratos" count={data.contracts.length} onClick={() => { setView("contracts"); setStatusFilter("all"); }} />
@@ -814,7 +804,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                   <ViewTab active={view === "brands"} label="Marcas" count={data.brandProfiles.length} onClick={() => setView("brands")} />
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-                  <label className="flex h-10 min-w-64 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Search size={15} className="text-[var(--text-secondary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por documento ou cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
+                  <label className="flex h-10 min-w-64 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Search size={15} className="text-[var(--text-secondary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Buscar documentos" placeholder="Buscar por documento ou cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
                   {(view === "all" || view === "proposals" || view === "contracts" || view === "files") && (
                     <>
                       <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Filter size={14} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="commercial-status-select min-w-[150px] bg-transparent text-xs font-bold outline-none"><option value="all">Todos os status</option>{view === "files" ? <><option value="pdf">PDFs</option><option value="sent">Enviados</option><option value="received">Recebidos</option><option value="archived">Arquivados</option></> : Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
@@ -828,7 +818,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
               </div>
 
               {(view === "all" || view === "proposals" || view === "contracts") && (
-                <div className={`min-h-[480px] ${displayMode === "grid" ? "grid gap-3 p-4 sm:grid-cols-2 2xl:grid-cols-3" : ""}`}>
+                <div className={`min-h-0 ${displayMode === "grid" ? "grid gap-3 p-4 sm:grid-cols-2 2xl:grid-cols-3" : ""}`}>
                   {currentItems.map((item) => (
                     <article key={item.id} className={displayMode === "grid" ? "flex min-h-72 flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 transition hover:border-blue-400/30" : "grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_148px] xl:items-center"}>
                       <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{item.documentType === "proposal" ? <FileSignature size={19} /> : <FileCheck2 size={19} />}</span>
@@ -873,7 +863,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
               )}
 
               {(view === "files" || view === "all") && (
-                <div className="min-h-[480px] p-4">
+                <div className="documents-results">
                   {data.processingJobs.length > 0 && (
                     <section className="mb-4 rounded-lg border border-blue-400/20 bg-blue-500/5 p-4">
                       <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-black">Fila de processamento</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Tentativas, progresso e resultados ficam registrados.</p></div><Wrench size={17} className="text-blue-300" /></div>
@@ -1439,16 +1429,23 @@ function FormField({ label, children }: { label: string; children: ReactNode }) 
   return <label className="block"><span className="mb-1.5 block text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</span>{children}</label>;
 }
 
-function Metric({ label, value, icon: Icon, onClick }: { label: string; value: number; icon: typeof FileSignature; onClick?: () => void }) {
-  return <button type="button" onClick={onClick} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-left transition hover:border-blue-400/35 hover:bg-blue-500/5"><span><small className="font-black uppercase text-[var(--text-secondary)]">{label}</small><strong className="mt-2 block text-2xl">{value}</strong></span><span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span></button>;
+function Metric({ label, value, icon: Icon, onClick, tone = "blue" }: { label: string; value: number; icon: typeof FileSignature; onClick?: () => void; tone?: string }) {
+  return <button type="button" data-metric-tone={tone} onClick={onClick} className="workspace-metric flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-left transition hover:border-blue-400/35 hover:bg-blue-500/5"><span><small className="font-black uppercase text-[var(--text-secondary)]">{label}</small><strong className="metric-value mt-2 block text-2xl">{value}</strong></span><span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon className="metric-icon" size={18} /></span></button>;
 }
 
 function ViewTab({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className={`flex h-10 items-center gap-2 whitespace-nowrap border-b-2 px-4 text-xs font-bold ${active ? "border-blue-500 text-blue-400" : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text)]"}`}>{label}<span className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-xs">{count}</span></button>;
+  return <button type="button" aria-pressed={active} onClick={onClick} className={`flex h-10 items-center gap-2 whitespace-nowrap border-b-2 px-4 text-xs font-bold ${active ? "border-blue-500 text-blue-400" : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text)]"}`}>{label}<span className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-xs">{count}</span></button>;
 }
 
 function StatusChip({ status }: { status: string }) {
-  return <span className="inline-flex rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-xs font-bold uppercase text-blue-300">{statusLabels[status] || status}</span>;
+  const tone = ["signed", "active", "approved", "completed", "ready"].includes(status)
+    ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-300"
+    : ["rejected", "cancelled", "failed", "error"].includes(status)
+      ? "border-rose-400/25 bg-rose-500/10 text-rose-300"
+      : ["in_review", "negotiating", "awaiting_signatures", "pending", "processing"].includes(status)
+        ? "border-amber-400/25 bg-amber-500/10 text-amber-300"
+        : "border-blue-400/20 bg-blue-500/10 text-blue-300";
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold uppercase ${tone}`}>{statusLabels[status] || status}</span>;
 }
 
 function DocumentCover({ label, primaryColor = "#1266f1" }: { label: string; primaryColor?: string }) {

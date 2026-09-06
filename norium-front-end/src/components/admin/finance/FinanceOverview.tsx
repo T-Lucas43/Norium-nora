@@ -20,7 +20,7 @@ export default function FinanceOverview({ data }: FinanceOverviewProps) {
   return (
     <div className="space-y-4">
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        {cards.map(([label, value, deltaKey, Icon]) => <MetricCard key={label} label={label} value={formatMoney(value)} delta={deltas[deltaKey]} icon={Icon} />)}
+        {cards.map(([label, value, deltaKey, Icon]) => <MetricCard key={label} tone={deltaKey === "expensesCents" ? "rose" : value < 0 ? "rose" : "emerald"} label={label} value={formatMoney(value)} delta={deltas[deltaKey]} icon={Icon} />)}
       </section>
       <section className="grid gap-4 xl:grid-cols-[1.65fr_1fr]">
         <article className="finance-panel min-h-[330px]">
@@ -47,9 +47,9 @@ export default function FinanceOverview({ data }: FinanceOverviewProps) {
   );
 }
 
-function MetricCard({ label, value, delta, icon: Icon }: { label: string; value: string; delta?: number | null; icon: typeof CircleDollarSign }) {
+function MetricCard({ label, value, delta, icon: Icon, tone }: { label: string; value: string; delta?: number | null; icon: typeof CircleDollarSign; tone: string }) {
   const positive = Number(delta) >= 0;
-  return <article className="finance-panel p-4"><div className="flex items-start justify-between"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><Icon size={18}/></span>{delta !== null && delta !== undefined && <span className={`inline-flex items-center gap-1 text-xs font-bold ${positive ? "text-emerald-400" : "text-red-400"}`}>{positive ? <ArrowUpRight size={14}/> : <ArrowDownRight size={14}/>}{Math.abs(delta).toLocaleString("pt-BR")}%</span>}</div><p className="mt-4 truncate text-xl font-black" title={value}>{value}</p><p className="mt-1 text-xs font-bold text-[var(--text-secondary)]">{label}</p></article>;
+  return <article data-metric-tone={tone} className="finance-panel p-4"><div className="flex items-start justify-between"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><Icon size={18}/></span>{delta !== null && delta !== undefined && <span className={`inline-flex items-center gap-1 text-xs font-bold ${positive ? "text-emerald-400" : "text-red-400"}`}>{positive ? <ArrowUpRight size={14}/> : <ArrowDownRight size={14}/>}{Math.abs(delta).toLocaleString("pt-BR")}%</span>}</div><p className="metric-value mt-4 truncate text-xl font-black" title={value}>{value}</p><p className="mt-1 text-xs font-bold text-[var(--text-secondary)]">{label}</p></article>;
 }
 
 function MiniMetric({ label, value, icon, wide }: { label: string; value: string; icon?: React.ReactNode; wide?: boolean }) {

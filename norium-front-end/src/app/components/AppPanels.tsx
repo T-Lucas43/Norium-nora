@@ -172,7 +172,7 @@ export default function AppPanels({
       )}
       {isPanelMounted("Automacoes", "Automações") && (
         <section className={activePanelClass("Automacoes", "Automações")}>
-          {coach("Automacoes")}
+          {coach("Automacoes", true)}
           <AutomationsDashboard onOpenNora={onOpenNora} userId={currentUser.id} />
         </section>
       )}
@@ -190,7 +190,7 @@ export default function AppPanels({
       )}
       {isPanelMounted("Documentos", "Propostas") && (
         <section className={activeTab === "Documentos" || activeTab === "Propostas" ? "app-panel" : "hidden"}>
-          {coach("Propostas")}
+          {coach("Propostas", true)}
           <CommercialDashboard session={authSession} onOpenNora={onOpenNora} />
         </section>
       )}
@@ -262,7 +262,7 @@ export default function AppPanels({
       {(noraVisited || isPanelMounted("Nora")) && canUseNora && <section className={`${activePanelClass("Nora")} app-panel-nora`}><NoraWorkspace userId={currentUser.id} profile={profile} eventsBySource={eventsBySource} onOpenEmail={(id) => onOpenDeepLink({ tab: "E-mails", entityType: "email", entityId: id })} /></section>}
       {isPanelMounted("Estúdio", "Brainstorm") && (
         <section className={activePanelClass("Estúdio", "Brainstorm")}>
-          {coach("Brainstorm")}
+          {coach("Brainstorm", true)}
           <BrainstormDashboard session={authSession} onNavigate={onNavigate} />
         </section>
       )}

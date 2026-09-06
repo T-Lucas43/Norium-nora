@@ -236,7 +236,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [filters, setFilters] = useState({
-    status: "ativas",
+    status: "todas",
     category: "todas",
     priority: "todas",
     label: "todas",
@@ -717,7 +717,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
     setForm({ ...emptyForm, category: activeWorkspace?.category || "geral", priority: activeWorkspace?.defaultPriority || "media", assigneeId: activeWorkspace?.responsibleUserId || userId });
     setShowCreate(true);
   }
-  const filterCount = [filters.status !== "ativas", filters.priority !== "todas", filters.category !== "todas", filters.due !== "todas", filters.label !== "todas"].filter(Boolean).length;
+  const filterCount = [filters.status !== "todas", filters.priority !== "todas", filters.category !== "todas", filters.due !== "todas", filters.label !== "todas"].filter(Boolean).length;
 
   useEffect(() => {
     const closeOverlay = (event: KeyboardEvent) => {
@@ -1117,13 +1117,13 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
         <header className="tasks-board-header">
           <div className="tasks-breadcrumb"><button onClick={() => setActiveWorkspace(null)}><ArrowLeft size={15} />Projetos</button><span>/</span><span>{projectCategoryLabels[activeWorkspace.category]}</span></div>
           <div className="tasks-board-heading"><div><h1>{activeWorkspace.name}</h1><p>{activeWorkspace.description || "Organize as entregas e acompanhe cada etapa."}</p></div><div className="tasks-heading-actions"><Button iconOnly aria-label="Configurações do projeto" title="Configurações do projeto" disabled={!canManageProject(activeWorkspace)} onClick={() => openProjectSettings(activeWorkspace)}><Settings size={17} /></Button><Button variant="primary" className="tasks-primary" onClick={openNewTask}><Plus size={17} />Nova tarefa</Button></div></div>
-          <div className="tasks-metrics"><Metric label="Ativas" value={stats.ativas} /><Metric label="Em andamento" value={stats.andamento} /><Metric label="Concluídas" value={stats.concluidas} /><Metric label="Vencidas" value={stats.vencidas} alert /></div>
+          <div className="tasks-metrics"><Metric tone="amber" label="Ativas" value={stats.ativas} /><Metric label="Em andamento" value={stats.andamento} /><Metric tone="emerald" label="Concluídas" value={stats.concluidas} /><Metric label="Vencidas" value={stats.vencidas} alert /></div>
         </header>
         <div className="tasks-board-toolbar">
           <div className="tasks-view-switch" aria-label="Visualização das tarefas"><button aria-pressed={view === "board"} onClick={() => setView("board")}><LayoutGrid size={16} />Quadro</button><button aria-pressed={view === "list"} onClick={() => setView("list")}><ListTodo size={16} />Lista</button></div>
           <label className="tasks-search"><Search size={16} /><input aria-label="Buscar tarefas" placeholder="Buscar tarefas" value={filters.q} onChange={event => setFilters({ ...filters, q: event.target.value })} /></label>
           <Button aria-expanded={mobileSidebarOpen} onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}><SlidersHorizontal size={16} />Filtros{filterCount > 0 && <span className="tasks-filter-count">{filterCount}</span>}</Button>
-          {filterCount > 0 && <button className="tasks-clear-filters" onClick={() => setFilters({ status: "ativas", category: "todas", priority: "todas", label: "todas", due: "todas", q: "" })}>Limpar</button>}
+          {filterCount > 0 && <button className="tasks-clear-filters" onClick={() => setFilters({ status: "todas", category: "todas", priority: "todas", label: "todas", due: "todas", q: "" })}>Limpar</button>}
         </div>
 
         {error && (
@@ -1195,10 +1195,10 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   );
 }
 
-function Metric({ label, value, alert = false }: { label: string; value: number; alert?: boolean }) {
+function Metric({ label, value, alert = false, tone = "blue" }: { label: string; value: number; alert?: boolean; tone?: string }) {
   return (
-    <div className="tasks-metric">
-      <p className={`text-lg font-bold ${alert && value > 0 ? "text-rose-300" : ""}`}>{value || 0}</p>
+    <div className="tasks-metric" data-metric-tone={alert ? "rose" : tone}>
+      <p className={`metric-value text-lg font-bold ${alert && value > 0 ? "text-rose-300" : ""}`}>{value || 0}</p>
       <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
     </div>
   );

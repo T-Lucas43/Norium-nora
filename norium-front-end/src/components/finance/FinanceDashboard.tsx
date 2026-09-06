@@ -1,5 +1,9 @@
+import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  LayoutDashboard,
+  ArrowDownUp,
+  CalendarClock,
   AlertTriangle,
   BellRing,
   CheckCircle2,
@@ -595,78 +599,34 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
   const financeStatus = data.resumo.vencidos > 0 ? `${data.resumo.vencidos} vencimento(s) pedem atenção` : data.resumo.saldo >= 0 ? "Fluxo financeiro saudável" : "Saldo abaixo do esperado";
 
   return (
-    <div className="norium-finance flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
-      <header className="shrink-0 border-b border-[var(--border)] bg-[linear-gradient(120deg,color-mix(in_srgb,var(--surface)_94%,#2563eb_6%),var(--surface))] px-5 py-6 sm:px-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="grid h-12 w-12 place-items-center rounded-xl border border-blue-400/20 bg-blue-500/12 text-blue-300 shadow-lg shadow-blue-950/20">
-              <Wallet size={24} />
-            </span>
-            <div>
-              <p className="mb-1 text-[10px] font-black uppercase tracking-[.18em] text-cyan-400">Gestão financeira</p>
-              <h1 className="text-2xl font-black tracking-tight">Financeiro</h1>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                Visão clara do caixa, compromissos e documentos financeiros.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => onOpenNora?.("Analise meu financeiro atual, destaque riscos, próximos vencimentos e oportunidades de melhorar o caixa.")} className="border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/10">
-              <Sparkles size={15} /> Analisar com a Nora
-            </Button>
-            <Button variant="primary"
-              onClick={() => {
-                setCreatePanel("entry");
-                setActiveView("entries");
-              }}
-             
-            >
-              <Plus size={15} />
-              Novo lancamento
-            </Button>
-            <Button
-              onClick={() => {
-                setCreatePanel("scheduled");
-                setActiveView("scheduled");
-              }}
-              className="border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/10"
-            >
-              <BellRing size={15} />
-              Programar gasto
-            </Button>
-            <Button iconOnly
-              onClick={() => void loadFinance()}
-              className="text-[var(--text-secondary)] hover:text-[var(--text)]"
-              title="Atualizar financeiro"
-             aria-label="Atualizar financeiro">
-              <RefreshCw size={15} />
-            </Button>
-          </div>
-        </div>
-      </header>
+    <div className="clean-workspace finance-workspace norium-finance flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
+      <WorkspaceHeader title="Financeiro" description="Acompanhe o caixa, os lançamentos e os próximos vencimentos." icon={Wallet}>
+<Button iconOnly onClick={() => void loadFinance()} title="Atualizar financeiro" aria-label="Atualizar financeiro"><RefreshCw size={16} /></Button>
+<Button onClick={() => onOpenNora?.("Analise meu financeiro atual, destaque riscos e próximos vencimentos.")}><Sparkles size={16} />Analisar com Nora</Button>
+<Button onClick={() => { setCreatePanel("scheduled"); setActiveView("scheduled"); }}><CalendarClock size={16} />Programar gasto</Button>
+<Button variant="primary" className="workspace-primary" onClick={() => { setCreatePanel("entry"); setActiveView("entries"); }}><Plus size={16} />Novo lançamento</Button>
+</WorkspaceHeader>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-        {(error || notice) && (
-          <div className="fixed right-6 top-24 z-50 max-w-[420px] rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-2xl shadow-black/30">
-            <div className={`text-sm font-bold ${error ? "text-amber-200" : "text-emerald-200"}`}>
-              {error ? "Algo impediu o salvamento" : "Tudo certo"}
+      <main className="finance-content min-h-0 flex-1 overflow-y-auto">
+            <div className="workspace-metrics grid grid-cols-2 gap-3 xl:grid-cols-4">
+              <Metric icon={TrendingUp} label="Entradas pagas" value={money(data.resumo.entradas)} tone="emerald" />
+              <Metric icon={TrendingDown} label="Saídas pagas" value={money(data.resumo.saidas)} tone="rose" />
+              <Metric icon={Wallet} label="Saldo" value={money(data.resumo.saldo)} tone="blue" />
+              <Metric icon={AlertTriangle} label="Pendente" value={money(data.resumo.pendente)} tone="amber" />
             </div>
-            <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{error || notice}</p>
-          </div>
-        )}
-
-        <nav className="mb-5 flex max-w-full gap-1 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5 shadow-sm">
+        <nav className="workspace-tabs finance-tabs" aria-label="Áreas do financeiro">
           {([
-            ["overview", "Visao geral", data.lancamentos.length + data.programados.length],
-            ["entries", "Lancamentos", data.lancamentos.length],
+            ["overview", "Visão geral", data.lancamentos.length + data.programados.length],
+            ["entries", "Lançamentos", data.lancamentos.length],
             ["scheduled", "Programados", data.programados.length],
             ["boletos", "Boletos", data.boletos.length],
           ] as Array<[FinanceView, string, number]>).map(([view, label, count]) => (
             <button
               key={view}
+              aria-pressed={activeView === view}
               onClick={() => {
                 setActiveView(view);
-                if (view === "overview" || view === "boletos") setCreatePanel(null);
+                setCreatePanel(null);
               }}
               className={`flex h-10 shrink-0 items-center gap-2 rounded-md px-4 text-xs font-bold transition ${
                 activeView === view
@@ -674,6 +634,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
                   : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
               }`}
             >
+              {view === "overview" ? <LayoutDashboard size={16} /> : view === "entries" ? <ArrowDownUp size={16} /> : view === "scheduled" ? <CalendarClock size={16} /> : <Receipt size={16} />}
               {label}
               <span className={`rounded-full px-2 py-0.5 text-xs ${activeView === view ? "bg-white/15" : "bg-[var(--background)]"}`}>
                 {count}
@@ -684,12 +645,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
 
         <div className={`grid gap-4 ${showAside ? "xl:grid-cols-[minmax(0,1fr)_380px]" : ""}`}>
           <section className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-              <Metric icon={TrendingUp} label="Entradas pagas" value={money(data.resumo.entradas)} tone="emerald" />
-              <Metric icon={TrendingDown} label="Saidas pagas" value={money(data.resumo.saidas)} tone="rose" />
-              <Metric icon={Wallet} label="Saldo" value={money(data.resumo.saldo)} tone="blue" />
-              <Metric icon={AlertTriangle} label="Pendente" value={money(data.resumo.pendente)} tone="amber" />
-            </div>
+
 
             {activeView === "overview" && (
               <section className="grid gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm lg:grid-cols-[minmax(0,1fr)_minmax(280px,.55fr)]">
@@ -698,7 +654,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
                     <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-blue-300">Leitura do período</p><h2 className="mt-1 text-lg font-black">{financeStatus}</h2></div>
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${data.resumo.vencidos > 0 || data.resumo.saldo < 0 ? "bg-amber-500/12 text-amber-200" : "bg-emerald-500/12 text-emerald-200"}`}>{data.resumo.vencidos > 0 ? "Requer ação" : "Em dia"}</span>
                   </div>
-                  <div className="mt-5 h-2 overflow-hidden rounded-full bg-[var(--background)]"><span className="block h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${Math.min(100, percentualSaidas)}%` }} /></div>
+                  <div className="mt-5 h-2 overflow-hidden rounded-full bg-[var(--background)]"><span className="block h-full rounded-full bg-slate-400" style={{ width: `${Math.min(100, percentualSaidas)}%` }} /></div>
                   <div className="mt-2 flex justify-between text-xs font-bold text-[var(--text-secondary)]"><span>Saídas no fluxo movimentado</span><strong className="text-[var(--text)]">{percentualSaidas}%</strong></div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -715,11 +671,11 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
             )}
 
             {showBoletos && (
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <section className="workspace-panel">
               <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
                 <div>
                   <h2 className="text-base font-black">Boletos no CPF</h2>
-                  <p className="text-xs font-semibold text-[var(--text-secondary)]">Consulta via Sami Meu Boleto configurada no backend.</p>
+                  <p className="text-xs font-semibold text-[var(--text-secondary)]">Consulte e organize os boletos vinculados ao CPF informado.</p>
                 </div>
                 <Receipt size={20} className="text-blue-300" />
               </header>
@@ -790,7 +746,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
             )}
 
             {showEntries && (
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <section className="workspace-panel">
               <header className="border-b border-[var(--border)] px-5 py-4">
                 <h2 className="text-base font-black">Lancamentos</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">Entradas, saidas, comprovantes e status.</p>
@@ -881,7 +837,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
             )}
 
             {activeView === "scheduled" && data.programados.length > 0 && (
-              <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+              <section className="workspace-panel">
                 <header className="border-b border-[var(--border)] px-5 py-4">
                   <h2 className="text-base font-black">Agenda de pagamentos</h2>
                   <p className="text-xs font-semibold text-[var(--text-secondary)]">
@@ -1015,7 +971,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
             )}
 
             {activeView === "overview" && (
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <section className="workspace-panel">
               <header className="border-b border-[var(--border)] px-5 py-4">
                 <h2 className="text-base font-black">Lembretes</h2>
               </header>
@@ -1035,7 +991,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
             )}
 
             {showScheduled && activeView !== "scheduled" && (
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <section className="workspace-panel">
               <header className="border-b border-[var(--border)] px-5 py-4">
                 <h2 className="text-base font-black">Gastos programados</h2>
               </header>
@@ -1375,11 +1331,11 @@ function Metric({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: s
     amber: "bg-amber-500/10 text-amber-200",
   };
   return (
-    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-400/25">
+    <div className="workspace-metric finance-metric">
       <span className={`mb-5 grid h-10 w-10 place-items-center rounded-xl ${tones[tone]}`}>
         <Icon size={19} />
       </span>
-      <p className="text-xl font-black">{value}</p>
+      <p className={`text-xl font-black ${tones[tone].split(" ")[1]}`}>{value}</p>
       <p className="mt-1 text-xs font-bold text-[var(--text-secondary)]">{label}</p>
     </div>
   );

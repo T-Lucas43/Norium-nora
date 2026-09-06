@@ -34,7 +34,7 @@ it("opens task details from list view and closes them with Escape", async () => 
   fireEvent.keyDown(window, { key: "Escape" });
   expect(screen.queryByLabelText("Detalhes da tarefa")).not.toBeInTheDocument();
 });
-it("applies filters and clears them back to active tasks", async () => {
+it("applies filters and clears them back to all tasks", async () => {
   await openProject();
   fireEvent.click(screen.getByRole("button", { name: "Filtros" }));
   fireEvent.change(screen.getByLabelText("Filtrar por prioridade"), { target: { value: "urgente" } });
@@ -42,6 +42,28 @@ it("applies filters and clears them back to active tasks", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Fechar filtros do projeto" }));
   fireEvent.click(screen.getByRole("button", { name: "Limpar" }));
   await waitFor(() => expect(request.mock.calls.at(-1)?.[0]).toContain("priority=todas"));
+  expect(request.mock.calls.at(-1)?.[0]).toContain("status=todas");
+});
+it("keeps a completed task visible in its column after changing its stage", async () => {
+  let currentTask = { ...task };
+  request.mockImplementation(async (path = "", init) => {
+    if (path.startsWith("/projetos")) return { projects: [project] };
+    if (init?.method === "PATCH") {
+      currentTask = { ...currentTask, ...JSON.parse(String(init.body)) };
+      return { task: currentTask };
+    }
+    const activeOnly = new URLSearchParams(path.split("?")[1]).get("status") === "ativas";
+    return { ...payload, tasks: activeOnly && currentTask.status === "concluida" ? [] : [currentTask], columns: [...payload.columns, { id: "concluida", title: "Concluídas" }] };
+  });
+  await openProject();
+  fireEvent.click(screen.getByRole("button", { name: /Revisar cadastro/ }));
+  fireEvent.change(screen.getByLabelText("Etapa"), { target: { value: "concluida" } });
+  await waitFor(() => expect(screen.getByLabelText("Etapa")).toHaveValue("concluida"));
+  fireEvent.keyDown(window, { key: "Escape" });
+  const completedColumn = screen.getByRole("heading", { name: /Concluídas/ }).closest("section")!;
+  expect(within(completedColumn).getByRole("button", { name: /Revisar cadastro/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Lista" }));
+  expect(screen.getByRole("button", { name: /Revisar cadastro/ })).toHaveTextContent("Concluídas");
 });
 it("opens the existing task creation flow from the main header", async () => {
   await openProject();

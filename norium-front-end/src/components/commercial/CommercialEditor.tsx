@@ -1,3 +1,4 @@
+import "../shared/workspace.css";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -573,7 +574,7 @@ export default function CommercialEditor({
   }
 
   return (
-    <main className={`${fullScreen ? "fixed inset-0 z-[110]" : "min-h-0 flex-1"} flex flex-col overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
+    <main className={`clean-workspace documents-editor ${fullScreen ? "fixed inset-0 z-[110]" : "min-h-0 flex-1"} flex flex-col overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
       <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
           <Button size="sm" iconOnly onClick={onBack} aria-label="Voltar para documentos"><ArrowLeft size={17} /></Button>

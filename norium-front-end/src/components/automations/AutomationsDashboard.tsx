@@ -1,6 +1,8 @@
+import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Workflow,
   Activity,
   BarChart3,
   Bell,
@@ -179,7 +181,7 @@ const fallbackIntegrations: AutomationIntegration[] = [
   "Tarefas",
   "Gastos",
   "Relatórios",
-].map((name) => ({ name, status: "Conectado" }));
+].map((name) => ({ name, status: "Disponível" }));
 
 const componentLibrary: Array<{
   group: string;
@@ -394,7 +396,7 @@ function normalizeAutomationResponse(value: Partial<AutomationResponse>): Automa
     automations,
     history,
     templates: value.templates?.length ? value.templates : fallbackTemplates,
-    integrations: value.integrations?.length ? value.integrations : fallbackIntegrations,
+    integrations: value.integrations ?? fallbackIntegrations,
     metrics: value.metrics || calculateMetrics(automations, history),
     updatedAt: value.updatedAt || nowIso(),
   };
@@ -465,19 +467,19 @@ async function apiJson<T>(path = "", init?: RequestInit): Promise<T> {
   return automationsApiRequest<T>(path, init);
 }
 
-function StatCard({ title, value, icon: Icon, detail }: { title: string; value: string | number; icon: LucideIcon; detail: string }) {
+function StatCard({ title, value, icon: Icon, detail, tone = "blue" }: { title: string; value: string | number; icon: LucideIcon; detail: string; tone?: "blue" | "green" | "amber" }) {
+  const accent = { blue: "text-blue-300", green: "text-emerald-300", amber: "text-amber-300" }[tone];
   return (
     <motion.article
-      whileHover={{ y: -3, scale: 1.01 }}
-      className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl"
+      className="workspace-metric"
     >
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">{title}</p>
-          <strong className="mt-3 block text-3xl font-black text-[var(--text)]">{value}</strong>
+          <strong className={`mt-3 block text-3xl font-black ${accent}`}>{value}</strong>
           <span className="mt-1 block text-xs font-semibold text-[var(--text-secondary)]">{detail}</span>
         </div>
-        <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/14 text-cyan-200">
+        <span className={`grid h-11 w-11 place-items-center rounded-lg ${accent}`}>
           <Icon size={21} />
         </span>
       </div>
@@ -489,8 +491,10 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (next: bool
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`relative h-7 w-12 rounded-full border transition ${
+      className={`automation-toggle relative h-7 w-12 rounded-full border transition ${
         checked ? "border-emerald-300/40 bg-emerald-400/45" : "border-[var(--border)] bg-[var(--background)]"
       }`}
       aria-label={checked ? "Desativar automacao" : "Ativar automacao"}
@@ -507,6 +511,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (next: bool
 export default function AutomationsDashboard({ onOpenNora, userId }: AutomationsDashboardProps) {
   const [data, setData] = useState<AutomationResponse>(emptyResponse);
   const [query, setQuery] = useState("");
+  const [dashboardView, setDashboardView] = useState<"flows" | "templates" | "history" | "preview">("flows");
   const [filter, setFilter] = useState<FilterKey>("todas");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1167,7 +1172,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
 
   if (builderOpen) {
     return (
-      <main className="automation-builder h-full min-h-[calc(100dvh-78px)] overflow-hidden bg-[var(--background)] text-[var(--text)]">
+      <main className="clean-workspace automation-builder h-full min-h-[calc(100dvh-78px)] overflow-hidden bg-[var(--background)] text-[var(--text)]">
         <div className="flex h-full min-h-[calc(100dvh-78px)] flex-col">
           <header className="flex shrink-0 flex-col gap-4 border-b border-[var(--border)] bg-[var(--surface)]/92 p-4 backdrop-blur-2xl xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
@@ -1581,72 +1586,40 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1700px] space-y-5 p-5 text-[var(--text)]">
-      <motion.header
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="overflow-hidden rounded-lg border border-[var(--dashboard-panel-border)] bg-[var(--dashboard-hero-bg)] p-6 shadow-[var(--dashboard-panel-shadow)] backdrop-blur-2xl"
-      >
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 items-start gap-4">
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-blue-500/20 text-cyan-100 shadow-lg shadow-blue-950/20">
-              <GitBranch size={26} />
-            </span>
-            <div className="min-w-0">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-1 text-xs font-bold text-[var(--text)]">
-                <Sparkles size={14} />
-                Nora pronta para automatizar
-              </span>
-              <h1 className="mt-4 text-3xl font-black tracking-tight md:text-4xl">Automações Inteligentes</h1>
-              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[var(--text-secondary)]">
-                Automatize processos repetitivos e deixe a Nora executar tarefas por você.
-              </p>
-            </div>
-          </div>
+    <main className="clean-workspace automations-workspace mx-auto w-full max-w-[1700px] space-y-5 p-4 sm:p-6 text-[var(--text)]">
+      <WorkspaceHeader title="Automações" description="Crie fluxos, acompanhe execuções e simplifique a rotina." icon={Workflow}>
+        <Button onClick={onOpenNora}><Sparkles size={16} />Criar com Nora</Button>
+        <Button variant="primary" className="workspace-primary" onClick={() => openCreateModal()}><Plus size={16} />Nova automação</Button>
+      </WorkspaceHeader>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="ghost"
-             
-              onClick={() => openCreateModal()}
-              className="h-12 bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 shadow-lg shadow-blue-950/25 hover:scale-[1.02]"
-            >
-              <Plus size={18} />
-              Nova Automação
-            </Button>
-            <Button
-             
-              onClick={onOpenNora}
-              className="h-12"
-            >
-              <Sparkles size={18} />
-              Pedir para Nora
-            </Button>
-          </div>
-        </div>
-      </motion.header>
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="workspace-metrics grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatCard title="Total de automações" value={data.metrics.total} icon={GitBranch} detail="Fluxos configurados" />
-        <StatCard title="Ativas" value={data.metrics.active} icon={Zap} detail="Prontas para executar" />
+        <StatCard title="Ativas" value={data.metrics.active} icon={Zap} detail="Prontas para executar" tone="green" />
         <StatCard title="Execuções hoje" value={data.metrics.runsToday} icon={Activity} detail="Disparos registrados" />
-        <StatCard title="Tempo economizado" value={formatSavedTime(data.metrics.savedMinutes)} icon={Clock3} detail="Estimativa operacional" />
+        <StatCard title="Tempo economizado" value={formatSavedTime(data.metrics.savedMinutes)} icon={Clock3} detail="Estimativa operacional" tone="amber" />
       </section>
 
-      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
+      <nav className="workspace-tabs" aria-label="Áreas de automações">
+        {([
+          ["flows", "Meus fluxos", Workflow], ["templates", "Modelos", Layers], ["history", "Histórico e dados", History], ["preview", "Visão do fluxo", Network],
+        ] as const).map(([view, label, Icon]) => <button key={view} type="button" aria-pressed={dashboardView === view} onClick={() => setDashboardView(view)}><Icon size={16} />{label}{view === "flows" && <span>{data.automations.length}</span>}</button>)}
+      </nav>
+      {dashboardView === "flows" && <section className="workspace-toolbar">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <label className="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4">
             <Search size={18} className="text-[var(--text-secondary)]" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Pesquisar automações..."
+              aria-label="Pesquisar automações" placeholder="Pesquisar automações..."
               className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none"
             />
           </label>
-          <div className="flex gap-2 overflow-x-auto">
+          <div className="workspace-tabs automation-filters">
             {filters.map((item) => (
               <button
                 key={item.key}
+                aria-pressed={filter === item.key}
                 onClick={() => setFilter(item.key)}
                 className={`h-10 shrink-0 rounded-full border px-4 text-xs font-bold transition ${
                   filter === item.key
@@ -1659,7 +1632,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
             ))}
           </div>
         </div>
-      </section>
+      </section>}
 
       <AnimatePresence>
         {(error || statusMessage) && (
@@ -1678,9 +1651,9 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
         )}
       </AnimatePresence>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(440px,0.85fr)]">
-        <div className="min-w-0 space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+      <section className="automation-library grid gap-4">
+        {(dashboardView === "flows" || dashboardView === "templates") && <div className="min-w-0 space-y-4">
+          {dashboardView === "flows" && <div className="automation-cards grid gap-4">
             {loading ? (
               <div className="col-span-full rounded-lg border border-[var(--border)] bg-[var(--surface)]">
                 <LoadingState label="Carregando automações..." />
@@ -1692,9 +1665,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(index * 0.035, 0.24) }}
-                  whileHover={{ y: -3 }}
                   onClick={() => setSelectedId(automation.id)}
-                  className={`min-w-0 rounded-lg border bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl transition ${
+                  className={`workspace-card min-w-0 p-5 transition ${
                     selectedAutomation?.id === automation.id ? "border-cyan-300/55" : "border-[var(--border)]"
                   }`}
                 >
@@ -1705,7 +1677,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                       </span>
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
-                          <h2 className="truncate text-base font-black">{automation.name}</h2>
+                          <h2 className="min-w-0"><button type="button" className="automation-card-select truncate" title={`Ver fluxo ${automation.name}`} onClick={() => { setSelectedId(automation.id); setDashboardView("preview"); }}>{automation.name}</button></h2>
                           {automation.favorite && <Star size={14} className="shrink-0 fill-amber-300 text-amber-300" />}
                         </div>
                         <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{automation.description}</p>
@@ -1722,7 +1694,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                     {automation.aiEnabled && <span className="rounded-full bg-cyan-400/14 px-2.5 py-1 text-xs font-bold text-cyan-100">Nora IA</span>}
                   </div>
 
-                  <div className="mt-4 grid gap-3 text-xs font-semibold text-[var(--text-secondary)] sm:grid-cols-3">
+                  <div className="automation-card-details mt-4 grid grid-cols-3 gap-3 text-xs text-[var(--text-secondary)]">
                     <span>
                       <strong className="block text-[var(--text)]">Ultima execucao</strong>
                       {formatDateTime(automation.lastRunAt)}
@@ -1737,7 +1709,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                     </span>
                   </div>
 
-                  <div className="mt-5 flex flex-wrap gap-2">
+                  <div className="automation-card-actions mt-4 flex flex-wrap">
                     <Button variant="primary"
                      
                       disabled={saving || !automation.active}
@@ -1810,17 +1782,18 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </motion.article>
               ))
             )}
-          </div>
+            {!loading && filteredAutomations.length === 0 && <div className="workspace-empty col-span-full"><Workflow size={30} /><strong>{data.automations.length ? "Nenhum fluxo neste filtro" : "Sua primeira automação começa aqui"}</strong><p>{data.automations.length ? "Ajuste a busca ou mostre todos os fluxos." : "Crie um fluxo ou comece com um modelo pronto."}</p><button type="button" onClick={() => { if (data.automations.length) { setQuery(""); setFilter("todas"); } else { setDashboardView("templates"); } }}>{data.automations.length ? "Limpar filtros" : "Explorar modelos"}</button></div>}
+          </div>}
 
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
+          {dashboardView === "templates" && <section className="workspace-panel p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-black">Templates</h2>
+                <h2 className="text-lg font-black">Comece com um modelo</h2>
                 <p className="text-sm font-semibold text-[var(--text-secondary)]">Fluxos prontos para criar em um clique.</p>
               </div>
               <Rocket size={22} className="text-cyan-200" />
             </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="automation-templates grid gap-3">
               {data.templates.map((template) => (
                 <button
                   key={template.id}
@@ -1838,26 +1811,28 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </button>
               ))}
             </div>
-          </section>
-        </div>
+          </section>}
+        </div>}
 
-        <div className="min-w-0 space-y-4">
+        {dashboardView === "preview" && <div className="automation-preview min-w-0 space-y-4">
           <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--glass-shadow)] backdrop-blur-2xl">
             <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] p-4">
               <div>
-                <h2 className="text-lg font-black">Editor visual de fluxos</h2>
+                <h2 className="text-lg font-black">Visão do fluxo</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
                   {selectedAutomation ? selectedAutomation.name : "Selecione uma automacao"}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" disabled={!selectedAutomation} onClick={() => selectedAutomation && openEditModal(selectedAutomation)}><Settings2 size={14} />Editar fluxo</Button>
                 <Button size="sm" onClick={() => setZoom((current) => Math.max(0.65, current - 0.1))} className="bg-[var(--background)]">-</Button>
                 <span className="min-w-14 text-center text-xs font-bold">{Math.round(zoom * 100)}%</span>
                 <Button size="sm" onClick={() => setZoom((current) => Math.min(1.25, current + 0.1))} className="bg-[var(--background)]">+</Button>
               </div>
             </header>
 
-            <div className="relative h-[430px] overflow-hidden bg-[radial-gradient(circle_at_1px_1px,rgba(125,211,252,.24)_1px,transparent_0)] [background-size:22px_22px]">
+            {!selectedAutomation && <div className="workspace-empty"><Workflow size={28} /><strong>Selecione um fluxo para visualizar</strong><button type="button" onClick={() => setDashboardView("flows")}>Ver meus fluxos</button></div>}
+            {selectedAutomation && <div className="relative h-[430px] overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(125,211,252,.24)_1px,transparent_0)] [background-size:22px_22px]">
               <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${zoom})`, width: 1120, height: 420 }}>
                 <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
                   {editorConnections.map((connection) => {
@@ -1925,7 +1900,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                   ))}
                 </div>
               </div>
-            </div>
+            </div>}
           </section>
 
           <section className="rounded-lg border border-cyan-200/24 bg-[var(--dashboard-nora-bg)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
@@ -1952,14 +1927,14 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
               ))}
             </div>
           </section>
-        </div>
+        </div>}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+      {dashboardView === "history" && <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
         <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--glass-shadow)] backdrop-blur-2xl">
           <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
             <div>
-              <h2 className="text-lg font-black">Historico de execucoes</h2>
+              <h2 className="text-lg font-black">Histórico de execuções</h2>
               <p className="text-xs font-semibold text-[var(--text-secondary)]">Auditoria das últimas automações disparadas.</p>
             </div>
             <History size={20} className="text-cyan-200" />
@@ -2006,19 +1981,20 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
 
         <aside className="space-y-4">
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
-            <h2 className="text-lg font-black">Integracoes Disponiveis</h2>
+            <h2 className="text-lg font-black">Integrações disponíveis</h2>
             <div className="mt-4 space-y-2">
+              {!data.integrations.length && <p className="text-sm text-[var(--text-secondary)]">Nenhuma integração informada para os fluxos.</p>}
               {data.integrations.map((integration) => (
                 <div key={integration.name} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-3">
                   <span className="font-black">{integration.name}</span>
-                  <span className="rounded-full bg-emerald-400/14 px-2 py-1 text-xs font-bold text-emerald-200">Conectado</span>
+                  <span className="rounded-full bg-[var(--surface-hover)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{integration.status}</span>
                 </div>
               ))}
             </div>
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
-            <h2 className="text-lg font-black">Ferramentas extras</h2>
+            <h2 className="text-lg font-black">Importação e registros</h2>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <Button size="lg" onClick={exportAutomations} className="bg-[var(--background)]">
                 <Download size={15} />
@@ -2028,21 +2004,21 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 <Upload size={15} />
                 Importar
               </Button>
-              <Button size="lg" onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
+              <Button size="lg" disabled={!selectedAutomation} onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
                 <History size={15} />
                 Logs
               </Button>
-              <Button size="lg" onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
+              <Button size="lg" disabled={!selectedAutomation} onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
                 <GitBranch size={15} />
                 Versoes
               </Button>
-              <Button size="lg" onClick={() => setFilter("ia")} className="bg-[var(--background)]">
+              <Button size="lg" onClick={() => { setFilter("ia"); setDashboardView("flows"); }} className="bg-[var(--background)]">
                 <Filter size={15} />
-                Categorias
+                Fluxos com IA
               </Button>
               <Button size="lg" onClick={onOpenNora} className="bg-[var(--background)]">
                 <Variable size={15} />
-                Variaveis
+                Consultar Nora
               </Button>
             </div>
             <input
@@ -2059,7 +2035,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
             />
           </section>
         </aside>
-      </section>
+      </section>}
 
       <AnimatePresence>
         {modal && (

@@ -14,6 +14,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       subtitle: "Abrir Norium Mail",
       icon: Mail,
       color: "bg-red-500/10 text-red-500",
+      tone: "rose",
       tab: "E-mails",
     },
     {
@@ -22,6 +23,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       subtitle: "Abrir conversas",
       icon: MessageSquare,
       color: "bg-emerald-500/10 text-emerald-500",
+      tone: "emerald",
       tab: "Chat",
     },
     {
@@ -30,6 +32,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       subtitle: "Ver compromissos",
       icon: CalendarDays,
       color: "bg-blue-500/10 text-blue-500",
+      tone: "blue",
       tab: "Agenda",
     },
     {
@@ -38,6 +41,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       subtitle: "Abrir Kanban",
       icon: CheckCircle2,
       color: "bg-cyan-500/10 text-cyan-500",
+      tone: "cyan",
       tab: "Tarefas",
     },
   ];
@@ -50,18 +54,19 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
         return (
           <button
             key={item.title}
+            data-metric-tone={item.tone}
             onClick={() => onNavigate(item.tab)}
             className="norium-dashboard-stat rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:border-blue-500/45 hover:shadow-lg"
           >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold text-[var(--text-secondary)]">{item.title}</p>
-                <h3 className="mt-2 text-3xl font-black text-[var(--text)]">{item.value}</h3>
+                <h3 className="metric-value mt-2 text-3xl font-black">{item.value}</h3>
                 <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{item.subtitle}</p>
               </div>
 
               <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${item.color}`}>
-                <Icon size={24} />
+                <Icon className="metric-icon" size={24} />
               </div>
             </div>
           </button>

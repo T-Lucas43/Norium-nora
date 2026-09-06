@@ -2644,6 +2644,98 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   padding-inline:0;
 }
 
+.norium-mail .mail-message-list{container-type:inline-size;}
+
+.norium-mail .mail-list-heading.mail-inbox-heading{
+  display:grid;
+  height:auto;
+  min-height:60px;
+  grid-template-columns:minmax(140px,1fr) auto auto;
+  align-items:center;
+  gap:12px;
+  padding:8px 16px;
+}
+
+.norium-mail .mail-inbox-heading h1{font-size:15px;line-height:1.4;}
+.norium-mail .mail-list-heading.mail-inbox-heading p{
+  max-width:240px;
+  margin-top:2px;
+  overflow:hidden;
+  font-size:10px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.norium-mail .mail-category-tabs{
+  display:flex;
+  min-width:0;
+  max-width:100%;
+  align-items:center;
+  gap:2px;
+  overflow-x:auto;
+  overscroll-behavior-inline:contain;
+  scrollbar-width:none;
+}
+.norium-mail .mail-category-tabs::-webkit-scrollbar{display:none;}
+
+.norium-mail .mail-category-tab{
+  position:relative;
+  display:inline-flex;
+  min-height:34px;
+  flex:0 0 auto;
+  align-items:center;
+  gap:6px;
+  border:0;
+  border-radius:6px;
+  padding:7px 9px;
+  background:transparent;
+  color:var(--mail-muted);
+  font-size:11px;
+  font-weight:600;
+  white-space:nowrap;
+}
+.norium-mail .mail-category-tab:hover{background:var(--mail-hover);color:var(--mail-text);}
+.norium-mail .mail-category-tab.is-active{
+  background:color-mix(in srgb,var(--primary) 8%,transparent);
+  color:var(--mail-text);
+}
+.norium-mail .mail-category-tab.is-active::after{
+  position:absolute;
+  right:9px;
+  bottom:0;
+  left:9px;
+  height:2px;
+  border-radius:2px;
+  background:var(--primary);
+  content:"";
+}
+.norium-mail .mail-category-tab:focus-visible{outline:2px solid var(--primary);outline-offset:-2px;}
+.norium-mail .mail-category-tab.is-active svg{color:var(--primary);}
+.norium-mail .mail-category-tab b{
+  border-radius:4px;
+  padding:1px 4px;
+  background:var(--mail-soft);
+  color:var(--mail-muted);
+  font-size:9px;
+  font-weight:600;
+  line-height:1.4;
+}
+
+@container (max-width:900px){
+  .norium-mail .mail-list-heading.mail-inbox-heading{
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:4px 8px;
+    padding:8px 12px 4px;
+  }
+  .norium-mail .mail-inbox-heading > .mail-list-pagination{grid-column:2;grid-row:1;}
+  .norium-mail .mail-category-tabs{grid-column:1 / -1;grid-row:2;}
+}
+
+@media (max-width:640px){
+  .norium-mail .mail-category-tab{min-height:44px;}
+  .norium-mail .mail-inbox-heading > .mail-list-pagination{gap:0;font-size:10px;}
+}
+
 .norium-sidebar-item.is-nora{min-height:44px;padding-block:5px;}
 .norium-sidebar-item.is-nora .norium-sidebar-item-icon{width:32px;height:32px;flex-basis:32px;}
 .norium-sidebar-nora-avatar{width:32px;height:32px;display:block;}
@@ -7318,3 +7410,25 @@ html.mail-fullscreen-open body{
 
 .team-call-minimized{background:#0b1119;color:#f4f6f8;border-color:#28394d;width:420px;}
 .team-call-hands{background:#231e10;color:#f9ce66;border-color:#423923;}
+
+/* Personal interface preferences saved in the operator profile. */
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+html[data-strong-focus="true"] :focus-visible {
+  outline: 3px solid var(--primary) !important;
+  outline-offset: 3px !important;
+}
+html[data-underline-links="true"] a[href] {
+  text-decoration: underline !important;
+  text-underline-offset: 3px;
+}
+.system-notification-toasts.bottom-5 {
+  top: auto !important;
+  bottom: max(1.25rem, env(safe-area-inset-bottom)) !important;
+}

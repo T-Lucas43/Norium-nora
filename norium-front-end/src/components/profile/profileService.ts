@@ -1,3 +1,4 @@
+import { defaultInterfacePreferences } from "../../utils/interfacePreferences";
 import type { PerfilOperador, TemaPersonalizado } from "../../types/omnichannel";
 import { apiBaseUrl } from "../../utils/api";
 import { defaultThemeCustomization } from "../../utils/theme";
@@ -10,6 +11,7 @@ function cloneThemeCustomization(): TemaPersonalizado {
 
 export function createDefaultProfile(): PerfilOperador {
   return {
+    interface_preferences: { ...defaultInterfacePreferences },
     fotoUrl: "",
     nome: "Operador",
     cep: "",
@@ -30,6 +32,7 @@ export function normalizeProfile(profile: PerfilOperador): PerfilOperador {
   return {
     ...defaults,
     ...profile,
+    interface_preferences: { ...defaultInterfacePreferences, ...profile.interface_preferences },
     tema_personalizado: {
       enabled: Boolean(custom.enabled),
       claro: { ...customDefaults.claro, ...(custom.claro || {}) },

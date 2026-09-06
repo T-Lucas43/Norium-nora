@@ -1,3 +1,4 @@
+import type { InterfacePreferences } from "../utils/interfacePreferences";
 export type EventSource =
   | "gmail"
   | "whatsapp"
@@ -65,6 +66,7 @@ export type TemaPersonalizado = {
 };
 
 export type PerfilOperador = {
+  interface_preferences?: InterfacePreferences;
   fotoUrl: string;
   nome: string;
   cep: string;

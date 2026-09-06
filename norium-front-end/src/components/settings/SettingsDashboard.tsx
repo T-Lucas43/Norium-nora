@@ -1,3 +1,4 @@
+import { applyInterfacePreferences, defaultInterfacePreferences, type InterfacePreferences } from "../../utils/interfacePreferences";
 import {
   Bell,
   Bot,
@@ -79,6 +80,11 @@ export default function SettingsDashboard({
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const canCustomizeTheme = Boolean(currentUser?.systemAdmin || currentUser?.plan === "enterprise");
+  const preferences = { ...defaultInterfacePreferences, ...profile.interface_preferences };
+  function updatePreference<K extends keyof InterfacePreferences>(key: K, value: InterfacePreferences[K]) {
+    setProfile(current => ({ ...current, interface_preferences: { ...defaultInterfacePreferences, ...current.interface_preferences, [key]: value } }));
+    setMessage("");
+  }
   const activePalette = profile.tema_personalizado[profile.tema];
   const customizationEnabled = Boolean(profile.tema_personalizado.enabled);
 
@@ -143,6 +149,7 @@ export default function SettingsDashboard({
       const saved = await saveOperatorProfile(userId, profile);
       setProfile(saved);
       applyNoriumTheme(saved.tema, canCustomizeTheme ? saved.tema_personalizado : undefined);
+      applyInterfacePreferences(saved.interface_preferences);
       onSaved(saved);
       setMessage("Configurações salvas e aplicadas em todas as telas.");
     } catch (err) {
@@ -154,7 +161,7 @@ export default function SettingsDashboard({
 
   return (
     <section className="flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
-      <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
+      <header className="flex shrink-0 flex-wrap gap-3 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--primary)]">
             <Settings2 size={22} />
@@ -162,7 +169,7 @@ export default function SettingsDashboard({
           <div className="min-w-0">
             <h1 className="truncate text-xl font-bold">Configurações</h1>
             <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">
-              Aparência, notificações e comportamento da Nora
+              Leitura, acessibilidade, notificações, Nora e aparência
             </p>
           </div>
         </div>
@@ -197,6 +204,24 @@ export default function SettingsDashboard({
               </Button>
             </section>
           )}
+
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+            <h2 className="text-sm font-bold">Leitura e acessibilidade</h2>
+            <p className="mt-1 mb-4 text-xs text-[var(--text-secondary)]">As preferências abaixo são aplicadas ao salvar e ficam vinculadas ao seu perfil.</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="block text-sm font-bold">Tamanho do texto
+                <select className="norium-platform-input mt-2" value={preferences.textSize} onChange={event => updatePreference("textSize", event.target.value as InterfacePreferences["textSize"])}>
+                  <option value="normal">Padrão</option><option value="large">Grande</option><option value="extra">Extra grande</option>
+                </select>
+                <small className="mt-2 block font-normal text-[var(--text-secondary)]">Amplia textos e elementos dimensionados pela fonte do sistema.</small>
+              </label>
+              <PreferenceToggle label="Reduzir animações" hint="Reduz transições da interface e movimento dos alertas." checked={preferences.reducedMotion} onChange={value => updatePreference("reducedMotion", value)} />
+              <PreferenceToggle label="Destacar navegação por teclado" hint="Reforça o contorno do elemento selecionado com Tab." checked={preferences.strongFocus} onChange={value => updatePreference("strongFocus", value)} />
+              <PreferenceToggle label="Sublinhar links" hint="Facilita identificar links nos conteúdos e menus." checked={preferences.underlineLinks} onChange={value => updatePreference("underlineLinks", value)} />
+              <PreferenceToggle label="Ajuda contextual nas telas" hint="Mostra orientações de uso e sugestões de perguntas para a Nora." checked={preferences.showGuides} onChange={value => updatePreference("showGuides", value)} />
+            </div>
+            <Button className="mt-4" onClick={() => setProfile(current => ({ ...current, interface_preferences: { ...defaultInterfacePreferences } }))}><RotateCcw size={14} /> Restaurar preferências de interface</Button>
+          </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
             <div className="mb-5 flex items-center gap-3">
@@ -360,14 +385,13 @@ export default function SettingsDashboard({
                 </div>
               </div>
               <div className="space-y-3">
-                <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-                  <span className="text-sm font-bold">Notificações do sistema</span>
-                  <span className="rounded-full bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-400">Ativas</span>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-                  <span className="text-sm font-bold">Atualizações em tempo real</span>
-                  <span className="rounded-full bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-400">Ativas</span>
-                </div>
+                <PreferenceToggle label="Alertas flutuantes" hint="Exibe novos avisos sobre as telas. O histórico continua disponível na central." checked={preferences.showToasts} onChange={value => updatePreference("showToasts", value)} />
+                <PreferenceToggle label="Mostrar prévia dos alertas" hint="Exibe título e descrição nos alertas flutuantes. Desative para mais privacidade." checked={preferences.toastPreview} onChange={value => updatePreference("toastPreview", value)} />
+                <label className="block text-sm font-bold">Posição dos alertas
+                  <select className="norium-platform-input mt-2" value={preferences.toastPosition} onChange={event => updatePreference("toastPosition", event.target.value as InterfacePreferences["toastPosition"])}>
+                    <option value="top">Canto superior direito</option><option value="bottom">Canto inferior direito</option>
+                  </select>
+                </label>
               </div>
             </section>
           </div>
@@ -378,16 +402,23 @@ export default function SettingsDashboard({
               <div>
                 <h2 className="text-sm font-bold">Escopo global</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
-                  Estas configurações são compartilhadas por todas as telas do sistema.
+                  Preferências pessoais salvas no seu perfil. Alertas flutuantes não alteram o histórico da central nem as permissões de acesso.
                 </p>
               </div>
             </div>
           </section>
 
-          {error && <p className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm font-bold text-red-300">{error}</p>}
-          {message && <p className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm font-bold text-emerald-300">{message}</p>}
+          {error && <p role="alert" className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm font-bold text-red-300">{error}</p>}
+          {message && <p role="status" className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm font-bold text-emerald-300">{message}</p>}
         </div>
       </main>
     </section>
   );
+}
+
+function PreferenceToggle({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (value: boolean) => void }) {
+  return <label className="flex items-start justify-between gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 cursor-pointer">
+    <span><strong className="block text-sm">{label}</strong><small className="mt-1 block text-xs text-[var(--text-secondary)]">{hint}</small></span>
+    <input type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" checked={checked} onChange={event => onChange(event.target.checked)} />
+  </label>;
 }

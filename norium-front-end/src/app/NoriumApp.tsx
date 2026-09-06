@@ -346,7 +346,8 @@ export default function NoriumApp() {
       )}
 
       <SystemNotificationToasts
-        toasts={systemToasts}
+        toasts={profile?.interface_preferences?.showToasts === false ? [] : systemToasts}
+        preferences={profile?.interface_preferences}
         onDismiss={dismissSystemToast}
         onOpenNotifications={openNotifications}
       />

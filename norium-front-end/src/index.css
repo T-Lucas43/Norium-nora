@@ -2644,131 +2644,96 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   padding-inline:0;
 }
 
-.norium-mail .mail-category-tabs{
+.norium-mail .mail-message-list{container-type:inline-size;}
+
+.norium-mail .mail-list-heading.mail-inbox-heading{
   display:grid;
-  min-width:0;
-  grid-template-columns:repeat(4,minmax(0,1fr));
-  border-bottom:1px solid var(--mail-border);
-  background:var(--mail-surface);
+  height:auto;
+  min-height:60px;
+  grid-template-columns:minmax(140px,1fr) auto auto;
+  align-items:center;
+  gap:12px;
+  padding:8px 16px;
 }
+
+.norium-mail .mail-inbox-heading h1{font-size:15px;line-height:1.4;}
+.norium-mail .mail-list-heading.mail-inbox-heading p{
+  max-width:240px;
+  margin-top:2px;
+  overflow:hidden;
+  font-size:10px;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.norium-mail .mail-category-tabs{
+  display:flex;
+  min-width:0;
+  max-width:100%;
+  align-items:center;
+  gap:2px;
+  overflow-x:auto;
+  overscroll-behavior-inline:contain;
+  scrollbar-width:none;
+}
+.norium-mail .mail-category-tabs::-webkit-scrollbar{display:none;}
 
 .norium-mail .mail-category-tab{
   position:relative;
-  display:flex;
-  min-width:0;
-  min-height:76px;
-  flex-direction:column;
-  justify-content:center;
-  gap:5px;
-  border-right:1px solid color-mix(in srgb,var(--mail-border) 70%,transparent);
-  padding:12px 18px;
-  color:var(--mail-muted);
-  text-align:left;
-  transition:background-color .18s ease,color .18s ease;
-}
-
-.norium-mail .mail-category-tab:last-child{
-  border-right:0;
-}
-
-.norium-mail .mail-category-tab:hover{
-  background:var(--mail-hover);
-  color:var(--mail-text);
-}
-
-.norium-mail .mail-category-tab::after{
-  position:absolute;
-  right:14px;
-  bottom:0;
-  left:14px;
-  height:3px;
-  border-radius:3px 3px 0 0;
-  background:linear-gradient(90deg,#246bfd,#0ea5e9,#22d3ee);
-  content:"";
-  opacity:0;
-  transform:scaleX(.75);
-  transition:opacity .18s ease,transform .18s ease;
-}
-
-.norium-mail .mail-category-tab.is-active{
-  background:color-mix(in srgb,var(--primary) 9%,var(--mail-surface));
-  color:var(--mail-text);
-}
-
-.norium-mail .mail-category-tab.is-active::after{
-  opacity:1;
-  transform:scaleX(1);
-}
-
-.norium-mail .mail-category-tab-title{
-  display:flex;
-  min-width:0;
+  display:inline-flex;
+  min-height:34px;
+  flex:0 0 auto;
   align-items:center;
-  gap:8px;
-}
-
-.norium-mail .mail-category-tab-title svg{
-  flex:0 0 auto;
-  color:#38bdf8;
-}
-
-.norium-mail .mail-category-tab-title strong{
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-  font-size:13px;
-}
-
-.norium-mail .mail-category-tab-title b{
-  flex:0 0 auto;
-  border-radius:999px;
-  background:linear-gradient(135deg,#246bfd,#0ea5e9);
-  padding:3px 7px;
-  color:#fff;
-  font-size:9px;
-  line-height:1;
-}
-
-.norium-mail .mail-category-tab small{
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+  gap:6px;
+  border:0;
+  border-radius:6px;
+  padding:7px 9px;
+  background:transparent;
   color:var(--mail-muted);
-  font-size:10px;
-  font-weight:650;
+  font-size:11px;
+  font-weight:600;
+  white-space:nowrap;
+}
+.norium-mail .mail-category-tab:hover{background:var(--mail-hover);color:var(--mail-text);}
+.norium-mail .mail-category-tab.is-active{
+  background:color-mix(in srgb,var(--primary) 8%,transparent);
+  color:var(--mail-text);
+}
+.norium-mail .mail-category-tab.is-active::after{
+  position:absolute;
+  right:9px;
+  bottom:0;
+  left:9px;
+  height:2px;
+  border-radius:2px;
+  background:var(--primary);
+  content:"";
+}
+.norium-mail .mail-category-tab:focus-visible{outline:2px solid var(--primary);outline-offset:-2px;}
+.norium-mail .mail-category-tab.is-active svg{color:var(--primary);}
+.norium-mail .mail-category-tab b{
+  border-radius:4px;
+  padding:1px 4px;
+  background:var(--mail-soft);
+  color:var(--mail-muted);
+  font-size:9px;
+  font-weight:600;
+  line-height:1.4;
 }
 
-@media (max-width:900px){
-  .norium-mail .mail-category-tabs{
-    display:flex;
-    overflow-x:auto;
-    overscroll-behavior-inline:contain;
-    scrollbar-width:none;
-    scroll-snap-type:x proximity;
+@container (max-width:900px){
+  .norium-mail .mail-list-heading.mail-inbox-heading{
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:4px 8px;
+    padding:8px 12px 4px;
   }
-
-  .norium-mail .mail-category-tabs::-webkit-scrollbar{
-    display:none;
-  }
-
-  .norium-mail .mail-category-tab{
-    min-width:190px;
-    flex:1 0 190px;
-    scroll-snap-align:start;
-  }
+  .norium-mail .mail-inbox-heading > .mail-list-pagination{grid-column:2;grid-row:1;}
+  .norium-mail .mail-category-tabs{grid-column:1 / -1;grid-row:2;}
 }
 
 @media (max-width:640px){
-  .norium-mail .mail-category-tab{
-    min-width:164px;
-    min-height:68px;
-    flex-basis:164px;
-    padding:10px 12px;
-  }
-
-  .norium-mail .mail-category-tab small{
-    display:none;
-  }
+  .norium-mail .mail-category-tab{min-height:44px;}
+  .norium-mail .mail-inbox-heading > .mail-list-pagination{gap:0;font-size:10px;}
 }
 
 .norium-sidebar-item.is-nora{min-height:44px;padding-block:5px;}

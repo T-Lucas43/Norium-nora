@@ -131,7 +131,7 @@ describe("MailMessageList", () => {
     });
 
     expect(screen.getByRole("tab", { name: /principal/i })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("5 novos")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /promoções 5 novos/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: /promoções/i }));
     expect(onInboxCategoryChange).toHaveBeenCalledWith("promocoes");
   });

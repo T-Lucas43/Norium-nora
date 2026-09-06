@@ -106,13 +106,39 @@ export default function MailMessageList({
 
   return (
     <div className="mail-message-list flex min-w-0 flex-1 flex-col">
-      <div className="mail-list-heading flex h-[104px] shrink-0 items-center justify-between px-4">
+      <div className={cn("mail-list-heading flex h-[104px] shrink-0 items-center justify-between px-4", showInboxCategories && "mail-inbox-heading")}>
         <div>
           <h1 className="text-xl font-bold">{title}</h1>
           <p className="mt-1 text-xs font-semibold text-white/45">
             {unreadCount} {unreadCount === 1 ? "não lido" : "não lidos"}{showInboxCategories ? ` em ${inboxCategoryMeta[activeInboxCategory].label}` : ""} · {autoRefresh ? "sincronização em tempo real a cada 45s" : "atualização manual"}
           </p>
         </div>
+
+        {showInboxCategories && (
+          <nav className="mail-category-tabs" aria-label="Categorias da caixa de entrada" role="tablist">
+            {(Object.keys(inboxCategoryMeta) as InboxCategoryKey[]).map((category) => {
+              const meta = inboxCategoryMeta[category];
+              const Icon = inboxCategoryIcons[category];
+              const unread = inboxCategoryCounts[category];
+              return (
+                <button
+                  key={category}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeInboxCategory === category}
+                  aria-label={`${meta.label}${unread > 0 ? ` ${unread} ${unread === 1 ? "novo" : "novos"}` : ""}`}
+                  title={meta.description}
+                  className={cn("mail-category-tab", activeInboxCategory === category && "is-active")}
+                  onClick={() => onInboxCategoryChange(category)}
+                >
+                  <Icon size={14} aria-hidden="true" />
+                  <span>{meta.label}</span>
+                  {unread > 0 && <b aria-hidden="true">{unread}</b>}
+                </button>
+              );
+            })}
+          </nav>
+        )}
 
         <div className="mail-list-pagination flex items-center gap-2 text-xs font-bold text-white/60">
           <Button variant="ghost" size="sm" iconOnly onClick={onRefresh} className="hover:bg-white/7" aria-label="Atualizar lista">
@@ -146,34 +172,6 @@ export default function MailMessageList({
           </Button>
         </div>
       </div>
-
-      {showInboxCategories && (
-        <nav className="mail-category-tabs" aria-label="Categorias da caixa de entrada" role="tablist">
-          {(Object.keys(inboxCategoryMeta) as InboxCategoryKey[]).map((category) => {
-            const meta = inboxCategoryMeta[category];
-            const Icon = inboxCategoryIcons[category];
-            const unread = inboxCategoryCounts[category];
-            const active = activeInboxCategory === category;
-            return (
-              <button
-                key={category}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                className={cn("mail-category-tab", active && "is-active")}
-                onClick={() => onInboxCategoryChange(category)}
-              >
-                <span className="mail-category-tab-title">
-                  <Icon size={17} aria-hidden="true" />
-                  <strong>{meta.label}</strong>
-                  {unread > 0 && <b>{unread} {unread === 1 ? "novo" : "novos"}</b>}
-                </span>
-                <small>{meta.description}</small>
-              </button>
-            );
-          })}
-        </nav>
-      )}
 
       <div className="mail-list-filters flex h-14 shrink-0 items-center justify-between border-y border-white/10 px-4 py-3">
         <div className="mail-list-quick-filters flex items-center gap-2">

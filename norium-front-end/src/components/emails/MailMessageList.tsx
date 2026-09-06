@@ -1,8 +1,8 @@
-import { Bot, Check, ChevronLeft, ChevronRight, Filter, Loader2, MailOpen, RefreshCw, Tags } from "lucide-react";
+import { BellRing, Bot, Check, ChevronLeft, ChevronRight, Filter, Inbox, Loader2, MailOpen, Megaphone, RefreshCw, Tags, UsersRound } from "lucide-react";
 import Button from "../shared/Button";
 import { cn } from "../../utils/cn";
 import MailMessageRow from "./MailMessageRow";
-import { emailCategoryMeta, type EmailCategoryKey } from "../../features/mail/formatters";
+import { emailCategoryMeta, inboxCategoryMeta, type EmailCategoryKey, type InboxCategoryKey } from "../../features/mail/formatters";
 import { GMAIL_PAGE_SIZE } from "../../features/mail/queryBuilder";
 import { quickFilters, type GmailMessage, type MailQuickFilter } from "../../features/mail/types";
 
@@ -26,6 +26,9 @@ type MailMessageListProps = {
   compactMode: boolean;
   showPreview: boolean;
   groupByCategory: boolean;
+  showInboxCategories: boolean;
+  activeInboxCategory: InboxCategoryKey;
+  inboxCategoryCounts: Record<InboxCategoryKey, number>;
 
   onRefresh: () => void;
   onFirstPage: () => void;
@@ -37,6 +40,7 @@ type MailMessageListProps = {
   onOpenMessage: (message: GmailMessage) => void;
   onBulkAction: (action: string) => void;
   onToggleGroupByCategory: () => void;
+  onInboxCategoryChange: (category: InboxCategoryKey) => void;
   onOpenFilters: () => void;
   onAskNora: () => void;
 };
@@ -60,6 +64,9 @@ export default function MailMessageList({
   compactMode,
   showPreview,
   groupByCategory,
+  showInboxCategories,
+  activeInboxCategory,
+  inboxCategoryCounts,
   onRefresh,
   onFirstPage,
   onNextPage,
@@ -70,10 +77,17 @@ export default function MailMessageList({
   onOpenMessage,
   onBulkAction,
   onToggleGroupByCategory,
+  onInboxCategoryChange,
   onOpenFilters,
   onAskNora,
 }: MailMessageListProps) {
   const allSelected = messages.length > 0 && selectedIds.size === messages.length;
+  const inboxCategoryIcons = {
+    principal: Inbox,
+    promocoes: Megaphone,
+    social: UsersRound,
+    atualizacoes: BellRing,
+  } as const;
 
   const row = (message: GmailMessage) => (
     <MailMessageRow
@@ -96,7 +110,7 @@ export default function MailMessageList({
         <div>
           <h1 className="text-xl font-bold">{title}</h1>
           <p className="mt-1 text-xs font-semibold text-white/45">
-            {unreadCount} nao lidos · {autoRefresh ? "sincronizacao em tempo real a cada 45s" : "atualizacao manual"}
+            {unreadCount} {unreadCount === 1 ? "não lido" : "não lidos"}{showInboxCategories ? ` em ${inboxCategoryMeta[activeInboxCategory].label}` : ""} · {autoRefresh ? "sincronização em tempo real a cada 45s" : "atualização manual"}
           </p>
         </div>
 
@@ -132,6 +146,34 @@ export default function MailMessageList({
           </Button>
         </div>
       </div>
+
+      {showInboxCategories && (
+        <nav className="mail-category-tabs" aria-label="Categorias da caixa de entrada" role="tablist">
+          {(Object.keys(inboxCategoryMeta) as InboxCategoryKey[]).map((category) => {
+            const meta = inboxCategoryMeta[category];
+            const Icon = inboxCategoryIcons[category];
+            const unread = inboxCategoryCounts[category];
+            const active = activeInboxCategory === category;
+            return (
+              <button
+                key={category}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={cn("mail-category-tab", active && "is-active")}
+                onClick={() => onInboxCategoryChange(category)}
+              >
+                <span className="mail-category-tab-title">
+                  <Icon size={17} aria-hidden="true" />
+                  <strong>{meta.label}</strong>
+                  {unread > 0 && <b>{unread} {unread === 1 ? "novo" : "novos"}</b>}
+                </span>
+                <small>{meta.description}</small>
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
       <div className="mail-list-filters flex h-14 shrink-0 items-center justify-between border-y border-white/10 px-4 py-3">
         <div className="mail-list-quick-filters flex items-center gap-2">
@@ -171,16 +213,18 @@ export default function MailMessageList({
               </Button>
             </>
           )}
-          <button
-            onClick={onToggleGroupByCategory}
-            className={cn(
-              "mail-hover flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-bold",
-              groupByCategory ? "border-cyan-300/35 bg-cyan-300/12 text-cyan-100" : "border-white/12 text-white/70 hover:bg-white/7",
-            )}
-          >
-            <Tags size={14} />
-            Agrupar categorias
-          </button>
+          {!showInboxCategories && (
+            <button
+              onClick={onToggleGroupByCategory}
+              className={cn(
+                "mail-hover flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-bold",
+                groupByCategory ? "border-cyan-300/35 bg-cyan-300/12 text-cyan-100" : "border-white/12 text-white/70 hover:bg-white/7",
+              )}
+            >
+              <Tags size={14} />
+              Agrupar categorias
+            </button>
+          )}
           <Button size="sm" onClick={onOpenFilters} className="mail-hover border-white/12 text-white/70 hover:bg-white/7">
             <Filter size={14} />
             Filtros
@@ -202,7 +246,7 @@ export default function MailMessageList({
         </div>
       )}
 
-      {!groupByCategory && groupedMessages.length > 0 && (
+      {!showInboxCategories && !groupByCategory && groupedMessages.length > 0 && (
         <div className="mail-mobile-categories" aria-label="Categorias do e-mail">
           {groupedMessages.slice(0, 3).map(([category, items]) => {
             const meta = emailCategoryMeta[category];
@@ -252,7 +296,11 @@ export default function MailMessageList({
         ) : (
           <div className="flex h-full flex-col items-center justify-center text-center text-white/45">
             <MailOpen size={34} className="mb-3" />
-            <p className="text-sm font-bold">Nenhum e-mail encontrado nesse filtro.</p>
+            <p className="text-sm font-bold">
+              {showInboxCategories
+                ? `Nenhum e-mail em ${inboxCategoryMeta[activeInboxCategory].label}.`
+                : "Nenhum e-mail encontrado nesse filtro."}
+            </p>
           </div>
         )}
       </div>

@@ -32,6 +32,10 @@ function setup(over: Partial<Parameters<typeof MailMessageList>[0]> = {}) {
       compactMode={false}
       showPreview={false}
       groupByCategory={false}
+      showInboxCategories={false}
+      activeInboxCategory="principal"
+      inboxCategoryCounts={{ principal: 0, promocoes: 0, social: 0, atualizacoes: 0 }}
+      onInboxCategoryChange={vi.fn()}
       {...h}
       {...over}
     />,
@@ -43,12 +47,12 @@ describe("MailMessageList", () => {
   it("mostra titulo e contagem de nao lidos", () => {
     setup();
     expect(screen.getByRole("heading", { name: "Caixa De Entrada" })).toBeInTheDocument();
-    expect(screen.getByText(/3 nao lidos/)).toBeInTheDocument();
+    expect(screen.getByText(/3 não lidos/)).toBeInTheDocument();
   });
 
   it("indica o modo de sincronizacao conforme a preferencia", () => {
     setup({ autoRefresh: false });
-    expect(screen.getByText(/atualizacao manual/)).toBeInTheDocument();
+    expect(screen.getByText(/atualização manual/)).toBeInTheDocument();
   });
 
   it("renderiza uma linha por mensagem", () => {
@@ -116,6 +120,25 @@ describe("MailMessageList", () => {
     const h = setup();
     fireEvent.click(screen.getByRole("button", { name: /nao lidos/i }));
     expect(h.onFilterChange).toHaveBeenCalledWith("unread");
+  });
+
+  it("divide a caixa de entrada em categorias funcionais", () => {
+    const onInboxCategoryChange = vi.fn();
+    setup({
+      showInboxCategories: true,
+      inboxCategoryCounts: { principal: 2, promocoes: 5, social: 1, atualizacoes: 0 },
+      onInboxCategoryChange,
+    });
+
+    expect(screen.getByRole("tab", { name: /principal/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("5 novos")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: /promoções/i }));
+    expect(onInboxCategoryChange).toHaveBeenCalledWith("promocoes");
+  });
+
+  it("personaliza o estado vazio da categoria selecionada", () => {
+    setup({ messages: [], showInboxCategories: true, activeInboxCategory: "social" });
+    expect(screen.getByText("Nenhum e-mail em Social.")).toBeInTheDocument();
   });
 
   it("agrupa por categoria quando ligado", () => {

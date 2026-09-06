@@ -23,9 +23,11 @@ import {
   buildGmailSearchQuery,
   emptyAdvancedFilters,
 } from "../../features/mail/queryBuilder";
-import type { EmailCategoryKey } from "../../features/mail/formatters";
+import type { EmailCategoryKey, InboxCategoryKey } from "../../features/mail/formatters";
 import {
   classifyEmailCategory,
+  inboxCategoryQuery,
+  inboxCategoryUnreadCounts,
 } from "../../features/mail/formatters";
 import { useGmailConnection } from "../../features/mail/hooks/useGmailConnection";
 import { useMailbox } from "../../features/mail/hooks/useMailbox";
@@ -69,6 +71,7 @@ type EmailDashboardProps = {
 
 export default function EmailDashboard({ active = true, userId = "primary", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
   const [activeFolder, setActiveFolder] = useState("inbox");
+  const [activeInboxCategory, setActiveInboxCategory] = useState<InboxCategoryKey>("principal");
   const [activeFilter, setActiveFilter] = useState<MailQuickFilter>("all");
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -130,6 +133,11 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
     void fetchLabels().catch(() => undefined);
   }, [fetchLabels]);
 
+  const mailboxSearchQuery = useMemo(() => {
+    if (activeFolder !== "inbox") return searchQuery;
+    return [inboxCategoryQuery(activeInboxCategory), searchQuery].filter(Boolean).join(" ");
+  }, [activeFolder, activeInboxCategory, searchQuery]);
+
   const {
     messages,
     setMessages,
@@ -144,7 +152,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
     userId,
     folder: activeFolder,
     filter: activeFilter,
-    searchQuery,
+    searchQuery: mailboxSearchQuery,
     connected: active && Boolean(status?.connected),
     autoRefresh,
     onError: setError,
@@ -232,7 +240,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
 
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
   const userLabels = labels.filter((label) => label.type === "user").slice(0, 14);
-  const inboxUnread = labelById.get("INBOX")?.messagesUnread || 0;
+  const inboxCategoryCounts = useMemo(() => inboxCategoryUnreadCounts(labels), [labels]);
   const groupedMessages = useMemo(() => {
     const groups = new Map<EmailCategoryKey, GmailMessage[]>();
     messages.forEach((message) => {
@@ -327,12 +335,20 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
 
   function selectMailbox(folder: string) {
     setActiveFolder(folder);
+    if (folder === "inbox") setActiveInboxCategory("principal");
     setActiveFilter("all");
     setSearchDraft("");
     setSearchQuery("");
     setAdvancedFilters(emptyAdvancedFilters);
     setFiltersOpen(false);
     setMobileSidebarOpen(false);
+  }
+
+  function selectInboxCategory(category: InboxCategoryKey) {
+    if (category === activeInboxCategory) return;
+    setActiveInboxCategory(category);
+    setSelectedMessage(null);
+    setSelectedIds(new Set());
   }
 
   async function createLabel() {
@@ -380,6 +396,9 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
     : activeFolder.startsWith("label:")
       ? labelById.get(activeFolder.split(":", 2)[1])?.name || "Marcador"
       : systemFolders.find((folder) => folder.key === activeFolder)?.label || "Caixa De Entrada";
+  const visibleUnreadCount = activeFolder === "inbox"
+    ? inboxCategoryCounts[activeInboxCategory]
+    : messages.filter((message) => message.unread).length;
 
 
   return (
@@ -464,7 +483,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
           <main className="flex min-h-0 flex-1 overflow-hidden">
             <MailMessageList
               title={mailboxTitle}
-              unreadCount={inboxUnread}
+              unreadCount={visibleUnreadCount}
               autoRefresh={autoRefresh}
               loading={loading}
               error={error}
@@ -479,7 +498,11 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
               activeFilter={activeFilter}
               compactMode={compactMode}
               showPreview={showPreview}
-              groupByCategory={groupByCategory}
+              groupByCategory={activeFolder === "inbox" ? false : groupByCategory}
+              showInboxCategories={activeFolder === "inbox"}
+              activeInboxCategory={activeInboxCategory}
+              inboxCategoryCounts={inboxCategoryCounts}
+              onInboxCategoryChange={selectInboxCategory}
               onRefresh={() => void fetchMessages(false)}
               onFirstPage={() => void fetchMessages(false, null)}
               onNextPage={() => void fetchMessages(true, nextPageToken)}

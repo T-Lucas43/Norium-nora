@@ -160,8 +160,8 @@ export default function AppPanels({
         </section>
       )}
       {isPanelMounted("Tarefas") && (
-        <section className={activePanelClass("Tarefas")}>
-          {coach("Tarefas")}
+        <section className={`${activePanelClass("Tarefas")} app-panel-tasks`}>
+          {coach("Tarefas", true)}
           <TasksDashboard session={authSession} />
         </section>
       )}

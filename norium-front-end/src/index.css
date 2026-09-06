@@ -7410,3 +7410,25 @@ html.mail-fullscreen-open body{
 
 .team-call-minimized{background:#0b1119;color:#f4f6f8;border-color:#28394d;width:420px;}
 .team-call-hands{background:#231e10;color:#f9ce66;border-color:#423923;}
+
+/* Personal interface preferences saved in the operator profile. */
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+html[data-strong-focus="true"] :focus-visible {
+  outline: 3px solid var(--primary) !important;
+  outline-offset: 3px !important;
+}
+html[data-underline-links="true"] a[href] {
+  text-decoration: underline !important;
+  text-underline-offset: 3px;
+}
+.system-notification-toasts.bottom-5 {
+  top: auto !important;
+  bottom: max(1.25rem, env(safe-area-inset-bottom)) !important;
+}

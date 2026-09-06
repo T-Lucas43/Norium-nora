@@ -91,7 +91,7 @@ export default function AppPanels({
   const currentUser = authSession.user;
   const activePanelClass = (...tabs: string[]) => (tabs.includes(activeTab) ? "app-panel" : "hidden");
   const isPanelMounted = (...tabs: string[]) => tabs.includes(activeTab);
-  const coach = (module: GuidedModule, compact = false) => (
+  const coach = (module: GuidedModule, compact = false) => profile?.interface_preferences?.showGuides === false ? null : (
     <ModuleCoach module={module} onAskNora={onOpenNora} compact={compact} />
   );
 

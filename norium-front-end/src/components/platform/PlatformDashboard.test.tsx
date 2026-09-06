@@ -12,17 +12,40 @@ beforeEach(() => { request.mockReset(); request.mockResolvedValue({}); });
 
 it("opens the overview without querying the vault, documents or team", async () => {
   render(<PlatformDashboard session={session} />);
-  await screen.findByText("Captura rapida universal");
+  await screen.findByText("Fontes de conhecimento");
   expect(request.mock.calls.map(([path]) => path)).toEqual(["/api/plataforma/resumo"]);
 });
 
 it("loads only the selected area and allows returning while another area is slow", async () => {
   request.mockImplementation((path) => path.endsWith("/resumo") ? Promise.resolve({}) : new Promise(() => {}));
   render(<PlatformDashboard session={session} />);
-  await screen.findByText("Captura rapida universal");
+  await screen.findByText("Fontes de conhecimento");
   fireEvent.click(screen.getByRole("button", { name: "Ambientes" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith("/api/plataforma/empresas"));
   fireEvent.click(screen.getByRole("button", { name: "Visao geral" }));
-  await screen.findByText("Captura rapida universal");
+  await screen.findByText("Fontes de conhecimento");
   expect(request.mock.calls.some(([path]) => path.endsWith("/cofre"))).toBe(false);
+});
+
+it("loads security without requesting disconnected governance features", async () => {
+  request.mockImplementation((path) => Promise.resolve(path === "/api/auth/users" ? { users: [] } : path.includes("auditoria") ? { items: [] } : {}));
+  render(<PlatformDashboard session={session} />);
+  await screen.findByText("Fontes de conhecimento");
+  fireEvent.click(screen.getByRole("button", { name: "Revisar acessos" }));
+  await screen.findByText("Matriz de permissoes");
+  expect(request.mock.calls.map(([path]) => path)).toEqual(["/api/plataforma/resumo", "/api/auth/users", "/api/operacao/auditoria?limit=5"]);
+  expect(screen.queryByText("Cofre de integracoes")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Ver auditoria completa/ })).toBeDisabled();
+});
+
+it("reports knowledge query failures and allows retrying", async () => {
+  request.mockImplementation((path) => path.endsWith("/consultar") ? Promise.reject(new Error("Consulta indisponível")) : Promise.resolve({ items: [] }));
+  render(<PlatformDashboard session={session} />);
+  await screen.findByText("Fontes de conhecimento");
+  fireEvent.click(screen.getByRole("button", { name: "IA e documentos" }));
+  await screen.findByText("Base de conhecimento");
+  fireEvent.change(screen.getByPlaceholderText("Qual e a politica de reembolso?"), { target: { value: "reembolso" } });
+  fireEvent.click(screen.getByRole("button", { name: "Consultar" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Consulta indisponível");
+  expect(screen.getByRole("button", { name: "Consultar" })).toBeEnabled();
 });

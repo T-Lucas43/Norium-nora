@@ -256,11 +256,11 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         module="governanca",
         aliases=("governanca", "administracao da empresa"),
         response=(
-            "Governança centraliza empresas, documentos, atendimento, segurança e políticas operacionais.\n\n"
-            "Cada empresa mantém dados e permissões isolados. Em Documentos, envie materiais autorizados "
+            "Governança centraliza ambientes de trabalho, fontes de conhecimento, permissões e auditoria.\n\n"
+            "Cada ambiente mantém dados separados. Em IA e documentos, envie materiais autorizados "
             "para a base de conhecimento; PDFs com texto são indexados e ficam disponíveis para consultas "
-            "da Nora com a fonte identificada. Use as demais áreas para regras de aprovação, credenciais, "
-            "qualidade dos dados, portal externo e formulários públicos."
+            "da Nora com a fonte identificada. Em Segurança, consulte a matriz de permissões "
+            "e a trilha de auditoria. O Controle reúne o histórico operacional."
         ),
     ),
     ModuleHelp(

@@ -72,7 +72,19 @@ class TemaPersonalizado(StrictModel):
     )
 
 
+class InterfacePreferences(StrictModel):
+    textSize: Literal["normal", "large", "extra"] = "normal"
+    reducedMotion: bool = False
+    strongFocus: bool = False
+    underlineLinks: bool = False
+    showGuides: bool = True
+    showToasts: bool = True
+    toastPreview: bool = True
+    toastPosition: Literal["top", "bottom"] = "top"
+
+
 class PerfilOperador(StrictModel):
+    interface_preferences: InterfacePreferences = Field(default_factory=InterfacePreferences)
     fotoUrl: str = ""
     nome: str = Field(default="Operador", min_length=1, max_length=120)
     cep: str = Field(default="", max_length=12)

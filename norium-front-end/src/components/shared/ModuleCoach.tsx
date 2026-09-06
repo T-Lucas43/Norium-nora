@@ -207,11 +207,11 @@ const guides: Record<GuidedModule, ModuleGuide> = {
   },
   Governanca: {
     title: "Governanca",
-    description: "Administre ambientes de trabalho, atendimento, documentos, seguranca e politicas operacionais.",
-    topics: ["Cada ambiente mantem dados isolados (nao confunda com Clientes, seu CRM)", "Documentos autorizados fundamentam respostas da Nora", "Regras protegem credenciais e acoes sensiveis"],
-    prompt: "Explique a Governanca do Norium e avalie ambientes de trabalho, documentos, atendimento e seguranca que precisam de configuracao.",
+    description: "Administre ambientes de trabalho, fontes de conhecimento, permissões e auditoria.",
+    topics: ["Cada ambiente mantem dados isolados (nao confunda com Clientes, seu CRM)", "Documentos autorizados fundamentam respostas da Nora", "Confira os acessos da equipe e as ações registradas"],
+    prompt: "Explique a Governanca do Norium e avalie ambientes de trabalho, fontes de conhecimento e acessos da equipe.",
     quickPrompts: [
-      { label: "Analisar seguranca", prompt: "Analise as regras de aprovacao, o cofre de credenciais e as simulacoes de permissao configuradas na Governanca." },
+      { label: "Analisar seguranca", prompt: "Explique a matriz de permissões e a trilha de auditoria disponíveis na Governança." },
       { label: "Resumir documentos", prompt: "Resuma os documentos e a base de conhecimento cadastrados na Governanca." },
     ],
   },

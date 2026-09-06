@@ -43,6 +43,8 @@ describe("conversas da equipe", () => {
     await setup();
     expect(screen.queryByRole("textbox", { name: "Mensagem para a conversa" })).not.toBeInTheDocument();
     expect(reads).toEqual([]);
+    expect(within(screen.getByRole("region", { name: "Time todo" })).queryByRole("button", { name: "Abrir conversa Ana Carolina" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Contatos" })).getByText("Online agora")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Abrir conversa Time todo" }));
     await screen.findByText("Mensagem do time");
     fireEvent.click(screen.getByRole("button", { name: "Abrir conversa Time todo" }));
@@ -55,7 +57,7 @@ describe("conversas da equipe", () => {
   it("keeps personal pins after remount and drafts in their respective threads", async () => {
     const view = await setup();
     fireEvent.click(screen.getByRole("button", { name: "Fixar conversa Time todo" }));
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "Conversas fixadas" })).getByRole("button", { name: "Abrir conversa Time todo" })).toBeInTheDocument());
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Time todo" })).getByRole("button", { name: "Abrir conversa Time todo" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Abrir conversa Time todo" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Mensagem para a conversa" }), { target: { value: "Rascunho do time" } });
     fireEvent.click(screen.getByRole("button", { name: "Abrir conversa Ana Carolina" }));
@@ -63,7 +65,7 @@ describe("conversas da equipe", () => {
     fireEvent.click(screen.getByRole("button", { name: "Abrir conversa Time todo" }));
     expect(screen.getByRole("textbox", { name: "Mensagem para a conversa" })).toHaveValue("Rascunho do time");
     view.unmount(); await setup();
-    expect(within(screen.getByRole("region", { name: "Conversas fixadas" })).getByRole("button", { name: "Abrir conversa Time todo" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Time todo" })).getByRole("button", { name: "Abrir conversa Time todo" })).toBeInTheDocument();
   });
 
   it("selects a participant with the keyboard and sends their ID with the mention", async () => {

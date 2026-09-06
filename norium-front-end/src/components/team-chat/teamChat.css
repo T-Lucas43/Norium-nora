@@ -68,6 +68,12 @@
 .team-conversation-filters button[aria-pressed="true"] { color: var(--chat-text); background: var(--chat-hover); }
 .team-conversations-scroll { min-height: 0; overflow-y: auto; padding: 8px; flex: 1; }
 .team-conversations-scroll h3 { display: flex; align-items: center; gap: 6px; color: var(--chat-muted); font-size: 10px; font-weight: 600; letter-spacing: .065em; text-transform: uppercase; padding: 12px 8px 7px; }
+.team-conversations-scroll section+section {border-top:1px solid var(--chat-border);margin-top:12px;padding-top:4px;}
+.team-contacts-online-count {margin-left:auto;color:var(--chat-green);font-size:9px;text-transform:none;letter-spacing:0;}
+.team-contact-presence {display:flex;align-items:center;gap:5px;margin-top:5px;font-size:10px;color:var(--chat-muted);}
+.team-contact-presence i {height:5px;width:5px;background:#737784;border-radius:50%;}
+.team-contact-presence.is-online {color:var(--chat-green);}
+.team-contact-presence.is-online i {background:#10b981;}
 .team-conversation-row { display: flex; align-items: center; border: 1px solid transparent; border-radius: 9px; position: relative; margin: 2px 0; }
 .team-conversation-row:hover { background: var(--chat-hover); }
 .team-conversation-row.is-selected { background: var(--chat-hover); border-color: var(--chat-border); box-shadow: inset 3px 0 0 var(--chat-blue); }

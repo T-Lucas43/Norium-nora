@@ -21,10 +21,11 @@ export default function TeamConversationList({ items, selectedId, loading, pinni
     <div className="team-conversation-filters"><button type="button" aria-pressed={!unreadOnly} onClick={() => setUnreadOnly(false)}>Todas</button><button type="button" aria-pressed={unreadOnly} onClick={() => setUnreadOnly(true)}>Não lidas {items.reduce((sum, item) => sum + (item.unreadCount > 0 ? 1 : 0), 0) || ""}</button></div>
     <div className="team-conversations-scroll">
       {loading && !items.length && <p className="team-conversation-empty" role="status">Carregando conversas...</p>}
-      {[true, false].map((pinned) => {
-        const group = visible.filter((item) => item.pinned === pinned);
-        return group.length > 0 && <section key={String(pinned)} aria-label={pinned ? "Conversas fixadas" : "Todas as conversas"}>
-          <h3>{pinned ? <><Pin size={12} /> Fixadas</> : "Conversas"}</h3>
+      {(["team", "subteam", "direct"] as const).map((scope) => {
+        const group = visible.filter((item) => item.scope === scope).sort((a, b) => Number(b.pinned) - Number(a.pinned));
+        const label = scope === "team" ? "Time todo" : scope === "subteam" ? "Subequipes" : "Contatos";
+        return group.length > 0 && <section key={scope} aria-label={label}>
+          <h3>{scope === "team" ? <Users size={12} /> : scope === "subteam" ? <Hash size={12} /> : <MessageSquare size={12} />}{label}{scope === "direct" && <span className="team-contacts-online-count">{items.filter((item) => item.scope === "direct" && item.online).length} online</span>}</h3>
           {group.map((item) => {
             const Icon = item.scope === "team" ? Users : item.scope === "subteam" ? Hash : MessageSquare;
             const date = item.lastMessage?.createdAt ? new Date(item.lastMessage.createdAt) : null;
@@ -32,7 +33,7 @@ export default function TeamConversationList({ items, selectedId, loading, pinni
             return <div key={item.id} className={`team-conversation-row ${selectedId === item.id ? "is-selected" : ""}`}>
               <button type="button" className="team-conversation-open" onClick={() => onSelect(item)} aria-label={`Abrir conversa ${item.title}`} aria-current={selectedId === item.id ? "true" : undefined}>
                 <span className={`team-conversation-avatar is-${item.scope}`}>{item.avatar ? <img src={item.avatar} alt="" /> : item.scope === "direct" ? item.title.split(/\s+/).slice(0, 2).map((part) => part[0]).join("") : <Icon size={18} />}{item.online && <i aria-label="Online" />}</span>
-                <span className="team-conversation-copy"><span className="team-conversation-title"><strong>{item.title}</strong><time>{time}</time></span><span className="team-conversation-preview"><span>{item.lastMessage ? `${item.lastMessage.senderName}: ${item.lastMessage.text}` : item.scope === "team" ? "Toda a equipe em um só lugar" : item.scope === "subteam" ? "Conversa da subequipe" : "Iniciar uma conversa"}</span>{item.unreadCount > 0 && <b aria-label={`${item.unreadCount} mensagens não lidas`}>{item.unreadCount > 99 ? "99+" : item.unreadCount}</b>}</span></span>
+                <span className="team-conversation-copy"><span className="team-conversation-title"><strong>{item.title}</strong><time>{time}</time></span><span className="team-conversation-preview"><span>{item.lastMessage ? `${item.lastMessage.senderName}: ${item.lastMessage.text}` : item.scope === "team" ? "Toda a equipe em um só lugar" : item.scope === "subteam" ? "Conversa da subequipe" : "Iniciar uma conversa"}</span>{item.unreadCount > 0 && <b aria-label={`${item.unreadCount} mensagens não lidas`}>{item.unreadCount > 99 ? "99+" : item.unreadCount}</b>}</span>{item.scope === "direct" && <span className={`team-contact-presence ${item.online ? "is-online" : ""}`}><i />{item.online ? "Online agora" : "Offline"}</span>}</span>
               </button>
               <button type="button" className={`team-conversation-pin ${item.pinned ? "is-pinned" : ""}`} disabled={pinningId === item.id} onClick={() => onPin(item)} aria-label={`${item.pinned ? "Desafixar" : "Fixar"} conversa ${item.title}`} title={item.pinned ? "Desafixar conversa" : "Fixar conversa"}>{item.pinned ? <PinOff size={14} /> : <Pin size={14} />}</button>
             </div>;
@@ -41,6 +42,6 @@ export default function TeamConversationList({ items, selectedId, loading, pinni
       })}
       {!loading && !visible.length && <div className="team-conversation-empty"><Search size={24} /><p>{unreadOnly ? "Nenhuma conversa não lida." : "Nenhuma conversa encontrada."}</p>{(query || unreadOnly) && <button type="button" onClick={() => { setQuery(""); setUnreadOnly(false); }}>Mostrar todas</button>}</div>}
     </div>
-    <div className="team-conversations-tip"><Pin size={13} /><span>Fixe suas conversas para acessar rapidamente.</span></div>
+    <div className="team-conversations-tip"><Pin size={13} /><span>As fixadas ficam no topo de cada seção.</span></div>
   </aside>;
 }

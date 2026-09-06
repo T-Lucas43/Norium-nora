@@ -251,7 +251,7 @@ export default function BrowserAgentDashboard({ onOpenNora }: { onOpenNora: (pro
 }
 
 function Metric({ icon: Icon, label, value, detail }: { icon: typeof Globe2; label: string; value: string | number; detail: string }) {
-  return <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)]"><span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-500/14 text-cyan-200"><Icon size={18} /></span><p className="mt-3 text-xs font-black uppercase tracking-[.12em] text-[var(--text-secondary)]">{label}</p><strong className="mt-1 block text-2xl font-black">{value}</strong><small className="mt-1 block font-semibold text-[var(--text-secondary)]">{detail}</small></article>;
+  return <article data-metric-tone="blue" className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)]"><span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-500/14 text-cyan-200"><Icon size={18} /></span><p className="mt-3 text-xs font-black uppercase tracking-[.12em] text-[var(--text-secondary)]">{label}</p><strong className="metric-value mt-1 block text-2xl font-black">{value}</strong><small className="mt-1 block font-semibold text-[var(--text-secondary)]">{detail}</small></article>;
 }
 
 function Notice({ tone, children }: { tone: "error" | "success"; children: ReactNode }) {

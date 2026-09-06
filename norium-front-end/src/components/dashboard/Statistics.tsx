@@ -13,18 +13,21 @@ export default function Statistics({ metrics, onOpenNora }: StatisticsProps) {
       value: metrics.total,
       icon: TrendingUp,
       color: "text-blue-500",
+      tone: "blue",
     },
     {
       title: "Tarefas movimentadas",
       value: metrics.tasks,
       icon: CheckCircle2,
       color: "text-emerald-500",
+      tone: "emerald",
     },
     {
       title: "Canais ativos",
       value: 4,
       icon: Clock3,
       color: "text-cyan-500",
+      tone: "cyan",
     },
   ];
 
@@ -57,14 +60,14 @@ export default function Statistics({ metrics, onOpenNora }: StatisticsProps) {
           const Icon = item.icon;
 
           return (
-            <div key={item.title} className="flex items-center justify-between rounded-2xl border border-[var(--border)] p-5">
+            <div key={item.title} data-metric-tone={item.tone} className="flex items-center justify-between rounded-2xl border border-[var(--border)] p-5">
               <div>
                 <p className="text-sm font-semibold text-[var(--text-secondary)]">{item.title}</p>
-                <h2 className="mt-2 text-4xl font-black text-[var(--text)]">{item.value}</h2>
+                <h2 className="metric-value mt-2 text-4xl font-black">{item.value}</h2>
               </div>
 
               <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-current/10 ${item.color}`}>
-                <Icon size={26} />
+                <Icon className="metric-icon" size={26} />
               </div>
             </div>
           );

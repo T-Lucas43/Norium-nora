@@ -485,11 +485,11 @@ function TeamPerformanceReport({
       </div>
 
       <div className="mb-5 grid gap-3 md:grid-cols-5">
-        <Metric icon={ListChecks} label="Pendentes" value={totals.pendentes || 0} />
-        <Metric icon={PlayCircle} label="Em execucao" value={totals.andamento || 0} />
-        <Metric icon={Clock3} label="Em revisao" value={totals.revisao || 0} />
-        <Metric icon={CheckCircle2} label="Finalizadas" value={totals.concluidas || 0} />
-        <Metric icon={AlertTriangle} label="Vencidas" value={totals.vencidas || 0} />
+        <Metric icon={ListChecks} tone="amber" label="Pendentes" value={totals.pendentes || 0} />
+        <Metric icon={PlayCircle} tone="blue" label="Em execucao" value={totals.andamento || 0} />
+        <Metric icon={Clock3} tone="violet" label="Em revisao" value={totals.revisao || 0} />
+        <Metric icon={CheckCircle2} tone="emerald" label="Finalizadas" value={totals.concluidas || 0} />
+        <Metric icon={AlertTriangle} tone="rose" label="Vencidas" value={totals.vencidas || 0} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -563,11 +563,11 @@ function MemberAvatar({ user, large = false }: { user: Pick<NoriumUser, "nome" |
   return <span aria-label={`Foto de ${user.nome}`} className={`grid ${size} shrink-0 place-items-center rounded-full border border-blue-400/35 bg-blue-500/15 font-black text-blue-200`}>{initials}</span>;
 }
 
-function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
+function Metric({ icon: Icon, label, value, tone = "blue" }: { icon: LucideIcon; label: string; value: number; tone?: string }) {
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
-      <Icon size={16} className="text-[var(--primary)]" />
-      <p className="mt-2 text-2xl font-black">{value}</p>
+    <div data-metric-tone={tone} className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
+      <Icon size={16} className="metric-icon" />
+      <p className="metric-value mt-2 text-2xl font-black">{value}</p>
       <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
     </div>
   );

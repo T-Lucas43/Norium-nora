@@ -1,6 +1,9 @@
+import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  Gauge,
+  History,
   Activity,
   AlertTriangle,
   BellRing,
@@ -386,29 +389,13 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
   const alertsReady = ready.summary && ready.history && ready.integrations;
 
   return (
-    <div className="h-full overflow-y-auto bg-[var(--background)] p-4 text-[var(--text)] sm:p-6 xl:p-8">
+    <div className="clean-workspace operations-workspace h-full overflow-y-auto bg-[var(--background)] p-4 text-[var(--text)] sm:p-6 xl:p-8">
       <div className="mx-auto max-w-[1680px] space-y-5">
-        <header className="flex flex-col gap-4 overflow-hidden rounded-2xl border border-blue-400/20 bg-[linear-gradient(125deg,rgba(37,99,235,.12),rgba(8,145,178,.05)_48%,var(--surface)_80%)] p-5 shadow-xl shadow-black/10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-4">
-            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><ShieldCheck size={24} /></span>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-400">Operação em tempo real</p>
-              <h1 className="mt-1 text-2xl font-black">Controle operacional</h1>
-              <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Decisões, integrações e rastreabilidade em uma visão objetiva.</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={() => onOpenNora?.("Analise o Controle operacional, explique os alertas e recomende os próximos passos.")} className="border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/10">
-              <BrainCircuit size={16} /> Consultar a Nora
-            </Button>
-            <Button onClick={() => void loadOverview(true)}>
-              <RefreshCw className={refreshing ? "animate-spin" : ""} size={16} /> Atualizar
-            </Button>
-            <Button variant="primary" onClick={openNewApproval} className="bg-blue-600 hover:bg-blue-500">
-              <Plus size={17} /> Nova aprovacao
-            </Button>
-          </div>
-        </header>
+        <WorkspaceHeader title="Controle operacional" description="Aprovações, alertas e integrações sob controle." icon={Gauge}>
+<Button iconOnly onClick={() => void loadOverview(true)} aria-label="Atualizar" title="Atualizar"><RefreshCw className={refreshing ? "animate-spin" : ""} size={16} /></Button>
+<Button onClick={() => onOpenNora?.("Analise o Controle operacional, explique os alertas e recomende os próximos passos.")}><BrainCircuit size={16} />Consultar Nora</Button>
+<Button variant="primary" className="workspace-primary" onClick={openNewApproval}><Plus size={16} />Nova aprovação</Button>
+</WorkspaceHeader>
 
         {(error || notice) && (
           <div className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm font-bold ${error ? "border-rose-500/30 bg-rose-500/10 text-rose-300" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"}`}>
@@ -419,15 +406,21 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
 
         {Object.values(sectionErrors).some(Boolean) && <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">Algumas seções não puderam ser atualizadas. Os dados já carregados continuam disponíveis. Use Atualizar para tentar novamente.</div>}
 
-        <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-          <MetricCard icon={ClipboardCheck} label="Aprovacoes" value={ready.approvals ? summary.pendingApprovals : undefined} tone="amber" />
+        <section className="workspace-metrics grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="Resumo operacional">
+          <MetricCard icon={ClipboardCheck} label="Aprovações" value={ready.approvals ? summary.pendingApprovals : undefined} tone="amber" />
           <MetricCard icon={AlertTriangle} label="Tarefas vencidas" value={ready.summary ? summary.overdueTasks : undefined} tone="rose" />
           <MetricCard icon={CalendarDays} label="Agenda hoje" value={ready.summary ? summary.todayEvents : undefined} tone="violet" />
-          <MetricCard icon={Activity} label="Integracoes em atencao" value={ready.integrations ? summary.unhealthyIntegrations : undefined} tone="cyan" />
+          <MetricCard icon={Activity} label="Integrações em atenção" value={ready.integrations ? summary.unhealthyIntegrations : undefined} tone="cyan" />
         </section>
 
+        <nav className="workspace-tabs operations-nav" aria-label="Seções do controle operacional">
+          {[["operations-approvals", "Aprovações", ClipboardCheck], ["operations-history", "Histórico", History], ["operations-integrations", "Integrações", Activity]].map(([id, label, Icon]) => {
+            const SectionIcon = Icon as LucideIcon;
+            return <button key={String(id)} type="button" onClick={() => document.getElementById(String(id))?.scrollIntoView({ block: "start" })}><SectionIcon size={16} />{String(label)}</button>;
+          })}
+        </nav>
         <section className="grid gap-4 lg:grid-cols-[minmax(0,.75fr)_minmax(0,1.25fr)]">
-          <article className="rounded-lg border border-blue-500/25 bg-blue-500/8 p-5">
+          <article className="workspace-panel operations-briefing p-5">
             <div className="flex items-start gap-3">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/15 text-blue-300"><BrainCircuit size={20} /></span>
               <div>
@@ -456,7 +449,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,.65fr)]">
           <div className="space-y-5">
-            <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <section id="operations-approvals" className="workspace-panel overflow-hidden">
               <SectionHeader title="Aprovações pendentes" description="Ações sensíveis ficam visíveis antes da decisão." icon={ClipboardCheck} action={ready.approvals ? `${pendingApprovals.length} pendente(s)` : undefined} />
               <div className="divide-y divide-[var(--border)]">
                 {!ready.approvals ? sectionStatus("approvals", "Aprovações") : pendingApprovals.length === 0 ? (
@@ -478,7 +471,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
               </div>
             </section>
 
-            <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+            <section id="operations-history" className="workspace-panel overflow-hidden">
               <div className="flex flex-col gap-3 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <div><h2 className="font-black">Rastreabilidade</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Veja o que foi executado e por quem.</p></div>
                 <div className="flex flex-wrap items-center gap-2"><div className="inline-flex rounded-lg border border-[var(--border)] p-1"><ModeButton active={timelineMode === "receipts"} onClick={() => setTimelineMode("receipts")}>Comprovantes</ModeButton><ModeButton active={timelineMode === "audit"} onClick={() => setTimelineMode("audit")}>Auditoria</ModeButton></div>{timelineMode === "audit" && <Button size="sm" onClick={() => void exportAudit()}><Download size={14} /> Exportar CSV</Button>}</div>
@@ -515,8 +508,8 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
           </div>
 
           <aside className="space-y-5">
-            <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <SectionHeader title="Saude das integracoes" description="Estado local e ultima sincronizacao." icon={Activity} />
+            <section id="operations-integrations" className="workspace-panel overflow-hidden">
+              <SectionHeader title="Saúde das integrações" description="Estado local e ultima sincronizacao." icon={Activity} />
               <div className="divide-y divide-[var(--border)]">
                 {!ready.integrations && sectionStatus("integrations", "Integrações")}
                 {(overview?.integrations || []).map((integration) => (
@@ -584,8 +577,8 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
               </div>
             </details>
 
-            <section className="rounded-lg border border-blue-500/25 bg-blue-500/8 p-5">
-              <div className="flex items-center gap-3 text-blue-300"><ShieldCheck size={21} /><h2 className="font-black">Politica de seguranca</h2></div>
+            <section className="workspace-panel operations-briefing p-5">
+              <div className="flex items-center gap-3 text-blue-300"><ShieldCheck size={21} /><h2 className="font-black">Política de segurança</h2></div>
               <p className="mt-3 text-sm font-semibold leading-6 text-[var(--text-secondary)]">Operacoes sensiveis podem passar por aprovacao e cada decisao gera um registro rastreavel por usuario.</p>
               <button type="button" onClick={openNewApproval} className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-blue-300 hover:text-blue-200">Solicitar revisao <ChevronRight size={15} /></button>
             </section>
@@ -617,7 +610,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
 
 function MetricCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value?: number; tone: "amber" | "blue" | "rose" | "violet" | "emerald" | "cyan" }) {
   const tones = { amber: "bg-amber-500/12 text-amber-300", blue: "bg-blue-500/12 text-blue-300", rose: "bg-rose-500/12 text-rose-300", violet: "bg-violet-500/12 text-violet-300", emerald: "bg-emerald-500/12 text-emerald-300", cyan: "bg-cyan-500/12 text-cyan-300" };
-  return <article className="flex min-h-28 items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${tones[tone]}`}><Icon size={20} /></span><div className="min-w-0"><strong className="block text-2xl font-black">{value ?? "—"}</strong><span className="mt-1 block text-xs font-bold leading-4 text-[var(--text-secondary)]">{label}</span></div></article>;
+  return <article data-metric-tone={tone} className="workspace-metric flex min-h-28 items-center gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-sm"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${tones[tone]}`}><Icon size={20} className="metric-icon" /></span><div className="min-w-0"><strong className="metric-value block text-2xl font-black">{value ?? "—"}</strong><span className="mt-1 block text-xs font-bold leading-4 text-[var(--text-secondary)]">{label}</span></div></article>;
 }
 
 function SectionHeader({ title, description, icon: Icon, action }: { title: string; description: string; icon: LucideIcon; action?: string }) {

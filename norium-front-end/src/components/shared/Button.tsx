@@ -52,12 +52,14 @@ export default function Button({
   return (
     <button
       type="button"
+      data-variant={variant}
       disabled={disabled || loading}
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-lg font-bold transition disabled:cursor-not-allowed disabled:opacity-50",
         variantClasses[variant],
         iconOnly ? iconOnlySizeClasses[size] : sizeClasses[size],
         className,
+        variant === "danger" && "text-white",
       )}
       {...rest}
     >

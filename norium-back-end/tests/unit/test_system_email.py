@@ -134,8 +134,11 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(message["Bcc"])
         self.assertIsNotNone(message["Date"])
         self.assertIn("Alice &lt;Equipe&gt;", message.get_body(preferencelist=("html",)).get_content())
-        self.assertIn("Assistente virtual do Norium", message.get_body(preferencelist=("html",)).get_content())
+        self.assertIn("Assistente virtual", message.get_body(preferencelist=("html",)).get_content())
         self.assertIn("Assistente virtual do Norium", message.get_body(preferencelist=("plain",)).get_content())
+        self.assertIn('alt="Nora"', message.get_body(preferencelist=("html",)).get_content())
+        self.assertIn('alt="Norium"', message.get_body(preferencelist=("html",)).get_content())
+        self.assertIn("data:image/jpeg;base64,", message.get_body(preferencelist=("html",)).get_content())
 
     async def test_welcome_campaign_dedupes_per_email_across_retries(self):
         users = [self.user, self.other, {**self.user, "id": "duplicate"}, {**self.other, "id": "inactive", "status": "inativo"}]

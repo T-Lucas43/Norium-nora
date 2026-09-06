@@ -16,6 +16,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate
+from functools import lru_cache
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
@@ -33,6 +35,7 @@ store_lock = threading.RLock()
 WELCOME_CAMPAIGN = "nora-welcome-v1"
 WELCOME_TITLE = "Boas-vindas ao Norium! Aqui quem fala é a Nora"
 WELCOME_DESCRIPTION = "Aqui quem fala é a Nora. Boas-vindas ao Norium! Estou aqui para ajudar você a organizar tarefas, acompanhar reuniões e consultar as informações da sua operação. No meu chat, você pode fazer perguntas e pedir ajuda para aproveitar os recursos do sistema. Acesse sua conta e vamos começar!"
+NORA_SIGNATURE_PATH = Path(__file__).resolve().parents[1] / "assets" / "nora_email_signature.html"
 
 
 def cipher() -> Fernet:
@@ -93,6 +96,11 @@ def write_store(store: dict) -> None:
     write_json_file(get_system_db_path("system_email"), store)
 
 
+@lru_cache(maxsize=1)
+def nora_signature_html() -> str:
+    return NORA_SIGNATURE_PATH.read_text(encoding="utf-8").strip()
+
+
 def render_message(name: str, title: str, description: str, link: str, button: str) -> dict:
     text = (
         f"Olá, {name}.\n\n{title}\n\n{description}\n\n{button}: {link}\n\n"
@@ -112,10 +120,7 @@ def render_message(name: str, title: str, description: str, link: str, button: s
 <p style="margin:30px 0"><a href="{esc(link, quote=True)}" style="display:inline-block;background:#1765ee;color:white;padding:14px 22px;border-radius:9px;text-decoration:none;font-weight:bold">{esc(button)}</a></p>
 <p style="font-size:12px;overflow-wrap:anywhere;word-break:break-word;color:#9aacc2">Se o botão não abrir, copie este endereço:<br>{esc(link)}</p>
 <hr style="margin:28px 0 22px;border:0;border-top:1px solid #26364b">
-<table role="presentation" cellspacing="0" cellpadding="0"><tr>
-<td style="padding-right:12px;vertical-align:top"><div style="width:40px;height:40px;line-height:40px;border-radius:12px;background:#1765ee;color:#ffffff;text-align:center;font-size:18px;font-weight:bold">N</div></td>
-<td style="vertical-align:top"><strong style="display:block;color:#eaf2ff;font-size:14px">Nora</strong><span style="display:block;margin-top:2px;color:#aabbd0;font-size:12px">Assistente virtual do Norium</span><a href="mailto:{SENDER}" style="display:inline-block;margin-top:6px;color:#22d3ee;font-size:12px;text-decoration:none">{SENDER}</a><span style="color:#52677f;font-size:12px"> · </span><a href="https://norium-ai.com" style="color:#22d3ee;font-size:12px;text-decoration:none">norium-ai.com</a></td>
-</tr></table>
+{nora_signature_html()}
 <p style="margin:20px 0 0;font-size:11px;line-height:1.5;color:#7f93ab">Esta mensagem foi enviada pelo Norium para a sua conta. Gerencie suas notificações no perfil.</p>
 </td></tr></table></td></tr></table></body></html>'''
     return {"subject": f"Norium — {title}"[:180], "text": text, "html": body}

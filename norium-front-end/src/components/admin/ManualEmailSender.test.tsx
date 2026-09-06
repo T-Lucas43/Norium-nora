@@ -18,7 +18,10 @@ describe("Manual email sender", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pré-visualizar e-mail" }));
     expect(request).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Olá, Alice.")).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Assinatura da Nora" })).toHaveTextContent("Assistente virtual do Norium");
+    expect(screen.getByRole("group", { name: "Assinatura da Nora" })).toHaveTextContent("Assistente virtual");
+    expect(screen.getByRole("group", { name: "Assinatura da Nora" })).toHaveTextContent("NORIUM");
+    expect(screen.getByRole("img", { name: "Nora" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Norium" })).toBeInTheDocument();
     request.mockRejectedValueOnce(new Error("Falha temporária"));
     fireEvent.click(screen.getByRole("button", { name: "Enviar aos selecionados" }));
     await screen.findByRole("alert");

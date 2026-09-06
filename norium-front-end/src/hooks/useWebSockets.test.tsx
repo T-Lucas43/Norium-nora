@@ -51,6 +51,34 @@ async function setup() {
   return { ...hook, socket };
 }
 
+describe("team member mentions", () => {
+  it("notifies a mentioned member with the chat open and deduplicates the inbox event", async () => {
+    const { result } = renderHook(() => useWebSockets("Chat da Equipe", true, "member", true));
+    await waitFor(() => expect(Socket.instances).toHaveLength(2));
+    const teamSocket = Socket.instances.find((item) => item.url.includes("team-chat"))!;
+    const inboxSocket = Socket.instances.find((item) => !item.url.includes("team-chat"))!;
+    const metadata = { mentionedUserIds: ["member"], threadId: "subteam:sales", messageId: "mention-1", senderId: "owner", senderName: "Ana", action: "team_member_mentioned", userId: "member" };
+    act(() => teamSocket.receive({ type: "TEAM_CHAT_MESSAGE", message: { id: "mention-1", threadId: "subteam:sales", senderId: "owner", senderName: "Ana", text: "@Member revise a proposta", metadata } }));
+    expect(result.current.systemNotifications[0].title).toBe("Ana mencionou você");
+    expect(result.current.systemNotifications[0].metadata?.threadId).toBe("subteam:sales");
+    expect(DesktopNotification.instances).toHaveLength(1);
+    act(() => inboxSocket.receive({ type: "NEW_EVENT", event: { id: "persisted-mention", source: "equipe", title: "Ana mencionou você", timestamp: new Date().toISOString(), description: "@Member revise a proposta", metadata } }));
+    expect(result.current.systemNotifications).toHaveLength(1);
+    expect(DesktopNotification.instances).toHaveLength(1);
+  });
+
+  it("does not alert a different member as mentioned or alert the sender", async () => {
+    const { result } = renderHook(() => useWebSockets("Chat da Equipe", true, "member", true));
+    await waitFor(() => expect(Socket.instances).toHaveLength(2));
+    const socket = Socket.instances.find((item) => item.url.includes("team-chat"))!;
+    act(() => {
+      socket.receive({ type: "TEAM_CHAT_MESSAGE", message: { id: "other-mention", senderId: "owner", metadata: { mentionedUserIds: ["other"] } } });
+      socket.receive({ type: "TEAM_CHAT_MESSAGE", message: { id: "self-mention", senderId: "member", metadata: { mentionedUserIds: ["member"] } } });
+    });
+    expect(result.current.systemNotifications).toHaveLength(0);
+  });
+});
+
 describe("meeting notification lifecycle", () => {
   it("closes desktop alerts, toasts and unread badges when the meeting ends", async () => {
     const { result, socket, unmount } = await setup();

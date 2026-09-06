@@ -72,6 +72,7 @@ export default function NoriumApp() {
   const [noraContextRequest, setNoraContextRequest] = useState<{ id: number; prompt: string } | null>(null);
   const [activeChatConversationId, setActiveChatConversationId] = useState<string | null>(null);
   const [teamChatOpen, setTeamChatOpen] = useState(false);
+  const [teamThreadToOpen, setTeamThreadToOpen] = useState<string | null>(null);
   const [teamChatMounted, setTeamChatMounted] = useState(false);
   const [pendingTeamCall, setPendingTeamCall] = useState<TeamCallSocketEvent | null>(null);
   const [emailToOpenId, setEmailToOpenId] = useState<string | null>(null);
@@ -171,6 +172,7 @@ export default function NoriumApp() {
     clearSession();
     setIsNoraOpen(false);
     setTeamChatOpen(false);
+    setTeamThreadToOpen(null);
     navigateNoriumView("login");
   }, [authSession, clearSession]);
 
@@ -258,6 +260,7 @@ export default function NoriumApp() {
   const openDeepLink = useCallback((link: NoriumDeepLink) => {
     localStorage.setItem("norium-deep-link", JSON.stringify(link));
     if (link.tab === "E-mails" && link.entityId) setEmailToOpenId(link.entityId);
+    if (link.tab === "Chat da Equipe" && link.metadata?.threadId) setTeamThreadToOpen(String(link.metadata.threadId));
     navigateTab(link.tab || "Central");
   }, [navigateTab]);
 
@@ -431,6 +434,8 @@ export default function NoriumApp() {
           {canAccessPermission("chat") && (teamChatMounted || teamChatOpen || activeTab === "Chat da Equipe") && (
             <Suspense fallback={null}>
               <TeamChatDrawer
+                initialThreadId={teamThreadToOpen}
+                onInitialThreadHandled={() => setTeamThreadToOpen(null)}
                 key={`team-chat-${currentUser?.id || "anonymous"}`}
                 open={teamChatOpen || activeTab === "Chat da Equipe"}
                 variant={activeTab === "Chat da Equipe" ? "page" : "drawer"}

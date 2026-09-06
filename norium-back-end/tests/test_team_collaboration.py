@@ -40,6 +40,77 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    async def test_pins_persist_per_user_and_reject_inaccessible_threads(self) -> None:
+        with (
+            patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+            patch.object(team_router.manager, "send_to_users", AsyncMock()),
+        ):
+            await team_router.pin_thread(team_router.PinThreadPayload(threadId="team", pinned=True), self.owner)
+            owner_threads = (await team_router.list_threads(self.owner))["threads"]
+            member_threads = (await team_router.list_threads(self.member))["threads"]
+            self.assertTrue(next(item for item in owner_threads if item["id"] == "team")["pinned"])
+            self.assertFalse(next(item for item in member_threads if item["id"] == "team")["pinned"])
+            with self.assertRaises(HTTPException) as error:
+                await team_router.pin_thread(team_router.PinThreadPayload(threadId="direct:member:other", pinned=True), self.owner)
+            self.assertEqual(404, error.exception.status_code)
+            await team_router.pin_thread(team_router.PinThreadPayload(threadId="team", pinned=False), self.owner)
+            self.assertFalse((await team_router.list_threads(self.owner))["threads"][0]["pinned"])
+
+    async def test_mentions_notify_only_selected_participants_and_preserve_thread_unread(self) -> None:
+        with (
+            patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+            patch.object(team_router, "record_team_event", AsyncMock()) as record,
+            patch.object(team_router.manager, "send_to_users", AsyncMock()),
+            patch("app.services.system_email.notify_team_participants", AsyncMock()),
+        ):
+            result = await team_router.send_message(team_router.SendTeamMessagePayload(
+                scope="direct", recipientId="member", text="@Member, pode revisar?", mentionedUserIds=["member", "member"]
+            ), self.owner)
+            message = result["message"]
+            self.assertEqual(["member"], message["metadata"]["mentionedUserIds"])
+            self.assertEqual([{"userId": "member", "name": "Member"}], message["metadata"]["mentions"])
+            mention_event = record.await_args_list[-1]
+            self.assertEqual({"member"}, mention_event.kwargs["user_ids"])
+            self.assertEqual("team_member_mentioned", mention_event.args[3]["action"])
+            self.assertEqual("direct:member:owner", mention_event.args[3]["threadId"])
+            threads = (await team_router.list_threads(self.member))["threads"]
+            direct = next(item for item in threads if item["id"] == message["threadId"])
+            self.assertEqual(1, direct["unreadCount"])
+            self.assertEqual(message["id"], direct["lastMessage"]["id"])
+            await team_router.mark_messages_read(team_router.MarkMessagesReadPayload(messageIds=[message["id"]]), self.member)
+            self.assertEqual(0, next(item for item in (await team_router.list_threads(self.member))["threads"] if item["id"] == message["threadId"])["unreadCount"])
+            other_threads = (await team_router.list_threads(self.other_member))["threads"]
+            self.assertTrue(all(item["lastMessage"] is None for item in other_threads))
+
+    async def test_mentions_reject_outsiders_and_ignore_deleted_or_partial_tokens(self) -> None:
+        with (
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+        ):
+            with self.assertRaises(HTTPException):
+                await team_router.validated_mentions("@Other", ["other"], {"owner", "member"}, self.owner)
+            self.assertEqual([], await team_router.validated_mentions("@Membership", ["member"], {"owner", "member"}, self.owner))
+            self.assertEqual([], await team_router.validated_mentions("Já removi a menção.", ["member"], {"owner", "member"}, self.owner))
+
+    async def test_unread_count_does_not_include_messages_outside_available_history(self) -> None:
+        store = {"messages": [
+            {"id": str(index), "threadId": "team", "scope": "team", "senderId": "owner", "text": str(index),
+             "metadata": {"readBy": {"member": {"userName": "Member"}} if index >= 50 else {}}}
+            for index in range(350)
+        ]}
+        with (
+            patch.object(team_router, "read_chat_store", return_value=store),
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+        ):
+            thread = (await team_router.list_threads(self.member))["threads"][0]
+            self.assertEqual(0, thread["unreadCount"])
+            self.assertEqual("349", thread["lastMessage"]["id"])
+
     async def test_subteam_is_persisted_and_only_members_can_read_its_messages(self) -> None:
         with (
             patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),

@@ -15,7 +15,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from email.message import EmailMessage
-from email.utils import formataddr
+from email.utils import formataddr, formatdate
 from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet
@@ -94,11 +94,30 @@ def write_store(store: dict) -> None:
 
 
 def render_message(name: str, title: str, description: str, link: str, button: str) -> dict:
-    text = f"Olá, {name}.\n\n{title}\n\n{description}\n\n{button}: {link}\n\nNorium • {SENDER}\nGerencie notificações na sua conta do Norium."
+    text = (
+        f"Olá, {name}.\n\n{title}\n\n{description}\n\n{button}: {link}\n\n"
+        f"Nora\nAssistente virtual do Norium\n{SENDER}\nhttps://norium-ai.com\n\n"
+        "Gerencie suas notificações na sua conta do Norium."
+    )
     esc = html.escape
-    body = f'<html lang="pt-BR"><body style="margin:0;background:#080c12;color:#eaf2ff;font-family:Arial,sans-serif"><table role="presentation" width="100%"><tr><td style="padding:32px 16px"><table role="presentation" style="max-width:600px;width:100%;margin:auto;background:#101822;border:1px solid #26364b;border-radius:16px"><tr><td style="padding:32px"><div style="color:#22d3ee;font-size:20px;font-weight:bold">NORIUM</div><p style="color:#aabbd0">Olá, {esc(name)}.</p><h1 style="font-size:24px;line-height:1.3">{esc(title)}</h1><p style="line-height:1.7;color:#c2d0e2">{esc(description)}</p><p style="margin:30px 0"><a href="{esc(link, quote=True)}" style="display:inline-block;background:#1765ee;color:white;padding:14px 22px;border-radius:9px;text-decoration:none;font-weight:bold">{esc(button)}</a></p><p style="font-size:12px;color:#9aacc2">Se o botão não abrir, copie este endereço:<br>{esc(link)}</p><hr style="border:0;border-top:1px solid #26364b"><p style="font-size:12px;color:#9aacc2">Norium · {SENDER}<br>Gerencie notificações na sua conta do Norium.</p></td></tr></table></td></tr></table></body></html>'
-    body = body.replace('<body', '<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body', 1)
-    body = body.replace('font-size:12px;color:#9aacc2', 'font-size:12px;overflow-wrap:anywhere;word-break:break-word;color:#9aacc2')
+    body = f'''<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;background:#080c12;color:#eaf2ff;font-family:Arial,sans-serif">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td style="padding:32px 16px">
+<table role="presentation" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;margin:auto;background:#101822;border:1px solid #26364b;border-radius:16px">
+<tr><td style="padding:32px">
+<div style="color:#22d3ee;font-size:20px;font-weight:bold;letter-spacing:1px">NORIUM</div>
+<p style="color:#aabbd0">Olá, {esc(name)}.</p>
+<h1 style="font-size:24px;line-height:1.3">{esc(title)}</h1>
+<p style="white-space:pre-wrap;line-height:1.7;color:#c2d0e2">{esc(description)}</p>
+<p style="margin:30px 0"><a href="{esc(link, quote=True)}" style="display:inline-block;background:#1765ee;color:white;padding:14px 22px;border-radius:9px;text-decoration:none;font-weight:bold">{esc(button)}</a></p>
+<p style="font-size:12px;overflow-wrap:anywhere;word-break:break-word;color:#9aacc2">Se o botão não abrir, copie este endereço:<br>{esc(link)}</p>
+<hr style="margin:28px 0 22px;border:0;border-top:1px solid #26364b">
+<table role="presentation" cellspacing="0" cellpadding="0"><tr>
+<td style="padding-right:12px;vertical-align:top"><div style="width:40px;height:40px;line-height:40px;border-radius:12px;background:#1765ee;color:#ffffff;text-align:center;font-size:18px;font-weight:bold">N</div></td>
+<td style="vertical-align:top"><strong style="display:block;color:#eaf2ff;font-size:14px">Nora</strong><span style="display:block;margin-top:2px;color:#aabbd0;font-size:12px">Assistente virtual do Norium</span><a href="mailto:{SENDER}" style="display:inline-block;margin-top:6px;color:#22d3ee;font-size:12px;text-decoration:none">{SENDER}</a><span style="color:#52677f;font-size:12px"> · </span><a href="https://norium-ai.com" style="color:#22d3ee;font-size:12px;text-decoration:none">norium-ai.com</a></td>
+</tr></table>
+<p style="margin:20px 0 0;font-size:11px;line-height:1.5;color:#7f93ab">Esta mensagem foi enviada pelo Norium para a sua conta. Gerencie suas notificações no perfil.</p>
+</td></tr></table></td></tr></table></body></html>'''
     return {"subject": f"Norium — {title}"[:180], "text": text, "html": body}
 
 
@@ -194,7 +213,6 @@ def queue_campaign(users: list[dict], campaign: str, kind: str, title: str, desc
                 continue
             recipients.append(digest)
             payload = render_message(user.get("nome", ""), title, description, public_url + path, button)
-            payload["html"] = payload["html"].replace("line-height:1.7;color", "white-space:pre-wrap;line-height:1.7;color")
             _enqueue(store, {**user, "email": recipient}, kind, payload, campaign + "_" + digest, time.time() + 7 * 86400)
             queued += 1
         write_store(store)
@@ -318,8 +336,10 @@ def send_smtp(job: dict) -> None:
     message["To"] = job["recipient"]
     message["Reply-To"] = SENDER
     message["Subject"] = payload["subject"]
+    message["Date"] = formatdate(localtime=False)
     message["Message-ID"] = f'<{job["id"]}@norium-ai.com>'
-    message["Auto-Submitted"] = "auto-generated"
+    if job["kind"] != "manual":
+        message["Auto-Submitted"] = "auto-generated"
     message.set_content(payload["text"])
     message.add_alternative(payload["html"], subtype="html")
     with smtplib.SMTP_SSL("smtp.hostinger.com", 465, timeout=10, context=ssl.create_default_context()) as smtp:

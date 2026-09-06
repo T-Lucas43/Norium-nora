@@ -132,7 +132,14 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         message = sent.args[0]
         self.assertIsNone(message["Cc"])
         self.assertIsNone(message["Bcc"])
+        self.assertIsNotNone(message["Date"])
         self.assertIn("Alice &lt;Equipe&gt;", message.get_body(preferencelist=("html",)).get_content())
+        self.assertIn("Assistente virtual", message.get_body(preferencelist=("html",)).get_content())
+        self.assertIn("Assistente virtual do Norium", message.get_body(preferencelist=("plain",)).get_content())
+        self.assertIn('alt="Nora"', message.get_body(preferencelist=("html",)).get_content())
+        self.assertIn('data-brand-asset="nora-brand.png"', message.get_body(preferencelist=("html",)).get_content())
+        self.assertIn('alt="Norium"', message.get_body(preferencelist=("html",)).get_content())
+        self.assertIn("data:image/jpeg;base64,", message.get_body(preferencelist=("html",)).get_content())
 
     async def test_welcome_campaign_dedupes_per_email_across_retries(self):
         users = [self.user, self.other, {**self.user, "id": "duplicate"}, {**self.other, "id": "inactive", "status": "inativo"}]
@@ -171,10 +178,47 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
             for method, path in [("GET", ""), ("POST", "/welcome"), ("POST", "/test")]:
                 response = await client.request(method, "/api/auth/admin/system-email" + path)
                 self.assertEqual(403, response.status_code)
+            response = await client.post(
+                "/api/auth/admin/system-email/draft",
+                json={"context": "Contexto suficiente para validar a autorização.", "tone": "profissional"},
+            )
+            self.assertEqual(403, response.status_code)
             response = await client.patch("/api/auth/email-preferences", json={"enabled": True, "sources": {"gmail": True}})
             self.assertEqual(422, response.status_code)
             response = await client.get("/api/auth/email-preferences")
             self.assertEqual(self.user["email"], response.json()["email"])
+
+    async def test_ai_draft_is_admin_only_and_does_not_enqueue_or_send(self):
+        app = FastAPI()
+        app.include_router(routes.router)
+        app.dependency_overrides[routes.require_admin] = lambda: self.user
+        generated = '{"subject":"Atualização importante","message":"Temos uma novidade.\\n\\nConsulte os detalhes no Norium."}'
+        completion = AsyncMock(return_value=(generated, {"provider": {"name": "Google Gemini"}}))
+        with patch("app.modules.intelligence.service.complete_with_provider", completion):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post("/api/auth/admin/system-email/draft", json={"context": "Avise sobre o novo recurso disponível.", "tone": "cordial"})
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("Atualização importante", response.json()["subject"])
+        self.assertIn("Consulte os detalhes", response.json()["message"])
+        self.assertEqual("Google Gemini", response.json()["provider"])
+        self.assertEqual([], mail.read_store()["outbox"])
+        args = completion.await_args.args
+        self.assertIs(args[0], self.user)
+        self.assertEqual("auto", args[1])
+        self.assertIn('"tone": "cordial"', args[2][0]["content"])
+
+    async def test_ai_draft_rejects_malformed_model_output_and_extra_input(self):
+        app = FastAPI()
+        app.include_router(routes.router)
+        app.dependency_overrides[routes.require_admin] = lambda: self.user
+        completion = AsyncMock(return_value=("Não consegui gerar.", {"provider": {"name": "Nora"}}))
+        with patch("app.modules.intelligence.service.complete_with_provider", completion):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                malformed = await client.post("/api/auth/admin/system-email/draft", json={"context": "Contexto suficiente para o teste.", "tone": "profissional"})
+                extra = await client.post("/api/auth/admin/system-email/draft", json={"context": "Contexto suficiente para o teste.", "tone": "profissional", "recipientIds": ["bob"]})
+        self.assertEqual(502, malformed.status_code)
+        self.assertEqual(422, extra.status_code)
+        self.assertEqual([], mail.read_store()["outbox"])
 
     async def test_forgot_password_response_does_not_enumerate_accounts(self):
         app = FastAPI()

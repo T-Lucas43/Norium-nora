@@ -137,6 +137,7 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Assistente virtual", message.get_body(preferencelist=("html",)).get_content())
         self.assertIn("Assistente virtual do Norium", message.get_body(preferencelist=("plain",)).get_content())
         self.assertIn('alt="Nora"', message.get_body(preferencelist=("html",)).get_content())
+        self.assertIn('data-brand-asset="nora-brand.png"', message.get_body(preferencelist=("html",)).get_content())
         self.assertIn('alt="Norium"', message.get_body(preferencelist=("html",)).get_content())
         self.assertIn("data:image/jpeg;base64,", message.get_body(preferencelist=("html",)).get_content())
 

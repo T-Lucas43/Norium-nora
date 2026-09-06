@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Mail, Send, Sparkles } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
-import noraAvatar from "../../assets/nora-avatar.jpeg";
+import noraLogo from "../../assets/nora-brand.png";
 
 type Recipient = { id: string; name: string; email: string; enabled: boolean };
 type EmailTone = "profissional" | "cordial" | "direto" | "comercial";
@@ -153,7 +153,7 @@ export default function ManualEmailSender({ token }: { token: string }) {
       <p className="mt-4 whitespace-pre-wrap break-words text-sm leading-7">{body}</p>
       <div role="group" aria-label="Assinatura da Nora" className="mt-6 rounded-lg border-t border-[var(--border)] bg-[#0b1423] p-4">
         <div className="flex items-center gap-3">
-          <img src={noraAvatar} alt="Nora" className="h-14 w-14 rounded-xl object-cover" />
+          <img src={noraLogo} alt="Nora" className="h-14 w-14 rounded-xl object-cover" />
           <span><strong className="block text-xl text-slate-50">Nora</strong><span className="block text-xs leading-5 text-slate-300">Assistente virtual</span><span className="text-[10px] font-bold tracking-[0.18em] text-blue-300">NORIUM</span></span>
         </div>
         <div className="mt-3 border-t border-slate-700 pt-3">

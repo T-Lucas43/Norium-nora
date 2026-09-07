@@ -85,3 +85,17 @@ it("keeps the latest search when an earlier request finishes later", async () =>
   expect(screen.queryByRole("button", { name: /Resultado antigo/ })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Resultado atual/ })).toBeInTheDocument();
 });
+it("switches projects from the header and returns to the project selection", async () => {
+  const second = { ...project, id: "p2", name: "Operação" };
+  request.mockImplementation(async (path = "") => path.startsWith("/projetos") ? { projects: [project, second] } : { ...payload, tasks: path.includes("project_id=p2") ? [{ ...task, id: "t2", projectId: "p2", title: "Entrega operacional" }] : [task] });
+  await openProject();
+  fireEvent.change(screen.getByLabelText("Buscar tarefas"), { target: { value: "cadastro" } });
+  fireEvent.change(screen.getByLabelText("Trocar projeto"), { target: { value: "p2" } });
+  expect(await screen.findByRole("button", { name: /Entrega operacional/ })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Revisar cadastro/ })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Buscar tarefas")).toHaveValue("");
+  expect(screen.getByRole("heading", { name: "Operação" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Voltar aos projetos" }));
+  expect(screen.getByRole("button", { name: "Portal do cliente" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Operação" })).toBeInTheDocument();
+});

@@ -176,3 +176,10 @@
 .tasks-workspace .tasks-category svg{color:inherit!important}
 .tasks-details input,.tasks-details textarea,.tasks-details select,.tasks-modal input,.tasks-modal textarea,.tasks-modal select{box-shadow:none!important}
 .tasks-workspace .tasks-details>header,.tasks-workspace .tasks-details>footer{background:#16171c!important;border-color:#2c2e36!important}
+.tasks-project-navigation{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
+.tasks-project-navigation>button{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;}
+.tasks-project-navigation>button:hover{background:var(--surface-hover);}
+.tasks-project-navigation label{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-secondary);min-width:0;}
+.tasks-project-navigation select{max-width:280px;min-width:160px;padding:8px 30px 8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;}
+.tasks-project-navigation :is(button,select):focus-visible{outline:2px solid var(--primary);outline-offset:3px;}
+@media(max-width:540px){.tasks-project-navigation{align-items:stretch;}.tasks-project-navigation label{width:100%;}.tasks-project-navigation select{flex:1;min-width:0;max-width:none;}}

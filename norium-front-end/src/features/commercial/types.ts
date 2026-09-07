@@ -9,6 +9,8 @@ export type ProposalStatus =
   | "viewed"
   | "negotiating"
   | "accepted"
+  | "awaiting_signatures"
+  | "signed"
   | "declined"
   | "expired"
   | "contracted"
@@ -114,7 +116,22 @@ export type NoraAnalysis = {
   analyzedAt: string;
 };
 
+export type ProposalFileVersion = {
+  documentId: string;
+  fileName: string;
+  size: number;
+  sha256: string;
+  signed: boolean;
+  uploadedAt: string;
+  uploadedBy: string;
+  note: string;
+};
+
 export type CommercialProposal = {
+  sourceDocumentId?: string;
+  signedDocumentId?: string | null;
+  signedAt?: string | null;
+  fileVersions?: ProposalFileVersion[];
   pdfEdits?: PdfEdits;
   id: string;
   clientId: string;

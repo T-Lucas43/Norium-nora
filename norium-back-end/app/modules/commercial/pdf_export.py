@@ -25,7 +25,7 @@ from reportlab.platypus import (
 )
 
 
-def build_commercial_pdf(document: dict[str, Any], document_type: str, include_edits: bool = True) -> tuple[bytes, str]:
+def build_commercial_pdf(document: dict[str, Any], document_type: str, include_edits: bool = True, tenant_id: str | None = None) -> tuple[bytes, str]:
     """Gera o PDF canonico usado por exportacao, Gmail e chat da equipe."""
     output = io.BytesIO()
     branding = document.get("branding") if isinstance(document.get("branding"), dict) else {}
@@ -36,6 +36,16 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
     client = document.get("client") if isinstance(document.get("client"), dict) else {}
     kind = "Proposta comercial" if document_type == "proposal" else "Contrato comercial"
     filename = f"{slugify(kind)}-{slugify(title)}.pdf"
+    if document_type == "proposal" and document.get("sourceDocumentId"):
+        from app.modules.commercial.document_files import document_path, imported_document_or_404
+        from app.modules.commercial.repository import read_store
+        if not tenant_id:
+            raise ValueError("O workspace é obrigatório para abrir a proposta importada.")
+        _, source = imported_document_or_404(read_store(tenant_id), document["sourceDocumentId"])
+        content = document_path(tenant_id, source).read_bytes()
+        if include_edits and document.get("pdfEdits") and not document.get("signedDocumentId"):
+            content = apply_pdf_edits(content, document["pdfEdits"])
+        return content, filename
 
     pdf = SimpleDocTemplate(
         output,

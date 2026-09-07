@@ -36,6 +36,7 @@ export type ProposalCreateInput = {
 };
 
 export type DocumentUpdateInput = {
+  clientId?: string;
   pdfEdits?: PdfEdits;
   expectedVersion: number;
   title?: string;
@@ -89,10 +90,10 @@ export function duplicateProposal(id: string, title?: string) {
   });
 }
 
-export function changeProposalStatus(id: string, status: CommercialProposal["status"], note = "") {
+export function changeProposalStatus(id: string, status: CommercialProposal["status"], note = "", expectedVersion?: number) {
   return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}/status`, {
     method: "PATCH",
-    body: JSON.stringify({ status, note }),
+    body: JSON.stringify({ status, note, expectedVersion }),
   });
 }
 
@@ -100,6 +101,19 @@ export function updateProposal(id: string, input: DocumentUpdateInput) {
   return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export async function uploadProposalPdf(file: File, input: { title?: string; clientId?: string; signed: boolean; note: string; expectedVersion?: number }, proposalId?: string) {
+  const dataBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+  return apiRequest<{ proposal: CommercialProposal }>(proposalId ? `/api/comercial/proposals/${proposalId}/files` : "/api/comercial/proposals/import-pdf", {
+    method: "POST", timeoutMs: 90_000,
+    body: JSON.stringify({ ...input, fileName: file.name, mimeType: "application/pdf", dataBase64, direction: input.signed ? "received" : "internal" }),
   });
 }
 

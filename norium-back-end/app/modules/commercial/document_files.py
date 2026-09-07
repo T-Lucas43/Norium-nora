@@ -183,7 +183,7 @@ def processing_job_summary(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def import_document(
+async def prepare_imported_document(
     tenant_id: str,
     actor: dict[str, Any],
     payload: DocumentImportRequest,
@@ -229,6 +229,11 @@ async def import_document(
         "createdAt": now,
         "updatedAt": now,
     }
+    return item
+
+
+async def import_document(tenant_id: str, actor: dict[str, Any], payload: DocumentImportRequest) -> dict[str, Any]:
+    item = await prepare_imported_document(tenant_id, actor, payload)
     async with STORE_LOCK:
         store = await asyncio.to_thread(read_store, tenant_id)
         store["uploadedDocuments"].insert(0, item)
@@ -295,6 +300,12 @@ async def delete_imported_document(tenant_id: str, document_id: str) -> dict[str
     async with STORE_LOCK:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, current = imported_document_or_404(store, document_id)
+        if any(
+            proposal.get("sourceDocumentId") == document_id
+            or any(version.get("documentId") == document_id for version in proposal.get("fileVersions", []))
+            for proposal in store.get("proposals", [])
+        ):
+            raise HTTPException(status_code=409, detail="Este arquivo faz parte do histórico de uma proposta e deve ser preservado.")
         active_job = next(
             (
                 job

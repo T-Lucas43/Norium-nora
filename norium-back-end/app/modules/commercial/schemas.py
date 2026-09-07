@@ -18,6 +18,8 @@ ProposalStatus = Literal[
     "viewed",
     "negotiating",
     "accepted",
+    "awaiting_signatures",
+    "signed",
     "declined",
     "expired",
     "contracted",
@@ -150,6 +152,7 @@ class ProposalApprovalDecision(StrictModel):
 class ProposalStatusChange(StrictModel):
     status: ProposalStatus
     note: str = Field(default="", max_length=1200)
+    expectedVersion: int | None = Field(default=None, ge=1)
 
 
 class DocumentDuplicateRequest(StrictModel):
@@ -250,6 +253,15 @@ class DocumentImportRequest(StrictModel):
     category: Literal["pdf", "sent", "received", "draft", "archived"] = "pdf"
     direction: Literal["internal", "sent", "received"] = "internal"
     confidential: bool = False
+
+
+class ProposalPdfUpload(DocumentImportRequest):
+    mimeType: Literal["application/pdf"] = "application/pdf"
+    title: str = Field(default="", max_length=220)
+    clientId: str = Field(default="", max_length=180)
+    expectedVersion: int | None = Field(default=None, ge=1)
+    signed: bool = False
+    note: str = Field(default="", max_length=1200)
 
 
 class ImportedDocumentUpdate(StrictModel):

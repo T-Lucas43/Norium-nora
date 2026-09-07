@@ -23,6 +23,7 @@ import {
   Plus,
   Trash2,
   UsersRound,
+  Upload,
 } from "lucide-react";
 import { authToken, wsBaseUrl } from "../../core/api/config";
 import { authenticatedWebSocketUrl } from "../../core/api/client";
@@ -66,6 +67,7 @@ type CommercialEditorProps = {
   onSendForSignature: (contract: CommercialContract) => Promise<void>;
   onSign: (contract: CommercialContract) => Promise<void>;
   onInstantiate: (contract: CommercialContract) => Promise<void>;
+  onUploadProposal?: (proposal: CommercialProposal) => void;
   onDeleteProposal: (proposal: CommercialProposal) => Promise<void>;
 };
 
@@ -88,6 +90,7 @@ export default function CommercialEditor({
   onSign,
   onInstantiate,
   onDeleteProposal,
+  onUploadProposal,
 }: CommercialEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const sourceDocumentIdRef = useRef(sourceDocument.id);
@@ -477,6 +480,23 @@ export default function CommercialEditor({
     setBranding((current) => ({ ...current, ...revision.branding, logoUrl: revision.branding.logoUrl || current.logoUrl }));
   }
 
+  async function uploadNewProposalVersion() {
+    if (!proposal || !onUploadProposal) return;
+    setOpeningPdf(true); setSaveError("");
+    try {
+      let current = sourceDocument;
+      const input = currentUpdateInput(sourceDocument.version);
+      if (Object.keys(input).length > 1) {
+        current = await onSave(sourceDocument, input);
+        savedDraftRef.current = documentDraft(current);
+        savedSnapshotRef.current = draftSnapshot(savedDraftRef.current);
+        setSaveState("saved"); onDocumentChange(current);
+      }
+      if (isProposal(current)) onUploadProposal(current);
+    } catch (reason) { setSaveError(reason instanceof Error ? reason.message : "Não foi possível preparar a proposta."); }
+    finally { setOpeningPdf(false); }
+  }
+
   async function openVisualPdfEditor() {
     setOpeningPdf(true); setSaveError("");
     try {
@@ -641,6 +661,7 @@ export default function CommercialEditor({
               Salvar
             </Button>
           )}
+          {proposal && onUploadProposal && <Button size="sm" variant="secondary" disabled={saveState === "saving" || Boolean(proposal.contractId)} loading={openingPdf} onClick={() => void uploadNewProposalVersion()} icon={<Upload size={14}/>}>Enviar nova versão</Button>}
           {!readOnly && <Button size="sm" variant="secondary" loading={openingPdf} disabled={saveState === "saving"} onClick={() => void openVisualPdfEditor()} icon={<FileSignature size={14}/>}>Editar / assinar PDF</Button>}
           <Button size="sm" variant="secondary" onClick={() => void exportPdf()} icon={<Download size={14} />}>Exportar PDF</Button>
           <div ref={shareButtonRef}>

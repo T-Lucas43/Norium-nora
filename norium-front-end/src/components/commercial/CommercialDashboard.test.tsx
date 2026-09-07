@@ -173,4 +173,20 @@ describe("CommercialDashboard leve", () => {
     expect(await screen.findByText("Combinar PDF")).toBeInTheDocument();
     expect(await screen.findByText("Editar PDF")).toBeInTheDocument();
   });
+
+  it("offers proposal upload directly and counts signed proposals in the signed filter", async () => {
+    commercialApi.loadCommercialData.mockResolvedValue({ ...commercialData, proposals: [
+      { ...commercialData.proposals[0], id: "signed-proposal", title: "Proposta assinada", status: "signed" },
+      commercialData.proposals[0],
+    ] });
+    render(<CommercialDashboard session={session} onOpenNora={vi.fn()}/>);
+    await screen.findByText("Proposta assinada");
+    const signedMetric = screen.getByText("Assinados").closest("button")!;
+    expect(signedMetric).toHaveTextContent("1");
+    await userEvent.setup().click(signedMetric);
+    expect(screen.getByText("Proposta assinada")).toBeInTheDocument();
+    expect(screen.queryByText("Proposta sob demanda")).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Importar proposta" }));
+    expect(await screen.findByRole("dialog", { name: "Importar proposta em PDF" })).toBeInTheDocument();
+  });
 });

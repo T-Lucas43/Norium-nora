@@ -20,6 +20,7 @@ from app.modules.commercial.schemas import (  # noqa: E402
     InstantiateObligationsRequest,
     ProposalBriefRequest,
     ProposalCreate,
+    ProposalPdfUpload,
     ProposalStatusChange,
     ProposalUpdate,
     SignatureRequest,
@@ -70,6 +71,7 @@ from app.modules.commercial.service import (  # noqa: E402
     update_template,
     update_contract,
     update_proposal,
+    upload_proposal_pdf,
     standard_templates,
 )
 
@@ -96,6 +98,82 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
             self.user,
         )
         self.client_id = response["item"]["id"]
+
+    def proposal_pdf_payload(self, *, signed=False, expected_version=None):
+        output = io.BytesIO()
+        from reportlab.pdfgen import canvas
+        page = canvas.Canvas(output, pagesize=(600, 800))
+        page.drawString(60, 700, "Proposta original do cliente")
+        if signed:
+            page.drawString(60, 200, "Assinatura recebida: Cliente Teste")
+        page.save()
+        return ProposalPdfUpload(fileName="proposta-assinada.pdf" if signed else "proposta.pdf", dataBase64=base64.b64encode(output.getvalue()).decode(), title="Proposta importada", clientId=self.client_id, signed=signed, expectedVersion=expected_version), output.getvalue()
+
+    async def test_imported_proposal_edits_and_signed_upload_update_counts(self):
+        from app.modules.commercial.pdf_export import build_commercial_pdf
+        from app.modules.commercial.document_files import delete_imported_document, document_path
+        from fastapi import HTTPException
+        payload, original_bytes = self.proposal_pdf_payload()
+        proposal = await upload_proposal_pdf(self.user, payload)
+        self.assertEqual(proposal["status"], "draft")
+        original_id = proposal["sourceDocumentId"]
+        original_export, _ = build_commercial_pdf(proposal, "proposal", tenant_id=self.user["id"])
+        self.assertEqual(original_export, original_bytes)
+        edits = {"layers": [{"id":"text", "type":"text", "page":0, "x":.1, "y":.4, "width":.5, "height":.1, "text":"Condicao negociada"}]}
+        proposal = await update_proposal(self.user, proposal["id"], ProposalUpdate(expectedVersion=proposal["version"], pdfEdits=edits))
+        edited_export, _ = build_commercial_pdf(proposal, "proposal", tenant_id=self.user["id"])
+        self.assertIn("Condicao negociada", PdfReader(io.BytesIO(edited_export)).pages[0].extract_text())
+        for status in ["approved", "awaiting_signatures"]:
+            proposal = await change_proposal_status(self.user, proposal["id"], ProposalStatusChange(status=status, expectedVersion=proposal["version"]))
+        self.assertEqual((await list_commercial_data(self.user))["summary"]["awaitingSignatureCount"], 1)
+        with self.assertRaises(HTTPException) as missing_evidence:
+            await change_proposal_status(self.user, proposal["id"], ProposalStatusChange(status="signed"))
+        self.assertEqual(missing_evidence.exception.status_code, 422)
+        signed_payload, signed_bytes = self.proposal_pdf_payload(signed=True, expected_version=proposal["version"])
+        proposal = await upload_proposal_pdf(self.user, signed_payload, proposal["id"])
+        self.assertEqual(proposal["status"], "signed")
+        self.assertEqual(len(proposal["fileVersions"]), 2)
+        counts = (await list_commercial_data(self.user))["summary"]
+        self.assertEqual((counts["documentCount"], counts["awaitingSignatureCount"], counts["signedCount"]), (1, 0, 1))
+        signed_export, _ = build_commercial_pdf(proposal, "proposal", tenant_id=self.user["id"])
+        self.assertEqual(signed_export, signed_bytes)
+        stored = read_store(self.user["id"])
+        original = next(file for file in stored["uploadedDocuments"] if file["id"] == original_id)
+        self.assertEqual(document_path(self.user["id"], original).read_bytes(), original_bytes)
+        with self.assertRaises(HTTPException) as locked:
+            await update_proposal(self.user, proposal["id"], ProposalUpdate(expectedVersion=proposal["version"], pdfEdits=edits))
+        self.assertEqual(locked.exception.status_code, 409)
+        with self.assertRaises(HTTPException):
+            await delete_imported_document(self.user["id"], original_id)
+        new_payload, _ = self.proposal_pdf_payload(expected_version=proposal["version"])
+        proposal = await upload_proposal_pdf(self.user, new_payload, proposal["id"])
+        self.assertEqual(proposal["status"], "draft")
+        self.assertIsNone(proposal["signedDocumentId"])
+        self.assertEqual(len(proposal["fileVersions"]), 3)
+        self.assertEqual((await list_commercial_data(self.user))["summary"]["signedCount"], 0)
+
+    async def test_existing_proposal_upload_rejects_stale_foreign_invalid_and_locked_pdf(self):
+        from fastapi import HTTPException
+        proposal = await create_proposal(self.user, ProposalCreate(clientId=self.client_id, title="Proposta existente"))
+        payload, _ = self.proposal_pdf_payload(expected_version=proposal["version"])
+        uploaded = await upload_proposal_pdf(self.user, payload, proposal["id"])
+        self.assertEqual(uploaded["id"], proposal["id"])
+        self.assertEqual(uploaded["title"], proposal["title"])
+        self.assertEqual(uploaded["revisions"][0]["contentHtml"], proposal["contentHtml"])
+        for actor, request, target, code in [
+            (self.user, payload, proposal["id"], 409),
+            ({**self.user,"id":"foreign-tenant"}, payload, proposal["id"], 404),
+            (self.user, payload.model_copy(update={"dataBase64":base64.b64encode(b"%PDF-invalid").decode()}), None, 422),
+        ]:
+            with self.assertRaises(HTTPException) as failure:
+                await upload_proposal_pdf(actor, request, target)
+            self.assertEqual(failure.exception.status_code, code)
+        writer = PdfWriter(); writer.add_blank_page(width=600,height=800); writer.encrypt("test-password")
+        content = io.BytesIO(); writer.write(content)
+        with self.assertRaises(HTTPException) as encrypted:
+            await upload_proposal_pdf(self.user, payload.model_copy(update={"dataBase64":base64.b64encode(content.getvalue()).decode()}))
+        self.assertEqual(encrypted.exception.status_code, 422)
+        self.assertEqual(len(read_store(self.user["id"])["uploadedDocuments"]), 1)
 
     async def test_visual_pdf_edits_persist_with_proposal_version_control(self) -> None:
         from app.modules.commercial.pdf_export import build_commercial_pdf

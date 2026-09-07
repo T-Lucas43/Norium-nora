@@ -1,3 +1,4 @@
+import AutomationFlowPreview from "./AutomationFlowPreview";
 import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -525,8 +526,6 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
   const [builderValidation, setBuilderValidation] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [flow, setFlow] = useState<AutomationFlow | null>(null);
-  const [zoom, setZoom] = useState(0.9);
   const [modal, setModal] = useState<"create" | "edit" | null>(null);
   const [form, setForm] = useState<AutomationFormState>(defaultForm);
   const [logAutomation, setLogAutomation] = useState<Automation | null>(null);
@@ -534,9 +533,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     { id: "default", name: "Operacao Norium", category: "operacao" },
   ]);
   const importRef = useRef<HTMLInputElement>(null);
-  const draggingRef = useRef<{ id: string; startX: number; startY: number; originalX: number; originalY: number } | null>(null);
   const builderDraggingRef = useRef<{ id: string; startX: number; startY: number; originalX: number; originalY: number } | null>(null);
-  const saveFlowRef = useRef<() => Promise<void>>(async () => undefined);
 
   const selectedAutomation = useMemo(
     () => data.automations.find((automation) => automation.id === selectedId) || data.automations[0] || null,
@@ -570,52 +567,6 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     if (!builderOpen) return;
     setBuilderZoom(window.innerWidth <= 720 ? 0.62 : window.innerWidth <= 1200 ? 0.74 : 0.86);
   }, [builderOpen]);
-
-  useEffect(() => {
-    if (!selectedAutomation) {
-      setFlow(null);
-      return;
-    }
-    setFlow(selectedAutomation.flow);
-  }, [selectedAutomation]);
-
-  useEffect(() => {
-    function onMove(event: PointerEvent) {
-      const dragging = draggingRef.current;
-      if (!dragging) return;
-      const nextX = dragging.originalX + (event.clientX - dragging.startX) / zoom;
-      const nextY = dragging.originalY + (event.clientY - dragging.startY) / zoom;
-      setFlow((current) =>
-        current
-          ? {
-              ...current,
-              nodes: current.nodes.map((nodeItem) =>
-                nodeItem.id === dragging.id
-                  ? { ...nodeItem, x: Math.max(20, Math.min(980, nextX)), y: Math.max(30, Math.min(320, nextY)) }
-                  : nodeItem,
-              ),
-            }
-          : current,
-      );
-    }
-
-    function onUp() {
-      const wasDragging = Boolean(draggingRef.current);
-      draggingRef.current = null;
-      if (wasDragging) {
-        window.setTimeout(() => {
-          void saveFlowRef.current();
-        }, 0);
-      }
-    }
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-  }, [zoom, flow, selectedAutomation?.id]);
 
   useEffect(() => {
     function onMove(event: PointerEvent) {
@@ -701,16 +652,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     setData(normalizeAutomationResponse(response));
   }
 
-  async function saveFlow() {
-    if (!selectedAutomation || !flow) return;
-    try {
-      await updateAutomation(selectedAutomation.id, { flow } as Partial<Automation>);
-      setStatusMessage("Fluxo salvo.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível salvar o fluxo.");
-    }
-  }
-  saveFlowRef.current = saveFlow;
+
 
   async function executeAutomation(automation: Automation) {
     setSaving(true);
@@ -1166,8 +1108,6 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     setStatusMessage(`${response.imported || automations.length} automação(ões) importada(s).`);
   }
 
-  const editorNodes = flow?.nodes || [];
-  const editorConnections = flow?.connections || [];
   const selectedBuilderNode = builderFlow.nodes.find((nodeItem) => nodeItem.id === selectedBuilderNodeId) || builderFlow.nodes[0] || null;
 
   if (builderOpen) {
@@ -1709,7 +1649,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                     </span>
                   </div>
 
-                  <div className="automation-card-actions mt-4 flex flex-wrap">
+                  <div className="automation-card-actions mt-4 flex flex-wrap"><Button size="sm" onClick={() => { setSelectedId(automation.id); setDashboardView("preview"); }} icon={<Network size={15} />}>Pré-visualizar fluxo</Button>
                     <Button variant="primary"
                      
                       disabled={saving || !automation.active}
@@ -1820,87 +1760,16 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
               <div>
                 <h2 className="text-lg font-black">Visão do fluxo</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
-                  {selectedAutomation ? selectedAutomation.name : "Selecione uma automacao"}
+                  <select aria-label="Automação para pré-visualizar" value={selectedAutomation?.id || ""} onChange={(event) => setSelectedId(event.target.value)}>{!data.automations.length && <option value="">Selecione uma automação</option>}{data.automations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" disabled={!selectedAutomation} onClick={() => selectedAutomation && openEditModal(selectedAutomation)}><Settings2 size={14} />Editar fluxo</Button>
-                <Button size="sm" onClick={() => setZoom((current) => Math.max(0.65, current - 0.1))} className="bg-[var(--background)]">-</Button>
-                <span className="min-w-14 text-center text-xs font-bold">{Math.round(zoom * 100)}%</span>
-                <Button size="sm" onClick={() => setZoom((current) => Math.min(1.25, current + 0.1))} className="bg-[var(--background)]">+</Button>
               </div>
             </header>
 
             {!selectedAutomation && <div className="workspace-empty"><Workflow size={28} /><strong>Selecione um fluxo para visualizar</strong><button type="button" onClick={() => setDashboardView("flows")}>Ver meus fluxos</button></div>}
-            {selectedAutomation && <div className="relative h-[430px] overflow-auto bg-[radial-gradient(circle_at_1px_1px,rgba(125,211,252,.24)_1px,transparent_0)] [background-size:22px_22px]">
-              <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${zoom})`, width: 1120, height: 420 }}>
-                <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
-                  {editorConnections.map((connection) => {
-                    const source = editorNodes.find((item) => item.id === connection.source);
-                    const target = editorNodes.find((item) => item.id === connection.target);
-                    if (!source || !target) return null;
-                    const x1 = source.x + 190;
-                    const y1 = source.y + 45;
-                    const x2 = target.x;
-                    const y2 = target.y + 45;
-                    return (
-                      <path
-                        key={`${connection.source}-${connection.target}`}
-                        d={`M ${x1} ${y1} C ${x1 + 70} ${y1}, ${x2 - 70} ${y2}, ${x2} ${y2}`}
-                        fill="none"
-                        stroke="rgba(125,211,252,.72)"
-                        strokeWidth="3"
-                      />
-                    );
-                  })}
-                </svg>
-
-                {editorNodes.map((nodeItem) => (
-                  <motion.div
-                    key={nodeItem.id}
-                    whileHover={{ scale: 1.03 }}
-                    onPointerDown={(event) => {
-                      draggingRef.current = {
-                        id: nodeItem.id,
-                        startX: event.clientX,
-                        startY: event.clientY,
-                        originalX: nodeItem.x,
-                        originalY: nodeItem.y,
-                      };
-                    }}
-                    className={`absolute w-[190px] cursor-grab rounded-lg border p-4 shadow-xl backdrop-blur-xl active:cursor-grabbing ${
-                      nodeItem.kind === "nora"
-                        ? "border-cyan-200/45 bg-cyan-400/18"
-                        : nodeItem.kind === "trigger"
-                          ? "border-blue-200/45 bg-blue-500/18"
-                          : "border-[var(--border)] bg-[var(--surface)]"
-                    }`}
-                    style={{ left: nodeItem.x, top: nodeItem.y }}
-                  >
-                    <span className="mb-3 grid h-10 w-10 place-items-center rounded-lg bg-blue-500/16 text-cyan-100">
-                      <IconByName name={nodeItem.icon} size={19} />
-                    </span>
-                    <h3 className="text-sm font-bold">{nodeItem.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{nodeItem.description}</p>
-                    <span className="mt-3 inline-flex rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                      {nodeItem.kind}
-                    </span>
-                  </motion.div>
-                ))}
-              </div>
-
-              <div className="absolute bottom-4 right-4 h-24 w-36 rounded-lg border border-[var(--border)] bg-[var(--surface)]/90 p-2 shadow-xl backdrop-blur-xl">
-                <div className="relative h-full w-full overflow-hidden rounded-md bg-[var(--background)]">
-                  {editorNodes.map((nodeItem) => (
-                    <span
-                      key={nodeItem.id}
-                      className="absolute h-3 w-5 rounded-sm bg-cyan-300"
-                      style={{ left: `${Math.min(88, nodeItem.x / 11)}%`, top: `${Math.min(82, nodeItem.y / 4)}%` }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>}
+            {selectedAutomation && <AutomationFlowPreview key={selectedAutomation.id} flow={selectedAutomation.flow} />}
           </section>
 
           <section className="rounded-lg border border-cyan-200/24 bg-[var(--dashboard-nora-bg)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">

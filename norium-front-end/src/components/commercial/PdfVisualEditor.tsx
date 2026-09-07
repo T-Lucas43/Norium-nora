@@ -147,6 +147,6 @@ export default function PdfVisualEditor({ blob, title, initialEdits, onClose, on
         <button onClick={() => commit({ ...edits, layers: [...edits.layers.filter(layer => layer.id !== selected.id), selected] })}>Trazer para frente</button>
       </> : <div className="pdf-editor-help"><MousePointer2 size={28}/><p>Selecione um elemento para ajustar texto, tamanho, cor e posição.</p><button onClick={() => setSignatureOpen(true)}><Signature size={17}/>Adicionar assinatura</button></div>}<div className="pdf-editor-layer-list"><strong>Elementos da página</strong>{edits.layers.filter(layer => layer.page === currentPage).map((layer, index) => <button key={layer.id} aria-pressed={selectedId === layer.id} onClick={() => { setSelectedId(layer.id); setTool("select"); }}>{index + 1}. {layer.type === "text" ? layer.text : ({ signature: "Assinatura", image: "Imagem", draw: "Desenho", highlight: "Destaque", cover: "Cobertura", rectangle: "Retângulo", ellipse: "Elipse" } as Record<string,string>)[layer.type]}</button>)}</div></aside>
     </section></>}
-    {signatureOpen && <SignatureComposer onClose={() => setSignatureOpen(false)} onApply={(dataUrl, ratio) => { add("signature", { dataUrl, width: .32, height: Math.min(.5, .32 * size.width / size.height * ratio) }); setSignatureOpen(false); }}/>} 
+    {signatureOpen && <SignatureComposer onClose={() => setSignatureOpen(false)} onApply={(dataUrl, ratio) => { add("signature", { dataUrl, width: .32, height: Math.min(.5, .32 * size.width / size.height * ratio) }); setSignatureOpen(false); }}/>}
   </main>;
 }

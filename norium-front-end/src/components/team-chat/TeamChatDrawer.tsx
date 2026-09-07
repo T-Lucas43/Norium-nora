@@ -70,7 +70,6 @@ type TeamChatDrawerProps = {
 };
 
 const API_URL = `${apiBaseUrl()}/api/team-chat`;
-const NORA_MENTION_AT_END = /(^|\s)@(n(?:o(?:r(?:a)?)?)?)?$/i;
 
 function readReceiptsFor(message: TeamMessage) {
   const raw = message.metadata?.readBy;

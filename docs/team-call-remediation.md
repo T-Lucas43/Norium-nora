@@ -640,3 +640,48 @@ Execução em 2026-09-05, no worktree isolado e depois de integrar `origin/main@
 A primeira tentativa do build detectou propriedades TypeScript declaradas no construtor, incompatíveis com `erasableSyntaxOnly`, e um fixture legado sem `clientId`. Ambos foram corrigidos mecanicamente; os 16 testes diretamente afetados, o build, o lint e a suíte frontend completa foram repetidos sobre o estado final e passaram. Permanece apenas o aviso preexistente de chunk geral acima de 500 kB. As mensagens do backend no log são cenários negativos intencionais dos testes, não falhas.
 
 Logs completos: `norium-back-end/artifacts/team-call-8b-backend-full.log`, `norium-front-end/artifacts/team-call-8b-frontend-full.log`, `norium-front-end/artifacts/team-call-8b-production-build.log` e `norium-front-end/artifacts/team-call-8b-lint.log`; os diretórios de artefatos são ignorados pelo Git.
+
+## Etapa 9 — mídia, sinalização e carga automatizadas
+
+A validação manual foi substituída por gates reproduzíveis de navegador e carga. A especificação completa, matriz, comandos, thresholds e medições está em `docs/testing/team-call-quality-gates.md`.
+
+### Limite arquitetural do teste
+
+- `tests/browser/team_call_e2e.py` orquestra FastAPI, Vite, TURN local e Chromium em portas livres. Cada usuário recebe um `BrowserContext` independente; múltiplas abas compartilham contexto somente no cenário que exige isso.
+- `tests/browser/calls.tsx` monta `CallSessionProvider`, overlay e drawer reais. Microfone/câmera usam `getUserMedia` nativo com WAV/Y4M determinísticos; apenas o seletor de tela headless é sintetizado, e a faixa resultante precisa atravessar RTP real.
+- `tests/team_call_browser_app.py` adapta autenticação, diretório e disco para estado temporário, mas inclui o router, `CallCoordinator` e `RecordingCoordinator` de produção. Os endpoints `__test__` controlam reset/revogação/limites e nunca entram na aplicação publicada.
+- `tests/team_call_load.py` abre 100 WebSockets reais, mede handshake, controle, sinal, heartbeat, estado, convergência, remoção de fantasmas e RSS.
+- `tests/browser/local_turn_server.mjs` fornece TURN REST/HMAC efêmero para o gate `iceTransportPolicy: "relay"`; nenhuma credencial permanente entra no frontend.
+
+Durante a repetição, o screen share revelou uma colisão entre duas operações SDP que podiam entrar em `setLocalDescription` simultaneamente. `MeshMediaTransport` agora serializa operações SDP por peer, preservando os papéis polite/impolite, rollback e revisão da sessão. O contrato público não mudou; o cenário de oferta simultânea, screen share e o teste unitário do transporte passaram depois da correção.
+
+A integração de `origin/main@87f715e` trouxe uma nova lista de conversas e uma versão do drawer que voltava a abrir WebSocket próprio e ouvir `CustomEvent` do DOM. A resolução preserva a interface nova, mas encaminha chat, presença e atualização de threads pelo `useTeamSocketEvents` da `CallSession`; não há segundo socket nem restauração do canal DOM. Convites selecionam a conversa pelo mesmo adaptador e ligações iniciadas pela lista de membros fixam explicitamente o contexto direto.
+
+### Linha de base final
+
+Execução em 2026-09-06, no worktree `codex/team-call-remediation-baseline`, sem deploy. Commits remotos foram integrados até `origin/main@12e5ff3`; `origin/main` é ancestral do resultado (`ahead 20, behind 0`). O avanço até `87f715e` tocou router e interface de chat/chamada e foi incluído antes dos gates reais. O commit posterior `12e5ff3` alterou somente automações e tarefas; frontend e build foram repetidos sobre essa base final.
+
+| Área | Comando | Resultado |
+| --- | --- | --- |
+| Navegador real | `.\norium-back-end\.venv\Scripts\python.exe norium-front-end\tests\browser\team_call_e2e.py --repeat 3 --artifacts-dir output\team-call-quality\browser-87f715e-final-2` | 39/39 aprovados em 237,429 s; 13 cenários × 3; relay/relay UDP, RTP e crash real comprovados; sem artefatos de falha |
+| Carga | `.\norium-back-end\.venv\Scripts\python.exe norium-back-end\tests\team_call_load.py --repeat 3 --artifacts-dir output\team-call-quality\load-87f715e-final` | 3/3; 100/100 conexões; zero violações; remoção fantasma máxima 8,164 s; RSS pico 118,926 MiB |
+| Backend completo | `.\.venv\Scripts\python.exe -m unittest discover -s tests -p 'test*.py'` | 552/552 aprovados em 26,339 s |
+| Frontend completo | `npm test -- --run --reporter=dot` | 84 arquivos e 552/552 testes aprovados em 11,17 s |
+| Chamadas focadas | `npm test -- --run src/components/team-chat/CallSession.test.tsx src/components/team-chat/useTeamCall.test.tsx src/components/team-chat/TeamCallOverlay.test.tsx src/components/team-chat/TeamActiveCallCard.test.tsx src/components/team-chat/TeamChatDrawer.test.tsx src/components/team-chat/media/MediaTransport.test.ts src/hooks/useWebSockets.test.tsx --reporter=dot` | 7 arquivos e 64/64 testes aprovados |
+| Build de produção | `npm run build` | aprovado; TypeScript + Vite, 1.744 módulos |
+| Análise estática | `npm run lint` | código 0; 13 avisos preexistentes fora de chamadas |
+| Sintaxe | `py_compile` dos runners e `node --check` do TURN | aprovado |
+
+O CI ganhou o job bloqueante `team-call-quality`; a publicação de imagem depende dele. Traces, screenshots, logs e vídeos são copiados/enviados somente em falha, sob `failures/<runId>/`. O resumo passa atomicamente de `running` ao resultado final apenas depois de fechar contextos, navegador, serviços e workspace temporário. O CI instala Chromium/FFmpeg e grava WebM; neste host, o fallback para Chrome do sistema registrou `videoCaptureEnabled: false` porque o encoder opcional do Playwright falhou com `spawn EPERM`, mantendo traces/screenshots/logs e isolamento integral.
+
+### Riscos e bloqueios restantes
+
+1. O gate relay-only prova TURN UDP local, não TURN/TLS externo, NAT corporativo, CGNAT, perda ou latência regional. A execução externa continua dependente de infraestrutura e certificado reais e deve usar `--external-turn`.
+2. `turn-server@0.6.6` é dependência de teste pré-1.0, fixada exatamente e fora do bundle de produção.
+3. Os thresholds são guardrails deste perfil de 100 conexões, não SLOs de produção. O p95 de heartbeat foi calibrado de 400 para 750 ms após uma falha reproduzível de 513,328 ms; novos relaxamentos exigem justificativa registrada.
+4. O domínio atual não expõe uma flag autônoma de equipe desativada. O cenário desativa todos os membros e declara essa modelagem no resultado.
+5. O workflow foi validado localmente, mas não executado no GitHub nesta etapa. Nenhuma imagem foi publicada e nenhum deploy foi realizado.
+6. Uma suíte completa anterior falhou uma vez em `WhatsAppStatusView.test.tsx`, fora do escopo, ao não observar imediatamente um estado assíncrono de erro de mídia. O caso passou isolado e todas as suítes completas seguintes passaram sem mudança no módulo; fica registrado como flake preexistente.
+7. A primeira tentativa do navegador após a nova lista de conversas usava o seletor removido, e outra tentativa encontrou uma asserção interna do Playwright ao deixar `Page.crash` pendente. O harness passou a usar o botão acessível atual e `chrome://crash`; o cenário crítico passou 3/3 isoladamente antes da matriz final 39/39.
+
+Componentes desta etapa: workflow de CI, ignores de artefatos, fixture FastAPI, runner de carga, fixture React, runner de navegador, TURN local, dependência de teste bloqueada, serialização SDP do mesh, fechamento WebSocket idempotente após revogação e esta documentação. Não foram alterados contratos HTTP/WebSocket públicos.

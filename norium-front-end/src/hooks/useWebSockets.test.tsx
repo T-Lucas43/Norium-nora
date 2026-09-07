@@ -59,7 +59,7 @@ describe("team member mentions", () => {
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     const inboxSocket = Socket.instances[0];
     const metadata = { mentionedUserIds: ["member"], threadId: "subteam:sales", messageId: "mention-1", senderId: "owner", senderName: "Ana", action: "team_member_mentioned", userId: "member" };
-    act(() => result.current.handleTeamSocketEvent({ type: "TEAM_CHAT_MESSAGE", message: { id: "mention-1", threadId: "subteam:sales", senderId: "owner", senderName: "Ana", text: "@Member revise a proposta", metadata } }));
+    act(() => result.current.handleTeamSocketEvent({ type: "TEAM_CHAT_MESSAGE", message: { id: "mention-1", threadId: "subteam:sales", senderId: "owner", senderName: "Ana", text: "@Member revise a proposta", attachments: [], createdAt: new Date().toISOString(), metadata } }));
     expect(result.current.systemNotifications[0].title).toBe("Ana mencionou você");
     expect(result.current.systemNotifications[0].metadata?.threadId).toBe("subteam:sales");
     expect(DesktopNotification.instances).toHaveLength(1);
@@ -72,8 +72,8 @@ describe("team member mentions", () => {
     const { result } = renderHook(() => useWebSockets("Chat da Equipe", true, "member", true));
     await waitFor(() => expect(Socket.instances).toHaveLength(1));
     act(() => {
-      result.current.handleTeamSocketEvent({ type: "TEAM_CHAT_MESSAGE", message: { id: "other-mention", senderId: "owner", metadata: { mentionedUserIds: ["other"] } } });
-      result.current.handleTeamSocketEvent({ type: "TEAM_CHAT_MESSAGE", message: { id: "self-mention", senderId: "member", metadata: { mentionedUserIds: ["member"] } } });
+      result.current.handleTeamSocketEvent({ type: "TEAM_CHAT_MESSAGE", message: { id: "other-mention", threadId: "team", senderId: "owner", senderName: "Owner", text: "@Other", attachments: [], createdAt: new Date().toISOString(), metadata: { mentionedUserIds: ["other"] } } });
+      result.current.handleTeamSocketEvent({ type: "TEAM_CHAT_MESSAGE", message: { id: "self-mention", threadId: "team", senderId: "member", senderName: "Member", text: "@Member", attachments: [], createdAt: new Date().toISOString(), metadata: { mentionedUserIds: ["member"] } } });
     });
     expect(result.current.systemNotifications).toHaveLength(0);
   });

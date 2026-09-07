@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import mimetypes
 import os
@@ -1724,7 +1725,11 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                 await emit_due_meeting_reminders(team_id)
                 await call_coordinator().reconcile(actor)
                 if user_id not in await _call_active_member_ids(actor):
-                    await websocket.close(code=4403)
+                    # A broadcast may already have closed this transport after
+                    # revocation. Closing again must not turn normal cleanup
+                    # into an ASGI application error.
+                    with contextlib.suppress(RuntimeError):
+                        await websocket.close(code=4403)
                     return
                 # Cada conexao reconcilia seu estado; nao multiplica snapshots
                 # para toda a equipe a cada timeout de cada aba aberta.

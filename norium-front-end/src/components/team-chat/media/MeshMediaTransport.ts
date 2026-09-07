@@ -32,6 +32,7 @@ type PeerNegotiationState = {
   isSettingRemoteAnswerPending: boolean;
   polite: boolean;
   revision: number;
+  operation: Promise<void>;
 };
 
 function iceTelemetryState(value: string): IceTelemetryState {
@@ -284,6 +285,7 @@ export class MeshMediaTransport implements MediaTransport {
         isSettingRemoteAnswerPending: false,
         polite: (this.call?.selfUserId || "").localeCompare(userId) > 0,
         revision: 0,
+        operation: Promise.resolve(),
       };
       this.negotiations.set(userId, state);
     }
@@ -295,21 +297,29 @@ export class MeshMediaTransport implements MediaTransport {
     return !clientId || !currentClientId || clientId === currentClientId;
   }
 
+  private serializeSdpOperation<T>(negotiation: PeerNegotiationState, operation: () => Promise<T>): Promise<T> {
+    const result = negotiation.operation.then(operation, operation);
+    negotiation.operation = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
   private async negotiate(userId: string, peer: RTCPeerConnection) {
-    const callId = this.call?.callId;
     const negotiation = this.negotiationFor(userId);
-    if (!callId || negotiation.makingOffer || peer.signalingState !== "stable") return;
-    const revision = ++negotiation.revision;
-    try {
-      negotiation.makingOffer = true;
-      const offer = await peer.createOffer();
-      if (negotiation.revision !== revision || this.peers.get(userId) !== peer || this.call?.callId !== callId) return;
-      await peer.setLocalDescription(offer);
-      if (negotiation.revision !== revision || this.peers.get(userId) !== peer || this.call?.callId !== callId) return;
-      this.dependencies.emitSignal(callId, userId, peer.localDescription || offer);
-    } finally {
-      if (negotiation.revision === revision) negotiation.makingOffer = false;
-    }
+    await this.serializeSdpOperation(negotiation, async () => {
+      const callId = this.call?.callId;
+      if (!callId || negotiation.makingOffer || peer.signalingState !== "stable") return;
+      const revision = ++negotiation.revision;
+      try {
+        negotiation.makingOffer = true;
+        const offer = await peer.createOffer();
+        if (negotiation.revision !== revision || this.peers.get(userId) !== peer || this.call?.callId !== callId) return;
+        await peer.setLocalDescription(offer);
+        if (negotiation.revision !== revision || this.peers.get(userId) !== peer || this.call?.callId !== callId) return;
+        this.dependencies.emitSignal(callId, userId, peer.localDescription || offer);
+      } finally {
+        if (negotiation.revision === revision) negotiation.makingOffer = false;
+      }
+    });
   }
 
   private async createPeer(userId: string, createOffer: boolean) {
@@ -422,37 +432,41 @@ export class MeshMediaTransport implements MediaTransport {
     if ("type" in signal && signal.type) {
       const description = signal as RTCSessionDescriptionInit;
       const negotiation = this.negotiationFor(userId);
-      const readyForOffer = !negotiation.makingOffer
-        && (peer.signalingState === "stable" || negotiation.isSettingRemoteAnswerPending);
-      const offerCollision = description.type === "offer" && !readyForOffer;
-      negotiation.ignoreOffer = !negotiation.polite && offerCollision;
-      if (negotiation.ignoreOffer) return;
-      if (offerCollision) {
-        negotiation.revision += 1;
-        negotiation.makingOffer = false;
-      }
-      negotiation.isSettingRemoteAnswerPending = description.type === "answer";
-      try {
-        if (offerCollision && negotiation.polite && peer.signalingState !== "stable") {
-          await peer.setLocalDescription({ type: "rollback" });
+      await this.serializeSdpOperation(negotiation, async () => {
+        const readyForOffer = !negotiation.makingOffer
+          && (peer.signalingState === "stable" || negotiation.isSettingRemoteAnswerPending);
+        const offerCollision = description.type === "offer" && !readyForOffer;
+        negotiation.ignoreOffer = !negotiation.polite && offerCollision;
+        if (negotiation.ignoreOffer) return;
+        if (offerCollision) {
+          negotiation.revision += 1;
+          negotiation.makingOffer = false;
         }
-        await peer.setRemoteDescription(description);
-      } finally {
-        negotiation.isSettingRemoteAnswerPending = false;
-      }
-      if (this.peers.get(userId) !== peer || this.call?.callId !== callId) return;
-      for (const candidate of this.pendingCandidates.get(userId) || []) await peer.addIceCandidate(candidate);
-      this.pendingCandidates.delete(userId);
-      if (description.type === "offer") {
-        const answer = await peer.createAnswer();
-        await peer.setLocalDescription(answer);
+        negotiation.isSettingRemoteAnswerPending = description.type === "answer";
+        try {
+          if (offerCollision && negotiation.polite && peer.signalingState !== "stable") {
+            await peer.setLocalDescription({ type: "rollback" });
+          }
+          await peer.setRemoteDescription(description);
+        } finally {
+          negotiation.isSettingRemoteAnswerPending = false;
+        }
         if (this.peers.get(userId) !== peer || this.call?.callId !== callId) return;
-        this.dependencies.emitSignal(callId, userId, peer.localDescription || answer);
-      }
+        for (const candidate of this.pendingCandidates.get(userId) || []) await peer.addIceCandidate(candidate);
+        this.pendingCandidates.delete(userId);
+        if (description.type === "offer") {
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+          if (this.peers.get(userId) !== peer || this.call?.callId !== callId) return;
+          this.dependencies.emitSignal(callId, userId, peer.localDescription || answer);
+        }
+      });
       return;
     }
 
     const negotiation = this.negotiationFor(userId);
+    await negotiation.operation;
+    if (this.peers.get(userId) !== peer || this.call?.callId !== callId) return;
     if (negotiation.ignoreOffer) return;
     if (peer.remoteDescription) {
       try {

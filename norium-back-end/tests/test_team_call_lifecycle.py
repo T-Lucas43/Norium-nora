@@ -209,6 +209,29 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         snapshot = next(call.args[0] for call in socket.send_json.call_args_list if call.args[0]["type"] == "CALLS_STATE")
         self.assertEqual(self.invite["callId"], snapshot["calls"][0]["callId"])
 
+    async def test_revocation_tolerates_transport_already_closed(self):
+        socket = MagicMock()
+        socket.accept = AsyncMock()
+        socket.send_json = AsyncMock()
+        socket.receive_text = AsyncMock(side_effect=asyncio.TimeoutError())
+        socket.close = AsyncMock(side_effect=RuntimeError('Cannot call "send" once a close message has been sent.'))
+        coordinator = MagicMock()
+        coordinator.reconcile = AsyncMock()
+        coordinator.active_calls_for = AsyncMock(return_value=[])
+        coordinator.connection_closed = AsyncMock()
+
+        with (
+            patch.object(team, "user_from_websocket_ticket", AsyncMock(return_value=self.member)),
+            patch.object(team, "emit_due_meeting_reminders", AsyncMock()),
+            patch.object(team, "_call_active_member_ids", AsyncMock(return_value=set())),
+            patch.object(team, "_reconcile_closed_connection", AsyncMock()),
+            patch.object(team, "call_coordinator", return_value=coordinator),
+        ):
+            await team.team_chat_ws(socket, "test-ticket")
+
+        socket.close.assert_awaited_once_with(code=4403)
+        coordinator.connection_closed.assert_awaited_once()
+
     async def test_mesh_capacity_error_over_websocket_has_stable_code(self):
         with (
             patch.object(team, "_call_coordinator_instance", None),

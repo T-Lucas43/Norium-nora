@@ -140,6 +140,9 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         stored = read_store(self.user["id"])
         original = next(file for file in stored["uploadedDocuments"] if file["id"] == original_id)
         self.assertEqual(document_path(self.user["id"], original).read_bytes(), original_bytes)
+        edited_id = proposal["fileVersions"][1]["editedDocumentId"]
+        edited_history = next(file for file in stored["uploadedDocuments"] if file["id"] == edited_id)
+        self.assertIn("Condicao negociada", PdfReader(document_path(self.user["id"], edited_history)).pages[0].extract_text())
         with self.assertRaises(HTTPException) as locked:
             await update_proposal(self.user, proposal["id"], ProposalUpdate(expectedVersion=proposal["version"], pdfEdits=edits))
         self.assertEqual(locked.exception.status_code, 409)

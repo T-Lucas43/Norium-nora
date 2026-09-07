@@ -118,6 +118,7 @@ export type NoraAnalysis = {
 
 export type ProposalFileVersion = {
   documentId: string;
+  editedDocumentId?: string;
   fileName: string;
   size: number;
   sha256: string;

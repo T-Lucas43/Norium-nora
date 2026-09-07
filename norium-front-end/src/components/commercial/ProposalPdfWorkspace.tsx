@@ -66,7 +66,7 @@ export default function ProposalPdfWorkspace({ proposal, clients, editImmediatel
     return exportCommercialDocumentPdf("proposal", proposal.id);
   }
   async function viewFile(file: ProposalFileVersion) {
-    const blob = await downloadImportedDocument(file.documentId);
+    const blob = await downloadImportedDocument(file.editedDocumentId || file.documentId);
     setPreview(URL.createObjectURL(blob)); setPreviewTitle(file.fileName);
   }
   async function closeEditor() {

@@ -302,7 +302,7 @@ async def delete_imported_document(tenant_id: str, document_id: str) -> dict[str
         index, current = imported_document_or_404(store, document_id)
         if any(
             proposal.get("sourceDocumentId") == document_id
-            or any(version.get("documentId") == document_id for version in proposal.get("fileVersions", []))
+            or any(document_id in {version.get("documentId"), version.get("editedDocumentId")} for version in proposal.get("fileVersions", []))
             for proposal in store.get("proposals", [])
         ):
             raise HTTPException(status_code=409, detail="Este arquivo faz parte do histórico de uma proposta e deve ser preservado.")

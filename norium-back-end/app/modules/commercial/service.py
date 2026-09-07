@@ -474,6 +474,7 @@ def standard_templates() -> list[dict[str, Any]]:
 
 def standalone_files(store: dict[str, Any]) -> list[dict[str, Any]]:
     linked = {entry.get("documentId") for proposal in store["proposals"] for entry in proposal.get("fileVersions", [])}
+    linked.update(entry.get("editedDocumentId") for proposal in store["proposals"] for entry in proposal.get("fileVersions", []))
     linked.update(proposal.get("sourceDocumentId") for proposal in store["proposals"])
     return [item for item in store.get("uploadedDocuments", []) if item.get("id") not in linked]
 
@@ -604,6 +605,7 @@ async def upload_proposal_pdf(user: dict[str, Any], payload: ProposalPdfUpload, 
     from io import BytesIO
     from pypdf import PdfReader
     from app.modules.commercial.document_files import _decode_file, _validated_extension, prepare_imported_document, document_path
+    from app.modules.commercial.schemas import DocumentImportRequest
 
     tenant_id = collaboration_tenant_id(user)
     if proposal_id and payload.expectedVersion is None:
@@ -629,6 +631,7 @@ async def upload_proposal_pdf(user: dict[str, Any], payload: ProposalPdfUpload, 
     await asyncio.to_thread(validate_pdf)
     client = snapshot_client(tenant_id, payload.clientId) if not proposal_id and payload.clientId else {"id": "", "name": "", "company": "", "email": "", "document": ""}
     file = await prepare_imported_document(tenant_id, user, payload)
+    previous_snapshot = None
     try:
         async with _store_lock:
             store = await asyncio.to_thread(read_store, tenant_id)
@@ -655,6 +658,17 @@ async def upload_proposal_pdf(user: dict[str, Any], payload: ProposalPdfUpload, 
             previous_files = list(current.get("fileVersions") or [])
             if len(previous_files) >= 100:
                 raise HTTPException(status_code=422, detail="Esta proposta atingiu o limite de 100 arquivos. Duplique-a para continuar.")
+            if previous_files and current.get("pdfEdits") and current.get("sourceDocumentId") and not current.get("signedDocumentId"):
+                previous_pdf, _ = await asyncio.to_thread(build_commercial_pdf, current, "proposal", True, tenant_id)
+                previous_snapshot = await prepare_imported_document(tenant_id, user, DocumentImportRequest(
+                    fileName=f"proposta-versao-{current.get('version') or 1}.pdf", mimeType="application/pdf",
+                    dataBase64=base64.b64encode(previous_pdf).decode("ascii"),
+                ))
+                previous_snapshot["proposalId"] = proposal_id
+                previous_files = [
+                    {**entry, "editedDocumentId": previous_snapshot["id"]} if entry.get("documentId") == current["sourceDocumentId"] else entry
+                    for entry in previous_files
+                ]
             status = "signed" if payload.signed else "draft"
             version = {
                 "documentId": file["id"], "fileName": file["originalFileName"], "size": file["size"],
@@ -677,6 +691,8 @@ async def upload_proposal_pdf(user: dict[str, Any], payload: ProposalPdfUpload, 
             }
             file["proposalId"] = proposal_id
             store["uploadedDocuments"].insert(0, file)
+            if previous_snapshot:
+                store["uploadedDocuments"].insert(0, previous_snapshot)
             if index == len(store["proposals"]):
                 store["proposals"].insert(0, updated)
             else:
@@ -685,6 +701,8 @@ async def upload_proposal_pdf(user: dict[str, Any], payload: ProposalPdfUpload, 
         return updated
     except Exception:
         await asyncio.to_thread(document_path(tenant_id, file).unlink)
+        if previous_snapshot:
+            await asyncio.to_thread(document_path(tenant_id, previous_snapshot).unlink)
         raise
 
 

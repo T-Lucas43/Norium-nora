@@ -1,3 +1,4 @@
+import SignatureComposer from "./SignatureComposer";
 import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -78,6 +79,7 @@ import {
   type CommercialProposal,
   type CommercialTemplate,
   type PdfCapabilities,
+  type PdfProcessingJob,
   type PdfOperation,
   type ProposalBriefInput,
   type ProposalDraft,
@@ -629,10 +631,13 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   }
 
   async function handlePdfProcess(operation: PdfOperation, documentIds: string[], options: Record<string, unknown>) {
+    let queuedJob: PdfProcessingJob | undefined;
     await runAction(async () => {
       const response = await processPdf(operation, documentIds, options);
+      queuedJob = response.job;
       setData((current) => current ? { ...current, processingJobs: [response.job, ...current.processingJobs] } : current);
-    }, "Processamento adicionado a fila. O resultado sera salvo como um novo arquivo.");
+    }, "Processamento iniciado. O resultado ficará disponível nesta página.");
+    return queuedJob;
   }
 
   async function handleRenameTemplate(template: CommercialTemplate) {
@@ -678,7 +683,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
           jobs={data.processingJobs}
           busy={busy}
           onBack={() => setPdfToolsOpen(false)}
-          onProcess={(operation, documentIds, options) => void handlePdfProcess(operation, documentIds, options)}
+          onProcess={handlePdfProcess}
           onDelete={handleDeleteImported}
           onImported={(document) => setData((current) => current ? {
             ...current,
@@ -1247,6 +1252,8 @@ function SignatureDialog({ contract, busy, onClose, onSubmit }: { contract: Comm
   const [name, setName] = useState(signer?.name || "");
   const [email, setEmail] = useState(signer?.email || "");
   const [consent, setConsent] = useState(false);
+  const [signature, setSignature] = useState("");
+  const [composing, setComposing] = useState(false);
 
   return (
     <Dialog title="Registrar assinatura" subtitle="O aceite gera uma entrada na trilha de auditoria." onClose={onClose}>
@@ -1254,8 +1261,10 @@ function SignatureDialog({ contract, busy, onClose, onSubmit }: { contract: Comm
         <FormField label="Assinante"><select value={signerId} onChange={(event) => { const next = pending.find((item) => item.id === event.target.value); setSignerId(event.target.value); setName(next?.name || ""); setEmail(next?.email || ""); }} className="commercial-field">{pending.map((item) => <option key={item.id} value={item.id}>{item.order}. {item.name} · {item.email}</option>)}</select></FormField>
         <FormField label="Nome confirmado"><input value={name} onChange={(event) => setName(event.target.value)} className="commercial-field" /></FormField>
         <FormField label="E-mail confirmado"><input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="commercial-field" /></FormField>
+        <div>{signature && <img src={signature} alt="Sua assinatura" className="mb-3 max-h-24 max-w-full rounded bg-white p-2"/>}<Button variant="secondary" onClick={() => setComposing(true)}>{signature ? "Alterar assinatura" : "Criar assinatura"}</Button></div>
+        {composing && <SignatureComposer onClose={() => setComposing(false)} onApply={(dataUrl) => { setSignature(dataUrl); setComposing(false); }}/>}
         <label className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold leading-5"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1" /> Confirmo a identidade informada e concordo em registrar esta assinatura eletronicamente.</label>
-        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!signerId || !name.trim() || !email.trim() || !consent} onClick={() => onSubmit(signerId, name.trim(), email.trim(), "")}>Assinar</Button></div>
+        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!signerId || !name.trim() || !email.trim() || !consent || !signature} onClick={() => onSubmit(signerId, name.trim(), email.trim(), signature)}>Assinar</Button></div>
       </div>
     </Dialog>
   );

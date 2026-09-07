@@ -1,3 +1,5 @@
+import PdfVisualEditor from "./PdfVisualEditor";
+import type { PdfEdits } from "./pdfEditorModel";
 import "../shared/workspace.css";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
@@ -92,6 +94,9 @@ export default function CommercialEditor({
   const shareButtonRef = useRef<HTMLDivElement>(null);
   const savedSnapshotRef = useRef("");
   const savedDraftRef = useRef<DocumentDraft>(documentDraft(sourceDocument));
+  const [pdfEditorBlob, setPdfEditorBlob] = useState<Blob | null>(null);
+  const [pdfEditorSource, setPdfEditorSource] = useState<CommercialDocument | null>(null);
+  const [openingPdf, setOpeningPdf] = useState(false);
   const [title, setTitle] = useState(sourceDocument.title);
   const [contentHtml, setContentHtml] = useState(sourceDocument.contentHtml);
   const [scopeSummary, setScopeSummary] = useState(sourceDocument.scopeSummary);
@@ -472,6 +477,32 @@ export default function CommercialEditor({
     setBranding((current) => ({ ...current, ...revision.branding, logoUrl: revision.branding.logoUrl || current.logoUrl }));
   }
 
+  async function openVisualPdfEditor() {
+    setOpeningPdf(true); setSaveError("");
+    try {
+      let current = sourceDocument;
+      const input = currentUpdateInput(sourceDocument.version);
+      if (Object.keys(input).length > 1) {
+        current = await onSave(sourceDocument, input);
+        savedDraftRef.current = documentDraft(current);
+        savedSnapshotRef.current = draftSnapshot(savedDraftRef.current);
+        setSaveState("saved"); onDocumentChange(current);
+      }
+      const blob = await exportCommercialDocumentPdf(proposal ? "proposal" : "contract", current.id, false);
+      setPdfEditorSource(current);
+      setPdfEditorBlob(blob);
+    } catch (reason) { setSaveError(reason instanceof Error ? reason.message : "Não foi possível abrir o PDF."); }
+    finally { setOpeningPdf(false); }
+  }
+
+  async function saveVisualPdf(edits: PdfEdits) {
+    if (!pdfEditorSource) throw new Error("Abra novamente o editor do PDF.");
+    const saved = await onSave(pdfEditorSource, { expectedVersion: pdfEditorSource.version, pdfEdits: { ...edits, pages: [] } });
+    setPdfEditorSource(saved);
+    onDocumentChange(saved);
+    return exportCommercialDocumentPdf(proposal ? "proposal" : "contract", saved.id);
+  }
+
   async function exportPdf() {
     const previewWindow = window.open("", "_blank");
     if (previewWindow) {
@@ -573,6 +604,8 @@ export default function CommercialEditor({
     );
   }
 
+  if (pdfEditorBlob) return <PdfVisualEditor allowPageChanges={false} blob={pdfEditorBlob} title={title} initialEdits={pdfEditorSource?.pdfEdits} onClose={() => setPdfEditorBlob(null)} onSave={saveVisualPdf}/>;
+
   return (
     <main className={`clean-workspace documents-editor ${fullScreen ? "fixed inset-0 z-[110]" : "min-h-0 flex-1"} flex flex-col overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
       <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
@@ -608,6 +641,7 @@ export default function CommercialEditor({
               Salvar
             </Button>
           )}
+          {!readOnly && <Button size="sm" variant="secondary" loading={openingPdf} disabled={saveState === "saving"} onClick={() => void openVisualPdfEditor()} icon={<FileSignature size={14}/>}>Editar / assinar PDF</Button>}
           <Button size="sm" variant="secondary" onClick={() => void exportPdf()} icon={<Download size={14} />}>Exportar PDF</Button>
           <div ref={shareButtonRef}>
             <Button

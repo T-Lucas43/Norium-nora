@@ -406,10 +406,10 @@ async def get_proposal(proposal_id: str, user: dict[str, Any] = Depends(current_
 
 
 @router.get("/proposals/{proposal_id}/pdf")
-async def export_proposal_pdf(proposal_id: str, user: dict[str, Any] = Depends(current_user)) -> StreamingResponse:
+async def export_proposal_pdf(proposal_id: str, user: dict[str, Any] = Depends(current_user), include_edits: bool = True) -> StreamingResponse:
     store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     _, proposal = proposal_or_404(store, proposal_id)
-    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, proposal, "proposal")
+    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, proposal, "proposal", include_edits)
     await audit(user, "proposal_pdf_exported", f'PDF da proposta "{proposal["title"]}" gerado.', "proposal", proposal_id, "success")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
@@ -562,10 +562,10 @@ async def get_contract(contract_id: str, user: dict[str, Any] = Depends(current_
 
 
 @router.get("/contracts/{contract_id}/pdf")
-async def export_contract_pdf(contract_id: str, user: dict[str, Any] = Depends(current_user)) -> StreamingResponse:
+async def export_contract_pdf(contract_id: str, user: dict[str, Any] = Depends(current_user), include_edits: bool = True) -> StreamingResponse:
     store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     _, contract = contract_or_404(store, contract_id)
-    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, contract, "contract")
+    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, contract, "contract", include_edits)
     await audit(user, "contract_pdf_exported", f'PDF do contrato "{contract["title"]}" gerado.', "contract", contract_id, "success")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

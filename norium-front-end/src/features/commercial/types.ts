@@ -1,3 +1,4 @@
+import type { PdfEdits } from "../../components/commercial/pdfEditorModel";
 export type ProposalStatus =
   | "draft"
   | "in_review"
@@ -114,6 +115,7 @@ export type NoraAnalysis = {
 };
 
 export type CommercialProposal = {
+  pdfEdits?: PdfEdits;
   id: string;
   clientId: string;
   client: ClientSnapshot;
@@ -162,6 +164,7 @@ export type AuditTrailEntry = {
 };
 
 export type CommercialContract = {
+  pdfEdits?: PdfEdits;
   id: string;
   proposalId: string;
   clientId: string;

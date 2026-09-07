@@ -21,6 +21,7 @@ from fastapi import HTTPException
 from app.core.security import auth_secret
 from app.modules.clients.repository import list_clients
 from app.modules.commercial.repository import STORE_LOCK, read_store, write_store
+from app.modules.commercial.pdf_export import build_commercial_pdf
 from app.modules.commercial.schemas import (
     BrandProfileCreate,
     ContractUpdate,
@@ -1296,6 +1297,11 @@ async def update_proposal(user: dict[str, Any], proposal_id: str, payload: Propo
             revision(current, user),
             *(compact_revision(item) for item in current.get("revisions", []) if isinstance(item, dict)),
         ][:30]
+        if updates.get("pdfEdits"):
+            try:
+                await asyncio.to_thread(build_commercial_pdf, {**current, **updates}, "proposal")
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="As marcações não correspondem às páginas atuais da proposta. Reabra o editor de PDF.") from exc
         updated = {
             **current,
             **updates,
@@ -1914,6 +1920,11 @@ async def update_contract(user: dict[str, Any], contract_id: str, payload: Contr
                 [item.model_dump() for item in payload.signers],
                 advanced=is_team_plan(user),
             )
+        if updates.get("pdfEdits"):
+            try:
+                await asyncio.to_thread(build_commercial_pdf, {**current, **updates}, "contract")
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="As marcações não correspondem às páginas atuais do contrato. Reabra o editor de PDF.") from exc
         updated = {
             **current,
             **updates,

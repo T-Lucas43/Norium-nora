@@ -1,3 +1,4 @@
+import type { PdfEdits } from "../../components/commercial/pdfEditorModel";
 import { apiBlobRequest, apiRequest } from "../../core/api/client";
 import type {
   Branding,
@@ -35,6 +36,7 @@ export type ProposalCreateInput = {
 };
 
 export type DocumentUpdateInput = {
+  pdfEdits?: PdfEdits;
   expectedVersion: number;
   title?: string;
   contentHtml?: string;
@@ -181,9 +183,9 @@ export function deleteContract(id: string) {
   });
 }
 
-export function exportCommercialDocumentPdf(documentType: "proposal" | "contract", id: string) {
+export function exportCommercialDocumentPdf(documentType: "proposal" | "contract", id: string, includeEdits = true) {
   const collection = documentType === "proposal" ? "proposals" : "contracts";
-  return apiBlobRequest(`/api/comercial/${collection}/${id}/pdf`, { timeoutMs: 60_000 });
+  return apiBlobRequest(`/api/comercial/${collection}/${id}/pdf${includeEdits ? "" : "?include_edits=false"}`, { timeoutMs: 60_000 });
 }
 
 export function decideSuggestion(id: string, suggestionId: string, decision: "accepted" | "rejected") {

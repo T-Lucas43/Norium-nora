@@ -97,6 +97,26 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         )
         self.client_id = response["item"]["id"]
 
+    async def test_visual_pdf_edits_persist_with_proposal_version_control(self) -> None:
+        from app.modules.commercial.pdf_export import build_commercial_pdf
+        from fastapi import HTTPException
+        proposal = await create_proposal(self.user, ProposalCreate(clientId=self.client_id, title="Proposta com assinatura", contentHtml="<p>Documento de teste</p>"))
+        edits = {"layers": [{"id": "visual-text", "type": "text", "page": 0, "x": .15, "y": .55, "width": .5, "height": .1, "text": "Revisao visual persistida"}]}
+        updated = await update_proposal(self.user, proposal["id"], ProposalUpdate(expectedVersion=proposal["version"], pdfEdits=edits))
+        stored = next(item for item in read_store(self.user["id"])["proposals"] if item["id"] == proposal["id"])
+        self.assertEqual(stored["pdfEdits"]["layers"][0]["y"], .55)
+        data, _ = build_commercial_pdf(stored, "proposal")
+        self.assertIn("Revisao visual persistida", PdfReader(io.BytesIO(data)).pages[0].extract_text())
+        with self.assertRaises(HTTPException) as conflict:
+            await update_proposal(self.user, proposal["id"], ProposalUpdate(expectedVersion=proposal["version"], pdfEdits=edits))
+        self.assertEqual(conflict.exception.status_code, 409)
+        self.assertEqual(updated["version"], proposal["version"] + 1)
+        invalid_edits = {"layers": [{**edits["layers"][0], "page": 99}]}
+        with self.assertRaises(HTTPException) as invalid:
+            await update_proposal(self.user, proposal["id"], ProposalUpdate(expectedVersion=updated["version"], pdfEdits=invalid_edits))
+        self.assertEqual(invalid.exception.status_code, 422)
+
+
     async def test_solo_pipeline_sanitizes_content_and_instantiates_tasks(self) -> None:
         proposal = await create_proposal(
             self.user,
@@ -647,6 +667,22 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         edited_document = next(item for item in store["uploadedDocuments"] if item["id"] == edited_job["outputDocumentIds"][0])
         self.assertEqual("completed", edited_job["status"])
         self.assertIn("Revisado no Norium", PdfReader(edited_document["storagePath"]).pages[0].extract_text())
+
+        visual_job = await create_processing_job(
+            self.user["id"], self.user,
+            PdfProcessRequest(operation="edit_pdf", documentIds=[document["id"]], options={"editor": {
+                "layers": [{"id":"text","type":"text","page":1,"x":.1,"y":.4,"width":.6,"height":.1,"text":"Editor visual em outra pagina"}],
+                "pages": [{"source":1,"rotation":90}]
+            }}),
+        )
+        await run_processing_job(self.user["id"], visual_job["id"])
+        store = read_store(self.user["id"])
+        completed_visual = next(item for item in store["processingJobs"] if item["id"] == visual_job["id"])
+        self.assertEqual(completed_visual["status"], "completed")
+        visual_result = next(item for item in store["uploadedDocuments"] if item["id"] == completed_visual["outputDocumentIds"][0])
+        result_reader = PdfReader(visual_result["storagePath"])
+        self.assertEqual(len(result_reader.pages), 1)
+        self.assertIn("Editor visual em outra pagina", result_reader.pages[0].extract_text())
 
         protected_job = await create_processing_job(
             self.user["id"],

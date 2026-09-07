@@ -7,12 +7,16 @@ import {
   UnlockKeyhole, Upload, Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { downloadImportedDocument, importDocument } from "../../features/commercial/api";
+import { downloadImportedDocument, importDocument, loadPdfJob } from "../../features/commercial/api";
 import type { PdfCapabilities, PdfOperation, PdfProcessingJob, UploadedDocument } from "../../features/commercial/types";
 import Button from "../shared/Button";
 import EmptyState from "../shared/EmptyState";
 import LoadingState from "../shared/LoadingState";
 import StatusBanner from "../shared/StatusBanner";
+
+import PdfVisualEditor from "./PdfVisualEditor";
+import PdfResult from "./PdfResult";
+import type { PdfEdits } from "./pdfEditorModel";
 
 type ToolMeta = {
   title: string;
@@ -34,7 +38,7 @@ const toolMeta: Record<PdfOperation, ToolMeta> = {
   images_to_pdf: { title: "Imagens para PDF", description: "Converta JPG, PNG ou WebP em PDF.", category: "Converter", icon: ImagePlus, accent: "from-amber-500 to-orange-400" },
   extract_text: { title: "PDF para texto", description: "Extraia o texto para um arquivo editavel.", category: "Converter", icon: FileText, accent: "from-sky-500 to-blue-400" },
   ocr: { title: "OCR", description: "Transforme digitalizacoes em texto pesquisavel.", category: "Converter", icon: FileSearch, accent: "from-purple-500 to-indigo-400" },
-  edit_pdf: { title: "Editar PDF", description: "Adicione texto e ajuste posicao, cor e tamanho.", category: "Editar", icon: Pencil, accent: "from-blue-600 to-violet-500" },
+  edit_pdf: { title: "Editar PDF", description: "Edite texto, assine, desenhe e organize as páginas visualmente.", category: "Editar", icon: Pencil, accent: "from-blue-600 to-violet-500" },
   watermark: { title: "Marca d'agua", description: "Aplique texto com opacidade e rotacao.", category: "Editar", icon: Highlighter, accent: "from-fuchsia-500 to-rose-400" },
   page_numbers: { title: "Numerar paginas", description: "Inclua numeracao consistente no rodape.", category: "Editar", icon: ListFilter, accent: "from-cyan-500 to-indigo-400" },
   add_password: { title: "Proteger PDF", description: "Criptografe o documento com uma senha.", category: "Seguranca", icon: LockKeyhole, accent: "from-emerald-600 to-teal-400" },
@@ -67,7 +71,7 @@ export default function PdfToolsWorkspace({
   jobs: PdfProcessingJob[];
   busy: boolean;
   onBack: () => void;
-  onProcess: (operation: PdfOperation, documentIds: string[], options: Record<string, unknown>) => void;
+  onProcess: (operation: PdfOperation, documentIds: string[], options: Record<string, unknown>) => Promise<PdfProcessingJob | undefined>;
   onImported: (document: UploadedDocument) => void;
   onDelete: (document: UploadedDocument) => Promise<boolean>;
 }) {
@@ -79,10 +83,12 @@ export default function PdfToolsWorkspace({
   const [pages, setPages] = useState("");
   const [password, setPassword] = useState("");
   const [degrees, setDegrees] = useState(90);
-  const [fontSize, setFontSize] = useState(18);
-  const [color, setColor] = useState("#1266F1");
-  const [xPercent, setXPercent] = useState(10);
-  const [yPercent, setYPercent] = useState(12);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
+  const [activeJobId, setActiveJobId] = useState("");
+  const activeJob = jobs.find(job => job.id === activeJobId);
+  const resultDocuments = documents.filter(document => activeJob?.outputDocumentIds.includes(document.id));
+  const processing = activeJob?.status === "queued" || activeJob?.status === "processing";
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -103,21 +109,24 @@ export default function PdfToolsWorkspace({
     ? documents.filter((item) => item.mimeType.startsWith("image/"))
     : documents.filter((item) => item.mimeType === "application/pdf");
   const selectedDocument = documents.find((item) => item.id === selectedIds[0]);
-  const validSelection = needsMany ? selectedIds.length >= 2 : operation === "images_to_pdf" ? selectedIds.length > 0 : selectedIds.length === 1;
+  const selectedDocumentId = selectedDocument?.id;
+  const validSelection = needsMany ? operation === "compare" ? selectedIds.length === 2 : selectedIds.length >= 2 : operation === "images_to_pdf" ? selectedIds.length > 0 : selectedIds.length === 1;
 
   useEffect(() => {
-    if (!selectedDocument) {
-      setPreviewUrl("");
+    if (!selectedDocumentId) {
+      setPreviewUrl(""); setPreviewBlob(null); setPreviewLoading(false);
       return undefined;
     }
+    setPreviewUrl(""); setPreviewBlob(null);
     let active = true;
     let objectUrl = "";
     setPreviewLoading(true);
-    downloadImportedDocument(selectedDocument.id)
+    downloadImportedDocument(selectedDocumentId)
       .then((blob) => {
         if (!active) return;
         objectUrl = URL.createObjectURL(blob);
         setPreviewUrl(objectUrl);
+        setPreviewBlob(blob);
       })
       .catch(() => active && setError("Nao foi possivel abrir a visualizacao deste arquivo."))
       .finally(() => active && setPreviewLoading(false));
@@ -125,10 +134,11 @@ export default function PdfToolsWorkspace({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [selectedDocument]);
+  }, [selectedDocumentId]);
 
   function chooseTool(value: PdfOperation) {
     setOperation(value);
+    setActiveJobId("");
     setSelectedIds([]);
     setMessage("");
     setError("");
@@ -159,7 +169,7 @@ export default function PdfToolsWorkspace({
         imported.push(response.document);
         onImported(response.document);
       }
-      setSelectedIds(imported.map((item) => item.id));
+      setSelectedIds((needsMany || operation === "images_to_pdf" ? imported : imported.slice(0, 1)).map((item) => item.id));
       setMessage(`${imported.length} arquivo(s) importado(s) para o workspace.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Nao foi possivel importar os arquivos.");
@@ -168,15 +178,15 @@ export default function PdfToolsWorkspace({
     }
   }
 
-  function process() {
+  async function process() {
     if (!operation || !validSelection) return;
     const options: Record<string, unknown> = {};
-    if (["split", "reorder", "delete_pages", "rotate", "edit_pdf"].includes(operation) && pages.trim()) options.pages = pages.trim();
-    if (["watermark", "edit_pdf"].includes(operation)) options.text = text.trim();
+    if (["split", "reorder", "delete_pages", "rotate"].includes(operation) && pages.trim()) options.pages = pages.trim();
+    if (operation === "watermark") options.text = text.trim();
     if (["add_password", "remove_password"].includes(operation)) options.password = password;
     if (operation === "rotate") options.degrees = degrees;
-    if (operation === "edit_pdf") Object.assign(options, { fontSize, color, xPercent, yPercent });
-    onProcess(operation, selectedIds, options);
+    const job = await onProcess(operation, selectedIds, options);
+    if (job) setActiveJobId(job.id);
   }
 
   async function removeDocument(document: UploadedDocument) {
@@ -186,6 +196,21 @@ export default function PdfToolsWorkspace({
     setSelectedIds((current) => current.filter((id) => id !== document.id));
     setMessage(`O arquivo "${document.title}" foi excluido.`);
   }
+
+  async function saveVisualEdits(edits: PdfEdits) {
+    const response = await onProcess("edit_pdf", selectedIds, { editor: edits });
+    if (!response) throw new Error("Não foi possível iniciar o processamento.");
+    setActiveJobId(response.id);
+    for (let attempt = 0; attempt < 220; attempt++) {
+      const { job } = await loadPdfJob(response.id);
+      if (job.status === "completed" && job.outputDocumentIds.length) return downloadImportedDocument(job.outputDocumentIds[0]);
+      if (job.status === "failed" || job.status === "cancelled") throw new Error(job.message);
+      await new Promise(resolve => window.setTimeout(resolve, 1500));
+    }
+    throw new Error("O processamento continua em andamento. Acompanhe o resultado nesta ferramenta.");
+  }
+
+  if (editorOpen && previewBlob && selectedDocument) return <PdfVisualEditor blob={previewBlob} title={selectedDocument.title} onClose={() => setEditorOpen(false)} onSave={saveVisualEdits}/>;
 
   if (!capabilities) return <main className="clean-workspace pdf-workspace min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 sm:p-6"><LoadingState label="Carregando o Norium PDF Studio..." /></main>;
 
@@ -202,6 +227,8 @@ export default function PdfToolsWorkspace({
       <div className="mx-auto max-w-[1720px] p-4 sm:p-6">
         {error && <StatusBanner tone="error">{error}</StatusBanner>}
         {message && <StatusBanner tone="success">{message}</StatusBanner>}
+        {activeJob && <div role="status" className="my-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"><strong>{processing ? "Preparando seu arquivo…" : activeJob.status === "completed" ? "Processamento concluído" : "Processamento interrompido"}</strong><p className="mt-1 text-xs text-[var(--text-secondary)]">{activeJob.message}</p>{processing && <progress className="mt-3 w-full accent-emerald-500" max={100} value={activeJob.progress}/>}</div>}
+        {resultDocuments.map(document => <PdfResult key={document.id} document={document}/>)}
         {!operation ? (
           <>
             <section className="pdf-library-intro relative overflow-hidden rounded-3xl border border-blue-400/20 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,.28),transparent_42%),linear-gradient(135deg,rgba(15,23,42,.98),rgba(5,25,55,.95))] px-5 py-10 text-center shadow-2xl sm:px-8 sm:py-14">
@@ -215,15 +242,15 @@ export default function PdfToolsWorkspace({
             <section className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">{availableTools.map((tool) => { const item = toolMeta[tool.id]; const Icon = item.icon; return <button key={tool.id} onClick={() => chooseTool(tool.id)} className="pdf-tool-card group min-h-48 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 text-left shadow-[var(--glass-shadow)] transition hover:-translate-y-1 hover:border-blue-400/40 hover:shadow-2xl"><span className={`grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br ${item.accent} text-white shadow-lg`}><Icon size={22} /></span><span className="mt-5 block text-xs font-black uppercase tracking-[.12em] text-blue-300">{item.category}</span><strong className="mt-1 block text-lg font-black">{item.title}</strong><span className="mt-2 block text-sm font-semibold leading-6 text-[var(--text-secondary)]">{item.description}</span><span className="mt-4 inline-flex items-center gap-1 text-xs font-black text-cyan-300 opacity-0 transition group-hover:opacity-100">Abrir ferramenta <ArrowLeft className="rotate-180" size={13} /></span></button>; })}</section>
             {!availableTools.length && <EmptyState title="Nenhuma ferramenta encontrada" description="Tente outra categoria ou termo de busca." icon={Search} className="mt-5 min-h-64" />}
 
-            <section className="mt-8 grid gap-4 lg:grid-cols-[1.4fr_1fr]"><article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex items-center justify-between"><div><h3 className="font-black">Processamentos recentes</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Resultados permanecem em Documentos.</p></div><Sparkles className="text-cyan-300" size={20} /></div><div className="mt-4 space-y-2">{jobs.slice(0, 5).map((job) => <div key={job.id} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3"><span className="min-w-0"><strong className="block truncate text-sm">{job.label}</strong><small className="text-[var(--text-secondary)]">{job.message}</small></span><span className="rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-black text-blue-300">{job.status}</span></div>)}{!jobs.length && <p className="py-5 text-center text-sm font-semibold text-[var(--text-secondary)]">Nenhum processamento realizado.</p>}</div></article><article className="rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-5"><ShieldCheck className="text-emerald-300" size={24} /><h3 className="mt-4 font-black">Arquivos privados</h3><p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">As ferramentas nativas processam os documentos no backend do Norium. Operacoes externas aparecem somente quando um servico privado autorizado estiver configurado.</p></article></section>
+            <section className="mt-8 grid gap-4 lg:grid-cols-[1.4fr_1fr]"><article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex items-center justify-between"><div><h3 className="font-black">Processamentos recentes</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Visualize e baixe os resultados aqui.</p></div><Sparkles className="text-cyan-300" size={20} /></div><div className="mt-4 space-y-2">{jobs.slice(0, 5).map((job) => <div key={job.id} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3"><span className="min-w-0"><strong className="block truncate text-sm">{job.label}</strong><small className="text-[var(--text-secondary)]">{job.message}</small></span><span className="rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-black text-blue-300">{job.status}</span>{job.status === "completed" && <Button size="sm" onClick={() => setActiveJobId(job.id)}>Ver resultado</Button>}</div>)}{!jobs.length && <p className="py-5 text-center text-sm font-semibold text-[var(--text-secondary)]">Nenhum processamento realizado.</p>}</div></article><article className="rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-5"><ShieldCheck className="text-emerald-300" size={24} /><h3 className="mt-4 font-black">Arquivos privados</h3><p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">As ferramentas nativas processam os documentos no backend do Norium. Operacoes externas aparecem somente quando um servico privado autorizado estiver configurado.</p></article></section>
           </>
         ) : (
           <section className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)_340px]">
             <aside className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)]"><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br ${meta?.accent} text-white`}>{SelectedToolIcon && <SelectedToolIcon size={20} />}</span><div><span className="text-xs font-black uppercase tracking-wide text-blue-300">{meta?.category}</span><h2 className="font-black">{meta?.title}</h2></div></div><p className="mt-3 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{meta?.description}</p><div className="mt-5 border-t border-[var(--border)] pt-4"><div className="flex items-center justify-between"><h3 className="text-xs font-black uppercase text-[var(--text-secondary)]">Arquivos</h3><button onClick={() => fileInput.current?.click()} className="text-xs font-black text-cyan-300">+ Importar</button></div><div className="mt-3 max-h-[52dvh] space-y-2 overflow-auto">{compatibleDocuments.map((document) => { const checked = selectedIds.includes(document.id); return <div key={document.id} className={`flex items-center gap-1 rounded-xl border pr-2 ${checked ? "border-blue-400/50 bg-blue-500/10" : "border-[var(--border)] bg-[var(--background)]"}`}><label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 p-3"><input type={needsMany || operation === "images_to_pdf" ? "checkbox" : "radio"} checked={checked} name="pdf-studio-document" onChange={() => toggleDocument(document.id)} /><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-300">{document.mimeType.startsWith("image/") ? <FileImage size={17} /> : <FileText size={17} />}</span><span className="min-w-0"><strong className="block truncate text-xs">{document.title}</strong><small className="text-[var(--text-secondary)]">{fileSize(document.size)}</small></span></label><button type="button" disabled={busy} onClick={() => void removeDocument(document)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-40" aria-label={`Excluir ${document.title}`} title="Excluir PDF"><Trash2 size={15} /></button></div>; })}{!compatibleDocuments.length && <p className="py-8 text-center text-xs font-semibold text-[var(--text-secondary)]">Importe um arquivo compativel.</p>}</div></div></aside>
 
-            <article className="min-h-[68dvh] overflow-hidden rounded-2xl border border-[var(--border)] bg-slate-950 shadow-2xl"><header className="flex items-center justify-between border-b border-white/10 bg-slate-900 px-4 py-3 text-white"><span className="min-w-0"><strong className="block truncate text-sm">{selectedDocument?.title || "Visualizacao do documento"}</strong><small className="text-slate-400">{selectedDocument ? fileSize(selectedDocument.size) : "Selecione um arquivo ao lado"}</small></span><span className="flex items-center gap-1">{previewUrl && <a href={previewUrl} download={selectedDocument?.originalFileName} className="rounded-lg p-2 text-cyan-300 hover:bg-white/10" aria-label="Baixar arquivo original"><Download size={17} /></a>}{selectedDocument && <button type="button" disabled={busy} onClick={() => void removeDocument(selectedDocument)} className="rounded-lg p-2 text-rose-300 hover:bg-rose-500/10 disabled:opacity-40" aria-label={`Excluir ${selectedDocument.title}`} title="Excluir PDF"><Trash2 size={17} /></button>}</span></header>{selectedDocument?.securityReviewRequired && <div className="flex items-center gap-2 border-b border-amber-300/20 bg-amber-300/10 px-4 py-2 text-xs font-bold text-amber-100"><ShieldCheck size={14} /> Arquivo importado em visualizacao isolada; revisao de seguranca pendente.</div>}<div className="relative grid min-h-[62dvh] place-items-center overflow-auto bg-[radial-gradient(circle_at_top,#27354b,#0f172a_65%)] p-4">{previewLoading ? <LoadingState label="Preparando visualizacao..." /> : !previewUrl ? <div className="text-center text-slate-400"><FileText className="mx-auto" size={44} /><p className="mt-3 text-sm font-bold">Selecione um PDF para visualizar.</p></div> : selectedDocument?.mimeType.startsWith("image/") ? <img src={previewUrl} alt={selectedDocument.title} className="max-h-[58dvh] max-w-full rounded bg-white object-contain shadow-2xl" /> : <div className="relative h-[62dvh] w-full max-w-4xl overflow-hidden rounded bg-white shadow-2xl"><iframe title={`Visualizacao de ${selectedDocument?.title}`} src={previewUrl} className="h-full w-full" />{operation === "edit_pdf" && text && <span className="pointer-events-none absolute whitespace-nowrap font-medium" style={{ left: `${xPercent}%`, top: `${yPercent}%`, color, fontSize: `${Math.max(8, fontSize) * 0.72}px` }}>{text}</span>}</div>}</div></article>
+            <article className="min-h-[68dvh] overflow-hidden rounded-2xl border border-[var(--border)] bg-slate-950 shadow-2xl"><header className="flex items-center justify-between border-b border-white/10 bg-slate-900 px-4 py-3 text-white"><span className="min-w-0"><strong className="block truncate text-sm">{selectedDocument?.title || "Visualizacao do documento"}</strong><small className="text-slate-400">{selectedDocument ? fileSize(selectedDocument.size) : "Selecione um arquivo ao lado"}</small></span><span className="flex items-center gap-1">{previewUrl && <a href={previewUrl} download={selectedDocument?.originalFileName} className="rounded-lg p-2 text-cyan-300 hover:bg-white/10" aria-label="Baixar arquivo original"><Download size={17} /></a>}{selectedDocument && <button type="button" disabled={busy} onClick={() => void removeDocument(selectedDocument)} className="rounded-lg p-2 text-rose-300 hover:bg-rose-500/10 disabled:opacity-40" aria-label={`Excluir ${selectedDocument.title}`} title="Excluir PDF"><Trash2 size={17} /></button>}</span></header>{selectedDocument?.securityReviewRequired && <div className="flex items-center gap-2 border-b border-amber-300/20 bg-amber-300/10 px-4 py-2 text-xs font-bold text-amber-100"><ShieldCheck size={14} /> Arquivo importado em visualizacao isolada; revisao de seguranca pendente.</div>}<div className="relative grid min-h-[62dvh] place-items-center overflow-auto bg-[radial-gradient(circle_at_top,#27354b,#0f172a_65%)] p-4">{previewLoading ? <LoadingState label="Preparando visualizacao..." /> : !previewUrl ? <div className="text-center text-slate-400"><FileText className="mx-auto" size={44} /><p className="mt-3 text-sm font-bold">Selecione um PDF para visualizar.</p></div> : selectedDocument?.mimeType.startsWith("image/") ? <img src={previewUrl} alt={selectedDocument.title} className="max-h-[58dvh] max-w-full rounded bg-white object-contain shadow-2xl" /> : <div className="relative h-[62dvh] w-full max-w-4xl overflow-hidden rounded bg-white shadow-2xl"><iframe title={`Visualizacao de ${selectedDocument?.title}`} src={previewUrl} className="h-full w-full" /></div>}</div></article>
 
-            <aside className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)]"><h3 className="font-black">Configurar resultado</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">A visualizacao permanece ao centro durante a configuracao.</p><div className="mt-5 space-y-4">{["split", "reorder", "delete_pages", "rotate", "edit_pdf"].includes(operation) && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Paginas<input value={pages} onChange={(event) => setPages(event.target.value)} placeholder="Vazio = todas; ex.: 1,3,4" className="commercial-field mt-2" /></label>}{["watermark", "edit_pdf"].includes(operation) && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Texto<input value={text} onChange={(event) => setText(event.target.value)} className="commercial-field mt-2" /></label>}{operation === "rotate" && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Rotacao<select value={degrees} onChange={(event) => setDegrees(Number(event.target.value))} className="commercial-field mt-2"><option value={90}>90 graus</option><option value={180}>180 graus</option><option value={270}>270 graus</option><option value={-90}>-90 graus</option></select></label>}{["add_password", "remove_password"].includes(operation) && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Senha autorizada<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="commercial-field mt-2" /></label>}{operation === "edit_pdf" && <><div className="grid grid-cols-2 gap-3"><label className="text-xs font-black uppercase text-[var(--text-secondary)]">Tamanho<input type="number" min={8} max={96} value={fontSize} onChange={(event) => setFontSize(Number(event.target.value))} className="commercial-field mt-2" /></label><label className="text-xs font-black uppercase text-[var(--text-secondary)]">Cor<input type="color" value={color} onChange={(event) => setColor(event.target.value)} className="commercial-field mt-2 p-1" /></label></div><label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Posicao horizontal: {xPercent}%<input type="range" min={2} max={90} value={xPercent} onChange={(event) => setXPercent(Number(event.target.value))} className="mt-2 w-full" /></label><label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Posicao vertical: {yPercent}%<input type="range" min={2} max={90} value={yPercent} onChange={(event) => setYPercent(Number(event.target.value))} className="mt-2 w-full" /></label></>}</div><div className="mt-6 border-t border-[var(--border)] pt-4"><div className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]"><strong className="text-cyan-200">Motor:</strong> {capabilities?.operations.find((item) => item.id === operation)?.engine === "native" ? "Norium nativo" : "Stirling privado"}. O original permanece preservado e o resultado sera salvo como novo documento.</div><Button className="mt-4 w-full" loading={busy} disabled={!validSelection || (["add_password", "remove_password"].includes(operation) && password.length < 8)} onClick={process} icon={<Wrench size={15} />}>Processar {meta?.title}</Button></div></aside>
+            <aside className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)]"><h3 className="font-black">{operation === "edit_pdf" ? "Editor visual" : "Configurar resultado"}</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">A visualizacao permanece ao centro durante a configuracao.</p><div className="mt-5 space-y-4" hidden={operation === "edit_pdf"}>{["split", "reorder", "delete_pages", "rotate"].includes(operation) && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Paginas<input value={pages} onChange={(event) => setPages(event.target.value)} placeholder="Vazio = todas; ex.: 1,3,4" className="commercial-field mt-2" /></label>}{operation === "watermark" && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Texto<input value={text} onChange={(event) => setText(event.target.value)} className="commercial-field mt-2" /></label>}{operation === "rotate" && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Rotacao<select value={degrees} onChange={(event) => setDegrees(Number(event.target.value))} className="commercial-field mt-2"><option value={90}>90 graus</option><option value={180}>180 graus</option><option value={270}>270 graus</option><option value={-90}>-90 graus</option></select></label>}{["add_password", "remove_password"].includes(operation) && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Senha autorizada<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="commercial-field mt-2" /></label>}</div><div className="mt-6 border-t border-[var(--border)] pt-4"><div className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]"><strong className="text-cyan-200">Motor:</strong> {capabilities?.operations.find((item) => item.id === operation)?.engine === "native" ? "Norium nativo" : "Stirling privado"}. O original permanece preservado e o resultado sera salvo como novo documento.</div><Button className="mt-4 w-full" loading={busy || processing} disabled={!validSelection || (operation === "edit_pdf" && !previewBlob) || (["add_password", "remove_password"].includes(operation) && password.length < 8)} onClick={() => operation === "edit_pdf" ? setEditorOpen(true) : void process()} icon={<Wrench size={15} />}>{operation === "edit_pdf" ? "Abrir editor de PDF" : `Processar ${meta?.title}`}</Button></div></aside>
           </section>
         )}
       </div>

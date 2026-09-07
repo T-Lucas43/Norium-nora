@@ -24,6 +24,7 @@ from app.core.tenant import get_user_db_path
 from app.modules.commercial.repository import STORE_LOCK, read_store, write_store
 from app.modules.commercial.schemas import DocumentImportRequest, ImportedDocumentUpdate, PdfProcessRequest
 from app.modules.commercial.stirling_pdf import StirlingPdfClient, StirlingPdfError
+from app.modules.commercial.pdf_editor import PdfEdits, apply_pdf_edits
 
 
 NATIVE_PDF_OPERATIONS = {
@@ -70,7 +71,7 @@ OPERATION_OPTION_KEYS: dict[str, set[str]] = {
     "rotate": {"pages", "degrees"},
     "compress": {"level"},
     "watermark": {"text", "opacity", "fontSize", "rotation"},
-    "edit_pdf": {"text", "pages", "xPercent", "yPercent", "fontSize", "color"},
+    "edit_pdf": {"text", "pages", "xPercent", "yPercent", "fontSize", "color", "editor"},
     "add_password": {"password"},
     "remove_password": {"password"},
     "ocr": {"languages", "deskew", "clean"},
@@ -85,7 +86,12 @@ def _validated_options(operation: str, options: dict[str, Any]) -> tuple[dict[st
     normalized: dict[str, Any] = {}
     transient: dict[str, Any] = {}
     for key, value in options.items():
-        if key == "password":
+        if key == "editor":
+            try:
+                normalized[key] = PdfEdits.model_validate(value).model_dump()
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="Dados de edicao invalidos. Verifique os elementos e as imagens.") from exc
+        elif key == "password":
             password = str(value)
             if len(password) > 200:
                 raise HTTPException(status_code=422, detail="A senha informada e muito longa.")
@@ -545,6 +551,8 @@ def _overlay_page(width: float, height: float, draw: Any) -> Any:
 
 
 def _process_native(operation: str, paths: list[Path], options: dict[str, Any]) -> list[tuple[bytes, str, str]]:
+    if operation == "edit_pdf" and "editor" in options:
+        return [(apply_pdf_edits(paths[0].read_bytes(), options["editor"]), "pdf-editado.pdf", "application/pdf")]
     password = str(options.get("password") or "")
     if operation == "images_to_pdf":
         output = io.BytesIO()

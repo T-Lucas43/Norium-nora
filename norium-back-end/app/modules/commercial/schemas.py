@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator
 
 from app.shared.schemas import StrictModel
+from app.modules.commercial.pdf_editor import PdfEdits
 
 
 ProposalStatus = Literal[
@@ -122,6 +123,7 @@ class ProposalBriefRequest(StrictModel):
 
 
 class ProposalUpdate(StrictModel):
+    pdfEdits: PdfEdits | None = None
     expectedVersion: int | None = Field(default=None, ge=1)
     clientId: str | None = Field(default=None, max_length=180)
     brainstormId: str | None = Field(default=None, max_length=180)
@@ -185,6 +187,7 @@ class ContractCreate(StrictModel):
 
 
 class ContractUpdate(StrictModel):
+    pdfEdits: PdfEdits | None = None
     expectedVersion: int | None = Field(default=None, ge=1)
     title: str | None = Field(default=None, min_length=2, max_length=220)
     contentHtml: str | None = Field(default=None, max_length=350_000)

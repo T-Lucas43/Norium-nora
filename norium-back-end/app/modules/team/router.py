@@ -84,6 +84,7 @@ def _positive_env_int(name: str, default: int) -> int:
 MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024
 MAX_ATTACHMENT_TOTAL_BYTES = 24 * 1024 * 1024
 MAX_ATTACHMENTS_PER_MESSAGE = 8
+MESSAGE_HISTORY_LIMIT = 300
 MEETING_REMINDER_MINUTES = 10
 CALL_RECONCILE_INTERVAL_SECONDS = 5
 RECORDING_MAINTENANCE_INTERVAL_SECONDS = max(
@@ -109,11 +110,18 @@ class SendTeamMessagePayload(StrictModel):
     recipientId: str | None = None
     text: str = Field(default="", max_length=2000)
     attachments: list[AttachmentPayload] = Field(default=[], max_length=MAX_ATTACHMENTS_PER_MESSAGE)
+    mentionedUserIds: list[str] = Field(default_factory=list, max_length=100)
 
 
 class SendSubteamMessagePayload(StrictModel):
     text: str = Field(default="", max_length=2000)
     attachments: list[AttachmentPayload] = Field(default=[], max_length=MAX_ATTACHMENTS_PER_MESSAGE)
+    mentionedUserIds: list[str] = Field(default_factory=list, max_length=100)
+
+
+class PinThreadPayload(StrictModel):
+    threadId: str = Field(min_length=1, max_length=250)
+    pinned: bool
 
 
 class SendMeetingMessagePayload(SendSubteamMessagePayload):
@@ -464,6 +472,85 @@ async def thread_participant_ids(
         require_subteam_member(subteam, user_id)
         return {str(item) for item in subteam.get("memberIds", []) if str(item) in team_members}
     raise HTTPException(status_code=400, detail="Conversa invalida.")
+
+
+async def accessible_threads(user: dict[str, Any], store: dict[str, Any]) -> list[dict[str, Any]]:
+    user_id = str(user["id"])
+    threads = [{"id": "team", "scope": "team"}]
+    threads.extend(
+        {"id": normalize_thread_id("direct", user_id, member_id), "scope": "direct", "recipientId": member_id}
+        for member_id in sorted(await valid_team_member_ids(user)) if member_id != user_id
+    )
+    threads.extend(
+        {"id": f"subteam:{item['id']}", "scope": "subteam", "subteamId": item["id"]}
+        for item in store.get("subteams", []) if user_id in item.get("memberIds", [])
+    )
+    return threads
+
+
+@router.get("/threads")
+async def list_threads(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    store = await asyncio.to_thread(read_chat_store, team_id_for(user))
+    user_id = str(user["id"])
+    threads = await accessible_threads(user, store)
+    by_id = {thread["id"]: thread for thread in threads}
+    pins = store.get("pinnedThreadsByUser", {}).get(user_id, [])
+    for thread in threads:
+        thread.update(pinned=thread["id"] in pins, unreadCount=0, lastMessage=None)
+    visible_counts: dict[str, int] = {}
+    for message in reversed(store.get("messages", [])):
+        thread = by_id.get(message.get("threadId"))
+        if not thread or not message_visible(message, user_id):
+            continue
+        # O contador acompanha o mesmo histórico disponível ao abrir a conversa.
+        count = visible_counts.get(thread["id"], 0)
+        if count >= MESSAGE_HISTORY_LIMIT:
+            continue
+        visible_counts[thread["id"]] = count + 1
+        if thread["lastMessage"] is None:
+            thread["lastMessage"] = {
+                "id": message["id"], "text": short_text(message.get("text") or "Arquivo compartilhado"),
+                "senderId": message.get("senderId"), "senderName": message.get("senderName"),
+                "createdAt": message.get("createdAt"),
+            }
+        if message.get("senderId") != user_id and user_id not in message_read_by(message):
+            thread["unreadCount"] += 1
+    return {"threads": threads}
+
+
+@router.patch("/threads/pin")
+async def pin_thread(payload: PinThreadPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    team_id, user_id = team_id_for(user), str(user["id"])
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        allowed = {thread["id"] for thread in await accessible_threads(user, store)}
+        if payload.threadId not in allowed:
+            raise HTTPException(status_code=404, detail="Conversa não encontrada.")
+        preferences = store.setdefault("pinnedThreadsByUser", {})
+        pins = set(preferences.get(user_id, [])) & allowed
+        if payload.pinned:
+            pins.add(payload.threadId)
+        else:
+            pins.discard(payload.threadId)
+        preferences[user_id] = sorted(pins)
+        await asyncio.to_thread(write_chat_store, team_id, store)
+    await manager.send_to_users(team_id, {user_id}, {"type": "TEAM_THREADS_UPDATED"})
+    return {"threadId": payload.threadId, "pinned": payload.pinned}
+
+
+async def validated_mentions(text: str, requested_ids: list[str], participants: set[str], user: dict[str, Any]) -> list[dict[str, str]]:
+    requested = set(requested_ids)
+    if not requested <= participants:
+        raise HTTPException(status_code=400, detail="Mencione apenas participantes desta conversa.")
+    mentions = []
+    for member in await visible_team_members(user) if requested else []:
+        member_id = str(member["id"])
+        name = str(member.get("nome") or "").strip()
+        if member_id in requested and name and re.search(r"(?<!\w)@" + re.escape(name) + r"(?!\w)", text, re.IGNORECASE):
+            mentions.append({"userId": member_id, "name": name})
+    return mentions
 
 
 def can_manage_subteam(user: dict[str, Any], subteam: dict[str, Any]) -> bool:
@@ -939,7 +1026,7 @@ async def list_messages(
         item for item in store.get("messages", [])
         if isinstance(item, dict) and item.get("threadId") == thread_id and message_visible(item, user_id)
     ]
-    return {"threadId": thread_id, "messages": messages[-300:]}
+    return {"threadId": thread_id, "messages": messages[-MESSAGE_HISTORY_LIMIT:]}
 
 
 @router.get("/subteams/{subteam_id}/messages")
@@ -953,7 +1040,7 @@ async def list_subteam_messages(subteam_id: str, user: dict[str, Any] = Depends(
         item for item in store.get("messages", [])
         if isinstance(item, dict) and item.get("threadId") == thread_id and message_visible(item, user_id)
     ]
-    return {"threadId": thread_id, "messages": messages[-300:]}
+    return {"threadId": thread_id, "messages": messages[-MESSAGE_HISTORY_LIMIT:]}
 
 
 @router.post("/messages/read")
@@ -1003,6 +1090,7 @@ async def persist_message(
     text: str,
     attachment_payloads: list[AttachmentPayload],
     user: dict[str, Any],
+    mentioned_user_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     require_team_chat(user)
     user_id = str(user["id"])
@@ -1012,6 +1100,8 @@ async def persist_message(
     team_id = team_id_for(user)
     store = await asyncio.to_thread(read_chat_store, team_id)
     participant_ids = await thread_participant_ids(user, store, scope, recipient_id, subteam_id)
+    mentions = await validated_mentions(text, mentioned_user_ids or [], participant_ids, user)
+    mentioned_ids = {item["userId"] for item in mentions} - {user_id}
     thread_id = normalize_thread_id(scope, user_id, recipient_id, subteam_id)
     attachments = save_attachments(attachment_payloads)
     nora_mentioned = scope == "team" and has_nora_mention(text)
@@ -1032,6 +1122,8 @@ async def persist_message(
             "noraMentioned": nora_mentioned,
             "noraTriggered": nora_triggered,
             "readBy": {},
+            "mentions": mentions,
+            "mentionedUserIds": sorted(mentioned_ids),
         },
         "createdAt": now_iso(),
     }
@@ -1059,9 +1151,18 @@ async def persist_message(
             "attachments": len(attachments),
             "recipientId": recipient_id,
             "subteamId": subteam_id,
+            "mentionedUserIds": sorted(mentioned_ids),
         },
-        user_ids=participant_ids,
+        user_ids=participant_ids - mentioned_ids,
     )
+    if mentioned_ids:
+        await record_team_event(
+            team_id, f"{message['senderName']} mencionou você", short_text(message["text"], 300),
+            {"action": "team_member_mentioned", "messageId": message["id"], "senderId": user_id,
+             "senderName": message["senderName"], "threadId": thread_id, "scope": scope,
+             "recipientId": recipient_id, "subteamId": subteam_id, "mentionedUserIds": sorted(mentioned_ids)},
+            user_ids=mentioned_ids,
+        )
     from app.services.system_email import notify_team_participants
     await notify_team_participants(participant_ids - {user_id}, message["id"], "Nova mensagem no chat da equipe")
     if nora_triggered:
@@ -1085,6 +1186,7 @@ async def send_message(payload: SendTeamMessagePayload, user: dict[str, Any] = D
         text=payload.text,
         attachment_payloads=payload.attachments,
         user=user,
+        mentioned_user_ids=payload.mentionedUserIds,
     )
 
 
@@ -1101,6 +1203,7 @@ async def send_subteam_message(
         text=payload.text,
         attachment_payloads=payload.attachments,
         user=user,
+        mentioned_user_ids=payload.mentionedUserIds,
     )
 
 

@@ -102,7 +102,8 @@ function notificationForEvent(event: OmnichannelEvent, read = false): SystemNoti
   let title = event.title || "Nova atividade no Norium";
   let severity: SystemNotificationSeverity = "info";
 
-  if (event.source === "equipe" && action === "team_message_created") title = "Nova mensagem no chat da equipe";
+  if (event.source === "equipe" && action === "team_member_mentioned") title = `${event.metadata?.senderName || "Um membro"} mencionou você`;
+  else if (event.source === "equipe" && action === "team_message_created") title = "Nova mensagem no chat da equipe";
   else if (event.source === "equipe" && action === "team_meeting_scheduled") title = "Reunião agendada no chat da equipe";
   else if (event.source === "equipe" && action === "team_meeting_reminder") {
     title = "Reunião em 10 minutos";
@@ -273,7 +274,7 @@ export function useWebSockets(
   }, [activeSystemToastId, dismissSystemToast]);
 
   const notifyTeamMessage = useCallback(
-    (message: { id?: string; senderId?: string; senderName?: string; text?: string; metadata?: Record<string, unknown> }) => {
+    (message: { id?: string; threadId?: string; senderId?: string; senderName?: string; text?: string; metadata?: Record<string, unknown> }) => {
       if (currentUserIdRef.current !== userId) return;
       const messageId = String(message.id || "");
       if (messageId && seenTeamMessageIdsRef.current.has(messageId)) return;
@@ -284,20 +285,26 @@ export function useWebSockets(
           if (oldest) seenTeamMessageIdsRef.current.delete(oldest);
         }
       }
-      if (message.senderId === userId || teamChatOpenRef.current || ["call_started", "call_ended", "meeting_scheduled"].includes(String(message.metadata?.action || ""))) return;
+      const mentioned = Array.isArray(message.metadata?.mentionedUserIds) && message.metadata.mentionedUserIds.includes(userId);
+      if (message.senderId === userId || (teamChatOpenRef.current && !mentioned) || ["call_started", "call_ended", "meeting_scheduled"].includes(String(message.metadata?.action || ""))) return;
 
       setTeamChatUnreadCount((current) => current + 1);
       pushSystemNotification({
-        title: "Nova mensagem no chat da equipe",
+        title: mentioned ? `${message.senderName || "Um membro"} mencionou você` : "Nova mensagem no chat da equipe",
         description: `${message.senderName || "Equipe"}: ${message.text || "Uma nova mensagem foi enviada."}`,
         severity: "info",
         metadata: {
           source: "equipe",
-          action: "team_message_created",
+          action: mentioned ? "team_member_mentioned" : "team_message_created",
           messageId,
+          threadId: message.threadId || message.metadata?.threadId,
           senderId: message.senderId,
+          mentionedUserIds: message.metadata?.mentionedUserIds,
         },
       });
+      if (mentioned && "Notification" in window && document.visibilityState !== "visible" && Notification.permission === "granted") {
+        new Notification(`${message.senderName || "Um membro"} mencionou você`, { body: message.text || "Abra o chat da equipe para responder.", tag: `norium-mention-${messageId}` });
+      }
     },
     [pushSystemNotification, userId],
   );
@@ -546,13 +553,14 @@ export function useWebSockets(
             if (payload.event.source === "whatsapp") {
               window.dispatchEvent(new CustomEvent("norium:whatsapp-event", { detail: payload.event }));
             }
-            const isTeamMessage = payload.event.source === "equipe" && payload.event.metadata?.action === "team_message_created";
+            const isTeamMessage = payload.event.source === "equipe" && ["team_message_created", "team_member_mentioned"].includes(String(payload.event.metadata?.action || ""));
             if (isTeamMessage) {
               notifyTeamMessage({
                 id: String(payload.event.metadata?.messageId || payload.event.id),
                 senderId: String(payload.event.metadata?.senderId || ""),
                 senderName: String(payload.event.metadata?.senderName || "Equipe"),
                 text: payload.event.description,
+                metadata: payload.event.metadata,
               });
             } else if (eventShouldNotify(payload.event)) {
               pushSystemNotification(notificationForEvent(payload.event));

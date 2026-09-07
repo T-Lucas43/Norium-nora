@@ -132,6 +132,7 @@ export default function SystemNotificationsCenter({
 
   function notificationTarget(notification: SystemNotification) {
     const metadata = notification.metadata || {};
+    if (metadata.source === "equipe" && metadata.threadId) return "Chat da Equipe";
     const context = `${metadata.source || ""} ${metadata.channel || ""} ${metadata.integration || ""} ${metadata.action || ""} ${notification.title}`.toLocaleLowerCase("pt-BR");
     if (metadata.approvalId || context.includes("aprova")) return "Controle";
     if (context.includes("gmail") || context.includes("e-mail") || context.includes("email")) return "E-mails";
@@ -256,7 +257,11 @@ export default function SystemNotificationsCenter({
                       {onNavigate && (
                         <Button
                          
-                          onClick={() => onNavigate(notificationTarget(notification))}
+                          onClick={() => {
+                            const tab = notificationTarget(notification);
+                            if (tab === "Chat da Equipe") window.dispatchEvent(new CustomEvent("norium:deep-link", { detail: { tab, entityType: "team-message", entityId: String(notification.metadata?.messageId || ""), metadata: notification.metadata } }));
+                            else onNavigate(tab);
+                          }}
                           className="py-1 text-[var(--text-secondary)] hover:bg-[var(--background)] hover:text-[var(--text)]"
                         >
                           Abrir <ChevronRight size={13} />

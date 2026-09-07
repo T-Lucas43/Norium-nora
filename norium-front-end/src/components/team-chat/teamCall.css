@@ -1,0 +1,61 @@
+.team-call-professional.team-call-shell {
+  --team-call-background:#0c0d10;--team-call-panel:#16171c;--team-call-control:#22242c;
+  --team-call-control-hover:#30333d;--team-call-border:#30323c;--team-call-primary:#2563eb;
+  --background:#0c0d10;--surface:#16171c;--surface-hover:#22242c;--border:#30323c;
+  --text:#f3f4f6;--text-secondary:#a6a9b4;--primary:#2563eb;
+  color-scheme:dark;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.team-call-professional .team-call-header {min-height:72px;padding:14px 24px;box-shadow:none!important;flex-shrink:0;}
+.team-call-professional .team-call-header>div>p:first-child {font-size:16px;font-weight:600;letter-spacing:-.02em;}
+.team-call-professional .team-call-header>div>p+p {margin-top:5px;color:#a6a9b4;}
+.team-call-room-badge {display:flex;align-items:center;gap:8px;padding:8px 12px;background:#22242c;border:1px solid #30323c;border-radius:8px;color:#b4c9ff;font-size:12px;}
+.team-call-professional .team-call-stage {padding:20px;gap:16px;}
+.team-call-professional .team-call-waiting {border:1px solid #282b34!important;background:#111216!important;border-radius:16px;padding:24px;}
+.team-call-professional .team-call-waiting>div {max-width:440px;}
+.team-call-professional .team-call-waiting .team-call-primary-button {width:100px;height:100px;border-radius:28px;background:#222936!important;border:1px solid #3a465d;color:#a8c2ff!important;box-shadow:none;font-size:30px;}
+.team-call-professional .team-call-waiting p:first-of-type {font-size:24px;font-weight:600;letter-spacing:-.03em;margin-top:24px;}
+.team-call-professional .team-call-waiting p+p {line-height:24px;font-size:13px;color:#a6a9b4;}
+.team-call-toolbar {position:relative;flex-shrink:0;border-top:1px solid #30323c;background:#16171c;padding:12px 20px max(12px,env(safe-area-inset-bottom));z-index:30;}
+.team-call-toolbar nav {display:flex;justify-content:center;gap:6px;overflow-x:auto;}
+.team-call-professional .team-call-top-control {min-width:62px;min-height:55px;border-radius:10px;background:transparent;border:1px solid transparent;color:#c3c6d0;gap:5px;font-size:10px;font-weight:500;padding:8px;flex-shrink:0;}
+.team-call-professional .team-call-top-control:hover {background:#252730;color:#fff;}
+.team-call-professional .team-call-top-control.team-call-active {background:#243655;border-color:#395582;color:#bfd4ff;}
+.team-call-professional .team-call-top-control.team-call-danger {background:#352127;color:#fda4af;border-color:#59313b;}
+.team-call-professional button[aria-label="Encerrar reunião"],.team-call-professional button[aria-label="Sair da reunião"] {background:#be123c!important;border-color:#e11d48;color:#fff!important;margin-left:12px;}
+.team-call-professional .team-call-top-control[role="status"] {color:#6ee7b7;}
+.team-call-professional .team-call-top-control[aria-label*="offline"],.team-call-professional .team-call-top-control[aria-label*="Sem conexão"] {color:#fda4af;}
+.team-call-professional .team-call-popover {top:auto;bottom:calc(100% + 12px);background:#16171c!important;border-color:#383b46!important;max-height:calc(100dvh - 190px);overflow-y:auto;border-radius:12px;box-shadow:0 16px 50px #0008;}
+.team-call-professional .team-call-side-panel {background:#16171c!important;min-height:0;border-color:#30323c;}
+.team-call-professional .team-call-side-panel h3 {font-size:14px;font-weight:600;}
+.team-call-professional .team-call-side-panel input,.team-call-professional .team-call-side-panel textarea {color:#f3f4f6;background:transparent;}
+.team-call-professional .team-call-remote-tile {border-color:#30323c;border-radius:14px;background:#111216;}
+.team-call-professional .team-call-participant-controls {background:#16171c;border-color:#30323c;padding:10px 12px;}
+.team-call-professional .team-call-participant-controls button[aria-pressed="true"] {background:#243655;color:#bfd4ff;}
+.team-call-professional .team-call-local-previews {bottom:20px;right:24px;}
+.team-call-professional .team-call-primary-button {background:#2563eb!important;color:#fff!important;box-shadow:none;}
+.team-call-professional button:focus-visible {outline:2px solid #93b4ff;outline-offset:3px;}
+.team-call-professional button:disabled {opacity:1;color:#a6a9b4!important;cursor:not-allowed;}
+.team-call-professional-invite.team-call-incoming-card {background:#16171c!important;border:1px solid #363944!important;border-radius:18px;padding:32px;color:#f3f4f6;--text-secondary:#a6a9b4;}
+.team-call-professional-invite .team-call-control-surface {background:#232b3a;color:#a8c2ff;border:1px solid #36445e;border-radius:20px;}
+.team-call-professional-invite .team-call-accent-text {color:#93b4ff;letter-spacing:.08em;}
+.team-call-professional-invite h2 {font-weight:600;}
+.team-call-professional-invite .team-call-primary-button {background:#047857!important;}
+@media(max-width:1100px){.team-call-toolbar nav{justify-content:flex-start;}.team-call-professional .team-call-stage{padding:12px;}.team-call-professional .team-call-side-panel{width:min(42vw,360px);}}
+@media(max-width:640px){
+ .team-call-professional .team-call-header{min-height:64px;padding:10px 14px;gap:10px;}
+ .team-call-room-badge{font-size:10px;padding:6px 8px;white-space:nowrap;}
+ .team-call-professional .team-call-header>div>p:first-child{font-size:14px;}
+ .team-call-toolbar{padding:8px 8px max(8px,env(safe-area-inset-bottom));}
+ .team-call-toolbar nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px;overflow:visible;}
+ .team-call-professional .team-call-top-control{min-width:0;min-height:46px;padding:5px 2px;font-size:9px;}
+ .team-call-professional .team-call-top-control>span{display:block!important;line-height:12px;}
+ .team-call-professional button[aria-label="Encerrar reunião"],.team-call-professional button[aria-label="Sair da reunião"]{margin-left:0;}
+ .team-call-professional .team-call-waiting{padding:20px;}
+ .team-call-professional .team-call-waiting p:first-of-type{font-size:20px;}
+ .team-call-professional .team-call-waiting .team-call-primary-button{width:72px;height:72px;font-size:24px;border-radius:20px;}
+ .team-call-professional .team-call-stage{padding:8px;}
+ .team-call-professional .team-call-side-panel{position:absolute;right:0;top:64px;bottom:180px;width:100%;z-index:25;}
+ .team-call-professional .team-call-popover{max-height:calc(100dvh - 260px);right:8px;}
+ .team-call-professional .team-call-local-previews{bottom:12px;right:12px;}
+}

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarDays, CalendarPlus, CheckCheck, Download, FileText, FolderOpen, Hash, ImageIcon, Images, Paperclip, Phone, PlayCircle, Plus, Send, Settings2, Users, UserRound, Video, Volume2, X } from "lucide-react";
+import { ArrowLeft, AtSign, CalendarDays, CalendarPlus, CheckCheck, Download, FileText, FolderOpen, Hash, ImageIcon, Images, Paperclip, Phone, PlayCircle, Send, Settings2, MessageSquare, PanelRight, Pin, PinOff, Users, UserRound, Video, Volume2, X } from "lucide-react";
 import { canUse, type AuthSession, type NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authToken } from "../../utils/api";
 import { downloadWithAuth } from "../../utils/download";
+import TeamConversationList from "./TeamConversationList";
+import { mentionParts, mentionQuery, type TeamConversation } from "./teamChatConversations";
+import "./teamChat.css";
 import NoraAvatar from "../layout/NoraAvatar";
 import Button from "../shared/Button";
 import TeamCallOverlay from "./TeamCallOverlay";
@@ -62,6 +65,8 @@ type TeamChatDrawerProps = {
   onOpenNora?: (prompt?: string) => void;
   onOpenCalendar?: () => void;
   variant?: "drawer" | "page";
+  initialThreadId?: string | null;
+  onInitialThreadHandled?: () => void;
 };
 
 const API_URL = `${apiBaseUrl()}/api/team-chat`;
@@ -249,11 +254,11 @@ function NoraMessageContent({ message }: { message: TeamMessage }) {
   const parsed = parseNoraContent(message);
 
   if (!parsed) {
-    const parts = message.text.split(/(@nora\b)/gi);
+    const parts = mentionParts(message.text, message.metadata?.mentions);
     return (
       <p className="whitespace-pre-wrap leading-5">
         {parts.map((part, index) =>
-          /^@nora$/i.test(part) ? (
+          index % 2 === 1 ? (
             <span key={`${part}-${index}`} className="team-chat-mention-token">
               {part}
             </span>
@@ -492,10 +497,18 @@ function SubteamEditorDialog({
   );
 }
 
-export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenCalendar, variant = "drawer" }: TeamChatDrawerProps) {
+export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpenCalendar, variant = "drawer", initialThreadId, onInitialThreadHandled }: TeamChatDrawerProps) {
   const [members, setMembers] = useState<NoriumUser[]>([]);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [subteams, setSubteams] = useState<Subteam[]>([]);
+  const [conversationSelected, setConversationSelected] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [threads, setThreads] = useState<TeamConversation[]>([]);
+  const [threadsLoading, setThreadsLoading] = useState(true);
+  const [pinningId, setPinningId] = useState("");
+  const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
+  const [cursor, setCursor] = useState(0);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const [scope, setScope] = useState<TeamThreadScope>("team");
   const [recipientId, setRecipientId] = useState("");
   const [subteamId, setSubteamId] = useState("");
@@ -515,15 +528,40 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastScrolledThreadRef = useRef("");
   const handledIncomingCallRef = useRef("");
   const markedMessageIdsRef = useRef<Set<string>>(new Set());
 
-  const recipientOptions = useMemo(
-    () => members.filter((member) => member.id !== session.user.id && member.status === "ativo"),
-    [members, session.user.id],
-  );
+  const selectedThreadId = !conversationSelected ? "" : scope === "team" ? "team" : scope === "subteam" ? `subteam:${subteamId}` : `direct:${[session.user.id, recipientId].sort().join(":")}`;
+  const selectedThreadRef = useRef(selectedThreadId);
+  selectedThreadRef.current = selectedThreadId;
+  const loadSequence = useRef(0);
+  const threadsSequence = useRef(0);
+  const drafts = useRef(new Map<string, { text: string; files: File[]; mentionedUserIds: string[] }>());
+  const draftRef = useRef({ text, files, mentionedUserIds });
+  draftRef.current = { text, files, mentionedUserIds };
+  const selectConversation = useCallback((next: { scope: TeamThreadScope; recipientId?: string | null; subteamId?: string | null } | null) => {
+    const nextId = !next ? "" : next.scope === "team" ? "team" : next.scope === "subteam" ? `subteam:${next.subteamId}` : `direct:${[session.user.id, next.recipientId].sort().join(":")}`;
+    if (nextId === selectedThreadRef.current) return;
+    if (selectedThreadRef.current) drafts.current.set(selectedThreadRef.current, draftRef.current);
+    selectedThreadRef.current = nextId;
+    loadSequence.current += 1;
+    setConversationSelected(Boolean(next));
+    setScope(next?.scope || "team");
+    setRecipientId(next?.recipientId || "");
+    setSubteamId(next?.subteamId || "");
+    const draft = drafts.current.get(nextId);
+    setText(draft?.text || "");
+    setFiles(draft?.files || []);
+    setMentionedUserIds(draft?.mentionedUserIds || []);
+    setMessages([]);
+    setError("");
+    setLoading(Boolean(next));
+    setContentTab("chat");
+    setDetailsOpen(false);
+    setMentionDismissed(true);
+  }, [session.user.id]);
   const memberById = useMemo(() => new Map(members.map((member) => [member.id, member])), [members]);
   const activeMembers = useMemo(() => members.filter((member) => member.status === "ativo"), [members]);
   const activeMemberIds = useMemo(() => new Set(activeMembers.map((member) => member.id)), [activeMembers]);
@@ -532,10 +570,6 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     [activeMemberIds, onlineUserIds],
   );
   const actualOnlineUserIdSet = useMemo(() => new Set(actualOnlineUserIds), [actualOnlineUserIds]);
-  const onlineMembers = useMemo(
-    () => activeMembers.filter((member) => actualOnlineUserIdSet.has(member.id)),
-    [activeMembers, actualOnlineUserIdSet],
-  );
   const selectedMember = selectedMemberId ? memberById.get(selectedMemberId) || null : null;
   const readReceiptsMessage = readReceiptsMessageId ? messages.find((message) => message.id === readReceiptsMessageId) || null : null;
   const selectedSubteam = useMemo(() => subteams.find((item) => item.id === subteamId) || null, [subteamId, subteams]);
@@ -558,12 +592,55 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   );
   const threadAttachments = useMemo(() => messages.flatMap((message) => message.attachments || []), [messages]);
   const photoAttachments = useMemo(() => threadAttachments.filter(isImageAttachment), [threadAttachments]);
-  const mentionMatch = useMemo(() => text.match(NORA_MENTION_AT_END), [text]);
-  const showNoraSuggestion =
-    scope === "team" &&
-    canUse(session.user, "nora") &&
-    !mentionDismissed &&
-    Boolean(mentionMatch);
+  const mentionMatch = useMemo(() => mentionQuery(text, cursor), [text, cursor]);
+  const mentionOptions = useMemo(() => {
+    if (!mentionMatch || mentionDismissed) return [];
+    const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+    const query = normalize(mentionMatch.query);
+    const options = conversationMembers.filter((member) => member.id !== session.user.id && normalize(member.nome).includes(query))
+      .map((member) => ({ id: member.id, name: member.nome, avatar: member.fotoUrl || "" }));
+    if (scope === "team" && canUse(session.user, "nora") && "nora".includes(query)) options.push({ id: "nora", name: "nora", avatar: "nora" });
+    return options.slice(0, 8);
+  }, [mentionMatch, mentionDismissed, conversationMembers, scope, session.user]);
+  const showMentionSuggestions = mentionOptions.length > 0;
+  const loadThreads = useCallback(async () => {
+    const sequence = ++threadsSequence.current;
+    try {
+      const response = await fetch(`${API_URL}/threads`, { headers: authHeaders(undefined, session.token) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Falha ao carregar conversas.");
+      if (sequence === threadsSequence.current) setThreads(data.threads || []);
+    } catch (loadError) { if (sequence === threadsSequence.current) setError(loadError instanceof Error ? loadError.message : "Falha ao carregar conversas."); }
+    finally { if (sequence === threadsSequence.current) setThreadsLoading(false); }
+  }, [session.token]);
+  const conversationItems = useMemo(() => threads.map((thread) => ({ ...thread,
+    title: thread.scope === "team" ? "Time todo" : thread.scope === "subteam" ? subteams.find((item) => item.id === thread.subteamId)?.name || "Subequipe" : memberById.get(thread.recipientId || "")?.nome || "Membro",
+    avatar: thread.scope === "direct" ? memberById.get(thread.recipientId || "")?.fotoUrl : undefined,
+    online: thread.scope === "direct" && actualOnlineUserIdSet.has(thread.recipientId || ""),
+  })), [threads, subteams, memberById, actualOnlineUserIdSet]);
+  useEffect(() => {
+    if (threadsLoading || !selectedThreadId || threads.some((thread) => thread.id === selectedThreadId)) return;
+    selectConversation(null);
+    setError("Esta conversa não está mais disponível para você.");
+  }, [threads, threadsLoading, selectedThreadId, selectConversation]);
+  async function togglePin(thread: TeamConversation) {
+    if (pinningId) return;
+    setPinningId(thread.id);
+    try {
+      const response = await fetch(`${API_URL}/threads/pin`, { method: "PATCH", headers: authHeaders({ "Content-Type": "application/json" }, session.token), body: JSON.stringify({ threadId: thread.id, pinned: !thread.pinned }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Não foi possível fixar a conversa.");
+      setThreads((current) => current.map((item) => item.id === thread.id ? { ...item, pinned: data.pinned } : item));
+    } catch (pinError) { setError(pinError instanceof Error ? pinError.message : "Não foi possível fixar a conversa."); }
+    finally { setPinningId(""); }
+  }
+  useEffect(() => {
+    if (!open || !initialThreadId || threadsLoading) return;
+    const thread = threads.find((item) => item.id === initialThreadId);
+    if (thread) selectConversation(thread);
+    else setError("Esta conversa não está mais disponível para você.");
+    onInitialThreadHandled?.();
+  }, [open, initialThreadId, threadsLoading, threads, selectConversation, onInitialThreadHandled]);
 
   const loadMembers = useCallback(async () => {
     try {
@@ -596,18 +673,26 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       .filter(Boolean);
     if (!messageIds.length) return;
     try {
-      const response = await fetch(`${API_URL}/messages/read`, {
-        method: "POST",
-        headers: authHeaders({ "Content-Type": "application/json" }, session.token),
-        body: JSON.stringify({ messageIds }),
-      });
-      if (response.ok) messageIds.forEach((messageId) => markedMessageIdsRef.current.add(messageId));
+      for (let offset = 0; offset < messageIds.length; offset += 100) {
+        const batch = messageIds.slice(offset, offset + 100);
+        const response = await fetch(`${API_URL}/messages/read`, {
+          method: "POST",
+          headers: authHeaders({ "Content-Type": "application/json" }, session.token),
+          body: JSON.stringify({ messageIds: batch }),
+        });
+        if (response.ok) batch.forEach((messageId) => markedMessageIdsRef.current.add(messageId));
+      }
+      void loadThreads();
     } catch {
       // A confirmacao atrasada sera tentada novamente quando a conversa atualizar.
     }
-  }, [session.token, session.user.id]);
+  }, [loadThreads, session.token, session.user.id]);
 
   const loadMessages = useCallback(async () => {
+    const requestedThread = selectedThreadId;
+    const sequence = ++loadSequence.current;
+    if (!requestedThread) { setMessages([]); setLoading(false); return; }
+    const isCurrent = () => selectedThreadRef.current === requestedThread && loadSequence.current === sequence;
     const params = new URLSearchParams({ scope });
     if (scope === "direct" && recipientId) params.set("recipientId", recipientId);
     if (scope === "subteam" && subteamId) params.set("subteamId", subteamId);
@@ -619,33 +704,36 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       setMessages([]);
       return;
     }
-      setLoading(true);
+    setLoading(true);
     try {
       const messagesUrl = scope === "subteam" ? `${API_URL}/subteams/${subteamId}/messages` : `${API_URL}/messages?${params.toString()}`;
       const response = await fetch(messagesUrl, { headers: authHeaders(undefined, session.token) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || "Falha ao carregar chat interno.");
+      if (!isCurrent()) return;
       const loadedMessages = (data.messages || []) as TeamMessage[];
-      setMessages(loadedMessages);
+      setMessages((current) => [...loadedMessages, ...current.filter((message) => message.threadId === requestedThread && !loadedMessages.some((item) => item.id === message.id))].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
       void markMessagesRead(loadedMessages);
       setError("");
-      onUnread?.(0);
+
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Falha ao carregar chat interno.");
+      if (isCurrent()) setError(loadError instanceof Error ? loadError.message : "Falha ao carregar chat interno.");
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [markMessagesRead, onUnread, recipientId, scope, session.token, subteamId]);
+  }, [markMessagesRead, recipientId, scope, session.token, subteamId, selectedThreadId]);
 
   useEffect(() => {
     if (!open) return;
     void loadMembers();
     void loadSubteams();
-  }, [loadMembers, loadSubteams, open]);
+    void loadThreads();
+  }, [loadMembers, loadSubteams, loadThreads, open]);
 
   useEffect(() => {
     if (!open) return;
     void loadMessages();
+    return () => { loadSequence.current += 1; };
   }, [loadMessages, open]);
 
   useEffect(() => {
@@ -653,24 +741,29 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     if (!incoming || handledIncomingCallRef.current === incoming.callId) return;
     handledIncomingCallRef.current = incoming.callId;
     const nextScope = incoming.thread.scope;
-    setScope(nextScope);
-    if (nextScope === "direct") setRecipientId(incoming.thread.recipientId || incoming.fromUserId);
-    if (nextScope === "subteam") setSubteamId(incoming.thread.subteamId || "");
+    selectConversation({
+      scope: nextScope,
+      recipientId: nextScope === "direct" ? incoming.thread.recipientId || incoming.fromUserId : null,
+      subteamId: nextScope === "subteam" ? incoming.thread.subteamId : null,
+    });
     setContentTab("chat");
-  }, [call.incoming]);
+  }, [call.incoming, selectConversation]);
 
-  const socketHandlersRef = useRef({ open, scope, recipientId, subteamId, loadSubteams, markMessagesRead, onUnread });
-  socketHandlersRef.current = { open, scope, recipientId, subteamId, loadSubteams, markMessagesRead, onUnread };
+  const socketHandlersRef = useRef({ open, selectedThreadId, loadSubteams, loadThreads, markMessagesRead, onUnread });
+  socketHandlersRef.current = { open, selectedThreadId, loadSubteams, loadThreads, markMessagesRead, onUnread };
 
   useTeamSocketEvents((payload: TeamSocketEvent) => {
     const handlers = socketHandlersRef.current;
     if (payload.type === "PRESENCE" || payload.type === "CONNECTED") setOnlineUserIds(payload.onlineUserIds || []);
-    if (payload.type === "SUBTEAM_UPDATED") void handlers.loadSubteams();
+    if (payload.type === "SUBTEAM_UPDATED") {
+      void handlers.loadSubteams();
+      void handlers.loadThreads();
+    }
+    if (payload.type === "TEAM_THREADS_UPDATED" || payload.type === "CONNECTED") void handlers.loadThreads();
     if (payload.type === "TEAM_CHAT_MESSAGE" && payload.message) {
       const message = payload.message as TeamMessage;
-      const expectedThread = handlers.scope === "team" ? "team" : handlers.scope === "subteam"
-        ? `subteam:${handlers.subteamId}` : `direct:${[session.user.id, handlers.recipientId].sort().join(":")}`;
-      if (message.threadId === expectedThread) {
+      void handlers.loadThreads();
+      if (handlers.selectedThreadId && message.threadId === handlers.selectedThreadId) {
         setMessages((current) => [...current.filter((item) => item.id !== message.id), message]);
         if (handlers.open) void handlers.markMessagesRead([message]);
       } else if (handlers.open && !["call_started", "call_ended"].includes(String(message.metadata?.action || ""))) handlers.onUnread?.(1);
@@ -682,7 +775,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   });
 
   useEffect(() => {
-    if (!open || loading) return undefined;
+    if (!open || loading || !selectedThreadId) return undefined;
     const threadKey = scope === "team" ? "team" : scope === "subteam" ? `subteam:${subteamId}` : `direct:${recipientId}`;
     const initialForThread = lastScrolledThreadRef.current !== threadKey;
     const frame = window.requestAnimationFrame(() => {
@@ -692,9 +785,11 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       lastScrolledThreadRef.current = threadKey;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [loading, messages.length, open, recipientId, scope, subteamId]);
+  }, [loading, messages.length, open, recipientId, scope, subteamId, selectedThreadId]);
 
   async function sendMessage(overrideText?: string, overrideFiles?: File[]) {
+    const outgoingThreadId = selectedThreadRef.current;
+    if (!outgoingThreadId) return;
     const outgoingText = overrideText ?? text;
     const outgoingFiles = overrideFiles ?? (overrideText === undefined ? files : []);
     const outgoingScope = scope;
@@ -710,21 +805,26 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
         headers: authHeaders({ "Content-Type": "application/json" }, session.token),
         body: JSON.stringify(outgoingScope === "subteam" ? {
           text: outgoingText,
+          mentionedUserIds: overrideText === undefined ? mentionedUserIds : [],
           attachments,
         } : {
           scope: outgoingScope,
           recipientId: outgoingRecipientId,
           text: outgoingText,
+          mentionedUserIds: overrideText === undefined ? mentionedUserIds : [],
           attachments,
         }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || "Falha ao enviar mensagem.");
-      setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
-      if (overrideText === undefined && overrideFiles === undefined) {
-        setText("");
-        setFiles([]);
+      if (selectedThreadRef.current === outgoingThreadId) {
+        setMessages((current) => [...current.filter((item) => item.id !== data.message.id), data.message]);
+        if (overrideText === undefined && overrideFiles === undefined && draftRef.current.text === outgoingText && draftRef.current.files === outgoingFiles) {
+          setText(""); setFiles([]); setMentionedUserIds([]);
+        }
       }
+      if (drafts.current.get(outgoingThreadId)?.text === outgoingText) drafts.current.delete(outgoingThreadId);
+      void loadThreads();
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Falha ao enviar mensagem.");
     } finally {
@@ -746,9 +846,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.detail || "Falha ao salvar subequipe.");
       await loadSubteams();
-      setScope("subteam");
-      setSubteamId(data.subteam.id);
-      setContentTab("chat");
+      await loadThreads();
+      selectConversation({ scope: "subteam", subteamId: data.subteam.id });
       setSubteamEditor(null);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Falha ao salvar subequipe.");
@@ -801,23 +900,25 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
     }
   }
 
-  function selectNoraMention() {
-    const match = text.match(NORA_MENTION_AT_END);
-    if (!match || typeof match.index !== "number") return;
-    const leadingSpace = match[1] || "";
-    const mentionStart = match.index + leadingSpace.length;
-    const nextText = `${text.slice(0, mentionStart)}@nora `;
+  function selectMention(option: { id: string; name: string }) {
+    if (!mentionMatch) return;
+    const token = `@${option.name} `;
+    const nextText = text.slice(0, mentionMatch.start) + token + text.slice(mentionMatch.end);
+    const nextCursor = mentionMatch.start + token.length;
     setText(nextText);
+    setCursor(nextCursor);
+    if (option.id !== "nora") setMentionedUserIds((current) => Array.from(new Set([...current, option.id])));
     setMentionDismissed(true);
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(nextText.length, nextText.length);
-    });
+    requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(nextCursor, nextCursor); });
   }
 
-  const canStartCall = !call.busy && !call.active && (scope === "team" || (scope === "direct" && Boolean(recipientId)) || (scope === "subteam" && Boolean(selectedSubteam)));
-  const selectedThreadId = scope === "team" ? "team" : scope === "subteam" ? `subteam:${subteamId}` : `direct:${[session.user.id, recipientId].sort().join(":")}`;
+  const canStartCall = conversationSelected && !call.busy && !call.active && (scope === "team" || (scope === "direct" && Boolean(recipientId)) || (scope === "subteam" && Boolean(selectedSubteam)));
+  const selectedConversation = threads.find((item) => item.id === selectedThreadId);
   const activeMeeting = call.availableCalls.find((meeting) => meeting.threadId === selectedThreadId);
+  const startOrJoinCall = useCallback(
+    () => activeMeeting ? callCommands.join(activeMeeting) : startCall(),
+    [activeMeeting, callCommands, startCall],
+  );
   const conversationMemberCount = conversationMembers.length;
   const conversationOnlineCount = conversationMembers.filter((member) => actualOnlineUserIdSet.has(member.id)).length;
 
@@ -830,74 +931,29 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           exit={variant === "drawer" ? { x: 420, opacity: 0 } : { opacity: 0 }}
           transition={{ type: "spring", stiffness: 260, damping: 28 }}
           className={variant === "drawer"
-            ? "team-chat-drawer fixed right-4 top-20 z-[95] flex h-[min(760px,calc(100dvh-104px))] w-[390px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/50 backdrop-blur-2xl"
-            : "team-chat-drawer team-chat-page mx-4 mb-4 mt-3 min-h-0 overflow-hidden rounded-lg border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/35"
+            ? `team-chat-drawer team-chat-professional ${conversationSelected ? "has-conversation" : "no-conversation"} fixed right-4 top-20 z-[95] flex h-[min(760px,calc(100dvh-104px))] w-[390px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-[var(--border)] text-[var(--text)] shadow-2xl shadow-black/50 backdrop-blur-2xl`
+            : `team-chat-drawer team-chat-page team-chat-professional ${conversationSelected ? "has-conversation" : "no-conversation"} ${detailsOpen ? "with-details" : ""} mx-4 mb-4 mt-3 min-h-0 overflow-hidden rounded-lg border border-[var(--border)] text-[var(--text)]`
           }
         >
-          <header className="team-chat-header flex h-16 shrink-0 items-center justify-between border-b border-[var(--border)] px-4">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="team-chat-header-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg">
-                <Users size={17} />
-              </span>
-              <span className="min-w-0">
-                <p className="truncate text-sm font-bold">Chat da equipe</p>
-                <p className="text-xs font-semibold text-[var(--text-secondary)]">{actualOnlineUserIds.length} online agora</p>
-              </span>
-            </div>
-            <div className="flex items-center gap-1">
-              {onOpenCalendar && <Button variant="ghost" size="sm" iconOnly onClick={onOpenCalendar} aria-label="Abrir calendario"><CalendarDays size={17} /></Button>}
-              <Button variant="ghost" size="sm" iconOnly onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} aria-label="Agendar reunião" title="Agendar reunião"><CalendarPlus size={17} /></Button>
-              <Button variant="ghost" size="sm" iconOnly disabled={!canStartCall} onClick={() => void startCall()} aria-label={activeMeeting ? "Ingressar na reunião" : "Iniciar reunião"}><Video size={17} /></Button>
-              {variant === "drawer" ? (
-                <Button variant="ghost" size="sm" iconOnly onClick={onClose}><X size={18} /></Button>
-              ) : (
-                <Button variant="secondary" size="sm" onClick={onClose}>Equipe</Button>
-              )}
-            </div>
+          <header className="team-chat-header">
+            <div className="team-chat-heading"><span className="team-chat-heading-icon"><MessageSquare size={20} /></span><div><h1>Chat da equipe</h1><p><i />{actualOnlineUserIds.length} online · Colabore em tempo real</p></div></div>
+            <div className="team-chat-header-actions">{onOpenCalendar && <Button variant="ghost" size="sm" iconOnly onClick={onOpenCalendar} aria-label="Abrir calendário" title="Abrir calendário"><CalendarDays size={17} /></Button>}{variant === "drawer" ? <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar chat"><X size={18} /></Button> : <Button variant="secondary" size="sm" onClick={onClose} icon={<Users size={15} />}>Equipe</Button>}</div>
           </header>
-
-          <div className="team-chat-scope grid grid-cols-2 gap-2 border-b border-[var(--border)] p-3">
-            <button onClick={() => { setScope("team"); setContentTab("chat"); }} className={`h-10 rounded-xl text-xs font-bold transition ${scope === "team" ? "team-chat-primary-control" : "team-chat-secondary-control"}`}>
-              <Users size={15} className="mr-2 inline" /> Time todo
-            </button>
-            <select
-              value={scope === "direct" ? recipientId : ""}
-              onChange={(event) => {
-                setScope("direct");
-                setRecipientId(event.target.value);
-                setContentTab("chat");
-              }}
-              className="team-chat-select h-10 rounded-xl border border-[var(--border)] px-3 text-xs font-bold outline-none"
-            >
-              <option value="">Mensagem direta</option>
-              {recipientOptions.map((member) => (
-                <option key={member.id} value={member.id}>
-                  {member.nome}
-                </option>
-              ))}
-            </select>
-            {subteams.map((subteam) => (
-              <button key={subteam.id} type="button" onClick={() => { setScope("subteam"); setSubteamId(subteam.id); setContentTab("chat"); }} className={`flex h-10 items-center gap-2 rounded-xl px-3 text-left text-xs font-bold transition ${scope === "subteam" && subteamId === subteam.id ? "team-chat-primary-control" : "team-chat-secondary-control"}`}><Hash size={14} /><span className="truncate">{subteam.name}</span></button>
-            ))}
-            <button type="button" onClick={() => setSubteamEditor("new")} className="team-chat-secondary-control flex h-10 items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--border)] text-xs font-bold"><Plus size={14} /> Subequipe</button>
-          </div>
-
-          <div className="team-chat-members border-b border-[var(--border)] px-3 py-2">
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {onlineMembers.map((member) => (
-                <button type="button" key={member.id} onClick={() => setSelectedMemberId(member.id)} className="team-chat-member-chip flex shrink-0 items-center gap-2 rounded-full border border-[var(--border)] px-3 py-1 text-xs font-bold">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                  {member.nome}
-                </button>
-              ))}
-              {!onlineMembers.length && <span className="px-1 py-1 text-xs font-semibold text-[var(--text-secondary)]">Nenhum membro online agora</span>}
-            </div>
-          </div>
-
+          {!conversationSelected && error && <div role="alert" className="team-chat-feedback px-4 py-2 text-xs">{error}</div>}
+          <div className="team-chat-body">
+          <TeamConversationList items={conversationItems} selectedId={selectedThreadId} loading={threadsLoading} pinningId={pinningId} onSelect={selectConversation} onPin={(item) => void togglePin(item)} onCreate={() => setSubteamEditor("new")} />
+          {!conversationSelected ? <main className="team-chat-unselected"><div className="team-chat-welcome-icon"><MessageSquare size={32} /></div><h2>Uma equipe. Boas conversas.</h2><p>Selecione uma conversa para trocar mensagens,<br />compartilhar arquivos e tomar decisões em equipe.</p><div className="team-chat-welcome-hints"><span><Pin size={15} /> Fixe as mais importantes</span><span><AtSign size={16} /> Mencione e notifique pessoas</span></div><Button variant="primary" size="md" onClick={() => selectConversation({ scope: "team" })} icon={<Users size={16} />}>Conversar com o time</Button></main> : <main className="team-chat-conversation">
+          <div className="team-chat-thread-header"><div className="team-chat-thread-title"><button type="button" className="team-icon-button team-chat-back" onClick={() => selectConversation(null)} aria-label="Voltar às conversas"><ArrowLeft size={18} /></button><span className="team-chat-thread-icon">{scope === "team" ? <Users size={19} /> : scope === "subteam" ? <Hash size={19} /> : <UserRound size={19} />}</span><div><h2>{threadTitle}</h2><p>{scope === "direct" ? conversationOnlineCount > 1 ? "Online agora" : "Conversa privada" : `${conversationMemberCount} participantes · ${conversationOnlineCount} online`}</p></div></div><div className="team-chat-thread-actions">
+            {selectedConversation && <button type="button" className={`team-icon-button ${selectedConversation.pinned ? "is-pinned" : ""}`} disabled={Boolean(pinningId)} onClick={() => void togglePin(selectedConversation)} aria-label={selectedConversation.pinned ? "Desafixar conversa atual" : "Fixar conversa atual"} title={selectedConversation.pinned ? "Desafixar conversa" : "Fixar conversa"}>{selectedConversation.pinned ? <PinOff size={16} /> : <Pin size={16} />}</button>}
+            <button type="button" className="team-icon-button" onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} aria-label="Agendar reunião" title="Agendar reunião"><CalendarPlus size={17} /></button>
+            <button type="button" className="team-icon-button team-call-action" disabled={!canStartCall} onClick={() => void startOrJoinCall()} aria-label={activeMeeting ? "Ingressar na reunião" : "Iniciar reunião"} title="Reunião por vídeo"><Video size={18} /></button>
+            <button type="button" className="team-icon-button" onClick={() => setDetailsOpen((current) => !current)} aria-label="Detalhes da conversa" aria-expanded={detailsOpen} title="Detalhes da conversa"><PanelRight size={17} /></button>
+            <button type="button" className="team-icon-button team-chat-deselect" onClick={() => selectConversation(null)} aria-label="Fechar conversa" title="Fechar conversa"><X size={18} /></button>
+          </div></div>
           <nav className="team-chat-tabs flex items-end gap-5 border-b border-[var(--border)] px-4">
-            <button type="button" onClick={() => setContentTab("chat")} className={contentTab === "chat" ? "active" : ""}>Chat</button>
-            <button type="button" onClick={() => setContentTab("files")} className={contentTab === "files" ? "active" : ""}>Arquivos <span>{threadAttachments.length}</span></button>
-            <button type="button" onClick={() => setContentTab("photos")} className={contentTab === "photos" ? "active" : ""}>Fotos <span>{photoAttachments.length}</span></button>
+            <button type="button" aria-pressed={contentTab === "chat"} onClick={() => setContentTab("chat")} className={contentTab === "chat" ? "active" : ""}>Chat</button>
+            <button type="button" aria-pressed={contentTab === "files"} onClick={() => setContentTab("files")} className={contentTab === "files" ? "active" : ""}>Arquivos <span>{threadAttachments.length}</span></button>
+            <button type="button" aria-pressed={contentTab === "photos"} onClick={() => setContentTab("photos")} className={contentTab === "photos" ? "active" : ""}>Fotos <span>{photoAttachments.length}</span></button>
           </nav>
 
           {activeMeeting && <div className="shrink-0 border-b border-[var(--border)] px-4 py-3"><TeamActiveCallCard meeting={activeMeeting} busy={call.busy || Boolean(call.active)} joined={call.active?.callId === activeMeeting.callId} onJoin={() => void callCommands.join(activeMeeting)} /></div>}
@@ -911,7 +967,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                 </div>
               </div>
             )}
-            {contentTab === "chat" && messages.map((message) => {
+            {contentTab === "chat" && !loading && messages.map((message) => {
               const mine = message.senderId === session.user.id;
               const member = memberById.get(message.senderId);
               const senderAvatar = message.senderAvatar || member?.fotoUrl || (message.senderId === "nora" ? "nora" : "");
@@ -920,7 +976,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               return (
                 <div key={message.id} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                   {!mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} />}
-                  <div className={`team-chat-message ${isNora ? "max-w-[86%]" : "max-w-[78%]"} rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "team-chat-message-mine" : "team-chat-message-other"}`}>
+                  <div className={`team-chat-message ${Array.isArray(message.metadata?.mentionedUserIds) && message.metadata.mentionedUserIds.includes(session.user.id) ? "mentions-me" : ""} ${isNora ? "max-w-[86%]" : "max-w-[78%]"} rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "team-chat-message-mine" : "team-chat-message-other"}`}>
                     <div className={`mb-1 flex items-center justify-between gap-3 text-xs font-bold ${mine ? "team-chat-message-meta-mine" : "team-chat-message-meta-other"}`}>
                       <span className="min-w-0 truncate">{message.senderName}</span>
                       <span className="shrink-0 text-right">{formatMessageDateTime(message.createdAt)}</span>
@@ -962,34 +1018,10 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             </div>
           )}
 
-          <AnimatePresence>
-            {contentTab === "chat" && showNoraSuggestion && (
-              <motion.div
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 4 }}
-                className="team-chat-mention-panel shrink-0 border-t border-[var(--border)] px-3 pt-2"
-              >
-                <button
-                  type="button"
-                  onClick={selectNoraMention}
-                  className="team-chat-mention-suggestion flex w-full items-center gap-3 rounded-xl border border-[var(--border)] px-3 py-2 text-left"
-                >
-                  <NoraAvatar className="h-9 w-9 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-bold">Nora</span>
-                    <span className="block truncate text-xs font-semibold text-[var(--text-secondary)]">
-                      Mencionar para responder com o contexto da conversa
-                    </span>
-                  </span>
-                  <span className="team-chat-mention-handle rounded-lg px-2 py-1 text-xs font-bold">@nora</span>
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {contentTab === "chat" && showMentionSuggestions && <div className="team-chat-mention-panel" role="listbox" id="team-mention-options" aria-label="Mencionar participante"><p><AtSign size={14} /> Mencionar na conversa</p>{mentionOptions.map((option, index) => <button key={option.id} id={`team-mention-${index}`} type="button" role="option" aria-selected={index === Math.min(mentionIndex, mentionOptions.length - 1)} className={index === Math.min(mentionIndex, mentionOptions.length - 1) ? "is-active" : ""} onMouseDown={(event) => event.preventDefault()} onClick={() => selectMention(option)}><MessageAvatar name={option.name} avatar={option.avatar} /><span><strong>{option.id === "nora" ? "Nora" : option.name}</strong><small>{option.id === "nora" ? "Assistente da equipe" : "Receberá uma notificação"}</small></span><AtSign size={14} /></button>)}</div>}
 
           {error && (
-            <div className="team-chat-error mx-3 mt-2 shrink-0 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-200">
+            <div role="alert" className="team-chat-error team-chat-feedback mx-3 mt-2 shrink-0 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-200">
               {error}
             </div>
           )}
@@ -997,54 +1029,34 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             <div className="team-chat-error mx-3 mt-2 shrink-0 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-bold text-amber-100">{call.status}</div>
           )}
 
-          {contentTab === "chat" && <footer className="team-chat-footer flex shrink-0 items-center gap-2 border-t border-[var(--border)] p-3">
-            <label className="team-chat-secondary-control grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-xl border border-[var(--border)]" aria-label="Anexar imagem ou arquivo" title="Anexar imagem ou arquivo">
-              <Paperclip size={18} />
-              <input type="file" multiple className="hidden" onChange={(event) => { setFiles((current) => [...current, ...Array.from(event.target.files || [])]); event.currentTarget.value = ""; }} />
-            </label>
-            <input
-              ref={inputRef}
-              value={text}
-              onChange={(event) => {
-                setText(event.target.value);
-                setMentionDismissed(false);
-              }}
+          {contentTab === "chat" && <footer className="team-chat-footer">
+            <div className="team-chat-composer">
+            <textarea ref={inputRef} value={text} rows={2} maxLength={2000} aria-label="Mensagem para a conversa" aria-autocomplete="list" aria-controls={showMentionSuggestions ? "team-mention-options" : undefined} aria-activedescendant={showMentionSuggestions ? `team-mention-${Math.min(mentionIndex, mentionOptions.length - 1)}` : undefined}
+              onChange={(event) => { setText(event.target.value); setCursor(event.target.selectionStart); setMentionDismissed(false); setMentionIndex(0); }}
+              onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
               onKeyDown={(event) => {
-                if (showNoraSuggestion && (event.key === "Enter" || event.key === "Tab")) {
-                  event.preventDefault();
-                  selectNoraMention();
-                  return;
-                }
-                if (showNoraSuggestion && event.key === "Escape") {
-                  event.preventDefault();
-                  setMentionDismissed(true);
-                  return;
-                }
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void sendMessage();
-                }
-              }}
-              placeholder={scope === "team" && canUse(session.user, "nora") ? "Mensagem interna... Use @nora para chamar" : "Mensagem interna..."}
-              className="team-chat-input h-11 min-w-0 flex-1 rounded-xl border border-[var(--border)] px-3 text-sm font-semibold outline-none"
-            />
-            <Button variant="ghost" size="lg" iconOnly
-              onClick={() => void sendMessage()}
-              disabled={sending}
-              className="team-chat-send"
-            >
-              <Send size={18} />
-            </Button>
+                if (event.nativeEvent.isComposing) return;
+                if (showMentionSuggestions && ["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setMentionIndex((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + mentionOptions.length) % mentionOptions.length); return; }
+                if (showMentionSuggestions && (event.key === "Enter" || event.key === "Tab")) { event.preventDefault(); selectMention(mentionOptions[Math.min(mentionIndex, mentionOptions.length - 1)]); return; }
+                if (showMentionSuggestions && event.key === "Escape") { event.preventDefault(); setMentionDismissed(true); return; }
+                if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); }
+              }} placeholder={`Mensagem para ${threadTitle}. Use @ para mencionar.`} className="team-chat-input" />
+            <div className="team-chat-composer-actions"><div>
+              <label className="team-icon-button" aria-label="Anexar imagem ou arquivo" title="Anexar imagem ou arquivo"><Paperclip size={18} /><input type="file" multiple className="sr-only" aria-label="Anexar arquivos" onChange={(event) => { const next = [...files, ...Array.from(event.target.files || [])]; if (next.length > 8) setError("Envie até 8 arquivos por mensagem."); else setFiles(next); event.currentTarget.value = ""; }} /></label>
+              <button type="button" className="team-icon-button" aria-label="Mencionar membro" title="Mencionar membro" onClick={() => { const pos = inputRef.current?.selectionStart ?? text.length; const prefix = pos > 0 && !/\s/.test(text[pos - 1]) ? " @" : "@"; setText(text.slice(0, pos) + prefix + text.slice(pos)); setCursor(pos + prefix.length); setMentionIndex(0); setMentionDismissed(false); requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(pos + prefix.length, pos + prefix.length); }); }}><AtSign size={18} /></button>
+            </div><Button variant="primary" size="sm" onClick={() => void sendMessage()} disabled={sending || (!text.trim() && !files.length)} icon={<Send size={15} />} className="team-chat-send">{sending ? "Enviando..." : "Enviar"}</Button></div>
+            </div><p className="team-chat-composer-hint"><span>Enter envia · Shift + Enter quebra a linha</span><span>{text.length}/2000</span></p>
           </footer>}
-          {variant === "page" && (
+          </main>}
+          {conversationSelected && detailsOpen && (
             <aside className="team-chat-context border-l border-[var(--border)] p-4">
-              <p className="text-xs font-bold uppercase tracking-wide text-blue-400">Detalhes da conversa</p>
+              <div className="team-chat-details-heading"><p>Detalhes da conversa</p><button type="button" className="team-icon-button" onClick={() => setDetailsOpen(false)} aria-label="Fechar detalhes"><X size={16} /></button></div>
               <div className="mt-2 flex items-start justify-between gap-2"><h2 className="text-lg font-black">{threadTitle}</h2>{scope === "subteam" && selectedSubteam && (selectedSubteam.createdBy === session.user.id || session.user.id === (session.user.teamOwnerId || session.user.id) || session.user.systemAdmin) && <Button variant="ghost" size="sm" iconOnly onClick={() => setSubteamEditor(selectedSubteam)} aria-label="Editar subequipe"><Settings2 size={15} /></Button>}</div>
               <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
                 {scope === "team" ? "Canal interno para decisoes, atualizacoes e colaboracao entre todos os membros." : scope === "subteam" ? selectedSubteam?.description || "Comunidade reservada para os membros desta subequipe." : "Conversa reservada entre os participantes selecionados."}
               </p>
-              <div className="mt-4 grid grid-cols-2 gap-2"><Button className="w-full" variant="secondary" size="sm" onClick={() => void startCall()} disabled={!canStartCall} icon={<Video size={14} />}>{activeMeeting ? "Ingressar" : "Iniciar reunião"}</Button><Button className="w-full" variant="ghost" size="sm" onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} icon={<CalendarPlus size={14} />}>Agendar</Button></div>
-              <div className="mt-5 grid gap-2">
+              <div className="mt-4 grid grid-cols-2 gap-2"><Button className="w-full" variant="secondary" size="sm" onClick={() => void startOrJoinCall()} disabled={!canStartCall} icon={<Video size={14} />}>{activeMeeting ? "Ingressar" : "Iniciar reunião"}</Button><Button className="w-full" variant="ghost" size="sm" onClick={() => setMeetingSchedulerOpen(true)} disabled={!canStartCall} icon={<CalendarPlus size={14} />}>Agendar</Button></div>
+              <div className="mt-5 grid grid-cols-2 gap-2">
                 <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
                   <span className="text-xs font-bold text-[var(--text-secondary)]">Participantes</span>
                   <strong className="mt-1 block text-xl">{conversationMemberCount}</strong>
@@ -1073,19 +1085,20 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               <div className="mt-5">
                 <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Membros</p>
                 <div className="mt-3 space-y-2">
-                  {conversationMembers.slice(0, 8).map((member) => (
+                  {conversationMembers.map((member) => (
                     <div key={member.id} className="flex w-full items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2 hover:bg-[var(--surface-hover)]">
                       <button type="button" onClick={() => setSelectedMemberId(member.id)} className="flex min-w-0 flex-1 items-center gap-3 text-left" aria-label={`Ver presença e último acesso de ${member.nome}`}>
                         <MessageAvatar name={member.nome} avatar={member.fotoUrl || ""} />
                         <span className="min-w-0 flex-1"><strong className="block truncate text-xs">{member.nome}</strong><small className={actualOnlineUserIdSet.has(member.id) ? "text-emerald-300" : "text-[var(--text-secondary)]"}>{actualOnlineUserIdSet.has(member.id) ? "Online agora" : "Offline"}</small></span>
                       </button>
-                      {member.id !== session.user.id && <button type="button" onClick={() => { setScope("direct"); setRecipientId(member.id); void startCall({ scope: "direct", title: member.nome, recipientId: member.id, subteamId: null }); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[var(--primary)] hover:bg-[var(--surface)]" aria-label={`Ligar individualmente para ${member.nome}`}><Phone size={15} /></button>}
+                      {member.id !== session.user.id && <button type="button" onClick={() => { selectConversation({ scope: "direct", recipientId: member.id }); void startCall({ scope: "direct", title: member.nome, recipientId: member.id, subteamId: null }); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[var(--primary)] hover:bg-[var(--surface)]" aria-label={`Ligar individualmente para ${member.nome}`}><Phone size={15} /></button>}
                     </div>
                   ))}
                 </div>
               </div>
             </aside>
           )}
+          </div>
           {previewAttachment && <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} token={session.token} />}
           {subteamEditor && <SubteamEditorDialog value={subteamEditor} members={members} currentUserId={session.user.id} saving={subteamSaving} onClose={() => setSubteamEditor(null)} onSave={(input) => void saveSubteam(input)} />}
           {selectedMember && <TeamMemberPresenceDialog
@@ -1093,8 +1106,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             online={actualOnlineUserIdSet.has(selectedMember.id)}
             isCurrentUser={selectedMember.id === session.user.id}
             onClose={() => setSelectedMemberId(null)}
-            onMessage={() => { setScope("direct"); setRecipientId(selectedMember.id); setContentTab("chat"); setSelectedMemberId(null); }}
-            onCall={() => { setSelectedMemberId(null); void startCall({ scope: "direct", title: selectedMember.nome, recipientId: selectedMember.id, subteamId: null }); }}
+            onMessage={() => { selectConversation({ scope: "direct", recipientId: selectedMember.id }); setSelectedMemberId(null); }}
+            onCall={() => { selectConversation({ scope: "direct", recipientId: selectedMember.id }); setSelectedMemberId(null); void startCall({ scope: "direct", title: selectedMember.nome, recipientId: selectedMember.id, subteamId: null }); }}
           />}
           {meetingSchedulerOpen && <TeamMeetingSchedulerDialog
             scopeLabel={threadTitle}

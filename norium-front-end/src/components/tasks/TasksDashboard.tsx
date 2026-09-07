@@ -249,6 +249,22 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   const visibleProjects = activeWorkspaces.filter(workspace => [workspace.name, workspace.description, workspace.responsibleName].join(" ").toLocaleLowerCase("pt-BR").includes(projectQuery.toLocaleLowerCase("pt-BR")));
   const archivedWorkspaces = useMemo(() => workspaces.filter((workspace) => workspace.archived), [workspaces]);
 
+  function switchProject(workspace: TaskWorkspace | null) {
+    taskRequestVersion.current += 1;
+    setSelectedTask(null);
+    setTasks([]);
+    setColumns([]);
+    setLabels([]);
+    setLoading(Boolean(workspace));
+    setShowCreate(false);
+    setShowProjectSettings(false);
+    setMobileSidebarOpen(false);
+    setError("");
+    setNotice("");
+    setFilters({ status: "todas", category: "todas", priority: "todas", label: "todas", due: "todas", q: "" });
+    setActiveWorkspace(workspace);
+  }
+
   const canManageProject = useCallback(
     (workspace: TaskWorkspace | null) => Boolean(workspace && (!workspace.ownerUserId || workspace.ownerUserId === userId)),
     [userId],
@@ -1115,7 +1131,13 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
 
       <main className="tasks-board-main flex min-w-0 flex-1 flex-col">
         <header className="tasks-board-header">
-          <div className="tasks-breadcrumb"><button onClick={() => setActiveWorkspace(null)}><ArrowLeft size={15} />Projetos</button><span>/</span><span>{projectCategoryLabels[activeWorkspace.category]}</span></div>
+          <nav className="tasks-project-navigation" aria-label="Navegação entre projetos">
+            <button type="button" onClick={() => switchProject(null)}><ArrowLeft size={16} />Voltar aos projetos</button>
+            <label><span>Trocar projeto</span><select value={activeWorkspace.id} onChange={(event) => {
+              const workspace = activeWorkspaces.find((item) => item.id === event.target.value);
+              if (workspace && workspace.id !== activeWorkspace.id) switchProject(workspace);
+            }}>{activeWorkspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label>
+          </nav>
           <div className="tasks-board-heading"><div><h1>{activeWorkspace.name}</h1><p>{activeWorkspace.description || "Organize as entregas e acompanhe cada etapa."}</p></div><div className="tasks-heading-actions"><Button iconOnly aria-label="Configurações do projeto" title="Configurações do projeto" disabled={!canManageProject(activeWorkspace)} onClick={() => openProjectSettings(activeWorkspace)}><Settings size={17} /></Button><Button variant="primary" className="tasks-primary" onClick={openNewTask}><Plus size={17} />Nova tarefa</Button></div></div>
           <div className="tasks-metrics"><Metric tone="amber" label="Ativas" value={stats.ativas} /><Metric label="Em andamento" value={stats.andamento} /><Metric tone="emerald" label="Concluídas" value={stats.concluidas} /><Metric label="Vencidas" value={stats.vencidas} alert /></div>
         </header>

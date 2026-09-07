@@ -1,8 +1,11 @@
+import "./automationBuilder.css";
 import AutomationFlowPreview from "./AutomationFlowPreview";
 import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  ArrowUp,
+  ArrowDown,
   Workflow,
   Activity,
   BarChart3,
@@ -518,6 +521,9 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
   const [saving, setSaving] = useState(false);
   const [localMode, setLocalMode] = useState(false);
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [libraryQuery, setLibraryQuery] = useState("");
+  const [inspectorTab, setInspectorTab] = useState<"block" | "settings">("block");
+  const [builderPreview, setBuilderPreview] = useState(false);
   const [builderEditingId, setBuilderEditingId] = useState<string | null>(null);
   const [builderFlow, setBuilderFlow] = useState<AutomationFlow>(() => flowFromFormState(defaultForm));
   const [builderZoom, setBuilderZoom] = useState(0.86);
@@ -565,6 +571,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
 
   useEffect(() => {
     if (!builderOpen) return;
+    setLibraryQuery(""); setInspectorTab("block"); setBuilderPreview(false);
     setBuilderZoom(window.innerWidth <= 720 ? 0.62 : window.innerWidth <= 1200 ? 0.74 : 0.86);
   }, [builderOpen]);
 
@@ -578,7 +585,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
         ...current,
         nodes: current.nodes.map((nodeItem) =>
           nodeItem.id === dragging.id
-            ? { ...nodeItem, x: Math.max(40, Math.min(1320, nextX)), y: Math.max(40, Math.min(560, nextY)) }
+            ? { ...nodeItem, x: Math.max(40, nextX), y: Math.max(40, nextY) }
             : nodeItem,
         ),
       }));
@@ -982,6 +989,16 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     });
   }
 
+  function moveBuilderNode(index: number, direction: number) {
+    const nodes = [...builderFlow.nodes];
+    const target = index + direction;
+    if (index < 1 || target < 1 || target >= nodes.length) return;
+    [nodes[index], nodes[target]] = [nodes[target], nodes[index]];
+    const arranged = nodes.map((node, position) => ({ ...node, x: 40 + position * 290, y: 100 }));
+    setBuilderFlow({ nodes: arranged, connections: connectNodes(arranged) });
+    setForm((current) => ({ ...current, actions: actionsFromFlow({ nodes: arranged, connections: [] }).join(", ") }));
+  }
+
   function validateBuilderFlow() {
     const issues: string[] = [];
     const triggersInFlow = builderFlow.nodes.filter((nodeItem) => nodeItem.kind === "trigger");
@@ -1112,7 +1129,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
 
   if (builderOpen) {
     return (
-      <main className="clean-workspace automation-builder h-full min-h-[calc(100dvh-78px)] overflow-hidden bg-[var(--background)] text-[var(--text)]">
+      <main className="clean-workspace automation-builder professional-automation-builder h-full min-h-[calc(100dvh-78px)] overflow-hidden bg-[var(--background)] text-[var(--text)]">
         <div className="flex h-full min-h-[calc(100dvh-78px)] flex-col">
           <header className="flex shrink-0 flex-col gap-4 border-b border-[var(--border)] bg-[var(--surface)]/92 p-4 backdrop-blur-2xl xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
@@ -1131,6 +1148,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                   Construtor visual
                 </p>
                 <input
+                  aria-label="Nome da automação"
                   value={form.name}
                   onChange={(event) => setForm({ ...form, name: event.target.value })}
                   className="mt-1 w-full max-w-xl bg-transparent text-2xl font-black outline-none"
@@ -1140,11 +1158,12 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
+              <span className="builder-help inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
                 <MousePointer2 size={14} />
                 Clique para inserir, arraste para posicionar
               </span>
-              <Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
+              <span className="builder-status-label">{form.active ? "Ativa ao salvar" : "Desativada"}</span><Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
+              <Button size="lg" onClick={() => setBuilderPreview((current) => !current)} icon={<Network size={16} />}>{builderPreview ? "Voltar ao editor" : "Pré-visualizar"}</Button>
               <Button size="lg"
                 onClick={validateBuilderFlow}
                 className="border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
@@ -1169,6 +1188,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
             </div>
           </header>
 
+          {error && <div role="alert" className="builder-error">{error}</div>}
           <section className="automation-builder-grid grid min-h-0 flex-1 grid-cols-[290px_minmax(0,1fr)_320px] overflow-hidden max-xl:grid-cols-1">
             <aside className="min-h-0 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)]/82 p-4 backdrop-blur-2xl max-xl:max-h-[320px] max-xl:border-b max-xl:border-r-0">
               <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
@@ -1177,8 +1197,9 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                   Insira gatilhos, ações e blocos da Nora no fluxo.
                 </p>
               </div>
+              <label className="builder-library-search"><Search size={15} /><input aria-label="Buscar componentes" placeholder="Buscar gatilho ou ação" value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} /></label>
               <div className="space-y-4">
-                {componentLibrary.map((group) => (
+                {componentLibrary.map((group) => ({ ...group, items: group.items.filter((item) => `${item.title} ${item.description}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").includes(libraryQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim())) })).filter((group) => group.items.length > 0).map((group) => (
                   <section key={group.group}>
                     <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{group.group}</h2>
                     <div className="space-y-2">
@@ -1204,7 +1225,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
               </div>
             </aside>
 
-            <div className="relative min-h-[620px] min-w-0 overflow-auto bg-[#101316]">
+            <div className={`builder-work-area ${builderPreview ? "is-preview" : ""} relative min-h-[620px] min-w-0 overflow-auto bg-[#101316]`}>
+              {builderPreview ? <AutomationFlowPreview flow={builderFlow} /> : <>
               <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-[#17191c]/92 px-4 py-3 text-white backdrop-blur-xl">
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/8 px-3 py-1.5 text-xs font-bold">
@@ -1222,8 +1244,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </div>
               </div>
 
-              <div className="relative h-[720px] min-w-[1280px] bg-[radial-gradient(circle_at_1px_1px,rgba(148,163,184,.24)_1px,transparent_0)] [background-size:22px_22px]">
-                <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${builderZoom})`, width: 1500, height: 760 }}>
+              <div className="relative builder-canvas-scroll bg-[radial-gradient(circle_at_1px_1px,rgba(148,163,184,.24)_1px,transparent_0)] [background-size:22px_22px]" style={{ width: Math.max(900, ...builderFlow.nodes.map((node) => node.x + 280)) * builderZoom, height: Math.max(600, ...builderFlow.nodes.map((node) => node.y + 230)) * builderZoom }}>
+                <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${builderZoom})`, width: Math.max(900, ...builderFlow.nodes.map((node) => node.x + 280)), height: Math.max(600, ...builderFlow.nodes.map((node) => node.y + 230)) }}>
                   <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
                     {builderFlow.connections.map((connection) => {
                       const source = builderFlow.nodes.find((item) => item.id === connection.source);
@@ -1249,7 +1271,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                     <motion.div
                       key={nodeItem.id}
                       whileHover={{ scale: 1.02 }}
-                      onClick={() => setSelectedBuilderNodeId(nodeItem.id)}
+                      onClick={() => { setSelectedBuilderNodeId(nodeItem.id); setInspectorTab("block"); }}
+                      role="button" tabIndex={0} aria-label={`Selecionar bloco ${nodeItem.title}`} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedBuilderNodeId(nodeItem.id); setInspectorTab("block"); } }}
                       onPointerDown={(event) => {
                         builderDraggingRef.current = {
                           id: nodeItem.id,
@@ -1268,18 +1291,19 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                         <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${nodeItem.kind === "nora" ? "bg-cyan-400/18 text-cyan-100" : nodeItem.kind === "trigger" ? "bg-emerald-400/18 text-emerald-100" : "bg-blue-400/18 text-blue-100"}`}>
                           <IconByName name={nodeItem.icon} size={20} />
                         </span>
-                        <span className="rounded-full border border-white/10 px-2 py-1 text-xs font-bold uppercase text-white/60">{nodeItem.kind}</span>
+                        <span className="rounded-full border border-white/10 px-2 py-1 text-xs font-bold uppercase text-white/60">{nodeItem.kind === "trigger" ? "Gatilho" : nodeItem.kind === "nora" ? "Nora IA" : "Ação"}</span>
                       </div>
                       <h3 className="mt-3 text-sm font-bold">{nodeItem.title}</h3>
                       <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-white/62">{nodeItem.description}</p>
                     </motion.div>
                   ))}
                 </div>
-              </div>
+              </div></>}
             </div>
 
-            <aside className="min-h-0 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)]/86 p-4 backdrop-blur-2xl max-xl:border-l-0 max-xl:border-t">
-              <section className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
+            <aside className="builder-inspector min-h-0 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)]/86 p-4 backdrop-blur-2xl max-xl:border-l-0 max-xl:border-t">
+              <nav className="builder-inspector-tabs" aria-label="Configurações do editor"><button type="button" aria-pressed={inspectorTab === "block"} onClick={() => setInspectorTab("block")}>Bloco</button><button type="button" aria-pressed={inspectorTab === "settings"} onClick={() => setInspectorTab("settings")}>Automação</button></nav>
+              <section hidden={inspectorTab !== "settings"} className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
                 <h2 className="text-sm font-bold">Configuração do fluxo</h2>
                 <div className="mt-4 space-y-3">
                   <label className="block space-y-1.5">
@@ -1385,7 +1409,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </div>
               </section>
 
-              <section className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
+              <section hidden={inspectorTab !== "block"} className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
                 <h2 className="text-sm font-bold">Bloco selecionado</h2>
                 {selectedBuilderNode ? (
                   <div className="mt-4 space-y-3">
@@ -1395,7 +1419,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                       </span>
                       <div className="min-w-0">
                         <strong className="block truncate text-sm font-bold">{selectedBuilderNode.title}</strong>
-                        <span className="text-xs font-semibold text-[var(--text-secondary)]">{selectedBuilderNode.kind}</span>
+                        <span className="text-xs font-semibold text-[var(--text-secondary)]">{selectedBuilderNode.kind === "trigger" ? "Gatilho" : selectedBuilderNode.kind === "nora" ? "Nora IA" : "Ação"}</span>
                       </div>
                     </div>
                     <label className="block space-y-1.5">
@@ -1504,19 +1528,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </section>
               )}
 
-              <section className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <h2 className="text-sm font-bold">Ações do fluxo</h2>
-                <div className="mt-3 space-y-2">
-                  {actionsFromFlow(builderFlow).length ? (
-                    actionsFromFlow(builderFlow).map((action) => (
-                      <span key={action} className="block rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold">
-                        {action}
-                      </span>
-                    ))
-                  ) : (
-                    <p className="text-xs font-semibold text-[var(--text-secondary)]">Adicione ações pela biblioteca.</p>
-                  )}
-                </div>
+              <section className="builder-sequence mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
+                <h2 className="text-sm font-bold">Ordem de execução</h2><ol>{builderFlow.nodes.map((node, index) => <li key={node.id}><button type="button" onClick={() => { setSelectedBuilderNodeId(node.id); setInspectorTab("block"); }}><span>{index + 1}</span>{node.title}</button><Button size="sm" iconOnly disabled={node.kind === "trigger" || index < 2} aria-label={`Mover ${node.title} para cima`} onClick={() => moveBuilderNode(index, -1)}><ArrowUp size={14} /></Button><Button size="sm" iconOnly disabled={node.kind === "trigger" || index === builderFlow.nodes.length - 1} aria-label={`Mover ${node.title} para baixo`} onClick={() => moveBuilderNode(index, 1)}><ArrowDown size={14} /></Button></li>)}</ol>
               </section>
             </aside>
           </section>
@@ -1958,7 +1971,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                     <strong className="block text-sm font-bold">Ativa</strong>
                     <span className="text-xs font-semibold text-[var(--text-secondary)]">Permite execução manual e agendada.</span>
                   </span>
-                  <Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
+                  <span className="builder-status-label">{form.active ? "Ativa ao salvar" : "Desativada"}</span><Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
                 </div>
                 <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
                   <span>

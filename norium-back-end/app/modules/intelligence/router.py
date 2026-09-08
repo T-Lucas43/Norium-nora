@@ -135,6 +135,7 @@ async def rewrite_browser_report(run_id: str, payload: BrowserReportRewritePaylo
 async def browser_live(websocket: WebSocket, run_id: str, ticket: str = "", workspace: str = "primary") -> None:
     tokens = set_request_context("browser-live", workspace)
     feed = None
+    receiver = None
     queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=1)
     try:
         try:
@@ -154,7 +155,7 @@ async def browser_live(websocket: WebSocket, run_id: str, ticket: str = "", work
             if feed:
                 break
             run = find_item(read_store(tenant_id(user))["browserRuns"], run_id)
-            if not run or run.get("status") not in {"queued", "running", "paused", "awaiting_approval"}:
+            if not run or run.get("status") not in {"queued", "running", "paused", "awaiting_approval", "awaiting_login"}:
                 await websocket.send_json({"type": "ended"})
                 return
             await websocket.send_json({"type": "waiting"})
@@ -167,7 +168,28 @@ async def browser_live(websocket: WebSocket, run_id: str, ticket: str = "", work
         feed.viewers.add(queue)
         if feed.frame:
             queue.put_nowait(feed.frame)
+        async def receive_input():
+            import json
+            from app.modules.intelligence.browser_runtime import browser_login_input
+
+            while True:
+                value = await websocket.receive_text()
+                if len(value) > 12_000:
+                    await websocket.close(code=4400)
+                    return
+                try:
+                    payload = json.loads(value)
+                    if not isinstance(payload, dict):
+                        raise ValueError
+                    await browser_login_input(tenant_id(user), run_id, payload)
+                except (ValueError, HTTPException):
+                    await websocket.send_json({"type": "input_error", "message": "A interação está disponível somente durante o login solicitado pelo agente."})
+                except Exception:
+                    await websocket.send_json({"type": "input_error", "message": "Não foi possível interagir com a página. Aguarde o carregamento e tente novamente."})
+        receiver = asyncio.create_task(receive_input())
         while True:
+            if receiver.done():
+                break
             try:
                 frame = await asyncio.wait_for(queue.get(), timeout=10)
             except asyncio.TimeoutError:
@@ -180,6 +202,10 @@ async def browser_live(websocket: WebSocket, run_id: str, ticket: str = "", work
     except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
         pass
     finally:
+        if receiver:
+            receiver.cancel()
+            with suppress(asyncio.CancelledError, WebSocketDisconnect, RuntimeError):
+                await receiver
         if feed:
             feed.viewers.discard(queue)
         with suppress(RuntimeError, WebSocketDisconnect):

@@ -6,7 +6,7 @@ import Button from "../shared/Button";
 
 export type BrowserReport = { title: string; content: string; coverage: string; revision: number; generator: string; warnings: string[]; sources: Array<{ title: string; url: string; accessedAt: string }>; skipped?: Array<{ url: string; reason: string }> };
 
-export default function BrowserReportEditor({ runId, onDirtyChange }: { runId: string; onDirtyChange?: (dirty: boolean) => void }) {
+export default function BrowserReportEditor({ runId, onDirtyChange, onReportChanged }: { runId: string; onDirtyChange?: (dirty: boolean) => void; onReportChanged?: () => void }) {
   const [report, setReport] = useState<BrowserReport | null>(null), [error, setError] = useState("");
   useEffect(() => {
     let active = true;
@@ -14,10 +14,10 @@ export default function BrowserReportEditor({ runId, onDirtyChange }: { runId: s
     return () => { active = false; };
   }, [runId]);
   if (error) return <p role="alert" className="text-sm text-rose-400">{error}</p>;
-  return report ? <ReportEditor runId={runId} initial={report} onDirtyChange={onDirtyChange} /> : <p role="status" className="p-4 text-sm">Abrindo relatório…</p>;
+  return report ? <ReportEditor runId={runId} initial={report} onDirtyChange={onDirtyChange} onReportChanged={onReportChanged} /> : <p role="status" className="p-4 text-sm">Abrindo relatório…</p>;
 }
 
-function ReportEditor({ runId, initial, onDirtyChange }: { runId: string; initial: BrowserReport; onDirtyChange?: (dirty: boolean) => void }) {
+function ReportEditor({ runId, initial, onDirtyChange, onReportChanged }: { runId: string; initial: BrowserReport; onDirtyChange?: (dirty: boolean) => void; onReportChanged?: () => void }) {
   const [report, setReport] = useState(initial), [title, setTitle] = useState(initial.title), [content, setContent] = useState(initial.content);
   const [url, setUrl] = useState(""), [editing, setEditing] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [pdfBlob, setPdfBlob] = useState<Blob | undefined>();
@@ -36,7 +36,7 @@ function ReportEditor({ runId, initial, onDirtyChange }: { runId: string; initia
   useEffect(() => { if (!dirty) return; const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); }; window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn); }, [dirty]);
   async function save() {
     setBusy(true); setError("");
-    try { const response = await apiRequest<{ item: BrowserReport }>(`/api/navegador/runs/${runId}/report`, { method: "PUT", body: JSON.stringify({ title, content, revision: report.revision }) }); setReport(response.item); setTitle(response.item.title); setContent(response.item.content); }
+    try { const response = await apiRequest<{ item: BrowserReport }>(`/api/navegador/runs/${runId}/report`, { method: "PUT", body: JSON.stringify({ title, content, revision: report.revision }) }); setReport(response.item); setTitle(response.item.title); setContent(response.item.content); onReportChanged?.(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível salvar o relatório."); }
     finally { setBusy(false); }
   }
@@ -44,7 +44,7 @@ function ReportEditor({ runId, initial, onDirtyChange }: { runId: string; initia
     setRewriting(true); setError("");
     try {
       const response = await apiRequest<{ item: BrowserReport }>(`/api/navegador/runs/${runId}/report/rewrite`, { method: "POST", body: JSON.stringify({ instruction, revision: report.revision }), timeoutMs: 180_000 });
-      setReport(response.item); setTitle(response.item.title); setContent(response.item.content); setRewriteOpen(false);
+      setReport(response.item); setTitle(response.item.title); setContent(response.item.content); setRewriteOpen(false); onReportChanged?.();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível reescrever o relatório."); }
     finally { setRewriting(false); }
   }
@@ -52,6 +52,7 @@ function ReportEditor({ runId, initial, onDirtyChange }: { runId: string; initia
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">Relatório da pesquisa</h3><p className="mt-1 text-xs text-[var(--text-secondary)]">{authorship} · {report.sources.length} fontes · Versão {report.revision}</p></div><div className="flex flex-wrap gap-2"><Button disabled={rewriting} onClick={() => setEditing(!editing)}><FilePenLine size={15} />{editing ? "Ocultar editor" : "Editar relatório"}</Button>{editing && <Button disabled={busy || rewriting || !title.trim() || !content.trim() || !dirty} onClick={() => void save()}><Save size={15} />{busy ? "Salvando…" : "Salvar e atualizar PDF"}</Button>}<Button disabled={rewriting || dirty} onClick={() => setRewriteOpen(!rewriteOpen)}><Sparkles size={15} />Reescrever com Nora</Button><Button disabled={!url || dirty || report.generator === "pending"} onClick={() => { const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${report.title.replace(/[^\p{L}\p{N}\s-]/gu, "").slice(0,100) || "pesquisa-norium"}.pdf`; anchor.click(); }}><Download size={15} />Baixar PDF</Button></div></div>
     <p className="text-xs leading-5 text-[var(--text-secondary)]">{report.coverage}</p>
     {(report.generator === "pending" || report.generator === "extracted") && <p role="status" className="rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 text-sm text-amber-400">As fontes estão disponíveis, mas este relatório ainda precisa de uma análise desenvolvida. Use Reescrever com Nora para elaborar o texto.</p>}
+    {rewriting && <p role="status" className="rounded-lg border border-[var(--border)] p-3 text-sm text-amber-400">A Nora está elaborando a nova redação com as fontes preservadas. Se o provedor estiver ocupado, a tentativa será repetida automaticamente. Aguarde nesta tela.</p>}
     {rewriteOpen && <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"><label className="block text-sm font-medium">Como a Nora deve melhorar o relatório?<textarea disabled={rewriting} value={instruction} onChange={event => setInstruction(event.target.value)} rows={4} maxLength={2000} className="intelligence-field mt-2 py-3" /></label><p className="text-xs text-[var(--text-secondary)]">A Nora usará o material preservado da pesquisa. Para relatórios antigos, usará o texto e as referências já disponíveis. A nova redação substituirá o texto quando estiver pronta.</p><div className="flex gap-2"><Button disabled={rewriting || instruction.trim().length < 4 || dirty} onClick={() => void rewrite()}><Sparkles size={15}/>{rewriting ? "Nora está escrevendo…" : "Gerar nova redação"}</Button><Button disabled={rewriting} onClick={() => setRewriteOpen(false)}>Fechar</Button></div></div>}
     {error && <p role="alert" className="text-sm text-rose-400">{error}</p>}
     {dirty && <p role="status" className="text-xs text-amber-400">Alterações não salvas. Salve para atualizar a prévia e baixar a nova versão.</p>}

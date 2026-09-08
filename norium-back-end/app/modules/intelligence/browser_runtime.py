@@ -12,17 +12,19 @@ import base64
 import json
 import mimetypes
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 from fastapi import HTTPException
-from playwright.async_api import BrowserContext, Download, Locator, Page, Playwright, Route, async_playwright
+from playwright.async_api import BrowserContext, Download, Error as BrowserError, Locator, Page, Playwright, Route, async_playwright
 
 from app.core.tenant import get_user_db_path
-from app.modules.intelligence.browser_live import live_key, start_live
+from app.modules.intelligence.browser_live import FEEDS, live_key, start_live
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 from app.modules.platform.service import decrypt_secret, encrypt_secret, list_collection, update_collection_item
 
@@ -33,6 +35,7 @@ ACTIVE_BROWSER_LIMIT = max(1, min(4, int(__import__("os").getenv("BROWSER_AGENT_
 _SEMAPHORE = asyncio.Semaphore(ACTIVE_BROWSER_LIMIT)
 _ACTIVE: dict[str, asyncio.Task[dict[str, Any]]] = {}
 _CONTROLS: dict[str, "BrowserControl"] = {}
+_LOGIN_PAGES: dict[str, Page] = {}
 
 
 def _key(user_id: str, run_id: str) -> str:
@@ -44,9 +47,127 @@ class BrowserControl:
     pause: asyncio.Event = field(default_factory=asyncio.Event)
     approval: asyncio.Event = field(default_factory=asyncio.Event)
     cancelled: bool = False
+    login: asyncio.Event = field(default_factory=asyncio.Event)
+    user_wait_seconds: float = 0
+    timeout_context: asyncio.Timeout | None = None
 
     def __post_init__(self) -> None:
         self.pause.set()
+
+
+async def request_browser_login(user_id: str, run_id: str, page: Page, control: BrowserControl, reason: str) -> None:
+    remaining = 300 - control.user_wait_seconds
+    if remaining <= 0:
+        raise HTTPException(422, "O tempo para concluir o login terminou. Inicie a pesquisa novamente.")
+    key = _key(user_id, run_id)
+    control.login.clear()
+    _LOGIN_PAGES[key] = page
+    timer = control.timeout_context
+    old_deadline = timer.when() if timer else None
+    started = time.monotonic()
+    popup_tasks: list[asyncio.Task] = []
+    popup_stops = []
+    popup_pages = []
+    accepting_popups = True
+
+    def login_url(target: Page) -> str:
+        parsed = urlsplit(target.url)
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+    async def show_popup(popup: Page):
+        if not accepting_popups:
+            return
+        popup_pages.append(popup)
+        feed = FEEDS.get(key)
+        if feed:
+            _LOGIN_PAGES[key] = popup
+            with suppress(Exception):
+                popup_stops.append(await start_live(popup, key, feed))
+                await popup.wait_for_load_state("domcontentloaded", timeout=8000)
+                await _update_run(user_id, run_id, {"lastUrl": login_url(popup)})
+            def closed():
+                if _LOGIN_PAGES.get(key) is popup:
+                    _LOGIN_PAGES[key] = page
+                    feed.display_page = page
+            popup.on("close", closed)
+
+    def popup_opened(popup: Page):
+        popup_tasks.append(asyncio.create_task(show_popup(popup)))
+
+    page.context.on("page", popup_opened)
+    if timer:
+        timer.reschedule(None)
+    try:
+        await _update_run(user_id, run_id, {"status": "awaiting_login", "lastUrl": login_url(page), "loginRequest": {"message": reason, "expiresIn": int(remaining)}, "error": None}, event=("login_required", reason))
+        await asyncio.wait_for(control.login.wait(), timeout=remaining)
+        if control.cancelled:
+            raise asyncio.CancelledError
+        await _update_run(user_id, run_id, {"status": "running", "lastUrl": login_url(page), "loginRequest": None}, event=("login_resumed", "Acesso confirmado pelo usuário. A leitura será verificada novamente."))
+    except asyncio.TimeoutError:
+        raise HTTPException(422, "O tempo para concluir o login terminou. Inicie a pesquisa novamente.") from None
+    finally:
+        accepting_popups = False
+        page.context.remove_listener("page", popup_opened)
+        for task in popup_tasks:
+            task.cancel()
+        await asyncio.gather(*popup_tasks, return_exceptions=True)
+        for stop in popup_stops:
+            with suppress(Exception):
+                await stop()
+        for popup in popup_pages:
+            with suppress(Exception):
+                await popup.close()
+        if feed := FEEDS.get(key):
+            feed.display_page = page
+        _LOGIN_PAGES.pop(key, None)
+        elapsed = time.monotonic() - started
+        control.user_wait_seconds += elapsed
+        if timer and old_deadline is not None:
+            timer.reschedule(old_deadline + elapsed)
+
+
+async def browser_login_input(user_id: str, run_id: str, payload: dict) -> None:
+    """Interactive input exists only while this owner's research is waiting for login.
+
+    Keystrokes, passwords and clipboard text are never persisted or sent to Nora.
+    """
+    key = _key(user_id, run_id)
+    page = _LOGIN_PAGES.get(key)
+    if not page or _fresh_run(user_id, run_id).get("status") != "awaiting_login":
+        raise HTTPException(409, "O navegador não está aguardando login.")
+    try:
+        await _dispatch_login_input(page, payload)
+    except BrowserError:
+        # Successful SSO forms often close their popup before keyup completes.
+        if not page.is_closed():
+            raise
+
+
+async def _dispatch_login_input(page: Page, payload: dict) -> None:
+    kind = payload.get("type")
+    if kind == "click":
+        x, y = payload.get("x"), payload.get("y")
+        if not isinstance(x, (float, int)) or not isinstance(y, (float, int)) or not 0 <= x <= 1 or not 0 <= y <= 1:
+            raise HTTPException(422, "Posição inválida.")
+        viewport = page.viewport_size or {"width": 1440, "height": 900}
+        await page.mouse.click(x * viewport["width"], y * viewport["height"])
+    elif kind == "text":
+        value = payload.get("text")
+        if not isinstance(value, str) or not 1 <= len(value) <= 2000:
+            raise HTTPException(422, "Texto inválido.")
+        await page.keyboard.insert_text(value)
+    elif kind == "key":
+        key = payload.get("key")
+        if key not in {"Tab", "Shift+Tab", "Enter", "Backspace", "Delete", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "ControlOrMeta+A"}:
+            raise HTTPException(422, "Tecla inválida.")
+        await page.keyboard.press(key)
+    elif kind == "scroll":
+        delta = payload.get("delta")
+        if not isinstance(delta, (int, float)) or not -1000 <= delta <= 1000:
+            raise HTTPException(422, "Rolagem inválida.")
+        await page.mouse.wheel(0, delta)
+    else:
+        raise HTTPException(422, "Interação inválida.")
 
 
 def sanitize_profile(profile: dict[str, Any]) -> dict[str, Any]:
@@ -57,6 +178,8 @@ def sanitize_run(run: dict[str, Any]) -> dict[str, Any]:
     safe = {key: value for key, value in run.items() if key not in {"sessionSecret"}}
     if isinstance(run.get("report"), dict):
         safe["report"] = {key: run["report"].get(key) for key in ("title", "revision", "generator")}
+        if run.get("status") == "completed" and run["report"].get("generator") == "pending":
+            safe["status"] = "analysis_pending"
     safe["artifacts"] = [
         {key: value for key, value in item.items() if key != "path"}
         for item in run.get("artifacts", [])
@@ -142,6 +265,13 @@ async def _update_run(
             raise HTTPException(status_code=404, detail="Execucao do navegador nao encontrada.")
         if updates:
             run.update(updates)
+            if updates.get("status") in {"failed", "cancelled", "analysis_pending"}:
+                run["loginRequest"] = None
+                for step in run.get("plan", []):
+                    if step.get("status") in {"running", "awaiting_approval"}:
+                        step["status"] = updates["status"]
+                if isinstance(run.get("researchProgress"), dict):
+                    run["researchProgress"]["phase"] = updates["status"]
         if action_id and action_updates:
             action = next((item for item in run.get("plan", []) if item.get("id") == action_id), None)
             if action:
@@ -302,7 +432,11 @@ async def _execute_action(
             list(profile.get("blockedDomains", [])),
         )
         await assert_public_dns(host)
-        await page.goto(normalized, wait_until="domcontentloaded", timeout=timeout)
+        if _fresh_run(user_id, run_id).get("taskType") in {"summary", "academic", "layout", "custom"}:
+            from app.modules.intelligence.browser_access import navigate_readable
+            await navigate_readable(page, normalized)
+        else:
+            await page.goto(normalized, wait_until="domcontentloaded", timeout=timeout)
     elif kind == "search":
         locator = await _target(page, target, input_only=True)
         await locator.fill(value, timeout=timeout)
@@ -382,7 +516,7 @@ async def _network_guard(route: Route, allowed_domains: list[str], blocked_domai
 
 
 async def _browser_context(playwright: Playwright, run: dict[str, Any], profile: dict[str, Any]) -> tuple[Any, BrowserContext]:
-    browser = await playwright.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
+    browser = await playwright.chromium.launch(channel="chromium", headless=True, args=["--disable-dev-shm-usage"])
     storage_state: dict[str, Any] | None = None
     encrypted_state = str(profile.get("encryptedStorageState") or "")
     if profile.get("retainSession") and encrypted_state:
@@ -437,7 +571,7 @@ async def _run_real_browser(user: dict[str, Any], run_id: str, control: BrowserC
             {"status": "intervention_required", "error": "A sessao foi interrompida depois de uma acao externa. Revise o estado do site antes de continuar."},
             event=("intervention_required", "Retomada automatica bloqueada para evitar repetir uma acao externa."),
         )
-    await _update_run(user_id, run_id, {"status": "running", "error": None}, event=("started", "Chromium isolado iniciado."))
+    await _update_run(user_id, run_id, {"status": "running", "error": None, "accessIssues": [], "progress": 0}, event=("started", "Chromium isolado iniciado."))
     async with async_playwright() as playwright:
         browser, context = await _browser_context(playwright, run, profile)
         page = await context.new_page()
@@ -492,7 +626,14 @@ async def _run_real_browser(user: dict[str, Any], run_id: str, control: BrowserC
                             updates = {**updates, "report": report}
                         return await _update_run(user_id, run_id, updates, event=event)
 
-                    output = await research_site(page, run, profile, control, update_research)
+                    async def save_material(pages):
+                        from app.modules.intelligence.browser_reports import save_research_material
+                        await asyncio.to_thread(save_research_material, user_id, run_id, pages)
+
+                    async def request_login(reason):
+                        await request_browser_login(user_id, run_id, page, control, reason)
+
+                    output = await research_site(page, run, profile, control, update_research, request_login, save_material)
                 else:
                     output = await _execute_action(user, user_id, run_id, page, profile, fresh_action)
                 if fresh_action.get("type") in {"extract", "research"} and isinstance(output, dict):
@@ -501,7 +642,7 @@ async def _run_real_browser(user: dict[str, Any], run_id: str, control: BrowserC
                     user_id, run_id,
                     {"progress": round((index + 1) / max(1, len(actions)) * 100), "lastUrl": page.url},
                     event=("action_completed", f'{index + 1}/{len(actions)} concluida.'),
-                    action_id=action_id, action_updates={"status": "completed", "completedAt": now_iso()},
+                    action_id=action_id, action_updates={"status": "analysis_pending" if fresh_action.get("type") == "research" and _fresh_run(user_id, run_id).get("report", {}).get("generator") == "pending" else "completed", "completedAt": now_iso()},
                 )
                 if run.get("executionMode") == "assisted" and index < len(actions) - 1:
                     control.pause.clear()
@@ -519,9 +660,10 @@ async def _run_real_browser(user: dict[str, Any], run_id: str, control: BrowserC
                 "actionsPerformed": len([item for item in actions if item.get("status") != "skipped"]),
                 "artifacts": artifacts, "readOnly": not any(item.get("riskClass") != "read" for item in actions),
             }
+            report_pending = (latest.get("report") or {}).get("generator") == "pending"
             return await _update_run(
-                user_id, run_id, {"status": "completed", "progress": 100, "result": result, "pendingApproval": None},
-                event=("completed", "Tarefa executada em navegador real e evidencias registradas."),
+                user_id, run_id, {"status": "analysis_pending" if report_pending else "completed", "progress": 100, "result": result, "pendingApproval": None},
+                event=("analysis_pending" if report_pending else "completed", "Fontes preservadas. A análise ainda precisa ser concluída." if report_pending else "Tarefa executada em navegador real e evidencias registradas."),
             )
         finally:
             if stop_live:
@@ -537,7 +679,9 @@ async def execute_browser_run(user: dict[str, Any], run_id: str, control: Browse
     timeout = min(900, max(30, int(run.get("timeoutSeconds") or 300)))
     async with _SEMAPHORE:
         try:
-            return await asyncio.wait_for(_run_real_browser(user, run_id, active_control), timeout=timeout)
+            async with asyncio.timeout(timeout) as timer:
+                active_control.timeout_context = timer
+                return await _run_real_browser(user, run_id, active_control)
         except asyncio.CancelledError:
             return await _update_run(user_id, run_id, {"status": "cancelled"}, event=("cancelled", "Pesquisa cancelada pelo usuário."))
         except asyncio.TimeoutError:
@@ -555,7 +699,7 @@ async def queue_browser_run(user: dict[str, Any], run_id: str) -> dict[str, Any]
     task = _ACTIVE.get(key)
     if task and not task.done():
         return sanitize_run(_fresh_run(user_id, run_id))
-    if _fresh_run(user_id, run_id).get("status") in {"completed", "cancelled"}:
+    if _fresh_run(user_id, run_id).get("status") in {"completed", "cancelled", "analysis_pending"}:
         raise HTTPException(409, "Esta execução já terminou. Prepare uma nova pesquisa para executar novamente.")
     control = BrowserControl()
     _CONTROLS[key] = control
@@ -576,19 +720,23 @@ async def control_browser_run(user: dict[str, Any], run_id: str, action: str) ->
     key = _key(user_id, run_id)
     control = _CONTROLS.get(key)
     run = _fresh_run(user_id, run_id)
-    if run.get("status") in {"completed", "cancelled", "failed"}:
+    if run.get("status") in {"completed", "cancelled", "failed", "analysis_pending"}:
         return sanitize_run(run)
     if action == "cancel":
         if control:
             control.cancelled = True
             control.pause.set()
             control.approval.set()
+            control.login.set()
         return await _update_run(user_id, run_id, {"cancelRequested": True, "status": "cancelling" if control else "cancelled"}, event=("cancel_requested", "Cancelamento solicitado."))
     if action == "pause":
         if control:
             control.pause.clear()
         return await _update_run(user_id, run_id, {"pauseRequested": True, "status": "paused"}, event=("paused", "Execucao pausada pelo operador."))
     if action == "resume":
+        if control and run.get("status") == "awaiting_login":
+            control.login.set()
+            return sanitize_run(run)
         if control:
             control.pause.set()
             return await _update_run(user_id, run_id, {"pauseRequested": False, "status": "running"}, event=("resumed", "Execucao retomada."))

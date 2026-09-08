@@ -363,8 +363,8 @@ async def create_browser_plan(user: dict[str, Any], payload: dict[str, Any], *, 
             previous = find_item(current["browserRuns"], replace_id)
             if not previous:
                 raise HTTPException(404, "Pesquisa não encontrada.")
-            if previous.get("status") != "planned":
-                raise HTTPException(409, "O pedido só pode ser alterado antes da execução.")
+            if previous.get("status") not in {"planned", "failed"}:
+                raise HTTPException(409, "Edite o pedido antes da execução ou depois de uma falha.")
             run["id"] = replace_id
             run["createdAt"] = previous["createdAt"]
             previous.clear()

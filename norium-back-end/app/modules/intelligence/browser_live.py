@@ -19,6 +19,7 @@ def live_key(user_id: str, run_id: str) -> str:
 class LiveFeed:
     frame: bytes | None = None
     viewers: set[asyncio.Queue[bytes | None]] = field(default_factory=set)
+    display_page: Page | None = None
 
     def publish(self, frame: bytes | None) -> None:
         self.frame = frame
@@ -31,30 +32,35 @@ class LiveFeed:
 FEEDS: dict[str, LiveFeed] = {}
 
 
-async def start_live(page: Page, key: str):
+async def start_live(page: Page, key: str, existing_feed: LiveFeed | None = None):
     session = await page.context.new_cdp_session(page)
-    feed = LiveFeed()
+    feed = existing_feed or LiveFeed()
+    feed.display_page = page
     FEEDS[key] = feed
 
     async def frame_received(event: dict) -> None:
         try:
-            feed.publish(base64.b64decode(event["data"]))
+            if feed.display_page is page:
+                feed.publish(base64.b64decode(event["data"]))
             await session.send("Page.screencastFrameAck", {"sessionId": event["sessionId"]})
         except Exception:
             # The page can close while a compositor event is in flight.
-            feed.publish(None)
+            if not existing_feed:
+                feed.publish(None)
 
     session.on("Page.screencastFrame", frame_received)
     try:
         await session.send("Page.startScreencast", {"format": "jpeg", "quality": 75, "maxWidth": 1440, "maxHeight": 900, "everyNthFrame": 2})
     except Exception:
-        FEEDS.pop(key, None)
+        if not existing_feed:
+            FEEDS.pop(key, None)
         await session.detach()
         raise
 
     async def stop() -> None:
-        FEEDS.pop(key, None)
-        feed.publish(None)
+        if not existing_feed:
+            FEEDS.pop(key, None)
+            feed.publish(None)
         session.remove_listener("Page.screencastFrame", frame_received)
         with suppress(Exception):
             await session.send("Page.stopScreencast")

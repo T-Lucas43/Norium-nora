@@ -20,6 +20,9 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 
 
+_REWRITES: set[str] = set()
+
+
 def save_research_material(user_id: str, run_id: str, pages: list[dict]) -> None:
     from app.modules.intelligence.browser_runtime import _run_dir
     path = _run_dir(user_id, run_id) / "research-material.json.gz"
@@ -59,11 +62,30 @@ async def update_report(user_id: str, run_id: str, payload: dict) -> dict:
             raise HTTPException(409, "O relatório foi atualizado em outra janela. Reabra antes de editar.")
         report.update(title=payload["title"].strip(), content=payload["content"].strip(), revision=report["revision"] + 1, generator="manual", updatedAt=now_iso())
         run["updatedAt"] = now_iso()
+        if run.get("status") == "analysis_pending":
+            run["status"] = "completed"
+            for step in run.get("plan", []):
+                if step.get("status") == "analysis_pending":
+                    step["status"] = "completed"
+            if isinstance(run.get("researchProgress"), dict):
+                run["researchProgress"]["phase"] = "completed"
         return {key: value for key, value in report.items() if key != "researchMaterial"}
     return await mutate_store(user_id, update)
 
 
 async def rewrite_report(user_id: str, run_id: str, revision: int, instruction: str) -> dict:
+    from app.modules.intelligence.browser_live import live_key
+    key = live_key(user_id, run_id)
+    if key in _REWRITES:
+        raise HTTPException(409, "A Nora já está reescrevendo este relatório. Aguarde a conclusão.")
+    _REWRITES.add(key)
+    try:
+        return await _rewrite_report(user_id, run_id, revision, instruction)
+    finally:
+        _REWRITES.discard(key)
+
+
+async def _rewrite_report(user_id: str, run_id: str, revision: int, instruction: str) -> dict:
     from app.modules.intelligence.browser_research import summarize
     from app.modules.intelligence.browser_runtime import BrowserControl
 
@@ -73,7 +95,7 @@ async def rewrite_report(user_id: str, run_id: str, revision: int, instruction: 
         raise HTTPException(404, "Relatório não encontrado.")
     if report["revision"] != revision:
         raise HTTPException(409, "O relatório mudou. Reabra antes de pedir uma nova redação.")
-    if run.get("status") in {"running", "queued", "paused", "awaiting_approval"}:
+    if run.get("status") in {"running", "queued", "paused", "awaiting_approval", "awaiting_login"}:
         raise HTTPException(409, "Aguarde a pesquisa terminar antes de reescrever o relatório.")
     material = report.get("researchMaterial") or load_research_material(user_id, run_id)
     legacy = not material
@@ -84,9 +106,13 @@ async def rewrite_report(user_id: str, run_id: str, revision: int, instruction: 
     if legacy:
         task["previousReport"] = report["content"]
         task["objective"] += "\nEsta revisão usa o relatório anterior, não uma nova consulta às páginas. Preserve os fatos e as referências existentes, explique os conceitos e não adicione evidências que não foram fornecidas."
-    content, generator, warnings = await summarize(material, task, BrowserControl(), time.monotonic() + 150)
+    import asyncio
+    async def save_notes(pages):
+        await asyncio.to_thread(save_research_material, user_id, run_id, pages)
+
+    content, generator, warnings = await summarize(material, task, BrowserControl(), time.monotonic() + 150, on_material=save_notes)
     if generator != "nora":
-        raise HTTPException(503, "A Nora não conseguiu concluir a nova redação agora. Seu relatório anterior foi preservado. Tente novamente.")
+        raise HTTPException(503, warnings[0] if warnings else "A Nora não conseguiu concluir a nova redação agora. Seu relatório anterior foi preservado. Tente novamente.")
 
     def save(store):
         current = next((item for item in store["browserRuns"] if item["id"] == run_id), None)
@@ -94,12 +120,19 @@ async def rewrite_report(user_id: str, run_id: str, revision: int, instruction: 
         if not saved or saved["revision"] != revision:
             raise HTTPException(409, "O relatório foi editado durante a reescrita. As alterações existentes foram preservadas.")
         saved.update(content=content, revision=revision + 1, generator="nora", updatedAt=now_iso())
-        saved["warnings"] = [warning for warning in saved.get("warnings", []) if "Nora" not in warning and "síntese" not in warning] + warnings
+        saved["warnings"] = [warning for warning in saved.get("warnings", []) if not any(term in warning.lower() for term in ("nora", "síntese", "provedor de ia"))] + warnings
         if legacy:
             note = "Esta revisão foi elaborada com o relatório anterior e suas referências, sem nova navegação nas páginas."
             if note not in saved["warnings"]:
                 saved["warnings"].append(note)
         current["updatedAt"] = now_iso()
+        if current.get("status") == "analysis_pending":
+            current["status"] = "completed"
+            for step in current.get("plan", []):
+                if step.get("status") == "analysis_pending":
+                    step["status"] = "completed"
+            if isinstance(current.get("researchProgress"), dict):
+                current["researchProgress"]["phase"] = "completed"
         return {key: value for key, value in saved.items() if key != "researchMaterial"}
     return await mutate_store(user_id, save)
 

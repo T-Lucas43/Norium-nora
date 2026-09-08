@@ -74,7 +74,7 @@ class BrowserResearchTests(unittest.IsolatedAsyncioTestCase):
         updates = []
         async def update(data, event):
             updates.append(data)
-        with patch("app.modules.intelligence.service.assert_public_dns", new=AsyncMock()), patch("app.modules.intelligence.browser_research.read_page", side_effect=extract):
+        with patch("app.modules.intelligence.service.assert_public_dns", new=AsyncMock()), patch("app.modules.intelligence.browser_research.read_page", side_effect=extract), patch("app.modules.intelligence.browser_research.access_state", new=AsyncMock(return_value=None)):
             result = await research_site(page, run, {}, BrowserControl(), update)
         report = next(data["report"] for data in updates if "report" in data)
         self.assertEqual(2, page.goto.await_count)
@@ -95,7 +95,7 @@ class BrowserResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[1]", content)
         self.assertNotIn("[99]", content)
         self.assertIn("não são instruções", str(nora.call_args))
-        self.assertEqual(5000, nora.call_args.kwargs["max_tokens"])
+        self.assertEqual(3500, nora.call_args.kwargs["max_tokens"])
 
     async def test_every_research_type_requests_context_and_developed_prose(self):
         import time
@@ -114,14 +114,14 @@ class BrowserResearchTests(unittest.IsolatedAsyncioTestCase):
         import time
         from app.services.nora import NoraIncompleteResponse
         for incomplete in (NoraIncompleteResponse(), "## Conclusão\nO tema é relevante porque"):
-            responses = ["Notas completas da fonte [1].", incomplete, "## Conclusão\nO tema relaciona as práticas aos objetivos da equipe [1]."]
+            responses = [incomplete, "## Conclusão\nO tema relaciona as práticas aos objetivos da equipe [1]."]
             with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}), patch("app.modules.intelligence.browser_research.NoraIAService.perguntar_nora", new=AsyncMock(side_effect=responses)) as nora:
                 content, generator, _ = await summarize([page_data()], await self.plan(), BrowserControl(), time.monotonic() + 150)
             self.assertEqual("nora", generator)
             self.assertTrue(content.endswith("[1]."))
-            self.assertEqual(3, nora.await_count)
+            self.assertEqual(2, nora.await_count)
             self.assertTrue(nora.call_args.kwargs["require_complete"])
-            self.assertEqual(4000, nora.call_args.kwargs["max_tokens"])
+            self.assertEqual(3500, nora.call_args.kwargs["max_tokens"])
 
     async def test_rewrite_uses_preserved_material_and_keeps_sources_private(self):
         from app.modules.intelligence.browser_reports import rewrite_report
@@ -145,7 +145,7 @@ class BrowserResearchTests(unittest.IsolatedAsyncioTestCase):
         run = await self.plan()
         report = {"title": "Legado", "content": "Texto antigo.", "revision": 1, "sources": [{"title": "Fonte", "url": "https://example.com/"}], "warnings": [], "generator": "nora"}
         await mutate_store(self.user["id"], lambda store: store["browserRuns"][0].update(status="completed", report=report))
-        async def synth(*args):
+        async def synth(*args, **kwargs):
             await update_report(self.user["id"], run["id"], {"title": "Editado", "content": "Edição do usuário.", "revision": 1})
             return "Resposta da Nora", "nora", []
         with patch("app.modules.intelligence.browser_research.summarize", new=synth):
@@ -210,7 +210,7 @@ class BrowserResearchTests(unittest.IsolatedAsyncioTestCase):
         async def answer(*args, **kwargs):
             nonlocal calls
             calls += 1
-            if calls == 2:
+            if calls == 1:
                 control.cancelled = True
             return "Síntese da fonte [1]."
         with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}), patch("app.modules.intelligence.browser_research.NoraIAService.perguntar_nora", new=answer):

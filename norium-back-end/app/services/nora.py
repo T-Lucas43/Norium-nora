@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import asyncio
+import time
 import os
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -17,6 +19,18 @@ load_dotenv()
 
 class NoraIncompleteResponse(Exception):
     """The provider exhausted the output budget before completing its answer."""
+
+
+class NoraResearchUnavailable(ValueError):
+    """A safe, actionable failure without provider payloads or credentials."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__({
+            "configuration": "A conexão da Nora com o provedor de IA precisa ser configurada pelo administrador.",
+            "rate_limit": "O provedor de IA atingiu seu limite temporário. As fontes e as notas foram preservadas; tente novamente em alguns instantes.",
+            "provider": "O provedor de IA está indisponível no momento. O texto anterior e as fontes foram preservados.",
+        }[reason])
 
 
 class NoraIAService:
@@ -80,8 +94,10 @@ class NoraIAService:
             )
         return payload_messages
 
-    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False) -> str:
+    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False, research: bool = False) -> str:
         if not self.api_key:
+            if research:
+                raise NoraResearchUnavailable("configuration")
             return "A Nora está temporariamente sem acesso ao provedor de IA. Configure a GROQ_API_KEY no backend."
 
         payload: dict[str, Any] = {
@@ -93,12 +109,28 @@ class NoraIAService:
         try:
             client = self._http_client()
             last_status = 503
-            for model in self._models():
-                response = await client.post(
-                    self.base_url,
-                    json={**payload, "model": model},
-                    headers=self.headers,
-                )
+            retry_until = time.monotonic() + 55
+            attempts = [(model, 0, 0.0) for model in self._models()]
+            limited = False
+            while attempts:
+                model, retry, not_before = attempts.pop(0)
+                if not_before > time.monotonic():
+                    if not_before >= retry_until:
+                        continue
+                    await asyncio.sleep(not_before - time.monotonic())
+                settings = {**payload, "model": model}
+                if research and model.startswith("openai/gpt-oss"):
+                    settings["reasoning_effort"] = "low"
+                elif research and model in {"qwen/qwen3.6-27b", "qwen/qwen3.8-27b"}:
+                    settings["reasoning_effort"] = "none"
+                elif research and model.startswith("groq/compound"):
+                    settings["compound_custom"] = {"tools": {"enabled_tools": []}}
+                try:
+                    response = await client.post(self.base_url, json=settings, headers=self.headers)
+                except httpx.TransportError:
+                    if research:
+                        continue
+                    raise
                 last_status = response.status_code
                 if response.status_code == 200:
                     data = response.json()
@@ -110,12 +142,24 @@ class NoraIAService:
                         self.model = model
                         return answer
                     continue
+                if research and last_status == 429:
+                    limited = True
+                    if retry < 2:
+                        try:
+                            delay = max(1, float(response.headers.get("retry-after", "5")))
+                        except (ValueError, TypeError):
+                            delay = 5
+                        attempts.append((model, retry + 1, time.monotonic() + delay))
                 if response.status_code not in {400, 404, 429, 500, 502, 503, 504}:
                     break
+            if research:
+                raise NoraResearchUnavailable("configuration" if last_status in {401, 403} else "rate_limit" if limited else "provider")
             return self._provider_error(last_status) if last_status != 200 else "Não consegui gerar uma resposta completa agora. Tente novamente em instantes."
-        except NoraIncompleteResponse:
+        except (NoraIncompleteResponse, NoraResearchUnavailable):
             raise
         except Exception:
+            if research:
+                raise NoraResearchUnavailable("provider") from None
             return "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."
 
     async def perguntar_nora_stream(

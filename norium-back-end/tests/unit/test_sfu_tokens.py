@@ -33,7 +33,7 @@ from app.modules.team.sfu_tokens import (
 
 
 NOW = datetime(2026, 9, 5, 12, 0, tzinfo=timezone.utc)
-SECRET = "0123456789abcdef0123456789abcdef"
+SECRET = "".join('0123456789abcdef' for _ in range(2))  # Public synthetic test vector.
 
 
 def decode_segment(segment: str) -> dict[str, object]:

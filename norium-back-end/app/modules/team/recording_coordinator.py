@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -80,14 +81,13 @@ class RecordingLimits:
     orphan_grace_seconds: int = 10 * 60
 
     @classmethod
-    def from_env(cls) -> RecordingLimits:
+    def from_env(cls, environ: Mapping[str, str] | None = None) -> RecordingLimits:
         defaults = cls()
+        from app.modules.team.call_release import bounded_int
+        source = os.environ if environ is None else environ
 
         def value(name: str, default: int) -> int:
-            try:
-                return max(1, int(os.getenv(name, str(default))))
-            except ValueError:
-                return default
+            return bounded_int(source, name, default, 1, default * 4)
 
         return cls(
             max_chunk_bytes=value("TEAM_RECORDING_MAX_CHUNK_BYTES", defaults.max_chunk_bytes),
@@ -180,8 +180,9 @@ class LocalRecordingFiles:
         def scan() -> list[tuple[str, datetime]]:
             return [
                 (path.name, datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc))
-                for path in self.root.glob("*.part")
-                if path.is_file()
+                for path in self.root.iterdir()
+                if path.is_file() and not path.is_symlink() and (path.suffix == ".part"
+                    or (path.name.startswith("team-recording-") and path.suffix in {".webm", ".mp4"}))
             ]
 
         return await asyncio.to_thread(scan)
@@ -740,103 +741,137 @@ class RecordingCoordinator:
         )
         return {"ok": True}
 
-    async def maintain(self, team_ids: list[str]) -> dict[str, int]:
+    async def maintain(self, team_ids: list[str], *, inventory_complete: bool = True) -> dict[str, int]:
+        total = {"expiredActive": 0, "deletedCompleted": 0, "deletedOrphans": 0}
+        referenced: set[str] = set()
+        errors: list[Exception] = []
+        for team_id in dict.fromkeys(team_ids):
+            try:
+                result, parts = await self._maintain_team(team_id)
+                for key, value in result.items():
+                    total[key] += value
+                referenced.update(parts)
+            except Exception as error:
+                errors.append(error)
+        # Never infer that a file is orphaned from an incomplete directory scan.
+        # One broken team's store must still allow retention for other teams.
+        if errors:
+            raise errors[0]
+        if not inventory_complete:
+            raise OSError("Inventario de gravacoes secundarias pendente; limpeza de orfaos suspensa.")
+        orphan_cutoff = self._now() - timedelta(seconds=self._limits.orphan_grace_seconds)
+        for name, modified_at in await self._files.list_parts():
+            if name not in referenced and modified_at <= orphan_cutoff:
+                await self._files.delete(name)
+                total["deletedOrphans"] += 1
+        return total
+
+    async def _maintain_team(self, team_id: str) -> tuple[dict[str, int], set[str]]:
         now = self._now()
         expired_active = 0
         deleted_completed = 0
         referenced_parts: set[str] = set()
-        for team_id in dict.fromkeys(team_ids):
-            document = await self._store.load(team_id)
-            active_recordings = [
-                item
-                for item in document.get("recordings", [])
-                if isinstance(item, dict)
-                and item.get("status") in {"recording", "finalizing"}
-            ]
-            for recording in active_recordings:
-                recording_id = str(recording.get("id") or "")
-                failure_code = ""
-                reason = ""
-                try:
-                    await self._call_access.authorize(
-                        RecordingActor(
-                            user_id=str(recording.get("createdBy") or ""),
-                            team_id=team_id,
-                            name=str(recording.get("createdByName") or "Membro"),
-                        ),
-                        str(recording.get("callId") or ""),
-                        str(recording.get("clientId") or ""),
-                        require_host=True,
-                    )
-                except RecordingError:
-                    failure_code = "call_access_revoked"
-                    reason = "access_revoked"
-                started = self._parse_datetime(recording.get("startedAt"))
-                if not failure_code and started and (
-                    started + timedelta(seconds=self._limits.max_duration_seconds) < now
-                ):
-                    failure_code = "duration_expired"
-                    reason = "expired"
-                if failure_code:
-                    await self._terminate(
-                        team_id,
-                        recording_id,
-                        status="failed",
-                        reason=reason,
-                        audit_action="recording_failed",
-                        failure_code=failure_code,
-                    )
-                    expired_active += 1
+        document = await self._store.load(team_id)
+        active_recordings = [
+            item
+            for item in document.get("recordings", [])
+            if isinstance(item, dict)
+            and item.get("status") in {"recording", "finalizing"}
+        ]
+        for recording in active_recordings:
+            recording_id = str(recording.get("id") or "")
+            failure_code = ""
+            reason = ""
+            try:
+                await self._call_access.authorize(
+                    RecordingActor(
+                        user_id=str(recording.get("createdBy") or ""),
+                        team_id=team_id,
+                        name=str(recording.get("createdByName") or "Membro"),
+                    ),
+                    str(recording.get("callId") or ""),
+                    str(recording.get("clientId") or ""),
+                    require_host=True,
+                )
+            except RecordingError:
+                failure_code = "call_access_revoked"
+                reason = "access_revoked"
+            started = self._parse_datetime(recording.get("startedAt"))
+            if not failure_code and started and (
+                started + timedelta(seconds=self._limits.max_duration_seconds) < now
+            ):
+                failure_code = "duration_expired"
+                reason = "expired"
+            if failure_code:
+                await self._terminate(
+                    team_id,
+                    recording_id,
+                    status="failed",
+                    reason=reason,
+                    audit_action="recording_failed",
+                    failure_code=failure_code,
+                )
+                expired_active += 1
 
-            async def expire_completed(document: dict[str, Any]) -> list[dict[str, Any]]:
-                expired: list[dict[str, Any]] = []
-                for recording in document.get("recordings", []):
-                    if not isinstance(recording, dict):
-                        continue
-                    if recording.get("status") in {"recording", "finalizing"}:
-                        temp_name = str(recording.get("tempStoredName") or "")
-                        if temp_name:
-                            referenced_parts.add(Path(temp_name).name)
-                    expires_at = self._parse_datetime(recording.get("expiresAt"))
-                    if recording.get("status") != "completed" or not expires_at or expires_at > now:
-                        continue
-                    recording.update({"status": "deleted", "deletedAt": now.isoformat()})
+        async def expire_completed(document: dict[str, Any]) -> list[dict[str, Any]]:
+            expired: list[dict[str, Any]] = []
+            for recording in document.get("recordings", []):
+                if not isinstance(recording, dict):
+                    continue
+                if recording.get("status") in {"recording", "finalizing"}:
+                    temp_name = str(recording.get("tempStoredName") or "")
+                    if temp_name:
+                        referenced_parts.add(Path(temp_name).name)
+                expires_at = self._parse_datetime(recording.get("expiresAt"))
+                if recording.get("status") in {"deleted", "aborted", "failed"} and not recording.get("filesDeletedAt"):
                     expired.append(dict(recording))
-                    for message in document.get("messages", []):
-                        if not isinstance(message, dict) or message.get("id") != recording.get("messageId"):
-                            continue
-                        message["attachments"] = [
-                            attachment for attachment in message.get("attachments", [])
-                            if not isinstance(attachment, dict)
-                            or attachment.get("recordingId") != recording.get("id")
-                        ]
-                        metadata = message.setdefault("metadata", {})
-                        if isinstance(metadata, dict):
-                            metadata["recordingExpired"] = True
-                return expired
+                    continue
+                if recording.get("status") != "completed" or not expires_at or expires_at > now:
+                    continue
+                recording.update({"status": "deleted", "deletedAt": now.isoformat()})
+                expired.append(dict(recording))
+                for message in document.get("messages", []):
+                    if not isinstance(message, dict) or message.get("id") != recording.get("messageId"):
+                        continue
+                    message["attachments"] = [
+                        attachment for attachment in message.get("attachments", [])
+                        if not isinstance(attachment, dict)
+                        or attachment.get("recordingId") != recording.get("id")
+                    ]
+                    metadata = message.setdefault("metadata", {})
+                    if isinstance(metadata, dict):
+                        metadata["recordingExpired"] = True
+            return expired
 
-            expired = await self._store.transact(team_id, expire_completed)
-            for recording in expired:
-                await self._files.delete(str(recording.get("storedName") or ""))
-                await self._events.audit(team_id, "recording_deleted", {
-                    "callId": recording.get("callId"),
-                    "recordingId": recording.get("id"),
-                    "actorId": recording.get("createdBy"),
-                    "reason": "retention_expired",
-                })
-                deleted_completed += 1
+        expired = await self._store.transact(team_id, expire_completed)
+        for recording in expired:
+            await self._files.delete(str(recording.get("storedName") or ""))
+            await self._files.delete(str(recording.get("tempStoredName") or ""))
+            async def mark_files_deleted(document: dict[str, Any]) -> None:
+                current = self._find_recording(document, str(recording["id"]))
+                current["filesDeletedAt"] = now.isoformat()
+            await self._store.transact(team_id, mark_files_deleted)
+            if recording.get("status") != "deleted":
+                continue
+            await self._events.audit(team_id, "recording_deleted", {
+                "callId": recording.get("callId"),
+                "recordingId": recording.get("id"),
+                "actorId": recording.get("createdBy"),
+                "reason": "retention_expired",
+            })
+            deleted_completed += 1
 
-        orphan_cutoff = now - timedelta(seconds=self._limits.orphan_grace_seconds)
-        orphan_count = 0
-        for name, modified_at in await self._files.list_parts():
-            if name not in referenced_parts and modified_at <= orphan_cutoff:
-                await self._files.delete(name)
-                orphan_count += 1
+        # Protect final files as well as upload parts, including pending retries.
+        # This also lets maintenance remove legacy media whose metadata was pruned.
+        current_document = await self._store.load(team_id)
+        for item in current_document.get("recordings", []):
+            if not item.get("filesDeletedAt"):
+                referenced_parts.update(str(item.get(field) or "")
+                                        for field in ("storedName", "tempStoredName"))
         return {
             "expiredActive": expired_active,
             "deletedCompleted": deleted_completed,
-            "deletedOrphans": orphan_count,
-        }
+        }, referenced_parts
 
     async def _terminate(
         self,

@@ -406,6 +406,7 @@ function ActiveCallSessionProvider({
         || runtimeRef.current?.incoming?.callId
         || reconnectingCallIdRef.current;
       setSocketState("reconnecting");
+      runtimeRef.current?.telemetrySocketLost?.();
       if (runtimeRef.current?.active) dispatch({ type: "SOCKET_LOST" });
       reconnectTimer = window.setTimeout(() => {
         reconnectTimer = null;
@@ -427,6 +428,7 @@ function ActiveCallSessionProvider({
           if (cancelled || socketRef.current !== socket) return;
           setSocketState("open");
           runtimeRef.current?.heartbeat();
+          runtimeRef.current?.telemetrySocketRestored?.();
           if (runtimeRef.current?.active) dispatch({ type: "CONNECTED" });
         };
         socket.onmessage = (message) => {

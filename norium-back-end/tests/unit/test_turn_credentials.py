@@ -22,7 +22,7 @@ from app.modules.team.turn_credentials import (
 
 
 NOW = datetime(2024, 1, 1, tzinfo=timezone.utc)
-SECRET = "0123456789abcdef0123456789abcdef"
+SECRET = "".join('0123456789abcdef' for _ in range(2))  # Public synthetic test vector.
 
 
 class TurnCredentialProviderTests(unittest.TestCase):

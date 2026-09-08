@@ -2,8 +2,8 @@
 
 Por padrao o runner inicia o fixture real em um processo isolado, abre 100
 WebSockets (25 equipes x 4 membros), executa tres repeticoes e encerra o
-processo. O JSON de medidas e sempre preservado; o log bruto do servidor so e
-copiado para os artefatos quando ha falha.
+processo. Somente medidas agregadas, classes de erro e posicoes do codigo sao
+preservadas; enderecos, mensagens de erro e logs brutos nunca viram artefatos.
 """
 
 from __future__ import annotations
@@ -14,11 +14,9 @@ import ctypes
 import json
 import math
 import os
-import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import time
 import traceback
 from dataclasses import asdict, dataclass
@@ -235,14 +233,6 @@ class ManagedFixture:
 
     def start(self) -> None:
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        descriptor, raw_path = tempfile.mkstemp(
-            prefix="norium-team-call-load-",
-            suffix=".log",
-            dir=self.log_dir,
-        )
-        os.close(descriptor)
-        self.log_path = Path(raw_path)
-        self.log_stream = self.log_path.open("wb")
         environment = dict(os.environ)
         environment["TEAM_CALL_FIXTURE_LOAD_TEAMS"] = str(self.teams)
         environment["TEAM_CALL_FIXTURE_USERS_PER_TEAM"] = str(self.participants)
@@ -263,7 +253,7 @@ class ManagedFixture:
             command,
             cwd=self.backend_root,
             env=environment,
-            stdout=self.log_stream,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.STDOUT,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -294,13 +284,14 @@ class ManagedFixture:
                 self.process.wait(timeout=3)
         if self.log_stream is not None:
             self.log_stream.close()
+        if not passed:
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
+            (artifacts_dir / "backend-failure.json").write_text(json.dumps({
+                "status": "failed", "exitCode": self.process.returncode if self.process else None,
+                "rawLogsRetained": False,
+            }), encoding="utf-8")
         if self.log_path is None:
             return
-        if not passed and self.log_path.exists():
-            artifacts_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(self.log_path, artifacts_dir / "backend-failure.log")
-        elif passed:
-            (artifacts_dir / "backend-failure.log").unlink(missing_ok=True)
         removal_deadline = time.monotonic() + 2.0
         while self.log_path.exists():
             try:
@@ -308,9 +299,7 @@ class ManagedFixture:
                 break
             except PermissionError:
                 if time.monotonic() >= removal_deadline:
-                    if passed:
-                        raise
-                    break
+                    raise
                 time.sleep(0.05)
 
 
@@ -929,7 +918,7 @@ async def _run(arguments: argparse.Namespace) -> tuple[dict[str, Any], ManagedFi
             "schemaVersion": 1,
             "status": "failed" if violations else "passed",
             "configuration": {
-                "baseUrl": base_url,
+                "target": "external-fixture" if arguments.external_server else "managed-local-fixture",
                 "teams": arguments.teams,
                 "participantsPerTeam": arguments.participants,
                 "repeat": arguments.repeat,
@@ -1003,8 +992,9 @@ def main() -> int:
         result = {
             "schemaVersion": 1,
             "status": "failed",
-            "error": f"{type(error).__name__}: {error}",
-            "traceback": traceback.format_exc().splitlines()[-40:],
+            "error": type(error).__name__,
+            "traceback": [f"{Path(frame.filename).name}:{frame.lineno}"
+                          for frame in traceback.extract_tb(error.__traceback__)[-40:]],
         }
         # Se a excecao ocorreu depois do start mas antes do retorno de _run,
         # recupera o processo gerenciado pela porta para o bloco finally nao e

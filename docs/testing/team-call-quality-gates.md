@@ -54,14 +54,9 @@ O modelo atual não possui uma entidade de equipe com flag própria. Por isso, �
 
 Não há `sleep` arbitrário para fazer uma assertiva passar. As esperas consultam estado do `CallSession`, estado do servidor, estatísticas WebRTC ou presença de mídia até um deadline explícito. Os intervalos curtos de 50/100 ms servem somente para polling. Os únicos tempos de domínio são a janela de expiração/heartbeat e a janela de medição de memória.
 
-Em sucesso, o navegador preserva apenas `summary.json`; a carga preserva apenas `team-call-load.json`. O resumo é substituído atomicamente de `running` para o resultado final somente depois de fechar contextos, navegador, serviços e workspace temporário. Em falha, o runner usa um `runId` e copia para `failures/<runId>/`:
+Em sucesso, o navegador preserva apenas `summary.json`; a carga preserva apenas `team-call-load.json`. O resumo do navegador é substituído atomicamente de `running` para o resultado final somente depois de fechar contextos, navegador, serviços e workspace temporário. Em falha, ambos guardam apenas classes de erro, posições do código e medidas agregadas. O navegador acrescenta categorias limitadas de console, sem o texto das mensagens.
 
-- screenshot e trace por contexto;
-- console/page errors;
-- logs do backend, Vite e TURN;
-- vídeo WebM, quando o Chromium empacotado do Playwright está disponível.
-
-O job de CI instala Chromium e FFmpeg pelo Playwright, portanto grava vídeo. Neste host Windows, somente o Chrome do sistema estava disponível e o executável opcional do encoder do Playwright retornou `spawn EPERM`; o runner desabilita vídeo apenas nesse fallback e registra `videoCaptureEnabled: false`, mantendo screenshots, traces e logs. Isso evita que uma falha do encoder deixe contextos e sockets vivos. O workflow envia `output/team-call-quality/**` somente se o gate falhar, com retenção de cinco dias.
+Na etapa final de lançamento foram removidos screenshot, trace, vídeo, texto de exceções e cópia de logs brutos dos serviços. A saída dos processos de backend, Vite e TURN é descartada, inclusive no armazenamento temporário; a mídia sintética usada para transmitir RTP é removida junto com o workspace do teste. O perfil de carga não grava URLs de destino. `videoCaptureEnabled` permanece falso também no CI. O workflow envia somente os diagnósticos agregados de falha, com retenção de cinco dias. Resultados históricos abaixo descrevem execuções anteriores a essa mudança; os resultados vigentes estão na [auditoria de lançamento](../operations/team-call-release-audit.md).
 
 ## Carga e limites
 

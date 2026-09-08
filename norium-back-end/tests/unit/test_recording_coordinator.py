@@ -111,6 +111,36 @@ class FixedClock:
 
 
 class RecordingCoordinatorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_broken_team_does_not_starve_other_teams_or_trigger_unsafe_orphan_scan(self) -> None:
+        from unittest.mock import AsyncMock, patch
+        good = ({"expiredActive": 0, "deletedCompleted": 1}, set())
+        with patch.object(self.coordinator, "_maintain_team", AsyncMock(side_effect=[OSError("broken"), good])) as maintain, \
+             patch.object(self.coordinator._files, "list_parts", AsyncMock()) as scan:
+            with self.assertRaises(OSError):
+                await self.coordinator.maintain(["broken", "healthy"])
+            self.assertEqual(2, maintain.await_count)
+            scan.assert_not_called()
+
+    async def test_retention_retries_file_deletion_after_storage_failure(self) -> None:
+        from unittest.mock import AsyncMock, patch
+        self.allow_team_call()
+        result = await self.coordinator.start(self.owner, RecordingStart(
+            "call_0123456789abcdef", "owner-client", "retention-retry", "audio/webm"))
+        recording_id = result["recording"]["id"]
+        await self.coordinator.upload(self.owner, recording_id, RecordingUpload("owner-client", "chunk", b"audio"))
+        await self.coordinator.complete(self.owner, recording_id, RecordingComplete("owner-client", "complete"))
+        path = Path(self.temp.name) / self.store.documents["owner"]["recordings"][0]["storedName"]
+        self.clock.advance(hours=25)
+        with patch.object(self.coordinator._files, "delete", AsyncMock(side_effect=OSError("storage down"))):
+            with self.assertRaises(OSError):
+                await self.coordinator.maintain(["owner"])
+        self.assertTrue(path.exists())
+        self.assertEqual("deleted", self.store.documents["owner"]["recordings"][0]["status"])
+        result = await self.coordinator.maintain(["owner"])
+        self.assertEqual(1, result["deletedCompleted"])
+        self.assertFalse(path.exists())
+        self.assertEqual(0, (await self.coordinator.maintain(["owner"]))["deletedCompleted"])
+
     async def asyncSetUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="norium_recording_")
         self.store = MemoryRecordingStore()

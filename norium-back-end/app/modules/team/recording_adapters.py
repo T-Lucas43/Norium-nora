@@ -41,7 +41,14 @@ class JsonRecordingStore:
         async with self._lock:
             document = await asyncio.to_thread(self._read_document, team_id)
             result = await operation(document)
-            document["recordings"] = document.get("recordings", [])[-200:]
+            # The history cap applies only after file deletion is confirmed.
+            # Never discard the sole reference to active, retained or retrying media.
+            records = document.get("recordings", [])
+            terminal = {"deleted", "aborted", "failed"}
+            prunable = [index for index, item in enumerate(records)
+                        if item.get("status") in terminal and item.get("filesDeletedAt")]
+            discarded = set(prunable[:-200])
+            document["recordings"] = [item for index, item in enumerate(records) if index not in discarded]
             document["messages"] = document.get("messages", [])[-2000:]
             await asyncio.to_thread(self._write_document, team_id, document)
             return result

@@ -1,0 +1,76 @@
+# Initial operational guardrails; validate with promtool before installation.
+# Scrape /api/team-chat/calls/metrics over HTTPS every 30s using bearer_token_file.
+groups:
+  - name: norium-team-calls
+    interval: 30s
+    rules:
+      - alert: TeamCallAdmissionFailures
+        expr: (increase(team_call_join_rejected_total[15m]) / clamp_min(increase(team_call_join_attempts_total[15m]), 1) > 0.05) and (increase(team_call_join_attempts_total[15m]) >= 20)
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: More than 5 percent of admission requests failed
+          runbook: docs/operations/team-call-runbook.md#admission
+      - alert: TeamCallConnectionSlow
+        expr: (histogram_quantile(0.95, sum by (le) (rate(team_call_connect_seconds_bucket[15m]))) > 10) and (sum(increase(team_call_connect_seconds_count[15m])) >= 20)
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Client reported connection p95 exceeds 10 seconds
+          runbook: docs/operations/team-call-runbook.md#connectivity
+      - alert: TeamCallConnectivityErrors
+        expr: increase(team_call_client_ice_failed_total[5m]) >= 3 or increase(team_call_turn_errors_total[5m]) >= 3
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Repeated ICE or TURN credential failures
+          runbook: docs/operations/team-call-runbook.md#connectivity
+      - alert: TeamCallReconnectionBurst
+        expr: increase(team_call_client_reconnecting_total[5m]) >= 10
+        for: 3m
+        labels: {severity: warning}
+        annotations:
+          summary: Repeated media or signaling reconnections
+          runbook: docs/operations/team-call-runbook.md#connectivity
+      - alert: TeamCallRecordingErrors
+        expr: increase(team_call_recording_failed_total[5m]) > 0 or increase(team_call_recording_http_errors_total[5m]) >= 3
+        for: 1m
+        labels: {severity: warning}
+        annotations:
+          summary: Recording lifecycle or HTTP failures
+          runbook: docs/operations/team-call-runbook.md#recordings
+      - alert: TeamCallRecordingQuota
+        expr: increase(team_call_recording_quota_errors_total[15m]) >= 3
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: Recording quotas repeatedly reached
+          runbook: docs/operations/team-call-runbook.md#recordings
+      - alert: TeamCallRetentionStopped
+        expr: time() - team_call_cleanup_last_success_seconds > 180 or increase(team_call_cleanup_errors_total[5m]) > 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: Retention cleanup failed or stopped
+          runbook: docs/operations/team-call-runbook.md#retention
+      - alert: TeamCallSfuUnexpected
+        expr: increase(team_call_sfu_token_issued_total[5m]) > 0 or increase(team_call_sfu_errors_total[5m]) > 0 or increase(team_call_client_sfu_failed_total[5m]) > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: SFU activity observed while rollout must remain mesh
+          runbook: docs/operations/team-call-runbook.md#sfu
+      - alert: TeamCallCapacityPressure
+        expr: team_call_active_calls >= (0.8 * team_call_call_limit) or team_call_active_sockets >= (0.8 * team_call_socket_limit) or increase(team_call_socket_quota_errors_total[5m]) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Capacity approaching default resource limits
+          runbook: docs/operations/team-call-runbook.md#capacity
+      - alert: TeamCallMetricsMissing
+        expr: up{job="norium-team-calls"} == 0 or absent(up{job="norium-team-calls"})
+        for: 3m
+        labels: {severity: critical}
+        annotations:
+          summary: Team call telemetry collector cannot scrape the application
+          runbook: docs/operations/team-call-runbook.md#telemetry

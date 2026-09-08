@@ -6,8 +6,13 @@ import {
   Room,
   RoomEvent,
   Track,
+  setLogLevel,
 } from "livekit-client";
 import { apiBaseUrl } from "../../../utils/api";
+
+// SDK diagnostics may contain SDP, candidates and server addresses. Only the
+// normalized CallTelemetry events are eligible for operational collection.
+setLogLevel("silent");
 
 import type {
   IceTelemetrySnapshot,

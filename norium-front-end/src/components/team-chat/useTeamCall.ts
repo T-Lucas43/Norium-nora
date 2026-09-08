@@ -3,6 +3,7 @@ import "webrtc-adapter";
 import type { AuthSession } from "../../types/auth";
 import { apiBaseUrl } from "../../utils/api";
 import { createMeetingRecording } from "./meetingRecording";
+import { CallTelemetry } from "./callTelemetry";
 import { prepareChatAttachments } from "./chatAttachments";
 import {
   resolveMediaTransportFactory,
@@ -289,6 +290,8 @@ export function useTeamCallRuntime({
   const availableCallsRef = useRef<TeamCallSocketEvent[]>([]);
   const busyRef = useRef(false);
   const mediaEpochRef = useRef(0);
+  const entryStartedRef = useRef(0);
+  const telemetryRef = useRef<CallTelemetry | null>(null);
   const confirmedCallIdRef = useRef("");
   const endedCallIdsRef = useRef(new Set<string>());
   const dismissedInviteIdsRef = useRef(new Set<string>());
@@ -604,6 +607,12 @@ export function useTeamCallRuntime({
     }
     closeMediaTransport();
     const factory = resolveMediaTransportFactory(call.mediaTransport, mediaTransportFactoriesRef.current);
+    const telemetry = new CallTelemetry((sample) => {
+      if (activeRef.current?.callId !== call.callId) return true;
+      return sendSocketEvent({ type: "CALL_TELEMETRY", callId: call.callId,
+        clientId: clientIdRef.current, ...sample });
+    }, entryStartedRef.current);
+    telemetryRef.current = telemetry;
     const transport = factory.create({
       emitSignal: (callId, targetUserId, signal) => {
         const current = activeRef.current;
@@ -615,11 +624,12 @@ export function useTeamCallRuntime({
           signal,
         });
       },
-      onConnected: publishMediaState,
+      onConnected: () => { telemetry.connected(); publishMediaState(); },
       onStatus: setStatus,
       onTerminated: (failure: MediaTransportFailure) => {
         const current = activeRef.current;
         if (!current || current.callId !== call.callId) return;
+        telemetry.failure(factory.kind);
         compensateServerAdmission(current);
         finishCallRef.current(false);
         setStatus(failure.detail);
@@ -629,6 +639,7 @@ export function useTeamCallRuntime({
     mediaTransportCallIdRef.current = call.callId;
     setMediaTransportKind(factory.kind);
     unsubscribeMediaTransportRef.current = transport.subscribe((snapshot) => {
+      telemetry.observe(snapshot, factory.kind);
       remoteStreamsRef.current = snapshot.remoteStreams;
       setMediaTransportSnapshot(snapshot);
     });
@@ -651,6 +662,7 @@ export function useTeamCallRuntime({
     try {
       return await opening;
     } catch (error) {
+      telemetry.failure(factory.kind);
       if (mediaTransportRef.current === transport) closeMediaTransport();
       throw error;
     } finally {
@@ -674,6 +686,7 @@ export function useTeamCallRuntime({
 
   const finishCall = useCallback((notify: boolean, sound: CallSound | null = null) => {
     const call = activeRef.current;
+    telemetryRef.current = null;
     clearPendingAdmission();
     mediaEpochRef.current += 1;
     busyRef.current = false;
@@ -802,9 +815,11 @@ export function useTeamCallRuntime({
 
   const heartbeat = useCallback(() => {
     const call = activeRef.current;
-    return call && confirmedCallIdRef.current === call.callId
+    const sent = call && confirmedCallIdRef.current === call.callId
       ? sendSocketEvent({ type: "CALL_HEARTBEAT", ...callPayload(call) })
       : false;
+    if (sent) telemetryRef.current?.flush();
+    return sent;
   }, [callPayload, sendSocketEvent]);
 
   useEffect(() => {
@@ -1314,6 +1329,7 @@ export function useTeamCallRuntime({
     entryOptions: CallEntryOptions = DEFAULT_ENTRY_OPTIONS,
   ) => {
     if (activeRef.current || busyRef.current || endedCallIdsRef.current.has(pendingCall.callId)) return false;
+    entryStartedRef.current = performance.now();
     try {
       resolveMediaTransportFactory(pendingCall.mediaTransport, mediaTransportFactoriesRef.current);
     } catch (error) {
@@ -1366,6 +1382,7 @@ export function useTeamCallRuntime({
     entryOptions: CallEntryOptions = DEFAULT_ENTRY_OPTIONS,
   ) => {
     if (activeRef.current || busyRef.current) return false;
+    entryStartedRef.current = performance.now();
     const threadId = targetThread.scope === "team" ? "team" : targetThread.scope === "subteam"
       ? `subteam:${targetThread.subteamId}` : `direct:${[session.user.id, targetThread.recipientId].sort().join(":")}`;
     const existing = availableCallsRef.current.find((call) => call.threadId === threadId);
@@ -1902,6 +1919,8 @@ export function useTeamCallRuntime({
     toggleScreenShare,
     handleSocketEvent,
     heartbeat,
+    telemetrySocketLost: () => telemetryRef.current?.reconnecting("socket"),
+    telemetrySocketRestored: () => telemetryRef.current?.recovered("socket"),
     revokeAccess,
     devices,
     selectedMicrophoneId,

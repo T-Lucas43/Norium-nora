@@ -9,6 +9,8 @@ import json
 import mimetypes
 import os
 import re
+import secrets
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,10 +22,13 @@ from fastapi.responses import FileResponse
 from pydantic import Field
 
 from app.shared.schemas import StrictModel
+from app.core.request_context import current_workspace_id
 
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, read_profile_db, write_json_file
 from app.modules.team.call_adapters import CallbackCallPublisher, CallbackTeamDirectory, JsonCallStateStore
 from app.modules.team.call_configuration import mesh_max_participants_from_environment
+from app.modules.team.call_release import CallReleasePolicy
+from app.modules.team.call_observability import CLIENT_EVENTS, EventBudget, call_metrics
 from app.modules.team.call_coordinator import (
     CallActor,
     CallCoordinator,
@@ -176,6 +181,8 @@ class PresenceManager:
         self.user_team: dict[str, str] = {}
         self.socket_user: dict[WebSocket, str] = {}
         self.socket_connection: dict[WebSocket, str] = {}
+        self.socket_session_version: dict[WebSocket, int | None] = {}
+        self._connect_lock = asyncio.Lock()
 
     async def connect(
         self,
@@ -183,19 +190,29 @@ class PresenceManager:
         user_id: str,
         websocket: WebSocket,
         connection_id: str | None = None,
+        session_version: int | None = None,
     ) -> str:
-        await websocket.accept()
-        self.connections.setdefault(team_id, []).append(websocket)
-        self.user_team[user_id] = team_id
-        self.socket_user[websocket] = user_id
-        resolved_connection_id = connection_id or uuid.uuid4().hex
-        self.socket_connection[websocket] = resolved_connection_id
+        async with self._connect_lock:
+            policy = CallReleasePolicy.from_env()
+            if (len(self.socket_user) >= policy.max_sockets
+                or len(self.connections.get(team_id, [])) >= policy.max_team_sockets
+                or sum(value == user_id for value in self.socket_user.values()) >= policy.max_user_sockets):
+                call_metrics.increment("socket_quota_errors")
+                raise HTTPException(429, "Limite de conexoes da equipe atingido.")
+            await websocket.accept()
+            self.connections.setdefault(team_id, []).append(websocket)
+            self.user_team[user_id] = team_id
+            self.socket_user[websocket] = user_id
+            resolved_connection_id = connection_id or uuid.uuid4().hex
+            self.socket_connection[websocket] = resolved_connection_id
+            self.socket_session_version[websocket] = session_version
         await self.broadcast(team_id, {"type": "PRESENCE", "onlineUserIds": self.online_users(team_id)})
         return resolved_connection_id
 
     def disconnect(self, websocket: WebSocket, user_id: str) -> None:
         connected_user_id = self.socket_user.pop(websocket, user_id)
         self.socket_connection.pop(websocket, None)
+        self.socket_session_version.pop(websocket, None)
         team_id = self.user_team.get(connected_user_id)
         if team_id:
             connections = self.connections.get(team_id, [])
@@ -210,6 +227,12 @@ class PresenceManager:
     def online_users(self, team_id: str) -> list[str]:
         return sorted(user_id for user_id, active_team in self.user_team.items() if active_team == team_id)
 
+    def socket_authorized(self, websocket: WebSocket, user: dict[str, Any] | None, team_id: str) -> bool:
+        version = self.socket_session_version.get(websocket)
+        return bool(user and user.get("status") == "ativo" and team_id_for(user) == team_id
+                    and has_team_chat_access(user)
+                    and (version is None or int(user.get("sessionVersion") or 0) == version))
+
     async def broadcast(self, team_id: str, payload: dict[str, Any]) -> None:
         disconnected: list[WebSocket] = []
         store = await read_user_store()
@@ -221,8 +244,7 @@ class PresenceManager:
         for websocket in list(self.connections.get(team_id, [])):
             connected_user_id = self.socket_user.get(websocket, "")
             connected_user = users_by_id.get(connected_user_id)
-            current_team_id = team_id_for(connected_user) if connected_user else ""
-            if not connected_user or connected_user.get("status") != "ativo" or current_team_id != team_id:
+            if not self.socket_authorized(websocket, connected_user, team_id):
                 try:
                     await websocket.close(code=4403)
                 except Exception:
@@ -261,11 +283,7 @@ class PresenceManager:
             if connected_user_id not in user_ids:
                 continue
             connected_user = users_by_id.get(connected_user_id)
-            if validate_directory and (
-                not connected_user
-                or connected_user.get("status") != "ativo"
-                or team_id_for(connected_user) != team_id
-            ):
+            if validate_directory and not self.socket_authorized(websocket, connected_user, team_id):
                 try:
                     await websocket.close(code=4403)
                 except Exception:
@@ -303,9 +321,13 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def require_team_chat(user: dict[str, Any]) -> None:
+def has_team_chat_access(user: dict[str, Any]) -> bool:
     permissions = user.get("permissions") if isinstance(user.get("permissions"), dict) else {}
-    if user.get("systemAdmin") or permissions.get("chat") or permissions.get("equipe"):
+    return bool(user.get("systemAdmin") or permissions.get("chat") or permissions.get("equipe"))
+
+
+def require_team_chat(user: dict[str, Any]) -> None:
+    if has_team_chat_access(user):
         return
     raise HTTPException(status_code=403, detail="Chat interno nao liberado para esta conta.")
 
@@ -344,9 +366,20 @@ def empty_store() -> dict[str, Any]:
 
 
 def read_chat_store(team_id: str) -> dict[str, Any]:
-    payload = read_json_file(team_chat_path(team_id), empty_store())
-    if not isinstance(payload, dict):
+    path = Path(team_chat_path(team_id))
+    try:
+        path.stat()
+    except FileNotFoundError:
         return empty_store()
+    # The general repository falls back on read errors. Destructive retention
+    # must distinguish a missing new store from an unreadable existing store.
+    payload = read_json_file(path, None)
+    if not isinstance(payload, dict):
+        raise OSError("Armazenamento de chamadas ilegivel; limpeza suspensa.")
+    for field in ("messages", "subteams", "recordings", "activeCalls", "scheduledMeetings"):
+        items = payload.get(field, [])
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            raise OSError("Armazenamento de chamadas invalido; limpeza suspensa.")
     payload.setdefault("messages", [])
     payload.setdefault("subteams", [])
     payload.setdefault("recordings", [])
@@ -719,6 +752,7 @@ async def _call_active_member_ids(actor: CallActor) -> set[str]:
         if isinstance(item, dict)
         and item.get("status") == "ativo"
         and team_id_for(item) == actor.team_id
+        and has_team_chat_access(item)
         and str(item.get("id") or "")
     }
 
@@ -747,11 +781,15 @@ _call_reconcile_tasks: set[asyncio.Task[None]] = set()
 
 
 async def _reconcile_closed_connection(actor: CallActor) -> None:
+    # A permission check may close the last socket before its periodic loop can
+    # reconcile. Revocation is immediate; only transport loss gets the grace.
+    await call_coordinator().reconcile(actor)
     await asyncio.sleep(PARTICIPANT_DISCONNECT_GRACE.total_seconds())
     await call_coordinator().reconcile(actor)
 
 
 def call_coordinator() -> CallCoordinator:
+    require_call_workspace()
     global _call_coordinator_instance
     if _call_coordinator_instance is None:
         store = JsonCallStateStore(
@@ -773,8 +811,15 @@ def call_coordinator() -> CallCoordinator:
             publisher=publisher,
             authorizer=TeamCallAuthorizer(directory),
             max_participants=mesh_max_participants_from_environment(),
+            release_policy=CallReleasePolicy.from_env,
         )
     return _call_coordinator_instance
+
+
+def require_call_workspace() -> None:
+    # Signaling and cached state use primary; secondary HTTP must not replace it.
+    if current_workspace_id() != "primary":
+        raise HTTPException(409, "Chamadas disponiveis somente no workspace principal.")
 
 
 def call_actor(user: dict[str, Any], connection_id: str | None = None) -> CallActor:
@@ -801,6 +846,8 @@ def _as_http_error(error: CallError) -> HTTPException:
 
 async def active_calls_snapshot(team_id: str) -> list[dict[str, Any]]:
     """Fachada de compatibilidade para consumidores internos antigos."""
+    if current_workspace_id() != "primary":
+        return []
     return await call_coordinator().snapshot(team_id, refresh=True)
 
 
@@ -826,18 +873,21 @@ async def get_call_ice_servers(
     require_team_chat(user)
     if user.get("status") != "ativo" or not str(user.get("id") or "").strip():
         raise HTTPException(status_code=403, detail="Somente membros ativos podem obter acesso TURN.")
+    require_call_workspace()
     no_store_headers = {"Cache-Control": "no-store, private", "Pragma": "no-cache"}
     try:
         document = turn_credential_provider().issue(
             TurnSubject(team_id=team_id_for(user), user_id=str(user["id"]))
         )
     except TurnUnavailableError as exc:
+        call_metrics.increment("turn_errors")
         raise HTTPException(
             status_code=503,
             detail="O serviço TURN está temporariamente indisponível.",
             headers=no_store_headers,
         ) from exc
     response.headers.update(no_store_headers)
+    call_metrics.increment("turn_issued")
     return document.as_payload()
 
 
@@ -875,13 +925,41 @@ async def create_call_media_token(
             headers={**no_store_headers, "X-Call-Error-Code": exc.code},
         ) from exc
     except SfuUnavailableError as exc:
+        call_metrics.increment("sfu_errors")
         raise HTTPException(
             status_code=503,
             detail="O transporte de mídia está temporariamente indisponível.",
             headers=no_store_headers,
         ) from exc
     response.headers.update(no_store_headers)
+    call_metrics.increment("sfu_token_issued")
     return document.as_payload()
+
+
+def call_resource_gauges() -> dict[str, int]:
+    policy = CallReleasePolicy.from_env()
+    return {**call_coordinator().resource_counts(), "active_sockets": len(manager.socket_user),
+            "call_limit": policy.max_total_calls, "socket_limit": policy.max_sockets}
+
+
+@router.get("/calls/metrics", include_in_schema=False)
+async def get_call_metrics(request: Request) -> Response:
+    expected = os.getenv("TEAM_CALL_METRICS_TOKEN", "")
+    supplied = request.headers.get("Authorization", "")
+    if request.query_params or not expected or not secrets.compare_digest(supplied.encode(), ("Bearer " + expected).encode()):
+        raise HTTPException(404, "Nao encontrado.", headers={"Cache-Control": "no-store"})
+    return Response(call_metrics.prometheus(call_resource_gauges()),
+                    media_type="text/plain; version=0.0.4", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/calls/configuration")
+async def get_call_configuration(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    require_team_chat(user)
+    policy = CallReleasePolicy.from_env()
+    primary = current_workspace_id() == "primary"
+    return {"newCallsEnabled": primary and policy.allows_new_call(team_id_for(user)),
+            "recordingEnabled": primary and policy.recording_enabled,
+            "mediaTransport": "mesh", "maxParticipants": mesh_max_participants_from_environment()}
 
 
 @router.delete("/calls/{call_id}")
@@ -894,6 +972,7 @@ async def delete_active_call(call_id: str, user: dict[str, Any] = Depends(curren
 
 
 def require_joined_call(store: dict[str, Any], call_id: str, user_id: str, client_id: str) -> dict[str, Any]:
+    require_call_workspace()
     call = active_call_for(store, call_id)
     if not call:
         raise HTTPException(status_code=404, detail="Esta reunião já foi encerrada.")
@@ -1443,11 +1522,21 @@ async def _audit_recording(team_id: str, action: str, metadata: dict[str, Any]) 
         "recording_failed": "Falha na gravacao de reuniao",
         "recording_deleted": "Gravacao de reuniao excluida",
     }
+    if action in titles:
+        call_metrics.increment(action)
+    # Private-call audits must not expose call identifiers to the whole team.
+    document = await read_pruned_chat_store(team_id)
+    recording = next((item for item in document.get("recordings", [])
+                      if item.get("id") == metadata.get("recordingId")), {})
+    recipients = {str(item) for item in recording.get("participantIds", [])}
+    if not recipients:
+        recipients = {str(metadata.get("actorId") or "")} - {""}
     await record_team_event(
         team_id,
         titles.get(action, "Evento de gravacao de reuniao"),
         "Evento de ciclo de vida da gravacao, sem conteudo de audio ou video.",
         {"action": action, **metadata},
+        user_ids=recipients,
     )
 
 
@@ -1481,6 +1570,7 @@ async def _publish_recording_event(
 
 
 def recording_coordinator() -> RecordingCoordinator:
+    require_call_workspace()
     global _recording_coordinator_instance
     if _recording_coordinator_instance is None:
         _recording_coordinator_instance = RecordingCoordinator(
@@ -1506,26 +1596,45 @@ def recording_coordinator() -> RecordingCoordinator:
 
 
 def _recording_http_error(error: RecordingError) -> HTTPException:
+    call_metrics.increment("recording_http_errors")
+    if error.status_code in {413, 429}:
+        call_metrics.increment("recording_quota_errors")
     return HTTPException(status_code=error.status_code, detail=error.detail)
 
 
 async def _recording_team_ids() -> list[str]:
     store = await read_user_store()
-    return sorted({
+    teams = {
         team_id_for(user)
         for user in store.get("users", [])
         if isinstance(user, dict) and str(user.get("id") or "")
+    }
+    # Retention must continue after the last account of a team is removed.
+    persisted = await asyncio.to_thread(lambda: {
+        path.parent.name.removeprefix("user_")
+        for path in get_data_root().glob("user_*/team_chat_db.json")
+        if path.is_file() and not path.is_symlink() and not path.parent.is_symlink()
     })
+    return sorted(teams | persisted)
 
 
 async def _recording_maintenance_loop() -> None:
     while True:
         try:
-            await recording_coordinator().maintain(await _recording_team_ids())
+            inventory_complete = not await asyncio.to_thread(lambda: any(
+                get_data_root().glob("user_*/workspace_*/team_chat_db.json")))
+            result = await recording_coordinator().maintain(
+                await _recording_team_ids(), inventory_complete=inventory_complete)
+            call_metrics.increment("cleanup_runs")
+            for field, metric in (("expiredActive", "cleanup_expired_active"),
+                                  ("deletedCompleted", "cleanup_deleted_completed"),
+                                  ("deletedOrphans", "cleanup_deleted_orphans")):
+                call_metrics.increment(metric, result[field])
         except asyncio.CancelledError:
             raise
         except Exception:
-            pass
+            call_metrics.increment("cleanup_errors")
+        call_metrics.log_snapshot(call_resource_gauges())
         await asyncio.sleep(RECORDING_MAINTENANCE_INTERVAL_SECONDS)
 
 
@@ -1551,6 +1660,8 @@ async def stop_recording_maintenance() -> None:
 @router.post("/recordings/start")
 async def start_recording(payload: RecordingStartPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     require_team_chat(user)
+    if not CallReleasePolicy.from_env().recording_enabled:
+        raise HTTPException(503, "Novas gravacoes estao temporariamente indisponiveis.")
     try:
         return await recording_coordinator().start(
             recording_actor(user),
@@ -1657,6 +1768,28 @@ async def download_attachment(file_name: str, user: dict[str, Any] = Depends(cur
     await active_calls_snapshot(team_id_for(user))
     store = await read_pruned_chat_store(team_id_for(user))
     user_id = str(user.get("id") or "")
+    recording = next((item for item in store.get("recordings", [])
+                      if item.get("storedName") == safe_file_name), None)
+    recording_attachment = any(
+        isinstance(attachment, dict) and attachment.get("storedName") == safe_file_name
+        and attachment.get("recordingId")
+        for message in store.get("messages", []) if isinstance(message, dict)
+        for attachment in message.get("attachments", [])
+    )
+    if recording is None and (recording_attachment or safe_file_name.startswith("team-recording-")):
+        # Legacy pruning may have discarded the authority/retention record.
+        # A visible chat attachment cannot substitute for that authorization.
+        raise HTTPException(404, "Anexo nao encontrado.")
+    if recording is not None:
+        require_call_workspace()
+        expires_at = parse_iso_datetime(recording.get("expiresAt"))
+        if (recording.get("status") != "completed" or expires_at is None
+            or expires_at <= datetime.now(timezone.utc)
+            or user_id not in recording.get("participantIds", [])):
+            raise HTTPException(404, "Anexo nao encontrado.")
+        if recording.get("subteamId"):
+            subteam = subteam_or_404(store, str(recording["subteamId"]))
+            require_subteam_member(subteam, user_id)
     visible_file = any(
         message_visible(message, user_id)
         and any(
@@ -1677,7 +1810,7 @@ async def download_attachment(file_name: str, user: dict[str, Any] = Depends(cur
     path = UPLOAD_DIR / safe_file_name
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
-    return FileResponse(path, filename=path.name)
+    return FileResponse(path, filename=path.name, headers={"Cache-Control": "no-store, private"})
 
 
 async def handle_call_event(
@@ -1703,8 +1836,16 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
     except Exception:
         await websocket.close(code=4401)
         return
-    connection_id = await manager.connect(team_id, user_id, websocket)
+    try:
+        connection_id = await manager.connect(team_id, user_id, websocket,
+                                              session_version=int(user.get("sessionVersion") or 0))
+    except HTTPException:
+        await websocket.close(code=1013)
+        return
     actor = call_actor(user, connection_id)
+    message_budget = EventBudget(240, 60)
+    telemetry_budget = EventBudget(20, 1 / 3)
+    next_reconcile = time.monotonic() + CALL_RECONCILE_INTERVAL_SECONDS
     try:
         await websocket.send_json({"type": "CONNECTED", "onlineUserIds": manager.online_users(team_id)})
         await emit_due_meeting_reminders(team_id)
@@ -1719,12 +1860,15 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             try:
                 raw = await asyncio.wait_for(
                     websocket.receive_text(),
-                    timeout=CALL_RECONCILE_INTERVAL_SECONDS,
+                    timeout=max(0.01, next_reconcile - time.monotonic()),
                 )
             except asyncio.TimeoutError:
+                next_reconcile = time.monotonic() + CALL_RECONCILE_INTERVAL_SECONDS
                 await emit_due_meeting_reminders(team_id)
                 await call_coordinator().reconcile(actor)
-                if user_id not in await _call_active_member_ids(actor):
+                live_directory = await read_user_store()
+                live_user = next((item for item in live_directory.get("users", []) if str(item.get("id")) == user_id), None)
+                if not manager.socket_authorized(websocket, live_user, team_id):
                     # A broadcast may already have closed this transport after
                     # revocation. Closing again must not turn normal cleanup
                     # into an ASGI application error.
@@ -1741,6 +1885,10 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                 continue
             if not raw:
                 continue
+            if not message_budget.take():
+                call_metrics.increment("socket_rate_errors")
+                await websocket.close(code=1008)
+                return
             if len(raw) > 120_000:
                 await websocket.send_json({
                     "type": "CALL_ERROR",
@@ -1754,6 +1902,23 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             except json.JSONDecodeError:
                 payload = {}
             event_type = str(payload.get("type") or "") if isinstance(payload, dict) else ""
+            if event_type == "CALL_TELEMETRY":
+                try:
+                    if (not telemetry_budget.take()
+                        or set(payload) - {"type", "callId", "clientId", "event", "durationMs"}
+                        or payload.get("event") not in CLIENT_EVENTS
+                        or not isinstance(payload.get("clientId"), str)
+                        or not 1 <= len(payload["clientId"]) <= 100):
+                        raise ValueError("Invalid telemetry")
+                    context = await call_coordinator().recording_context(
+                        actor, str(payload.get("callId") or ""), payload["clientId"], require_host=False,
+                    )
+                    if context["participantSessions"][user_id].get("connectionId") != connection_id:
+                        raise ValueError("Stale connection")
+                    call_metrics.client_event(payload["event"], payload.get("durationMs"))
+                except (ValueError, TypeError, CallError):
+                    call_metrics.increment("telemetry_rejected")
+                continue
             if event_type not in CALL_EVENT_TYPES:
                 await websocket.send_json({"type": "ACK", "timestamp": now_iso()})
                 continue

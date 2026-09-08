@@ -223,7 +223,9 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(team, "user_from_websocket_ticket", AsyncMock(return_value=self.member)),
             patch.object(team, "emit_due_meeting_reminders", AsyncMock()),
-            patch.object(team, "_call_active_member_ids", AsyncMock(return_value=set())),
+            # First authorization occurs during presence publication at connect;
+            # the periodic socket check then observes the revoked session.
+            patch.object(self.manager, "socket_authorized", side_effect=[True, False]),
             patch.object(team, "_reconcile_closed_connection", AsyncMock()),
             patch.object(team, "call_coordinator", return_value=coordinator),
         ):

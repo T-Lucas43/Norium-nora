@@ -16,6 +16,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Literal, Protocol
 
 from app.modules.team.call_configuration import DEFAULT_MESH_MAX_PARTICIPANTS
+from app.modules.team.call_release import CallReleasePolicy
+from app.modules.team.call_observability import call_metrics
 
 
 CALL_ID_PATTERN = re.compile(r"call_[a-f0-9]{16,64}")
@@ -121,6 +123,8 @@ class TeamCallAuthorizer:
         subteam_id: str | None,
     ) -> tuple[str, set[str]]:
         team_members = await self._directory.active_member_ids(actor)
+        if actor.user_id not in team_members:
+            raise CallError(403, "Seu acesso a chamadas foi revogado.", code="call_access_revoked")
         if scope == "team":
             return "team", team_members
         if scope == "direct":
@@ -382,6 +386,7 @@ class CallCoordinator:
         sfu_max_participants: int | None = None,
         media_transport_for_team: Callable[[str], str] | None = None,
         media_session_id_factory: Callable[[], str] | None = None,
+        release_policy: Callable[[], CallReleasePolicy] | None = None,
     ) -> None:
         if max_participants < 2 or (
             sfu_max_participants is not None and sfu_max_participants < 2
@@ -403,6 +408,14 @@ class CallCoordinator:
             lambda: f"media_{uuid.uuid4().hex}"
         )
         self._teams: dict[str, _TeamRuntime] = {}
+        self._release_policy = release_policy
+        self._admission_lock = asyncio.Lock()
+
+    def resource_counts(self) -> dict[str, int]:
+        calls = [call for runtime in self._teams.values() for call in runtime.calls.values()]
+        return {"active_calls": len(calls), "active_participants": sum(
+            len(call.get("participantSessions", {})) for call in calls
+        )}
 
     def _new_call_transport(self, team_id: str) -> str:
         return "sfu" if self._media_transport_for_team(team_id) == "sfu" else "mesh"
@@ -751,6 +764,25 @@ class CallCoordinator:
         ), ended_message
 
     async def handle_event(self, actor: CallActor, payload: dict[str, Any]) -> CallEventResult:
+        admission = payload.get("type") in {"CALL_INVITE", "CALL_ACCEPT"}
+        if admission:
+            call_metrics.increment("join_attempts")
+        try:
+            if payload.get("type") == "CALL_INVITE":
+                # Global admission limit remains atomic across different team locks.
+                async with self._admission_lock:
+                    result = await self._handle_event(actor, payload)
+            else:
+                result = await self._handle_event(actor, payload)
+        except Exception:
+            call_metrics.increment("join_rejected" if admission else "control_errors")
+            raise
+        if admission:
+            admitted = any(message.get("type") == "CALL_ACK" for message in result.direct_messages)
+            call_metrics.increment("join_admitted" if admitted else "join_rejected")
+        return result
+
+    async def _handle_event(self, actor: CallActor, payload: dict[str, Any]) -> CallEventResult:
         event_type = str(payload.get("type") or "")
         call_id = str(payload.get("callId") or "")
         if event_type not in CALL_EVENT_TYPES:
@@ -808,6 +840,14 @@ class CallCoordinator:
                 "type": "CALL_ACTIVE",
                 "requestedCallId": call_id,
             }]
+        if self._release_policy is not None:
+            policy = self._release_policy()
+            if not policy.allows_new_call(actor.team_id):
+                raise CallError(503, "Novas chamadas estao temporariamente indisponiveis para esta equipe.",
+                                code="call_rollout_disabled")
+            if len(runtime.calls) >= policy.max_team_calls or self.resource_counts()["active_calls"] >= policy.max_total_calls:
+                raise CallError(429, "Limite de chamadas simultaneas atingido. Tente novamente mais tarde.",
+                                code="call_resource_limit")
         now = self._now().isoformat()
         client_id = str(payload.get("clientId") or "legacy")[:100]
         media_transport = self._new_call_transport(actor.team_id)

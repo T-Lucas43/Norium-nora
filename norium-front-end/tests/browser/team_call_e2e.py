@@ -5,9 +5,9 @@ is supplied) the local test TURN process. Chromium receives deterministic WAV
 and Y4M files through its native fake-media device. Signalling, HTTP, WebSocket,
 RTCPeerConnection, RTP and permission decisions remain browser/server native.
 
-Raw video, traces and logs are copied to ``--artifacts-dir`` only when a
-scenario fails. ``summary.json`` is always written because it is the CI result,
-not a raw diagnostic artifact.
+Only aggregate diagnostics, error classes and source positions are preserved.
+Raw service output, media, traces, addresses and exception text are discarded.
+``summary.json`` is always written because it is the CI result.
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ class ManagedProcess:
             self.command,
             cwd=self.cwd,
             env=self.environment,
-            stdout=self._log,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.STDOUT,
         )
 
@@ -201,8 +201,7 @@ class ManagedProcess:
 
     def assert_alive(self) -> None:
         if self.process and self.process.poll() is not None:
-            tail = self.log_path.read_text(errors="replace")[-4_000:]
-            raise RuntimeError(f"{self.name} exited with {self.process.returncode}:\n{tail}")
+            raise RuntimeError(f"{self.name} exited with {self.process.returncode}")
 
 
 async def wait_http(url: str, process: ManagedProcess, timeout: float = 30) -> None:
@@ -239,7 +238,7 @@ class Services:
             try:
                 await process.stop()
             except Exception as error:
-                errors.append(f"{process.name}: {type(error).__name__}: {error}")
+                errors.append(f"{process.name}: {type(error).__name__}")
         return errors
 
 
@@ -251,11 +250,16 @@ def copy_service_logs(processes: list[ManagedProcess], destination: Path) -> lis
             if not process.log_path.exists():
                 continue
             try:
-                shutil.copy2(process.log_path, destination / process.log_path.name)
+                # Raw service logs can contain ticket URLs or network addresses.
+                lines = process.log_path.read_text(errors="replace").splitlines()
+                (destination / (process.name + ".json")).write_text(json.dumps({
+                    "lines": len(lines), "errorLines": sum("error" in line.lower() for line in lines),
+                    "rawLogsRetained": False,
+                }), encoding="utf-8")
             except Exception as error:
-                errors.append(f"{process.name}: {type(error).__name__}: {error}")
+                errors.append(f"{process.name}: {type(error).__name__}")
     except Exception as error:
-        errors.append(f"failure directory: {type(error).__name__}: {error}")
+        errors.append(f"failure directory: {type(error).__name__}")
     return errors
 
 
@@ -268,6 +272,9 @@ async def start_services(args: argparse.Namespace, temporary: Path) -> Services:
     processes: list[ManagedProcess] = []
     _STARTUP_PROCESSES.clear()
     backend_env = os.environ.copy()
+    # The fixture cohort is isolated from the production rollout configuration.
+    backend_env.update({"TEAM_CALL_ENABLED": "true", "TEAM_CALL_ROLLOUT_PERCENT": "100",
+                        "TEAM_CALL_RECORDING_ENABLED": "true"})
     turn_port: int | None = None
     turn_mode = "external"
     turn_health_url: str | None = None
@@ -401,7 +408,7 @@ class ScenarioRuntime:
         self.browser = browser
         self.services = services
         self.raw_dir = raw_dir
-        self.record_video = record_video
+        self.record_video = False  # Release privacy policy excludes media artifacts.
         self.sessions: list[BrowserSession] = []
 
     async def page(
@@ -425,15 +432,14 @@ class ScenarioRuntime:
                 if self.record_video:
                     context_options["record_video_dir"] = str(video_dir)
                 context = await self.browser.new_context(**context_options)
-                await context.tracing.start(screenshots=True, snapshots=True, sources=True)
             if grant_media:
                 await context.grant_permissions(["microphone", "camera"], origin=self.services.frontend_url)
             page = await context.new_page()
             config = json.dumps({"apiUrl": self.services.api_url, "wsUrl": self.services.ws_url})
             await page.add_init_script(f"({INIT_SCRIPT})({config})")
             messages: list[str] = []
-            page.on("console", lambda message: messages.append(f"console.{message.type}: {message.text}"))
-            page.on("pageerror", lambda error: messages.append(f"pageerror: {error}"))
+            page.on("console", lambda message: messages.append("console." + message.type) if len(messages) < 256 else None)
+            page.on("pageerror", lambda _error: messages.append("pageerror") if len(messages) < 256 else None)
             page.on(
                 "requestfailed",
                 lambda request: messages.append(
@@ -473,14 +479,6 @@ class ScenarioRuntime:
         copy_raw: bool = True,
     ) -> None:
         failure_dir.mkdir(parents=True, exist_ok=True)
-        if screenshots:
-            for session in self.sessions:
-                if not session.page.is_closed():
-                    with contextlib.suppress(Exception):
-                        await session.page.screenshot(
-                            path=str(failure_dir / f"{session.name}.png"),
-                            full_page=True,
-                        )
         logs = [
             f"[{session.name}] {line}"
             for session in self.sessions
@@ -488,13 +486,7 @@ class ScenarioRuntime:
         ]
         if logs:
             (failure_dir / "browser.log").write_text("\n".join(logs), encoding="utf-8")
-        if not copy_raw:
-            return
-        for source in self.raw_dir.rglob("*-trace.zip"):
-            shutil.copy2(source, failure_dir / source.name)
-        for source in self.raw_dir.rglob("*.webm"):
-            target = failure_dir / f"{source.parent.parent.name}-{source.name}"
-            shutil.copy2(source, target)
+        # Intentionally no screenshots, recordings, traces or network bodies.
 
     async def close(self, failure_dir: Path | None) -> None:
         # Capture every tab before closing any shared context.
@@ -507,16 +499,10 @@ class ScenarioRuntime:
             if key in seen_contexts:
                 continue
             seen_contexts.add(key)
-            trace_path = self.raw_dir / f"{session.name}-trace.zip"
-            with contextlib.suppress(Exception):
-                await asyncio.wait_for(
-                    session.context.tracing.stop(path=str(trace_path)),
-                    timeout=8,
-                )
             try:
                 await asyncio.wait_for(session.context.close(), timeout=8)
             except Exception as error:
-                context_close_errors.append(f"{session.name}: {type(error).__name__}: {error}")
+                context_close_errors.append(f"{session.name}: {type(error).__name__}")
         if failure_dir:
             await self.preserve_failure(failure_dir, screenshots=False)
         leaked = list(self.browser.contexts)
@@ -1340,15 +1326,15 @@ async def run(args: argparse.Namespace) -> int:
                                     "repetition": repetition,
                                     "status": "failed",
                                     "durationSeconds": round(time.monotonic() - scenario_started, 3),
-                                    "error": f"{type(error).__name__}: {error}",
-                                    "traceback": traceback.format_exc().splitlines()[-20:],
+                                    "error": f"{type(error).__name__}",
+                                    "traceback": [f"{Path(frame.filename).name}:{frame.lineno}" for frame in traceback.extract_tb(sys.exception().__traceback__)[-20:]],
                                 }
                             cleanup_failure: str | None = None
                             try:
                                 await runtime.close(failure_dir)
                             except Exception as cleanup_error:
-                                cleanup_failure = f"{type(cleanup_error).__name__}: {cleanup_error}"
-                                cleanup_traceback = traceback.format_exc().splitlines()[-20:]
+                                cleanup_failure = type(cleanup_error).__name__
+                                cleanup_traceback = [f"{Path(frame.filename).name}:{frame.lineno}" for frame in traceback.extract_tb(sys.exception().__traceback__)[-20:]]
                                 if failure_dir is None:
                                     failure_dir = failure_root / f"repeat-{repetition}" / name
                                     failure_dir.mkdir(parents=True, exist_ok=True)
@@ -1360,12 +1346,12 @@ async def run(args: argparse.Namespace) -> int:
                                         "repetition": repetition,
                                         "status": "failed",
                                         "durationSeconds": round(time.monotonic() - scenario_started, 3),
-                                        "error": f"cleanup: {type(cleanup_error).__name__}: {cleanup_error}",
+                                        "error": f"cleanup: {type(cleanup_error).__name__}",
                                         "traceback": cleanup_traceback,
                                     }
                                 else:
                                     result["error"] += (
-                                        f"; cleanup: {type(cleanup_error).__name__}: {cleanup_error}"
+                                        f"; cleanup: {type(cleanup_error).__name__}"
                                     )
                                     result["traceback"] = (result["traceback"] + cleanup_traceback)[-40:]
                                 assert failure_dir is not None
@@ -1383,7 +1369,7 @@ async def run(args: argparse.Namespace) -> int:
                             if browser.is_connected():
                                 raise RuntimeError("Browser process remained connected after close().")
                         except Exception as error:
-                            browser_close_failure = f"{type(error).__name__}: {error}"
+                            browser_close_failure = f"{type(error).__name__}"
                         # A leaked context may only finish its video when the
                         # whole browser closes. Copy those raw files once more.
                         raw_copy_errors: list[str] = []
@@ -1395,7 +1381,7 @@ async def run(args: argparse.Namespace) -> int:
                                     copy_raw=True,
                                 )
                             except Exception as error:
-                                raw_copy_errors.append(f"{type(error).__name__}: {error}")
+                                raw_copy_errors.append(f"{type(error).__name__}")
                         if browser_close_failure or raw_copy_errors:
                             reasons = [item for item in [browser_close_failure, *raw_copy_errors] if item]
                             raise RuntimeError("Browser finalization failed: " + " | ".join(reasons))
@@ -1405,8 +1391,8 @@ async def run(args: argparse.Namespace) -> int:
                 "repetition": 0,
                 "status": "failed",
                 "durationSeconds": round(time.time() - started, 3),
-                "error": f"{type(error).__name__}: {error}",
-                "traceback": traceback.format_exc().splitlines()[-40:],
+                "error": f"{type(error).__name__}",
+                "traceback": [f"{Path(frame.filename).name}:{frame.lineno}" for frame in traceback.extract_tb(sys.exception().__traceback__)[-40:]],
             })
         finally:
             processes_for_artifacts = list(services.processes if services else _STARTUP_PROCESSES)
@@ -1417,7 +1403,7 @@ async def run(args: argparse.Namespace) -> int:
                     try:
                         await process.stop()
                     except Exception as error:
-                        stop_errors.append(f"{process.name}: {type(error).__name__}: {error}")
+                        stop_errors.append(f"{process.name}: {type(error).__name__}")
             _STARTUP_PROCESSES.clear()
             if stop_errors:
                 results.append({
@@ -1444,8 +1430,8 @@ async def run(args: argparse.Namespace) -> int:
                 "repetition": 0,
                 "status": "failed",
                 "durationSeconds": round(time.time() - started, 3),
-                "error": f"Temporary workspace cleanup failed: {type(error).__name__}: {error}",
-                "traceback": traceback.format_exc().splitlines()[-20:],
+                "error": f"Temporary workspace cleanup failed: {type(error).__name__}",
+                "traceback": [f"{Path(frame.filename).name}:{frame.lineno}" for frame in traceback.extract_tb(sys.exception().__traceback__)[-20:]],
             })
             if not failed:
                 artifact_errors.extend(copy_service_logs(processes_for_artifacts, failure_root / "services"))
@@ -1471,9 +1457,10 @@ async def run(args: argparse.Namespace) -> int:
             "browser": browser_identity,
             "turnMode": services.turn_mode if services else "not-started",
             "turnTlsVerified": False,
-            "rawArtifactsPolicy": "failure-only",
+            "rawArtifactsPolicy": "disabled",
             "failureArtifacts": str(failure_root.relative_to(artifacts)) if failed else None,
-            "videoCaptureEnabled": browser_identity == "playwright-chromium" or os.environ.get("TEAM_CALL_E2E_RECORD_VIDEO") == "1",
+            "videoCaptureEnabled": False,
+            "privacyMode": "aggregate-only; no media, SDP, candidates, IPs, tickets or raw traces",
             "passed": len(results) - len(failed),
             "failed": len(failed),
             "results": results,

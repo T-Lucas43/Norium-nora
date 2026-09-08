@@ -192,6 +192,8 @@ def create_app() -> FastAPI:
     validate_turn_configuration()
     validate_sfu_configuration()
     configure_webhook_secret_log_redaction()
+    from app.modules.team.call_observability import configure_call_logging
+    configure_call_logging()
     @asynccontextmanager
     async def lifespan(_app):
         from app.services.system_email import worker

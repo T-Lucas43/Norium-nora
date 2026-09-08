@@ -236,6 +236,20 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     return () => controller.abort();
   }, [load]);
 
+  const hasCommercialData = Boolean(data);
+  useEffect(() => {
+    if (!hasCommercialData) return;
+    let link: { tab?: string; entityType?: string; entityId?: string };
+    try { link = JSON.parse(localStorage.getItem("norium-deep-link") || "null"); } catch { return; }
+    if (link?.tab !== "Propostas" || link.entityType !== "contract" || !link.entityId) return;
+    localStorage.removeItem("norium-deep-link");
+    setView("contracts");
+    setOpeningDocumentId(link.entityId);
+    let active = true;
+    void loadContract(link.entityId).then(response => { if (active) setSelected(response.contract); }).catch(reason => { if (active) setError(messageFromError(reason, "Não foi possível abrir o contrato vinculado.")); }).finally(() => { if (active) setOpeningDocumentId(null); });
+    return () => { active = false; };
+  }, [hasCommercialData]);
+
   useEffect(() => {
     if (!notice) return undefined;
     const timer = window.setTimeout(() => setNotice(""), 4500);

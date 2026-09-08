@@ -530,7 +530,7 @@ async def client_360(user: dict[str, Any], client_id: str) -> dict[str, Any] | N
         "tasks": [],
         "finance": [],
         "calendar": [],
-        "attachments": [],
+        "attachments": list(client.get("attachments") or []),
         "followUps": [],
     }
     timeline: list[dict[str, Any]] = []

@@ -1,0 +1,114 @@
+export type ClientStage = "new" | "contacted" | "proposal" | "won" | "lost";
+export type ClientStatus = "lead" | "active" | "inactive";
+export type Client = {
+  id: string;
+  name: string;
+  company: string;
+  document?: string;
+  email: string;
+  phone: string;
+  segment: string;
+  status: ClientStatus;
+  stage: ClientStage;
+  ownerName: string;
+  nextActionAt: string | null;
+  tags: string[];
+  notes: string;
+  updatedAt: string;
+  avatarId?: string;
+  attachmentCount?: number;
+};
+export type Client360 = {
+  summary: Record<
+    | "emails"
+    | "messages"
+    | "tasks"
+    | "finance"
+    | "calendar"
+    | "attachments"
+    | "followUps",
+    number
+  >;
+  timeline: Array<{
+    id: string;
+    type: string;
+    title: string;
+    description: string;
+    timestamp: string;
+    deepLink?: {
+      tab: string;
+      entityType: string;
+      entityId: string;
+      metadata?: Record<string, unknown>;
+    };
+  }>;
+  lastContactAt: string | null;
+};
+export const stageLabels: Record<ClientStage, string> = {
+  new: "Novo contato",
+  contacted: "Em contato",
+  proposal: "Em proposta",
+  won: "Convertido",
+  lost: "Perdido",
+};
+export const statusLabels: Record<ClientStatus, string> = {
+  lead: "Lead",
+  active: "Ativo",
+  inactive: "Inativo",
+};
+export function initials(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toLocaleUpperCase("pt-BR");
+}
+export function dateLabel(value?: string | null, time = false) {
+  const date = value ? new Date(value) : null;
+  return date && Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat("pt-BR", {
+        dateStyle: "medium",
+        ...(time ? { timeStyle: "short" as const } : {}),
+      }).format(date)
+    : "Não definido";
+}
+export function whatsappUrl(phone: string): string | null {
+  let number = phone.replace(/\D/g, "");
+  const international = /^\s*(?:\+|00)/.test(phone);
+  if (number.startsWith("00")) number = number.slice(2);
+  if (!international && (number.length === 10 || number.length === 11))
+    number = `55${number}`;
+  return /^[1-9]\d{9,14}$/.test(number) ? `https://wa.me/${number}` : null;
+}
+export function gmailUrl(email: string): string | null {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    ? `https://mail.google.com/mail/u/0/?view=cm&fs=1&to=${encodeURIComponent(email.trim())}`
+    : null;
+}
+export async function uploadPayload(file: File) {
+  if (!file.size || file.size > 15 * 1024 * 1024)
+    throw new Error("Escolha um arquivo de até 15 MB.");
+  const data = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1]);
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+  return { fileName: file.name, dataBase64: data };
+}
+export function saveBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+export function openContract(id: string) {
+  const link = { tab: "Propostas", entityType: "contract", entityId: id };
+  localStorage.setItem("norium-deep-link", JSON.stringify(link));
+  window.dispatchEvent(new CustomEvent("norium:deep-link", { detail: link }));
+}

@@ -1,330 +1,887 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, CalendarDays, CheckSquare, Download, History, LoaderCircle, Mail, MessageSquare, Paperclip, Pencil, Phone, Plus, Search, Trash2, UserRoundCheck, Wallet, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  Building2,
+  CalendarClock,
+  Camera,
+  CheckCheck,
+  ChevronRight,
+  Download,
+  FileSignature,
+  FileText,
+  History,
+  Mail,
+  MessageCircle,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Tag,
+  Trash2,
+  UserRound,
+  UserRoundCheck,
+  UsersRound,
+  X,
+} from "lucide-react";
 import { apiRequest } from "../../core/api/client";
-import LoadingState from "../shared/LoadingState";
-import EmptyState from "../shared/EmptyState";
-import { showConfirm } from "../shared/AppDialogProvider";
+import WorkspaceHeader from "../shared/WorkspaceHeader";
 import Button from "../shared/Button";
+import { showConfirm } from "../shared/AppDialogProvider";
+import ClientAvatar from "./ClientAvatar";
+import ClientEditor from "./ClientEditor";
+import { ClientContracts, ClientDocuments } from "./ClientAssets";
+import {
+  dateLabel,
+  gmailUrl,
+  saveBlob,
+  stageLabels,
+  statusLabels,
+  uploadPayload,
+  whatsappUrl,
+  type Client,
+  type Client360,
+  type ClientStatus,
+} from "./clientModel";
+import "./clients.css";
 
-type ClientStage = "new" | "contacted" | "proposal" | "won" | "lost";
-type ClientStatus = "lead" | "active" | "inactive";
-
-type Client = {
-  id: string;
-  name: string;
-  company: string;
-  email: string;
-  phone: string;
-  segment: string;
-  status: ClientStatus;
-  stage: ClientStage;
-  ownerName: string;
-  nextActionAt: string | null;
-  tags: string[];
-  notes: string;
-  updatedAt: string;
-};
-
-type Client360 = {
-  summary: Record<"emails" | "messages" | "tasks" | "finance" | "calendar" | "attachments" | "followUps", number>;
-  timeline: Array<{
-    id: string;
-    type: string;
-    title: string;
-    description: string;
-    timestamp: string;
-    deepLink?: { tab: string; entityType: string; entityId: string; metadata?: Record<string, unknown> };
-  }>;
-  lastContactAt: string | null;
-};
-
-const emptyForm = {
-  name: "",
-  company: "",
-  email: "",
-  phone: "",
-  segment: "",
-  status: "lead" as ClientStatus,
-  stage: "new" as ClientStage,
-  ownerName: "",
-  nextActionAt: "",
-  tags: "",
-  notes: "",
-};
-
-const stageLabels: Record<ClientStage, string> = {
-  new: "Novo",
-  contacted: "Contatado",
-  proposal: "Proposta",
-  won: "Convertido",
-  lost: "Perdido",
-};
-
+type DetailTab = "overview" | "contracts" | "documents" | "history";
 export default function ClientsDashboard() {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState(emptyForm);
-  const [client360, setClient360] = useState<Client360 | null>(null);
-  const [loading360, setLoading360] = useState(false);
-
-  const loadClients = useCallback(async () => {
+  const [clients, setClients] = useState<Client[]>([]),
+    [selectedId, setSelectedId] = useState<string | null>(null);
+  const [query, setQuery] = useState(""),
+    [filter, setFilter] = useState<"all" | ClientStatus>("all"),
+    [sort, setSort] = useState("recent"),
+    [visible, setVisible] = useState(25);
+  const [loading, setLoading] = useState(true),
+    [error, setError] = useState(""),
+    [editor, setEditor] = useState<{ client: Client | null } | null>(null),
+    [photoBusy, setPhotoBusy] = useState(false);
+  const [tab, setTab] = useState<DetailTab>("overview");
+  const photoRef = useRef<HTMLInputElement>(null);
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const data = await apiRequest<{ items: Client[] }>("/api/clientes");
-      setClients(data.items || []);
-      setSelectedId((current) => current && data.items.some((item) => item.id === current) ? current : data.items[0]?.id || null);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel carregar os clientes.");
+      setClients(
+        data.items.map((item) => ({
+          ...item,
+          tags: item.tags || [],
+          status: item.status || "lead",
+          stage: item.stage || "new",
+        })),
+      );
+      setSelectedId((current) =>
+        data.items.some((item) => item.id === current) ? current : null,
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Não foi possível carregar os clientes.",
+      );
     } finally {
       setLoading(false);
     }
   }, []);
-
   useEffect(() => {
-    void loadClients();
-  }, [loadClients]);
-
+    void load();
+  }, [load]);
   useEffect(() => {
-    if (!selectedId) {
-      setClient360(null);
+    if (loading) return;
+    const consume = () => {
+      try {
+        const link = JSON.parse(
+          localStorage.getItem("norium-deep-link") || "null",
+        );
+        if (link?.tab !== "Clientes" || link.entityType !== "client") return;
+        const client = clients.find((item) => item.id === link.entityId);
+        localStorage.removeItem("norium-deep-link");
+        if (client) {
+          setSelectedId(client.id);
+          setTab(
+            link.metadata?.section === "documents" ? "documents" : "overview",
+          );
+        }
+      } catch {
+        /* Ignore unrelated or invalid navigation state. */
+      }
+    };
+    consume();
+    window.addEventListener("norium:deep-link", consume);
+    return () => window.removeEventListener("norium:deep-link", consume);
+  }, [clients, loading]);
+  const selected = clients.find((item) => item.id === selectedId) || null;
+  const filtered = useMemo(() => {
+    const simplify = (value: string) =>
+      value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR");
+    return clients
+      .filter(
+        (item) =>
+          (filter === "all" || item.status === filter) &&
+          simplify(
+            `${item.name} ${item.company} ${item.email} ${item.phone} ${item.document || ""} ${item.segment} ${item.tags.join(" ")}`,
+          ).includes(simplify(query)),
+      )
+      .sort((a, b) =>
+        sort === "name"
+          ? a.name.localeCompare(b.name, "pt-BR")
+          : sort === "next"
+            ? (a.nextActionAt || "9999").localeCompare(b.nextActionAt || "9999")
+            : b.updatedAt.localeCompare(a.updatedAt),
+      );
+  }, [clients, query, filter, sort]);
+  const nextContacts = clients.filter(
+    (item) =>
+      item.nextActionAt &&
+      new Date(item.nextActionAt).getTime() <= Date.now() + 7 * 86400000 &&
+      item.status !== "inactive",
+  ).length;
+  function select(id: string | null) {
+    setSelectedId(id);
+    setTab("overview");
+    setError("");
+  }
+  function updateClient(client: Client) {
+    setClients((current) =>
+      current.some((item) => item.id === client.id)
+        ? current.map((item) =>
+            item.id === client.id ? { ...item, ...client } : item,
+          )
+        : [client, ...current],
+    );
+    setSelectedId(client.id);
+    setEditor(null);
+  }
+  async function remove(client: Client) {
+    if (
+      !(await showConfirm({
+        title: "Excluir cliente?",
+        description: `A ficha de “${client.name}”, sua foto e seus anexos serão excluídos. Contratos e registros históricos continuarão disponíveis em suas respectivas telas.`,
+        confirmLabel: "Excluir cliente",
+        tone: "danger",
+      }))
+    )
       return;
+    setError("");
+    try {
+      await apiRequest(`/api/clientes/${client.id}`, { method: "DELETE" });
+      setClients((current) => current.filter((item) => item.id !== client.id));
+      select(null);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Não foi possível excluir o cliente.",
+      );
     }
+  }
+  async function photo(file?: File) {
+    if (!selected || !file) return;
+    const clientId = selected.id;
+    setPhotoBusy(true);
+    setError("");
+    try {
+      const result = await apiRequest<{ item: Client }>(
+        `/api/clientes/${clientId}/avatar`,
+        {
+          method: "PUT",
+          body: JSON.stringify(await uploadPayload(file)),
+          timeoutMs: 90000,
+        },
+      );
+      setClients((current) =>
+        current.map((item) =>
+          item.id === clientId ? { ...item, ...result.item } : item,
+        ),
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Não foi possível salvar a foto.",
+      );
+    } finally {
+      setPhotoBusy(false);
+      if (photoRef.current) photoRef.current.value = "";
+    }
+  }
+  async function removePhoto() {
+    if (!selected) return;
+    const clientId = selected.id;
+    setPhotoBusy(true);
+    setError("");
+    try {
+      await apiRequest(`/api/clientes/${clientId}/avatar`, {
+        method: "DELETE",
+      });
+      setClients((current) =>
+        current.map((item) =>
+          item.id === clientId ? { ...item, avatarId: undefined } : item,
+        ),
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Não foi possível remover a foto.",
+      );
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
+  function exportClients() {
+    const escape = (value: unknown) => {
+      const text = String(value ?? "");
+      return `"${(/^[=+\-@\t\r]/.test(text) ? `'${text}` : text).replace(/"/g, '""')}"`;
+    };
+    const rows = [
+      [
+        "Nome",
+        "Empresa",
+        "E-mail",
+        "WhatsApp",
+        "Segmento",
+        "Status",
+        "Etapa",
+        "Responsável",
+        "Próximo contato",
+      ],
+      ...filtered.map((item) => [
+        item.name,
+        item.company,
+        item.email,
+        item.phone,
+        item.segment,
+        statusLabels[item.status],
+        stageLabels[item.stage],
+        item.ownerName,
+        item.nextActionAt || "",
+      ]),
+    ];
+    saveBlob(
+      new Blob(
+        ["\ufeff", rows.map((row) => row.map(escape).join(";")).join("\r\n")],
+        { type: "text/csv;charset=utf-8" },
+      ),
+      `clientes-norium-${new Date().toISOString().slice(0, 10)}.csv`,
+    );
+  }
+  return (
+    <main className="clients-workspace clean-workspace">
+      <WorkspaceHeader
+        title="Clientes"
+        description="Pessoas, conversas e documentos. Tudo no mesmo lugar."
+        icon={UsersRound}
+      >
+        <Button
+          size="sm"
+          iconOnly
+          title="Atualizar clientes"
+          aria-label="Atualizar clientes"
+          disabled={loading}
+          onClick={() => void load()}
+        >
+          <RefreshCw size={16} />
+        </Button>
+        <Button size="sm" disabled={!filtered.length} onClick={exportClients}>
+          <Download size={15} />
+          Exportar
+        </Button>
+        <Button
+          className="client-main-action"
+          onClick={() => setEditor({ client: null })}
+        >
+          <Plus size={16} />
+          Novo cliente
+        </Button>
+      </WorkspaceHeader>
+      <div className="client-metrics">
+        <Metric
+          icon={UsersRound}
+          tone="violet"
+          value={clients.length}
+          label="Total de clientes"
+        />
+        <Metric
+          icon={UserRoundCheck}
+          tone="green"
+          value={clients.filter((item) => item.status === "active").length}
+          label="Clientes ativos"
+        />
+        <Metric
+          icon={MessageCircle}
+          tone="sky"
+          value={clients.filter((item) => item.status === "lead").length}
+          label="Em prospecção"
+        />
+        <Metric
+          icon={CalendarClock}
+          tone="amber"
+          value={nextContacts}
+          label="Contatos até os próximos 7 dias"
+        />
+      </div>
+      {error && (
+        <div role="alert" className="client-error">
+          {error}
+        </div>
+      )}
+      <div
+        className={`client-workbench ${selected ? "client-has-selection" : ""}`}
+      >
+        <aside className="client-sidebar" aria-label="Lista de clientes">
+          <div className="client-sidebar-tools">
+            <label className="client-search">
+              <Search size={17} />
+              <input
+                aria-label="Buscar clientes"
+                placeholder="Buscar nome, empresa ou contato"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setVisible(25);
+                }}
+              />
+              {query && (
+                <button aria-label="Limpar busca" onClick={() => setQuery("")}>
+                  <X size={14} />
+                </button>
+              )}
+            </label>
+            <div className="client-filters">
+              {(["all", "active", "lead", "inactive"] as const).map((value) => (
+                <button
+                  key={value}
+                  aria-pressed={filter === value}
+                  onClick={() => {
+                    setFilter(value);
+                    setVisible(25);
+                  }}
+                >
+                  {value === "all"
+                    ? "Todos"
+                    : value === "active"
+                      ? "Ativos"
+                      : value === "lead"
+                        ? "Leads"
+                        : "Inativos"}
+                </button>
+              ))}
+            </div>
+            <div className="client-list-caption">
+              <span>
+                {filtered.length}{" "}
+                {filtered.length === 1 ? "cliente" : "clientes"}
+              </span>
+              <select
+                aria-label="Ordenar clientes"
+                value={sort}
+                onChange={(event) => setSort(event.target.value)}
+              >
+                <option value="recent">Recentes</option>
+                <option value="name">Nome A–Z</option>
+                <option value="next">Próximo contato</option>
+              </select>
+            </div>
+          </div>
+          <div className="client-list">
+            {loading ? (
+              <p className="client-empty" role="status">
+                Carregando clientes…
+              </p>
+            ) : (
+              filtered.slice(0, visible).map((client) => (
+                <button
+                  className={`client-list-item ${selectedId === client.id ? "is-selected" : ""}`}
+                  key={client.id}
+                  aria-pressed={selectedId === client.id}
+                  onClick={() => select(client.id)}
+                >
+                  <ClientAvatar client={client} />
+                  <span className="client-list-person">
+                    <strong>{client.name}</strong>
+                    <small>
+                      {client.company || client.email || "Cliente individual"}
+                    </small>
+                    <span
+                      className={`client-status-dot client-status-${client.status}`}
+                    >
+                      {statusLabels[client.status]}
+                    </span>
+                  </span>
+                  <ChevronRight size={15} />
+                </button>
+              ))
+            )}
+            {!loading && !filtered.length && (
+              <div className="client-empty">
+                <Search size={24} />
+                <h4>
+                  {query || filter !== "all"
+                    ? "Nenhum resultado"
+                    : "Sua carteira começa aqui"}
+                </h4>
+                <p>
+                  {query || filter !== "all"
+                    ? "Ajuste a busca ou os filtros."
+                    : "Cadastre um cliente para organizar os contatos."}
+                </p>
+              </div>
+            )}
+            {visible < filtered.length && (
+              <Button
+                className="client-load-more"
+                variant="ghost"
+                onClick={() => setVisible((value) => value + 25)}
+              >
+                Carregar mais clientes
+              </Button>
+            )}
+          </div>
+        </aside>
+        <section className="client-detail" aria-label="Ficha do cliente">
+          {selected ? (
+            <>
+              <div className="client-detail-top">
+                <Button size="sm" variant="ghost" onClick={() => select(null)}>
+                  <ArrowLeft size={15} />
+                  <span>Clientes</span>
+                </Button>
+                <div>
+                  <Button
+                    size="sm"
+                    disabled={photoBusy}
+                    onClick={() => setEditor({ client: selected })}
+                  >
+                    <Pencil size={14} />
+                    Editar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    iconOnly
+                    disabled={photoBusy}
+                    aria-label="Excluir cliente"
+                    title="Excluir cliente"
+                    onClick={() => void remove(selected)}
+                  >
+                    <Trash2 size={15} />
+                  </Button>
+                </div>
+              </div>
+              <header className="client-profile">
+                <div className="client-photo-control">
+                  <button
+                    disabled={photoBusy}
+                    className="client-photo-button"
+                    aria-label={
+                      selected.avatarId
+                        ? "Alterar foto do cliente"
+                        : "Adicionar foto do cliente"
+                    }
+                    title="Alterar foto"
+                    onClick={() => photoRef.current?.click()}
+                  >
+                    <ClientAvatar client={selected} large />
+                    <span>
+                      <Camera size={14} />
+                    </span>
+                  </button>
+                  {selected.avatarId && (
+                    <button
+                      className="client-remove-photo"
+                      disabled={photoBusy}
+                      onClick={() => void removePhoto()}
+                    >
+                      Remover foto
+                    </button>
+                  )}
+                  <input
+                    hidden
+                    ref={photoRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    aria-label="Foto de perfil do cliente"
+                    onChange={(event) => void photo(event.target.files?.[0])}
+                  />
+                </div>
+                <div className="client-profile-info">
+                  <div className="client-profile-status">
+                    <span
+                      className={`client-badge client-tone-${selected.status === "active" ? "green" : selected.status === "lead" ? "sky" : "neutral"}`}
+                    >
+                      {statusLabels[selected.status]}
+                    </span>
+                    <span>{stageLabels[selected.stage]}</span>
+                  </div>
+                  <h2>{selected.name}</h2>
+                  <p>
+                    <Building2 size={14} />
+                    {selected.company || "Cliente individual"}
+                    {selected.segment && <span> · {selected.segment}</span>}
+                  </p>
+                </div>
+              </header>
+              {photoBusy && (
+                <p role="status" className="client-hint">
+                  Atualizando foto…
+                </p>
+              )}
+              <div className="client-contact-actions">
+                <ContactAction
+                  icon={Mail}
+                  label="Gmail"
+                  value={selected.email}
+                  href={gmailUrl(selected.email)}
+                  tone="red"
+                  onEdit={() => setEditor({ client: selected })}
+                />
+                <ContactAction
+                  icon={MessageCircle}
+                  label="WhatsApp"
+                  value={selected.phone}
+                  href={whatsappUrl(selected.phone)}
+                  tone="green"
+                  onEdit={() => setEditor({ client: selected })}
+                />
+              </div>
+              <nav
+                className="client-detail-tabs"
+                aria-label="Seções da ficha"
+                role="tablist"
+              >
+                {(
+                  [
+                    { id: "overview", label: "Informações", icon: UserRound },
+                    {
+                      id: "contracts",
+                      label: "Contratos",
+                      icon: FileSignature,
+                    },
+                    { id: "documents", label: "Documentos", icon: FileText },
+                    { id: "history", label: "Histórico", icon: History },
+                  ] as const
+                ).map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    role="tab"
+                    aria-selected={tab === id}
+                    id={`client-tab-${id}`}
+                    aria-controls="client-detail-panel"
+                    onClick={() => setTab(id)}
+                  >
+                    <Icon size={15} />
+                    {label}
+                    {id === "documents" && !!selected.attachmentCount && (
+                      <span>{selected.attachmentCount}</span>
+                    )}
+                  </button>
+                ))}
+              </nav>
+              <div
+                role="tabpanel"
+                aria-labelledby={`client-tab-${tab}`}
+                id="client-detail-panel"
+                key={`${selected.id}-${tab}`}
+              >
+                {tab === "overview" && (
+                  <div className="client-overview">
+                    <dl className="client-details-grid">
+                      <Info label="Responsável" value={selected.ownerName} />
+                      <Info label="CPF / CNPJ" value={selected.document} />
+                      <Info label="Segmento" value={selected.segment} />
+                      <Info
+                        label="Última atualização"
+                        value={dateLabel(selected.updatedAt)}
+                      />
+                    </dl>
+                    <div className="client-next-contact">
+                      <span className="client-tone-amber">
+                        <CalendarClock size={20} />
+                      </span>
+                      <div>
+                        <h3>Próximo contato</h3>
+                        <p>
+                          {selected.nextActionAt
+                            ? dateLabel(selected.nextActionAt, true)
+                            : "Nenhum acompanhamento agendado"}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditor({ client: selected })}
+                      >
+                        {selected.nextActionAt ? "Alterar" : "Agendar"}
+                        <ArrowUpRight size={14} />
+                      </Button>
+                    </div>
+                    <section className="client-notes">
+                      <h3>Sobre o cliente</h3>
+                      <p>
+                        {selected.notes ||
+                          "Adicione observações para manter o contexto das próximas conversas."}
+                      </p>
+                    </section>
+                    <section className="client-tags">
+                      <h3>
+                        <Tag size={14} />
+                        Marcadores
+                      </h3>
+                      {selected.tags.length ? (
+                        <div>
+                          {selected.tags.map((value) => (
+                            <span key={value}>{value}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="client-hint">Sem marcadores</p>
+                      )}
+                    </section>
+                  </div>
+                )}
+                {tab === "documents" && (
+                  <ClientDocuments
+                    clientId={selected.id}
+                    onCountChange={(count) =>
+                      setClients((current) =>
+                        current.map((item) =>
+                          item.id === selected.id
+                            ? { ...item, attachmentCount: count }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                )}
+                {tab === "contracts" && (
+                  <ClientContracts clientId={selected.id} />
+                )}
+                {tab === "history" && <ClientHistory clientId={selected.id} />}
+              </div>
+            </>
+          ) : (
+            <div className="client-welcome">
+              <span className="client-welcome-icon">
+                <UsersRound size={34} strokeWidth={1.3} />
+              </span>
+              <h2>Um lugar para cada relacionamento</h2>
+              <p>
+                Selecione um cliente para ver seus contatos, acompanhar
+                contratos e organizar documentos.
+              </p>
+              <div>
+                <span>
+                  <MessageCircle size={16} />
+                  Contato direto
+                </span>
+                <span>
+                  <FileSignature size={16} />
+                  Contratos
+                </span>
+                <span>
+                  <FileText size={16} />
+                  Documentos
+                </span>
+              </div>
+              {!clients.length && !loading && (
+                <Button
+                  className="client-main-action"
+                  onClick={() => setEditor({ client: null })}
+                >
+                  <Plus size={16} />
+                  Cadastrar primeiro cliente
+                </Button>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
+      {editor && (
+        <ClientEditor
+          client={editor.client}
+          onSave={updateClient}
+          onClose={() => setEditor(null)}
+        />
+      )}
+    </main>
+  );
+}
+function Metric({
+  icon: Icon,
+  tone,
+  value,
+  label,
+}: {
+  icon: typeof UsersRound;
+  tone: string;
+  value: number;
+  label: string;
+}) {
+  return (
+    <article className="client-metric">
+      <span className={`client-metric-icon client-tone-${tone}`}>
+        <Icon size={18} />
+      </span>
+      <div>
+        <strong>{value}</strong>
+        <p>{label}</p>
+      </div>
+    </article>
+  );
+}
+function Info({ label, value }: { label: string; value?: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value || "Não informado"}</dd>
+    </div>
+  );
+}
+function ContactAction({
+  icon: Icon,
+  label,
+  value,
+  href,
+  tone,
+  onEdit,
+}: {
+  icon: typeof Mail;
+  label: string;
+  value: string;
+  href: string | null;
+  tone: string;
+  onEdit: () => void;
+}) {
+  const content = (
+    <>
+      <span className={`client-contact-icon client-tone-${tone}`}>
+        <Icon size={18} />
+      </span>
+      <span>
+        <small>{label}</small>
+        <strong>
+          {value || `Adicionar ${label === "Gmail" ? "e-mail" : "telefone"}`}
+        </strong>
+      </span>
+      <ArrowUpRight size={16} />
+    </>
+  );
+  return href ? (
+    <a
+      className="client-contact-action"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Abrir ${label} para ${value}`}
+    >
+      {content}
+    </a>
+  ) : (
+    <button className="client-contact-action" onClick={onEdit}>
+      {content}
+    </button>
+  );
+}
+function ClientHistory({ clientId }: { clientId: string }) {
+  const [data, setData] = useState<Client360 | null>(null),
+    [error, setError] = useState("");
+  useEffect(() => {
     let active = true;
-    setLoading360(true);
-    void apiRequest<Client360>(`/api/clientes/${selectedId}/360`)
-      .then((payload) => {
-        if (active) setClient360(payload);
+    void apiRequest<Client360>(`/api/clientes/${clientId}/360`)
+      .then((value) => {
+        if (active) setData(value);
       })
-      .catch((requestError) => {
-        if (active) setError(requestError instanceof Error ? requestError.message : "Não foi possível carregar a ficha 360.");
-      })
-      .finally(() => {
-        if (active) setLoading360(false);
+      .catch((reason) => {
+        if (active) setError(reason.message);
       });
     return () => {
       active = false;
     };
-  }, [selectedId]);
-
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase("pt-BR");
-    if (!needle) return clients;
-    return clients.filter((item) => `${item.name} ${item.company} ${item.email} ${item.segment} ${item.tags.join(" ")}`.toLocaleLowerCase("pt-BR").includes(needle));
-  }, [clients, query]);
-  const selected = clients.find((item) => item.id === selectedId) || null;
-
-  function openCreate() {
-    setEditingId(null);
-    setForm(emptyForm);
-    setEditorOpen(true);
-  }
-
-  function openEdit(client: Client) {
-    setEditingId(client.id);
-    setForm({
-      name: client.name,
-      company: client.company || "",
-      email: client.email || "",
-      phone: client.phone || "",
-      segment: client.segment || "",
-      status: client.status,
-      stage: client.stage,
-      ownerName: client.ownerName || "",
-      nextActionAt: client.nextActionAt?.slice(0, 16) || "",
-      tags: client.tags.join(", "),
-      notes: client.notes || "",
-    });
-    setEditorOpen(true);
-  }
-
-  async function saveClient() {
-    if (!form.name.trim()) return;
-    setSaving(true);
-    setError("");
-    const payload = {
-      ...form,
-      name: form.name.trim(),
-      nextActionAt: form.nextActionAt || null,
-      tags: form.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
-    };
-    try {
-      const data = await apiRequest<{ item: Client }>(editingId ? `/api/clientes/${editingId}` : "/api/clientes", {
-        method: editingId ? "PATCH" : "POST",
-        body: JSON.stringify(payload),
-      });
-      setClients((current) => editingId ? current.map((item) => item.id === editingId ? data.item : item) : [data.item, ...current]);
-      setSelectedId(data.item.id);
-      setEditorOpen(false);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel salvar o cliente.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function removeClient(client: Client) {
-    const confirmed = await showConfirm({
-      title: "Excluir cliente?",
-      description: `"${client.name}" será removido. Os registros históricos relacionados não serão reatribuídos automaticamente.`,
-      confirmLabel: "Excluir cliente",
-      tone: "danger",
-    });
-    if (!confirmed) return;
-    try {
-      await apiRequest(`/api/clientes/${client.id}`, { method: "DELETE" });
-      setClients((current) => current.filter((item) => item.id !== client.id));
-      setSelectedId((current) => current === client.id ? null : current);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel excluir o cliente.");
-    }
-  }
-
-  function exportClients() {
-    const escapeCell = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const header = ["Nome", "Empresa", "E-mail", "Telefone", "Segmento", "Status", "Etapa", "Responsavel", "Proxima acao", "Tags"];
-    const rows = filtered.map((client) => [client.name, client.company, client.email, client.phone, client.segment, client.status, stageLabels[client.stage], client.ownerName, client.nextActionAt || "", client.tags.join("; ")]);
-    const csv = [header, ...rows].map((row) => row.map(escapeCell).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `clientes-norium-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
+  }, [clientId]);
+  if (error)
+    return (
+      <p className="client-error" role="alert">
+        {error}
+      </p>
+    );
+  if (!data)
+    return (
+      <p className="client-empty" role="status">
+        Carregando histórico…
+      </p>
+    );
   return (
-    <main className="min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
-      <div className="mx-auto max-w-[1600px]">
-        <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><UserRoundCheck size={21} /></span>
-            <div><h1 className="text-2xl font-black">Clientes</h1><p className="text-sm font-semibold text-[var(--text-secondary)]">Relacionamento, etapa comercial e proximo contato em uma unica fila.</p></div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={exportClients} disabled={!filtered.length}><Download size={16} /> Exportar clientes</Button>
-            <Button variant="primary" onClick={openCreate}><Plus size={16} /> Novo cliente</Button>
-          </div>
-        </header>
-
-        {error && <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-bold text-rose-300">{error}</div>}
-        <div className="mt-5 grid min-h-[650px] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] lg:grid-cols-[390px_minmax(0,1fr)]">
-          <aside className="border-b border-[var(--border)] lg:border-b-0 lg:border-r">
-            <div className="border-b border-[var(--border)] p-4">
-              <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 focus-within:border-blue-500"><Search size={16} className="text-[var(--text-secondary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar cliente, empresa ou tag" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
-            </div>
-            <div className="max-h-[600px] overflow-y-auto">
-              {loading ? <LoadingState label="Carregando clientes..." /> : filtered.map((client) => (
-                <button key={client.id} type="button" onClick={() => setSelectedId(client.id)} className={`flex w-full items-start gap-3 border-b border-[var(--border)] p-4 text-left hover:bg-[var(--surface-hover)] ${selectedId === client.id ? "bg-blue-500/10" : ""}`}>
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/12 font-black text-blue-300">{client.name.slice(0, 2).toUpperCase()}</span>
-                  <span className="min-w-0 flex-1"><strong className="block truncate text-sm font-bold">{client.name}</strong><small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{client.company || client.email || "Sem empresa informada"}</small><span className="mt-2 inline-flex rounded-full border border-[var(--border)] px-2 py-0.5 text-xs font-bold uppercase text-blue-300">{stageLabels[client.stage]}</span></span>
-                </button>
-              ))}
-              {!loading && filtered.length === 0 && (
-                <EmptyState title="Nenhum cliente encontrado" className="border-none" />
-              )}
-            </div>
-          </aside>
-
-          <section className="min-w-0 p-5 sm:p-7">
-            {selected ? (
-              <>
-                <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 sm:flex-row sm:items-start sm:justify-between">
-                  <div><p className="text-xs font-bold uppercase text-blue-400">{stageLabels[selected.stage]}</p><h2 className="mt-1 text-2xl font-black">{selected.name}</h2><p className="mt-1 font-semibold text-[var(--text-secondary)]">{selected.company || "Cliente individual"} {selected.segment && `• ${selected.segment}`}</p></div>
-                  <div className="flex gap-2"><Button iconOnly onClick={() => openEdit(selected)} title="Editar cliente" aria-label="Editar cliente"><Pencil size={16} /></Button><Button variant="danger" iconOnly onClick={() => void removeClient(selected)} className="border-rose-500/25 text-rose-300 hover:bg-rose-500/10" title="Excluir cliente" aria-label="Excluir cliente"><Trash2 size={16} /></Button></div>
-                </div>
-                <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  <InfoCard icon={Mail} label="E-mail" value={selected.email || "Nao informado"} />
-                  <InfoCard icon={Phone} label="Telefone" value={selected.phone || "Nao informado"} />
-                  <InfoCard icon={Building2} label="Responsavel" value={selected.ownerName || "Nao definido"} />
-                </div>
-                <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_320px]">
-                  <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-5"><h3 className="text-sm font-bold">Contexto e observacoes</h3><p className="mt-3 whitespace-pre-wrap text-sm font-semibold leading-6 text-[var(--text-secondary)]">{selected.notes || "Nenhuma observacao registrada."}</p></article>
-                  <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-5"><h3 className="text-sm font-bold">Proximo passo</h3><p className="mt-3 text-sm font-semibold text-[var(--text-secondary)]">{selected.nextActionAt ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(selected.nextActionAt)) : "Sem acompanhamento agendado."}</p><div className="mt-4 flex flex-wrap gap-2">{selected.tags.map((tag) => <span key={tag} className="rounded-full bg-cyan-500/10 px-2 py-1 text-xs font-bold uppercase text-cyan-300">{tag}</span>)}</div></article>
-                </div>
-                <section className="mt-5 border-t border-[var(--border)] pt-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div><h3 className="flex items-center gap-2 text-sm font-bold"><History className="text-blue-400" size={17} /> Histórico completo do cliente</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Contatos, tarefas, compromissos, financeiro, anexos e ações da Nora em uma timeline.</p></div>
-                    {loading360 && <LoaderCircle className="animate-spin text-blue-400" size={18} />}
-                  </div>
-                  {client360 && (
-                    <>
-                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
-                        <SummaryChip icon={Mail} label="E-mails" value={client360.summary.emails} />
-                        <SummaryChip icon={MessageSquare} label="Conversas" value={client360.summary.messages} />
-                        <SummaryChip icon={CheckSquare} label="Tarefas" value={client360.summary.tasks} />
-                        <SummaryChip icon={Wallet} label="Financeiro" value={client360.summary.finance} />
-                        <SummaryChip icon={CalendarDays} label="Agenda" value={client360.summary.calendar} />
-                        <SummaryChip icon={Paperclip} label="Anexos" value={client360.summary.attachments} />
-                        <SummaryChip icon={History} label="Follow-ups" value={client360.summary.followUps} />
-                      </div>
-                      <div className="mt-4 max-h-[380px] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--background)] px-4">
-                        {client360.timeline.map((item) => (
-                          <button
-                            key={`${item.type}-${item.id}`}
-                            type="button"
-                            className="grid w-full grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--border)] py-3 text-left last:border-b-0"
-                            onClick={() => {
-                              if (!item.deepLink) return;
-                              localStorage.setItem("norium-deep-link", JSON.stringify(item.deepLink));
-                              window.dispatchEvent(new CustomEvent("norium:deep-link", { detail: item.deepLink }));
-                            }}
-                          >
-                            <span className="h-2 w-2 rounded-full bg-blue-500" />
-                            <span className="min-w-0"><strong className="block truncate text-xs">{item.title || item.type}</strong><small className="mt-1 block overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-[var(--text-secondary)]">{item.description || "Sem descrição adicional."}</small></span>
-                            <time className="text-xs font-bold text-[var(--text-secondary)]">{item.timestamp ? new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(item.timestamp)) : ""}</time>
-                          </button>
-                        ))}
-                        {!client360.timeline.length && <p className="py-10 text-center text-xs font-semibold text-[var(--text-secondary)]">Nenhuma interação relacionada a este cliente ainda.</p>}
-                      </div>
-                    </>
-                  )}
-                </section>
-              </>
-            ) : (
-              <div className="grid h-full place-items-center">
-                <EmptyState
-                  icon={UserRoundCheck}
-                  title="Comece seu relacionamento comercial"
-                  description="Cadastre o primeiro cliente para acompanhar contexto e proximos passos."
-                />
-              </div>
-            )}
-          </section>
+    <section className="client-section">
+      <header className="client-section-heading">
+        <div>
+          <h3>Histórico do relacionamento</h3>
+          <p>Conversas, entregas e atividades relacionadas ao cliente.</p>
         </div>
+      </header>
+      <div className="client-history-totals">
+        {[
+          ["E-mails", data.summary.emails],
+          ["Conversas", data.summary.messages],
+          ["Tarefas", data.summary.tasks],
+          ["Financeiro", data.summary.finance],
+          ["Agenda", data.summary.calendar],
+          ["Anexos", data.summary.attachments],
+          ["Acompanhamentos", data.summary.followUps],
+        ].map(([label, value], index) => (
+          <span key={String(label)}>
+            <strong
+              className={`client-tone-${["red", "green", "violet", "sky", "amber", "violet", "green"][index]}`}
+            >
+              {value}
+            </strong>
+            {label}
+          </span>
+        ))}
       </div>
-
-      {editorOpen && <div className="fixed inset-0 z-[90] grid place-items-center bg-black/70 p-4 backdrop-blur-sm"><div className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl"><header className="flex items-center justify-between border-b border-[var(--border)] p-5"><div><h2 className="font-black">{editingId ? "Editar cliente" : "Novo cliente"}</h2><p className="text-xs font-semibold text-[var(--text-secondary)]">Dados comerciais e proximo acompanhamento.</p></div><Button variant="ghost" size="sm" iconOnly onClick={() => setEditorOpen(false)}><X size={18} /></Button></header><div className="grid gap-4 p-5 sm:grid-cols-2">
-        <Field label="Nome" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
-        <Field label="Empresa" value={form.company} onChange={(value) => setForm({ ...form, company: value })} />
-        <Field label="E-mail" value={form.email} onChange={(value) => setForm({ ...form, email: value })} type="email" />
-        <Field label="Telefone" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} />
-        <Field label="Segmento" value={form.segment} onChange={(value) => setForm({ ...form, segment: value })} />
-        <Field label="Responsavel" value={form.ownerName} onChange={(value) => setForm({ ...form, ownerName: value })} />
-        <label className="text-xs font-bold uppercase text-[var(--text-secondary)]">Etapa<select value={form.stage} onChange={(event) => setForm({ ...form, stage: event.target.value as ClientStage })} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 normal-case text-[var(--text)]"><option value="new">Novo</option><option value="contacted">Contatado</option><option value="proposal">Proposta</option><option value="won">Convertido</option><option value="lost">Perdido</option></select></label>
-        <label className="text-xs font-bold uppercase text-[var(--text-secondary)]">Status<select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as ClientStatus })} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 normal-case text-[var(--text)]"><option value="lead">Lead</option><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
-        <Field label="Proximo contato" value={form.nextActionAt} onChange={(value) => setForm({ ...form, nextActionAt: value })} type="datetime-local" />
-        <Field label="Tags separadas por virgula" value={form.tags} onChange={(value) => setForm({ ...form, tags: value })} />
-        <label className="sm:col-span-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Observacoes<textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={4} className="mt-2 w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 normal-case text-[var(--text)] outline-none focus:border-blue-500" /></label>
-      </div><footer className="flex justify-end gap-2 border-t border-[var(--border)] p-5"><Button onClick={() => setEditorOpen(false)}>Cancelar</Button><Button variant="primary" disabled={saving || !form.name.trim()} onClick={() => void saveClient()}>{saving && <LoaderCircle className="animate-spin" size={15} />} Salvar cliente</Button></footer></div></div>}
-    </main>
+      <div className="client-history-list">
+        {data.timeline.map((item) => (
+          <button
+            key={`${item.type}-${item.id}`}
+            disabled={!item.deepLink}
+            onClick={() => {
+              if (item.deepLink) {
+                localStorage.setItem(
+                  "norium-deep-link",
+                  JSON.stringify(item.deepLink),
+                );
+                window.dispatchEvent(
+                  new CustomEvent("norium:deep-link", {
+                    detail: item.deepLink,
+                  }),
+                );
+              }
+            }}
+          >
+            <span className="client-history-mark">
+              <CheckCheck size={14} />
+            </span>
+            <span>
+              <strong>{item.title || "Atividade registrada"}</strong>
+              <p>{item.description}</p>
+              <time>{dateLabel(item.timestamp, true)}</time>
+            </span>
+            {item.deepLink && <ArrowUpRight size={15} />}
+          </button>
+        ))}
+        {!data.timeline.length && (
+          <div className="client-empty">
+            <History size={26} />
+            <h4>O histórico começa nas próximas interações</h4>
+            <p>As atividades vinculadas ao cliente aparecerão aqui.</p>
+          </div>
+        )}
+      </div>
+    </section>
   );
-}
-
-function InfoCard({ icon: Icon, label, value }: { icon: typeof Mail; label: string; value: string }) {
-  return <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><Icon className="text-blue-400" size={17} /><p className="mt-3 text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</p><p className="mt-1 truncate text-sm font-bold">{value}</p></article>;
-}
-
-function SummaryChip({ icon: Icon, label, value }: { icon: typeof Mail; label: string; value: number }) {
-  return <article className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><Icon className="text-blue-400" size={15} /><strong className="mt-2 block text-lg font-black">{value}</strong><small className="text-xs font-bold text-[var(--text-secondary)]">{label}</small></article>;
-}
-
-function Field({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label className="text-xs font-bold uppercase text-[var(--text-secondary)]">{label}<input type={type} value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 normal-case text-[var(--text)] outline-none focus:border-blue-500" /></label>;
 }

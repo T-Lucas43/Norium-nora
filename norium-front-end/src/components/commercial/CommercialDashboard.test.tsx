@@ -163,6 +163,15 @@ describe("CommercialDashboard leve", () => {
     expect(await screen.findByText("Editor aberto: Proposta sob demanda")).toBeInTheDocument();
   });
 
+  it("abre o contrato indicado pelo vínculo da ficha do cliente", async () => {
+    window.localStorage.setItem("norium-deep-link", JSON.stringify({ tab: "Propostas", entityType: "contract", entityId: "linked-contract" }));
+    commercialApi.loadContract.mockResolvedValue({ contract: { ...proposal, id: "linked-contract", proposalId: proposal.id, title: "Contrato vinculado" } });
+    render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
+    expect(await screen.findByText("Editor aberto: Contrato vinculado")).toBeInTheDocument();
+    expect(commercialApi.loadContract).toHaveBeenCalledWith("linked-contract");
+    expect(window.localStorage.getItem("norium-deep-link")).toBeNull();
+  });
+
   it("abre o PDF Studio completo ao clicar em Ferramentas PDF", async () => {
     render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
 

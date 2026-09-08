@@ -4,6 +4,13 @@ Fonte de verdade: `app/modules/team/{call_configuration,call_release,turn_creden
 
 ## Flags e capacidade
 
+Configuração do runner de testes: `PLAYWRIGHT_BROWSERS_PATH` pode apontar para uma
+pasta local de binários do Playwright. Usar o mesmo valor na instalação e na
+execução. A suíte exige o Chromium completo (`channel=chromium`) da versão instalada;
+ausência do binário interrompe o teste. Essa variável não é enviada ao frontend nem
+altera o runtime Azure. Todos os checkouts do workflow usam `fetch-depth: 0` para
+que o scanner de segredos consiga resolver o intervalo de commits do evento push.
+
 `TEAM_CALL_RELEASE_PROFILE`: GitHub Variable com valores `public` (default) ou `internal-test`. A seleção explícita `internal-test`, autorizada em 2026-09-08, adia os três requisitos externos da [lista de lançamento público](team-call-public-launch-checklist.md). Nesse perfil, o workflow mantém `ENVIRONMENT=production`, habilita mesh para as contas autenticadas de teste (percentual default 100, salvo override explícito), desabilita TURN obrigatório e o endpoint de scrape sem token, e mantém gravação/SFU desligadas. Perfil inválido falha no preflight. Voltar a `public` restaura todas as exigências externas; não alterar `ENVIRONMENT` para contornar controles de segurança.
 
 | Variável backend | Default local/teste | Default produção/staging | Validação / uso |

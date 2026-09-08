@@ -32,6 +32,17 @@ As APIs nativas de captura não são substituídas. O Chromium recebe mídia det
 
 ## Matriz de navegador
 
+A execução padrão usa `channel="chromium"`, o modo headless do Chromium completo
+instalado para a versão de Playwright em `requirements.txt`. Instalar com
+`python -m playwright install --with-deps chromium`. O headless shell 151
+reproduziu `NotSupportedError` na captura nativa e 39 timeouts no CI; o Chromium
+completo da mesma versão passou no cenário mínimo. A suíte não troca silenciosamente
+para o Chrome do sistema quando falta o navegador esperado. `--browser-channel` e
+`--browser-executable` são opções explícitas para homologação adicional.
+Referência: [modos headless do Playwright](https://playwright.dev/python/docs/browsers#chromium-new-headless-mode).
+O resumo registra canal e versão; diagnósticos de falha guardam somente estados
+enumerados de chamada/permissão e até 256 categorias de evento por sessão.
+
 | Cenário | Evidência exigida |
 | --- | --- |
 | `group_media` | três participantes, microfone inicial desligado, modo somente escuta e bytes/pacotes RTP nos dois sentidos |
@@ -56,7 +67,7 @@ Não há `sleep` arbitrário para fazer uma assertiva passar. As esperas consult
 
 Em sucesso, o navegador preserva apenas `summary.json`; a carga preserva apenas `team-call-load.json`. O resumo do navegador é substituído atomicamente de `running` para o resultado final somente depois de fechar contextos, navegador, serviços e workspace temporário. Em falha, ambos guardam apenas classes de erro, posições do código e medidas agregadas. O navegador acrescenta categorias limitadas de console, sem o texto das mensagens.
 
-Na etapa final de lançamento foram removidos screenshot, trace, vídeo, texto de exceções e cópia de logs brutos dos serviços. A saída dos processos de backend, Vite e TURN é descartada, inclusive no armazenamento temporário; a mídia sintética usada para transmitir RTP é removida junto com o workspace do teste. O perfil de carga não grava URLs de destino. `videoCaptureEnabled` permanece falso também no CI. O workflow envia somente os diagnósticos agregados de falha, com retenção de cinco dias. Resultados históricos abaixo descrevem execuções anteriores a essa mudança; os resultados vigentes estão na [auditoria de lançamento](../operations/team-call-release-audit.md).
+Na etapa final de lançamento foram removidos screenshot, trace, vídeo, texto de exceções e cópia de logs brutos dos serviços. A saída dos processos de backend, Vite e TURN é descartada, inclusive no armazenamento temporário; a mídia sintética usada para transmitir RTP é removida junto com o workspace do teste. O perfil de carga não grava URLs de destino. `videoCaptureEnabled` permanece falso também no CI. O workflow preserva os resultados agregados tanto no sucesso quanto na falha, com retenção de cinco dias. Falhas de rede nunca registram URL, ticket ou texto bruto de erro. Resultados históricos abaixo descrevem execuções anteriores a essa mudança; os resultados vigentes estão na [auditoria de lançamento](../operations/team-call-release-audit.md).
 
 ## Carga e limites
 

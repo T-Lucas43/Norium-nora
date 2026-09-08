@@ -17,6 +17,14 @@ O workflow bloqueia publicação por `validate`, `team-call-quality` e `team-cal
 
 ## Rollout por equipe
 
+Se todos os cenários de mídia expirarem na entrada enquanto a sinalização/carga
+passa, conferir o canal e a versão do navegador no resumo e os estados enumerados
+em `call-states.json`. Reproduzir primeiro `group_media --repeat 1` usando o mesmo
+Chromium completo do CI; não aumentar timeouts nem substituir silenciosamente o
+navegador. Se o Gitleaks falhar com `unknown revision`, verificar que o checkout tem
+histórico completo. Não considerar uma varredura parcial como aprovação. Os
+artefatos agregados de qualidade são preservados também quando os testes passam.
+
 | Passo | Configuração | Evidência mínima antes de avançar |
 | --- | --- | --- |
 | Preparação | `ENABLED=false`, percentual 0 | Todos os gates locais; infraestrutura e alertas prontos |

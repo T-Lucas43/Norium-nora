@@ -403,6 +403,33 @@ class BrowserSession:
     console: list[str] = field(default_factory=list)
 
 
+def register_browser_diagnostics(page: Page, events: list[str]) -> None:
+    """Retain bounded event categories, never request URLs or raw errors."""
+    def record(category: str) -> None:
+        if len(events) < 256:
+            events.append(category)
+
+    page.on("console", lambda message: record(
+        "console.error" if message.type == "error" else "console.other"
+    ))
+    page.on("pageerror", lambda _error: record("pageerror"))
+    page.on("requestfailed", lambda _request: record("requestfailed"))
+
+
+def sanitized_call_state(value: dict[str, Any]) -> dict[str, str]:
+    """Project only known enum values; discard notices, identifiers and media."""
+    allowed = {
+        "phase": {"idle", "prejoin", "joining", "connected", "reconnecting", "ending", "failed"},
+        "socketState": {"connecting", "open", "reconnecting", "closed"},
+        "microphonePermission": {"unknown", "requesting", "granted", "denied", "unavailable"},
+        "cameraPermission": {"unknown", "requesting", "granted", "denied", "unavailable"},
+    }
+    return {
+        key: item if isinstance(item := value.get(key), str) and item in choices else "unknown"
+        for key, choices in allowed.items()
+    }
+
+
 class ScenarioRuntime:
     def __init__(self, browser: Browser, services: Services, raw_dir: Path, *, record_video: bool):
         self.browser = browser
@@ -438,14 +465,7 @@ class ScenarioRuntime:
             config = json.dumps({"apiUrl": self.services.api_url, "wsUrl": self.services.ws_url})
             await page.add_init_script(f"({INIT_SCRIPT})({config})")
             messages: list[str] = []
-            page.on("console", lambda message: messages.append("console." + message.type) if len(messages) < 256 else None)
-            page.on("pageerror", lambda _error: messages.append("pageerror") if len(messages) < 256 else None)
-            page.on(
-                "requestfailed",
-                lambda request: messages.append(
-                    f"requestfailed: {request.method} {request.url}: {request.failure}"
-                ),
-            )
+            register_browser_diagnostics(page, messages)
             session = BrowserSession(session_name, user, context, page, video_dir.parent, messages)
             # Register before navigation so a startup failure still yields its
             # screenshot, trace and browser diagnostics.
@@ -486,6 +506,14 @@ class ScenarioRuntime:
         ]
         if logs:
             (failure_dir / "browser.log").write_text("\n".join(logs), encoding="utf-8")
+        states = []
+        for session in self.sessions:
+            if session.page.is_closed():
+                continue
+            with contextlib.suppress(Exception):
+                states.append(sanitized_call_state(await diagnostics(session.page)))
+        if states:
+            write_json_atomic(failure_dir / "call-states.json", {"sessions": states})
         # Intentionally no screenshots, recordings, traces or network bodies.
 
     async def close(self, failure_dir: Path | None) -> None:
@@ -1224,16 +1252,10 @@ def browser_candidates(args: argparse.Namespace) -> list[dict[str, Any]]:
         return [{"executable_path": args.browser_executable}]
     if args.browser_channel:
         return [{"channel": args.browser_channel}]
-    candidates: list[dict[str, Any]] = [{}]
-    if sys.platform == "win32":
-        for path in (
-            Path(os.environ.get("PROGRAMFILES", "")) / "Google/Chrome/Application/chrome.exe",
-            Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Google/Chrome/Application/chrome.exe",
-            Path(os.environ.get("LOCALAPPDATA", "")) / "Google/Chrome/Application/chrome.exe",
-        ):
-            if path.is_file():
-                candidates.append({"executable_path": str(path)})
-    return candidates
+    # Use the full bundled browser's new headless mode: headless shell 151
+    # rejects native fake-device capture with NotSupportedError. Never silently
+    # substitute installed Chrome, which hid this CI failure on Windows.
+    return [{"channel": "chromium"}]
 
 
 async def launch_browser(playwright: Any, args: argparse.Namespace, media_dir: Path) -> tuple[Browser, str]:
@@ -1253,8 +1275,8 @@ async def launch_browser(playwright: Any, args: argparse.Namespace, media_dir: P
             browser = await playwright.chromium.launch(headless=True, args=launch_args, **candidate)
             identity = candidate.get("channel") or candidate.get("executable_path") or "playwright-chromium"
             return browser, str(identity)
-        except Exception as error:  # try installed Chrome only when bundled Chromium is absent
-            errors.append(str(error).splitlines()[0])
+        except Exception as error:
+            errors.append(type(error).__name__)
     raise RuntimeError("No usable Chromium browser: " + " | ".join(errors))
 
 
@@ -1288,6 +1310,7 @@ async def run(args: argparse.Namespace) -> int:
         write_fake_video(media_dir / "camera.y4m")
         services: Services | None = None
         browser_identity = "not-started"
+        browser_version = "not-started"
         processes_for_artifacts: list[ManagedProcess] = []
         stop_errors: list[str] = []
         try:
@@ -1297,6 +1320,7 @@ async def run(args: argparse.Namespace) -> int:
                     # Re-launch per repetition so an exhausted renderer from a
                     # previous cycle cannot contaminate the next independent run.
                     browser, browser_identity = await launch_browser(playwright, args, media_dir)
+                    browser_version = browser.version
                     record_video = (
                         browser_identity == "playwright-chromium"
                         or os.environ.get("TEAM_CALL_E2E_RECORD_VIDEO") == "1"
@@ -1455,6 +1479,7 @@ async def run(args: argparse.Namespace) -> int:
             "durationSeconds": round(time.time() - started, 3),
             "repeat": args.repeat,
             "browser": browser_identity,
+            "browserVersion": browser_version,
             "turnMode": services.turn_mode if services else "not-started",
             "turnTlsVerified": False,
             "rawArtifactsPolicy": "disabled",

@@ -11,7 +11,7 @@ from app.shared.schemas import StrictModel
 BrowserRisk = Literal["baixo", "medio", "alto"]
 BrowserActionType = Literal[
     "navigate", "search", "click", "fill", "credential_fill", "select",
-    "press", "wait", "extract", "screenshot", "download", "upload",
+    "press", "wait", "extract", "screenshot", "download", "upload", "research",
 ]
 
 
@@ -62,7 +62,10 @@ class BrowserPlanPayload(StrictModel):
     profileId: str | None = Field(default=None, max_length=160)
     executionMode: Literal["assisted", "automatic"] = "assisted"
     expectedResult: Literal["summary", "structured", "files"] = "summary"
-    maxPages: int = Field(default=10, ge=1, le=20)
+    maxPages: int = Field(default=10, ge=1, le=50)
+    taskType: Literal["automation", "summary", "academic", "layout", "custom"] = "automation"
+    scope: Literal["page", "site"] = "site"
+    reportTitle: str = Field(default="", max_length=200)
     maxSteps: int = Field(default=20, ge=1, le=40)
     timeoutSeconds: int = Field(default=300, ge=30, le=900)
     actions: list[BrowserActionPayload] = Field(default_factory=list, max_length=40)
@@ -98,6 +101,24 @@ class BrowserUploadPayload(StrictModel):
 
 class BrowserPlanActionsPayload(StrictModel):
     actions: list[BrowserActionPayload] = Field(min_length=1, max_length=40)
+
+
+class BrowserReportPayload(StrictModel):
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=200_000)
+    revision: int = Field(ge=1)
+
+    @field_validator("title", "content")
+    @classmethod
+    def nonblank_report(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Preencha o título e o conteúdo do relatório.")
+        return value.strip()
+
+
+class BrowserReportRewritePayload(StrictModel):
+    revision: int = Field(ge=1)
+    instruction: str = Field(default="Desenvolva a análise com frases completas, contexto, explicações e relações entre os conceitos.", min_length=4, max_length=2000)
 
 
 class KnowledgeBasePayload(StrictModel):

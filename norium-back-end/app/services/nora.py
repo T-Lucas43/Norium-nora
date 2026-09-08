@@ -15,6 +15,10 @@ from app.core.ai_guardrails import minimize_for_ai
 load_dotenv()
 
 
+class NoraIncompleteResponse(Exception):
+    """The provider exhausted the output budget before completing its answer."""
+
+
 class NoraIAService:
     def __init__(self) -> None:
         self.api_key = os.getenv("GROQ_API_KEY", "").strip()
@@ -76,14 +80,14 @@ class NoraIAService:
             )
         return payload_messages
 
-    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None) -> str:
+    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False) -> str:
         if not self.api_key:
             return "A Nora está temporariamente sem acesso ao provedor de IA. Configure a GROQ_API_KEY no backend."
 
         payload: dict[str, Any] = {
             "messages": self._build_payload_messages(mensagens, screen_context),
             "temperature": 0.45,
-            "max_tokens": 1400,
+            "max_tokens": max(256, min(6000, max_tokens)),
         }
 
         try:
@@ -98,6 +102,8 @@ class NoraIAService:
                 last_status = response.status_code
                 if response.status_code == 200:
                     data = response.json()
+                    if require_complete and (data.get("choices") or [{}])[0].get("finish_reason") == "length":
+                        raise NoraIncompleteResponse
                     content = data.get("choices", [{}])[0].get("message", {}).get("content")
                     answer = content.strip() if isinstance(content, str) else ""
                     if answer:
@@ -107,6 +113,8 @@ class NoraIAService:
                 if response.status_code not in {400, 404, 429, 500, 502, 503, 504}:
                     break
             return self._provider_error(last_status) if last_status != 200 else "Não consegui gerar uma resposta completa agora. Tente novamente em instantes."
+        except NoraIncompleteResponse:
+            raise
         except Exception:
             return "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."
 

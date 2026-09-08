@@ -28,6 +28,7 @@ from app.modules.commercial.schemas import (
     PdfProcessRequest,
     ProposalBriefRequest,
     ProposalCreate,
+    ProposalPdfUpload,
     ProposalApprovalDecision,
     ProposalStatusChange,
     ProposalSubmit,
@@ -61,6 +62,7 @@ from app.modules.commercial.service import (
     create_brand_profile,
     create_contract,
     create_proposal,
+    upload_proposal_pdf,
     create_template,
     change_proposal_status,
     decide_proposal,
@@ -193,7 +195,7 @@ async def share_document(
         ]
         if part
     )
-    pdf_bytes, pdf_name = build_commercial_pdf(document, document_type)
+    pdf_bytes, pdf_name = build_commercial_pdf(document, document_type, tenant_id=collaboration_tenant_id(user))
     pdf_attachment = {
         "fileName": pdf_name,
         "mimeType": "application/pdf",
@@ -385,6 +387,22 @@ async def post_proposal(payload: ProposalCreate, user: dict[str, Any] = Depends(
     return {"proposal": document_for_response(proposal)}
 
 
+@router.post("/proposals/import-pdf")
+async def import_proposal_pdf(payload: ProposalPdfUpload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    proposal = await upload_proposal_pdf(user, payload)
+    await audit(user, "proposal_pdf_imported", f'Proposta "{proposal["title"]}" importada em PDF.', "proposal", proposal["id"], "success")
+    return {"proposal": document_for_response(proposal)}
+
+
+@router.post("/proposals/{proposal_id}/files")
+async def attach_proposal_pdf(proposal_id: str, payload: ProposalPdfUpload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    proposal = await upload_proposal_pdf(user, payload, proposal_id)
+    response = document_for_response(proposal)
+    await manager.broadcast(collaboration_tenant_id(user), proposal_id, {"type": "DOCUMENT_UPDATED", "documentType": "proposal", "document": response, "actorId": str(user.get("id") or "")})
+    await audit(user, "proposal_file_attached", f'Novo arquivo em "{proposal["title"]}".', "proposal", proposal_id, "success")
+    return {"proposal": response}
+
+
 @router.post("/proposal-draft")
 async def post_proposal_draft(
     payload: ProposalBriefRequest,
@@ -406,10 +424,10 @@ async def get_proposal(proposal_id: str, user: dict[str, Any] = Depends(current_
 
 
 @router.get("/proposals/{proposal_id}/pdf")
-async def export_proposal_pdf(proposal_id: str, user: dict[str, Any] = Depends(current_user)) -> StreamingResponse:
+async def export_proposal_pdf(proposal_id: str, user: dict[str, Any] = Depends(current_user), include_edits: bool = True) -> StreamingResponse:
     store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     _, proposal = proposal_or_404(store, proposal_id)
-    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, proposal, "proposal")
+    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, proposal, "proposal", include_edits, collaboration_tenant_id(user))
     await audit(user, "proposal_pdf_exported", f'PDF da proposta "{proposal["title"]}" gerado.', "proposal", proposal_id, "success")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
@@ -562,10 +580,10 @@ async def get_contract(contract_id: str, user: dict[str, Any] = Depends(current_
 
 
 @router.get("/contracts/{contract_id}/pdf")
-async def export_contract_pdf(contract_id: str, user: dict[str, Any] = Depends(current_user)) -> StreamingResponse:
+async def export_contract_pdf(contract_id: str, user: dict[str, Any] = Depends(current_user), include_edits: bool = True) -> StreamingResponse:
     store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     _, contract = contract_or_404(store, contract_id)
-    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, contract, "contract")
+    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, contract, "contract", include_edits)
     await audit(user, "contract_pdf_exported", f'PDF do contrato "{contract["title"]}" gerado.', "contract", contract_id, "success")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

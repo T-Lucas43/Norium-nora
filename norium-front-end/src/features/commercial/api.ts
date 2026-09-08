@@ -1,3 +1,4 @@
+import type { PdfEdits } from "../../components/commercial/pdfEditorModel";
 import { apiBlobRequest, apiRequest } from "../../core/api/client";
 import type {
   Branding,
@@ -35,6 +36,8 @@ export type ProposalCreateInput = {
 };
 
 export type DocumentUpdateInput = {
+  clientId?: string;
+  pdfEdits?: PdfEdits;
   expectedVersion: number;
   title?: string;
   contentHtml?: string;
@@ -87,10 +90,10 @@ export function duplicateProposal(id: string, title?: string) {
   });
 }
 
-export function changeProposalStatus(id: string, status: CommercialProposal["status"], note = "") {
+export function changeProposalStatus(id: string, status: CommercialProposal["status"], note = "", expectedVersion?: number) {
   return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}/status`, {
     method: "PATCH",
-    body: JSON.stringify({ status, note }),
+    body: JSON.stringify({ status, note, expectedVersion }),
   });
 }
 
@@ -98,6 +101,19 @@ export function updateProposal(id: string, input: DocumentUpdateInput) {
   return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export async function uploadProposalPdf(file: File, input: { title?: string; clientId?: string; signed: boolean; note: string; expectedVersion?: number }, proposalId?: string) {
+  const dataBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+  return apiRequest<{ proposal: CommercialProposal }>(proposalId ? `/api/comercial/proposals/${proposalId}/files` : "/api/comercial/proposals/import-pdf", {
+    method: "POST", timeoutMs: 90_000,
+    body: JSON.stringify({ ...input, fileName: file.name, mimeType: "application/pdf", dataBase64, direction: input.signed ? "received" : "internal" }),
   });
 }
 
@@ -181,9 +197,9 @@ export function deleteContract(id: string) {
   });
 }
 
-export function exportCommercialDocumentPdf(documentType: "proposal" | "contract", id: string) {
+export function exportCommercialDocumentPdf(documentType: "proposal" | "contract", id: string, includeEdits = true) {
   const collection = documentType === "proposal" ? "proposals" : "contracts";
-  return apiBlobRequest(`/api/comercial/${collection}/${id}/pdf`, { timeoutMs: 60_000 });
+  return apiBlobRequest(`/api/comercial/${collection}/${id}/pdf${includeEdits ? "" : "?include_edits=false"}`, { timeoutMs: 60_000 });
 }
 
 export function decideSuggestion(id: string, suggestionId: string, decision: "accepted" | "rejected") {

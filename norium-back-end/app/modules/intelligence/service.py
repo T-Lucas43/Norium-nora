@@ -258,6 +258,14 @@ def _parse_planner_json(answer: str) -> list[dict[str, Any]]:
 
 
 async def plan_browser_actions(user: dict[str, Any], payload: dict[str, Any], normalized_url: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if payload.get("taskType", "automation") != "automation":
+        from app.modules.intelligence.browser_research import TASK_LABELS
+
+        limit = 1 if payload.get("scope") == "page" else payload.get("maxPages", 10)
+        return [
+            _action("navigate", "Abrir a página inicial", value=normalized_url),
+            _action("research", f"Ler até {limit} página(s), preparar {TASK_LABELS[payload['taskType']].lower()} com Nora e gerar PDF editável com fontes"),
+        ], {"mode": "research", "detail": "Revise o objetivo, o escopo e o formato antes de iniciar a pesquisa."}
     explicit = payload.get("actions") if isinstance(payload.get("actions"), list) else []
     if explicit:
         actions = [
@@ -309,7 +317,7 @@ async def create_browser_credential(user: dict[str, Any], payload: dict[str, Any
     })
 
 
-async def create_browser_plan(user: dict[str, Any], payload: dict[str, Any], *, source: str = "screen") -> dict[str, Any]:
+async def create_browser_plan(user: dict[str, Any], payload: dict[str, Any], *, source: str = "screen", replace_id: str | None = None) -> dict[str, Any]:
     user_id = tenant_id(user)
     store = read_store(user_id)
     profile = find_item(store["browserProfiles"], str(payload.get("profileId") or ""))
@@ -319,6 +327,8 @@ async def create_browser_plan(user: dict[str, Any], payload: dict[str, Any], *, 
     actions, planner = await plan_browser_actions(user, payload, normalized)
     max_steps = min(int(payload.get("maxSteps") or 20), int(profile.get("maxActions") or 20) if profile else 20)
     actions = actions[:max_steps]
+    if payload.get("taskType", "automation") != "automation" and max_steps < 2:
+        raise HTTPException(422, "A pesquisa precisa de pelo menos duas etapas autorizadas no perfil.")
     risk_order = {"read": 0, "external": 1, "sensitive": 2}
     highest = max((str(item.get("riskClass") or "read") for item in actions), key=lambda value: risk_order.get(value, 0), default="read")
     risk = "alto" if highest == "sensitive" else "medio" if highest == "external" else "baixo"
@@ -335,19 +345,33 @@ async def create_browser_plan(user: dict[str, Any], payload: dict[str, Any], *, 
             "allowUploads": bool(profile and profile.get("allowUploads")),
             "allowForms": bool(profile and profile.get("allowForms")),
             "retainSession": bool(profile and profile.get("retainSession")),
-            "maxDurationSeconds": int(profile.get("maxDurationSeconds") or 300) if profile else 300,
+            "maxDurationSeconds": int(profile.get("maxDurationSeconds") or 300) if profile else 900,
             "maxActions": int(profile.get("maxActions") or 20) if profile else 20,
         },
         "risk": risk, "riskReason": reason, "requiresApproval": approval, "approved": False,
         "status": "planned", "progress": 0, "maxPages": payload.get("maxPages", 10),
-        "maxSteps": max_steps, "timeoutSeconds": min(int(payload.get("timeoutSeconds") or 300), int(profile.get("maxDurationSeconds") or 300) if profile else 300),
+        "maxSteps": max_steps, "timeoutSeconds": min(int(payload.get("timeoutSeconds") or 300), int(profile.get("maxDurationSeconds") or 300) if profile else 900),
         "executionMode": payload.get("executionMode", "assisted"), "expectedResult": payload.get("expectedResult", "summary"),
         "planner": planner, "plan": actions,
+        "taskType": payload.get("taskType", "automation"), "scope": payload.get("scope", "site"), "reportTitle": payload.get("reportTitle", ""),
         "timeline": [{"at": created, "event": "plan_created", "message": reason}],
         "result": None, "error": None, "cancelRequested": False, "pauseRequested": False, "artifacts": [], "pendingApproval": None,
         "createdAt": created, "updatedAt": created,
     }
-    await mutate_store(user_id, lambda current: current["browserRuns"].insert(0, run))
+    def save_plan(current):
+        if replace_id:
+            previous = find_item(current["browserRuns"], replace_id)
+            if not previous:
+                raise HTTPException(404, "Pesquisa não encontrada.")
+            if previous.get("status") != "planned":
+                raise HTTPException(409, "O pedido só pode ser alterado antes da execução.")
+            run["id"] = replace_id
+            run["createdAt"] = previous["createdAt"]
+            previous.clear()
+            previous.update(run)
+        else:
+            current["browserRuns"].insert(0, run)
+    await mutate_store(user_id, save_plan)
     return run
 
 

@@ -1,3 +1,7 @@
+import ProposalPdfUploadDialog from "./ProposalPdfUploadDialog";
+import ProposalPdfWorkspace from "./ProposalPdfWorkspace";
+import { proposalTransitions, statusLabels } from "./proposalWorkflow";
+import SignatureComposer from "./SignatureComposer";
 import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -78,6 +82,7 @@ import {
   type CommercialProposal,
   type CommercialTemplate,
   type PdfCapabilities,
+  type PdfProcessingJob,
   type PdfOperation,
   type ProposalBriefInput,
   type ProposalDraft,
@@ -104,47 +109,6 @@ type CommercialDashboardProps = {
   onOpenNora: (prompt?: string) => void;
 };
 
-const statusLabels: Record<string, string> = {
-  draft: "Rascunho",
-  in_review: "Em aprovacao",
-  changes_requested: "Ajustes solicitados",
-  approved: "Aprovada",
-  rejected: "Rejeitada",
-  sent: "Enviada",
-  viewed: "Visualizada",
-  negotiating: "Em negociacao",
-  accepted: "Aceita",
-  declined: "Recusada",
-  expired: "Expirada",
-  contracted: "Convertida",
-  archived: "Arquivada",
-  awaiting_signatures: "Aguardando assinaturas",
-  signed: "Assinado",
-  active: "Ativo",
-  completed: "Concluido",
-  cancelled: "Cancelado",
-  queued: "Na fila",
-  processing: "Processando",
-  failed: "Falhou",
-  pdf: "PDF",
-  received: "Recebido",
-};
-
-const proposalTransitions: Record<string, CommercialProposal["status"][]> = {
-  draft: ["in_review", "approved", "archived"],
-  in_review: ["approved", "changes_requested", "rejected", "archived"],
-  changes_requested: ["draft", "in_review", "approved", "archived"],
-  approved: ["sent", "expired", "archived"],
-  rejected: ["draft", "in_review", "archived"],
-  sent: ["viewed", "negotiating", "accepted", "declined", "expired", "archived"],
-  viewed: ["negotiating", "accepted", "declined", "expired", "archived"],
-  negotiating: ["sent", "accepted", "declined", "expired", "archived"],
-  accepted: ["contracted", "archived"],
-  declined: ["draft", "archived"],
-  expired: ["draft", "sent", "archived"],
-  contracted: ["archived"],
-  archived: ["draft"],
-};
 type ProposalTemplateGuidance = {
   summary: string;
   objective: string;
@@ -213,6 +177,10 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   const [brandOpen, setBrandOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [proposalUploadOpen, setProposalUploadOpen] = useState(false);
+  const [proposalUploadTarget, setProposalUploadTarget] = useState<CommercialProposal | undefined>();
+  const [proposalUploadSigned, setProposalUploadSigned] = useState(false);
+  const [editUploadedPdf, setEditUploadedPdf] = useState(false);
   const [pdfToolsOpen, setPdfToolsOpen] = useState(false);
   const [pdfCapabilities, setPdfCapabilities] = useState<PdfCapabilities | null>(null);
   const [templatePreview, setTemplatePreview] = useState<CommercialTemplate | null>(null);
@@ -306,7 +274,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
         : [...data.proposals, ...data.contracts];
     const needle = query.trim().toLocaleLowerCase("pt-BR");
     return source.filter((item) => {
-      const matchesStatus = statusFilter === "all" || item.status === statusFilter;
+      const matchesStatus = statusFilter === "all" || item.status === statusFilter || (statusFilter === "signed" && ["active", "completed"].includes(item.status));
       const matchesQuery = !needle || `${item.title} ${item.client?.name || ""} ${item.client?.company || ""}`.toLocaleLowerCase("pt-BR").includes(needle);
       return matchesStatus && matchesQuery && (!favoritesOnly || item.favorite);
     }).sort((left, right) => sortMode === "title"
@@ -337,7 +305,9 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     try {
       if (item.documentType === "proposal") {
         const response = await loadProposal(item.id);
+        setEditUploadedPdf(false);
         setSelected(response.proposal);
+        if (response.proposal.sourceDocumentId) void loadCreationOptions();
       } else {
         const response = await loadContract(item.id);
         setSelected(response.contract);
@@ -537,6 +507,13 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   }
 
   async function handleProposalStatus(proposal: CommercialDocumentSummary, status: CommercialProposal["status"]) {
+    if (status === "signed") {
+      await runAction(async () => {
+        const response = await loadProposal(proposal.id);
+        setProposalUploadTarget(response.proposal); setProposalUploadSigned(true); setProposalUploadOpen(true);
+      });
+      return;
+    }
     await runAction(async () => {
       const response = await changeProposalStatus(proposal.id, status);
       setData((current) => current ? {
@@ -629,10 +606,13 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   }
 
   async function handlePdfProcess(operation: PdfOperation, documentIds: string[], options: Record<string, unknown>) {
+    let queuedJob: PdfProcessingJob | undefined;
     await runAction(async () => {
       const response = await processPdf(operation, documentIds, options);
+      queuedJob = response.job;
       setData((current) => current ? { ...current, processingJobs: [response.job, ...current.processingJobs] } : current);
-    }, "Processamento adicionado a fila. O resultado sera salvo como um novo arquivo.");
+    }, "Processamento iniciado. O resultado ficará disponível nesta página.");
+    return queuedJob;
   }
 
   async function handleRenameTemplate(template: CommercialTemplate) {
@@ -669,6 +649,22 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     }, "Modelo excluido.");
   }
 
+  function proposalUploaded(proposal: CommercialProposal) {
+    setProposalUploadOpen(false); setProposalUploadTarget(undefined);
+    setEditUploadedPdf(!proposal.signedDocumentId); setSelected(proposal);
+    setData(current => current ? { ...current, proposals: [commercialDocumentSummary(proposal) as typeof current.proposals[number], ...current.proposals.filter(item => item.id !== proposal.id)] } : current);
+    void loadCommercialData().then(setData).catch(() => undefined);
+    void loadCreationOptions();
+    setNotice(proposal.signedDocumentId ? "Arquivo recebido e proposta registrada como assinada." : "Proposta importada. O PDF está pronto para editar.");
+  }
+  const liveSummary = data ? {
+    ...data.summary,
+    documentCount: data.proposals.length + data.contracts.length + data.uploadedDocuments.length,
+    reviewCount: data.proposals.filter(item => item.status === "in_review").length,
+    awaitingSignatureCount: [...data.proposals, ...data.contracts].filter(item => item.status === "awaiting_signatures").length,
+    signedCount: [...data.proposals, ...data.contracts].filter(item => ["signed", "active", "completed"].includes(item.status)).length,
+  } : null;
+
   if (pdfToolsOpen && data) {
     return (
       <>
@@ -678,7 +674,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
           jobs={data.processingJobs}
           busy={busy}
           onBack={() => setPdfToolsOpen(false)}
-          onProcess={(operation, documentIds, options) => void handlePdfProcess(operation, documentIds, options)}
+          onProcess={handlePdfProcess}
           onDelete={handleDeleteImported}
           onImported={(document) => setData((current) => current ? {
             ...current,
@@ -699,7 +695,12 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   if (selected) {
     return (
       <>
-        <CommercialEditor
+        {isProposal(selected) && selected.sourceDocumentId ? <ProposalPdfWorkspace
+          key={`${selected.id}:${selected.sourceDocumentId}`} proposal={selected} clients={clients} editImmediately={editUploadedPdf}
+          onBack={() => { setSelected(null); setEditUploadedPdf(false); }}
+          onUpload={(proposal, signed = false) => { setProposalUploadTarget(proposal); setProposalUploadSigned(signed); setProposalUploadOpen(true); }}
+          onChange={replaceDocument}
+        /> : <CommercialEditor
           document={selected}
           session={session}
           busy={busy}
@@ -716,7 +717,10 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
           onSign={async () => setSignOpen(true)}
           onInstantiate={async () => setInstantiateOpen(true)}
           onDeleteProposal={handleDeleteProposal}
-        />
+          onUploadProposal={(proposal) => { setProposalUploadSigned(false); setProposalUploadTarget(proposal); setProposalUploadOpen(true); }}
+        />}
+        {proposalUploadOpen && <ProposalPdfUploadDialog initialSigned={proposalUploadSigned} proposal={proposalUploadTarget} clients={clients} onClose={() => setProposalUploadOpen(false)} onUploaded={proposalUploaded}/>}
+
         {error && <FloatingMessage kind="error" message={error} onClose={() => setError("")} />}
         {notice && <FloatingMessage kind="success" message={notice} onClose={() => setNotice("")} />}
         {signOpen && !isProposal(selected) && (
@@ -768,7 +772,8 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       <div className="mx-auto max-w-[1660px]">
         <WorkspaceHeader title="Documentos" description="Organize propostas, contratos e arquivos do início à assinatura." icon={FileText}>
             <Button variant="secondary" loading={loading} onClick={() => void load()} icon={<RefreshCw size={15} />}>Atualizar</Button>
-            <Button variant="secondary" onClick={() => setImportOpen(true)} icon={<Upload size={15} />}>Importar</Button>
+            <Button variant="secondary" onClick={() => { setProposalUploadTarget(undefined); setProposalUploadSigned(false); setProposalUploadOpen(true); void loadCreationOptions(); }} icon={<Upload size={15} />}>Importar proposta</Button>
+            <Button variant="secondary" onClick={() => setImportOpen(true)} icon={<Upload size={15} />}>Importar arquivo</Button>
             <Button variant="secondary" onClick={() => void openPdfTools()} icon={<Wrench size={15} />}>Ferramentas PDF</Button>
             <Button variant="secondary" onClick={() => onOpenNora("Quero criar ou revisar um documento comercial. Pergunte o tipo, cliente, origem, escopo, valor, validade, entregaveis e assinantes antes de executar qualquer acao.")} icon={<Sparkles size={15} />}>Criar com Nora</Button>
             <Button variant="primary" className="workspace-primary" onClick={openCreate} icon={<Plus size={16} />}>Novo documento</Button>
@@ -787,16 +792,16 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
         {loading ? <LoadingState label="Carregando documentos comerciais..." /> : data && (
           <>
             <section className="workspace-metrics documents-metrics mt-5">
-              <Metric tone="blue" label="Total" value={data.summary.documentCount} icon={FileText} onClick={() => { setView("all"); setStatusFilter("all"); }} />
-              <Metric tone="amber" label="Em aprovação" value={data.summary.reviewCount} icon={UsersRound} onClick={() => { setView("proposals"); setStatusFilter("in_review"); }} />
-              <Metric tone="amber" label="Aguardando assinatura" value={data.summary.awaitingSignatureCount} icon={FileSignature} onClick={() => { setView("contracts"); setStatusFilter("awaiting_signatures"); }} />
-              <Metric tone="emerald" label="Assinados" value={data.summary.signedCount} icon={BadgeCheck} onClick={() => { setView("contracts"); setStatusFilter("signed"); }} />
+              <Metric tone="blue" label="Total" value={liveSummary?.documentCount || 0} icon={FileText} onClick={() => { setView("all"); setStatusFilter("all"); }} />
+              <Metric tone="amber" label="Em aprovação" value={liveSummary?.reviewCount || 0} icon={UsersRound} onClick={() => { setView("proposals"); setStatusFilter("in_review"); }} />
+              <Metric tone="amber" label="Aguardando assinatura" value={liveSummary?.awaitingSignatureCount || 0} icon={FileSignature} onClick={() => { setView("all"); setStatusFilter("awaiting_signatures"); }} />
+              <Metric tone="emerald" label="Assinados" value={liveSummary?.signedCount || 0} icon={BadgeCheck} onClick={() => { setView("all"); setStatusFilter("signed"); }} />
             </section>
 
             <section className="mt-5 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
               <div className="documents-toolbar flex gap-3 border-b border-[var(--border)] p-4">
                 <div className="workspace-tabs" aria-label="Tipos de documento">
-                  <ViewTab active={view === "all"} label="Todos" count={data.summary.documentCount} onClick={() => { setView("all"); setStatusFilter("all"); }} />
+                  <ViewTab active={view === "all"} label="Todos" count={liveSummary?.documentCount || 0} onClick={() => { setView("all"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "proposals"} label="Propostas" count={data.proposals.length} onClick={() => { setView("proposals"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "contracts"} label="Contratos" count={data.contracts.length} onClick={() => { setView("contracts"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "files"} label="Arquivos e PDFs" count={data.uploadedDocuments.length} onClick={() => { setView("files"); setStatusFilter("all"); }} />
@@ -948,6 +953,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
         setTemplateOpen(false);
       }, "Modelo salvo na biblioteca.")} />}
       {templatePreview && <TemplatePreviewDialog template={templatePreview} busy={busy} onClose={() => setTemplatePreview(null)} onRename={() => void handleRenameTemplate(templatePreview)} onDuplicate={() => void handleDuplicateTemplate(templatePreview)} onDelete={templatePreview.id.startsWith("standard_") ? undefined : () => void handleDeleteTemplate(templatePreview)} />}
+      {proposalUploadOpen && <ProposalPdfUploadDialog initialSigned={proposalUploadSigned} proposal={proposalUploadTarget} clients={clients} onClose={() => setProposalUploadOpen(false)} onUploaded={proposalUploaded}/>}
       {importOpen && <ImportDocumentDialog busy={busy} onClose={() => setImportOpen(false)} onSubmit={(input) => void handleImport(input)} />}
     </main>
   );
@@ -1247,6 +1253,8 @@ function SignatureDialog({ contract, busy, onClose, onSubmit }: { contract: Comm
   const [name, setName] = useState(signer?.name || "");
   const [email, setEmail] = useState(signer?.email || "");
   const [consent, setConsent] = useState(false);
+  const [signature, setSignature] = useState("");
+  const [composing, setComposing] = useState(false);
 
   return (
     <Dialog title="Registrar assinatura" subtitle="O aceite gera uma entrada na trilha de auditoria." onClose={onClose}>
@@ -1254,8 +1262,10 @@ function SignatureDialog({ contract, busy, onClose, onSubmit }: { contract: Comm
         <FormField label="Assinante"><select value={signerId} onChange={(event) => { const next = pending.find((item) => item.id === event.target.value); setSignerId(event.target.value); setName(next?.name || ""); setEmail(next?.email || ""); }} className="commercial-field">{pending.map((item) => <option key={item.id} value={item.id}>{item.order}. {item.name} · {item.email}</option>)}</select></FormField>
         <FormField label="Nome confirmado"><input value={name} onChange={(event) => setName(event.target.value)} className="commercial-field" /></FormField>
         <FormField label="E-mail confirmado"><input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="commercial-field" /></FormField>
+        <div>{signature && <img src={signature} alt="Sua assinatura" className="mb-3 max-h-24 max-w-full rounded bg-white p-2"/>}<Button variant="secondary" onClick={() => setComposing(true)}>{signature ? "Alterar assinatura" : "Criar assinatura"}</Button></div>
+        {composing && <SignatureComposer onClose={() => setComposing(false)} onApply={(dataUrl) => { setSignature(dataUrl); setComposing(false); }}/>}
         <label className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-xs font-semibold leading-5"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} className="mt-1" /> Confirmo a identidade informada e concordo em registrar esta assinatura eletronicamente.</label>
-        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!signerId || !name.trim() || !email.trim() || !consent} onClick={() => onSubmit(signerId, name.trim(), email.trim(), "")}>Assinar</Button></div>
+        <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!signerId || !name.trim() || !email.trim() || !consent || !signature} onClick={() => onSubmit(signerId, name.trim(), email.trim(), signature)}>Assinar</Button></div>
       </div>
     </Dialog>
   );

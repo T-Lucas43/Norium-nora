@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, Response
 
-from app.modules.auth.router import can_manage_team, current_user
+from app.modules.auth.router import assert_route_permissions, assert_workspace_access, can_manage_team, current_user, user_from_websocket_ticket
+from app.core.request_context import reset_request_context, set_request_context
+from app.modules.intelligence.browser_live import FEEDS, live_key
+from app.modules.intelligence.browser_reports import get_report, report_pdf, rewrite_report, update_report
 from app.modules.intelligence.browser_runtime import (
     ACTIVE_BROWSER_LIMIT, artifact_path, control_browser_run, decide_browser_action, queue_browser_run,
     sanitize_profile, sanitize_run, store_uploaded_artifact,
 )
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 from app.modules.intelligence.schemas import (
-    BrowserApprovalPayload, BrowserCredentialPayload, BrowserPlanActionsPayload, BrowserPlanPayload, BrowserProfilePayload, BrowserUploadPayload, KnowledgeBasePayload,
+    BrowserApprovalPayload, BrowserCredentialPayload, BrowserPlanActionsPayload, BrowserPlanPayload, BrowserProfilePayload, BrowserUploadPayload, BrowserReportPayload, BrowserReportRewritePayload, KnowledgeBasePayload,
     KnowledgeSearchPayload, KnowledgeSourcePayload, MarketplaceInstallPayload, MarketplaceUpdatePayload,
     ModelPolicyPayload, ModelProviderPayload, ModelRoutePayload, ModelTestPayload,
 )
@@ -98,6 +103,88 @@ async def plan_browser_run(payload: BrowserPlanPayload, user: dict[str, Any] = D
 @browser_router.put("/runs/{run_id}/plan")
 async def put_browser_run_plan(run_id: str, payload: BrowserPlanActionsPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     return {"item": sanitize_run(await replace_browser_plan_actions(user, run_id, [item.model_dump() for item in payload.actions]))}
+
+
+@browser_router.put("/runs/{run_id}/research-plan")
+async def edit_research_plan(run_id: str, payload: BrowserPlanPayload, user: dict[str, Any] = Depends(current_user)) -> dict:
+    return {"item": sanitize_run(await create_browser_plan(user, payload.model_dump(), replace_id=run_id))}
+
+
+@browser_router.get("/runs/{run_id}/report")
+async def read_browser_report(run_id: str, user: dict[str, Any] = Depends(current_user)) -> dict:
+    return {"item": get_report(tenant_id(user), run_id)}
+
+
+@browser_router.put("/runs/{run_id}/report")
+async def edit_browser_report(run_id: str, payload: BrowserReportPayload, user: dict[str, Any] = Depends(current_user)) -> dict:
+    return {"item": await update_report(tenant_id(user), run_id, payload.model_dump())}
+
+
+@browser_router.get("/runs/{run_id}/report/pdf")
+async def browser_report_pdf(run_id: str, user: dict[str, Any] = Depends(current_user)) -> Response:
+    content = await asyncio.to_thread(report_pdf, get_report(tenant_id(user), run_id))
+    return Response(content, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="pesquisa-norium.pdf"', "Cache-Control": "no-store"})
+
+
+@browser_router.post("/runs/{run_id}/report/rewrite")
+async def rewrite_browser_report(run_id: str, payload: BrowserReportRewritePayload, user: dict[str, Any] = Depends(current_user)) -> dict:
+    return {"item": await rewrite_report(tenant_id(user), run_id, payload.revision, payload.instruction)}
+
+
+@browser_router.websocket("/runs/{run_id}/live")
+async def browser_live(websocket: WebSocket, run_id: str, ticket: str = "", workspace: str = "primary") -> None:
+    tokens = set_request_context("browser-live", workspace)
+    feed = None
+    queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=1)
+    try:
+        try:
+            user = await user_from_websocket_ticket(ticket)
+            assert_route_permissions(user, "/api/navegador")
+            await assert_workspace_access(user, Request({"type": "http", "headers": [(b"x-norium-workspace", workspace.encode("utf-8"))]}))
+            if not find_item(read_store(tenant_id(user))["browserRuns"], run_id):
+                raise HTTPException(404, "Pesquisa não encontrada.")
+        except HTTPException:
+            await websocket.close(code=4401)
+            return
+        await websocket.accept()
+        key = live_key(tenant_id(user), run_id)
+        # The browser may still be queued when the viewer connects.
+        for _ in range(120):
+            feed = FEEDS.get(key)
+            if feed:
+                break
+            run = find_item(read_store(tenant_id(user))["browserRuns"], run_id)
+            if not run or run.get("status") not in {"queued", "running", "paused", "awaiting_approval"}:
+                await websocket.send_json({"type": "ended"})
+                return
+            await websocket.send_json({"type": "waiting"})
+            await asyncio.sleep(1)
+        if not feed:
+            return
+        if len(feed.viewers) >= 4:
+            await websocket.close(code=4429)
+            return
+        feed.viewers.add(queue)
+        if feed.frame:
+            queue.put_nowait(feed.frame)
+        while True:
+            try:
+                frame = await asyncio.wait_for(queue.get(), timeout=10)
+            except asyncio.TimeoutError:
+                await websocket.send_json({"type": "heartbeat"})
+                continue
+            if frame is None:
+                await websocket.send_json({"type": "ended"})
+                break
+            await asyncio.wait_for(websocket.send_bytes(frame), timeout=5)
+    except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
+        pass
+    finally:
+        if feed:
+            feed.viewers.discard(queue)
+        with suppress(RuntimeError, WebSocketDisconnect):
+            await websocket.close()
+        reset_request_context(tokens)
 
 
 @browser_router.post("/runs/{run_id}/execute")

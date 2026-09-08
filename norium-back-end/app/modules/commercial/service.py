@@ -21,6 +21,7 @@ from fastapi import HTTPException
 from app.core.security import auth_secret
 from app.modules.clients.repository import list_clients
 from app.modules.commercial.repository import STORE_LOCK, read_store, write_store
+from app.modules.commercial.pdf_export import build_commercial_pdf
 from app.modules.commercial.schemas import (
     BrandProfileCreate,
     ContractUpdate,
@@ -30,6 +31,7 @@ from app.modules.commercial.schemas import (
     NoraWritingRequest,
     ProposalBriefRequest,
     ProposalCreate,
+    ProposalPdfUpload,
     ProposalStatusChange,
     ProposalUpdate,
     SignatureRequest,
@@ -470,10 +472,17 @@ def standard_templates() -> list[dict[str, Any]]:
     return templates
 
 
+def standalone_files(store: dict[str, Any]) -> list[dict[str, Any]]:
+    linked = {entry.get("documentId") for proposal in store["proposals"] for entry in proposal.get("fileVersions", [])}
+    linked.update(entry.get("editedDocumentId") for proposal in store["proposals"] for entry in proposal.get("fileVersions", []))
+    linked.update(proposal.get("sourceDocumentId") for proposal in store["proposals"])
+    return [item for item in store.get("uploadedDocuments", []) if item.get("id") not in linked]
+
+
 def summary(store: dict[str, list[dict[str, Any]]], user: dict[str, Any]) -> dict[str, Any]:
     proposals = store["proposals"]
     contracts = store["contracts"]
-    uploaded = store.get("uploadedDocuments", [])
+    uploaded = standalone_files(store)
     all_documents = [*proposals, *contracts, *uploaded]
     today = datetime.now(timezone.utc).date()
     expiring = 0
@@ -491,12 +500,12 @@ def summary(store: dict[str, list[dict[str, Any]]], user: dict[str, Any]) -> dic
         "documentCount": len(all_documents),
         "proposalCount": len(proposals),
         "draftCount": len([item for item in proposals if item.get("status") == "draft"]),
-        "reviewCount": len([item for item in proposals if item.get("status") in {"in_review", "changes_requested"}]),
+        "reviewCount": len([item for item in proposals if item.get("status") == "in_review"]),
         "approvedCount": len([item for item in proposals if item.get("status") in {"approved", "sent", "accepted"}]),
         "negotiationCount": len([item for item in proposals if item.get("status") in {"sent", "viewed", "negotiating", "changes_requested"}]),
         "contractCount": len(contracts),
-        "awaitingSignatureCount": len([item for item in contracts if item.get("status") == "awaiting_signatures"]),
-        "signedCount": len([item for item in contracts if item.get("status") in {"signed", "active", "completed"}]),
+        "awaitingSignatureCount": len([item for item in [*proposals, *contracts] if item.get("status") == "awaiting_signatures"]),
+        "signedCount": len([item for item in [*proposals, *contracts] if item.get("status") in {"signed", "active", "completed"}]),
         "expiringCount": expiring,
         "archivedCount": len([item for item in all_documents if item.get("status") == "archived" or item.get("archived")]),
         "fileCount": len(uploaded),
@@ -553,7 +562,7 @@ async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
         "contracts": [commercial_document_summary(item, "contract") for item in contracts],
         "brandProfiles": store["brandProfiles"],
         "templates": templates,
-        "uploadedDocuments": [document_file_summary(item) for item in sorted(store.get("uploadedDocuments", []), key=lambda value: str(value.get("updatedAt") or ""), reverse=True)],
+        "uploadedDocuments": [document_file_summary(item) for item in sorted(standalone_files(store), key=lambda value: str(value.get("updatedAt") or ""), reverse=True)],
         "processingJobs": [processing_job_summary(item) for item in sorted(store.get("processingJobs", []), key=lambda value: str(value.get("updatedAt") or ""), reverse=True)[:50]],
         "summary": summary(store, user),
     }
@@ -590,6 +599,111 @@ async def create_proposal(user: dict[str, Any], payload: ProposalCreate) -> dict
         store["proposals"].insert(0, proposal)
         await write_store(tenant_id, store)
     return proposal
+
+
+async def upload_proposal_pdf(user: dict[str, Any], payload: ProposalPdfUpload, proposal_id: str | None = None) -> dict[str, Any]:
+    from io import BytesIO
+    from pypdf import PdfReader
+    from app.modules.commercial.document_files import _decode_file, _validated_extension, prepare_imported_document, document_path
+    from app.modules.commercial.schemas import DocumentImportRequest
+
+    tenant_id = collaboration_tenant_id(user)
+    if proposal_id and payload.expectedVersion is None:
+        raise HTTPException(status_code=422, detail="Informe a versão atual da proposta.")
+    # Check ownership and version before writing a file, then recheck under the store lock.
+    if proposal_id:
+        _, existing = proposal_or_404(await asyncio.to_thread(read_store, tenant_id), proposal_id)
+        if payload.expectedVersion != int(existing.get("version") or 1):
+            raise HTTPException(status_code=409, detail="A proposta mudou. Reabra o documento antes de enviar o arquivo.")
+    content = _decode_file(payload)
+    _validated_extension(payload, content)
+    def validate_pdf() -> None:
+        try:
+            reader = PdfReader(BytesIO(content))
+            if reader.is_encrypted:
+                raise HTTPException(status_code=422, detail="Desbloqueie o PDF antes de importar a proposta.")
+            if not 1 <= len(reader.pages) <= 2000:
+                raise ValueError("page count")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="O arquivo não é um PDF válido para edição.") from exc
+    await asyncio.to_thread(validate_pdf)
+    client = snapshot_client(tenant_id, payload.clientId) if not proposal_id and payload.clientId else {"id": "", "name": "", "company": "", "email": "", "document": ""}
+    file = await prepare_imported_document(tenant_id, user, payload)
+    previous_snapshot = None
+    try:
+        async with _store_lock:
+            store = await asyncio.to_thread(read_store, tenant_id)
+            now = now_iso()
+            if proposal_id:
+                index, current = proposal_or_404(store, proposal_id)
+                if payload.expectedVersion != int(current.get("version") or 1):
+                    raise HTTPException(status_code=409, detail="A proposta mudou. Reabra o documento antes de enviar o arquivo.")
+                if current.get("contractId"):
+                    raise HTTPException(status_code=409, detail="Esta proposta já foi convertida em contrato. Duplique-a para iniciar outra negociação.")
+            else:
+                proposal_id = f"proposal_{uuid.uuid4().hex}"
+                index = len(store["proposals"])
+                current = {
+                    "id": proposal_id, "clientId": payload.clientId, "client": client,
+                    "brainstormId": None, "title": payload.title.strip() or file["title"],
+                    "contentHtml": "", "scopeSummary": "", "amount": 0, "currency": "BRL",
+                    "validUntil": None, "brandProfileId": None, "branding": default_branding(),
+                    "signers": [], "deliverables": [], "metadata": {}, "status": "draft",
+                    "approval": None, "noraAnalysis": None, "suggestions": [], "version": 0,
+                    "revisions": [], "events": [], "createdAt": now,
+                    "createdBy": str(user.get("id") or ""), "createdByName": str(user.get("nome") or user.get("email") or "Operador"),
+                }
+            previous_files = list(current.get("fileVersions") or [])
+            if len(previous_files) >= 100:
+                raise HTTPException(status_code=422, detail="Esta proposta atingiu o limite de 100 arquivos. Duplique-a para continuar.")
+            if previous_files and current.get("pdfEdits") and current.get("sourceDocumentId") and not current.get("signedDocumentId"):
+                previous_pdf, _ = await asyncio.to_thread(build_commercial_pdf, current, "proposal", True, tenant_id)
+                previous_snapshot = await prepare_imported_document(tenant_id, user, DocumentImportRequest(
+                    fileName=f"proposta-versao-{current.get('version') or 1}.pdf", mimeType="application/pdf",
+                    dataBase64=base64.b64encode(previous_pdf).decode("ascii"),
+                ))
+                previous_snapshot["proposalId"] = proposal_id
+                previous_files = [
+                    {**entry, "editedDocumentId": previous_snapshot["id"]} if entry.get("documentId") == current["sourceDocumentId"] else entry
+                    for entry in previous_files
+                ]
+            status = "signed" if payload.signed else "draft"
+            version = {
+                "documentId": file["id"], "fileName": file["originalFileName"], "size": file["size"],
+                "sha256": file["sha256"], "signed": payload.signed, "uploadedAt": now,
+                "uploadedBy": str(user.get("nome") or user.get("email") or "Operador"), "note": payload.note,
+            }
+            updated = {
+                **current, "sourceDocumentId": file["id"], "pdfEdits": None,
+                "signedDocumentId": file["id"] if payload.signed else None,
+                "signedAt": now if payload.signed else None, "status": status,
+                "approval": current.get("approval") if payload.signed else None,
+                "fileVersions": [version, *previous_files],
+                "version": int(current.get("version") or 0) + 1, "updatedAt": now,
+                "revisions": ([revision(current, user), *current.get("revisions", [])][:30] if current.get("version") else []),
+                "events": prepend_event(current, document_event(
+                    "signed_pdf_received" if payload.signed else "proposal_pdf_uploaded",
+                    "PDF assinado recebido do cliente" if payload.signed else "Nova versão em PDF enviada",
+                    user, note=payload.note, metadata={"documentId": file["id"], "sha256": file["sha256"], "previousStatus": current.get("status"), "status": status},
+                )),
+            }
+            file["proposalId"] = proposal_id
+            store["uploadedDocuments"].insert(0, file)
+            if previous_snapshot:
+                store["uploadedDocuments"].insert(0, previous_snapshot)
+            if index == len(store["proposals"]):
+                store["proposals"].insert(0, updated)
+            else:
+                store["proposals"][index] = updated
+            await write_store(tenant_id, store)
+        return updated
+    except Exception:
+        await asyncio.to_thread(document_path(tenant_id, file).unlink)
+        if previous_snapshot:
+            await asyncio.to_thread(document_path(tenant_id, previous_snapshot).unlink)
+        raise
 
 
 def _brief_lines(value: str) -> list[str]:
@@ -1239,6 +1353,7 @@ def revision(document: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
         "version": document.get("version"),
         "title": document.get("title"),
         "contentHtml": document.get("contentHtml"),
+        "sourceDocumentId": document.get("sourceDocumentId"),
         # O logo atual continua no documento. Repetir o data URL em cada
         # revisao fazia poucos documentos ocuparem varios megabytes.
         "branding": {key: value for key, value in branding.items() if key != "logoUrl"},
@@ -1272,10 +1387,14 @@ async def update_proposal(user: dict[str, Any], proposal_id: str, payload: Propo
         if payload.expectedVersion and int(current.get("version") or 1) != payload.expectedVersion:
             raise HTTPException(status_code=409, detail="O documento foi alterado por outra pessoa. Recarregue para conciliar as versoes.")
         updates = payload.model_dump(exclude_unset=True, exclude={"expectedVersion", "signers"})
+        if current.get("signedDocumentId") and updates:
+            raise HTTPException(status_code=409, detail="A versão assinada está preservada. Envie uma nova versão para editar.")
         if "contentHtml" in updates:
             updates["contentHtml"] = sanitize_document_html(str(updates["contentHtml"]))
         if payload.clientId and payload.clientId != current.get("clientId"):
             updates["client"] = snapshot_client(tenant_id, payload.clientId)
+        elif "clientId" in updates and not payload.clientId:
+            updates["client"] = {"id": "", "name": "", "company": "", "email": "", "document": ""}
         if payload.signers is not None:
             existing = {str(item.get("email")): item for item in current.get("signers", [])}
             prepared = prepare_signers(
@@ -1296,6 +1415,11 @@ async def update_proposal(user: dict[str, Any], proposal_id: str, payload: Propo
             revision(current, user),
             *(compact_revision(item) for item in current.get("revisions", []) if isinstance(item, dict)),
         ][:30]
+        if updates.get("pdfEdits"):
+            try:
+                await asyncio.to_thread(build_commercial_pdf, {**current, **updates}, "proposal", True, tenant_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="As marcações não correspondem às páginas atuais da proposta. Reabra o editor de PDF.") from exc
         updated = {
             **current,
             **updates,
@@ -1401,12 +1525,14 @@ PROPOSAL_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "draft": {"in_review", "approved", "archived"},
     "in_review": {"approved", "changes_requested", "rejected", "archived"},
     "changes_requested": {"draft", "in_review", "approved", "archived"},
-    "approved": {"sent", "expired", "archived"},
+    "approved": {"sent", "awaiting_signatures", "expired", "archived"},
     "rejected": {"draft", "in_review", "archived"},
-    "sent": {"viewed", "negotiating", "accepted", "declined", "expired", "archived"},
-    "viewed": {"negotiating", "accepted", "declined", "expired", "archived"},
-    "negotiating": {"sent", "accepted", "declined", "expired", "archived"},
-    "accepted": {"contracted", "archived"},
+    "sent": {"viewed", "negotiating", "accepted", "awaiting_signatures", "signed", "declined", "expired", "archived"},
+    "viewed": {"negotiating", "accepted", "awaiting_signatures", "signed", "declined", "expired", "archived"},
+    "negotiating": {"sent", "accepted", "awaiting_signatures", "signed", "declined", "expired", "archived"},
+    "accepted": {"contracted", "awaiting_signatures", "signed", "archived"},
+    "awaiting_signatures": {"signed", "negotiating", "declined", "expired", "archived"},
+    "signed": {"contracted", "archived"},
     "declined": {"draft", "archived"},
     "expired": {"draft", "sent", "archived"},
     "contracted": {"archived"},
@@ -1423,8 +1549,14 @@ async def change_proposal_status(
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
+        if payload.expectedVersion and payload.expectedVersion != int(current.get("version") or 1):
+            raise HTTPException(status_code=409, detail="A proposta mudou. Reabra o documento antes de alterar o status.")
         previous = str(current.get("status") or "draft")
         target = payload.status
+        if target == "signed" and not current.get("signedDocumentId"):
+            raise HTTPException(status_code=422, detail="Envie o PDF assinado pelo cliente para registrar a assinatura.")
+        if target == "contracted" and not current.get("contractId"):
+            raise HTTPException(status_code=422, detail="Gere o contrato vinculado antes de marcar a proposta como convertida.")
         if target == previous:
             return current
         if target not in PROPOSAL_STATUS_TRANSITIONS.get(previous, set()):
@@ -1432,12 +1564,13 @@ async def change_proposal_status(
                 status_code=409,
                 detail=f'A transicao de "{previous}" para "{target}" nao e permitida.',
             )
-        if target == "approved" and is_team_plan(user) and previous == "in_review" and not can_approve(user):
+        if target == "approved" and is_team_plan(user) and not can_approve(user):
             raise HTTPException(status_code=403, detail="Somente gestor ou proprietario pode aprovar esta proposta.")
         timestamp = now_iso()
         updated = {
             **current,
             "status": target,
+            "version": int(current.get("version") or 1) + 1,
             "updatedAt": timestamp,
             "events": prepend_event(
                 current,
@@ -1471,6 +1604,8 @@ async def duplicate_proposal(
             "title": payload.title or f'{current.get("title") or "Proposta"} - copia',
             "status": "draft",
             "contractId": None,
+            "signedDocumentId": None,
+            "signedAt": None,
             "approval": None,
             "suggestions": [],
             "version": 1,
@@ -1846,7 +1981,7 @@ async def create_contract(
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         proposal_index, proposal = proposal_or_404(store, proposal_id)
-        if proposal.get("status") not in {"approved", "sent", "accepted"}:
+        if proposal.get("status") not in {"approved", "sent", "accepted", "signed"}:
             raise HTTPException(status_code=409, detail="O contrato so pode ser gerado a partir de uma proposta aprovada.")
         existing = next((item for item in store["contracts"] if item.get("proposalId") == proposal_id), None)
         if existing:
@@ -1914,6 +2049,11 @@ async def update_contract(user: dict[str, Any], contract_id: str, payload: Contr
                 [item.model_dump() for item in payload.signers],
                 advanced=is_team_plan(user),
             )
+        if updates.get("pdfEdits"):
+            try:
+                await asyncio.to_thread(build_commercial_pdf, {**current, **updates}, "contract")
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail="As marcações não correspondem às páginas atuais do contrato. Reabra o editor de PDF.") from exc
         updated = {
             **current,
             **updates,

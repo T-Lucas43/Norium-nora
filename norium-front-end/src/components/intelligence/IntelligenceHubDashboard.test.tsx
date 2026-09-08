@@ -30,6 +30,6 @@ describe("IntelligenceHubDashboard", () => {
     render(<IntelligenceHubDashboard mode={mode} onOpenNora={vi.fn()} />);
     expect(screen.getByRole("heading", { name: title, level: 1 })).toBeInTheDocument();
     await waitFor(() => expect(client.apiRequest.mock.calls.some(([path]) => path === endpoint)).toBe(true));
-    if (mode === "browser") expect(screen.getByText(/Chromium real/i)).toBeInTheDocument();
+    if (mode === "browser") expect(screen.getByRole("button", { name: "Preparar pesquisa" })).toBeInTheDocument();
   });
 });

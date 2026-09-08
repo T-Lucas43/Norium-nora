@@ -1,4 +1,5 @@
 /* Solid application surfaces. Color stays on actions, status and data. */
+.browser-agent .intelligence-field:focus {border-color:var(--text-secondary);box-shadow:0 0 0 2px color-mix(in srgb,var(--text-secondary) 15%,transparent);}
 :root:not([data-norium-custom-theme="true"]) {
   --app-background:#f5f6f8;--app-overlay:none;--background:#f5f6f8;--surface:#fff;--surface-hover:#e9ebef;
   --border:#d5d8df;--text:#1d2027;--text-primary:#1d2027;--text-secondary:#5e6470;

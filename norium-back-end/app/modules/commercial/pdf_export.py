@@ -5,6 +5,7 @@ import io
 import re
 from html.parser import HTMLParser
 from typing import Any
+from app.modules.commercial.pdf_editor import apply_pdf_edits, decode_image
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -24,7 +25,7 @@ from reportlab.platypus import (
 )
 
 
-def build_commercial_pdf(document: dict[str, Any], document_type: str) -> tuple[bytes, str]:
+def build_commercial_pdf(document: dict[str, Any], document_type: str, include_edits: bool = True, tenant_id: str | None = None) -> tuple[bytes, str]:
     """Gera o PDF canonico usado por exportacao, Gmail e chat da equipe."""
     output = io.BytesIO()
     branding = document.get("branding") if isinstance(document.get("branding"), dict) else {}
@@ -35,6 +36,16 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str) -> tuple[
     client = document.get("client") if isinstance(document.get("client"), dict) else {}
     kind = "Proposta comercial" if document_type == "proposal" else "Contrato comercial"
     filename = f"{slugify(kind)}-{slugify(title)}.pdf"
+    if document_type == "proposal" and document.get("sourceDocumentId"):
+        from app.modules.commercial.document_files import document_path, imported_document_or_404
+        from app.modules.commercial.repository import read_store
+        if not tenant_id:
+            raise ValueError("O workspace é obrigatório para abrir a proposta importada.")
+        _, source = imported_document_or_404(read_store(tenant_id), document["sourceDocumentId"])
+        content = document_path(tenant_id, source).read_bytes()
+        if include_edits and document.get("pdfEdits") and not document.get("signedDocumentId"):
+            content = apply_pdf_edits(content, document["pdfEdits"])
+        return content, filename
 
     pdf = SimpleDocTemplate(
         output,
@@ -97,10 +108,15 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str) -> tuple[
             cells: list[Any] = []
             for signer in signers[index:index + 2]:
                 role = {"client": "Contratante", "contractor": "Contratado", "witness": "Testemunha"}.get(str(signer.get("role")), "Assinante")
-                cells.append(Paragraph(
+                signature_image = []
+                if signer.get("signatureDataUrl"):
+                    raw = decode_image(str(signer["signatureDataUrl"]))
+                    image = Image(io.BytesIO(raw), width=150, height=48, kind="proportional")
+                    signature_image.append(image)
+                cells.append([*signature_image, Paragraph(
                     f"<br/><br/>______________________________<br/><b>{escape_reportlab(str(signer.get('name') or 'Assinante'))}</b><br/>{role}",
                     styles["Signature"],
-                ))
+                )])
             while len(cells) < 2:
                 cells.append("")
             rows.append(cells)
@@ -135,7 +151,10 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str) -> tuple[
         canvas.restoreState()
 
     pdf.build(story, onFirstPage=decorate_page, onLaterPages=decorate_page)
-    return output.getvalue(), filename
+    result = output.getvalue()
+    if include_edits and document.get("pdfEdits"):
+        result = apply_pdf_edits(result, document["pdfEdits"])
+    return result, filename
 
 
 class BlockParser(HTMLParser):

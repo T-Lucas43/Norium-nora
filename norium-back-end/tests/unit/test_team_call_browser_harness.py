@@ -1,4 +1,5 @@
 """Regression coverage for browser selection and privacy at event boundaries."""
+import asyncio
 import importlib.util
 from pathlib import Path
 import sys
@@ -13,6 +14,29 @@ spec.loader.exec_module(harness)
 
 
 class BrowserHarnessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_renderer_crash_can_arrive_after_navigation_rejects(self):
+        # Ubuntu's crash handler can delay the real crash event beyond five
+        # seconds. The complete participant-removal deadline remains 18s.
+        session = Mock()
+        crash_listener = None
+
+        def register(event, callback):
+            nonlocal crash_listener
+            self.assertEqual('crash', event)
+            crash_listener = callback
+
+        async def navigate(*args, **kwargs):
+            raise RuntimeError('synthetic navigation rejected')
+
+        session.page.once.side_effect = register
+        session.page.goto = AsyncMock(side_effect=navigate)
+        delivery = asyncio.get_running_loop().call_later(
+            5.1, lambda: crash_listener(session.page))
+        try:
+            await harness.crash_page(session)
+        finally:
+            delivery.cancel()
+
     def test_state_artifacts_discard_identifiers_and_unexpected_values(self):
         result = harness.sanitized_call_state({
             'phase': 'failed', 'socketState': 'open', 'microphonePermission': 'unavailable',

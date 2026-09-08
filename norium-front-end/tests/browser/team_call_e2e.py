@@ -982,14 +982,18 @@ async def scenario_multiple_tabs(runtime: ScenarioRuntime) -> dict[str, Any]:
 async def crash_page(session: BrowserSession) -> None:
     crashed = asyncio.Event()
     session.page.once("crash", lambda _: crashed.set())
-    try:
-        # Chromium's own crash URL terminates only this renderer and leaves no
-        # unresolved DevTools Page.crash command that can poison the driver.
-        await session.page.goto("chrome://crash", wait_until="commit", timeout=5_000)
-    except Exception:
-        # Navigation is expected to reject because the target renderer exits.
-        pass
-    await asyncio.wait_for(crashed.wait(), timeout=5)
+    # Ubuntu's crash handler can delay the event after navigation rejects.
+    # Share the scenario's existing end-to-end deadline; the caller subtracts
+    # this elapsed time from the participant-removal wait and checks the total.
+    async with asyncio.timeout(GHOST_DEADLINE_SECONDS):
+        try:
+            # Chromium's own crash URL terminates only this renderer and leaves
+            # no unresolved DevTools Page.crash command that can poison the driver.
+            await session.page.goto("chrome://crash", wait_until="commit", timeout=5_000)
+        except Exception:
+            # Navigation is expected to reject because the target renderer exits.
+            pass
+        await crashed.wait()
 
 
 async def close_page(session: BrowserSession) -> None:

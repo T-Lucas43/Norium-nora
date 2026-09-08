@@ -48,3 +48,30 @@ com Python 3.14 nem o smoke da revisão servida pela Azure. O lançamento só po
 ser considerado concluído após esses gates. As três pendências externas seguem
 na [lista de abertura ao público](team-call-public-launch-checklist.md), adiadas
 exclusivamente para o perfil `internal-test`. Gravação e SFU continuam desligadas.
+
+## Retomada do deploy pela conta N4Nando-A
+
+O run `34227664235`, em `a44d265`, aprovou a validação geral e a carga,
+mas falhou nas três repetições de `tab_close_and_crash`. A reprodução isolada
+no GitHub (`34236038665`) mediu rejeição da navegação em 0,010 s e evento real
+de crash em 9,198 s no Ubuntu 24.04. A comparação no Ubuntu 26.04
+(`34236276090`) também excedeu a espera interna de cinco segundos: 7,575 s.
+Ambos os runners usam um coletor de core dump via pipe. O cenário completo
+local passou no Windows e no Ubuntu/WSL, cujo coletor não usa esse pipe.
+Isso confirma o atraso do evento no ambiente hospedado; não comprova por si
+só qual etapa interna do coletor consome o tempo.
+
+A versão 1.62.0 do [teste oficial do Playwright](https://github.com/microsoft/playwright/blob/v1.62.0/tests/library/page-event-crash.spec.ts)
+registra a limitação do evento de crash no Ubuntu 24.04. A correção local
+mantém o runner e exige o evento real, mas compartilha o prazo existente de
+18 segundos entre a confirmação do crash e a remoção do participante.
+O cenário continua descontando o tempo já consumido e conferindo o total;
+nenhum cenário, verificação de RTP ou limite de remoção foi desativado.
+
+A regressão do helper falhou em 5,011 s antes da mudança e passou após ela.
+Os 14 testes do harness e dos gates de release passaram. Os diagnósticos
+temporários ficam somente na branch `codex/team-call-linux-crash` e nos
+artefatos ignorados; não fazem parte da entrega. A versão servida pela Azure
+antes desta retomada era `cbdf3a3481b98a75dc7d135af971107258a86367`.
+O sucesso desta correção no pipeline completo e no deploy ainda precisa ser
+registrado junto à revisão publicada.

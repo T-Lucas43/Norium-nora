@@ -16,6 +16,7 @@ export default function ProposalPdfWorkspace({ proposal, clients, editImmediatel
 }) {
   const [editor, setEditor] = useState<{ blob: Blob; source: CommercialProposal } | null>(null);
   const [preview, setPreview] = useState("");
+  const [previewBlob, setPreviewBlob] = useState<Blob | undefined>();
   const [previewTitle, setPreviewTitle] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -37,7 +38,7 @@ export default function ProposalPdfWorkspace({ proposal, clients, editImmediatel
       if (!active) return;
       openEditorInitially.current = false;
       if (openingEditor) setEditor({ blob, source });
-      else { setPreview(URL.createObjectURL(blob)); setPreviewTitle(source.title); }
+      else { setPreview(URL.createObjectURL(blob)); setPreviewBlob(blob); setPreviewTitle(source.title); }
     }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "Não foi possível abrir o PDF."); });
     return () => { active = false; };
   }, [proposal.id, proposal.sourceDocumentId, previewVersion]);
@@ -67,11 +68,11 @@ export default function ProposalPdfWorkspace({ proposal, clients, editImmediatel
   }
   async function viewFile(file: ProposalFileVersion) {
     const blob = await downloadImportedDocument(file.editedDocumentId || file.documentId);
-    setPreview(URL.createObjectURL(blob)); setPreviewTitle(file.fileName);
+    setPreview(URL.createObjectURL(blob)); setPreviewBlob(blob); setPreviewTitle(file.fileName);
   }
   async function closeEditor() {
     setEditor(null);
-    await action(async () => { setPreview(URL.createObjectURL(await exportCommercialDocumentPdf("proposal", proposal.id))); setPreviewTitle(proposal.title); });
+    await action(async () => { const blob = await exportCommercialDocumentPdf("proposal", proposal.id); setPreview(URL.createObjectURL(blob)); setPreviewBlob(blob); setPreviewTitle(proposal.title); });
   }
   if (editor) return <PdfVisualEditor blob={editor.blob} title={proposal.title} initialEdits={editor.source.pdfEdits} onSave={savePdf} onClose={() => void closeEditor()}/>;
   return <main className="clean-workspace documents-workspace min-h-[calc(100dvh-74px)] bg-[var(--background)] text-[var(--text)]">
@@ -80,7 +81,7 @@ export default function ProposalPdfWorkspace({ proposal, clients, editImmediatel
     <section className="proposal-pdf-overview"><header><div><h1>{proposal.title}</h1><p>{signed ? "Arquivo assinado preservado. Para editar, envie uma nova versão." : "Edite, assine e acompanhe esta proposta no mesmo lugar."}</p></div><div className="flex gap-2">{!signed && <Button disabled={busy} onClick={() => void action(edit)} icon={<Pencil size={15}/>}>Editar / assinar PDF</Button>}{preview && <a className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-semibold" href={preview} download={`${previewTitle.replace(/\.pdf$/i, "")}.pdf`}><Download size={15}/>Baixar PDF</a>}</div></header>
       {!signed && <div className="proposal-pdf-fields"><label>Título<input value={title} maxLength={220} disabled={busy} onChange={event => setTitle(event.target.value)} className="commercial-field"/></label><label>Valor ({proposal.currency})<input type="number" min={0} max={999999999} value={amount} disabled={busy} onChange={event => setAmount(Number(event.target.value))} className="commercial-field"/></label><label>Validade<input type="date" value={validUntil} disabled={busy} onChange={event => setValidUntil(event.target.value)} className="commercial-field"/></label><Button variant="secondary" disabled={busy || title.trim().length < 2} onClick={() => void action(async () => { await saveDetails(); })} icon={<Save size={15}/>}>Salvar dados</Button><label>Cliente<select value={clientId} disabled={busy} onChange={event => setClientId(event.target.value)} className="commercial-field"><option value="">Sem cliente vinculado</option>{clients.map(client => <option key={client.id} value={client.id}>{client.name || client.company}</option>)}</select></label></div>}
       {error && <div role="alert" className="flex items-center justify-between gap-3 text-sm text-rose-400">{error}<Button variant="ghost" onClick={() => setPreviewVersion(value => value + 1)}>Tentar novamente</Button></div>}
-      {preview && <div><div className="flex items-center justify-between pb-2 text-xs text-[var(--text-secondary)]"><span className="flex gap-2"><FileSignature size={14}/>{previewTitle}</span>{previewTitle !== proposal.title && <Button variant="ghost" size="sm" onClick={() => setPreviewVersion(value => value + 1)} icon={<X size={13}/>}>Voltar ao PDF atual</Button>}</div><PdfDocumentPreview url={preview} title={previewTitle}/></div>}
+      {preview && <div><div className="flex items-center justify-between pb-2 text-xs text-[var(--text-secondary)]"><span className="flex gap-2"><FileSignature size={14}/>{previewTitle}</span>{previewTitle !== proposal.title && <Button variant="ghost" size="sm" onClick={() => setPreviewVersion(value => value + 1)} icon={<X size={13}/>}>Voltar ao PDF atual</Button>}</div><PdfDocumentPreview blob={previewBlob} title={previewTitle}/></div>}
     </section>
   </main>;
 }

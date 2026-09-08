@@ -483,6 +483,13 @@ async def _run_real_browser(user: dict[str, Any], run_id: str, control: BrowserC
                     from app.modules.intelligence.browser_research import research_site
 
                     async def update_research(updates, event):
+                        if updates.get("report", {}).get("researchMaterial"):
+                            from app.modules.intelligence.browser_reports import save_research_material
+                            # Keep full source text outside the overview store polled during navigation.
+                            report = dict(updates["report"])
+                            material = report.pop("researchMaterial")
+                            await asyncio.to_thread(save_research_material, user_id, run_id, material)
+                            updates = {**updates, "report": report}
                         return await _update_run(user_id, run_id, updates, event=event)
 
                     output = await research_site(page, run, profile, control, update_research)

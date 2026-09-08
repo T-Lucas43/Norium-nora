@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent } from "rea
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { ArrowLeft, ArrowDown, ArrowUp, Check, Circle, Copy, Download, FilePenLine, Highlighter, ImagePlus, Minus, MousePointer2, PenLine, Plus, Redo2, RotateCw, Save, Signature, Square, Trash2, Type, Undo2, X } from "lucide-react";
 import PdfPageCanvas, { type TextBox } from "./PdfPageCanvas";
+import { PdfPreviewBinaryData } from "./pdfPreviewData";
 import SignatureComposer from "./SignatureComposer";
 import { clamp, emptyEdits, imageData, moveLayer, newLayer, resizeLayer, type PdfEdits, type PdfLayer, type PdfLayerType } from "./pdfEditorModel";
 import { showConfirm } from "../shared/AppDialogProvider";
@@ -38,9 +39,9 @@ export default function PdfVisualEditor({ blob, title, initialEdits, onClose, on
     let cancelled = false; let destroy: (() => void) | undefined;
     void (async () => {
       const engine = await import("pdfjs-dist");
-      const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+      const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?worker&url");
       engine.GlobalWorkerOptions.workerSrc = worker.default;
-      const task = engine.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) });
+      const task = engine.getDocument({ data: new Uint8Array(await blob.arrayBuffer()), BinaryDataFactory: PdfPreviewBinaryData, useWorkerFetch: false, useSystemFonts: false });
       destroy = () => { void task.destroy(); };
       const loaded = await task.promise;
       if (cancelled) { destroy(); return; }

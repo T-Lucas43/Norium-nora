@@ -10,14 +10,14 @@ from fastapi.responses import FileResponse, Response
 from app.modules.auth.router import assert_route_permissions, assert_workspace_access, can_manage_team, current_user, user_from_websocket_ticket
 from app.core.request_context import reset_request_context, set_request_context
 from app.modules.intelligence.browser_live import FEEDS, live_key
-from app.modules.intelligence.browser_reports import get_report, report_pdf, update_report
+from app.modules.intelligence.browser_reports import get_report, report_pdf, rewrite_report, update_report
 from app.modules.intelligence.browser_runtime import (
     ACTIVE_BROWSER_LIMIT, artifact_path, control_browser_run, decide_browser_action, queue_browser_run,
     sanitize_profile, sanitize_run, store_uploaded_artifact,
 )
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 from app.modules.intelligence.schemas import (
-    BrowserApprovalPayload, BrowserCredentialPayload, BrowserPlanActionsPayload, BrowserPlanPayload, BrowserProfilePayload, BrowserUploadPayload, BrowserReportPayload, KnowledgeBasePayload,
+    BrowserApprovalPayload, BrowserCredentialPayload, BrowserPlanActionsPayload, BrowserPlanPayload, BrowserProfilePayload, BrowserUploadPayload, BrowserReportPayload, BrowserReportRewritePayload, KnowledgeBasePayload,
     KnowledgeSearchPayload, KnowledgeSourcePayload, MarketplaceInstallPayload, MarketplaceUpdatePayload,
     ModelPolicyPayload, ModelProviderPayload, ModelRoutePayload, ModelTestPayload,
 )
@@ -124,6 +124,11 @@ async def edit_browser_report(run_id: str, payload: BrowserReportPayload, user: 
 async def browser_report_pdf(run_id: str, user: dict[str, Any] = Depends(current_user)) -> Response:
     content = await asyncio.to_thread(report_pdf, get_report(tenant_id(user), run_id))
     return Response(content, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="pesquisa-norium.pdf"', "Cache-Control": "no-store"})
+
+
+@browser_router.post("/runs/{run_id}/report/rewrite")
+async def rewrite_browser_report(run_id: str, payload: BrowserReportRewritePayload, user: dict[str, Any] = Depends(current_user)) -> dict:
+    return {"item": await rewrite_report(tenant_id(user), run_id, payload.revision, payload.instruction)}
 
 
 @browser_router.websocket("/runs/{run_id}/live")

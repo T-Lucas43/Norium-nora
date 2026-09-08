@@ -5,8 +5,8 @@ import Button from "../shared/Button";
 
 export type ResearchSettings = { id?: string; objective: string; startUrl: string; taskType?: string; scope?: string; maxPages?: number; reportTitle?: string; timeoutSeconds?: number; executionMode?: string; profileId?: string | null };
 export const researchTypes = [
-  { id: "summary", label: "Resumo", icon: FileText, hint: "Pontos principais, temas e conclusões", prompt: "Leia o site e prepare um resumo organizado com os principais temas, informações relevantes e conclusões." },
-  { id: "academic", label: "Acadêmico", icon: BookOpen, hint: "Síntese, discussão e referências", prompt: "Produza um resumo acadêmico com tema, objetivo, metodologia da consulta, síntese, discussão crítica e conclusão. Diferencie as afirmações do site das evidências disponíveis." },
+  { id: "summary", label: "Resumo", icon: FileText, hint: "Contexto, explicações e conclusões", prompt: "Leia o site e explique os principais temas em um resumo desenvolvido, com contexto, frases completas, relações entre as ideias e conclusão. Use exemplos quando ajudarem e indique as fontes." },
+  { id: "academic", label: "Acadêmico", icon: BookOpen, hint: "Conceitos, desenvolvimento e referências", prompt: "Produza uma síntese acadêmica explicativa sobre o assunto do site. Contextualize o tema, desenvolva os conceitos e argumentos em parágrafos completos, relacione as ideias e conclua respondendo ao objetivo. Use exemplos didáticos quando pertinentes, indique as referências e diferencie fatos da fonte de interpretações. Descreva a metodologia da consulta brevemente." },
   { id: "layout", label: "Layout", icon: LayoutTemplate, hint: "Cores, tipografia e experiência", prompt: "Analise o layout e a experiência do site: hierarquia, navegação, cores, tipografia, componentes e comportamento no desktop e celular. Separe observações e sugestões de melhoria." },
   { id: "custom", label: "Personalizado", icon: Settings2, hint: "Defina exatamente o que precisa", prompt: "Leia o site e prepare um relatório sobre " },
 ];

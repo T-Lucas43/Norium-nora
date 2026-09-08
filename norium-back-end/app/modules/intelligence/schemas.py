@@ -116,6 +116,11 @@ class BrowserReportPayload(StrictModel):
         return value.strip()
 
 
+class BrowserReportRewritePayload(StrictModel):
+    revision: int = Field(ge=1)
+    instruction: str = Field(default="Desenvolva a análise com frases completas, contexto, explicações e relações entre os conceitos.", min_length=4, max_length=2000)
+
+
 class KnowledgeBasePayload(StrictModel):
     name: str = Field(min_length=2, max_length=160)
     description: str = Field(default="", max_length=1000)

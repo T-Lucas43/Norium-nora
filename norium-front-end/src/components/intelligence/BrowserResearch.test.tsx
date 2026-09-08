@@ -60,4 +60,40 @@ describe("Browser research workflow", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("outra janela");
     expect(screen.getByLabelText("Título")).toHaveValue("Resumo inicial revisado");
   });
+  it("rewrites an existing analysis and refreshes its PDF", async () => {
+    api.apiRequest.mockImplementation(async (path: string) => ({ item: path.endsWith("/rewrite") ? { ...report, content: "Uma explicação com contexto e relações entre os conceitos [1].", revision: 2 } : report }));
+    const user = userEvent.setup();
+    render(<BrowserReportEditor runId="existing" />);
+    await user.click(await screen.findByRole("button", { name: "Reescrever com Nora" }));
+    await user.clear(screen.getByLabelText("Como a Nora deve melhorar o relatório?"));
+    await user.type(screen.getByLabelText("Como a Nora deve melhorar o relatório?"), "Explique os conceitos com exemplos.");
+    await user.click(screen.getByRole("button", { name: "Gerar nova redação" }));
+    await waitFor(() => expect(screen.getByText(/Versão 2/)).toBeInTheDocument());
+    expect(api.apiRequest).toHaveBeenCalledWith("/api/navegador/runs/existing/report/rewrite", expect.objectContaining({ method: "POST", body: JSON.stringify({ instruction: "Explique os conceitos com exemplos.", revision: 1 }) }));
+    expect(api.apiBlobRequest).toHaveBeenCalledTimes(2);
+    await user.click(screen.getByRole("button", { name: "Editar relatório" }));
+    expect(screen.getByLabelText("Texto do relatório")).toHaveValue("Uma explicação com contexto e relações entre os conceitos [1].");
+  });
+  it("keeps the previous analysis when Nora cannot rewrite it", async () => {
+    api.apiRequest.mockImplementation(async (path: string) => { if (path.endsWith("/rewrite")) throw new Error("Nora indisponível. Tente novamente."); return { item: report }; });
+    const user = userEvent.setup();
+    render(<BrowserReportEditor runId="existing" />);
+    await user.click(await screen.findByRole("button", { name: "Reescrever com Nora" }));
+    await user.click(screen.getByRole("button", { name: "Gerar nova redação" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nora indisponível");
+    expect(screen.getByText(/Versão 1/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Editar relatório" }));
+    expect(screen.getByLabelText("Texto do relatório")).toHaveValue(report.content);
+  });
+  it("retries a failed PDF download without losing the report", async () => {
+    api.apiRequest.mockResolvedValue({ item: report });
+    api.apiBlobRequest.mockRejectedValueOnce(new Error("Falha ao carregar o PDF."));
+    const user = userEvent.setup();
+    render(<BrowserReportEditor runId="existing" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Falha ao carregar");
+    await user.click(screen.getByRole("button", { name: "Tentar carregar PDF" }));
+    expect(await screen.findByText("Prévia: Resumo inicial")).toBeInTheDocument();
+    expect(api.apiBlobRequest).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Baixar PDF" })).toBeEnabled();
+  });
 });

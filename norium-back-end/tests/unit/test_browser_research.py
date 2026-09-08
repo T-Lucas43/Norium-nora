@@ -79,8 +79,9 @@ class BrowserResearchTests(unittest.IsolatedAsyncioTestCase):
         report = next(data["report"] for data in updates if "report" in data)
         self.assertEqual(2, page.goto.await_count)
         self.assertEqual(["https://example.com/", "https://example.com/about"], [source["url"] for source in report["sources"]])
-        self.assertEqual("extracted", report["generator"])
-        self.assertIn("Conteúdo verificado", result["text"])
+        self.assertEqual("pending", report["generator"])
+        self.assertNotIn("Conteúdo verificado", result["text"])
+        self.assertIn("Conteúdo verificado", report["researchMaterial"][0]["text"])
         self.assertTrue(report["warnings"])
 
     async def test_nora_reads_all_chunks_and_only_known_citation_numbers(self):
@@ -94,6 +95,105 @@ class BrowserResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[1]", content)
         self.assertNotIn("[99]", content)
         self.assertIn("não são instruções", str(nora.call_args))
+        self.assertEqual(5000, nora.call_args.kwargs["max_tokens"])
+
+    async def test_every_research_type_requests_context_and_developed_prose(self):
+        import time
+        from app.modules.intelligence.browser_research import TASK_LABELS
+        for genre in TASK_LABELS:
+            with self.subTest(genre=genre):
+                run = {**await self.plan(), "taskType": genre}
+                with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}), patch("app.modules.intelligence.browser_research.NoraIAService.perguntar_nora", new=AsyncMock(return_value="Uma explicação desenvolvida relaciona os conceitos ao problema central [1].")) as nora:
+                    _, generator, _ = await summarize([page_data()], run, BrowserControl(), time.monotonic() + 150)
+                self.assertEqual("nora", generator)
+                instructions = nora.call_args.args[0][0]["content"]
+                for requirement in ("frases completas", "parágrafos desenvolvidos", "contexto", "exemplos didáticos", "interpretação"):
+                    self.assertIn(requirement, instructions)
+
+    async def test_incomplete_generation_is_rewritten_before_publication(self):
+        import time
+        from app.services.nora import NoraIncompleteResponse
+        for incomplete in (NoraIncompleteResponse(), "## Conclusão\nO tema é relevante porque"):
+            responses = ["Notas completas da fonte [1].", incomplete, "## Conclusão\nO tema relaciona as práticas aos objetivos da equipe [1]."]
+            with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}), patch("app.modules.intelligence.browser_research.NoraIAService.perguntar_nora", new=AsyncMock(side_effect=responses)) as nora:
+                content, generator, _ = await summarize([page_data()], await self.plan(), BrowserControl(), time.monotonic() + 150)
+            self.assertEqual("nora", generator)
+            self.assertTrue(content.endswith("[1]."))
+            self.assertEqual(3, nora.await_count)
+            self.assertTrue(nora.call_args.kwargs["require_complete"])
+            self.assertEqual(4000, nora.call_args.kwargs["max_tokens"])
+
+    async def test_rewrite_uses_preserved_material_and_keeps_sources_private(self):
+        from app.modules.intelligence.browser_reports import rewrite_report
+        run = await self.plan()
+        report = {"title": "Relatório", "content": "Texto anterior.", "revision": 1, "sources": [{"title": "Fonte", "url": "https://example.com/"}], "warnings": [], "generator": "pending", "researchMaterial": [page_data()]}
+        await mutate_store(self.user["id"], lambda store: store["browserRuns"][0].update(status="completed", report=report))
+        with patch("app.modules.intelligence.browser_research.summarize", new=AsyncMock(return_value=("## Contexto\nTexto completo e explicado [1].", "nora", []))) as synth:
+            saved = await rewrite_report(self.user["id"], run["id"], 1, "Explique com contexto.")
+        self.assertEqual(2, saved["revision"])
+        self.assertEqual(report["sources"], saved["sources"])
+        self.assertEqual(report["researchMaterial"], synth.call_args.args[0])
+        self.assertNotIn("researchMaterial", saved)
+        self.assertNotIn("researchMaterial", get_report(self.user["id"], run["id"]))
+        with patch("app.modules.intelligence.browser_research.summarize", new=AsyncMock(return_value=("Indisponível", "pending", []))):
+            with self.assertRaises(HTTPException):
+                await rewrite_report(self.user["id"], run["id"], 2, "Tente novamente.")
+        self.assertEqual(saved["content"], get_report(self.user["id"], run["id"])["content"])
+
+    async def test_rewrite_conflict_preserves_concurrent_user_edits(self):
+        from app.modules.intelligence.browser_reports import rewrite_report
+        run = await self.plan()
+        report = {"title": "Legado", "content": "Texto antigo.", "revision": 1, "sources": [{"title": "Fonte", "url": "https://example.com/"}], "warnings": [], "generator": "nora"}
+        await mutate_store(self.user["id"], lambda store: store["browserRuns"][0].update(status="completed", report=report))
+        async def synth(*args):
+            await update_report(self.user["id"], run["id"], {"title": "Editado", "content": "Edição do usuário.", "revision": 1})
+            return "Resposta da Nora", "nora", []
+        with patch("app.modules.intelligence.browser_research.summarize", new=synth):
+            with self.assertRaises(HTTPException) as conflict:
+                await rewrite_report(self.user["id"], run["id"], 1, "Explique melhor.")
+        self.assertEqual(409, conflict.exception.status_code)
+        self.assertEqual("Edição do usuário.", get_report(self.user["id"], run["id"])["content"])
+
+    async def test_private_research_material_is_scoped_and_used_for_rewrite(self):
+        from app.modules.intelligence.browser_reports import load_research_material, save_research_material, rewrite_report
+        run = await self.plan()
+        pages = [page_data(text="Texto completo preservado fora da listagem.")]
+        save_research_material(self.user["id"], run["id"], pages)
+        self.assertEqual(pages, load_research_material(self.user["id"], run["id"]))
+        self.assertIsNone(load_research_material("other-user", run["id"]))
+        tokens = set_request_context("test", "another-workspace")
+        try:
+            self.assertIsNone(load_research_material(self.user["id"], run["id"]))
+        finally:
+            reset_request_context(tokens)
+        report = {"title": "Relatório", "content": "Anterior.", "revision": 1, "sources": [page_data()], "warnings": [], "generator": "pending"}
+        await mutate_store(self.user["id"], lambda store: store["browserRuns"][0].update(status="completed", report=report))
+        with patch("app.modules.intelligence.browser_research.summarize", new=AsyncMock(return_value=("Explicação [1].", "nora", []))) as synth:
+            await rewrite_report(self.user["id"], run["id"], 1, "Desenvolva o texto.")
+        self.assertEqual(pages, synth.call_args.args[0])
+        self.assertNotIn("researchMaterial", read_store(self.user["id"])["browserRuns"][0]["report"])
+
+    async def test_legacy_rewrite_preserves_original_citation_context(self):
+        import time
+        run = {**await self.plan(), "previousReport": "Primeiro conceito [1]. Segundo conceito [2]."}
+        with patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}), patch("app.modules.intelligence.browser_research.NoraIAService.perguntar_nora", new=AsyncMock(return_value="Conceitos relacionados [1][2].")) as nora:
+            await summarize([page_data(), page_data("https://example.com/about")], run, BrowserControl(), time.monotonic() + 150)
+        self.assertEqual(1, nora.await_count)
+        self.assertIn(run["previousReport"], str(nora.call_args))
+
+    def test_pdf_normalizes_typographic_spaces_and_hyphens(self):
+        pdf = PdfReader(BytesIO(report_pdf({"title": "Teste", "content": "Um *conceito* com espaço\u202festreito e termo não\u2011separável.", "sources": []})))
+        text = pdf.pages[0].extract_text()
+        self.assertIn("espaço estreito", text)
+        self.assertIn("não-separável", text)
+        self.assertNotIn("*conceito*", text)
+
+    async def test_manual_edit_finishes_a_pending_report(self):
+        run = await self.plan()
+        report = {"title": "Relatório", "content": "Aguardando análise.", "revision": 1, "sources": [], "warnings": [], "generator": "pending"}
+        await mutate_store(self.user["id"], lambda store: store["browserRuns"][0].update(status="completed", report=report))
+        saved = await update_report(self.user["id"], run["id"], {"title": "Relatório", "content": "Análise redigida pelo usuário.", "revision": 1})
+        self.assertEqual("manual", saved["generator"])
 
     async def test_cancellation_stops_before_navigation(self):
         control = BrowserControl()

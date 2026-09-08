@@ -3,6 +3,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import PdfPageCanvas from "./PdfPageCanvas";
 import Button from "../shared/Button";
+import "./proposalFiles.css";
 
 export default function PdfDocumentPreview({ url, title }: { url: string; title: string }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);

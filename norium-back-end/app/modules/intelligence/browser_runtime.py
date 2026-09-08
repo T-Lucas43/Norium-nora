@@ -22,6 +22,7 @@ from fastapi import HTTPException
 from playwright.async_api import BrowserContext, Download, Locator, Page, Playwright, Route, async_playwright
 
 from app.core.tenant import get_user_db_path
+from app.modules.intelligence.browser_live import live_key, start_live
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 from app.modules.platform.service import decrypt_secret, encrypt_secret, list_collection, update_collection_item
 
@@ -35,7 +36,7 @@ _CONTROLS: dict[str, "BrowserControl"] = {}
 
 
 def _key(user_id: str, run_id: str) -> str:
-    return f"{user_id}:{run_id}"
+    return live_key(user_id, run_id)
 
 
 @dataclass
@@ -54,6 +55,8 @@ def sanitize_profile(profile: dict[str, Any]) -> dict[str, Any]:
 
 def sanitize_run(run: dict[str, Any]) -> dict[str, Any]:
     safe = {key: value for key, value in run.items() if key not in {"sessionSecret"}}
+    if isinstance(run.get("report"), dict):
+        safe["report"] = {key: run["report"].get(key) for key in ("title", "revision", "generator")}
     safe["artifacts"] = [
         {key: value for key, value in item.items() if key != "path"}
         for item in run.get("artifacts", [])
@@ -439,14 +442,16 @@ async def _run_real_browser(user: dict[str, Any], run_id: str, control: BrowserC
         browser, context = await _browser_context(playwright, run, profile)
         page = await context.new_page()
         extracted: list[dict[str, Any]] = []
+        stop_live = None
         try:
+            stop_live = await start_live(page, _key(user_id, run_id))
             for index, action in enumerate(actions):
                 if control.cancelled or _fresh_run(user_id, run_id).get("cancelRequested"):
                     return await _update_run(user_id, run_id, {"status": "cancelled"}, event=("cancelled", "Execucao cancelada pelo operador."))
                 await control.pause.wait()
                 action_id = str(action.get("id"))
                 if action.get("status") == "completed":
-                    if action.get("riskClass") == "read" and action.get("type") not in {"extract", "screenshot", "download"}:
+                    if action.get("riskClass") == "read" and action.get("type") not in {"extract", "research", "screenshot", "download"}:
                         await _execute_action(user, user_id, run_id, page, profile, action)
                     continue
                 fresh_action = next((item for item in _fresh_run(user_id, run_id).get("plan", []) if item.get("id") == action_id), action)
@@ -474,11 +479,17 @@ async def _run_real_browser(user: dict[str, Any], run_id: str, control: BrowserC
                     event=("action_started", f'{index + 1}/{len(actions)} - {fresh_action.get("description")}'),
                     action_id=action_id, action_updates={"status": "running", "startedAt": now_iso()},
                 )
-                output = await _execute_action(user, user_id, run_id, page, profile, fresh_action)
-                if fresh_action.get("type") == "extract" and isinstance(output, dict):
+                if fresh_action.get("type") == "research":
+                    from app.modules.intelligence.browser_research import research_site
+
+                    async def update_research(updates, event):
+                        return await _update_run(user_id, run_id, updates, event=event)
+
+                    output = await research_site(page, run, profile, control, update_research)
+                else:
+                    output = await _execute_action(user, user_id, run_id, page, profile, fresh_action)
+                if fresh_action.get("type") in {"extract", "research"} and isinstance(output, dict):
                     extracted.append(output)
-                if fresh_action.get("type") != "screenshot" and page.url != "about:blank":
-                    await _save_screenshot(user_id, run_id, page, f"etapa-{index + 1}")
                 await _update_run(
                     user_id, run_id,
                     {"progress": round((index + 1) / max(1, len(actions)) * 100), "lastUrl": page.url},
@@ -487,7 +498,7 @@ async def _run_real_browser(user: dict[str, Any], run_id: str, control: BrowserC
                 )
                 if run.get("executionMode") == "assisted" and index < len(actions) - 1:
                     control.pause.clear()
-                    await _update_run(user_id, run_id, {"status": "paused", "pauseRequested": True}, event=("assisted_pause", "Etapa concluida. Revise a captura antes de continuar."))
+                    await _update_run(user_id, run_id, {"status": "paused", "pauseRequested": True}, event=("assisted_pause", "Etapa concluída. Confira o navegador ao vivo antes de continuar."))
                     await control.pause.wait()
             if profile.get("retainSession"):
                 await _persist_session(user_id, str(run.get("profileId") or ""), context)
@@ -506,6 +517,8 @@ async def _run_real_browser(user: dict[str, Any], run_id: str, control: BrowserC
                 event=("completed", "Tarefa executada em navegador real e evidencias registradas."),
             )
         finally:
+            if stop_live:
+                await stop_live()
             await context.close()
             await browser.close()
 
@@ -518,6 +531,8 @@ async def execute_browser_run(user: dict[str, Any], run_id: str, control: Browse
     async with _SEMAPHORE:
         try:
             return await asyncio.wait_for(_run_real_browser(user, run_id, active_control), timeout=timeout)
+        except asyncio.CancelledError:
+            return await _update_run(user_id, run_id, {"status": "cancelled"}, event=("cancelled", "Pesquisa cancelada pelo usuário."))
         except asyncio.TimeoutError:
             return await _update_run(user_id, run_id, {"status": "failed", "progress": 100, "error": f"A execucao excedeu o limite de {timeout} segundos."}, event=("timeout", "Sessao encerrada pelo limite de duracao."))
         except HTTPException as exc:
@@ -533,6 +548,8 @@ async def queue_browser_run(user: dict[str, Any], run_id: str) -> dict[str, Any]
     task = _ACTIVE.get(key)
     if task and not task.done():
         return sanitize_run(_fresh_run(user_id, run_id))
+    if _fresh_run(user_id, run_id).get("status") in {"completed", "cancelled"}:
+        raise HTTPException(409, "Esta execução já terminou. Prepare uma nova pesquisa para executar novamente.")
     control = BrowserControl()
     _CONTROLS[key] = control
     await _update_run(user_id, run_id, {"status": "queued", "cancelRequested": False}, event=("queued", "Execucao adicionada a fila do Chromium."))
@@ -551,12 +568,15 @@ async def control_browser_run(user: dict[str, Any], run_id: str, action: str) ->
     user_id = str(user.get("id") or "anonymous")
     key = _key(user_id, run_id)
     control = _CONTROLS.get(key)
+    run = _fresh_run(user_id, run_id)
+    if run.get("status") in {"completed", "cancelled", "failed"}:
+        return sanitize_run(run)
     if action == "cancel":
         if control:
             control.cancelled = True
             control.pause.set()
             control.approval.set()
-        return await _update_run(user_id, run_id, {"cancelRequested": True, "status": "cancelling"}, event=("cancel_requested", "Cancelamento solicitado."))
+        return await _update_run(user_id, run_id, {"cancelRequested": True, "status": "cancelling" if control else "cancelled"}, event=("cancel_requested", "Cancelamento solicitado."))
     if action == "pause":
         if control:
             control.pause.clear()

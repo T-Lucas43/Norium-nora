@@ -785,7 +785,7 @@ async def browser_runtime_health() -> dict[str, Any]:
 </html>"""
     health_url = "data:text/html;base64," + base64.b64encode(health_document.encode("utf-8")).decode("ascii")
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
+        browser = await playwright.chromium.launch(channel="chromium", headless=True, args=["--disable-dev-shm-usage"])
         try:
             page = await browser.new_page(viewport={"width": 1024, "height": 768})
             await page.goto(health_url, wait_until="domcontentloaded", timeout=8_000)

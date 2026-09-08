@@ -40,6 +40,38 @@ async def verify_revision(client: httpx.AsyncClient, base: str, expected_revisio
         raise RuntimeError("production_revision_mismatch")
 
 
+async def wait_for_revision(base_url: str, expected_revision: str, timeout: float = 180) -> None:
+    """Wait for ingress cutover; never accept a healthy but outdated revision."""
+    if not re.fullmatch(r"[0-9a-f]{40}", expected_revision):
+        raise ValueError("expected_revision_required")
+    parsed = urlsplit(base_url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("https_destination_required")
+    try:
+        async with asyncio.timeout(timeout), httpx.AsyncClient(timeout=15, follow_redirects=False, headers={"Cache-Control": "no-cache"}) as client:
+            while True:
+                try:
+                    await verify_revision(client, base_url.rstrip("/"), expected_revision)
+                    return
+                except RuntimeError as error:
+                    if str(error) != "production_revision_mismatch":
+                        raise
+                except httpx.HTTPStatusError as error:
+                    if error.response.status_code < 500:
+                        raise
+                except httpx.TransportError:
+                    pass
+                await asyncio.sleep(3)
+    except TimeoutError as error:
+        raise RuntimeError("production_revision_not_ready") from error
+
+
+async def validate_ready_deployment(base_url: str, expected_revision: str, internal_test: bool) -> dict:
+    await wait_for_revision(base_url, expected_revision)
+    validate_profile = validate_internal if internal_test else validate
+    return await validate_profile(base_url, expected_revision)
+
+
 async def validate(base_url: str, expected_revision: str) -> dict:
     if not re.fullmatch(r"[0-9a-f]{40}", expected_revision):
         raise ValueError("expected_revision_required")
@@ -157,8 +189,7 @@ def main() -> int:
     parser.add_argument("--internal-test", action="store_true")
     args = parser.parse_args()
     try:
-        validate_profile = validate_internal if args.internal_test else validate
-        result = asyncio.run(validate_profile(args.base_url, args.expected_revision))
+        result = asyncio.run(validate_ready_deployment(args.base_url, args.expected_revision, args.internal_test))
     except Exception as error:
         # Exception text from HTTP/WebSocket libraries can include a ticket URL.
         print(json.dumps({"status": "failed", "errorType": type(error).__name__}))

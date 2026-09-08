@@ -88,6 +88,25 @@ class ReleasePreflightTests(unittest.TestCase):
 
 
 class ProductionRevisionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ingress_waits_for_exact_revision_before_smoke(self):
+        responses = iter([httpx.Response(503), httpx.Response(200, json={"revision": "b" * 40}), httpx.Response(200, json={"revision": "a" * 40})])
+        async def respond(request):
+            self.assertEqual("no-cache", request.headers["cache-control"])
+            return next(responses)
+        client = httpx.AsyncClient(transport=httpx.MockTransport(respond), headers={"Cache-Control": "no-cache"})
+        with patch.object(smoke.httpx, "AsyncClient", return_value=client), patch.object(smoke.asyncio, "sleep", AsyncMock()) as sleep, patch.object(smoke, "validate_internal", AsyncMock(return_value={"status": "passed"})) as validate:
+            self.assertEqual({"status": "passed"}, await smoke.validate_ready_deployment("https://example.test", "a" * 40, True))
+            self.assertEqual(2, sleep.await_count)
+            validate.assert_awaited_once_with("https://example.test", "a" * 40)
+
+    async def test_ingress_timeout_does_not_accept_old_revision(self):
+        async def respond(request):
+            return httpx.Response(200, json={"revision": "b" * 40})
+        client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        with patch.object(smoke.httpx, "AsyncClient", return_value=client):
+            with self.assertRaisesRegex(RuntimeError, "production_revision_not_ready"):
+                await smoke.wait_for_revision("https://example.test", "a" * 40, timeout=0.02)
+
     async def test_internal_smoke_needs_no_accounts_and_does_not_claim_call_connectivity(self):
         async def respond(request):
             if request.url.path == "/health":

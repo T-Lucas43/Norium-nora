@@ -1,6 +1,12 @@
 // Adaptador dos dados de relatorio, separado da renderizacao e exportacao.
 import { ApiError, apiRequest } from "../../core/api/client";
 import type { FinanceData } from "./types";
+import { analysisEvidence, type NoraReportAnalysis, type ReportDocument } from "./reportDocument";
+
+export async function analyzeReport(document: ReportDocument, focus: string) {
+  const response = await apiRequest<{ item: NoraReportAnalysis }>("/api/relatorios/analisar", { method: "POST", body: JSON.stringify({ report: analysisEvidence(document), focus }), timeoutMs: 145_000 });
+  return response.item;
+}
 
 function wait(delayMs: number) {
   return new Promise((resolve) => window.setTimeout(resolve, delayMs));

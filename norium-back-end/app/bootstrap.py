@@ -47,6 +47,7 @@ from app.modules.chat.router import router as chat_router
 from app.modules.clients.router import router as clients_router
 from app.modules.commercial.router import router as commercial_router
 from app.modules.finance.router import router as financeiro_router
+from app.modules.reports.router import router as reports_router
 from app.modules.inbox.router import router as inbox_router
 from app.modules.intelligence.router import (
     browser_router,
@@ -372,6 +373,7 @@ def create_app() -> FastAPI:
     app.include_router(perfil_router)
     app.include_router(tarefas_router)
     app.include_router(financeiro_router)
+    app.include_router(reports_router)
     app.include_router(automacoes_router)
     app.include_router(browser_router)
     app.include_router(knowledge_router)

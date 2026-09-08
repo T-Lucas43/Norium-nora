@@ -1,0 +1,69 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { EventSource, OmnichannelEvent } from "../../types/omnichannel";
+import { emptyFinanceData, sourceLabels } from "../../features/reports/metrics";
+import type { FinanceEntry } from "../../features/reports/types";
+const api = vi.hoisted(() => ({ loadFinanceReportData: vi.fn(), registerReportEvent: vi.fn(), analyzeReport: vi.fn() }));
+vi.mock("../../features/reports/api", () => api);
+vi.mock("../commercial/PdfDocumentPreview", () => ({ default: () => <div>Prévia PDF</div> }));
+vi.mock("../../features/reports/pdfBuilder", async original => ({ ...await original<object>(), buildStructuredReportPdf: vi.fn(async () => new Blob(["%PDF-test"])) }));
+import ReportsDashboard from "./ReportsDashboard";
+const day = new Date().toISOString().slice(0, 10);
+const entries: FinanceEntry[] = Array.from({ length: 14 }, (_, index) => ({ id: `e${index}`, title: `Pagamento ${index}`, amount: 100, description: "Serviços", category: "Operação", method: "pix", status: index < 10 ? "pago" : "pendente", type: "saida", dueDate: day, paidAt: index < 10 ? day : null, attachments: [], source: "manual", createdAt: day, updatedAt: day }));
+const events = Object.fromEntries(Object.keys(sourceLabels).map(source => [source, [] as OmnichannelEvent[]])) as Record<EventSource, OmnichannelEvent[]>;
+events.kanban = [{ id: "task", source: "kanban", title: "Tarefa concluída", description: "Entrega concluída", timestamp: new Date().toISOString(), metadata: { status: "done" } }];
+const props = { eventsBySource: events, notifications: [], connected: true, userId: "test" };
+describe("Central de relatórios", () => {
+  beforeEach(() => { vi.clearAllMocks(); api.loadFinanceReportData.mockResolvedValue({ ...emptyFinanceData, lancamentos: entries }); HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); }; HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); }; });
+  it("navigates financial subcategories and filters a paginated table", async () => {
+    const user = userEvent.setup(); render(<ReportsDashboard {...props}/>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar dados financeiros" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Lançamentos" }));
+    expect(screen.getByText("1–10 de 14")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Próxima: Lançamentos do período" }));
+    expect(screen.getByText("11–14 de 14")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Filtros" }));
+    await user.selectOptions(screen.getByLabelText("Situação"), "pendente");
+    expect(screen.getByText("1–4 de 4")).toBeInTheDocument();
+    const table = screen.getByRole("table"); expect(within(table).getAllByText("Pendente")).toHaveLength(4);
+  });
+  it("shows Nora insights inline and invalidates them after a filter change", async () => {
+    api.analyzeReport.mockResolvedValue({ summary: "Os registros disponíveis mostram uma entrega concluída neste período.", insights: [{ kind: "positive", title: "Entrega registrada", explanation: "A conclusão está registrada no histórico de tarefas.", evidenceIds: ["actions"], recommendation: "Confira os critérios de aceite para confirmar a qualidade da entrega." }], limitations: ["Eventos não representam todas as tarefas."], generatedAt: new Date().toISOString() });
+    const user = userEvent.setup(); render(<ReportsDashboard {...props}/>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar dados financeiros" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Analisar relatório" }));
+    expect(await screen.findByText("Entrega registrada")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Pesquisar registros"), "ausente");
+    expect(screen.queryByText("Entrega registrada")).not.toBeInTheDocument();
+    expect(screen.getByText(/Os dados ou filtros mudaram/)).toBeInTheDocument();
+  });
+  it("preserves working data and explains a Nora failure", async () => {
+    api.analyzeReport.mockRejectedValue(new Error("O provedor atingiu seu limite temporário."));
+    const user = userEvent.setup(); render(<ReportsDashboard {...props}/>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar dados financeiros" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Analisar relatório" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("limite temporário");
+    expect(screen.getByText("Tarefa concluída", { exact: false })).toBeInTheDocument();
+  });
+  it("requires a current PDF preview before download after editing options", async () => {
+    const user = userEvent.setup(); render(<ReportsDashboard {...props}/>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar dados financeiros" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Preparar PDF" }));
+    expect(screen.getByRole("button", { name: "Baixar PDF" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Gerar prévia do PDF" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Baixar PDF" })).toBeEnabled());
+    await user.type(screen.getByLabelText("Comentários do responsável"), "Revisado");
+    expect(screen.getByRole("button", { name: "Baixar PDF" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Atualizar prévia" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Baixar PDF" })).toBeEnabled());
+  });
+  it("offers retry when finance data cannot load and never exports zeroed finance", async () => {
+    api.loadFinanceReportData.mockRejectedValue(new Error("Financeiro indisponível"));
+    const user = userEvent.setup(); render(<ReportsDashboard {...props}/>);
+    await user.click(screen.getByRole("button", { name: "Resultado financeiro" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Financeiro indisponível");
+    expect(screen.getByRole("button", { name: "Preparar PDF" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Analisar relatório" })).toBeDisabled();
+  });
+});

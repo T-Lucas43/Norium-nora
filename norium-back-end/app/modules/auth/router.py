@@ -325,6 +325,7 @@ ROUTE_PERMISSIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("/api/agenda", ("agenda",)),
     ("/api/chat", ("chat",)),
     ("/api/financeiro", ("gastos",)),
+    ("/api/relatorios", ("relatorios",)),
     ("/api/tarefas", ("tarefas",)),
     ("/api/automacoes", ("automacoes",)),
     ("/api/nora", ("nora",)),

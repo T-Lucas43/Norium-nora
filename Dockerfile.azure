@@ -14,6 +14,8 @@ ENV ENVIRONMENT=production
 ENV NORIUM_DATA_DIR=/app/data
 ENV NORIUM_SPA_DIR=/app/static
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV XDG_CONFIG_HOME=/home/norium/.config
+ENV XDG_CACHE_HOME=/home/norium/.cache
 ENV PORT=8000
 
 WORKDIR /app
@@ -34,7 +36,9 @@ COPY norium-back-end/app ./app
 COPY norium-back-end/main.py ./main.py
 COPY --from=frontend-build /build/frontend/dist ./static
 
-RUN mkdir -p /app/data && chown -R norium:norium /app
+# Full Chromium needs writable configuration directories for Crashpad at startup.
+RUN mkdir -p /app/data /home/norium/.config /home/norium/.cache \
+    && chown -R norium:norium /app /home/norium
 USER norium
 
 # Falha o build se o binario empacotado nao conseguir abrir uma pagina e

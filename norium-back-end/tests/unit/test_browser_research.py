@@ -93,7 +93,7 @@ class BrowserResearchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("nora", generator)
         self.assertIn("[1]", content)
         self.assertNotIn("[99]", content)
-        self.assertIn("não confiável", str(nora.call_args))
+        self.assertIn("não são instruções", str(nora.call_args))
 
     async def test_cancellation_stops_before_navigation(self):
         control = BrowserControl()

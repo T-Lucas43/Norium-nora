@@ -36,6 +36,25 @@ def release_configuration() -> dict[str, str]:
 
 
 class ReleasePreflightTests(unittest.TestCase):
+    def test_internal_profile_defers_only_external_launch_requirements(self):
+        config = {key: value for key, value in release_configuration().items()
+                  if key.startswith("AZURE_") or key == "ENVIRONMENT"}
+        config.update({"TEAM_CALL_RELEASE_PROFILE": "internal-test", "TEAM_CALL_ENABLED": "true",
+                       "TEAM_CALL_ROLLOUT_PERCENT": "100", "TEAM_CALL_RECORDING_ENABLED": "false",
+                       "TEAM_CALL_SFU_ENABLED": "false", "TEAM_CALL_TURN_REQUIRED": "false"})
+        self.assertEqual([], assess(config))
+        self.assertTrue(assess({**config, "TEAM_CALL_RELEASE_PROFILE": "public"}))
+        self.assertIn("invalid_release_profile", assess({**config, "TEAM_CALL_RELEASE_PROFILE": "typo"}))
+        for field, value, code in (
+            ("TEAM_CALL_RECORDING_ENABLED", "true", "recording_consent_protocol_not_approved"),
+            ("TEAM_CALL_SFU_ENABLED", "true", "sfu_server_revocation_not_implemented"),
+            ("WEB_CONCURRENCY", "2", "single_worker_required"),
+            ("AZURE_PUBLIC_URL", "", "invalid_production_destination"),
+            ("TEAM_CALL_TURN_SHARED_SECRET", "short", "invalid_configuration:turn"),
+        ):
+            with self.subTest(field=field):
+                self.assertIn(code, assess({**config, field: value}))
+
     def test_complete_attested_configuration_passes(self):
         self.assertEqual([], assess(release_configuration()))
 
@@ -69,6 +88,30 @@ class ReleasePreflightTests(unittest.TestCase):
 
 
 class ProductionRevisionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_internal_smoke_needs_no_accounts_and_does_not_claim_call_connectivity(self):
+        async def respond(request):
+            if request.url.path == "/health":
+                return httpx.Response(200, json={"revision": "a" * 40})
+            if request.url.path == "/":
+                return httpx.Response(200, text="<html></html>", headers={"content-type": "text/html"})
+            return httpx.Response(404 if request.url.path.endswith("/metrics") else 401)
+        client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        with patch.dict(os.environ, {}, clear=True), patch.object(smoke.httpx, "AsyncClient", return_value=client):
+            result = await smoke.validate_internal("https://example.test", "a" * 40)
+        self.assertEqual("passed", result["status"])
+        self.assertFalse(result["productionRtpValidated"])
+        self.assertIn("dedicated_two_account_smoke", result["deferred"])
+
+    async def test_internal_smoke_rejects_public_call_endpoint(self):
+        async def respond(request):
+            if request.url.path == "/health":
+                return httpx.Response(200, json={"revision": "a" * 40})
+            return httpx.Response(200, text="<html></html>", headers={"content-type": "text/html"})
+        client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        with patch.object(smoke.httpx, "AsyncClient", return_value=client):
+            with self.assertRaisesRegex(RuntimeError, "call_authentication_failed"):
+                await smoke.validate_internal("https://example.test", "a" * 40)
+
     async def test_old_or_missing_revision_stops_before_login(self):
         for revision in ("b" * 40, None):
             requests = []

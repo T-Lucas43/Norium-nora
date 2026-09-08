@@ -4,6 +4,8 @@ Fonte de verdade: `app/modules/team/{call_configuration,call_release,turn_creden
 
 ## Flags e capacidade
 
+`TEAM_CALL_RELEASE_PROFILE`: GitHub Variable com valores `public` (default) ou `internal-test`. A seleção explícita `internal-test`, autorizada em 2026-09-08, adia os três requisitos externos da [lista de lançamento público](team-call-public-launch-checklist.md). Nesse perfil, o workflow mantém `ENVIRONMENT=production`, habilita mesh para as contas autenticadas de teste (percentual default 100, salvo override explícito), desabilita TURN obrigatório e o endpoint de scrape sem token, e mantém gravação/SFU desligadas. Perfil inválido falha no preflight. Voltar a `public` restaura todas as exigências externas; não alterar `ENVIRONMENT` para contornar controles de segurança.
+
 | Variável backend | Default local/teste | Default produção/staging | Validação / uso |
 | --- | --- | --- | --- |
 | `TEAM_CALL_ENABLED` | `true` | `false` | Booleano estrito; autoriza criar chamadas novas. `false` prevalece sobre a lista interna |

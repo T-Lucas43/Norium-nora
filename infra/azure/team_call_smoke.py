@@ -125,13 +125,40 @@ async def validate(base_url: str, expected_revision: str) -> dict:
                        "protected_metrics", "call_cleanup"], "productionRtpValidated": False}
 
 
+async def validate_internal(base_url: str, expected_revision: str) -> dict:
+    """Authorized internal-test profile: prove deployment, not call connectivity."""
+    if not re.fullmatch(r"[0-9a-f]{40}", expected_revision):
+        raise ValueError("expected_revision_required")
+    parsed = urlsplit(base_url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("https_destination_required")
+    base = base_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
+        await verify_revision(client, base, expected_revision)
+        page = await client.get(base + "/", headers={"Accept": "text/html"})
+        page.raise_for_status()
+        if "text/html" not in page.headers.get("content-type", ""):
+            raise RuntimeError("frontend_missing")
+        for path in ("/calls/active", "/calls/configuration", "/calls/ice-servers"):
+            if (await client.get(base + "/api/team-chat" + path)).status_code not in {401, 403}:
+                raise RuntimeError("call_authentication_failed")
+        if (await client.get(base + "/api/team-chat/calls/metrics")).status_code != 404:
+            raise RuntimeError("metrics_not_private")
+    return {"status": "passed", "releaseProfile": "internal-test", "revision": expected_revision,
+            "checks": ["https", "expected_revision", "frontend", "call_authentication", "private_metrics"],
+            "deferred": ["external_turn_tls", "external_metrics_alerts", "dedicated_two_account_smoke"],
+            "productionRtpValidated": False}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("base_url")
     parser.add_argument("--expected-revision", required=True, help="Immutable commit SHA expected at the production URL")
+    parser.add_argument("--internal-test", action="store_true")
     args = parser.parse_args()
     try:
-        result = asyncio.run(validate(args.base_url, args.expected_revision))
+        validate_profile = validate_internal if args.internal_test else validate
+        result = asyncio.run(validate_profile(args.base_url, args.expected_revision))
     except Exception as error:
         # Exception text from HTTP/WebSocket libraries can include a ticket URL.
         print(json.dumps({"status": "failed", "errorType": type(error).__name__}))

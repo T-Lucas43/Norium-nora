@@ -1,5 +1,7 @@
 # Auditoria final e decisão de lançamento — chamadas de equipe
 
+> Atualização de escopo em 2026-09-08: o responsável informou que o sistema está apenas em testes e autorizou adiar os três pré-requisitos externos. Foi criado o perfil explícito `internal-test`, mantendo segurança e gates locais. O bloqueio registrado abaixo continua válido para a abertura ao público. As pendências estão em [checklist público](team-call-public-launch-checklist.md); o resultado do deploy de testes será registrado separadamente. A base foi sincronizada até `origin/main@cbdf3a3`, preservando as funções novas e resolvendo somente o conflito de dependências.
+
 Data local: 2026-09-07; inventário final em 2026-09-08 02:52 UTC. Worktree: `C:\NOrium\deploy-worktrees\team-call-remediation-baseline`. Branch: `codex/team-call-remediation-baseline`. Base da etapa: `d6147431a73c8436aa9707e7d4b55ba095fdadab`. Na retomada, consulta autenticada e fetch confirmaram `origin/main@1c397e5f2819f3bb8f86bb6bc54a058f8fb8d0e2`, quatro commits novos de propostas/PDFs, sem mudanças no módulo de chamadas. Não foram integrados enquanto o lançamento está bloqueado; antes de publicar será necessário sincronizar essa base e repetir os gates afetados. Nenhuma alteração de arquivos foi feita no checkout principal ou nos demais worktrees.
 
 **Decisão: lançamento bloqueado por pré-requisitos externos ausentes. Nenhuma imagem foi publicada, nenhum deploy foi executado e nenhum smoke foi executado em produção.** Os testes locais não substituem a validação externa obrigatória.

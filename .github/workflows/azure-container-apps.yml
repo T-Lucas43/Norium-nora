@@ -145,14 +145,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      TEAM_CALL_RELEASE_PROFILE: ${{ vars.TEAM_CALL_RELEASE_PROFILE || 'public' }}
       APP_ENV: test
       ENVIRONMENT: test
-      TEAM_CALL_ENABLED: ${{ vars.TEAM_CALL_ENABLED || 'false' }}
-      TEAM_CALL_ROLLOUT_PERCENT: ${{ vars.TEAM_CALL_ROLLOUT_PERCENT || '0' }}
+      TEAM_CALL_ENABLED: ${{ vars.TEAM_CALL_ENABLED || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && 'true' || 'false') }}
+      TEAM_CALL_ROLLOUT_PERCENT: ${{ vars.TEAM_CALL_ROLLOUT_PERCENT || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && '100' || '0') }}
       TEAM_CALL_INTERNAL_TEAMS: ${{ vars.TEAM_CALL_INTERNAL_TEAMS }}
       TEAM_CALL_RECORDING_ENABLED: 'false'
       TEAM_CALL_SFU_ENABLED: 'false'
-      TEAM_CALL_TURN_REQUIRED: 'true'
+      TEAM_CALL_TURN_REQUIRED: ${{ vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && 'false' || 'true' }}
       TEAM_CALL_TURN_URLS: ${{ vars.TEAM_CALL_TURN_URLS }}
       TEAM_CALL_TURN_SHARED_SECRET: ${{ secrets.TEAM_CALL_TURN_SHARED_SECRET }}
       TEAM_CALL_METRICS_TOKEN: ${{ secrets.TEAM_CALL_METRICS_TOKEN }}
@@ -186,14 +187,19 @@ jobs:
         with:
           node-version: 24
       - name: Install real browser dependencies
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}
         run: |
           npm ci --prefix norium-front-end
           python -m playwright install --with-deps chromium
       - name: Prove external TLS relay with two independent browser sessions
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}
         run: >-
           python norium-front-end/tests/browser/team_call_e2e.py
           --external-turn --scenario relay_only --repeat 3
           --artifacts-dir output/team-call-release/external-turn
+      - name: Record explicitly deferred internal-test requirements
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' }}
+        run: echo 'Internal testing only. External TURN/TLS, external metrics/alert delivery and dedicated two-account smoke are deferred; see docs/operations/team-call-public-launch-checklist.md.' >> "$GITHUB_STEP_SUMMARY"
       - name: Preserve aggregate release evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -297,6 +303,7 @@ jobs:
           --output none
 
       - name: Synchronize runtime-only call secrets
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}
         shell: bash
         env:
           TURN_SECRET: ${{ secrets.TEAM_CALL_TURN_SHARED_SECRET }}
@@ -322,9 +329,15 @@ jobs:
 
       - name: Deploy immutable image
         shell: bash
+        env:
+          CALL_RELEASE_PROFILE: ${{ vars.TEAM_CALL_RELEASE_PROFILE || 'public' }}
         run: |
           public_url="${{ vars.AZURE_PUBLIC_URL }}"
           public_url="${public_url%/}"
+          call_connectivity=(TEAM_CALL_TURN_REQUIRED=false TEAM_CALL_TURN_URLS= TEAM_CALL_TURN_SHARED_SECRET= TEAM_CALL_METRICS_TOKEN=)
+          if [[ "${CALL_RELEASE_PROFILE}" != "internal-test" ]]; then
+            call_connectivity=(TEAM_CALL_TURN_REQUIRED=true "TEAM_CALL_TURN_URLS=${{ vars.TEAM_CALL_TURN_URLS }}" TEAM_CALL_TURN_SHARED_SECRET=secretref:team-call-turn TEAM_CALL_METRICS_TOKEN=secretref:team-call-metrics)
+          fi
           az containerapp update \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
@@ -336,18 +349,16 @@ jobs:
             --set-env-vars \
             ENVIRONMENT=production \
             WEB_CONCURRENCY=1 \
-            TEAM_CALL_ENABLED="${{ vars.TEAM_CALL_ENABLED || 'false' }}" \
-            TEAM_CALL_ROLLOUT_PERCENT="${{ vars.TEAM_CALL_ROLLOUT_PERCENT || '0' }}" \
+            TEAM_CALL_RELEASE_PROFILE="${CALL_RELEASE_PROFILE}" \
+            TEAM_CALL_ENABLED="${{ vars.TEAM_CALL_ENABLED || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && 'true' || 'false') }}" \
+            TEAM_CALL_ROLLOUT_PERCENT="${{ vars.TEAM_CALL_ROLLOUT_PERCENT || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && '100' || '0') }}" \
             TEAM_CALL_INTERNAL_TEAMS="${{ vars.TEAM_CALL_INTERNAL_TEAMS }}" \
             TEAM_CALL_RECORDING_ENABLED=false \
             TEAM_CALL_SFU_ENABLED=false \
             TEAM_CALL_MESH_MAX_PARTICIPANTS=6 \
             TEAM_CALL_MAX_ACTIVE_TOTAL=25 \
             TEAM_CALL_MAX_SOCKETS=100 \
-            TEAM_CALL_TURN_REQUIRED=true \
-            TEAM_CALL_TURN_URLS="${{ vars.TEAM_CALL_TURN_URLS }}" \
-            TEAM_CALL_TURN_SHARED_SECRET=secretref:team-call-turn \
-            TEAM_CALL_METRICS_TOKEN=secretref:team-call-metrics \
+            "${call_connectivity[@]}" \
             BACKEND_PUBLIC_URL="${public_url}" \
             GMAIL_REDIRECT_URI="${public_url}/api/auth/callback/gmail" \
             GOOGLE_REDIRECT_URI="${public_url}/api/integracoes/google/callback" \
@@ -395,6 +406,7 @@ jobs:
           done
 
       - name: Smoke test two production call sessions and protected metrics
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}
         env:
           NORIUM_SMOKE_EMAIL: ${{ secrets.NORIUM_SMOKE_EMAIL }}
           NORIUM_SMOKE_PASSWORD: ${{ secrets.NORIUM_SMOKE_PASSWORD }}
@@ -405,6 +417,11 @@ jobs:
         run: |
           python -m pip install httpx websockets
           python infra/azure/team_call_smoke.py "${{ vars.AZURE_PUBLIC_URL }}" --expected-revision "${{ github.sha }}"
+      - name: Smoke test internal deployment revision and private endpoints
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' }}
+        run: |
+          python -m pip install httpx websockets
+          python infra/azure/team_call_smoke.py "${{ vars.AZURE_PUBLIC_URL }}" --expected-revision "${{ github.sha }}" --internal-test
 
       - name: Verify application secret references and OAuth callbacks
         shell: bash

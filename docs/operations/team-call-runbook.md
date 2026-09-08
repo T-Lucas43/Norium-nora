@@ -4,6 +4,8 @@ Este runbook se aplica à branch `codex/team-call-remediation-baseline`, à imag
 
 ## Condições para lançar
 
+As condições abaixo são do perfil `public` (padrão). Em 2026-09-08, o responsável autorizou o perfil `internal-test` enquanto o sistema estiver restrito a testes. Nesse perfil, somente TURN/TLS externo, coleta/entrega externa de alertas e contas dedicadas de smoke são adiados. As pendências e condições da exceção estão na [lista de abertura ao público](team-call-public-launch-checklist.md). O runtime continua em ambiente de produção com todos os controles de segurança; testes, scans, imagem imutável, saúde e SHA servido continuam obrigatórios.
+
 1. Executar testes completos backend/frontend, build, lint, varredura de segredos, Bandit, pip-audit, npm audit, 13 cenários de navegador × 3 e carga 25 equipes × 4 sessões × 3. Uma falha conhecida interrompe a liberação. Não relaxar thresholds para passar.
 2. Configurar TURN REST externo com TLS/443, certificado confiável, segredo em runtime e quotas do provedor. Executar `team_call_release_check.py` e `team_call_e2e.py --external-turn --scenario relay_only --repeat 3`. O perfil usa somente URLs `turns:...:443`, portanto a evidência local UDP não pode satisfazer o gate TLS.
 3. Criar previamente duas contas e uma equipe exclusiva de smoke test; configurar os seis segredos e a lista interna descritos na matriz. Confirmar coleta HTTPS autenticada de métricas, receptor de alertas, plantonista e entrega de um alerta de teste. Registrar a evidência HTTPS e os três atestados obrigatórios da matriz; o preflight não verifica entrega automaticamente. Segredos não entram no build.

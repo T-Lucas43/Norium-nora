@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import re
 from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import Field, ValidationError, model_validator
 
 from app.core.request_context import current_workspace_id
@@ -78,6 +80,69 @@ class Analysis(StrictModel):
     summary: str = Field(min_length=40, max_length=1800)
     insights: list[Insight] = Field(min_length=1, max_length=6)
     limitations: list[Text] = Field(max_length=8)
+
+
+class PdfPayload(StrictModel):
+    report: dict
+    options: dict
+    analysis: dict | None = None
+
+    @model_validator(mode="after")
+    def validate_document(self):
+        try:
+            return self._validate_document()
+        except (KeyError, TypeError, AttributeError, OverflowError) as exc:
+            raise ValueError('Estrutura do relatório inválida.') from exc
+
+    def _validate_document(self):
+        if len(json.dumps(self.model_dump(), ensure_ascii=False)) > 2_000_000:
+            raise ValueError('Relatório muito extenso. Reduza o recorte.')
+        report = self.report
+        tables = report.get('tables', [])
+        if len(tables) > 6 or sum(len(t.get('rows', [])) for t in tables) > 5000:
+            raise ValueError('Limite de 5.000 linhas por PDF. Reduza o recorte.')
+        evidence = {k: report[k] for k in ('title', 'period', 'filters', 'recordCount', 'notes', 'metrics')}
+        evidence['tables'] = []
+        for t in tables:
+            columns = t['columns']
+            if not columns or len(columns) > 10 or any(not isinstance(c['width'], (int, float)) or not math.isfinite(c['width']) or c['width'] <= 0 for c in columns):
+                raise ValueError('Colunas inválidas.')
+            if any(len(r['cells']) != len(columns) or any(not isinstance(c, str) or len(c)>20000 for c in r['cells']) for r in t['rows']):
+                raise ValueError('Células inválidas.')
+            evidence['tables'].append({'id':t['id'],'title':t['title'],'columns':[c['label'] for c in columns],'totalRows':len(t['rows']),'rows':[{'id':f"{t['id']}:{i}",'cells':[c[:600] for c in r['cells']]} for i,r in enumerate(t['rows'][:25])]})
+        ReportEvidence.model_validate(evidence)
+        if self.options.get('theme', 'light') not in ('light','dark') or len(str(self.options.get('comments',''))) > 5000 or len(str(self.options.get('title',''))) > 180:
+            raise ValueError('Opções de PDF inválidas.')
+        for key in ('comments', 'title'):
+            if key in self.options and not isinstance(self.options[key], str):
+                raise ValueError('Texto das opções inválido.')
+        for key in ('includeDetails', 'includeAnalysis'):
+            if key in self.options and not isinstance(self.options[key], bool):
+                raise ValueError('Opção de inclusão inválida.')
+        if self.analysis is not None:
+            ExportAnalysis.model_validate({k: self.analysis[k] for k in ('summary', 'insights', 'limitations')})
+        return self
+
+
+class ExportAnalysis(StrictModel):
+    summary: str = Field(min_length=1, max_length=1800)
+    insights: list[Insight] = Field(max_length=6)
+    limitations: list[Text] = Field(max_length=15)
+
+
+@router.post('/pdf')
+async def export_pdf(payload: PdfPayload, user: dict = Depends(current_user)):
+    from app.modules.reports.pdf import render_report
+    assert_route_permissions(user, '/api/relatorios')
+    analysis = payload.analysis
+    if payload.options.get('includeAnalysis', True):
+        assert_route_permissions(user, '/api/nora')
+        if not analysis:
+            raise HTTPException(422, 'Gere a análise da Nora antes de exportar este relatório.')
+        if payload.report['recordCount'] and not analysis['insights']:
+            raise HTTPException(422, 'A análise não contém comentários sobre os registros.')
+    content = await asyncio.to_thread(render_report, payload.report, payload.options, analysis)
+    return Response(content, media_type='application/pdf', headers={'Content-Disposition':'attachment; filename="norium-relatorio.pdf"', 'Cache-Control':'no-store'})
 
 
 def parse_analysis(answer: str, evidence: ReportEvidence) -> Analysis:

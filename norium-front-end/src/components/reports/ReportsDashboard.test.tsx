@@ -9,13 +9,35 @@ vi.mock("../../features/reports/api", () => api);
 vi.mock("../commercial/PdfDocumentPreview", () => ({ default: () => <div>Prévia PDF</div> }));
 vi.mock("../../features/reports/pdfBuilder", async original => ({ ...await original<object>(), buildStructuredReportPdf: vi.fn(async () => new Blob(["%PDF-test"])) }));
 import ReportsDashboard from "./ReportsDashboard";
+import { clearReportAnalysisCache } from "../../features/reports/analysis";
 const day = new Date().toISOString().slice(0, 10);
 const entries: FinanceEntry[] = Array.from({ length: 14 }, (_, index) => ({ id: `e${index}`, title: `Pagamento ${index}`, amount: 100, description: "Serviços", category: "Operação", method: "pix", status: index < 10 ? "pago" : "pendente", type: "saida", dueDate: day, paidAt: index < 10 ? day : null, attachments: [], source: "manual", createdAt: day, updatedAt: day }));
 const events = Object.fromEntries(Object.keys(sourceLabels).map(source => [source, [] as OmnichannelEvent[]])) as Record<EventSource, OmnichannelEvent[]>;
 events.kanban = [{ id: "task", source: "kanban", title: "Tarefa concluída", description: "Entrega concluída", timestamp: new Date().toISOString(), metadata: { status: "done" } }];
 const props = { eventsBySource: events, notifications: [], connected: true, userId: "test" };
 describe("Central de relatórios", () => {
+  beforeEach(() => { clearReportAnalysisCache(); api.analyzeReport.mockResolvedValue({ summary: 'Análise automática dos registros disponíveis neste relatório.', insights: [], limitations: [], generatedAt: new Date().toISOString() }); });
   beforeEach(() => { vi.clearAllMocks(); api.loadFinanceReportData.mockResolvedValue({ ...emptyFinanceData, lancamentos: entries }); HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); }; HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); }; });
+  it("generates Nora comments from the export dialog without a previous analysis", async () => {
+    const user = userEvent.setup(); render(<ReportsDashboard {...props}/>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar dados financeiros" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Preparar PDF" }));
+    expect(screen.getByLabelText("Incluir análise da Nora")).toBeChecked();
+    expect(screen.getByLabelText("Incluir análise da Nora")).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Gerar prévia do PDF" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Baixar PDF" })).toBeEnabled());
+    expect(api.analyzeReport).toHaveBeenCalled();
+  });
+  it("does not prepare an incomplete PDF when automatic Nora analysis fails", async () => {
+    api.analyzeReport.mockRejectedValue(new Error("Análise indisponível. Tente novamente."));
+    const user = userEvent.setup(); render(<ReportsDashboard {...props}/>);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar dados financeiros" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Preparar PDF" }));
+    await user.click(screen.getByRole("button", { name: "Gerar prévia do PDF" }));
+    const dialog = screen.getByRole('dialog');
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Análise indisponível');
+    expect(within(dialog).getByRole('button', {name:'Baixar PDF'})).toBeDisabled();
+  });
   it("navigates financial subcategories and filters a paginated table", async () => {
     const user = userEvent.setup(); render(<ReportsDashboard {...props}/>);
     await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar dados financeiros" })).toBeEnabled());
@@ -32,7 +54,6 @@ describe("Central de relatórios", () => {
     api.analyzeReport.mockResolvedValue({ summary: "Os registros disponíveis mostram uma entrega concluída neste período.", insights: [{ kind: "positive", title: "Entrega registrada", explanation: "A conclusão está registrada no histórico de tarefas.", evidenceIds: ["actions"], recommendation: "Confira os critérios de aceite para confirmar a qualidade da entrega." }], limitations: ["Eventos não representam todas as tarefas."], generatedAt: new Date().toISOString() });
     const user = userEvent.setup(); render(<ReportsDashboard {...props}/>);
     await waitFor(() => expect(screen.getByRole("button", { name: "Atualizar dados financeiros" })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: "Analisar relatório" }));
     expect(await screen.findByText("Entrega registrada")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Pesquisar registros"), "ausente");
     expect(screen.queryByText("Entrega registrada")).not.toBeInTheDocument();

@@ -1048,6 +1048,10 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
 
     try:
         previous_user_text = next((item.content for item in reversed(payload.messages) if item.role == "user"), "")
+        from app.modules.reports.nora_export import generate_chat_report
+        report_result = await generate_chat_report(user, resolved_user_id, texto)
+        if report_result is not None:
+            return resposta_agente("operacoes", report_result, resolution=resolution)
         file_result = await asyncio.to_thread(
             deterministic_file_command,
             resolved_user_id,

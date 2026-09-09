@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Badge, BarChart3, Building2, Check, CheckCircle2, Clock3, ListChecks, Lock, MessageCircle, PlayCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound, type LucideIcon } from "lucide-react";
+import { CheckCircle2, Badge, BarChart3, Lock, MessageCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound } from "lucide-react";
 import type { AuthSession, NoriumTeam, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
+import TeamProductivity from "./TeamProductivity";
 import Button from "../shared/Button";
 
 interface TeamDashboardProps {
@@ -154,7 +155,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
       setUsers((current) => [result.user, ...current]);
       setSelectedUserId(result.user.id);
       setForm(initialForm);
-      setNotice("Usuario menor criado com sucesso.");
+      setNotice("Membro criado com sucesso.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao criar usuario.");
     } finally {
@@ -214,7 +215,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   }
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
+    <section className="team-workspace flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-6 py-5 backdrop-blur-2xl">
         <div className="flex items-center gap-3">
           <span className="grid h-12 w-12 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)] text-[var(--primary)]">
@@ -241,33 +242,13 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
       </nav>
 
       {view === "overview" ? (
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-          {(notice || error) && (
-            <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${error ? "border-red-400/30 bg-red-500/12 text-red-100" : "border-emerald-300/30 bg-emerald-400/12 text-emerald-100"}`}>
-              {error || notice}
-            </div>
-          )}
-          <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]"><Building2 size={15} /> Empresa ou equipe</p>
-                <h2 className="mt-1 text-xl font-black">Identidade da colaboração</h2>
-                <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Esse nome aparece para todos os usuários vinculados à equipe.</p>
-              </div>
-              {team && session.user.id === team.ownerUserId ? (
-                <div className="flex w-full max-w-xl gap-2">
-                  <input value={teamName} onChange={(event) => setTeamName(event.target.value)} maxLength={140} placeholder="Nome da empresa ou equipe" className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
-                  <Button variant="primary" onClick={() => void saveTeamName()} disabled={!teamName.trim() || teamName.trim() === team.name || saving === "team-name"} icon={<Check size={15} />}>
-                    {saving === "team-name" ? "Salvando" : "Salvar"}
-                  </Button>
-                </div>
-              ) : (
-                <strong className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">{team?.name || "Equipe"}</strong>
-              )}
-            </div>
-          </section>
-          <TeamGoals storageKey={`norium:team-goals:${session.user.teamOwnerId || session.user.id}`} />
-          <TeamPerformanceReport report={report} users={users} selectedUserId={selectedUser.id} onSelect={setSelectedUserId} />
+        <div className="team-overview">
+          {(notice || error) && <p role={error ? "alert" : "status"} className="report-feedback">{error || notice}</p>}
+          <TeamProductivity data={report} name={team?.name || "Equipe"} onManage={id => { setSelectedUserId(id); setView("access"); }}/>
+          <details className="team-settings"><summary>Nome da equipe e objetivos</summary>
+            {team && session.user.id === team.ownerUserId && <div className="team-name-editor"><input aria-label="Nome da equipe" value={teamName} onChange={e => setTeamName(e.target.value)} maxLength={140}/><Button size="sm" onClick={() => void saveTeamName()} disabled={saving === "team-name" || !teamName.trim() || teamName === team.name}>Salvar nome</Button></div>}
+            <TeamGoals storageKey={`norium:team-goals:${session.user.teamOwnerId || session.user.id}`} />
+          </details>
         </div>
       ) : view === "access" ? (
       <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 xl:grid-cols-[360px_1fr]">
@@ -278,7 +259,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
                 <UserPlus size={18} />
               </span>
               <div>
-                <h2 className="font-black">Novo usuario menor</h2>
+                <h2 className="font-black">Novo membro</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">Clique para cadastrar e liberar acessos.</p>
               </div>
             </summary>
@@ -346,7 +327,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
             </div>
 
             <div className="mb-5 grid gap-3 md:grid-cols-3">
-              <label className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3"><span className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Cargo</span><input defaultValue={selectedUser.jobTitle || "Membro"} onBlur={(event) => { const jobTitle = event.target.value.trim(); if (jobTitle && jobTitle !== selectedUser.jobTitle) void patchUser(selectedUser, { jobTitle }, "Cargo atualizado."); }} className="mt-2 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black outline-none focus:border-blue-500" /></label>
+              <label className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3"><span className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Cargo</span><input key={selectedUser.id} defaultValue={selectedUser.jobTitle || "Membro"} onBlur={(event) => { const jobTitle = event.target.value.trim(); if (jobTitle && jobTitle !== selectedUser.jobTitle) void patchUser(selectedUser, { jobTitle }, "Cargo atualizado."); }} className="mt-2 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black outline-none focus:border-blue-500" /></label>
               <Info label="Perfil" value={selectedUser.role === "owner" ? "Principal" : "Membro"} />
               <Info label="Status" value={selectedUser.status} />
             </div>
@@ -454,106 +435,6 @@ function TeamGoals({ storageKey }: { storageKey: string }) {
   );
 }
 
-function TeamPerformanceReport({
-  report,
-  users,
-  selectedUserId,
-  onSelect,
-}: {
-  report: TeamTaskReport | null;
-  users: NoriumUser[];
-  selectedUserId: string;
-  onSelect: (userId: string) => void;
-}) {
-  const userById = new Map(users.map((user) => [user.id, user]));
-  const selected = report?.members.find((member) => member.id === selectedUserId) || report?.members[0];
-  const totals = report?.totals || {};
-
-  return (
-    <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Relatorio da equipe</p>
-          <h2 className="mt-1 text-2xl font-black">Produtividade por usuario</h2>
-          <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
-            Tarefas por responsavel, status, vencimento e execucao.
-          </p>
-        </div>
-        <span className="grid h-12 w-12 place-items-center rounded-xl bg-cyan-400/12 text-cyan-200">
-          <BarChart3 size={22} />
-        </span>
-      </div>
-
-      <div className="mb-5 grid gap-3 md:grid-cols-5">
-        <Metric icon={ListChecks} tone="amber" label="Pendentes" value={totals.pendentes || 0} />
-        <Metric icon={PlayCircle} tone="blue" label="Em execucao" value={totals.andamento || 0} />
-        <Metric icon={Clock3} tone="violet" label="Em revisao" value={totals.revisao || 0} />
-        <Metric icon={CheckCircle2} tone="emerald" label="Finalizadas" value={totals.concluidas || 0} />
-        <Metric icon={AlertTriangle} tone="rose" label="Vencidas" value={totals.vencidas || 0} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="grid gap-3 md:grid-cols-2">
-          {(report?.members || []).map((member) => {
-            const profile = userById.get(member.id);
-            const displayMember = { ...profile, ...member } as NoriumUser;
-            return (
-            <button
-              key={member.id}
-              type="button"
-              onClick={() => onSelect(member.id)}
-              className={`rounded-2xl border p-4 text-left transition ${
-                selectedUserId === member.id ? "border-cyan-300/60 bg-cyan-400/12" : "border-[var(--border)] bg-[var(--background)] hover:bg-[var(--surface-hover)]"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <MemberAvatar user={displayMember} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-black">{member.nome}</p>
-                  <p className="truncate text-xs font-bold text-blue-300">{profile?.jobTitle || member.jobTitle || (member.role === "owner" ? "Lider" : "Membro")}</p>
-                  <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{member.email}</p>
-                </div>
-                <span className="rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase text-[var(--text-secondary)]">
-                  {member.status}
-                </span>
-              </div>
-              <div className="mt-4 grid grid-cols-4 gap-2 text-center">
-                <MiniNumber label="Pend." value={member.stats.pendentes} />
-                <MiniNumber label="Exec." value={member.stats.andamento} />
-                <MiniNumber label="Rev." value={member.stats.revisao} />
-                <MiniNumber label="Fim" value={member.stats.concluidas} />
-              </div>
-            </button>
-            );
-          })}
-        </div>
-
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Tarefas recentes</p>
-          <h3 className="mt-1 truncate text-lg font-black">{selected?.nome || "Usuario"}</h3>
-          <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
-            {(selected?.recentes || []).length === 0 && (
-              <p className="rounded-xl border border-[var(--border)] px-3 py-4 text-sm font-semibold text-[var(--text-secondary)]">
-                Nenhuma tarefa atribuida ainda.
-              </p>
-            )}
-            {(selected?.recentes || []).map((task) => (
-              <div key={task.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                <p className="line-clamp-2 text-sm font-bold">{task.title}</p>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold uppercase">
-                  <span className="rounded-full bg-blue-500/14 px-2 py-1 text-blue-100">{task.status}</span>
-                  <span className="rounded-full bg-cyan-500/14 px-2 py-1 text-cyan-100">{task.priority}</span>
-                  {task.dueDate && <span className="rounded-full bg-amber-500/14 px-2 py-1 text-amber-100">{task.dueDate}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function MemberAvatar({ user, large = false }: { user: Pick<NoriumUser, "nome" | "fotoUrl">; large?: boolean }) {
   const size = large ? "h-16 w-16 text-lg" : "h-10 w-10 text-sm";
   if (user.fotoUrl) {
@@ -561,25 +442,6 @@ function MemberAvatar({ user, large = false }: { user: Pick<NoriumUser, "nome" |
   }
   const initials = user.nome.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "N";
   return <span aria-label={`Foto de ${user.nome}`} className={`grid ${size} shrink-0 place-items-center rounded-full border border-blue-400/35 bg-blue-500/15 font-black text-blue-200`}>{initials}</span>;
-}
-
-function Metric({ icon: Icon, label, value, tone = "blue" }: { icon: LucideIcon; label: string; value: number; tone?: string }) {
-  return (
-    <div data-metric-tone={tone} className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
-      <Icon size={16} className="metric-icon" />
-      <p className="metric-value mt-2 text-2xl font-black">{value}</p>
-      <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
-    </div>
-  );
-}
-
-function MiniNumber({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 py-2">
-      <p className="text-base font-black">{value}</p>
-      <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
-    </div>
-  );
 }
 
 function Info({ label, value }: { label: string; value: string }) {

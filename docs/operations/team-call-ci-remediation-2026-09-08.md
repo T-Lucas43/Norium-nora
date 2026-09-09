@@ -73,5 +73,29 @@ Os 14 testes do harness e dos gates de release passaram. Os diagnósticos
 temporários ficam somente na branch `codex/team-call-linux-crash` e nos
 artefatos ignorados; não fazem parte da entrega. A versão servida pela Azure
 antes desta retomada era `cbdf3a3481b98a75dc7d135af971107258a86367`.
-O sucesso desta correção no pipeline completo e no deploy ainda precisa ser
-registrado junto à revisão publicada.
+O pipeline [34244849151](https://github.com/T-Lucas43/Norium-nora/actions/runs/34244849151)
+publicou `1dc6dc94f41c8f402da672a61ccc2e31cb06a22f` com os cinco jobs aprovados,
+39/39 cenários de navegador e confirmação da revisão servida. O commit também
+espera a troca de revisão na entrada da Azure antes de iniciar o smoke.
+
+## Inspeção e conclusão com recursos existentes
+
+A inspeção agregada [34271324913](https://github.com/T-Lucas43/Norium-nora/actions/runs/34271324913)
+passou sem persistir conteúdos de bancos nem segredos. O deploy de
+`2e77f6fd2abcd2b950d11417a69f1712181a2d09`, run
+[34271324990](https://github.com/T-Lucas43/Norium-nora/actions/runs/34271324990),
+também aprovou os cinco jobs. Resultados da inspeção e limites externos estão na
+lista de abertura ao público.
+
+O run anterior `34270172183` revelou outra corrida no harness: em uma das 39
+execuções, `join_call` enumerou os botões antes da chegada do convite. A entrada
+agora aguarda um dos dois controles visíveis pelo prazo já existente de 15 s.
+Uma reprodução em Chromium, com convite inserido após 400 ms, falhou com o
+helper antigo e passou com o novo para ambos os controles. Não foram alterados
+cenários de mídia, limites de remoção ou critérios de RTP.
+
+A preparação do smoke interno permite exigir duas sessões sem abrir métricas
+nem declarar os requisitos externos atendidos. O teste manual do canal de
+e-mail reaproveita a configuração SMTP do aplicativo, usa um único destinatário
+e impede duplicação por ID de execução. A aceitação SMTP não equivale a entrega
+confirmada na caixa nem à instalação de monitoramento externo.

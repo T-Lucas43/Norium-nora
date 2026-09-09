@@ -86,4 +86,6 @@ Se houver `user_*/workspace_*/team_chat_db.json`, a manutenção continua a rete
 
 GitHub Secrets adicionais: `TEAM_CALL_TURN_SHARED_SECRET`, `TEAM_CALL_METRICS_TOKEN`, `NORIUM_SMOKE_EMAIL`, `NORIUM_SMOKE_PASSWORD`, `NORIUM_SMOKE_PEER_EMAIL`, `NORIUM_SMOKE_PEER_PASSWORD`. As duas contas devem pertencer à mesma equipe exclusivamente de teste, explicitamente incluída na coorte interna. Não colocar valores em issues, logs ou arquivos versionados.
 
+No perfil `internal-test`, `TEAM_CALL_AUTHENTICATED_SMOKE_REQUIRED=true` exige as quatro credenciais e `TEAM_CALL_SMOKE_TEAM_ID` no teste após a publicação, mantendo as métricas fechadas e os pré-requisitos externos pendentes. Só ativar depois da criação administrativa das contas. `TEAM_CALL_ALERT_EMAIL` define o destinatário autorizado do workflow manual de teste do canal SMTP; não habilita coleta nem alertas automáticos.
+
 O coletor consulta `GET /api/team-chat/calls/metrics` por HTTPS com bearer dedicado a cada 30 s. Guardar o token em arquivo de credencial do coletor, sem query string. Instalar `infra/azure/team-call-alerts.yml`, validar regras com `promtool`, configurar receptor/plantonista e testar entrega. A definição versionada de alertas não comprova instalação ou entrega.

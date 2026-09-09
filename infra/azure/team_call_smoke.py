@@ -72,14 +72,16 @@ async def validate_ready_deployment(base_url: str, expected_revision: str, inter
     return await validate_profile(base_url, expected_revision)
 
 
-async def validate(base_url: str, expected_revision: str) -> dict:
+async def validate(base_url: str, expected_revision: str, *, metrics_required: bool = True) -> dict:
     if not re.fullmatch(r"[0-9a-f]{40}", expected_revision):
         raise ValueError("expected_revision_required")
     parsed = urlsplit(base_url)
     if parsed.scheme != "https" or parsed.username or parsed.query or not parsed.hostname:
         raise ValueError("https_destination_required")
     required = ("NORIUM_SMOKE_EMAIL", "NORIUM_SMOKE_PASSWORD", "NORIUM_SMOKE_PEER_EMAIL",
-                "NORIUM_SMOKE_PEER_PASSWORD", "TEAM_CALL_SMOKE_TEAM_ID", "TEAM_CALL_METRICS_TOKEN")
+                "NORIUM_SMOKE_PEER_PASSWORD", "TEAM_CALL_SMOKE_TEAM_ID")
+    if metrics_required:
+        required += ("TEAM_CALL_METRICS_TOKEN",)
     if any(not os.getenv(name) for name in required):
         raise ValueError("smoke_configuration_missing")
     started = time.monotonic()
@@ -137,10 +139,14 @@ async def validate(base_url: str, expected_revision: str) -> dict:
             metric_path = base + "/api/team-chat/calls/metrics"
             if (await client.get(metric_path)).status_code != 404:
                 raise RuntimeError("metrics_auth_failed")
-            metrics = await client.get(metric_path, headers={"Authorization": "Bearer " + os.environ["TEAM_CALL_METRICS_TOKEN"]})
-            metrics.raise_for_status()
-            if "team_call_join_admitted_total" not in metrics.text:
-                raise RuntimeError("metrics_missing")
+            metrics = await client.get(metric_path, headers={"Authorization": "Bearer " + (
+                os.environ["TEAM_CALL_METRICS_TOKEN"] if metrics_required else secrets.token_urlsafe(32))})
+            if metrics_required:
+                metrics.raise_for_status()
+                if "team_call_join_admitted_total" not in metrics.text:
+                    raise RuntimeError("metrics_missing")
+            elif metrics.status_code != 404:
+                raise RuntimeError("metrics_not_private")
         finally:
             if admitted:
                 ended = await client.delete(base + "/api/team-chat/calls/" + call_id, headers=host["headers"])
@@ -154,7 +160,8 @@ async def validate(base_url: str, expected_revision: str) -> dict:
     return {"status": "passed", "revision": expected_revision, "durationSeconds": round(time.monotonic() - started, 3),
             "checks": ["https", "expected_revision", "frontend", "two_authenticated_sessions", "dedicated_team", "rollout",
                        "ephemeral_ice_no_store", "invite_accept_heartbeat", "host_authorization",
-                       "protected_metrics", "call_cleanup"], "productionRtpValidated": False}
+                       "protected_metrics" if metrics_required else "private_metrics", "call_cleanup"],
+            "productionRtpValidated": False}
 
 
 async def validate_internal(base_url: str, expected_revision: str) -> dict:
@@ -176,9 +183,14 @@ async def validate_internal(base_url: str, expected_revision: str) -> dict:
                 raise RuntimeError("call_authentication_failed")
         if (await client.get(base + "/api/team-chat/calls/metrics")).status_code != 404:
             raise RuntimeError("metrics_not_private")
+    checks = ["https", "expected_revision", "frontend", "call_authentication", "private_metrics"]
+    deferred = ["external_turn_tls", "external_metrics_alerts", "dedicated_two_account_smoke"]
+    if os.getenv("TEAM_CALL_AUTHENTICATED_SMOKE_REQUIRED", "").lower() == "true":
+        authenticated = await validate(base_url, expected_revision, metrics_required=False)
+        checks = list(dict.fromkeys([*checks, *authenticated["checks"]]))
+        deferred.remove("dedicated_two_account_smoke")
     return {"status": "passed", "releaseProfile": "internal-test", "revision": expected_revision,
-            "checks": ["https", "expected_revision", "frontend", "call_authentication", "private_metrics"],
-            "deferred": ["external_turn_tls", "external_metrics_alerts", "dedicated_two_account_smoke"],
+            "checks": checks, "deferred": deferred,
             "productionRtpValidated": False}
 
 

@@ -582,12 +582,7 @@ async def wait_diagnostic(page: Page, expression: str, argument: Any = None, tim
 
 
 async def click_visible(locator: Any) -> None:
-    for index in range(await locator.count()):
-        candidate = locator.nth(index)
-        if await candidate.is_visible():
-            await candidate.click()
-            return
-    raise AssertionError("No visible matching control")
+    await locator.filter(visible=True).first.click(timeout=DEFAULT_TIMEOUT_MS)
 
 
 async def configure_entry(page: Page, mode: str = "muted", camera: bool = False) -> None:
@@ -631,10 +626,9 @@ async def start_call(page: Page, target: str = "group", mode: str = "muted", cam
 async def join_call(page: Page, mode: str = "muted", camera: bool = False) -> str:
     incoming = page.get_by_role("button", name="Entrar na reunião", exact=True)
     active = page.get_by_role("button", name="Ingressar na reunião", exact=True)
-    if await incoming.count() and await incoming.first.is_visible():
-        await incoming.first.click()
-    else:
-        await click_visible(active)
+    # The invite can arrive after the host's acknowledgement. Wait for either
+    # entry point instead of making a one-time decision before it is rendered.
+    await click_visible(incoming.or_(active))
     await enter_prejoin(page, mode, camera)
     return (await diagnostics(page))["callId"]
 

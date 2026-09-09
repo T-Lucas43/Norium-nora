@@ -131,6 +131,19 @@ class ProductionRevisionTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(RuntimeError, "call_authentication_failed"):
                 await smoke.validate_internal("https://example.test", "a" * 40)
 
+    async def test_required_internal_accounts_cannot_silently_remain_deferred(self):
+        async def respond(request):
+            if request.url.path == "/health":
+                return httpx.Response(200, json={"revision": "a" * 40})
+            if request.url.path == "/":
+                return httpx.Response(200, text="<html></html>", headers={"content-type": "text/html"})
+            return httpx.Response(404 if request.url.path.endswith("/metrics") else 401)
+        client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        with patch.dict(os.environ, {"TEAM_CALL_AUTHENTICATED_SMOKE_REQUIRED": "true"}, clear=True), \
+             patch.object(smoke.httpx, "AsyncClient", return_value=client):
+            with self.assertRaisesRegex(ValueError, "smoke_configuration_missing"):
+                await smoke.validate_internal("https://example.test", "a" * 40)
+
     async def test_old_or_missing_revision_stops_before_login(self):
         for revision in ("b" * 40, None):
             requests = []
@@ -152,6 +165,12 @@ class ProductionRevisionTests(unittest.IsolatedAsyncioTestCase):
             client.assert_not_called()
 
     async def test_success_reports_revision_and_rechecks_after_call_cleanup(self):
+        await self.assert_two_sessions(metrics_required=True)
+
+    async def test_internal_sessions_keep_metrics_closed_and_need_no_metrics_token(self):
+        await self.assert_two_sessions(metrics_required=False)
+
+    async def assert_two_sessions(self, *, metrics_required):
         calls = []
         login_count = 0
         async def respond(request):
@@ -171,7 +190,7 @@ class ProductionRevisionTests(unittest.IsolatedAsyncioTestCase):
             if path.endswith("/websocket-ticket"):
                 return httpx.Response(200, json={"ticket": "synthetic-ticket"})
             if path.endswith("/metrics"):
-                return httpx.Response(200, text="team_call_join_admitted_total 2") if "authorization" in request.headers else httpx.Response(404)
+                return httpx.Response(200, text="team_call_join_admitted_total 2") if metrics_required and "authorization" in request.headers else httpx.Response(404)
             if path.endswith("/active"):
                 return httpx.Response(200, json={"calls": []})
             if request.method == "DELETE":
@@ -180,13 +199,17 @@ class ProductionRevisionTests(unittest.IsolatedAsyncioTestCase):
 
         socket = AsyncMock()
         client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
-        with patch.dict(os.environ, release_configuration(), clear=True), \
+        configuration = release_configuration()
+        if not metrics_required:
+            del configuration["TEAM_CALL_METRICS_TOKEN"]
+        with patch.dict(os.environ, configuration, clear=True), \
              patch.object(smoke.httpx, "AsyncClient", return_value=client), \
              patch.object(smoke.websockets, "connect", return_value=socket), \
              patch.object(smoke, "receive", AsyncMock(return_value={})):
-            result = await smoke.validate("https://example.test", "a" * 40)
+            result = await smoke.validate("https://example.test", "a" * 40, metrics_required=metrics_required)
         self.assertEqual("a" * 40, result["revision"])
         self.assertIn("expected_revision", result["checks"])
+        self.assertIn("protected_metrics" if metrics_required else "private_metrics", result["checks"])
         self.assertEqual(("GET", "/health"), calls[-1])
         self.assertEqual(2, calls.count(("GET", "/health")))
 

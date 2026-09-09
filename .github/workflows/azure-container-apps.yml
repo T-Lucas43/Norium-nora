@@ -429,6 +429,13 @@ jobs:
           python infra/azure/team_call_smoke.py "${{ vars.AZURE_PUBLIC_URL }}" --expected-revision "${{ github.sha }}"
       - name: Smoke test internal deployment revision and private endpoints
         if: ${{ vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' }}
+        env:
+          TEAM_CALL_AUTHENTICATED_SMOKE_REQUIRED: ${{ vars.TEAM_CALL_AUTHENTICATED_SMOKE_REQUIRED }}
+          NORIUM_SMOKE_EMAIL: ${{ secrets.NORIUM_SMOKE_EMAIL }}
+          NORIUM_SMOKE_PASSWORD: ${{ secrets.NORIUM_SMOKE_PASSWORD }}
+          NORIUM_SMOKE_PEER_EMAIL: ${{ secrets.NORIUM_SMOKE_PEER_EMAIL }}
+          NORIUM_SMOKE_PEER_PASSWORD: ${{ secrets.NORIUM_SMOKE_PEER_PASSWORD }}
+          TEAM_CALL_SMOKE_TEAM_ID: ${{ vars.TEAM_CALL_SMOKE_TEAM_ID }}
         run: |
           python -m pip install httpx websockets
           python infra/azure/team_call_smoke.py "${{ vars.AZURE_PUBLIC_URL }}" --expected-revision "${{ github.sha }}" --internal-test

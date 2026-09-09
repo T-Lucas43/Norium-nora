@@ -44,6 +44,31 @@ def merge_users(remote, incoming):
     return merged
 
 
+def align_package(remote, incoming, files):
+    """Keep destination IDs for the same email and remap source references."""
+    mapping = {}
+    for source in incoming['users']:
+        target = next((u for u in remote.get('users', []) if u['email'].casefold() == source['email'].casefold()), None)
+        if target and target['id'] != source['id']:
+            if any(u['id'] == target['id'] for u in incoming['users']):
+                raise RuntimeError('identity_mapping_collision')
+            mapping[source['id']] = target['id']
+    def transform(value):
+        if isinstance(value, dict):
+            return {mapping.get(k, k): transform(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [transform(v) for v in value]
+        return mapping.get(value, value) if isinstance(value, str) else value
+    normalized = {}
+    for filename, data in files.items():
+        parts = filename.split('/')
+        parts = [mapping.get(p, 'user_' + mapping[p[5:]] if p.startswith('user_') and p[5:] in mapping else p) for p in parts]
+        if mapping and filename.endswith('.json'):
+            data = json.dumps(transform(json.loads(data.decode('utf-8-sig'))), ensure_ascii=False, indent=2).encode()
+        normalized['/'.join(parts)] = data
+    return transform(incoming), normalized, mapping
+
+
 def decode_package():
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     blob = Path('payload.enc').read_bytes()
@@ -106,6 +131,7 @@ def main():
             return {'users': [], 'teams': [], 'plans': []}
         return json.loads(user_file.download_file().readall().decode('utf-8-sig'))
     remote = read_users()
+    incoming, files, mapping = align_package(remote, incoming, files)
     if os.environ['RESTORE_MODE'] == 'inspect':
         identities = []
         for user in remote.get('users', []):
@@ -118,7 +144,7 @@ def main():
             write_report({'status': 'identity_review_required', 'identities': identities, 'existingUsers': len(remote.get('users', []))})
             return
     merged = merge_users(remote, incoming)
-    report = {'mode': os.environ['RESTORE_MODE'], 'incomingUsers': len(incoming['users']), 'existingUsers': len(remote.get('users', [])), 'resultUsers': len(merged['users']), 'usersWithoutPassword': sum(not u.get('passwordHash') for u in merged['users']), 'packageFiles': len(files), 'existingFileConflicts': 0, 'copiedFiles': 0}
+    report = {'mode': os.environ['RESTORE_MODE'], 'incomingUsers': len(incoming['users']), 'existingUsers': len(remote.get('users', [])), 'resultUsers': len(merged['users']), 'usersWithoutPassword': sum(not u.get('passwordHash') for u in merged['users']), 'mappedExistingIdentities': len(mapping), 'packageFiles': len(files), 'existingFileConflicts': 0, 'copiedFiles': 0}
     pending = {}
     for filename, data in files.items():
         file = share.get_file_client(filename)

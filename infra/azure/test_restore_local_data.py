@@ -1,6 +1,7 @@
 import copy
 import unittest
-from restore_local_data import merge_users
+import json
+from restore_local_data import align_package, merge_users
 
 
 class MergeRecoveryTests(unittest.TestCase):
@@ -24,6 +25,17 @@ class MergeRecoveryTests(unittest.TestCase):
         for source in [{'id': 'a', 'email': 'other@test.invalid'}, {'id': 'b', 'email': 'a@test.invalid'}]:
             with self.assertRaisesRegex(RuntimeError, 'identity_conflict'):
                 merge_users({'users': [{'id': 'a', 'email': 'a@test.invalid'}]}, {'users': [source]})
+
+    def test_matching_email_keeps_destination_identity_password_and_references(self):
+        remote = {'users': [{'id': 'new', 'email': 'a@test.invalid', 'passwordHash': 'current'}]}
+        source = {'users': [{'id': 'old', 'email': 'a@test.invalid', 'passwordHash': ''}], 'teams': [{'id': 'old', 'ownerUserId': 'old'}]}
+        incoming, files, mapping = align_package(remote, source, {'user_old/example_db.json': b'{"ownerUserId":"old"}'})
+        self.assertEqual(mapping, {'old': 'new'})
+        self.assertEqual(json.loads(files['user_new/example_db.json']), {'ownerUserId': 'new'})
+        result = merge_users(remote, incoming)
+        self.assertEqual(len(result['users']), 1)
+        self.assertEqual(result['users'][0]['passwordHash'], 'current')
+        self.assertEqual(result['teams'][0]['ownerUserId'], 'new')
 
 
 if __name__ == '__main__':

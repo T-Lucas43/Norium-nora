@@ -36,8 +36,9 @@ def merge_users(remote, incoming):
             users.append(copy.deepcopy(source))
     for key in ('teams', 'plans'):
         collection = merged.setdefault(key, [])
-        known = {item['id'] for item in collection}
-        collection.extend(copy.deepcopy(item) for item in incoming.get(key, []) if item['id'] not in known)
+        identity_key = 'code' if key == 'plans' else 'id'
+        known = {item[identity_key] for item in collection}
+        collection.extend(copy.deepcopy(item) for item in incoming.get(key, []) if item[identity_key] not in known)
     if not merged.get('systemOwnerId'):
         merged['systemOwnerId'] = incoming.get('systemOwnerId')
     merged.setdefault('adminAudit', []).append({'action': 'local_data_recovery', 'createdAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'source': 'local-backup-2026-09-05'})

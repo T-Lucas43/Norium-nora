@@ -5,6 +5,10 @@ from restore_local_data import align_package, merge_users
 
 
 class MergeRecoveryTests(unittest.TestCase):
+    def test_plans_are_identified_by_code(self):
+        result = merge_users({'users': [], 'plans': [{'code': 'free', 'name': 'Current'}]}, {'users': [], 'plans': [{'code': 'free', 'name': 'Old'}, {'code': 'paid', 'name': 'Paid'}]})
+        self.assertEqual(result['plans'], [{'code': 'free', 'name': 'Current'}, {'code': 'paid', 'name': 'Paid'}])
+
     def test_existing_records_and_unavailable_password_are_preserved(self):
         remote = {'users': [{'id': 'a', 'email': 'a@test.invalid', 'passwordHash': 'current', 'extra': 1}], 'teams': [], 'plans': []}
         original = copy.deepcopy(remote)

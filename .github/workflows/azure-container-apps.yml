@@ -285,6 +285,7 @@ jobs:
         env:
           WAPI_CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.WAPI_CREDENTIAL_ENCRYPTION_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           if [[ -z "${WAPI_CREDENTIAL_ENCRYPTION_KEY}" ]]; then
             echo "Missing required GitHub secret WAPI_CREDENTIAL_ENCRYPTION_KEY." >&2
@@ -292,6 +293,10 @@ jobs:
           fi
           if [[ -z "${GEMINI_API_KEY}" ]]; then
             echo "Missing required GitHub secret GEMINI_API_KEY." >&2
+            exit 1
+          fi
+          if [[ -z "${GROQ_API_KEY}" ]]; then
+            echo "Missing required GitHub secret GROQ_API_KEY for Nora reports." >&2
             exit 1
           fi
 
@@ -311,6 +316,11 @@ jobs:
           wapi-webhook-secret="${{ secrets.WAPI_WEBHOOK_SECRET }}"
           gemini-api-key="${{ secrets.GEMINI_API_KEY }}"
           --output none
+
+      - name: Synchronize Nora provider secret
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: az containerapp secret set -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.AZURE_CONTAINER_APP_NAME }}" --secrets "groq-api-key=${GROQ_API_KEY}" --output none
 
       - name: Synchronize runtime-only call secrets
         if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}
@@ -382,6 +392,7 @@ jobs:
             WAPI_CREDENTIAL_ENCRYPTION_KEY=secretref:wapi-credential-encryption-key \
             WAPI_WEBHOOK_SECRET=secretref:wapi-webhook-secret \
             GEMINI_API_KEY=secretref:gemini-api-key \
+            GROQ_API_KEY=secretref:groq-api-key \
             GEMINI_MODEL=gemini-3.7-flash \
             --output none
 

@@ -1,0 +1,41 @@
+name: Configure Nora provider
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: azure-container-apps-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+      PUBLIC_URL: ${{ vars.AZURE_PUBLIC_URL }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Configure the existing Nora provider
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          test -n "$GROQ_API_KEY"
+          az containerapp secret set -g "$RESOURCE_GROUP" -n "$APP_NAME" --secrets "groq-api-key=$GROQ_API_KEY" --output none
+          az containerapp update -g "$RESOURCE_GROUP" -n "$APP_NAME" --set-env-vars GROQ_API_KEY=secretref:groq-api-key --output none
+      - name: Verify health and secret reference
+        run: |
+          curl --fail --silent --show-error --retry 18 --retry-delay 10 --retry-all-errors --max-time 25 "$PUBLIC_URL/health"
+          test "$(az containerapp show -g "$RESOURCE_GROUP" -n "$APP_NAME" --query "properties.template.containers[0].env[?name=='GROQ_API_KEY'].secretRef | [0]" -o tsv)" = groq-api-key
+      - name: Verify actual Nora analysis and PDF in the deployed runtime
+        run: |
+          python -m pip install pexpect==4.9.0
+          python infra/azure/verify_nora_provider.py

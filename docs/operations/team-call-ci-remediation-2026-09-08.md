@@ -94,6 +94,17 @@ Uma reprodução em Chromium, com convite inserido após 400 ms, falhou com o
 helper antigo e passou com o novo para ambos os controles. Não foram alterados
 cenários de mídia, limites de remoção ou critérios de RTP.
 
+O primeiro ajuste desse seletor (`5e8f7d6`, run `34298593090`) revelou que o
+cartão de chamada continua visível atrás da janela do convite. Escolher o
+primeiro botão visível fazia o clique aguardar um cartão coberto. O seletor
+agora exclui dinamicamente esse cartão enquanto o convite está visível,
+preservando a prioridade da janela e a espera pela chegada do convite. A
+regressão local cobre também a sobreposição do cartão pelo convite.
+Depois dessa correção, 12/13 cenários passaram na execução local; o restante
+falhou ao aguardar a carga inicial do fixture, antes de testar a negação de
+permissão, e passou 3/3 vezes na verificação isolada. Os 39 cenários continuam
+obrigatórios no pipeline Linux; a verificação isolada não substitui esse gate.
+
 A preparação do smoke interno permite exigir duas sessões sem abrir métricas
 nem declarar os requisitos externos atendidos. O teste manual do canal de
 e-mail reaproveita a configuração SMTP do aplicativo, usa um único destinatário

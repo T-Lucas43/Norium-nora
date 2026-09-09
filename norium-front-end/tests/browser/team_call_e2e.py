@@ -625,7 +625,10 @@ async def start_call(page: Page, target: str = "group", mode: str = "muted", cam
 
 async def join_call(page: Page, mode: str = "muted", camera: bool = False) -> str:
     incoming = page.get_by_role("button", name="Entrar na reunião", exact=True)
-    active = page.get_by_role("button", name="Ingressar na reunião", exact=True)
+    # A visible incoming-call overlay covers the active-call card. Exclude the
+    # covered entry point dynamically so retries always choose the invitation.
+    active = page.locator("body").filter(has_not=incoming.filter(visible=True)).get_by_role(
+        "button", name="Ingressar na reunião", exact=True)
     # The invite can arrive after the host's acknowledgement. Wait for either
     # entry point instead of making a one-time decision before it is rendered.
     await click_visible(incoming.or_(active))

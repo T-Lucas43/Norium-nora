@@ -106,6 +106,17 @@ def main():
             return {'users': [], 'teams': [], 'plans': []}
         return json.loads(user_file.download_file().readall().decode('utf-8-sig'))
     remote = read_users()
+    if os.environ['RESTORE_MODE'] == 'inspect':
+        identities = []
+        for user in remote.get('users', []):
+            same_email = next((u for u in incoming['users'] if u['email'].casefold() == user['email'].casefold()), None)
+            same_id = next((u for u in incoming['users'] if u['id'] == user['id']), None)
+            identities.append({'destinationId': user['id'], 'sourceIdForSameEmail': (same_email or {}).get('id'), 'idCollision': bool(same_id and same_id['email'].casefold() != user['email'].casefold()), 'hasPasswordHash': bool(user.get('passwordHash')), 'hasTenantDirectory': share.get_directory_client('user_' + user['id']).exists()})
+        try:
+            merge_users(remote, incoming)
+        except RuntimeError:
+            write_report({'status': 'identity_review_required', 'identities': identities, 'existingUsers': len(remote.get('users', []))})
+            return
     merged = merge_users(remote, incoming)
     report = {'mode': os.environ['RESTORE_MODE'], 'incomingUsers': len(incoming['users']), 'existingUsers': len(remote.get('users', [])), 'resultUsers': len(merged['users']), 'usersWithoutPassword': sum(not u.get('passwordHash') for u in merged['users']), 'packageFiles': len(files), 'existingFileConflicts': 0, 'copiedFiles': 0}
     pending = {}

@@ -4,6 +4,7 @@ import type { AuthSession, NoriumTeam, NoriumUser, PermissionKey, PermissionMap 
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import TeamProductivity from "./TeamProductivity";
+import TeamRoles, { type TeamRole } from "./TeamRoles";
 import Button from "../shared/Button";
 
 interface TeamDashboardProps {
@@ -49,6 +50,7 @@ interface TeamTaskReport {
 const initialForm = {
   nome: "",
   jobTitle: "Membro",
+  jobRoleId: "",
   email: "",
   password: "",
   permissions: defaultMemberPermissions,
@@ -61,6 +63,7 @@ function mergePermissions(value?: Partial<PermissionMap>) {
 export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat }: TeamDashboardProps) {
   const [view, setView] = useState<"overview" | "access" | "roles">("overview");
   const [users, setUsers] = useState<NoriumUser[]>([]);
+  const [roles, setRoles] = useState<TeamRole[]>([]);
   const [selectedUserId, setSelectedUserId] = useState(session.user.id);
   const [form, setForm] = useState(initialForm);
   const [loading, setLoading] = useState(false);
@@ -97,6 +100,8 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
     if (!detailsRevision) return;
     let active = true;
     const failed = (err: unknown) => { if (active) setError(err instanceof Error ? err.message : "Não foi possível atualizar os indicadores da equipe."); };
+    void authJson<{roles: TeamRole[]}>("/api/auth/team-roles", session.token)
+      .then(payload => { if (active) setRoles(payload.roles); }).catch(failed);
     void authJson<TeamTaskReport>("/api/tarefas/relatorio-equipe", session.token)
       .then((payload) => { if (active) setReport(payload); }).catch(failed);
     void authJson<{ team: NoriumTeam }>("/api/auth/team-profile", session.token)
@@ -145,6 +150,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
         body: JSON.stringify({
           nome: form.nome,
           jobTitle: form.jobTitle,
+          jobRoleId: form.jobRoleId || null,
           email: form.email,
           password: form.password,
           role: "member",
@@ -173,6 +179,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
         body: JSON.stringify(payload),
       });
       setUsers((current) => current.map((item) => (item.id === user.id ? result.user : item)));
+      memberProfiles.current.set(result.user.id, result.user);
       if (result.user.id === session.user.id) {
         onSessionUpdate({ ...session, user: result.user });
       }
@@ -187,6 +194,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   function toggleFormPermission(key: PermissionKey) {
     setForm((current) => ({
       ...current,
+      jobRoleId: "",
       permissions: { ...current.permissions, [key]: !current.permissions[key] },
     }));
   }
@@ -265,7 +273,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
             </summary>
             <div className="mt-4 grid gap-3">
               <input value={form.nome} onChange={(event) => setForm({ ...form, nome: event.target.value })} placeholder="Nome" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
-              <input value={form.jobTitle} onChange={(event) => setForm({ ...form, jobTitle: event.target.value })} placeholder="Cargo na empresa" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
+              <select aria-label="Cargo do novo membro" value={form.jobRoleId} onChange={event=>{ const role=roles.find(r=>r.id===event.target.value); setForm({...form,jobRoleId:role?.id || '',jobTitle:role?.name || 'Membro',permissions:role ? {...role.permissions} : {...defaultMemberPermissions}}); }} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"><option value="">Acessos personalizados</option>{roles.map(role=><option key={role.id} value={role.id}>{role.name}</option>)}</select>
               <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="E-mail" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
               <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Senha inicial" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
             </div>
@@ -327,7 +335,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
             </div>
 
             <div className="mb-5 grid gap-3 md:grid-cols-3">
-              <label className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3"><span className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Cargo</span><input key={selectedUser.id} defaultValue={selectedUser.jobTitle || "Membro"} onBlur={(event) => { const jobTitle = event.target.value.trim(); if (jobTitle && jobTitle !== selectedUser.jobTitle) void patchUser(selectedUser, { jobTitle }, "Cargo atualizado."); }} className="mt-2 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black outline-none focus:border-blue-500" /></label>
+              <div className="team-role-assignment"><label>Cargo e acessos<select aria-label="Atribuir cargo" value={selectedUser.jobRoleId || ''} disabled={selectedUser.systemAdmin || selectedUser.id === session.user.id || saving === selectedUser.id} onChange={event=>{if(event.target.value) void patchUser(selectedUser,{jobRoleId:event.target.value},'Cargo e permissões aplicados.');}}><option value="">{selectedUser.jobTitle || 'Acessos personalizados'}</option>{roles.map(role=><option key={role.id} value={role.id}>{role.name}</option>)}</select></label>{selectedUser.jobRoleId && <Button size="sm" disabled={selectedUser.systemAdmin || selectedUser.id===session.user.id || saving===selectedUser.id} onClick={()=>void patchUser(selectedUser,{jobRoleId:selectedUser.jobRoleId},'Permissões do cargo reaplicadas.')}>Reaplicar acessos</Button>}<small>{selectedUser.systemAdmin ? 'Administrador do sistema mantém seus acessos próprios.' : 'Selecionar um cargo substitui os acessos deste membro.'}</small></div>
               <Info label="Perfil" value={selectedUser.role === "owner" ? "Principal" : "Membro"} />
               <Info label="Status" value={selectedUser.status} />
             </div>
@@ -349,18 +357,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
       </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <section className="mx-auto max-w-[1400px] rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
-              <div><p className="text-xs font-bold uppercase text-blue-400">Estrutura da equipe</p><h2 className="mt-1 text-xl font-black">Cargos e membros</h2><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Confira quem ocupa cada cargo e edite o cargo na área Membros e acessos.</p></div>
-              <Badge size={24} className="text-blue-400" />
-            </div>
-            <div className="mt-5 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-              {Array.from(new Set(users.map((user) => user.jobTitle || (user.role === "owner" ? "Lider" : "Membro")))).map((jobTitle) => {
-                const occupants = users.filter((user) => (user.jobTitle || (user.role === "owner" ? "Lider" : "Membro")) === jobTitle);
-                return <article key={jobTitle} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><div className="flex items-center justify-between"><strong>{jobTitle}</strong><span className="rounded-full bg-blue-500/12 px-2 py-1 text-xs font-bold text-blue-300">{occupants.length}</span></div><div className="mt-4 space-y-2">{occupants.map((user) => <button key={user.id} type="button" onClick={() => { setSelectedUserId(user.id); setView("access"); }} className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 text-left hover:bg-[var(--surface-hover)]"><MemberAvatar user={user} /><span className="min-w-0"><strong className="block truncate text-xs">{user.nome}</strong><small className="text-[var(--text-secondary)]">{user.status}</small></span></button>)}</div></article>;
-              })}
-            </div>
-          </section>
+          <TeamRoles roles={roles} users={users} token={session.token} onSaved={role=>setRoles(current=>current.some(r=>r.id===role.id)?current.map(r=>r.id===role.id?role:r):[...current,role])}/>
         </div>
       )}
     </section>

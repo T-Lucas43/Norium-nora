@@ -36,6 +36,7 @@ export interface NoriumUser {
   email: string;
   fotoUrl?: string;
   jobTitle?: string;
+  jobRoleId?: string | null;
   online?: boolean;
   role: UserRole;
   plan: UserPlan;

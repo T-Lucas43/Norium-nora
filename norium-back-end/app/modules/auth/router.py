@@ -206,6 +206,7 @@ class RegisterPayload(StrictModel):
 class CreateUserPayload(StrictModel):
     nome: str = Field(min_length=2, max_length=140)
     jobTitle: str = Field(default="Membro", max_length=120)
+    jobRoleId: str | None = Field(default=None, max_length=100)
     email: str = Field(min_length=3, max_length=180)
     password: str = Field(min_length=6, max_length=180)
     role: Role = "member"
@@ -229,6 +230,7 @@ class CreateUserPayload(StrictModel):
 class UpdateUserPayload(StrictModel):
     nome: str | None = Field(default=None, min_length=2, max_length=140)
     jobTitle: str | None = Field(default=None, max_length=120)
+    jobRoleId: str | None = Field(default=None, max_length=100)
     password: str | None = Field(default=None, min_length=6, max_length=180)
     status: UserStatus | None = None
     role: Role | None = None
@@ -247,6 +249,18 @@ class UpdateUserPayload(StrictModel):
 
 class TeamProfilePayload(StrictModel):
     name: str = Field(min_length=2, max_length=140)
+
+
+class TeamRolePayload(StrictModel):
+    name: str = Field(min_length=2, max_length=120)
+    permissions: dict[str, bool]
+
+    @field_validator('name')
+    @classmethod
+    def valid_name(cls, value: str) -> str:
+        if len(value.strip()) < 2:
+            raise ValueError('Informe o nome do cargo.')
+        return value.strip()
 
 
 class SelectPlanPayload(StrictModel):
@@ -976,6 +990,62 @@ async def list_users(user: dict[str, Any] = Depends(current_user)) -> dict[str, 
     return {"users": visible_users_for(user, store.get("users", []))}
 
 
+@router.get('/team-roles')
+async def list_team_roles(user: dict[str, Any] = Depends(current_user)):
+    if not can_manage_team(user):
+        raise HTTPException(403, 'Sem permissão para gerenciar cargos.')
+    store = await read_user_store()
+    return {'roles': [item for item in store.get('teamRoles', []) if item['teamId'] == team_id_for_user(user)]}
+
+
+async def save_team_role(payload: TeamRolePayload, user: dict, role_id: str | None = None):
+    if not can_manage_team(user):
+        raise HTTPException(403, 'Sem permissão para gerenciar cargos.')
+    team_id = team_id_for_user(user)
+    async with auth_lock:
+        store = await read_user_store()
+        roles = store.setdefault('teamRoles', [])
+        target = next((r for r in roles if r['id'] == role_id and r['teamId'] == team_id), None)
+        if role_id and target is None:
+            raise HTTPException(404, 'Cargo não encontrado nesta equipe.')
+        if any(r['teamId'] == team_id and r['name'].casefold() == payload.name.casefold() and r['id'] != role_id for r in roles):
+            raise HTTPException(409, 'Já existe um cargo com este nome.')
+        permissions = sanitize_permissions(payload.permissions, {k: False for k in PERMISSION_KEYS})
+        if not can_manage_system(user):
+            permissions['admin'] = permissions['equipe'] = False
+        if target is None:
+            if sum(r['teamId'] == team_id for r in roles) >= 100:
+                raise HTTPException(422, 'Limite de 100 cargos por equipe.')
+            target = {'id': f'cargo_{secrets.token_hex(8)}', 'teamId': team_id}
+            roles.append(target)
+        target.update(name=payload.name, permissions=permissions, updatedAt=now_iso())
+        append_admin_audit(store, user, 'team_role_saved', detail=f"Cargo: {payload.name}")
+        await write_user_store(store)
+    return {'role': target}
+
+
+@router.post('/team-roles')
+async def create_team_role(payload: TeamRolePayload, user: dict = Depends(current_user)):
+    return await save_team_role(payload, user)
+
+
+@router.patch('/team-roles/{role_id}')
+async def update_team_role(role_id: str, payload: TeamRolePayload, user: dict = Depends(current_user)):
+    return await save_team_role(payload, user, role_id)
+
+
+def apply_job_role(store: dict, target: dict, role_id: str, actor: dict):
+    role = next((r for r in store.get('teamRoles', []) if r['id'] == role_id and r['teamId'] == team_id_for_user(target)), None)
+    if role is None:
+        raise HTTPException(404, 'Cargo não encontrado na equipe do usuário.')
+    permissions = sanitize_permissions(role['permissions'], DEFAULT_MEMBER_PERMISSIONS)
+    if not can_manage_system(actor):
+        permissions['admin'] = permissions['equipe'] = False
+    if is_system_admin(target):
+        raise HTTPException(403, 'Administradores do sistema mantêm seus acessos próprios; cargos se aplicam aos demais membros.')
+    target.update(jobRoleId=role['id'], jobTitle=role['name'], permissions=permissions)
+
+
 @router.post("/users")
 async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends(current_user), background: BackgroundTasks = None) -> dict[str, Any]:
     if not can_manage_team(user):
@@ -992,6 +1062,8 @@ async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends
             allowed_permissions["admin"] = False
             allowed_permissions["equipe"] = False
         selected_team_owner_id = validate_team_owner(store, payload.teamOwnerId) if can_manage_system(user) else user["id"]
+        if payload.jobRoleId and not payload.teamOwnerId:
+            selected_team_owner_id = team_id_for_user(user)
         new_user = {
             "id": f"usr_{secrets.token_hex(8)}",
             "nome": payload.nome.strip(),
@@ -1011,6 +1083,8 @@ async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends
             "lastLoginAt": None,
             "permissions": allowed_permissions,
         }
+        if payload.jobRoleId:
+            apply_job_role(store, new_user, payload.jobRoleId, user)
         new_user["permissions"] = effective_permissions(new_user)
         store.setdefault("users", []).append(new_user)
         append_admin_audit(store, user, "user_created", target=new_user, detail="Usuario criado pelo painel administrativo.")
@@ -1031,6 +1105,7 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
         if not target:
             raise HTTPException(status_code=404, detail="Usuario nao encontrado.")
         assert_can_touch_user(user, target)
+        target = copy.deepcopy(target)
 
         if payload.nome is not None:
             target["nome"] = payload.nome.strip()
@@ -1073,7 +1148,13 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
             if selected_team_owner_id == target.get("id"):
                 selected_team_owner_id = None
             target["teamOwnerId"] = selected_team_owner_id
+            target['jobRoleId'] = None
+        if payload.jobRoleId:
+            apply_job_role(store, target, payload.jobRoleId, user)
+        elif 'jobRoleId' in payload.model_fields_set or payload.jobTitle is not None or payload.permissions is not None:
+            target['jobRoleId'] = None
         target["updatedAt"] = now_iso()
+        store['users'] = [target if item['id'] == user_id else item for item in store['users']]
         changed_fields = sorted("password" if field == "password" else field for field in payload.model_fields_set)
         append_admin_audit(
             store,

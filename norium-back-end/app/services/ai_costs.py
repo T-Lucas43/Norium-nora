@@ -189,13 +189,16 @@ def get_limit(db, user_id):
     return json.loads(row[0]) if row else {"monthlyBudgetUsd": None, "monthlyTokenLimit": None}
 
 
-def reserve(provider, user_id, input_bound, max_output):
+def reserve(provider, user_id, input_bound, max_output, started_at=None):
     with database() as db:
         rate = ensure_rate(db, provider)
         limit = get_limit(db, user_id)
+        if limit["monthlyBudgetUsd"] == 0 or limit["monthlyTokenLimit"] == 0:
+            raise HTTPException(402, "Uso de IA bloqueado pelo limite mensal. Peça ao administrador para ajustar seu saldo.")
+        month = month_for(started_at)
         db.execute("DELETE FROM reservations WHERE expires < ?", (time.time(),))
-        used = db.execute("SELECT COALESCE(SUM(input_tokens+output_tokens),0), COALESCE(SUM(cost_nano),0), SUM(cost_nano IS NULL) FROM usage WHERE user_id=? AND month=?", (user_id, month_for())).fetchone()
-        pending = db.execute("SELECT COALESCE(SUM(tokens),0),COALESCE(SUM(cost_nano),0) FROM reservations WHERE user_id=? AND month=?", (user_id, month_for())).fetchone()
+        used = db.execute("SELECT COALESCE(SUM(input_tokens+output_tokens),0), COALESCE(SUM(cost_nano),0), SUM(cost_nano IS NULL) FROM usage WHERE user_id=? AND month=?", (user_id, month)).fetchone()
+        pending = db.execute("SELECT COALESCE(SUM(tokens),0),COALESCE(SUM(cost_nano),0) FROM reservations WHERE user_id=? AND month=?", (user_id, month)).fetchone()
         output = max_output
         if limit["monthlyTokenLimit"] is not None:
             output = min(output, limit["monthlyTokenLimit"] - used[0] - pending[0] - input_bound)
@@ -214,7 +217,7 @@ def reserve(provider, user_id, input_bound, max_output):
         reservation = uuid.uuid4().hex
         conservative = {**rate, "inputUsd": max((rate.get(k) or 0) for k in ("inputUsd", "cachedInputUsd", "cacheWriteUsd"))} if rate.get("inputUsd") is not None else rate
         inc, out = nano_cost(conservative, {"inputTokens": input_bound, "outputTokens": output})
-        db.execute("INSERT INTO reservations VALUES (?,?,?,?,?,?)", (reservation, user_id, month_for(), input_bound + output, (inc or 0) + (out or 0), time.time() + 3600))
+        db.execute("INSERT INTO reservations VALUES (?,?,?,?,?,?)", (reservation, user_id, month, input_bound + output, (inc or 0) + (out or 0), time.time() + 3600))
         return reservation, output, rate
 
 
@@ -230,7 +233,8 @@ class Meter:
         self.rate = None
 
     async def __aenter__(self):
-        self.reservation, self.max_output, self.rate = await asyncio.to_thread(reserve, self.provider, self.user_id, self.input_bound, self.max_output)
+        self.started_at = now()
+        self.reservation, self.max_output, self.rate = await asyncio.to_thread(reserve, self.provider, self.user_id, self.input_bound, self.max_output, self.started_at)
         return self
 
     def sent(self):
@@ -245,7 +249,7 @@ class Meter:
         def settle():
             with database() as db:
                 rate = self.rate if actual_model == self.provider["model"] else ensure_rate(db, self.provider, actual_model)
-                result = _record(db, self.provider, counts, user_id=self.user_id, source=self.source, event_id=self.reservation, rate=rate)
+                result = _record(db, self.provider, counts, user_id=self.user_id, source=self.source, event_id=self.reservation, rate=rate, created_at=self.started_at)
                 db.execute("DELETE FROM reservations WHERE id=?", (self.reservation,))
                 return result
         result = await asyncio.to_thread(settle)

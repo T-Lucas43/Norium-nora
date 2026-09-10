@@ -105,6 +105,20 @@ class AiCostTests(unittest.IsolatedAsyncioTestCase):
         route = service.route_model(USERS[0], {"requiredCapabilities": ["text"]})
         self.assertEqual("gemini-runtime", route["selected"]["id"])
 
+    def test_explicit_zero_budget_blocks_even_a_free_model(self):
+        costs.save_rate({**GROQ, "unitTokens": 1000, "inputUsd": 0, "outputUsd": 0}, "admin")
+        costs.save_limit("a", {"monthlyBudgetUsd": 0, "monthlyTokenLimit": None}, "admin")
+        with self.assertRaises(HTTPException):
+            costs.reserve(GROQ, "a", 10, 100)
+
+    async def test_request_crossing_month_stays_in_reserved_month(self):
+        with patch.object(costs, "now", return_value="2026-08-31T23:59:59-03:00"):
+            async with costs.Meter(GROQ, "test", 100, user_id="a") as meter:
+                with patch.object(costs, "now", return_value="2026-09-01T00:00:01-03:00"):
+                    await meter.record({"usage": {"prompt_tokens": 10, "completion_tokens": 5}})
+        self.assertEqual(1, costs.overview(USERS, "2026-08")["totals"]["requests"])
+        self.assertEqual(0, costs.overview(USERS, "2026-09")["totals"]["requests"])
+
     async def test_atomic_reservations_prevent_concurrent_overspend(self):
         costs.save_limit("a", {"monthlyBudgetUsd": None, "monthlyTokenLimit": 100}, "admin")
         results = await asyncio.gather(*(asyncio.to_thread(costs.reserve, GROQ, "a", 60, 30) for _ in range(4)), return_exceptions=True)

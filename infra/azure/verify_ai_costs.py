@@ -15,6 +15,30 @@ import traceback
 from app.modules.auth.router import read_user_store, create_token, can_manage_system
 
 async def verify():
+    import sqlite3
+    import tempfile
+    from pathlib import Path
+    from app.core.tenant import get_data_root
+    with tempfile.TemporaryDirectory(prefix="ai-costs-storage-check-", dir=get_data_root()) as folder:
+        uri = (Path(folder) / "probe.sqlite3").as_uri() + "?vfs=unix-dotfile"
+        first = sqlite3.connect(uri, uri=True, timeout=1)
+        second = sqlite3.connect(uri, uri=True, timeout=1)
+        try:
+            first.execute("CREATE TABLE probe(value INTEGER)")
+            first.execute("INSERT INTO probe VALUES (7)")
+            try:
+                second.execute("INSERT INTO probe VALUES (9)")
+            except sqlite3.OperationalError as locked:
+                assert locked.sqlite_errorcode == sqlite3.SQLITE_BUSY
+            else:
+                raise AssertionError("Concurrent write was not blocked")
+            first.commit()
+            assert second.execute("SELECT value FROM probe").fetchone()[0] == 7
+            assert second.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+            print("AI_COSTS_STORAGE_OK", flush=True)
+        finally:
+            second.close()
+            first.close()
     users = (await read_user_store()).get("users", [])
     admin = next(u for u in users if can_manage_system(u) and u.get("status") == "ativo")
     async with httpx.AsyncClient(base_url="http://127.0.0.1:8000", timeout=60) as client:
@@ -68,6 +92,8 @@ if __name__ == "__main__":
         child.expect("AI_COSTS_PRODUCTION_OK")
         print("Production AI costs verified: expected revision, authenticated admin API, persistent ledger, provider discovery, user/model totals and access control.")
     except (pexpect.EOF, pexpect.TIMEOUT):
+        if "AI_COSTS_STORAGE_OK" in (child.before or ""):
+            print("Persistent storage dotfile locking, commit and integrity verified.")
         for marker in re.findall(r"AI_COSTS_(?:HTTP:[0-9]+|SQLITE:[A-Z_]+)", child.before or ""):
             print(marker)
         diagnostic = re.search(r"AI_COSTS_DIAGNOSTIC:([A-Za-z]+):([0-9]+)", child.before or "")

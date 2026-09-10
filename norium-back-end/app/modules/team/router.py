@@ -711,6 +711,8 @@ async def respond_to_nora_mention(
     """Responde em segundo plano para nao atrasar o envio da mensagem da equipe."""
     try:
         store = await asyncio.to_thread(read_chat_store, team_id)
+        from app.core.request_context import set_ai_user_id
+        set_ai_user_id(requester_id)
         messages = [item for item in store.get("messages", []) if isinstance(item, dict)]
         reply = await generate_team_reply(messages, requester_name, str(source_message.get("text") or ""))
         if not reply:

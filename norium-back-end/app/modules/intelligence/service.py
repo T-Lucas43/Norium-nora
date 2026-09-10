@@ -19,6 +19,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.core.tenant import read_user_db, write_user_db
+from app.services.ai_costs import Meter, apply_provider_prices
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store, write_store
 from app.modules.platform.service import decrypt_secret, encrypt_secret, save_vault_secret
 
@@ -684,8 +685,8 @@ def builtin_provider() -> dict[str, Any]:
     return {
         "id": "nora-runtime", "name": "Nora Runtime", "provider": "groq", "model": os.getenv("NORA_MODEL", "openai/gpt-oss-20b"),
         "baseUrl": "https://api.groq.com/openai/v1", "enabled": bool(os.getenv("GROQ_API_KEY", "").strip()), "configured": bool(os.getenv("GROQ_API_KEY", "").strip()),
-        "capabilities": ["text", "tools", "json"], "contextWindow": 131072, "inputCostPerMillion": 0,
-        "outputCostPerMillion": 0, "dataPolicy": "external", "managed": True,
+        "capabilities": ["text", "tools", "json"], "contextWindow": 131072, "inputCostPerMillion": 0.075,
+        "outputCostPerMillion": 0.30, "dataPolicy": "external", "managed": True,
     }
 
 
@@ -728,7 +729,7 @@ async def save_provider(user: dict[str, Any], payload: dict[str, Any], provider_
 
 
 def all_providers(user_id: str) -> list[dict[str, Any]]:
-    return [builtin_provider(), builtin_gemini_provider(), *read_store(user_id)["modelProviders"]]
+    return apply_provider_prices([builtin_provider(), builtin_gemini_provider(), *read_store(user_id)["modelProviders"]])
 
 
 def route_model(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -751,13 +752,13 @@ def route_model(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]
             reason = "politica exige processamento local"
         elif privacy == "private" and provider.get("dataPolicy") not in {"private", "local"}:
             reason = "politica exige provedor privado"
-        elif max_cost is not None and float(provider.get("inputCostPerMillion") or 0) > float(max_cost):
+        elif max_cost is not None and (not provider.get("pricingConfigured", True) or float(provider.get("inputCostPerMillion") or 0) > float(max_cost)):
             reason = "custo excede a politica"
         if reason:
             rejected.append({"providerId": str(provider["id"]), "reason": reason})
         else:
             eligible.append(provider)
-    eligible.sort(key=lambda item: (0 if item["id"] == preferred else 1, float(item.get("inputCostPerMillion") or 0), -int(item.get("contextWindow") or 0)))
+    eligible.sort(key=lambda item: (0 if item["id"] == preferred else 1, float(item.get("inputCostPerMillion") or 0) if item.get("pricingConfigured", True) else float("inf"), -int(item.get("contextWindow") or 0)))
     selected = eligible[0] if eligible else None
     fallback = [sanitize_provider(item) for item in eligible[1:]]
     estimated = 0.0
@@ -894,12 +895,13 @@ async def complete_with_provider(
     ]
     timeout = httpx.Timeout(45, connect=8)
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        async with Meter(provider, [system_prompt, *safe_messages], 1400, user_id=user_id, source="model-gateway") as meter, httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            meter.sent()
             if provider_kind == "anthropic":
                 response = await client.post(
                     f"{base_url}/messages",
                     headers={"x-api-key": secret, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                    json={"model": provider["model"], "system": system_prompt, "messages": safe_messages, "max_tokens": 1400},
+                    json={"model": provider["model"], "system": system_prompt, "messages": safe_messages, "max_tokens": meter.max_output},
                 )
             elif provider_kind == "google":
                 transcript = "\n\n".join(
@@ -913,24 +915,25 @@ async def complete_with_provider(
                         "model": provider["model"],
                         "store": False,
                         "input": f"{system_prompt}\n\nConversa recente:\n{transcript}",
-                        "generation_config": {"thinking_level": "low"},
+                        "generation_config": {"thinking_level": "low", "max_output_tokens": meter.max_output},
                     },
                 )
             else:
                 response = await client.post(
                     f"{base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
-                    json={"model": provider["model"], "messages": [{"role": "system", "content": system_prompt}, *safe_messages], "temperature": 0.45, "max_tokens": 1400},
+                    json={"model": provider["model"], "messages": [{"role": "system", "content": system_prompt}, *safe_messages], "temperature": 0.45, "max_tokens": meter.max_output},
                 )
+            if response.status_code >= 400:
+                meter.rejected()
             response.raise_for_status()
             data = response.json()
+            usage = {**await meter.record(data), "providerId": provider_id}
     except (httpx.HTTPError, ValueError) as exc:
         raise HTTPException(status_code=502, detail="O provedor selecionado nao concluiu a resposta. Nenhuma acao externa foi executada.") from exc
     if provider_kind == "anthropic":
         blocks = data.get("content") if isinstance(data, dict) else []
         answer = "".join(str(block.get("text") or "") for block in blocks if isinstance(block, dict))
-        input_tokens = int((data.get("usage") or {}).get("input_tokens") or 0)
-        output_tokens = int((data.get("usage") or {}).get("output_tokens") or 0)
     elif provider_kind == "google":
         steps = data.get("steps") if isinstance(data, dict) else []
         answer = "".join(
@@ -938,20 +941,10 @@ async def complete_with_provider(
             for step in steps or [] if isinstance(step, dict) and step.get("type") == "model_output"
             for content in step.get("content") or [] if isinstance(content, dict) and content.get("type") == "text"
         )
-        usage_data = data.get("usage") or {} if isinstance(data, dict) else {}
-        input_tokens = int(usage_data.get("total_input_tokens") or usage_data.get("input_tokens") or 0)
-        output_tokens = int(usage_data.get("total_output_tokens") or usage_data.get("output_tokens") or 0)
     else:
         choices = data.get("choices") if isinstance(data, dict) else []
         answer = str(((choices or [{}])[0].get("message") or {}).get("content") or "")
-        input_tokens = int((data.get("usage") or {}).get("prompt_tokens") or 0)
-        output_tokens = int((data.get("usage") or {}).get("completion_tokens") or 0)
     if not answer.strip():
         raise HTTPException(status_code=502, detail="O provedor retornou uma resposta vazia.")
-    estimated = (
-        input_tokens * float(provider.get("inputCostPerMillion") or 0)
-        + output_tokens * float(provider.get("outputCostPerMillion") or 0)
-    ) / 1_000_000
-    usage = {"id": entity_id("usage"), "providerId": provider_id, "model": provider["model"], "inputTokens": input_tokens, "outputTokens": output_tokens, "estimatedCost": round(estimated, 6), "createdAt": now_iso()}
     await mutate_store(user_id, lambda store: store["modelUsage"].insert(0, usage))
     return answer.strip(), {"provider": sanitize_provider(provider), "usage": usage}

@@ -418,6 +418,15 @@ jobs:
         shell: bash
         run: curl --fail --max-time 60 --retry 3 --retry-delay 8 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health/browser"
 
+      - name: Verify admin AI costs in the deployed runtime
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          python -m pip install pexpect==4.9.0
+          python infra/azure/verify_ai_costs.py
+
       - name: Verify application stability after Chromium
         shell: bash
         run: |

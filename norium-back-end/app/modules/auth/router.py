@@ -30,7 +30,7 @@ from app.core.security import (
     verify_password,
 )
 from app.core.rate_limit import SlidingWindowRateLimiter
-from app.core.request_context import normalize_workspace_id
+from app.core.request_context import normalize_workspace_id, set_ai_user_id
 from app.core.tenant import get_system_db_path, read_account_db, read_json_file, write_json_file
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -693,6 +693,7 @@ async def current_user(
     user = await user_from_token(credentials.credentials)
     await assert_workspace_access(user, request)
     assert_route_permissions(user, request.url.path)
+    set_ai_user_id(str(user["id"]))
     return user
 
 

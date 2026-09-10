@@ -8,10 +8,12 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
+from fastapi import HTTPException
 from dotenv import load_dotenv
 
 from app.services.nora_system_prompt import NORA_SYSTEM_PROMPT
 from app.core.ai_guardrails import minimize_for_ai
+from app.services.ai_costs import Meter
 
 
 load_dotenv()
@@ -94,7 +96,7 @@ class NoraIAService:
             )
         return payload_messages
 
-    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False, research: bool = False) -> str:
+    async def perguntar_nora(self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, max_tokens: int = 1400, require_complete: bool = False, research: bool = False, user_id: str | None = None) -> str:
         if not self.api_key:
             if research:
                 raise NoraResearchUnavailable("configuration")
@@ -126,7 +128,14 @@ class NoraIAService:
                 elif research and model.startswith("groq/compound"):
                     settings["compound_custom"] = {"tools": {"enabled_tools": []}}
                 try:
-                    response = await client.post(self.base_url, json=settings, headers=self.headers)
+                    async with Meter(self._billing_provider(model), settings["messages"], settings["max_tokens"], user_id=user_id, source="nora-research" if research else "nora") as meter:
+                        settings["max_tokens"] = meter.max_output
+                        meter.sent()
+                        response = await client.post(self.base_url, json=settings, headers=self.headers)
+                        if response.status_code == 200:
+                            await meter.record(response.json())
+                        else:
+                            meter.rejected()
                 except httpx.TransportError:
                     if research:
                         continue
@@ -155,7 +164,7 @@ class NoraIAService:
             if research:
                 raise NoraResearchUnavailable("configuration" if last_status in {401, 403} else "rate_limit" if limited else "provider")
             return self._provider_error(last_status) if last_status != 200 else "Não consegui gerar uma resposta completa agora. Tente novamente em instantes."
-        except (NoraIncompleteResponse, NoraResearchUnavailable):
+        except (NoraIncompleteResponse, NoraResearchUnavailable, HTTPException):
             raise
         except Exception:
             if research:
@@ -163,7 +172,7 @@ class NoraIAService:
             return "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."
 
     async def perguntar_nora_stream(
-        self, mensagens: list[dict[str, str]], screen_context: str | None = None
+        self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, user_id: str | None = None
     ) -> AsyncGenerator[str, None]:
         if not self.api_key:
             yield "A Nora está temporariamente sem acesso ao provedor de IA. Configure a GROQ_API_KEY no backend."
@@ -174,6 +183,7 @@ class NoraIAService:
             "temperature": 0.45,
             "max_tokens": 1400,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
 
         try:
@@ -181,10 +191,10 @@ class NoraIAService:
             last_status = 503
             for model in self._models():
                 received_text = False
-                async with client.stream(
+                async with Meter(self._billing_provider(model), payload["messages"], payload["max_tokens"], user_id=user_id, source="nora-stream") as meter, client.stream(
                     "POST",
                     self.base_url,
-                    json={**payload, "model": model},
+                    json={**payload, "model": model, "max_tokens": meter.max_output},
                     headers=self.headers,
                 ) as response:
                     last_status = response.status_code
@@ -193,7 +203,9 @@ class NoraIAService:
                     if response.status_code != 200:
                         yield self._provider_error(response.status_code)
                         return
+                    meter.sent()
                     self.model = model
+                    usage_data = {}
                     async for line in response.aiter_lines():
                         if not line or not line.startswith("data: "):
                             continue
@@ -204,16 +216,25 @@ class NoraIAService:
                             chunk = json.loads(data)
                         except json.JSONDecodeError:
                             continue
+                        if chunk.get("usage") or (chunk.get("x_groq") or {}).get("usage"):
+                            usage_data = chunk
                         choices = chunk.get("choices") or []
                         delta = choices[0].get("delta", {}).get("content") if choices else None
                         if delta:
                             received_text = True
                             yield delta
+                    await meter.record(usage_data)
                     if received_text:
                         return
             if last_status == 200:
                 yield "Não consegui gerar uma resposta completa agora. Tente novamente em instantes."
             else:
                 yield self._provider_error(last_status)
+        except HTTPException as exc:
+            yield str(exc.detail)
         except Exception:
             yield "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."
+
+    @staticmethod
+    def _billing_provider(model: str) -> dict:
+        return {"id": "nora-runtime", "provider": "groq", "model": model, "name": "Nora Runtime", "baseUrl": "https://api.groq.com/openai/v1", "managed": True}

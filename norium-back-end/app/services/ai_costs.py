@@ -1,0 +1,374 @@
+"""Central token ledger. Stores counters and tariff snapshots, never prompts or keys."""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import math
+import sqlite3
+import time
+import uuid
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any
+from urllib.parse import urlsplit, urlunsplit
+
+from fastapi import HTTPException
+
+from app.core.request_context import current_ai_user_id, current_workspace_id
+from app.core.tenant import get_data_root, read_json_file, safe_tenant_id
+
+BRAZIL = timezone(timedelta(hours=-3))
+NANO = Decimal(1_000_000_000)
+DEFAULT_URLS = {"groq": "https://api.groq.com/openai/v1", "google": "https://generativelanguage.googleapis.com/v1beta", "openai": "https://api.openai.com/v1", "anthropic": "https://api.anthropic.com/v1"}
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS rates (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS usage (
+ id TEXT PRIMARY KEY, user_id TEXT NOT NULL, model_id TEXT NOT NULL,
+ created_at TEXT NOT NULL, month TEXT NOT NULL, input_tokens INTEGER NOT NULL,
+ output_tokens INTEGER NOT NULL, cached_tokens INTEGER NOT NULL, reasoning_tokens INTEGER NOT NULL,
+ input_nano INTEGER, output_nano INTEGER, cost_nano INTEGER, estimated INTEGER NOT NULL,
+ source TEXT NOT NULL, workspace TEXT NOT NULL, tariff TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS usage_user_month ON usage(user_id, month);
+CREATE INDEX IF NOT EXISTS usage_date ON usage(created_at);
+CREATE TABLE IF NOT EXISTS limits (user_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+ month TEXT NOT NULL, tokens INTEGER NOT NULL, cost_nano INTEGER NOT NULL, expires REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+"""
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def month_for(value: str | None = None) -> str:
+    date = datetime.fromisoformat(value.replace("Z", "+00:00")) if value else datetime.now(timezone.utc)
+    return date.replace(tzinfo=date.tzinfo or timezone.utc).astimezone(BRAZIL).strftime("%Y-%m")
+
+
+@contextmanager
+def database():
+    # DELETE journaling works with the persistent volume; WAL requires shared memory.
+    db = sqlite3.connect(get_data_root() / "ai_costs.sqlite3", timeout=30)
+    db.row_factory = sqlite3.Row
+    try:
+        db.executescript(SCHEMA)
+        db.execute("INSERT OR IGNORE INTO metadata VALUES ('trackingStartedAt', ?)", (now(),))
+        db.commit()
+        db.execute("BEGIN IMMEDIATE")
+        yield db
+        db.commit()
+    except BaseException:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def identity(provider: dict, model: str | None = None) -> dict:
+    kind = str(provider.get("provider") or "openai-compatible").strip().lower()
+    parts = urlsplit(str(provider.get("baseUrl") or DEFAULT_URLS.get(kind, "")))
+    # Credentials, query strings and fragments are never part of the public catalog.
+    url = urlunsplit((parts.scheme.lower(), parts.hostname or "", parts.path.rstrip("/"), "", ""))
+    if parts.port:
+        url = urlunsplit((parts.scheme.lower(), f"{parts.hostname}:{parts.port}", parts.path.rstrip("/"), "", ""))
+    name = str(model or provider.get("model") or "unknown").strip()
+    key = hashlib.sha256(f"{kind}|{url}|{name}".encode()).hexdigest()[:24]
+    return {"id": key, "provider": kind, "baseUrl": url, "model": name}
+
+
+def default_rate(provider: dict, model: str | None = None) -> dict:
+    item = identity(provider, model)
+    prices = None
+    source = "Tarifa não cadastrada"
+    expires = None
+    if item["provider"] == "groq" and item["baseUrl"] == DEFAULT_URLS["groq"] and item["model"] == "openai/gpt-oss-20b":
+        prices = (0.075, 0.30, 0.037, 0.075)
+        source = "https://console.groq.com/docs/model/openai/gpt-oss-20b"
+    elif item["provider"] == "groq" and item["baseUrl"] == DEFAULT_URLS["groq"] and item["model"] == "qwen/qwen3.6-27b":
+        prices = (0.60, 3.00, 0.60, 0.60)
+        source = "https://console.groq.com/docs/model/qwen/qwen3.6-27b"
+    elif item["provider"] == "google" and item["baseUrl"] == DEFAULT_URLS["google"] and item["model"] == "gemini-3.7-flash":
+        prices = (0.75, 3.75, 0.075, 0.75) if month_for() < "2027-01" else (1.5, 7.5, 0.15, 1.5)
+        source = "https://ai.google.dev/gemini-api/docs/pricing"
+        expires = "2026-12-31" if month_for() < "2027-01" else None
+    elif not provider.get("managed") and model in (None, provider.get("model")) and "inputCostPerMillion" in provider:
+        inp, out = provider.get("inputCostPerMillion"), provider.get("outputCostPerMillion")
+        if inp is not None and out is not None:
+            prices = (inp, out, inp, inp)
+            source = "Cadastro existente em Modelos de IA"
+    return {**item, "name": str(provider.get("name") or item["model"]), "unitTokens": 1_000_000,
+            "inputUsd": prices[0] if prices else None, "outputUsd": prices[1] if prices else None,
+            "cachedInputUsd": prices[2] if prices else None, "cacheWriteUsd": prices[3] if prices else None,
+            "source": source, "validUntil": expires, "updatedAt": now(), "version": 1, "managedPrice": bool(prices and source.startswith("https://"))}
+
+
+def ensure_rate(db, provider: dict, model: str | None = None) -> dict:
+    candidate = default_rate(provider, model)
+    existing = db.execute("SELECT data FROM rates WHERE id=?", (candidate["id"],)).fetchone()
+    if existing:
+        rate = json.loads(existing[0])
+        if rate.get("managedPrice") and rate.get("validUntil") and rate["validUntil"] < datetime.now(BRAZIL).date().isoformat():
+            candidate["version"] = rate["version"] + 1
+            db.execute("UPDATE rates SET data=? WHERE id=?", (json.dumps(candidate), candidate["id"]))
+            return candidate
+        return rate
+    db.execute("INSERT INTO rates VALUES (?, ?)", (candidate["id"], json.dumps(candidate)))
+    return candidate
+
+
+def apply_provider_prices(providers: list[dict]) -> list[dict]:
+    """Keep the existing model selector and cost routing aligned with admin tariffs."""
+    with database() as db:
+        result = []
+        for provider in providers:
+            rate = ensure_rate(db, provider)
+            priced = rate.get("inputUsd") is not None and rate.get("outputUsd") is not None
+            prices = {"inputCostPerMillion": rate["inputUsd"] * 1_000_000 / rate["unitTokens"], "outputCostPerMillion": rate["outputUsd"] * 1_000_000 / rate["unitTokens"]} if priced else {}
+            result.append({**provider, **prices, "pricingConfigured": priced})
+        return result
+
+
+def token_counts(data: dict, kind: str, input_estimate: int = 0, output_estimate: int = 0) -> dict:
+    usage = data.get("usage") or (data.get("x_groq") or {}).get("usage") or data.get("usageMetadata") or {}
+    def count(*keys):
+        return max(0, int(next((usage[k] for k in keys if usage.get(k) is not None), 0)))
+    cached = count("total_cached_tokens", "cache_read_input_tokens", "cachedContentTokenCount")
+    reasoning = count("total_thought_tokens", "thoughtsTokenCount")
+    cache_write = count("cache_creation_input_tokens")
+    if kind == "google":
+        inp = count("total_input_tokens", "input_tokens", "promptTokenCount")
+        out = count("total_output_tokens", "output_tokens", "candidatesTokenCount") + reasoning
+    elif kind == "anthropic":
+        inp = count("input_tokens") + cached + cache_write
+        out = count("output_tokens")
+    else:
+        inp, out = count("prompt_tokens", "input_tokens"), count("completion_tokens", "output_tokens")
+        cached = max(0, int((usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0))
+        reasoning = max(0, int((usage.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0))
+    measured = any(k in usage for k in ("prompt_tokens", "input_tokens", "total_input_tokens", "promptTokenCount"))
+    return {"inputTokens": inp if measured else input_estimate, "outputTokens": out if measured else output_estimate,
+            "cachedTokens": min(cached, inp), "reasoningTokens": min(reasoning, out), "cacheWriteTokens": cache_write, "estimated": not measured}
+
+
+def nano_cost(rate: dict, counts: dict) -> tuple[int | None, int | None]:
+    if rate.get("inputUsd") is None or rate.get("outputUsd") is None:
+        return None, None
+    unit = Decimal(str(rate["unitTokens"]))
+    def cost(tokens, price):
+        return Decimal(tokens) * Decimal(str(price)) * NANO / unit
+    inp, cached = counts["inputTokens"], counts.get("cachedTokens", 0)
+    writes = min(counts.get("cacheWriteTokens", 0), inp - cached)
+    incoming = cost(inp - cached - writes, rate["inputUsd"]) + cost(cached, rate.get("cachedInputUsd") if rate.get("cachedInputUsd") is not None else rate["inputUsd"]) + cost(writes, rate.get("cacheWriteUsd") if rate.get("cacheWriteUsd") is not None else rate["inputUsd"])
+    outgoing = cost(counts["outputTokens"], rate["outputUsd"])
+    return int(incoming.quantize(Decimal(1), rounding=ROUND_HALF_UP)), int(outgoing.quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+def _record(db, provider, counts, *, user_id, source, event_id=None, created_at=None, model=None, rate=None, workspace=None):
+    rate = rate or ensure_rate(db, provider, model)
+    incoming, outgoing = nano_cost(rate, counts)
+    total = incoming + outgoing if incoming is not None and outgoing is not None else None
+    event_id, created_at = event_id or uuid.uuid4().hex, created_at or now()
+    db.execute("INSERT OR IGNORE INTO usage VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
+        event_id, user_id, rate["id"], created_at, month_for(created_at), counts["inputTokens"], counts["outputTokens"],
+        counts.get("cachedTokens", 0), counts.get("reasoningTokens", 0), incoming, outgoing, total,
+        int(counts.get("estimated", False)), source, workspace or current_workspace_id(), json.dumps({**rate, "cacheWriteTokens": counts.get("cacheWriteTokens", 0)})))
+    return {"id": event_id, "ledgerId": event_id, "model": rate["model"], **counts, "estimatedCost": total / 1e9 if total is not None else None, "createdAt": created_at}
+
+
+def record_usage(provider, counts, *, user_id, source, event_id=None, created_at=None, model=None):
+    with database() as db:
+        return _record(db, provider, counts, user_id=user_id, source=source, event_id=event_id, created_at=created_at, model=model)
+
+
+def get_limit(db, user_id):
+    row = db.execute("SELECT data FROM limits WHERE user_id=?", (user_id,)).fetchone()
+    return json.loads(row[0]) if row else {"monthlyBudgetUsd": None, "monthlyTokenLimit": None}
+
+
+def reserve(provider, user_id, input_bound, max_output):
+    with database() as db:
+        rate = ensure_rate(db, provider)
+        limit = get_limit(db, user_id)
+        db.execute("DELETE FROM reservations WHERE expires < ?", (time.time(),))
+        used = db.execute("SELECT COALESCE(SUM(input_tokens+output_tokens),0), COALESCE(SUM(cost_nano),0), SUM(cost_nano IS NULL) FROM usage WHERE user_id=? AND month=?", (user_id, month_for())).fetchone()
+        pending = db.execute("SELECT COALESCE(SUM(tokens),0),COALESCE(SUM(cost_nano),0) FROM reservations WHERE user_id=? AND month=?", (user_id, month_for())).fetchone()
+        output = max_output
+        if limit["monthlyTokenLimit"] is not None:
+            output = min(output, limit["monthlyTokenLimit"] - used[0] - pending[0] - input_bound)
+        if limit["monthlyBudgetUsd"] is not None:
+            if rate.get("inputUsd") is None or used[2]:
+                raise HTTPException(402, "Há consumo ou modelo sem tarifa. Peça ao administrador para cadastrar o custo antes de usar seu orçamento de IA.")
+            remaining = Decimal(str(limit["monthlyBudgetUsd"])) * NANO - used[1] - pending[1]
+            input_price = max(Decimal(str(rate.get(k) or 0)) for k in ("inputUsd", "cachedInputUsd", "cacheWriteUsd"))
+            remaining -= Decimal(input_bound) * input_price * NANO / Decimal(rate["unitTokens"])
+            if remaining < 0:
+                output = 0
+            elif rate["outputUsd"]:
+                output = min(output, int(remaining * Decimal(rate["unitTokens"]) / (Decimal(str(rate["outputUsd"])) * NANO)))
+        if output < 1:
+            raise HTTPException(402, "Saldo mensal de IA insuficiente para esta solicitação. Reduza o contexto ou peça ao administrador para ajustar seus limites.")
+        reservation = uuid.uuid4().hex
+        conservative = {**rate, "inputUsd": max((rate.get(k) or 0) for k in ("inputUsd", "cachedInputUsd", "cacheWriteUsd"))} if rate.get("inputUsd") is not None else rate
+        inc, out = nano_cost(conservative, {"inputTokens": input_bound, "outputTokens": output})
+        db.execute("INSERT INTO reservations VALUES (?,?,?,?,?,?)", (reservation, user_id, month_for(), input_bound + output, (inc or 0) + (out or 0), time.time() + 3600))
+        return reservation, output, rate
+
+
+class Meter:
+    """One reservation per billable attempt, settled even for empty/truncated answers."""
+    def __init__(self, provider: dict, messages: Any, max_output: int, *, user_id: str | None = None, source="nora"):
+        self.provider, self.user_id = provider, user_id or current_ai_user_id() or "system"
+        self.input_bound = len(json.dumps(messages, ensure_ascii=False).encode("utf-8")) + 64
+        self.max_output, self.source = max_output, source
+        self.reservation = None
+        self.recorded = False
+        self.started = False
+        self.rate = None
+
+    async def __aenter__(self):
+        self.reservation, self.max_output, self.rate = await asyncio.to_thread(reserve, self.provider, self.user_id, self.input_bound, self.max_output)
+        return self
+
+    def sent(self):
+        self.started = True
+
+    def rejected(self):
+        self.started = False
+
+    async def record(self, data: dict, output_text=""):
+        counts = token_counts(data, self.provider["provider"], self.input_bound, max(1, len(output_text.encode("utf-8"))) if output_text else self.max_output)
+        actual_model = str(data.get("model") or self.provider["model"])
+        def settle():
+            with database() as db:
+                rate = self.rate if actual_model == self.provider["model"] else ensure_rate(db, self.provider, actual_model)
+                result = _record(db, self.provider, counts, user_id=self.user_id, source=self.source, event_id=self.reservation, rate=rate)
+                db.execute("DELETE FROM reservations WHERE id=?", (self.reservation,))
+                return result
+        result = await asyncio.to_thread(settle)
+        self.recorded = True
+        return result
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if not self.recorded and self.started:
+            # On disconnect/timeout, consumption is uncertain, not silently zero.
+            await asyncio.shield(self.record({}))
+        def release():
+            with database() as db:
+                db.execute("DELETE FROM reservations WHERE id=?", (self.reservation,))
+        await asyncio.shield(asyncio.to_thread(release))
+
+
+def save_rate(payload: dict, actor: str) -> dict:
+    with database() as db:
+        rate = ensure_rate(db, payload)
+        updated = {**rate, **payload, **identity(payload), "managedPrice": False, "updatedAt": now(), "version": rate["version"] + 1}
+        db.execute("UPDATE rates SET data=? WHERE id=?", (json.dumps(updated), updated["id"]))
+        db.execute("INSERT INTO audit(created_at,actor,action,target,data) VALUES (?,?,?,?,?)", (now(), actor, "tariff_updated", updated["id"], json.dumps({"before": rate, "after": updated})))
+        # Price only previously unpriced rows. Existing cost snapshots never change.
+        for row in db.execute("SELECT * FROM usage WHERE model_id=? AND cost_nano IS NULL", (updated["id"],)).fetchall():
+            inc, out = nano_cost(updated, {"inputTokens": row["input_tokens"], "outputTokens": row["output_tokens"], "cachedTokens": row["cached_tokens"], "cacheWriteTokens": json.loads(row["tariff"]).get("cacheWriteTokens", 0)})
+            db.execute("UPDATE usage SET input_nano=?,output_nano=?,cost_nano=?,tariff=? WHERE id=?", (inc, out, inc + out, json.dumps(updated), row["id"]))
+        return updated
+
+
+def save_limit(user_id: str, payload: dict, actor: str):
+    with database() as db:
+        before = get_limit(db, user_id)
+        db.execute("INSERT OR REPLACE INTO limits VALUES (?,?)", (user_id, json.dumps(payload)))
+        db.execute("INSERT INTO audit(created_at,actor,action,target,data) VALUES (?,?,?,?,?)", (now(), actor, "limit_updated", user_id, json.dumps({"before": before, "after": payload})))
+    return payload
+
+
+def sync_catalog(users: list[dict]) -> dict:
+    from app.modules.intelligence.service import builtin_provider, builtin_gemini_provider
+    from app.services.nora import NoraIAService
+    builtins = [builtin_provider(), builtin_gemini_provider()]
+    builtins += [{**builtins[0], "model": model, "name": "Nora · fallback"} for model in NoraIAService()._models() if model != builtins[0]["model"]]
+    connections: dict[str, list[dict]] = {}
+    root = get_data_root()
+    with database() as db:
+        def connect(provider, user_id=None, workspace="primary"):
+            rate = ensure_rate(db, provider)
+            connections.setdefault(rate["id"], []).append({"providerId": provider.get("id"), "userId": user_id, "workspace": workspace, "configured": bool(provider.get("configured") or provider.get("encryptedSecret")), "enabled": bool(provider.get("enabled"))})
+        for provider in builtins:
+            connect(provider)
+        for user in users:
+            folder = root / f'user_{safe_tenant_id(user["id"])}'
+            paths = [folder / "intelligence_db.json", *folder.glob("workspace_*/intelligence_db.json")]
+            for path in paths:
+                if not path.is_file():
+                    continue
+                store = read_json_file(path, {})
+                if not isinstance(store, dict):
+                    continue
+                workspace = path.parent.name.removeprefix("workspace_") if path.parent != folder else "primary"
+                providers = [*builtins, *store.get("modelProviders", [])]
+                for provider in store.get("modelProviders", []):
+                    connect(provider, user["id"], workspace)
+                for usage in store.get("modelUsage", []):
+                    if usage.get("ledgerId") or not usage.get("id") or not usage.get("createdAt"):
+                        continue
+                    provider = next((p for p in providers if p.get("id") == usage.get("providerId")), {"provider": "unknown", "model": usage.get("model"), "name": "Provedor legado"})
+                    event_id = "legacy_" + hashlib.sha256(f'{user["id"]}|{workspace}|{usage["id"]}'.encode()).hexdigest()
+                    if db.execute("SELECT 1 FROM usage WHERE id=?", (event_id,)).fetchone():
+                        continue
+                    counts = {"inputTokens": max(0, int(usage.get("inputTokens") or 0)), "outputTokens": max(0, int(usage.get("outputTokens") or 0)), "estimated": True}
+                    try:
+                        _record(db, provider, counts, user_id=user["id"], source="legacy", event_id=event_id, created_at=usage["createdAt"], model=usage.get("model"), workspace=workspace)
+                    except (ValueError, TypeError):
+                        continue
+        rates = [json.loads(row[0]) for row in db.execute("SELECT data FROM rates")]
+    return {"models": [{**r, "connections": connections.get(r["id"], [])} for r in rates]}
+
+
+def _totals(rows):
+    return {"requests": len(rows), "inputTokens": sum(r["input_tokens"] for r in rows), "outputTokens": sum(r["output_tokens"] for r in rows),
+            "cachedTokens": sum(r["cached_tokens"] for r in rows), "reasoningTokens": sum(r["reasoning_tokens"] for r in rows),
+            "totalTokens": sum(r["input_tokens"] + r["output_tokens"] for r in rows),
+            "inputCostUsd": sum(r["input_nano"] or 0 for r in rows) / 1e9, "outputCostUsd": sum(r["output_nano"] or 0 for r in rows) / 1e9,
+            "costUsd": sum(r["cost_nano"] or 0 for r in rows) / 1e9, "unpricedRequests": sum(r["cost_nano"] is None for r in rows), "estimatedRequests": sum(r["estimated"] for r in rows)}
+
+
+def overview(users: list[dict], month: str, user_filter="", model_filter=""):
+    catalog = sync_catalog(users)
+    with database() as db:
+        query = "SELECT * FROM usage WHERE (?='all' OR month=?) AND (?='' OR user_id=?) AND (?='' OR model_id=?) ORDER BY created_at DESC"
+        rows = db.execute(query, (month, month, user_filter, user_filter, model_filter, model_filter)).fetchall()
+        # Balances always use the current month and every model, regardless of report filters.
+        current_rows = db.execute("SELECT * FROM usage WHERE month=?", (month_for(),)).fetchall()
+        reservations = db.execute("SELECT * FROM reservations WHERE expires>? AND month=?", (time.time(), month_for())).fetchall()
+        results = []
+        accounts = {u["id"]: {"id": u["id"], "name": u.get("nome") or u["id"], "email": u.get("email") or ""} for u in users}
+        for row in [*rows, *current_rows]:
+            accounts.setdefault(row["user_id"], {"id": row["user_id"], "name": "Sistema / execução sem usuário" if row["user_id"] == "system" else "Conta removida", "email": ""})
+        for uid, account in accounts.items():
+            if user_filter and uid != user_filter:
+                continue
+            user_rows = [r for r in rows if r["user_id"] == uid]
+            current = _totals([r for r in current_rows if r["user_id"] == uid])
+            pending = [r for r in reservations if r["user_id"] == uid]
+            limit = get_limit(db, uid)
+            remaining_usd = max(0, limit["monthlyBudgetUsd"] - current["costUsd"] - sum(r["cost_nano"] for r in pending) / 1e9) if limit["monthlyBudgetUsd"] is not None else None
+            remaining_tokens = max(0, limit["monthlyTokenLimit"] - current["totalTokens"] - sum(r["tokens"] for r in pending)) if limit["monthlyTokenLimit"] is not None else None
+            models = []
+            for model in catalog["models"]:
+                if model_filter and model["id"] != model_filter:
+                    continue
+                model_rows = [r for r in user_rows if r["model_id"] == model["id"]]
+                def capacity(input_ratio):
+                    if model["inputUsd"] is None or remaining_usd is None:
+                        return None
+                    price = (model["inputUsd"] * input_ratio + model["outputUsd"] * (1 - input_ratio)) / model["unitTokens"]
+                    return min(math.floor(remaining_usd / price), remaining_tokens if remaining_tokens is not None else 10**15) if price else remaining_tokens
+                models.append({"modelId": model["id"], **_totals(model_rows), "capacityInputOnly": capacity(1), "capacityOutputOnly": capacity(0), "capacityMixed": capacity(0.75)})
+            results.append({**account, **_totals(user_rows), "limits": limit, "currentMonth": current, "remainingUsd": remaining_usd, "remainingTokens": remaining_tokens, "pendingRequests": len(pending), "models": models})
+        audit = [dict(r) for r in db.execute("SELECT created_at,actor,action,target FROM audit ORDER BY id DESC LIMIT 30")]
+        started = db.execute("SELECT value FROM metadata WHERE key='trackingStartedAt'").fetchone()[0]
+    return {"month": month, "currentMonth": month_for(), "trackingStartedAt": started, "updatedAt": now(), "totals": _totals(rows),
+            "models": [{**m, **_totals([r for r in rows if r["model_id"] == m["id"]])} for m in catalog["models"] if not model_filter or m["id"] == model_filter],
+            "users": sorted(results, key=lambda u: (-u["costUsd"], u["name"])), "audit": audit,
+            "recentUsage": [{"id": r["id"], "userId": r["user_id"], "modelId": r["model_id"], "createdAt": r["created_at"], "source": r["source"], "workspace": r["workspace"], "inputTokens": r["input_tokens"], "outputTokens": r["output_tokens"], "cachedTokens": r["cached_tokens"], "reasoningTokens": r["reasoning_tokens"], "costUsd": r["cost_nano"] / 1e9 if r["cost_nano"] is not None else None, "estimated": bool(r["estimated"])} for r in rows[:100]]}

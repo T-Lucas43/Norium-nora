@@ -364,6 +364,8 @@ def create_app() -> FastAPI:
     # A ordem é mantida para preservar a documentação e a resolução das rotas.
     app.include_router(nora_router)
     app.include_router(auth_router)
+    from app.modules.auth.ai_costs_router import router as ai_costs_router
+    app.include_router(ai_costs_router)
     app.include_router(account_email_router)
     app.include_router(admin_finance_router)
     app.include_router(agenda_router)

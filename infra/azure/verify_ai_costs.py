@@ -1,0 +1,57 @@
+"""Read-only authenticated verification in the deployed runtime; never emits tokens."""
+import base64
+import os
+
+import pexpect
+
+
+PROBE = '''
+import asyncio
+import os
+import httpx
+from app.modules.auth.router import read_user_store, create_token, can_manage_system
+
+async def verify():
+    users = (await read_user_store()).get("users", [])
+    admin = next(u for u in users if can_manage_system(u) and u.get("status") == "ativo")
+    async with httpx.AsyncClient(base_url="http://127.0.0.1:8000", timeout=60) as client:
+        health = (await client.get("/health")).json()
+        assert health.get("revision") == __EXPECTED_REVISION__
+        anonymous = await client.get("/api/auth/admin/ai-costs")
+        assert anonymous.status_code == 401
+        response = await client.get("/api/auth/admin/ai-costs", headers={"Authorization": "Bearer " + create_token(admin)})
+        assert response.status_code == 200, "Admin accounting endpoint failed"
+        data = response.json()
+        models = data["models"]
+        assert any(m["provider"] == "groq" and m["model"] == (os.getenv("NORA_MODEL") or "openai/gpt-oss-20b") for m in models)
+        assert any(m["provider"] == "google" and m["model"] == (os.getenv("GEMINI_MODEL") or "gemini-3.7-flash") and m["inputUsd"] is not None for m in models)
+        assert len(data["users"]) >= len(users)
+        assert data["totals"]["totalTokens"] == data["totals"]["inputTokens"] + data["totals"]["outputTokens"]
+        assert abs(data["totals"]["costUsd"] - sum(u["costUsd"] for u in data["users"])) < 0.000001
+        assert abs(data["totals"]["costUsd"] - sum(m["costUsd"] for m in models)) < 0.000001
+        # A second request checks persistence and idempotent legacy import.
+        second = await client.get("/api/auth/admin/ai-costs", headers={"Authorization": "Bearer " + create_token(admin)})
+        assert second.status_code == 200
+        assert second.json()["totals"]["requests"] >= data["totals"]["requests"]
+        member = next((u for u in users if not can_manage_system(u) and u.get("status") == "ativo"), None)
+        if member:
+            denied = await client.get("/api/auth/admin/ai-costs", headers={"Authorization": "Bearer " + create_token(member)})
+            assert denied.status_code == 403
+    print("AI_COSTS_PRODUCTION_OK", flush=True)
+
+asyncio.run(verify())
+'''
+
+
+if __name__ == "__main__":
+    probe = PROBE.replace("__EXPECTED_REVISION__", repr(os.environ["EXPECTED_REVISION"]))
+    encoded = base64.b64encode(probe.encode()).decode()
+    command = f"python -c \"import base64;exec(base64.b64decode('{encoded}'))\""
+    child = pexpect.spawn("az", ["containerapp", "exec", "-g", os.environ["RESOURCE_GROUP"], "-n", os.environ["APP_NAME"], "--command", command], encoding="utf-8", timeout=180)
+    try:
+        child.expect("AI_COSTS_PRODUCTION_OK")
+        print("Production AI costs verified: expected revision, authenticated admin API, persistent ledger, provider discovery, user/model totals and access control.")
+    except (pexpect.EOF, pexpect.TIMEOUT):
+        raise SystemExit("AI costs production verification failed. Runtime output was withheld to protect account data.") from None
+    finally:
+        child.close(force=True)

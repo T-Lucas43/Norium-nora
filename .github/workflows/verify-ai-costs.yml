@@ -6,6 +6,11 @@ on:
         description: Expected deployed release SHA
         required: true
         type: string
+      restart:
+        description: Restart the latest revision before verification
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 jobs:
@@ -22,6 +27,16 @@ jobs:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Restart the selected application revision
+        if: ${{ inputs.restart }}
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+        run: |
+          revision="$(az containerapp show -g "$RESOURCE_GROUP" -n "$APP_NAME" --query properties.latestRevisionName -o tsv)"
+          test -n "$revision"
+          az containerapp revision restart -g "$RESOURCE_GROUP" -n "$APP_NAME" --revision "$revision" --output none
+          sleep 30
       - name: Check authenticated accounting and persistence
         env:
           RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}

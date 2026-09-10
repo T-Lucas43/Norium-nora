@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import math
+import os
 import sqlite3
 import time
 import uuid
@@ -52,7 +53,14 @@ def month_for(value: str | None = None) -> str:
 @contextmanager
 def database():
     # DELETE journaling works with the persistent volume; WAL requires shared memory.
-    db = sqlite3.connect(get_data_root() / "ai_costs.sqlite3", timeout=30)
+    path = get_data_root() / "ai_costs.sqlite3"
+    vfs = os.getenv("NORIUM_AI_COSTS_SQLITE_VFS", "").strip()
+    if vfs not in ("", "unix-dotfile"):
+        raise ValueError("Unsupported AI costs SQLite VFS")
+    # Azure Files SMB does not support SQLite's default POSIX byte-range locks.
+    # Dotfile locking serializes connections across processes without disabling locks.
+    target = path.resolve().as_uri() + "?vfs=unix-dotfile" if vfs else str(path)
+    db = sqlite3.connect(target, uri=bool(vfs), timeout=30)
     db.row_factory = sqlite3.Row
     try:
         db.executescript(SCHEMA)

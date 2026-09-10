@@ -45,6 +45,7 @@ jobs:
         env:
           ENVIRONMENT: test
           APP_ENV: test
+          NORIUM_AI_COSTS_SQLITE_VFS: unix-dotfile
         run: |
           python -m compileall app main.py
           python -m unittest discover -s tests
@@ -369,6 +370,7 @@ jobs:
             --set-env-vars \
             ENVIRONMENT=production \
             WEB_CONCURRENCY=1 \
+            NORIUM_AI_COSTS_SQLITE_VFS=unix-dotfile \
             TEAM_CALL_RELEASE_PROFILE="${CALL_RELEASE_PROFILE}" \
             TEAM_CALL_ENABLED="${{ vars.TEAM_CALL_ENABLED || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && 'true' || 'false') }}" \
             TEAM_CALL_ROLLOUT_PERCENT="${{ vars.TEAM_CALL_ROLLOUT_PERCENT || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && '100' || '0') }}" \

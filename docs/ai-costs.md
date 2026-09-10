@@ -26,6 +26,8 @@ As capacidades de tokens exibidas são alternativas para o mesmo saldo: somente 
 
 `NORIUM_DATA_DIR/ai_costs.sqlite3` guarda o registro, tarifas, reservas, limites e auditoria. Incluir esse arquivo nos backups do volume persistente. Usa transações SQLite com journal DELETE (sem WAL) e timeout de bloqueio de 30 segundos.
 
+No Azure Files, o deploy define `NORIUM_AI_COSTS_SQLITE_VFS=unix-dotfile`: o [VFS do SQLite](https://www.sqlite.org/vfs.html) usa arquivo de bloqueio para serializar conexões, evitando os bloqueios POSIX incompatíveis com SMB. Todas as conexões ao registro devem usar o mesmo VFS; não abrir o arquivo diretamente com ferramentas que usem o padrão. O CI testa a mesma configuração no Linux, e o deploy verifica exclusão de gravações simultâneas, commit e integridade no volume real. Após encerramento abrupto, um bloqueio órfão pode exigir recuperação operacional: interromper todas as revisões/processos que acessam o registro, preservar backup do banco e journal, confirmar que o bloqueio não possui dono ativo e só então remover o diretório `.lock` vazio; reabrir com o mesmo VFS para recuperação do journal e executar `PRAGMA integrity_check`. Nunca remover bloqueios de uma aplicação em execução.
+
 Registros anteriores em `intelligence_db.json` são importados por usuário e workspace com chave idempotente. Entradas novas incluem `ledgerId`, impedindo dupla importação. O histórico legado é identificado como estimado porque não guardava todos os componentes de cobrança. Uso antigo sem estatísticas não pode ser recuperado. Nenhum prompt, resposta, chave de API ou credencial é armazenado no registro central.
 
 ## API

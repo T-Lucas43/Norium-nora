@@ -48,6 +48,22 @@ class AiCostTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(0.00135, ana["costUsd"])
         self.assertEqual(2, len([m for m in ana["models"] if m["requests"]]))
 
+    def test_transaction_rollback_and_reopen_preserve_ledger(self):
+        self.record()
+        with self.assertRaisesRegex(RuntimeError, "interrupted"):
+            with costs.database() as db:
+                db.execute("DELETE FROM usage")
+                raise RuntimeError("interrupted")
+        with costs.database() as db:
+            self.assertEqual(1, db.execute("SELECT COUNT(*) FROM usage").fetchone()[0])
+            self.assertEqual("ok", db.execute("PRAGMA integrity_check").fetchone()[0])
+
+    def test_unsafe_vfs_is_rejected(self):
+        with patch.dict(os.environ, {"NORIUM_AI_COSTS_SQLITE_VFS": "unix-none"}):
+            with self.assertRaises(ValueError):
+                with costs.database():
+                    self.fail("Lock-free connections must never be opened")
+
     def test_cache_and_reasoning_are_not_double_counted(self):
         groq = costs.token_counts({"usage": {"prompt_tokens": 1000, "completion_tokens": 500, "prompt_tokens_details": {"cached_tokens": 400}, "completion_tokens_details": {"reasoning_tokens": 200}}}, "groq")
         self.assertEqual(500, groq["outputTokens"])

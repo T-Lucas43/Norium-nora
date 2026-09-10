@@ -1,0 +1,32 @@
+name: Verify deployed AI costs
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Expected deployed release SHA
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Check authenticated accounting and persistence
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+          EXPECTED_REVISION: ${{ inputs.revision }}
+        run: |
+          python -m pip install pexpect==4.9.0
+          python infra/azure/verify_ai_costs.py

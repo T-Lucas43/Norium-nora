@@ -1,6 +1,7 @@
 """Read-only authenticated verification in the deployed runtime; never emits tokens."""
 import base64
 import os
+import re
 
 import pexpect
 
@@ -9,6 +10,7 @@ PROBE = '''
 import asyncio
 import os
 import httpx
+import traceback
 from app.modules.auth.router import read_user_store, create_token, can_manage_system
 
 async def verify():
@@ -39,7 +41,13 @@ async def verify():
             assert denied.status_code == 403
     print("AI_COSTS_PRODUCTION_OK", flush=True)
 
-asyncio.run(verify())
+try:
+    asyncio.run(verify())
+except Exception as exc:
+    frames = traceback.extract_tb(exc.__traceback__)
+    location = frames[-1]
+    print("AI_COSTS_DIAGNOSTIC:" + type(exc).__name__ + ":" + str(location.lineno), flush=True)
+    raise SystemExit(1)
 '''
 
 
@@ -52,6 +60,14 @@ if __name__ == "__main__":
         child.expect("AI_COSTS_PRODUCTION_OK")
         print("Production AI costs verified: expected revision, authenticated admin API, persistent ledger, provider discovery, user/model totals and access control.")
     except (pexpect.EOF, pexpect.TIMEOUT):
+        diagnostic = re.search(r"AI_COSTS_DIAGNOSTIC:([A-Za-z]+):([0-9]+)", child.before or "")
+        if diagnostic:
+            print(f"Verification exception: {diagnostic.group(1)} at probe line {diagnostic.group(2)}.")
+        else:
+            # Only fixed diagnostic labels; do not print remote terminal output.
+            raw = child.before or ""
+            labels = [label for label in ("AuthorizationFailed", "ResourceNotFound", "ModuleNotFoundError", "SyntaxError", "OperationalError", "WebSocket", "unrecognized arguments") if label in raw]
+            print("Remote verification transport diagnostics: " + (", ".join(labels) or "no probe result received"))
         raise SystemExit("AI costs production verification failed. Runtime output was withheld to protect account data.") from None
     finally:
         child.close(force=True)

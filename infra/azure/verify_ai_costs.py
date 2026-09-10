@@ -23,6 +23,10 @@ async def verify():
         anonymous = await client.get("/api/auth/admin/ai-costs")
         assert anonymous.status_code == 401
         response = await client.get("/api/auth/admin/ai-costs", headers={"Authorization": "Bearer " + create_token(admin)})
+        if response.status_code != 200:
+            print("AI_COSTS_HTTP:" + str(response.status_code), flush=True)
+            from app.services import ai_costs
+            ai_costs.overview(users, ai_costs.month_for())
         assert response.status_code == 200, "Admin accounting endpoint failed"
         data = response.json()
         models = data["models"]
@@ -48,6 +52,7 @@ except Exception as exc:
     frames = traceback.extract_tb(exc.__traceback__)
     location = frames[-1]
     print("AI_COSTS_DIAGNOSTIC:" + type(exc).__name__ + ":" + str(location.lineno), flush=True)
+    print("AI_COSTS_SQLITE:" + str(getattr(exc, "sqlite_errorname", "NONE")), flush=True)
     raise SystemExit(1)
 '''
 
@@ -63,6 +68,8 @@ if __name__ == "__main__":
         child.expect("AI_COSTS_PRODUCTION_OK")
         print("Production AI costs verified: expected revision, authenticated admin API, persistent ledger, provider discovery, user/model totals and access control.")
     except (pexpect.EOF, pexpect.TIMEOUT):
+        for marker in re.findall(r"AI_COSTS_(?:HTTP:[0-9]+|SQLITE:[A-Z_]+)", child.before or ""):
+            print(marker)
         diagnostic = re.search(r"AI_COSTS_DIAGNOSTIC:([A-Za-z]+):([0-9]+)", child.before or "")
         if diagnostic:
             print(f"Verification exception: {diagnostic.group(1)} at probe line {diagnostic.group(2)}.")

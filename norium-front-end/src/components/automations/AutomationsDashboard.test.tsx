@@ -59,7 +59,7 @@ it("saves the automatic event and its text filter through the real builder", asy
   fireEvent.click(screen.getByRole("button", { name: "Nova automação" }));
   fireEvent.change(screen.getByLabelText("Buscar componentes"), { target: { value: "Compromisso criado" } });
   fireEvent.click(screen.getByRole("button", { name: /Compromisso criado.*Ao criar/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Bloco", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Bloco" }));
   fireEvent.click(screen.getByLabelText("Executar automaticamente ao receber este evento"));
   fireEvent.change(screen.getByLabelText("Texto deve conter (opcional)"), { target: { value: "Reunião comercial" } });
   fireEvent.click(screen.getByRole("button", { name: "Salvar fluxo" }));

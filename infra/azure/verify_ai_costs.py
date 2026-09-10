@@ -86,9 +86,11 @@ if __name__ == "__main__":
     # Container Apps exec carries the command in its WebSocket URL. Compress the
     # probe to stay below gateway URL limits without logging account information.
     encoded = base64.b64encode(zlib.compress(probe.encode())).decode()
-    command = f"python -c \"import base64,zlib;exec(zlib.decompress(base64.b64decode('{encoded}')))\""
-    child = pexpect.spawn("az", ["containerapp", "exec", "-g", os.environ["RESOURCE_GROUP"], "-n", os.environ["APP_NAME"], "--command", command], encoding="utf-8", timeout=180)
+    command = f"import base64,zlib;exec(zlib.decompress(base64.b64decode('{encoded}')))"
+    child = pexpect.spawn("az", ["containerapp", "exec", "-g", os.environ["RESOURCE_GROUP"], "-n", os.environ["APP_NAME"], "--command", "python -i -q"], encoding="utf-8", timeout=180)
     try:
+        child.expect(">>> ")
+        child.sendline(command)
         child.expect("AI_COSTS_PRODUCTION_OK")
         print("Production AI costs verified: expected revision, authenticated admin API, persistent ledger, provider discovery, user/model totals and access control.")
     except (pexpect.EOF, pexpect.TIMEOUT):

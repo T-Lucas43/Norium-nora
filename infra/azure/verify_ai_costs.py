@@ -2,6 +2,7 @@
 import base64
 import os
 import re
+import zlib
 
 import pexpect
 
@@ -53,8 +54,10 @@ except Exception as exc:
 
 if __name__ == "__main__":
     probe = PROBE.replace("__EXPECTED_REVISION__", repr(os.environ["EXPECTED_REVISION"]))
-    encoded = base64.b64encode(probe.encode()).decode()
-    command = f"python -c \"import base64;exec(base64.b64decode('{encoded}'))\""
+    # Container Apps exec carries the command in its WebSocket URL. Compress the
+    # probe to stay below gateway URL limits without logging account information.
+    encoded = base64.b64encode(zlib.compress(probe.encode())).decode()
+    command = f"python -c \"import base64,zlib;exec(zlib.decompress(base64.b64decode('{encoded}')))\""
     child = pexpect.spawn("az", ["containerapp", "exec", "-g", os.environ["RESOURCE_GROUP"], "-n", os.environ["APP_NAME"], "--command", command], encoding="utf-8", timeout=180)
     try:
         child.expect("AI_COSTS_PRODUCTION_OK")

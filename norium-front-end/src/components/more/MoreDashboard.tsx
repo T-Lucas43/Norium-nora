@@ -1,143 +1,43 @@
-import {
-  Bell,
-  Bot,
-  Download,
-  GitBranch,
-  Landmark,
-  Lightbulb,
-  LogOut,
-  Logs,
-  Puzzle,
-  Settings,
-  Shield,
-  ShieldCheck,
-  Users,
-  Webhook,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { useState } from "react";
+import { ArrowUpRight, Search, LogOut, Sparkles } from "lucide-react";
+import IntegrationLogo from "../shared/IntegrationLogo";
+import "./moreDashboard.css";
 
-type MoreDashboardProps = {
-  onNavigate: (tab: string) => void;
-  onOpenNora: () => void;
-  onLogout: () => void;
-};
-
-type MoreItem = {
-  title: string;
-  description: string;
-  icon: LucideIcon;
-  action: () => void;
-  tone?: "danger";
-};
-
-type MoreGroup = {
-  title: string;
-  items: MoreItem[];
-};
-
-export default function MoreDashboard({ onNavigate, onOpenNora, onLogout }: MoreDashboardProps) {
-  const groups: MoreGroup[] = [
-    {
-      title: "Fluxo de trabalho",
-      items: [
-        { title: "Controle operacional", description: "Meu Dia, aprovacoes, integracoes, auditoria e comprovantes.", icon: ShieldCheck, action: () => onNavigate("Controle") },
-        { title: "Integracoes", description: "Central de eventos das integracoes conectadas.", icon: Puzzle, action: () => onNavigate("Central") },
-        { title: "Agentes da Nora", description: "Abra a Nora e acesse os agentes de e-mail, agenda e tarefas.", icon: Bot, action: onOpenNora },
-        { title: "Notificacoes", description: "Alertas globais, conexoes e avisos operacionais.", icon: Bell, action: () => onNavigate("Notificações") },
-      ],
-    },
-    {
-      title: "Financeiro e times",
-      items: [
-        { title: "Financeiro", description: "Gastos, boletos, entradas, saidas e lembretes.", icon: Landmark, action: () => onNavigate("Gastos") },
-        { title: "Automacoes", description: "Fluxos, gatilhos, execucoes e agentes da Nora.", icon: GitBranch, action: () => onNavigate("Automações") },
-        { title: "Equipe", description: "Operadores, permissoes e grupos de trabalho.", icon: Users, action: () => onNavigate("Equipe") },
-        { title: "Estúdio", description: "Quadros colaborativos, ideias, votacao, comentarios e decisoes.", icon: Lightbulb, action: () => onNavigate("Estúdio") },
-      ],
-    },
-    {
-      title: "Conta e sistema",
-      items: [
-        { title: "Configuracoes", description: "Tema, aparencia, notificacoes e preferencias da Nora.", icon: Settings, action: () => onNavigate("Configurações") },
-        { title: "Seguranca", description: "Sessoes, auditoria e politicas de acesso.", icon: Shield, action: () => onNavigate("Controle") },
-        { title: "Sair da conta", description: "Encerrar sua sessao atual no Norium.", icon: LogOut, action: onLogout, tone: "danger" },
-      ],
-    },
-  ];
-
-  const advanced: MoreItem[] = [
-    { title: "Exportar dados", description: "Baixe relatorios e dados consolidados.", icon: Download, action: () => onNavigate("Relatórios") },
-    { title: "Logs de atividades", description: "Historico operacional em tempo real.", icon: Logs, action: () => onNavigate("Controle") },
-    { title: "Webhooks", description: "Gerencie webhooks de entrada e saida.", icon: Webhook, action: () => onNavigate("Automações") },
-  ];
-
-  return (
-    <div className="h-full overflow-y-auto bg-[var(--background)] p-8 text-[var(--text)]">
-      <header className="mb-6">
-        <h1 className="text-2xl font-black">Mais</h1>
-        <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
-          Atalhos administrativos e recursos disponiveis no Norium.
-        </p>
-      </header>
-
-      <div className="flex flex-col gap-8">
-        {groups.map((group) => (
-          <section key={group.title}>
-            <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">{group.title}</h2>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {group.items.map((item) => (
-                <button
-                  key={item.title}
-                  type="button"
-                  onClick={item.action}
-                  className="min-h-40 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 text-left shadow-sm transition hover:border-[var(--primary)] hover:bg-[var(--surface-hover)]"
-                >
-                  <span
-                    className="mb-4 grid h-11 w-11 place-items-center rounded-lg"
-                    style={
-                      item.tone === "danger"
-                        ? { background: "color-mix(in srgb, var(--danger) 14%, transparent)", color: "var(--danger)" }
-                        : { background: "color-mix(in srgb, var(--primary) 14%, transparent)", color: "var(--primary)" }
-                    }
-                  >
-                    <item.icon size={22} />
-                  </span>
-                  <h3 className="font-black text-[var(--text)]">{item.title}</h3>
-                  <p className="mt-2 line-clamp-2 text-sm font-semibold text-[var(--text-secondary)]">{item.description}</p>
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
-
-      <section className="mt-8 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-        <header className="border-b border-[var(--border)] px-5 py-4">
-          <h2 className="text-base font-black">Ferramentas avancadas</h2>
-          <p className="text-xs font-semibold text-[var(--text-secondary)]">Exportacao, rastreabilidade e automacao.</p>
-        </header>
-        <div className="divide-y divide-[var(--border)]">
-          {advanced.map((item) => (
-            <button
-              key={item.title}
-              type="button"
-              onClick={item.action}
-              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-[var(--surface-hover)]"
-            >
-              <span className="flex min-w-0 items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--background)] text-[var(--primary)]">
-                  <item.icon size={18} />
-                </span>
-                <span className="min-w-0">
-                  <strong className="block truncate text-sm font-bold">{item.title}</strong>
-                  <span className="block truncate text-xs font-semibold text-[var(--text-secondary)]">{item.description}</span>
-                </span>
-              </span>
-              <span className="shrink-0 text-xs font-bold text-[var(--primary)]">Abrir</span>
-            </button>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
+type Props = { onNavigate: (tab: string) => void; onOpenNora: () => void; onLogout: () => void };
+const groups = [
+  { title: "Comunicação e integrações", items: [
+    ["Gmail", "E-mails, respostas e conexão da sua conta.", "E-mails"],
+    ["Google Agenda", "Compromissos e conexão com o Google.", "Agenda"],
+    ["WhatsApp", "Conversas, contatos e conexão do WhatsApp.", "Chat"],
+    ["Chat da Equipe", "Converse com membros e subequipes.", "Chat da Equipe"],
+  ] },
+  { title: "Organize o trabalho", items: [
+    ["Automações", "Monte fluxos e acompanhe as execuções.", "Automações"],
+    ["Tarefas", "Projetos, prazos e responsáveis.", "Tarefas"],
+    ["Clientes", "Consulte e organize seus clientes.", "Clientes"],
+    ["Estúdio", "Quadros, ideias e colaboração.", "Estúdio"],
+    ["Financeiro", "Acompanhe entradas, saídas e gastos.", "Financeiro"],
+    ["Relatórios", "Indicadores e relatórios da operação.", "Relatórios"],
+    ["Documentos", "Crie e organize propostas e documentos.", "Documentos"],
+    ["Central de atividades", "Eventos e atualizações dos módulos.", "Central"],
+  ] },
+  { title: "Conta e administração", items: [
+    ["Equipe", "Membros e permissões da equipe.", "Equipe"],
+    ["Controle operacional", "Aprovações e acompanhamento da operação.", "Controle"],
+    ["Configurações", "Aparência e preferências do sistema.", "Configurações"],
+    ["Notificações", "Consulte seus alertas e avisos.", "Notificações"],
+    ["Perfil", "Informações da sua conta.", "Perfil"],
+  ] },
+];
+export default function MoreDashboard({ onNavigate, onOpenNora, onLogout }: Props) {
+  const [query, setQuery] = useState("");
+  const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const visible = groups.map(group => ({ ...group, items: group.items.filter(item => normalize(item.join(" ")).includes(normalize(query))) })).filter(group => group.items.length);
+  return <main className="more-workspace">
+    <header className="more-heading"><div><span className="more-eyebrow">SEU ESPAÇO DE TRABALHO</span><h1>Mais possibilidades, no mesmo lugar.</h1><p>Acesse os recursos e os canais do Norium.</p></div><button className="more-nora" onClick={onOpenNora}><Sparkles size={20}/> Abrir Nora <ArrowUpRight size={16}/></button></header>
+    <label className="more-search"><Search size={18}/><input aria-label="Buscar recursos" placeholder="Buscar um recurso ou integração…" value={query} onChange={event => setQuery(event.target.value)}/></label>
+    {visible.map(group => <section key={group.title}><h2>{group.title} <span>{group.items.length}</span></h2><div className="more-grid">{group.items.map(([title, description, tab]) => <button key={title} className="more-card" onClick={() => onNavigate(tab)}><span className="more-logo"><IntegrationLogo name={title}/></span><ArrowUpRight className="more-arrow" size={17}/><strong>{title}</strong><p>{description}</p><span className="more-open">Abrir recurso</span></button>)}</div></section>)}
+    {!visible.length && <p role="status">Nenhum recurso encontrado para “{query}”.</p>}
+    <footer className="more-footer"><span>Norium · Seu trabalho conectado</span><button onClick={onLogout}><LogOut size={16}/> Sair da conta</button></footer>
+  </main>;
 }

@@ -1,3 +1,4 @@
+import IntegrationLogo from "../shared/IntegrationLogo";
 import Button from "../shared/Button";
 import {
   CalendarDays,
@@ -47,8 +48,8 @@ export default function IntegrationGrid({ onNavigate }: { onNavigate: (tab: stri
     <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-[var(--text)]">Integracoes</h2>
-          <p className="text-sm font-semibold text-[var(--text-secondary)]">Canais disponiveis e integrados ao Norium.</p>
+          <h2 className="text-xl font-bold text-[var(--text)]">Integrações</h2>
+          <p className="text-sm font-semibold text-[var(--text-secondary)]">Acesse os canais e gerencie suas conexões.</p>
         </div>
 
         <Button
@@ -60,9 +61,9 @@ export default function IntegrationGrid({ onNavigate }: { onNavigate: (tab: stri
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {integrations.map((integration) => {
-          const Icon = integration.icon;
+
           return (
             <button
               type="button"
@@ -72,12 +73,12 @@ export default function IntegrationGrid({ onNavigate }: { onNavigate: (tab: stri
               aria-label={`Abrir ${integration.name}`}
             >
               <span className={`mb-4 grid h-11 w-11 place-items-center rounded-lg ${integration.iconSurface}`}>
-                <Icon size={23} className={integration.iconClass} />
+                <IntegrationLogo name={integration.name} size={28} />
               </span>
               <h3 className="text-base font-bold text-[var(--text)]">{integration.name}</h3>
               <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{integration.subtitle}</p>
               <span className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-emerald-500">
-                <CheckCircle2 size={14} /> Disponivel
+                <CheckCircle2 size={14} /> Disponível
               </span>
             </button>
           );

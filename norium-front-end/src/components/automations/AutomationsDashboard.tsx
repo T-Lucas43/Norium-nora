@@ -1,3 +1,7 @@
+import AutomaticEventHistory from "./AutomaticEventHistory";
+import EventTriggerFields, { eventTriggers } from "./EventTriggerFields";
+import IntegrationLogo from "../shared/IntegrationLogo";
+import MessageActionFields, { messageIssues } from "./MessageActionFields";
 import "./automationBuilder.css";
 import AutomationFlowPreview from "./AutomationFlowPreview";
 import WorkspaceHeader from "../shared/WorkspaceHeader";
@@ -81,7 +85,7 @@ const filters: Array<{ key: FilterKey; label: string }> = [
   { key: "recentes", label: "Recentes" },
 ];
 
-const triggers = ["WhatsApp", "Chat da Equipe", "E-mail", "Agenda", "Tarefas", "Gastos", "Relatorios", "Webhook", "API", "Agendamento", "Manual"];
+const triggers = ["Manual", ...eventTriggers.map(item => item.title)];
 const actions = [
   "Enviar WhatsApp",
   "Enviar mensagem no Chat",
@@ -194,12 +198,8 @@ const componentLibrary: Array<{
   {
     group: "Gatilhos",
     items: [
-      { title: "Novo e-mail", description: "Dispara quando chegar mensagem no Gmail.", icon: "mail", kind: "trigger", category: "E-mail" },
-      { title: "Mensagem WhatsApp", description: "Dispara com mensagem recebida no chat.", icon: "message-square", kind: "trigger", category: "WhatsApp" },
-      { title: "Evento na agenda", description: "Dispara com evento criado ou próximo.", icon: "calendar-days", kind: "trigger", category: "Agenda" },
-      { title: "Tarefa atualizada", description: "Dispara quando um card mudar de status.", icon: "check-square", kind: "trigger", category: "Tarefas" },
-      { title: "Novo gasto", description: "Dispara ao registrar lançamento financeiro.", icon: "credit-card", kind: "trigger", category: "Gastos" },
-      { title: "Webhook", description: "Recebe dados de sistemas externos.", icon: "webhook", kind: "trigger", category: "Webhook" },
+      { title: "Manual", description: "Executa quando você clicar em Executar.", icon: "manual", kind: "trigger", category: "Manual" },
+      ...eventTriggers.map(item => ({ ...item, kind: "trigger" as const })),
     ],
   },
   {
@@ -211,7 +211,7 @@ const componentLibrary: Array<{
       { title: "Criar tarefa", description: "Cria card com prioridade, prazo e etiquetas.", icon: "check-square", kind: "action", category: "Tarefas" },
       { title: "Registrar gasto", description: "Cria lançamento financeiro com categoria.", icon: "credit-card", kind: "action", category: "Gastos" },
       { title: "Atualizar relatório", description: "Atualiza indicadores operacionais.", icon: "bar-chart-3", kind: "action", category: "Relatórios" },
-      { title: "Notificar equipe", description: "Envia aviso no chat interno.", icon: "users", kind: "action", category: "Equipe" },
+      { title: "Enviar mensagem no Chat", description: "Escolha toda a equipe, um membro ou uma subequipe.", icon: "users", kind: "action", category: "Equipe" },
       { title: "Executar tarefa no navegador", description: "Opera um Chromium real com cliques, formulários, arquivos, aprovações e evidências.", icon: "globe", kind: "action", category: "Navegador" },
       { title: "Executar IA com roteamento", description: "Seleciona provedor por política de custo, capacidade e privacidade.", icon: "network", kind: "nora", category: "IA e Modelos" },
     ],
@@ -249,6 +249,7 @@ const defaultForm: AutomationFormState = {
 };
 
 function IconByName({ name, size = 18, className = "" }: { name: string; size?: number; className?: string }) {
+  if (/mail|message|calendar|users|webhook|clock|manual/.test(name)) return <IntegrationLogo name={name} size={size} className={className} />;
   const Icon = iconMap[name] || Zap;
   return <Icon size={size} className={className} />;
 }
@@ -1000,7 +1001,11 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
   }
 
   function validateBuilderFlow() {
-    const issues: string[] = [];
+    const issues: string[] = messageIssues(builderFlow.nodes);
+    const eventConfig = builderFlow.nodes.find(node => node.kind === "trigger")?.config;
+    if (eventConfig?.automatic === "true" && !eventTriggers.some(item => item.value === eventConfig.eventType)) issues.push("Selecione um evento válido para o gatilho automático.");
+    if (eventConfig?.automatic === "true" && form.approvalRequired) issues.push("Desative a execução automática ou a aprovação obrigatória para salvar este fluxo.");
+    if (eventConfig?.automatic === "true" && localMode) issues.push("Conecte ao servidor para ativar gatilhos automáticos. O modo local permite apenas simulações.");
     const triggersInFlow = builderFlow.nodes.filter((nodeItem) => nodeItem.kind === "trigger");
     const actionsInFlow = builderFlow.nodes.filter((nodeItem) => nodeItem.kind !== "trigger");
     if (!form.name.trim()) issues.push("Informe um nome para a automacao.");
@@ -1294,6 +1299,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                         <span className="rounded-full border border-white/10 px-2 py-1 text-xs font-bold uppercase text-white/60">{nodeItem.kind === "trigger" ? "Gatilho" : nodeItem.kind === "nora" ? "Nora IA" : "Ação"}</span>
                       </div>
                       <h3 className="mt-3 text-sm font-bold">{nodeItem.title}</h3>
+                      {nodeItem.kind === "trigger" && <span className="text-xs text-emerald-300">{nodeItem.config?.automatic === "true" ? "Disparo automático ativado" : "Execução manual"}</span>}
                       <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-white/62">{nodeItem.description}</p>
                     </motion.div>
                   ))}
@@ -1422,6 +1428,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                         <span className="text-xs font-semibold text-[var(--text-secondary)]">{selectedBuilderNode.kind === "trigger" ? "Gatilho" : selectedBuilderNode.kind === "nora" ? "Nora IA" : "Ação"}</span>
                       </div>
                     </div>
+                    <MessageActionFields key={selectedBuilderNode.id} node={selectedBuilderNode} onChange={(config) => updateBuilderNode(selectedBuilderNode.id, { config })} />
+                    {selectedBuilderNode.kind === "trigger" && <EventTriggerFields key={`event-${selectedBuilderNode.id}`} node={selectedBuilderNode} onChange={(config) => { const event = eventTriggers.find(item => item.value === config.eventType); updateBuilderNode(selectedBuilderNode.id, { config, ...(event ? { title: event.title, icon: event.icon } : {}) }); }} />}
                     <label className="block space-y-1.5">
                       <span className="text-xs font-bold text-[var(--text-secondary)]">Nome do bloco</span>
                       <input
@@ -1439,15 +1447,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                         className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none"
                       />
                     </label>
-                    <label className="block space-y-1.5">
-                      <span className="text-xs font-bold text-[var(--text-secondary)]">Condição opcional</span>
-                      <input
-                        value={selectedBuilderNode.config?.condition || ""}
-                        onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), condition: event.target.value } })}
-                        placeholder="Ex.: prioridade alta ou valor acima de 500"
-                        className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"
-                      />
-                    </label>
+
                     {selectedBuilderNode.title.toLowerCase().includes("navegador") && (
                       <>
                         <label className="block space-y-1.5">
@@ -1862,13 +1862,14 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
         </div>
 
         <aside className="space-y-4">
+          {!localMode && <AutomaticEventHistory automations={data.automations} />}
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
             <h2 className="text-lg font-black">Integrações disponíveis</h2>
             <div className="mt-4 space-y-2">
               {!data.integrations.length && <p className="text-sm text-[var(--text-secondary)]">Nenhuma integração informada para os fluxos.</p>}
               {data.integrations.map((integration) => (
                 <div key={integration.name} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-3">
-                  <span className="font-black">{integration.name}</span>
+                  <span className="flex items-center gap-3 font-black"><IntegrationLogo name={integration.name} />{integration.name}</span>
                   <span className="rounded-full bg-[var(--surface-hover)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{integration.status}</span>
                 </div>
               ))}

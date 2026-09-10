@@ -199,19 +199,24 @@ def create_app() -> FastAPI:
     async def lifespan(_app):
         from app.services.system_email import worker
         from app.services.system_email_reminders import worker as reminder_worker
+        from app.modules.automations.events import worker as automation_worker
         await start_recording_maintenance()
         delivery = asyncio.create_task(worker())
         reminders = asyncio.create_task(reminder_worker())
+        automations = asyncio.create_task(automation_worker())
         try:
             yield
         finally:
             await stop_recording_maintenance()
             delivery.cancel()
             reminders.cancel()
+            automations.cancel()
             with suppress(asyncio.CancelledError):
                 await delivery
             with suppress(asyncio.CancelledError):
                 await reminders
+            with suppress(asyncio.CancelledError):
+                await automations
 
     app = FastAPI(title="Norium Engine Chat Central Unificado API", lifespan=lifespan)
     app.add_middleware(

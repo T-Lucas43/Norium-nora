@@ -341,7 +341,7 @@ def response_payload(store: dict[str, Any]) -> dict[str, Any]:
         "automations": ordered,
         "history": history[:80],
         "templates": TEMPLATES,
-        "integrations": [{"name": name, "status": "Conectado"} for name in INTEGRATIONS],
+        "integrations": [{"name": name, "status": "Disponível"} for name in INTEGRATIONS],
         "metrics": metrics(store),
         "updatedAt": store.get("updatedAt"),
     }
@@ -402,8 +402,22 @@ def automation_from_payload(payload: AutomationPayload) -> dict[str, Any]:
         "flow": flow,
         "logs": [],
     }
+    stamp_event_activation(automation)
     automation["versions"] = [automation_snapshot(automation, "Versao inicial")]
     return automation
+
+
+def stamp_event_activation(automation: dict[str, Any]) -> None:
+    from app.modules.automations.events import EVENT_TYPES
+    for item in (automation.get("flow") or {}).get("nodes", []):
+        config = item.get("config") or {}
+        if item.get("kind") != "trigger" or config.get("automatic") != "true":
+            continue
+        if config.get("eventType") not in EVENT_TYPES:
+            raise HTTPException(status_code=422, detail="Selecione um evento suportado para o gatilho automático.")
+        if automation.get("requiresApproval") or (automation.get("variables") or {}).get("approvalRequired") == "true":
+            raise HTTPException(status_code=422, detail="Fluxos com aprovação obrigatória não podem executar automaticamente.")
+        config["enabledAt"] = now_iso()
 
 
 def automation_snapshot(automation: dict[str, Any], note: str = "") -> dict[str, Any]:
@@ -477,12 +491,71 @@ def classify_email_category(message: dict[str, Any]) -> str:
 
 
 async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> list[str]:
-    text = automation_text(automation)
+    # A trigger/name mentioning a task must not cause an unconfigured action.
+    action_nodes = [item for item in (automation.get("flow") or {}).get("nodes", []) if item.get("kind") != "trigger"]
+    text = normalize_text(" ".join(str(item.get("title") or "") for item in action_nodes)) if action_nodes else normalize_text(" ".join(automation.get("actions") or []))
     variables = automation.get("variables") if isinstance(automation.get("variables"), dict) else {}
     effects: list[str] = []
 
     flow = automation.get("flow") if isinstance(automation.get("flow"), dict) else {}
     flow_nodes = flow.get("nodes") if isinstance(flow.get("nodes"), list) else []
+    message_nodes = []
+    for item in flow_nodes:
+        if not isinstance(item, dict) or item.get("kind") == "trigger":
+            continue
+        config = item.get("config") or {}
+        title = normalize_text(str(item.get("title") or ""))
+        action_type = config.get("actionType")
+        if action_type in {"send_whatsapp", "send_team"} or "enviar whatsapp" in title or "enviar mensagem no chat" in title:
+            message_nodes.append((item, config, action_type or ("send_whatsapp" if "whatsapp" in title else "send_team")))
+
+    # Validate every destination before sending any message; use the same permission
+    # checks and tenant resolution as the interactive messaging endpoints.
+    if message_nodes:
+        from app.routers.auth_router import read_user_store
+        from app.modules.team.router import thread_participant_ids, read_chat_store, team_id_for, require_team_chat
+
+        users = await read_user_store()
+        actor = next((item for item in users.get("users", []) if str(item.get("id")) == user_id), None)
+        if not actor or actor.get("status") != "ativo":
+            raise ValueError("A conta responsável pela automação não está ativa.")
+        for item, config, action_type in message_nodes:
+            if not str(config.get("message") or "").strip():
+                raise ValueError(f'{item.get("title")}: informe a mensagem.')
+            if action_type == "send_whatsapp":
+                from app.modules.chat.router import assert_channel_permission
+                assert_channel_permission(actor, "whatsapp")
+                recipient = str(config.get("recipient") or "").strip()
+                if not recipient:
+                    raise ValueError("Selecione um contato ou informe um número de WhatsApp.")
+                if config.get("recipientMode") == "number" and not re.fullmatch(r"\d{10,15}", re.sub(r"[+\s()-]", "", recipient)):
+                    raise ValueError("Informe o número de WhatsApp com DDI e DDD.")
+            else:
+                require_team_chat(actor)
+                if len(str(config.get("message") or "")) > 2000:
+                    raise ValueError("A mensagem do chat deve ter até 2000 caracteres.")
+                scope = config.get("scope") or "team"
+                if scope not in {"team", "direct", "subteam"}:
+                    raise ValueError("Destino de chat inválido.")
+                await thread_participant_ids(actor, read_chat_store(team_id_for(actor)), scope,
+                                             config.get("recipientId") if scope == "direct" else None,
+                                             config.get("recipientId") if scope == "subteam" else None)
+        for item, config, action_type in message_nodes:
+            message = str(config["message"]).strip()
+            if action_type == "send_whatsapp":
+                from app.modules.chat.router import EnviarMensagemPayload, enviar_mensagem
+                recipient = str(config["recipient"]).strip()
+                if config.get("recipientMode") == "number":
+                    recipient = re.sub(r"[+\s()-]", "", recipient)
+                await enviar_mensagem(EnviarMensagemPayload(conversa_id=recipient, texto=message), actor)
+                effects.append("Mensagem enviada no WhatsApp.")
+            else:
+                from app.modules.team.router import SendTeamMessagePayload, SendSubteamMessagePayload, send_message, send_subteam_message
+                if config.get("scope") == "subteam":
+                    await send_subteam_message(config["recipientId"], SendSubteamMessagePayload(text=message), actor)
+                else:
+                    await send_message(SendTeamMessagePayload(scope=config.get("scope") or "team", recipientId=config.get("recipientId") or None, text=message), actor)
+                effects.append("Mensagem enviada ao destino selecionado no chat da equipe.")
     browser_node = next(
         (
             item for item in flow_nodes
@@ -679,7 +752,7 @@ async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> 
         except Exception as exc:
             effects.append(f"Falha ao agrupar e-mails: {str(exc)}")
 
-    if "notificar equipe" in text or "chat interno" in text or "avisar equipe" in text or "mensagem ao time" in text:
+    if not message_nodes and ("notificar equipe" in text or "chat interno" in text or "avisar equipe" in text or "mensagem ao time" in text):
         message = (
             f'Nora: automacao "{automation.get("name")}" executada. '
             f'Gatilho: {automation.get("trigger") or "manual"}. '
@@ -760,7 +833,7 @@ async def simulate_automation(user_id: str, automation_id: str, executed_by: str
     return {"automation": automation, "historyItem": log, "metrics": metrics(store)}
 
 
-async def execute_automation(user_id: str, automation_id: str, executed_by: str = "Operador") -> dict[str, Any]:
+async def execute_automation(user_id: str, automation_id: str, executed_by: str = "Operador", *, event: dict[str, Any] | None = None) -> dict[str, Any]:
     store = read_store(user_id)
     automation = find_automation(store, automation_id)
     if not automation:
@@ -768,6 +841,7 @@ async def execute_automation(user_id: str, automation_id: str, executed_by: str 
     if not automation.get("active"):
         raise HTTPException(status_code=400, detail="Automacao desativada. Ative antes de executar.")
 
+    original_variables = copy.deepcopy(automation.get("variables") or {})
     timestamp = now_iso()
     saved = int(automation.get("savedMinutesPerRun") or 8)
     automation["executions"] = int(automation.get("executions") or 0) + 1
@@ -783,10 +857,14 @@ async def execute_automation(user_id: str, automation_id: str, executed_by: str 
         step["status"] = "executando"
     effects: list[str] = []
     failure: Exception | None = None
+    from app.modules.automations.events import automation_origin
+    origin_token = automation_origin.set(True)
     try:
         effects = await apply_automation_effects(user_id, automation)
     except Exception as exc:
         failure = exc
+    finally:
+        automation_origin.reset(origin_token)
     finished_at = datetime.now(timezone.utc)
     for index, step in enumerate(steps):
         step["finishedAt"] = finished_at.isoformat()
@@ -819,11 +897,26 @@ async def execute_automation(user_id: str, automation_id: str, executed_by: str 
         "input": {
             "trigger": automation.get("trigger"),
             "variables": automation.get("variables") if isinstance(automation.get("variables"), dict) else {},
+            "event": event,
         },
         "steps": steps,
         "error": str(failure) if failure else None,
         "sideEffects": True,
     }
+    # External sends await I/O. Preserve edits/deactivation made during that
+    # wait instead of replacing the user's newer flow with our old snapshot.
+    latest_store = read_store(user_id)
+    latest = find_automation(latest_store, automation_id)
+    if latest:
+        latest["executions"] = int(latest.get("executions") or 0) + 1
+        latest["lastRunAt"] = timestamp
+        if failure is None:
+            latest["savedMinutes"] = int(latest.get("savedMinutes") or 0) + saved
+        for key, value in (automation.get("variables") or {}).items():
+            if value != original_variables.get(key):
+                latest.setdefault("variables", {})[key] = value
+        automation = latest
+    store = latest_store
     store.setdefault("history", []).insert(0, log)
     automation.setdefault("logs", []).insert(0, log)
     automation["logs"] = automation["logs"][:20]
@@ -848,6 +941,14 @@ async def execute_automation(user_id: str, automation_id: str, executed_by: str 
 @router.get("")
 async def listar_automacoes(user: dict[str, Any] = Depends(current_user)):
     return response_payload(read_store(tenant_id(user)))
+
+
+@router.get("/eventos/fila")
+async def listar_eventos_automaticos(user: dict[str, Any] = Depends(current_user)):
+    import asyncio
+    from app.core.request_context import current_workspace_id
+    from app.modules.automations.events import recent_jobs
+    return {"jobs": await asyncio.to_thread(recent_jobs, tenant_id(user), current_workspace_id())}
 
 
 @router.post("")
@@ -885,6 +986,8 @@ async def atualizar_automacao(automation_id: str, payload: AutomationUpdatePaylo
         automation["status"] = "ativa" if automation.get("active") else "desativada"
     if "status" in updates:
         automation["active"] = automation.get("status") == "ativa"
+    if "flow" in updates or (not previous_active and automation.get("active")):
+        stamp_event_activation(automation)
     automation["updatedAt"] = now_iso()
     automation["version"] = int(automation.get("version") or 1) + 1
     append_automation_snapshot(automation, f"Atualizacao: {', '.join(updates.keys()) or 'sem campos'}")

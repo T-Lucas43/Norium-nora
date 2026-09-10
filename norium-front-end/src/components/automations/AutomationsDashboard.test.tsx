@@ -53,3 +53,20 @@ it("saves reordered actions and their matching connections", async () => {
   expect(saved.flow.nodes.map((node: { title: string }) => node.title)).toEqual(["Manual", "Mostrar notificacao", "Executar IA"]);
   expect(saved.flow.connections.map((edge: { source: string; target: string }) => [edge.source, edge.target])).toEqual([[saved.flow.nodes[0].id, saved.flow.nodes[1].id], [saved.flow.nodes[1].id, saved.flow.nodes[2].id]]);
 });
+it("saves the automatic event and its text filter through the real builder", async () => {
+  render(<AutomationsDashboard userId="u1" onOpenNora={vi.fn()} />);
+  await screen.findByRole("button", { name: "Explorar modelos" });
+  fireEvent.click(screen.getByRole("button", { name: "Nova automação" }));
+  fireEvent.change(screen.getByLabelText("Buscar componentes"), { target: { value: "Compromisso criado" } });
+  fireEvent.click(screen.getByRole("button", { name: /Compromisso criado.*Ao criar/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Bloco", exact: true }));
+  fireEvent.click(screen.getByLabelText("Executar automaticamente ao receber este evento"));
+  fireEvent.change(screen.getByLabelText("Texto deve conter (opcional)"), { target: { value: "Reunião comercial" } });
+  fireEvent.click(screen.getByRole("button", { name: "Salvar fluxo" }));
+  const call = request.mock.calls.find(([, init]) => init?.method === "POST");
+  expect(call).toBeDefined();
+  const saved = JSON.parse(String(call![1]!.body));
+  const trigger = saved.flow.nodes.find((node: { kind: string }) => node.kind === "trigger");
+  expect(trigger.config).toMatchObject({ automatic: "true", eventType: "calendar.created", contains: "Reunião comercial" });
+  expect(trigger.config.enabledAt).toBeTruthy();
+});

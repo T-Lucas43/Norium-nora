@@ -42,7 +42,16 @@ async def verify():
     users = (await read_user_store()).get("users", [])
     admin = next(u for u in users if can_manage_system(u) and u.get("status") == "ativo")
     async with httpx.AsyncClient(base_url="http://127.0.0.1:8000", timeout=60) as client:
-        health = (await client.get("/health")).json()
+        for attempt in range(24):
+            try:
+                health = (await client.get("/health")).json()
+                if health.get("revision") == __EXPECTED_REVISION__:
+                    break
+            except (httpx.HTTPError, ValueError):
+                pass
+            await asyncio.sleep(5)
+        else:
+            raise AssertionError("Expected runtime did not become ready")
         assert health.get("revision") == __EXPECTED_REVISION__
         anonymous = await client.get("/api/auth/admin/ai-costs")
         assert anonymous.status_code == 401
@@ -60,6 +69,12 @@ async def verify():
         assert data["totals"]["totalTokens"] == data["totals"]["inputTokens"] + data["totals"]["outputTokens"]
         assert abs(data["totals"]["costUsd"] - sum(u["costUsd"] for u in data["users"])) < 0.000001
         assert abs(data["totals"]["costUsd"] - sum(m["costUsd"] for m in models)) < 0.000001
+        assert all(u["limits"]["period"] in ("weekly", "monthly") and "endAt" in u["cycle"] for u in data["users"])
+        cycles = await client.get("/api/auth/admin/ai-costs?month=cycle", headers={"Authorization": "Bearer " + create_token(admin)})
+        assert cycles.status_code == 200
+        pdf = await client.get("/api/auth/admin/ai-costs/pdf?month=cycle&userId=" + admin["id"], headers={"Authorization": "Bearer " + create_token(admin)})
+        assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+        assert (await client.get("/api/auth/admin/ai-costs/pdf")).status_code == 401
         # A second request checks persistence and idempotent legacy import.
         second = await client.get("/api/auth/admin/ai-costs", headers={"Authorization": "Bearer " + create_token(admin)})
         assert second.status_code == 200
@@ -68,6 +83,7 @@ async def verify():
         if member:
             denied = await client.get("/api/auth/admin/ai-costs", headers={"Authorization": "Bearer " + create_token(member)})
             assert denied.status_code == 403
+            assert (await client.post("/api/auth/admin/ai-costs/users/" + member["id"] + "/reset", json={}, headers={"Authorization": "Bearer " + create_token(member)})).status_code == 403
     print("AI_COSTS_PRODUCTION_OK", flush=True)
 
 try:
@@ -92,7 +108,7 @@ if __name__ == "__main__":
         child.expect(">>> ")
         child.sendline(command)
         child.expect("AI_COSTS_PRODUCTION_OK")
-        print("Production AI costs verified: expected revision, authenticated admin API, persistent ledger, provider discovery, user/model totals and access control.")
+        print("Production AI costs verified: expected revision, authenticated admin API, persistent ledger, provider discovery, user/model totals, individual cycles, PDF export and access control.")
     except (pexpect.EOF, pexpect.TIMEOUT):
         if "AI_COSTS_STORAGE_OK" in (child.before or ""):
             print("Persistent storage dotfile locking, commit and integrity verified.")

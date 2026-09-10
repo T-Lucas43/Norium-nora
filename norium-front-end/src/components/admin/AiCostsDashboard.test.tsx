@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AiCostsDashboard from "./AiCostsDashboard";
@@ -26,11 +26,26 @@ describe("AiCostsDashboard", () => {
   it("salva zero como bloqueio e campo vazio como ilimitado", async () => {
     setup(); const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Ana/ }));
-    await user.clear(screen.getByLabelText("Orçamento mensal (USD)"));
-    await user.type(screen.getByLabelText("Orçamento mensal (USD)"), "0");
-    await user.clear(screen.getByLabelText("Limite mensal de tokens"));
+    await user.clear(screen.getByLabelText("Orçamento por ciclo (USD)"));
+    await user.type(screen.getByLabelText("Orçamento por ciclo (USD)"), "0");
+    await user.clear(screen.getByLabelText("Limite de tokens por ciclo"));
     await user.click(screen.getByRole("button", { name: "Salvar limites" }));
-    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", { method: "PUT", body: JSON.stringify({ monthlyBudgetUsd: 0, monthlyTokenLimit: null }) }));
+    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", { method: "PUT", body: JSON.stringify({ monthlyBudgetUsd: 0, monthlyTokenLimit: null, period: "monthly", startDate: null, autoRenew: true }) }));
+  });
+  it("salva ciclo semanal e data escolhida e permite reset explícito", async () => {
+    setup(); const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Ana/ }));
+    await user.selectOptions(screen.getByLabelText("Tipo de ciclo"), "weekly");
+    fireEvent.change(screen.getByLabelText("Data de início"), { target: { value: "2026-09-14" } });
+    await user.selectOptions(screen.getByLabelText("Renovação"), "manual");
+    await user.click(screen.getByRole("button", { name: "Salvar limites" }));
+    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/limits", "test-token", expect.objectContaining({ body: JSON.stringify({ monthlyBudgetUsd: 5, monthlyTokenLimit: 100000, period: "weekly", startDate: "2026-09-14", autoRenew: false }) })));
+    await user.click(screen.getByRole("button", { name: "Resetar saldo" }));
+    expect(authJson).not.toHaveBeenCalledWith(expect.stringContaining("/reset"), expect.anything(), expect.anything());
+    await user.selectOptions(screen.getByLabelText("Calendário após o reset"), "keep");
+    await user.type(screen.getByLabelText("Motivo do reset (opcional)"), "Novo crédito");
+    await user.click(screen.getByRole("button", { name: "Confirmar reset" }));
+    await waitFor(() => expect(authJson).toHaveBeenCalledWith("/api/auth/admin/ai-costs/users/a/reset", "test-token", { method: "POST", body: JSON.stringify({ restartCycle: false, reason: "Novo crédito" }) }));
   });
   it("edita tarifa com base de tokens e preço de cache", async () => {
     setup(); const user = userEvent.setup();

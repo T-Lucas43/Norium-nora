@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import calendar
 import hashlib
 import json
 import math
@@ -10,7 +11,7 @@ import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -64,9 +65,10 @@ def database():
     db.row_factory = sqlite3.Row
     try:
         db.executescript(SCHEMA)
-        db.execute("INSERT OR IGNORE INTO metadata VALUES ('trackingStartedAt', ?)", (now(),))
-        db.commit()
         db.execute("BEGIN IMMEDIATE")
+        if "created_at" not in {row[1] for row in db.execute("PRAGMA table_info(reservations)")}:
+            db.execute("ALTER TABLE reservations ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+        db.execute("INSERT OR IGNORE INTO metadata VALUES ('trackingStartedAt', ?)", (now(),))
         yield db
         db.commit()
     except BaseException:
@@ -194,19 +196,54 @@ def record_usage(provider, counts, *, user_id, source, event_id=None, created_at
 
 def get_limit(db, user_id):
     row = db.execute("SELECT data FROM limits WHERE user_id=?", (user_id,)).fetchone()
-    return json.loads(row[0]) if row else {"monthlyBudgetUsd": None, "monthlyTokenLimit": None}
+    return {"monthlyBudgetUsd": None, "monthlyTokenLimit": None, "period": "monthly", "startDate": None, "autoRenew": True, "resetAt": None, **(json.loads(row[0]) if row else {})}
+
+
+def instant(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc).astimezone(timezone.utc)
+
+
+def cycle_for(limit: dict, at: str | None = None) -> dict:
+    current = instant(at or now()).astimezone(BRAZIL)
+    anchor = date.fromisoformat(limit.get("startDate") or "2000-01-01")
+    start = datetime.combine(anchor, datetime.min.time(), BRAZIL)
+    def monthly(offset):
+        year, month = divmod(anchor.year * 12 + anchor.month - 1 + offset, 12)
+        return datetime(year, month + 1, min(anchor.day, calendar.monthrange(year, month + 1)[1]), tzinfo=BRAZIL)
+    weekly = limit.get("period") == "weekly"
+    if limit.get("autoRenew", True) and current >= start:
+        if weekly:
+            start += timedelta(weeks=(current.date() - anchor).days // 7)
+        else:
+            offset = (current.year - anchor.year) * 12 + current.month - anchor.month
+            if monthly(offset) > current:
+                offset -= 1
+            start = monthly(offset)
+    end = start + timedelta(days=7) if weekly else monthly((start.year - anchor.year) * 12 + start.month - anchor.month + 1)
+    effective = max(start, instant(limit["resetAt"])) if limit.get("resetAt") else start
+    utc = lambda value: value.astimezone(timezone.utc).isoformat()
+    return {"period": limit.get("period", "monthly"), "startAt": utc(effective), "scheduledStartAt": utc(start), "endAt": utc(end), "nextResetAt": utc(end) if limit.get("autoRenew", True) else None, "active": start <= current < end, "status": "scheduled" if current < start else "expired" if current >= end else "active"}
+
+
+def in_cycle(created_at: str, cycle: dict) -> bool:
+    return instant(cycle["startAt"]) <= instant(created_at) < instant(cycle["endAt"])
 
 
 def reserve(provider, user_id, input_bound, max_output, started_at=None):
     with database() as db:
         rate = ensure_rate(db, provider)
         limit = get_limit(db, user_id)
+        cycle = cycle_for(limit, started_at)
+        if not cycle["active"]:
+            raise HTTPException(402, "O ciclo de IA ainda não iniciou ou já encerrou. Peça ao administrador para ajustar o início ou reiniciar o ciclo.")
         if limit["monthlyBudgetUsd"] == 0 or limit["monthlyTokenLimit"] == 0:
-            raise HTTPException(402, "Uso de IA bloqueado pelo limite mensal. Peça ao administrador para ajustar seu saldo.")
-        month = month_for(started_at)
+            raise HTTPException(402, "Uso de IA bloqueado pelo limite do ciclo. Peça ao administrador para ajustar seu saldo.")
         db.execute("DELETE FROM reservations WHERE expires < ?", (time.time(),))
-        used = db.execute("SELECT COALESCE(SUM(input_tokens+output_tokens),0), COALESCE(SUM(cost_nano),0), SUM(cost_nano IS NULL) FROM usage WHERE user_id=? AND month=?", (user_id, month)).fetchone()
-        pending = db.execute("SELECT COALESCE(SUM(tokens),0),COALESCE(SUM(cost_nano),0) FROM reservations WHERE user_id=? AND month=?", (user_id, month)).fetchone()
+        usage = [r for r in db.execute("SELECT * FROM usage WHERE user_id=?", (user_id,)) if in_cycle(r["created_at"], cycle)]
+        used = (sum(r["input_tokens"] + r["output_tokens"] for r in usage), sum(r["cost_nano"] or 0 for r in usage), sum(r["cost_nano"] is None for r in usage))
+        reservations = [r for r in db.execute("SELECT * FROM reservations WHERE user_id=?", (user_id,)) if not r["created_at"] or in_cycle(r["created_at"], cycle)]
+        pending = (sum(r["tokens"] for r in reservations), sum(r["cost_nano"] for r in reservations))
         output = max_output
         if limit["monthlyTokenLimit"] is not None:
             output = min(output, limit["monthlyTokenLimit"] - used[0] - pending[0] - input_bound)
@@ -221,11 +258,11 @@ def reserve(provider, user_id, input_bound, max_output, started_at=None):
             elif rate["outputUsd"]:
                 output = min(output, int(remaining * Decimal(rate["unitTokens"]) / (Decimal(str(rate["outputUsd"])) * NANO)))
         if output < 1:
-            raise HTTPException(402, "Saldo mensal de IA insuficiente para esta solicitação. Reduza o contexto ou peça ao administrador para ajustar seus limites.")
+            raise HTTPException(402, "Saldo do ciclo de IA insuficiente para esta solicitação. Reduza o contexto ou peça ao administrador para ajustar seus limites.")
         reservation = uuid.uuid4().hex
         conservative = {**rate, "inputUsd": max((rate.get(k) or 0) for k in ("inputUsd", "cachedInputUsd", "cacheWriteUsd"))} if rate.get("inputUsd") is not None else rate
         inc, out = nano_cost(conservative, {"inputTokens": input_bound, "outputTokens": output})
-        db.execute("INSERT INTO reservations VALUES (?,?,?,?,?,?)", (reservation, user_id, month, input_bound + output, (inc or 0) + (out or 0), time.time() + 3600))
+        db.execute("INSERT INTO reservations(id,user_id,month,tokens,cost_nano,expires,created_at) VALUES (?,?,?,?,?,?,?)", (reservation, user_id, month_for(started_at), input_bound + output, (inc or 0) + (out or 0), time.time() + 3600, started_at or now()))
         return reservation, output, rate
 
 
@@ -290,9 +327,31 @@ def save_rate(payload: dict, actor: str) -> dict:
 def save_limit(user_id: str, payload: dict, actor: str):
     with database() as db:
         before = get_limit(db, user_id)
+        assert_no_pending(db, user_id)
+        payload = {**before, **payload, "resetAt": before["resetAt"]}
         db.execute("INSERT OR REPLACE INTO limits VALUES (?,?)", (user_id, json.dumps(payload)))
         db.execute("INSERT INTO audit(created_at,actor,action,target,data) VALUES (?,?,?,?,?)", (now(), actor, "limit_updated", user_id, json.dumps({"before": before, "after": payload})))
     return payload
+
+
+def assert_no_pending(db, user_id):
+    if db.execute("SELECT 1 FROM reservations WHERE user_id=? AND expires>? LIMIT 1", (user_id, time.time())).fetchone():
+        raise HTTPException(409, "Há chamadas de IA em andamento. Aguarde a conclusão antes de alterar ou resetar o ciclo.")
+
+
+def reset_limit(user_id: str, actor: str, restart_cycle: bool = True, reason: str = ""):
+    with database() as db:
+        assert_no_pending(db, user_id)
+        before = get_limit(db, user_id)
+        timestamp = now()
+        if not restart_cycle and not cycle_for(before, timestamp)["active"]:
+            raise HTTPException(409, "Este ciclo não está ativo. Escolha reiniciar o calendário a partir de hoje.")
+        updated = {**before, "resetAt": timestamp}
+        if restart_cycle:
+            updated["startDate"] = instant(timestamp).astimezone(BRAZIL).date().isoformat()
+        db.execute("INSERT OR REPLACE INTO limits VALUES (?,?)", (user_id, json.dumps(updated)))
+        db.execute("INSERT INTO audit(created_at,actor,action,target,data) VALUES (?,?,?,?,?)", (timestamp, actor, "cycle_reset", user_id, json.dumps({"before": before, "after": updated, "reason": reason, "restartCycle": restart_cycle})))
+    return updated
 
 
 def sync_catalog(users: list[dict]) -> dict:
@@ -349,10 +408,15 @@ def overview(users: list[dict], month: str, user_filter="", model_filter=""):
     catalog = sync_catalog(users)
     with database() as db:
         query = "SELECT * FROM usage WHERE (?='all' OR month=?) AND (?='' OR user_id=?) AND (?='' OR model_id=?) ORDER BY created_at DESC"
-        rows = db.execute(query, (month, month, user_filter, user_filter, model_filter, model_filter)).fetchall()
-        # Balances always use the current month and every model, regardless of report filters.
-        current_rows = db.execute("SELECT * FROM usage WHERE month=?", (month_for(),)).fetchall()
-        reservations = db.execute("SELECT * FROM reservations WHERE expires>? AND month=?", (time.time(), month_for())).fetchall()
+        report_month = "all" if month == "cycle" else month
+        rows = db.execute(query, (report_month, report_month, user_filter, user_filter, model_filter, model_filter)).fetchall()
+        # Cycles differ by account. Report filters never change available balances.
+        current_rows = db.execute("SELECT * FROM usage").fetchall()
+        reservations = db.execute("SELECT * FROM reservations WHERE expires>?", (time.time(),)).fetchall()
+        timestamp = now()
+        cycles = {uid: cycle_for(get_limit(db, uid), timestamp) for uid in {u["id"] for u in users} | {r["user_id"] for r in current_rows}}
+        if month == "cycle":
+            rows = [r for r in rows if in_cycle(r["created_at"], cycles[r["user_id"]])]
         results = []
         accounts = {u["id"]: {"id": u["id"], "name": u.get("nome") or u["id"], "email": u.get("email") or ""} for u in users}
         for row in [*rows, *current_rows]:
@@ -361,8 +425,9 @@ def overview(users: list[dict], month: str, user_filter="", model_filter=""):
             if user_filter and uid != user_filter:
                 continue
             user_rows = [r for r in rows if r["user_id"] == uid]
-            current = _totals([r for r in current_rows if r["user_id"] == uid])
-            pending = [r for r in reservations if r["user_id"] == uid]
+            cycle = cycles[uid]
+            current = _totals([r for r in current_rows if r["user_id"] == uid and in_cycle(r["created_at"], cycle)])
+            pending = [r for r in reservations if r["user_id"] == uid and (not r["created_at"] or in_cycle(r["created_at"], cycle))]
             limit = get_limit(db, uid)
             remaining_usd = max(0, limit["monthlyBudgetUsd"] - current["costUsd"] - sum(r["cost_nano"] for r in pending) / 1e9) if limit["monthlyBudgetUsd"] is not None else None
             remaining_tokens = max(0, limit["monthlyTokenLimit"] - current["totalTokens"] - sum(r["tokens"] for r in pending)) if limit["monthlyTokenLimit"] is not None else None
@@ -372,12 +437,14 @@ def overview(users: list[dict], month: str, user_filter="", model_filter=""):
                     continue
                 model_rows = [r for r in user_rows if r["model_id"] == model["id"]]
                 def capacity(input_ratio):
+                    if not cycle["active"]:
+                        return 0
                     if model["inputUsd"] is None or remaining_usd is None:
                         return None
                     price = (model["inputUsd"] * input_ratio + model["outputUsd"] * (1 - input_ratio)) / model["unitTokens"]
                     return min(math.floor(remaining_usd / price), remaining_tokens if remaining_tokens is not None else 10**15) if price else remaining_tokens
                 models.append({"modelId": model["id"], **_totals(model_rows), "capacityInputOnly": capacity(1), "capacityOutputOnly": capacity(0), "capacityMixed": capacity(0.75)})
-            results.append({**account, **_totals(user_rows), "limits": limit, "currentMonth": current, "remainingUsd": remaining_usd, "remainingTokens": remaining_tokens, "pendingRequests": len(pending), "models": models})
+            results.append({**account, **_totals(user_rows), "limits": limit, "cycle": cycle, "currentCycle": current, "currentMonth": current, "remainingUsd": remaining_usd if cycle["active"] else 0, "remainingTokens": remaining_tokens if cycle["active"] else 0, "pendingRequests": len(pending), "models": models})
         audit = [dict(r) for r in db.execute("SELECT created_at,actor,action,target FROM audit ORDER BY id DESC LIMIT 30")]
         started = db.execute("SELECT value FROM metadata WHERE key='trackingStartedAt'").fetchone()[0]
     return {"month": month, "currentMonth": month_for(), "trackingStartedAt": started, "updatedAt": now(), "totals": _totals(rows),

@@ -1,6 +1,6 @@
 # Custos de IA no Admin
 
-Aba **Custos por usuário**, restrita a administradores do sistema. Exibe custos em USD por usuário, modelo e provedor; totais de todos os usuários; tokens de entrada, saída, cache e raciocínio; histórico de chamadas; exportação CSV; auditoria de alterações e limites mensais.
+Aba **Custos por usuário**, restrita a administradores do sistema. Exibe custos em USD por usuário, modelo e provedor; totais de todos os usuários; tokens de entrada, saída, cache e raciocínio; histórico de chamadas; exportação CSV; auditoria de alterações e limites por ciclo semanal ou mensal.
 
 ## Tarifas e integração
 
@@ -16,7 +16,13 @@ Aba **Custos por usuário**, restrita a administradores do sistema. Exibe custos
 
 O gateway multprovedor e a Nora (respostas comuns, streaming, pesquisa e chamadas auxiliares) usam um único registro central. Cada tentativa bem-sucedida conta, mesmo se o conteúdo estiver vazio ou truncado. Respostas de erro HTTP são liberadas; desconexões ou respostas sem estatísticas ficam como estimativas conservadoras, nunca como consumo gratuito. Retentativas com fallback usam o modelo efetivo retornado pela API.
 
-Orçamento em dólares e teto de tokens são opcionais e independentes: campo vazio = sem limite, zero = bloquear. Valem para o usuário, somando todos os modelos e workspaces. O mês renova às 00h de Brasília no primeiro dia. O saldo mostrado sempre é do mês atual, mesmo ao consultar períodos anteriores.
+Orçamento em dólares e teto de tokens são opcionais e independentes: campo vazio = sem limite, zero = bloquear. Valem para o usuário, somando todos os modelos e workspaces. Cada conta escolhe ciclo semanal (7 dias) ou mensal e sua data inicial, a partir de 00h de Brasília. Nos meses sem o dia escolhido, usa-se o último dia, recuperando o dia original nos meses seguintes (31/01, 28/02, 31/03). As contas existentes continuam com renovação mensal no dia 1.
+
+A renovação automática abre um novo saldo ao fim do ciclo. Na renovação manual, o uso bloqueia ao encerrar; antes da data inicial também fica bloqueado. O saldo mostrado sempre é do ciclo atual, mesmo ao consultar períodos anteriores. A consulta “Ciclos atuais” soma os ciclos individuais, que podem ter datas diferentes.
+
+“Resetar saldo” exige confirmação na tela: pode manter a próxima data de renovação ou iniciar um novo calendário a partir de hoje. A contagem reinicia no instante confirmado; a próxima renovação continua às 00h. O histórico financeiro permanece íntegro e o motivo/autor/data são auditados. Um ciclo encerrado só pode ser reaberto reiniciando seu calendário. Chamadas pendentes impedem reset e alteração de limites (HTTP 409), evitando reclassificar reservas em andamento. Alterar datas e limites recalcula o saldo com o histórico existente e preserva o último reset; não concede um reset implícito.
+
+Por compatibilidade, os campos da API `monthlyBudgetUsd` e `monthlyTokenLimit` representam o teto do ciclo escolhido. `period`, `startDate` e `autoRenew` configuram o calendário. `currentCycle` e `cycle` mostram consumo e datas efetivos; `currentMonth` permanece como alias de compatibilidade do consumo do ciclo.
 
 Antes de enviar a chamada, a API reserva saldo em transação e limita a saída enviada ao provedor. O contexto usa uma margem conservadora baseada em bytes UTF-8 e estrutura da mensagem; pode ser necessário reduzir um contexto grande quando o saldo é pequeno. Chamadas simultâneas compartilham reservas. O consumo informado pelo provedor liquida a reserva; gastos incertos recebem estimativa. Falta de tarifa bloqueia chamadas de contas com orçamento financeiro definido, até regularização.
 
@@ -32,8 +38,11 @@ Registros anteriores em `intelligence_db.json` são importados por usuário e wo
 
 ## API
 
-- `GET /api/auth/admin/ai-costs?month=YYYY-MM|all&userId=...&modelId=...`
+- `GET /api/auth/admin/ai-costs?month=YYYY-MM|all|cycle&userId=...&modelId=...`
 - `POST /api/auth/admin/ai-costs/tariffs`
 - `PUT /api/auth/admin/ai-costs/users/{user_id}/limits`
 
 Administradores auxiliares não podem alterar os limites do proprietário. A interface atualiza a cada 30 segundos enquanto visível, com filtros e exportação do período completo. As últimas 100 chamadas são exibidas, mas os totais consideram todo o período.
+
+- `POST /api/auth/admin/ai-costs/users/{user_id}/reset` com `restartCycle` e `reason`.
+- `GET /api/auth/admin/ai-costs/pdf?month=YYYY-MM|all|cycle&userId=...`: PDF geral ou individual, restrito a administradores, com totais por modelo, custos de entrada/saída, limites, saldos, datas e notas de estimativas. Usa os mesmos registros e filtros da tela, com download autenticado e `Cache-Control: no-store`.

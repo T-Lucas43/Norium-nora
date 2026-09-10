@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import re
@@ -614,7 +615,7 @@ async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> 
         from app.modules.intelligence.service import complete_with_provider, route_model
 
         node_config = model_node.get("config") if isinstance(model_node.get("config"), dict) else {}
-        routing = route_model(
+        routing = await asyncio.to_thread(route_model,
             {"id": user_id},
             {
                 "policyId": node_config.get("policyId") or None,

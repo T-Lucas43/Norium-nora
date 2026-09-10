@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import asyncio
+import threading
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -20,6 +22,27 @@ class CostCycleTests(unittest.IsolatedAsyncioTestCase):
     asyncSetUp = fixtures.AiCostTests.asyncSetUp
     asyncTearDown = fixtures.AiCostTests.asyncTearDown
     record = fixtures.AiCostTests.record
+
+    async def test_model_pricing_wait_does_not_block_other_requests(self):
+        from app.modules.intelligence import router as models
+        entered, release = threading.Event(), threading.Event()
+        def blocked_prices(_):
+            entered.set()
+            if not release.wait(2):
+                raise RuntimeError("Pricing blocked the event loop")
+            return []
+        with patch.object(models, "all_providers", blocked_prices), patch.object(models, "read_store", return_value={"modelPolicies": []}), patch.object(models, "usage_summary", return_value={}):
+            task = asyncio.create_task(models.models_overview({"id": "a"}))
+            try:
+                for _ in range(100):
+                    if entered.is_set():
+                        break
+                    await asyncio.sleep(.01)
+                self.assertTrue(entered.is_set())
+                self.assertFalse(task.done())
+            finally:
+                release.set()
+                await task
 
     def test_monthly_anchor_day_recovers_after_short_month(self):
         limit = {"period": "monthly", "startDate": "2024-01-31", "autoRenew": True}

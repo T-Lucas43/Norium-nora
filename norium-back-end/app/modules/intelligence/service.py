@@ -281,7 +281,7 @@ async def plan_browser_actions(user: dict[str, Any], payload: dict[str, Any], no
             actions.insert(0, _action("navigate", "Abrir a URL inicial autorizada", value=normalized_url))
         return actions, {"mode": "manual", "detail": "Plano editado pelo operador."}
     if payload.get("useAiPlanner"):
-        routed = route_model(user, {"requiredCapabilities": ["text", "json"], "estimatedInputTokens": 900, "estimatedOutputTokens": 700, "privacy": "any", "externalActionCommitted": False})
+        routed = await asyncio.to_thread(route_model, user, {"requiredCapabilities": ["text", "json"], "estimatedInputTokens": 900, "estimatedOutputTokens": 700, "privacy": "any", "externalActionCommitted": False})
         selected = routed.get("selected")
         if selected:
             try:
@@ -777,7 +777,8 @@ def route_model(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]
 
 async def test_provider(user: dict[str, Any], provider_id: str, timeout_seconds: int) -> dict[str, Any]:
     user_id = tenant_id(user)
-    provider = next((item for item in all_providers(user_id) if item["id"] == provider_id), None)
+    providers = await asyncio.to_thread(all_providers, user_id)
+    provider = next((item for item in providers if item["id"] == provider_id), None)
     if not provider:
         raise HTTPException(status_code=404, detail="Provedor nao encontrado.")
     if provider_id == "nora-runtime":
@@ -839,7 +840,7 @@ async def complete_with_provider(
     """Executa chat no adapter selecionado e registra consumo aproximado."""
     user_id = tenant_id(user)
     if provider_id == "auto":
-        route = route_model(
+        route = await asyncio.to_thread(route_model,
             user,
             {
                 "requiredCapabilities": ["text"],
@@ -863,7 +864,8 @@ async def complete_with_provider(
                 if exc.status_code not in {429, 502, 503, 504}:
                     raise
         raise HTTPException(status_code=503, detail="Nenhum modelo configurado conseguiu concluir a resposta agora.")
-    provider = next((item for item in all_providers(user_id) if item["id"] == provider_id), None)
+    providers = await asyncio.to_thread(all_providers, user_id)
+    provider = next((item for item in providers if item["id"] == provider_id), None)
     if not provider:
         raise HTTPException(status_code=404, detail="Modelo selecionado nao foi encontrado.")
     if provider_id == "nora-runtime":

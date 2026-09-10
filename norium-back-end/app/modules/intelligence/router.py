@@ -373,8 +373,10 @@ async def delete_marketplace_installation(installation_id: str, user: dict[str, 
 
 @models_router.get("")
 async def models_overview(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    store = read_store(tenant_id(user))
-    return {"providers": [sanitize_provider(item) for item in all_providers(tenant_id(user))], "policies": store["modelPolicies"], "usage": usage_summary(user)}
+    def snapshot():
+        store = read_store(tenant_id(user))
+        return {"providers": [sanitize_provider(item) for item in all_providers(tenant_id(user))], "policies": store["modelPolicies"], "usage": usage_summary(user)}
+    return await asyncio.to_thread(snapshot)
 
 
 @models_router.post("/providers")
@@ -404,4 +406,4 @@ async def put_model_policy(policy_id: str, payload: ModelPolicyPayload, user: di
 
 @models_router.post("/route")
 async def post_model_route(payload: ModelRoutePayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    return route_model(user, payload.model_dump())
+    return await asyncio.to_thread(route_model, user, payload.model_dump())

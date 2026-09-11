@@ -1290,14 +1290,32 @@ async def scenario_call_studio(runtime: ScenarioRuntime) -> dict[str, Any]:
     await wait_diagnostic(member.page, "value.stateHistory.slice(argument).some(item => item.socketState !== 'open')", baseline)
     await wait_diagnostic(member.page, "value.socketState === 'open' && value.callId === argument", call_id, timeout=20_000)
     await owner.page.get_by_role("button", name="Encerrar estúdio", exact=True).click()
+    await expect(owner.page.get_by_role("dialog", name="Salvar esta sessão no Estúdio?")).to_be_visible()
+    await owner.page.get_by_role("button", name="Encerrar sem salvar", exact=True).click()
     await expect(member.page.get_by_role("button", name="Cartão", exact=True)).to_be_disabled()
     await owner.page.get_by_role("button", name="Reabrir estúdio", exact=True).click()
     await expect(member.page.get_by_role("button", name="Cartão", exact=True)).to_be_enabled()
     await expect(member.page.locator(".brainstorm-node")).to_have_count(2)
+    await owner.page.get_by_role("button", name="Nora", exact=True).click()
+    await owner.page.get_by_label("Pedido para a Nora").fill("Organize os próximos passos a partir do quadro.")
+    await owner.page.get_by_role("button", name="Pedir à Nora", exact=True).click()
+    await expect(member.page.locator(".brainstorm-node").filter(has_text="Nora · Resposta")).to_have_count(1)
+    await member.page.get_by_role("button", name="Nora", exact=True).click()
+    await expect(member.page.locator(".team-call-studio-comment").filter(has_text="Plano sugerido pela Nora")).to_have_count(1)
+    await owner.page.get_by_role("button", name="Encerrar reunião", exact=True).click()
+    await expect(owner.page.get_by_role("dialog", name="Salvar esta sessão no Estúdio?")).to_be_visible()
+    await owner.page.get_by_role("button", name="Cancelar", exact=True).click()
+    await wait_diagnostic(owner.page, "value.callId === argument", call_id)
+    await owner.page.get_by_role("button", name="Minimizar chamada", exact=True).click()
+    await owner.page.get_by_role("button", name="Encerrar reunião", exact=True).click()
+    await owner.page.get_by_role("button", name="Salvar no Estúdio e encerrar", exact=True).click()
+    await wait_diagnostic(owner.page, "!value.callId && value.phase === 'idle'")
+    saved = await owner.page.evaluate("""async (url) => (await fetch(url + '/__test__/studio-library', {headers: {Authorization: 'Bearer owner'}})).json()""", runtime.services.api_url)
+    assert len(saved["sessions"]) == 1 and saved["sessions"][0]["nodeCount"] == 3
     await end_host_call(owner.page)
     return {"participants": 3, "sharedCards": 2, "independentEditsPreserved": True,
             "lateJoinSynced": True, "mediaPreserved": True, "mobileOverflow": False, "mobileEditSaved": True,
-            "hostControlsSession": True}
+            "hostControlsSession": True, "noraResponseShared": True, "saveDecisionRespected": True}
 
 
 SCENARIOS: dict[str, Callable[[ScenarioRuntime], Awaitable[dict[str, Any]]]] = {

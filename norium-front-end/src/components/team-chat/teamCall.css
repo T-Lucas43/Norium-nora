@@ -60,6 +60,8 @@
  .team-call-professional .team-call-local-previews{bottom:12px;right:12px;}
 }
 .team-call-studio { display:flex; flex:1; flex-direction:column; min-height:0; min-width:0; color:#edf2f7; background:#0b0f14; }
+.team-call-studio-finish-backdrop { position:fixed; inset:0; z-index:350; display:grid; place-items:center; padding:20px; background:#000b; }
+.team-call-studio-finish { flex:none; width:min(100%,520px); max-height:90dvh; overflow:auto; padding:24px; border:1px solid #364252; border-radius:16px; box-shadow:0 24px 80px #0008; }
 .team-call-studio-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; border-bottom:1px solid #28313b; }
 .team-call-studio h2 { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:800; }
 .team-call-studio h3 { font-size:14px; font-weight:750; margin-bottom:8px; }

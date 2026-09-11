@@ -75,4 +75,72 @@ describe("estúdio colaborativo da chamada", () => {
     expect(operations).toHaveLength(2);
     expect(operations[0].operationId).toBe(operations[1].operationId);
   });
+
+  it("pede decisão ao encerrar e só confirma após salvar com sucesso", async () => {
+    const current = board();
+    mocks.api.mockImplementation(async (path, options) => {
+      if (path.endsWith("/finish")) {
+        expect(JSON.parse(options.body)).toEqual({ clientId: "my-tab", save: true });
+        return { session: { ...current, revision: 2, active: false, saveDecision: "saved", savedStudioId: "saved" } };
+      }
+      return { session: current };
+    });
+    const guard = { current: null as null | (() => Promise<boolean>) };
+    render(<TeamCallStudio {...props} beforeEndRef={guard} />);
+    await screen.findByRole("button", { name: "Ideia inicial" });
+    let pending: Promise<boolean>;
+    act(() => { pending = guard.current!(); });
+    await screen.findByRole("dialog", { name: "Salvar esta sessão no Estúdio?" });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar no Estúdio e encerrar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await pending!).toBe(true);
+    expect(screen.getByText(/Sessão salva no Estúdio da equipe/)).toBeInTheDocument();
+  });
+
+  it("cancelar mantém reunião e não salvar envia a escolha explícita", async () => {
+    const current = board();
+    mocks.api.mockResolvedValue({ session: current });
+    const guard = { current: null as null | (() => Promise<boolean>) };
+    render(<TeamCallStudio {...props} beforeEndRef={guard} />);
+    await screen.findByRole("button", { name: "Ideia inicial" });
+    let pending: Promise<boolean>;
+    act(() => { pending = guard.current!(); });
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(await pending!).toBe(false);
+    expect(mocks.api.mock.calls.filter((call) => call[1]?.method === "POST")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Encerrar estúdio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Encerrar sem salvar" }));
+    await waitFor(() => expect(mocks.api.mock.calls.some((call) => call[0].endsWith("/finish") && JSON.parse(call[1].body).save === false)).toBe(true));
+  });
+
+  it("falha ao salvar mantém confirmação aberta e não libera encerramento", async () => {
+    mocks.api.mockImplementation(async (path) => {
+      if (path.endsWith("/finish")) throw new ApiError("Armazenamento indisponível", 503);
+      return { session: board() };
+    });
+    render(<TeamCallStudio {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Encerrar estúdio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar no Estúdio e encerrar" }));
+    await screen.findByText("Armazenamento indisponível");
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Cancelar" })).toBeEnabled();
+  });
+
+  it("Nora usa a API da chamada e mostra resposta compartilhada", async () => {
+    mocks.api.mockImplementation(async (path, options) => {
+      if (path.endsWith("/nora")) {
+        const payload = JSON.parse(options.body);
+        expect(payload).toMatchObject({ clientId: "my-tab", action: "perguntar", instruction: "Resuma as decisões" });
+        return { session: { ...board(), revision: 2, noraMessages: [{ requestKey: payload.requestId, authorName: "Owner", instruction: payload.instruction, response: "Validar as decisões." }] } };
+      }
+      return { session: board(), canUseNora: true };
+    });
+    render(<TeamCallStudio {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Nora" }));
+    fireEvent.change(screen.getByLabelText("Pedido para a Nora"), { target: { value: "Resuma as decisões" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pedir à Nora" }));
+    await screen.findByText("Validar as decisões.");
+    expect(screen.getByLabelText("Pedido para a Nora")).toHaveValue("");
+  });
 });

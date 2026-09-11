@@ -94,6 +94,19 @@ function timeLabel(value: string) {
 
 export default function TeamCallOverlay({ snapshot, commands, members, currentUserId, onDownloadAttachment }: TeamCallOverlayProps) {
   const call = callSessionView(snapshot, commands);
+  const beforeStudioEndRef = useRef<(() => Promise<boolean>) | null>(null);
+  const endingRef = useRef(false);
+  const finishCall = async () => {
+    if (endingRef.current) return;
+    endingRef.current = true;
+    try {
+      if (call.isHost && beforeStudioEndRef.current) {
+        setMinimized(false);
+        if (!(await beforeStudioEndRef.current())) return;
+      }
+      await (call.isHost ? call.endCall() : call.leaveCall());
+    } finally { endingRef.current = false; }
+  };
   const messages = snapshot.conversation?.messages || [];
   const raisedHands = call.raisedHands || {};
   const [minimized, setMinimized] = useState(false);
@@ -209,7 +222,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
       <button type="button" onClick={() => setMinimized(false)} className="team-call-top-control" aria-label="Restaurar chamada"><Maximize2 size={18} /><span>Restaurar</span></button>
       <button type="button" onClick={call.toggleMute} className="team-call-top-control" aria-label={call.muted ? "Ativar microfone" : "Silenciar microfone"}>{call.muted ? <MicOff size={18} /> : <Mic size={18} />}</button>
       {call.sharingScreen && <button type="button" onClick={() => void call.toggleScreenShare()} className="team-call-top-control" aria-label="Parar transmissão de tela"><MonitorUp size={18} /></button>}
-      <button type="button" onClick={() => void (call.isHost ? call.endCall() : call.leaveCall())} className="team-call-top-control team-call-danger" aria-label={call.isHost ? "Encerrar reunião" : "Sair da reunião"}><PhoneOff size={18} /></button>
+      <button type="button" onClick={() => void finishCall()} className="team-call-top-control team-call-danger" aria-label={call.isHost ? "Encerrar reunião" : "Sair da reunião"}><PhoneOff size={18} /></button>
     </section>}
     <div className="team-call-shell team-call-professional fixed inset-0 z-[180] flex flex-col" style={minimized ? { display: "none" } : undefined}>
       <header className="team-call-header relative flex min-h-16 items-center justify-between gap-4 border-b px-3 py-2 shadow-lg">
@@ -244,7 +257,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
 
       {Object.keys(raisedHands).length > 0 && <div className="team-call-hands flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs" role="status" aria-label="Mãos levantadas"><Hand size={16} />{Object.entries(raisedHands).sort((a, b) => a[1].localeCompare(b[1])).map(([id], index) => <span key={id}>{index + 1}. {id === currentUserId ? "Você" : memberById.get(id)?.nome || "Participante"}</span>)}</div>}
       <div className={`team-call-content flex min-h-0 flex-1 ${studioOpen ? "team-call-content-studio" : ""}`}>
-        {snapshot.clientId && <TeamCallStudio key={call.active.callId} callId={call.active.callId!} clientId={snapshot.clientId} currentUserId={currentUserId} isHost={call.isHost} visible={studioOpen} onOpen={() => { setStudioOpen(true); setChatOpen(false); setPeopleOpen(false); }} onClose={() => setStudioOpen(false)} />}
+        {snapshot.clientId && <TeamCallStudio beforeEndRef={beforeStudioEndRef} key={call.active.callId} callId={call.active.callId!} clientId={snapshot.clientId} currentUserId={currentUserId} isHost={call.isHost} visible={studioOpen} onOpen={() => { setStudioOpen(true); setChatOpen(false); setPeopleOpen(false); }} onClose={() => setStudioOpen(false)} />}
         <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 overflow-auto p-3 ${pinned && streams.length > 1 ? "team-call-stage-pinned" : streams.length > 1 ? "md:grid-cols-2" : ""}`}>
           {call.recording && <div role="status" aria-live="polite" className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /><span>REC {durationLabel(call.recordingElapsedSeconds)}</span><span className="font-semibold text-rose-100">Todos foram avisados</span>{call.isHost && call.recordingUploadState !== "idle" && <span className="font-semibold text-rose-100">{call.recordingUploadState === "retrying" ? "Tentando envio novamente" : call.recordingUploadState === "finalizing" ? "Finalizando" : `Upload ${call.recordingUploadProgress}% · ${bytesLabel(call.recordingUploadedBytes)} enviados${call.recordingPendingBytes ? ` · ${bytesLabel(call.recordingPendingBytes)} pendentes` : ""}`}</span>}</div>}
           {streams.length ? streams.map((item) => {
@@ -294,7 +307,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
           <button type="button" onClick={() => void call.toggleCamera()} className={`team-call-top-control ${call.cameraOff ? "team-call-danger" : ""}`} aria-label={call.cameraOff ? "Ativar câmera" : "Desativar câmera"}>{call.cameraOff ? <CameraOff size={19} /> : <Camera size={19} />}<span>Câmera</span></button>
           <button type="button" onClick={call.toggleMute} className={`team-call-top-control ${call.muted ? "team-call-danger" : ""}`} aria-label={call.muted ? "Ativar microfone" : "Silenciar microfone"}>{call.muted ? <MicOff size={19} /> : <Mic size={19} />}<span>Microfone</span></button>
           <button type="button" onClick={() => togglePanel("devices")} className={`team-call-top-control ${devicesOpen ? "team-call-active" : ""}`} aria-label="Selecionar câmera e dispositivos de áudio"><Settings2 size={19} /><span>Dispositivos</span></button>
-          <button type="button" onClick={() => void (call.isHost ? call.endCall() : call.leaveCall())} className="team-call-top-control team-call-danger ml-2" aria-label={call.isHost ? "Encerrar reunião" : "Sair da reunião"}><PhoneOff size={20} /><span>{call.isHost ? "Encerrar" : "Sair"}</span></button>
+          <button type="button" onClick={() => void finishCall()} className="team-call-top-control team-call-danger ml-2" aria-label={call.isHost ? "Encerrar reunião" : "Sair da reunião"}><PhoneOff size={20} /><span>{call.isHost ? "Encerrar" : "Sair"}</span></button>
         </nav>
         {devicesOpen && <DeviceSelector call={call} onClose={() => setDevicesOpen(false)} />}
         {qualityOpen && <ScreenShareQualitySelector call={call} onClose={() => setQualityOpen(false)} />}

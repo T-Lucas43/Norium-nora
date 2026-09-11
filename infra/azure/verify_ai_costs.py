@@ -57,6 +57,10 @@ async def verify():
         assert (await client.get(studio_path)).status_code == 401
         studio_denied = await client.get(studio_path, headers={"Authorization": "Bearer " + create_token(admin)})
         assert studio_denied.status_code == 404 and studio_denied.json().get("detail") != "Not Found"
+        for suffix, body in (("finish", {"clientId": "probe", "save": False}), ("nora", {"clientId": "probe", "requestId": "probe", "instruction": "Verification"})):
+            protected_studio = await client.post("/api/team-chat/calls/call_production_probe/studio/" + suffix,
+                json=body, headers={"Authorization": "Bearer " + create_token(admin)})
+            assert protected_studio.status_code == 404 and protected_studio.json().get("detail") != "Not Found"
         anonymous = await client.get("/api/auth/admin/ai-costs")
         assert anonymous.status_code == 401
         response = await client.get("/api/auth/admin/ai-costs", headers={"Authorization": "Bearer " + create_token(admin)})

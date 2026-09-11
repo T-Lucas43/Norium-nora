@@ -24,6 +24,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.modules.team import router as team
 from app.modules.team.studio_router import router as studio_router
+from app.modules.team import studio_router as studio
+from app.services import brainstorm_store as studio_library
 
 
 LOAD_TEAM_COUNT = max(1, int(os.getenv("TEAM_CALL_FIXTURE_LOAD_TEAMS", "25")))
@@ -54,7 +56,7 @@ def _base_users() -> list[dict[str, Any]]:
             "nome": name.title(),
             "teamOwnerId": "owner",
             "status": "ativo",
-            "permissions": {"chat": True},
+            "permissions": {"chat": True, "nora": True},
         }
         for name in ("owner", "member", "other")
     ]
@@ -112,6 +114,9 @@ def fixture_team_chat_path(team_id: str) -> str:
 
 
 _patches = [
+    patch.object(studio.nora_service, "perguntar_nora", AsyncMock(return_value="Plano sugerido pela Nora: validar as decisões e definir os próximos passos.")),
+    patch.object(studio_library, "read_user_db", side_effect=lambda tenant, _db, fallback: team.read_json_file(_data_root / f"studio_library_{tenant}.json", fallback)),
+    patch.object(studio_library, "write_user_db", side_effect=lambda tenant, _db, value: team.write_json_file(_data_root / f"studio_library_{tenant}.json", value)),
     patch.object(team, "UPLOAD_DIR", _data_root),
     patch.object(team, "team_chat_path", side_effect=fixture_team_chat_path),
     patch.object(team, "read_user_store", side_effect=fixture_user_store),
@@ -134,6 +139,12 @@ app.add_middleware(
 app.dependency_overrides[team.current_user] = fixture_user
 app.include_router(team.router)
 app.include_router(studio_router)
+
+
+@app.get("/__test__/studio-library")
+async def fixture_studio_library(authorization: str = Header(default="")) -> dict:
+    user = await fixture_user(authorization)
+    return {"sessions": await studio_library.list_brainstorm_sessions(team.team_id_for(user))}
 
 
 async def _close_matching_connections(user_id: str | None = None) -> int:

@@ -53,6 +53,10 @@ async def verify():
         else:
             raise AssertionError("Expected runtime did not become ready")
         assert health.get("revision") == __EXPECTED_REVISION__
+        studio_path = "/api/team-chat/calls/call_production_probe/studio?clientId=probe"
+        assert (await client.get(studio_path)).status_code == 401
+        studio_denied = await client.get(studio_path, headers={"Authorization": "Bearer " + create_token(admin)})
+        assert studio_denied.status_code == 404 and studio_denied.json().get("detail") != "Not Found"
         anonymous = await client.get("/api/auth/admin/ai-costs")
         assert anonymous.status_code == 401
         response = await client.get("/api/auth/admin/ai-costs", headers={"Authorization": "Bearer " + create_token(admin)})
@@ -108,7 +112,7 @@ if __name__ == "__main__":
         child.expect(">>> ")
         child.sendline(command)
         child.expect("AI_COSTS_PRODUCTION_OK")
-        print("Production AI costs verified: expected revision, authenticated admin API, persistent ledger, provider discovery, user/model totals, individual cycles, PDF export and access control.")
+        print("Production verified: expected revision, authenticated admin AI costs, persistent ledger, provider discovery, user/model totals, individual cycles, PDF export, and call studio access control.")
     except (pexpect.EOF, pexpect.TIMEOUT):
         if "AI_COSTS_STORAGE_OK" in (child.before or ""):
             print("Persistent storage dotfile locking, commit and integrity verified.")

@@ -23,6 +23,7 @@ from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.modules.team import router as team
+from app.modules.team.studio_router import router as studio_router
 
 
 LOAD_TEAM_COUNT = max(1, int(os.getenv("TEAM_CALL_FIXTURE_LOAD_TEAMS", "25")))
@@ -132,6 +133,7 @@ app.add_middleware(
 )
 app.dependency_overrides[team.current_user] = fixture_user
 app.include_router(team.router)
+app.include_router(studio_router)
 
 
 async def _close_matching_connections(user_id: str | None = None) -> int:

@@ -1,7 +1,8 @@
 import "./teamCall.css";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Camera, CameraOff, Circle, Clock3, Download, Hand, Maximize2, Minimize2, MessageSquareText, Mic, MicOff, MonitorUp, Paperclip, PhoneOff, Pin, PinOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
+import { LayoutGrid, Camera, CameraOff, Circle, Clock3, Download, Hand, Maximize2, Minimize2, MessageSquareText, Mic, MicOff, MonitorUp, Paperclip, PhoneOff, Pin, PinOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
+import TeamCallStudio from "./TeamCallStudio";
 import ParticipantAudio from "./ParticipantAudio";
 import type { CallSessionCommands, CallSessionSnapshot } from "./CallSession";
 import { callSessionView, type ReturnTypeOfTeamCall } from "./teamCallTypes";
@@ -98,6 +99,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   const [minimized, setMinimized] = useState(false);
   const [messageError, setMessageError] = useState("");
   const [devicesOpen, setDevicesOpen] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
@@ -110,7 +112,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   const incomingDialogRef = useRef<HTMLElement>(null);
   useEffect(() => {
     setAudioSettings({}); setPinned(null); setMinimized(false); setMessageText(""); setMessageFiles([]); setMessageError("");
-    setChatOpen(false); setPeopleOpen(false); setQualityOpen(false); setDevicesOpen(false); setReactionsOpen(false);
+    setStudioOpen(false); setChatOpen(false); setPeopleOpen(false); setQualityOpen(false); setDevicesOpen(false); setReactionsOpen(false);
   }, [call.active?.callId]);
   useEffect(() => {
     if (pinned && (!call.remoteStreams.some((item) => item.userId === pinned.userId) ||
@@ -241,7 +243,8 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
       )}
 
       {Object.keys(raisedHands).length > 0 && <div className="team-call-hands flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs" role="status" aria-label="Mãos levantadas"><Hand size={16} />{Object.entries(raisedHands).sort((a, b) => a[1].localeCompare(b[1])).map(([id], index) => <span key={id}>{index + 1}. {id === currentUserId ? "Você" : memberById.get(id)?.nome || "Participante"}</span>)}</div>}
-      <div className="flex min-h-0 flex-1">
+      <div className={`team-call-content flex min-h-0 flex-1 ${studioOpen ? "team-call-content-studio" : ""}`}>
+        {snapshot.clientId && <TeamCallStudio key={call.active.callId} callId={call.active.callId!} clientId={snapshot.clientId} currentUserId={currentUserId} isHost={call.isHost} visible={studioOpen} onOpen={() => { setStudioOpen(true); setChatOpen(false); setPeopleOpen(false); }} onClose={() => setStudioOpen(false)} />}
         <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 overflow-auto p-3 ${pinned && streams.length > 1 ? "team-call-stage-pinned" : streams.length > 1 ? "md:grid-cols-2" : ""}`}>
           {call.recording && <div role="status" aria-live="polite" className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /><span>REC {durationLabel(call.recordingElapsedSeconds)}</span><span className="font-semibold text-rose-100">Todos foram avisados</span>{call.isHost && call.recordingUploadState !== "idle" && <span className="font-semibold text-rose-100">{call.recordingUploadState === "retrying" ? "Tentando envio novamente" : call.recordingUploadState === "finalizing" ? "Finalizando" : `Upload ${call.recordingUploadProgress}% · ${bytesLabel(call.recordingUploadedBytes)} enviados${call.recordingPendingBytes ? ` · ${bytesLabel(call.recordingPendingBytes)} pendentes` : ""}`}</span>}</div>}
           {streams.length ? streams.map((item) => {
@@ -279,6 +282,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
         <nav className="flex min-w-0 items-center gap-1 overflow-x-auto" aria-label="Controles da reunião">
           <button type="button" onClick={() => setMinimized(true)} className="team-call-top-control" aria-label="Minimizar chamada"><Minimize2 size={19} /><span>Minimizar</span></button>
           {call.isHost && <button type="button" onClick={() => void (call.recording ? call.stopRecording() : call.startRecording())} className={`team-call-top-control ${call.recording ? "team-call-danger" : ""}`} aria-label={call.recording ? "Parar gravação" : "Gravar reunião"}><Circle size={18} fill={call.recording ? "currentColor" : "none"} /><span>{call.recording ? "Parar gravação" : "Gravar"}</span></button>}
+          <button type="button" onClick={() => { setStudioOpen((current) => !current); setChatOpen(false); setPeopleOpen(false); }} className={`team-call-top-control ${studioOpen ? "team-call-active" : ""}`} aria-pressed={studioOpen} aria-label="Abrir estúdio da chamada"><LayoutGrid size={19} /><span>Estúdio</span></button>
           <button type="button" onClick={() => togglePanel("chat")} className={`team-call-top-control ${chatOpen ? "team-call-active" : ""}`} aria-label="Abrir chat da reunião"><MessageSquareText size={19} /><span>Chat</span></button>
           <button type="button" onClick={() => togglePanel("people")} className={`team-call-top-control ${peopleOpen ? "team-call-active" : ""}`} aria-label="Ver pessoas na reunião"><Users size={19} /><span>Pessoas</span></button>
           <button type="button" onClick={call.toggleHand} className={`team-call-top-control ${raisedHands[currentUserId] ? "team-call-active" : ""}`} aria-pressed={!!raisedHands[currentUserId]} aria-label={raisedHands[currentUserId] ? "Baixar a mão" : "Levantar a mão"}><Hand size={19} /><span>{raisedHands[currentUserId] ? "Baixar mão" : "Levantar mão"}</span></button>

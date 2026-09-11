@@ -59,3 +59,59 @@
  .team-call-professional .team-call-popover{max-height:calc(100dvh - 260px);right:8px;}
  .team-call-professional .team-call-local-previews{bottom:12px;right:12px;}
 }
+.team-call-studio { display:flex; flex:1; flex-direction:column; min-height:0; min-width:0; color:#edf2f7; background:#0b0f14; }
+.team-call-studio-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; border-bottom:1px solid #28313b; }
+.team-call-studio h2 { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:800; }
+.team-call-studio h3 { font-size:14px; font-weight:750; margin-bottom:8px; }
+.team-call-studio p { font-size:12px; color:#abb8c7; margin:6px 0; overflow-wrap:anywhere; }
+.team-call-studio .brainstorm-node p { color:inherit; }
+.team-call-studio-mobile-tabs { display:none; }
+.team-call-studio button { display:inline-flex; justify-content:center; align-items:center; gap:6px; border:1px solid #364252; border-radius:8px; padding:8px 10px; background:#18222e; font-size:12px; cursor:pointer; }
+.team-call-studio button:hover:not(:disabled) { background:#24364b; }
+.team-call-studio button:disabled { opacity:.45; cursor:not-allowed; }
+.team-call-studio button:focus-visible, .team-call-studio input:focus-visible, .team-call-studio textarea:focus-visible, .team-call-studio select:focus-visible { outline:2px solid #60a5fa; outline-offset:2px; }
+.team-call-studio label { display:flex; flex-direction:column; gap:5px; margin:10px 0; font-size:12px; font-weight:650; }
+.team-call-studio input, .team-call-studio textarea, .team-call-studio select { width:100%; min-width:0; border:1px solid #364252; background:#101820; color:#fff; border-radius:8px; padding:9px; font:inherit; }
+.team-call-studio textarea { resize:vertical; }
+.team-call-studio-start { display:grid; place-items:center; flex:1; overflow:auto; padding:24px; }
+.team-call-studio-start form { width:min(100%,440px); }
+.team-call-studio-tools { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:8px 12px; border-bottom:1px solid #28313b; }
+.team-call-studio-tools span { margin-right:auto; font-size:11px; color:#abb8c7; }
+.team-call-studio-body { display:flex; flex:1; min-height:0; min-width:0; }
+.team-call-studio-canvas { flex:1; min-width:0; min-height:240px; position:relative; }
+.team-call-studio-canvas .react-flow__controls button { padding:5px; border-radius:0; color:#18222e; background:#f0f4f8; }
+.team-call-studio-canvas .react-flow__edge-path { stroke:#69b8fa; stroke-width:2; }
+.team-call-studio-inspector { width:260px; flex-shrink:0; overflow:auto; padding:14px; border-left:1px solid #28313b; }
+.team-call-studio-inspector form > button { margin:4px 4px 4px 0; }
+.team-call-studio-colors { display:flex; gap:5px; margin:10px 0; }
+.team-call-studio-colors button { width:24px; height:24px; padding:0; border-radius:50%; border:2px solid transparent; }
+.team-call-studio-colors button[aria-pressed=true] { border-color:white; }
+.team-call-studio-error { padding:10px 16px; color:#fecaca; background:#3b1920; font-size:12px; }
+.team-call-studio-error button { margin-left:8px; }
+.team-call-studio-comment { border-bottom:1px solid #28313b; padding:8px 0; font-size:12px; white-space:pre-wrap; }
+.team-call-studio-empty { position:absolute; top:40%; left:0; width:100%; text-align:center; pointer-events:none; }
+.team-call-content-studio > .team-call-stage { flex:0 0 220px; display:flex; flex-direction:column; border-left:1px solid #28313b; }
+.team-call-content-studio .team-call-remote-tile { min-height:170px; flex-shrink:0; }
+.team-call-content-studio .team-call-participant-controls input { width:60px; }
+.team-call-content-studio .team-call-local-previews { position:relative; inset:auto; width:100%; }
+@media (max-width:1000px) {
+  .team-call-content-studio > .team-call-stage { flex-basis:150px; padding:6px; }
+  .team-call-content-studio .team-call-participant-controls { padding:4px; }
+  .team-call-studio-inspector { width:220px; padding:10px; }
+}
+@media (max-width:700px) {
+  .team-call-studio-mobile-tabs { display:flex; gap:8px; padding:6px 12px; border-bottom:1px solid #28313b; }
+  .team-call-studio-mobile-tabs button[aria-pressed=true] { border-color:#60a5fa; background:#173558; }
+  .team-call-studio-body.is-editing .team-call-studio-canvas { display:none; }
+  .team-call-studio-body:not(.is-editing) .team-call-studio-inspector { display:none; }
+  .team-call-content-studio { flex-direction:column; }
+  .team-call-content-studio > .team-call-stage { flex:0 0 92px; flex-direction:row; overflow:auto; border-left:0; border-top:1px solid #28313b; }
+  .team-call-content-studio .team-call-remote-tile { min-height:78px; width:130px; }
+  .team-call-content-studio .team-call-remote-tile > div { min-height:0; }
+  .team-call-content-studio .team-call-participant-controls { display:none; }
+  .team-call-content-studio .team-call-local-previews { width:130px; }
+  .team-call-studio-body { overflow:auto; flex-direction:column; }
+  .team-call-studio-canvas { flex:1; min-height:0; }
+  .team-call-studio-inspector { width:100%; border-left:0; border-top:1px solid #28313b; overflow:visible; }
+  .team-call-studio-header { padding:8px 12px; }
+}

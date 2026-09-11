@@ -67,6 +67,7 @@ from app.modules.team.router import (
     start_recording_maintenance,
     stop_recording_maintenance,
 )
+from app.modules.team.studio_router import router as call_studio_router
 from app.modules.team.turn_credentials import validate_turn_configuration
 from app.modules.team.call_configuration import validate_team_call_configuration
 from app.modules.team.sfu_tokens import validate_sfu_configuration
@@ -387,6 +388,7 @@ def create_app() -> FastAPI:
     app.include_router(marketplace_router)
     app.include_router(models_router)
     app.include_router(team_chat_router)
+    app.include_router(call_studio_router)
     app.include_router(brainstorm_router)
     app.include_router(chat_router)
     app.include_router(system_router)

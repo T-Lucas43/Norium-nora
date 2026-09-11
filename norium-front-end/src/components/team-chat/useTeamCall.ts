@@ -1862,6 +1862,7 @@ export function useTeamCallRuntime({
   }, [callPayload, sendSocketEvent, session.user.nome, showReaction]);
 
   return {
+    clientId: clientIdRef.current,
     incoming,
     active,
     availableCalls,

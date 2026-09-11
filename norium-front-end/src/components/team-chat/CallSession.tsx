@@ -179,6 +179,7 @@ export type CallSessionSnapshot = Pick<Runtime,
   | "screenShareFps"
   | "supportsSpeakerSelection"
 > & {
+  clientId?: string;
   phase: CallSessionPhase;
   socketState: "connecting" | "open" | "reconnecting" | "closed";
   participantIds: string[];
@@ -232,6 +233,7 @@ export type CallSession = {
 };
 
 type CallSessionContextValue = CallSession & {
+  request: typeof apiRequest;
   subscribe: (listener: (event: TeamSocketEvent) => void) => () => void;
 };
 
@@ -679,6 +681,7 @@ function ActiveCallSessionProvider({
   const snapshot = useMemo<CallSessionSnapshot>(() => ({
     phase,
     socketState,
+    clientId: runtime.clientId,
     incoming: runtime.incoming,
     active: runtime.active,
     availableCalls: runtime.availableCalls,
@@ -736,9 +739,10 @@ function ActiveCallSessionProvider({
     return () => listenersRef.current.delete(listener);
   }, []);
 
+  const request = useCallback<typeof apiRequest>((path, options) => apiRequest(path, { ...options, token: session.token }), [session.token]);
   const value = useMemo<CallSessionContextValue>(
-    () => ({ snapshot, commands, subscribe }),
-    [commands, snapshot, subscribe],
+    () => ({ snapshot, commands, subscribe, request }),
+    [commands, snapshot, subscribe, request],
   );
 
   return <CallSessionContext.Provider value={value}>{children}</CallSessionContext.Provider>;
@@ -756,6 +760,10 @@ export function useTeamSocketEvents(listener: (event: TeamSocketEvent) => void) 
   const listenerRef = useRef(listener);
   listenerRef.current = listener;
   useEffect(() => subscribe?.((event) => listenerRef.current(event)), [subscribe]);
+}
+
+export function useTeamApiRequest() {
+  return useContext(CallSessionContext)?.request || apiRequest;
 }
 
 export type { TeamCallSocketEvent, TeamCallThread, TeamThreadScope } from "./useTeamCall";

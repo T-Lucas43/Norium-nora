@@ -1231,7 +1231,77 @@ async def scenario_recording_failure_quota_abort(runtime: ScenarioRuntime) -> di
     return {"conflictStatus": 409, "quotaStatus": 413, "abortIdempotent": True, "orphanParts": 0}
 
 
+async def scenario_call_studio(runtime: ScenarioRuntime) -> dict[str, Any]:
+    owner = await runtime.page("owner")
+    member = await runtime.page("member")
+    call_id = await start_call(owner.page, "group", "on", camera=True)
+    assert await join_call(member.page, "on", camera=True) == call_id
+    await wait_rtp(owner.page, "inbound")
+    await owner.page.get_by_role("button", name="Abrir estúdio da chamada").click()
+    await owner.page.get_by_label("Nome da sessão").fill("Planejamento compartilhado")
+    await owner.page.get_by_role("button", name="Abrir sessão para todos").click()
+    await expect(member.page.get_by_role("heading", name="Planejamento compartilhado")).to_be_visible()
+    await expect(member.page.get_by_role("button", name="Encerrar estúdio", exact=True)).to_have_count(0)
+
+    await owner.page.get_by_role("button", name="Cartão", exact=True).click()
+    await owner.page.get_by_label("Título do cartão").fill("Decisão da equipe")
+    await owner.page.get_by_role("button", name="Salvar cartão", exact=True).click()
+    await expect(member.page.locator(".brainstorm-node").filter(has_text="Decisão da equipe")).to_have_count(1)
+    await member.page.get_by_role("button", name="Cartão", exact=True).click()
+    await member.page.get_by_label("Título do cartão").fill("Contribuição do participante")
+    await member.page.get_by_role("button", name="Salvar cartão", exact=True).click()
+    await expect(owner.page.locator(".brainstorm-node").filter(has_text="Contribuição do participante")).to_have_count(1)
+
+    # Edit two different cards concurrently, then prove both changes survive.
+    await owner.page.get_by_label("Descrição", exact=True).fill("Descrição do organizador")
+    await member.page.get_by_label("Descrição", exact=True).fill("Descrição do participante")
+    await asyncio.gather(owner.page.get_by_role("button", name="Salvar cartão", exact=True).click(),
+                         member.page.get_by_role("button", name="Salvar cartão", exact=True).click())
+    await expect(owner.page.locator(".brainstorm-node").filter(has_text="Descrição do participante")).to_have_count(1)
+    await expect(member.page.locator(".brainstorm-node").filter(has_text="Descrição do organizador")).to_have_count(1)
+    await member.page.get_by_role("button", name="Votar (0)", exact=True).click()
+    await member.page.get_by_label("Novo comentário").fill("Participante presente na decisão")
+    await member.page.get_by_role("button", name="Comentar", exact=True).click()
+    await expect(member.page.locator(".team-call-studio-comment")).to_contain_text("Participante presente na decisão")
+
+    # Hiding the board must retain native media elements and RTP delivery.
+    await owner.page.evaluate("window.__studioAudio = [...document.querySelectorAll('audio')]")
+    await owner.page.get_by_role("button", name="Voltar aos vídeos", exact=True).click()
+    assert await owner.page.evaluate("window.__studioAudio.length > 0 && window.__studioAudio.every(element => element.isConnected)")
+    await owner.page.get_by_role("button", name="Abrir estúdio da chamada").click()
+    await wait_rtp(owner.page, "inbound", "video")
+    await expect(owner.page.get_by_role("button", name="Silenciar microfone", exact=True)).to_be_visible()
+
+    other = await runtime.page("other")
+    assert await join_call(other.page, "listen-only") == call_id
+    await expect(other.page.get_by_role("heading", name="Planejamento compartilhado")).to_be_visible()
+    await expect(other.page.locator(".brainstorm-node")).to_have_count(2)
+    await member.page.set_viewport_size({"width": 390, "height": 844})
+    await expect(member.page.get_by_role("button", name="Voltar aos vídeos", exact=True)).to_be_visible()
+    assert await member.page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    await member.page.get_by_label("Descrição", exact=True).fill("Contribuição pelo celular")
+    await member.page.get_by_role("button", name="Salvar cartão", exact=True).click()
+    await expect(owner.page.locator(".brainstorm-node").filter(has_text="Contribuição pelo celular")).to_have_count(1)
+    await member.page.set_viewport_size({"width": 1280, "height": 800})
+
+    baseline = len((await diagnostics(member.page))["stateHistory"])
+    status, _ = await http_json("POST", f"{runtime.services.api_url}/__test__/connections/member/close", {})
+    assert status == 200
+    await wait_diagnostic(member.page, "value.stateHistory.slice(argument).some(item => item.socketState !== 'open')", baseline)
+    await wait_diagnostic(member.page, "value.socketState === 'open' && value.callId === argument", call_id, timeout=20_000)
+    await owner.page.get_by_role("button", name="Encerrar estúdio", exact=True).click()
+    await expect(member.page.get_by_role("button", name="Cartão", exact=True)).to_be_disabled()
+    await owner.page.get_by_role("button", name="Reabrir estúdio", exact=True).click()
+    await expect(member.page.get_by_role("button", name="Cartão", exact=True)).to_be_enabled()
+    await expect(member.page.locator(".brainstorm-node")).to_have_count(2)
+    await end_host_call(owner.page)
+    return {"participants": 3, "sharedCards": 2, "independentEditsPreserved": True,
+            "lateJoinSynced": True, "mediaPreserved": True, "mobileOverflow": False, "mobileEditSaved": True,
+            "hostControlsSession": True}
+
+
 SCENARIOS: dict[str, Callable[[ScenarioRuntime], Awaitable[dict[str, Any]]]] = {
+    "call_studio": scenario_call_studio,
     "group_media": scenario_group_media,
     "entry_modes": scenario_entry_modes,
     "direct_chat_context": scenario_direct_chat_context,

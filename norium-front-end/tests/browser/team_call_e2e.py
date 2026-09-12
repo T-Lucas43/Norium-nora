@@ -581,6 +581,24 @@ async def wait_diagnostic(page: Page, expression: str, argument: Any = None, tim
     )
 
 
+async def wait_call_after_reload(page: Page, call_id: str, *, connected: bool = False) -> None:
+    """Wait for call recovery with a bounded retry for CI renderer races."""
+    phase_clause = " && value.phase === 'connected'" if connected else ""
+    expression = f"value.callId === argument && value.socketState === 'open'{phase_clause}"
+    last_error: PlaywrightTimeoutError | None = None
+    for attempt in range(3):
+        try:
+            await wait_diagnostic(page, expression, call_id, timeout=30_000)
+            return
+        except PlaywrightTimeoutError as error:
+            last_error = error
+            if attempt == 2:
+                raise
+            await page.reload()
+    if last_error:
+        raise last_error
+
+
 async def click_visible(locator: Any) -> None:
     await locator.filter(visible=True).first.click(timeout=DEFAULT_TIMEOUT_MS)
 
@@ -874,24 +892,12 @@ async def scenario_page_reload(runtime: ScenarioRuntime) -> dict[str, Any]:
     member = await runtime.page("member")
     call_id = await start_call(owner.page, "group", "muted")
     await owner.page.reload()
-    try:
-        await wait_diagnostic(owner.page, "value.callId === argument && value.socketState === 'open'", call_id)
-    except PlaywrightTimeoutError:
-        # Chromium can briefly restore the document before the coordinator
-        # has reopened its socket. A second reload exercises the same recovery
-        # contract without turning a transient renderer race into a release
-        # failure; a persistent problem still fails on the retry below.
-        await owner.page.reload()
-        await wait_diagnostic(owner.page, "value.callId === argument && value.socketState === 'open'", call_id)
+    await wait_call_after_reload(owner.page, call_id)
     assert await join_call(member.page, "on") == call_id
     await wait_rtp(owner.page, "inbound")
     for participant, muted in [(owner, True), (member, False)]:
         await participant.page.reload()
-        try:
-            await wait_diagnostic(participant.page, "value.callId === argument && value.socketState === 'open' && value.phase === 'connected'", call_id)
-        except PlaywrightTimeoutError:
-            await participant.page.reload()
-            await wait_diagnostic(participant.page, "value.callId === argument && value.socketState === 'open' && value.phase === 'connected'", call_id)
+        await wait_call_after_reload(participant.page, call_id, connected=True)
         state = await diagnostics(participant.page)
         assert state["localTrackStates"] == [{"kind": "audio", "enabled": not muted, "readyState": "live"}]
         try:
@@ -899,7 +905,7 @@ async def scenario_page_reload(runtime: ScenarioRuntime) -> dict[str, Any]:
             await wait_rtp(member.page, "outbound")
         except PlaywrightTimeoutError:
             await participant.page.reload()
-            await wait_diagnostic(participant.page, "value.callId === argument && value.socketState === 'open' && value.phase === 'connected'", call_id)
+            await wait_call_after_reload(participant.page, call_id, connected=True)
             await wait_rtp(owner.page, "inbound")
             await wait_rtp(member.page, "outbound")
     await end_host_call(owner.page)

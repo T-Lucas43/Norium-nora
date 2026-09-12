@@ -592,11 +592,15 @@ async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_WORKSPACE_CLIENT_SENTINEL = "__workspace__"
+
+
 async def create_proposal(user: dict[str, Any], payload: ProposalCreate) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
+    has_real_client = bool(payload.clientId and not payload.clientId.startswith(_WORKSPACE_CLIENT_SENTINEL))
     client = (
         snapshot_client(tenant_id, payload.clientId)
-        if payload.clientId
+        if has_real_client
         else {
             "id": f"workspace_{tenant_id}",
             "document": "",
@@ -606,9 +610,12 @@ async def create_proposal(user: dict[str, Any], payload: ProposalCreate) -> dict
         }
     )
     now = now_iso()
+    proposal_data = payload.model_dump(exclude={"signers"})
+    if not has_real_client:
+        proposal_data["clientId"] = ""
     proposal = {
         "id": f"proposal_{uuid.uuid4().hex}",
-        **payload.model_dump(exclude={"signers"}),
+        **proposal_data,
         "contentHtml": sanitize_document_html(payload.contentHtml),
         "client": client,
         "signers": prepare_signers(
@@ -1535,7 +1542,7 @@ async def create_smart_document(user: dict[str, Any], payload: SmartDocumentRequ
     document = await create_proposal(
         user,
         ProposalCreate(
-            clientId=payload.clientId,
+            clientId=payload.clientId or _WORKSPACE_CLIENT_SENTINEL,
             title=draft["title"],
             contentHtml=draft["contentHtml"],
             scopeSummary=draft["summary"],

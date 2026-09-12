@@ -524,7 +524,7 @@ function ActiveCallSessionProvider({
       const reconnecting = socketState !== "open"
         || runtime.connectionQuality === "offline"
         || runtime.connectionQuality === "connecting";
-      dispatch({ type: reconnecting ? "SOCKET_LOST" : "CONNECTED" });
+      dispatch({ type: phase === "idle" || phase === "ringing" ? "JOIN_REQUESTED" : reconnecting ? "SOCKET_LOST" : "CONNECTED" });
       setParticipantIds((current) => Array.from(new Set([
         ...current,
         session.user.id,

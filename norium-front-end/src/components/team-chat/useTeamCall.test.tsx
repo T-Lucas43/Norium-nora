@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { StrictMode, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "../../types/auth";
 import {
@@ -29,6 +30,7 @@ const session = {
 
 describe("chamadas do Modo Equipe", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     vi.restoreAllMocks();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ calls: [] }) }));
   });
@@ -93,6 +95,70 @@ describe("chamadas do Modo Equipe", () => {
     await act(async () => { await result.current.endCall(); });
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_END" }));
     expect(audioStop).toHaveBeenCalled();
+    unmount();
+  });
+
+  it.each([false, true])("retoma a mesma chamada automaticamente após recarregar a página (StrictMode=%s)", async (strict) => {
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const mount = () => renderHook(() => useTeamCallRuntime({
+      session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent,
+    }), { wrapper: strict ? ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode> : undefined });
+    const first = mount();
+    await act(async () => first.result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const callId = first.result.current.active!.callId;
+    const clientId = first.result.current.clientId;
+    await act(async () => first.result.current.handleSocketEvent({
+      type: "CALL_ACK", callId, event: "CALL_INVITE", mediaTransport: "mesh",
+    }));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    first.unmount();
+    sendSocketEvent.mockClear();
+    const reloaded = mount();
+    await act(async () => reloaded.result.current.handleSocketEvent({ type: "CALLS_STATE", calls: [{
+      type: "CALL_ACTIVE", callId, fromUserId: "owner", fromUserName: "Owner",
+      scope: "team", threadId: "team", mode: "audio", mediaTransport: "mesh",
+      joinedUserIds: ["owner", "member"],
+    }] }));
+    expect(reloaded.result.current.active?.callId).toBe(callId);
+    expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_ACCEPT", callId, clientId }));
+    expect(sendSocketEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_INVITE" }));
+    expect(reloaded.result.current.listenOnly).toBe(true);
+    reloaded.unmount();
+  });
+
+  it.each(["ended", "other-user", "expired", "invalid"])("não retoma uma sessão %s", async (kind) => {
+    sessionStorage.setItem("norium.team-call.reload", kind === "invalid" ? "invalid-json" : JSON.stringify({
+      userId: kind === "other-user" ? "someone-else" : "owner", callId: "old-call", clientId: "old-client",
+      savedAt: Date.now() - (kind === "expired" ? 61_000 : 0), microphoneMode: "on", cameraEnabled: true,
+    }));
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const getUserMedia = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
+    const { result, unmount } = renderHook(() => useTeamCallRuntime({
+      session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent,
+    }));
+    await act(async () => result.current.handleSocketEvent({ type: "CALLS_STATE", calls: kind === "ended" ? [] : [{
+      type: "CALL_ACTIVE", callId: "old-call", fromUserId: "owner", scope: "team", mediaTransport: "mesh",
+    }] }));
+    expect(result.current.active).toBeNull();
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(sendSocketEvent).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("norium.team-call.reload")).toBeNull();
+    unmount();
+  });
+
+  it.each(["leaveCall", "endCall"] as const)("não guarda retomada após %s", async (command) => {
+    const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const { result, unmount } = renderHook(() => useTeamCallRuntime({
+      session, thread: { scope: "team", title: "Time todo" }, sendSocketEvent,
+    }));
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    await act(async () => result.current.handleSocketEvent({
+      type: "CALL_ACK", callId: result.current.active!.callId, event: "CALL_INVITE", mediaTransport: "mesh",
+    }));
+    await act(async () => result.current[command]());
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(sessionStorage.getItem("norium.team-call.reload")).toBeNull();
     unmount();
   });
 

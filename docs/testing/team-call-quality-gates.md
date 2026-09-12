@@ -52,6 +52,7 @@ enumerados de chamada/permissão e até 256 categorias de evento por sessão.
 | `simultaneous_offer` | ambos os peers criam oferta, negociação termina estável e nenhuma conexão é descartada |
 | `relay_only` | duas sessões com `iceTransportPolicy: "relay"`, par selecionado `relay/relay` e RTP recebido |
 | `reconnect` | servidor encerra a conexão, socket reabre e o mesmo `callId` permanece ativo |
+| `page_reload` | anfitrião sozinho e ambos os participantes recarregam a página; mesma chamada, microfone preservado, estado conectado e RTP restabelecido; chamada encerrada não é retomada |
 | `temporary_network_loss` | rede do contexto fica offline, uma requisição real é recusada, mídia local permanece viva e a chamada reaparece online |
 | `multiple_tabs` | duas abas do mesmo usuário formam um participante lógico; saída da aba antiga não remove a sessão nova |
 | `tab_close_and_crash` | fechamento normal e crash de renderer removem o participante dentro do prazo medido |

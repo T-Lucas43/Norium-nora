@@ -321,6 +321,18 @@ describe("CallSession", () => {
     expect(Socket.instances[0].onclose).toBeNull();
   });
 
+  it.each([false, true])("marca a retomada automática como conectada (convite=%s)", async (invited) => {
+    const view = render(<CallSessionProvider session={authSession}><Probe /></CallSessionProvider>);
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    act(() => Socket.instances[0].open());
+    if (invited) act(() => Socket.instances[0].receive({ type: "CALL_INVITE", callId: "restored", fromUserId: "member" }));
+    mocked.runtime!.active = {
+      callId: "restored", hostUserId: "owner", thread: { scope: "team", title: "Time todo" },
+    };
+    view.rerender(<CallSessionProvider session={authSession}><Probe /></CallSessionProvider>);
+    expect(screen.getByLabelText("phase")).toHaveTextContent("connected:open");
+  });
+
   it("encaminha uma fabrica SFU estreita para selecao por chamada", async () => {
     const create = vi.fn();
     const sfuFactory = {

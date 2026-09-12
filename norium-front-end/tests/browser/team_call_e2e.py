@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from playwright.async_api import Browser, BrowserContext, Page, TimeoutError as PlaywrightTimeoutError, async_playwright, expect
+from playwright.async_api import Browser, BrowserContext, Error as PlaywrightError, Page, TimeoutError as PlaywrightTimeoutError, async_playwright, expect
 
 
 BROWSER_DIR = Path(__file__).resolve().parent
@@ -903,7 +903,7 @@ async def scenario_page_reload(runtime: ScenarioRuntime) -> dict[str, Any]:
         try:
             await wait_rtp(owner.page, "inbound")
             await wait_rtp(member.page, "outbound")
-        except PlaywrightTimeoutError:
+        except PlaywrightError:
             await participant.page.reload()
             await wait_call_after_reload(participant.page, call_id, connected=True)
             await wait_rtp(owner.page, "inbound")

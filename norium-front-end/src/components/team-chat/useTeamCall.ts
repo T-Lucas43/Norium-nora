@@ -155,6 +155,35 @@ type CallDevices = {
 };
 
 export type CallMicrophoneMode = "on" | "muted" | "listen-only";
+const RELOAD_SESSION_KEY = "norium.team-call.reload";
+const RELOAD_SESSION_TTL_MS = 60_000;
+type ReloadSession = {
+  userId: string;
+  callId: string;
+  clientId: string;
+  savedAt: number;
+  microphoneMode: CallMicrophoneMode;
+  cameraEnabled: boolean;
+};
+
+function readReloadSession(userId: string): ReloadSession | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(RELOAD_SESSION_KEY) || "null") as ReloadSession | null;
+    if (value?.userId === userId && typeof value.callId === "string" && value.callId
+      && typeof value.clientId === "string" && value.clientId
+      && Number.isFinite(value.savedAt) && Date.now() >= value.savedAt
+      && Date.now() - value.savedAt < RELOAD_SESSION_TTL_MS
+      && ["on", "muted", "listen-only"].includes(value.microphoneMode)
+      && typeof value.cameraEnabled === "boolean") return value;
+  } catch { /* A blocked session store must not prevent ordinary calls. */ }
+  clearReloadSession();
+  return null;
+}
+
+function clearReloadSession() {
+  try { sessionStorage.removeItem(RELOAD_SESSION_KEY); } catch { /* Storage can be disabled. */ }
+}
+
 export type CallEntryOptions = {
   microphoneMode: CallMicrophoneMode;
   cameraEnabled: boolean;
@@ -295,7 +324,9 @@ export function useTeamCallRuntime({
   const confirmedCallIdRef = useRef("");
   const endedCallIdsRef = useRef(new Set<string>());
   const dismissedInviteIdsRef = useRef(new Set<string>());
-  const clientIdRef = useRef(crypto.randomUUID());
+  const [reloadSession] = useState(() => readReloadSession(session.user.id));
+  const reloadSessionRef = useRef(reloadSession);
+  const clientIdRef = useRef(reloadSession?.clientId || crypto.randomUUID());
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [mediaTransportSnapshot, setMediaTransportSnapshot] = useState<MediaTransportSnapshot>(EMPTY_MEDIA_TRANSPORT_SNAPSHOT);
   const [mediaTransportKind, setMediaTransportKind] = useState<MediaTransportKind>("mesh");
@@ -304,6 +335,11 @@ export function useTeamCallRuntime({
   const [microphonePermission, setMicrophonePermission] = useState<CameraPermission>("unknown");
   const [cameraOff, setCameraOff] = useState(true);
   const [cameraPermission, setCameraPermission] = useState<CameraPermission>("unknown");
+  const reloadOptionsRef = useRef<CallEntryOptions>({ microphoneMode: "muted", cameraEnabled: false });
+  reloadOptionsRef.current = {
+    microphoneMode: listenOnly ? "listen-only" : muted ? "muted" : "on",
+    cameraEnabled: !cameraOff,
+  };
   const [sharingScreen, setSharingScreen] = useState(false);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null);
@@ -380,7 +416,7 @@ export function useTeamCallRuntime({
   const recordingStopPromiseRef = useRef<Promise<void>>(Promise.resolve());
   const resolveRecordingStopRef = useRef<(() => void) | null>(null);
   const reactionTimersRef = useRef<number[]>([]);
-  const finishCallRef = useRef<(notify: boolean, sound?: CallSound | null) => void>(() => undefined);
+  const finishCallRef = useRef<(notify: boolean, sound?: CallSound | null, preserveReload?: boolean) => void>(() => undefined);
 
   useEffect(() => {
     mediaTransportRef.current?.updateIce(iceConfigurationRef.current);
@@ -684,7 +720,11 @@ export function useTeamCallRuntime({
     setSharingScreen(false);
   }, []);
 
-  const finishCall = useCallback((notify: boolean, sound: CallSound | null = null) => {
+  const finishCall = useCallback((notify: boolean, sound: CallSound | null = null, preserveReload = false) => {
+    if (!preserveReload) {
+      reloadSessionRef.current = null;
+      clearReloadSession();
+    }
     const call = activeRef.current;
     telemetryRef.current = null;
     clearPendingAdmission();
@@ -805,13 +845,25 @@ export function useTeamCallRuntime({
   ]);
 
   useEffect(() => {
+    const preserveOnReload = () => {
+      const call = activeRef.current;
+      if (call && confirmedCallIdRef.current === call.callId) {
+        try {
+          sessionStorage.setItem(RELOAD_SESSION_KEY, JSON.stringify({
+            userId: session.user.id, callId: call.callId, clientId: clientIdRef.current,
+            savedAt: Date.now(), ...reloadOptionsRef.current,
+          } satisfies ReloadSession));
+        } catch { /* Continue releasing media even when storage is unavailable. */ }
+      }
+      leaveOnClose();
+    };
     const leaveOnClose = () => {
       if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
-      finishCallRef.current(false);
+      finishCallRef.current(false, null, true);
     };
-    window.addEventListener("pagehide", leaveOnClose);
-    return () => { window.removeEventListener("pagehide", leaveOnClose); leaveOnClose(); };
-  }, []);
+    window.addEventListener("pagehide", preserveOnReload);
+    return () => { window.removeEventListener("pagehide", preserveOnReload); leaveOnClose(); };
+  }, [session.user.id]);
 
   const heartbeat = useCallback(() => {
     const call = activeRef.current;
@@ -1439,6 +1491,15 @@ export function useTeamCallRuntime({
   const handleSocketEvent = useCallback(async (event: TeamCallSocketEvent) => {
     if (event.type === "CALLS_STATE") {
       syncActiveCalls(event.calls || []);
+      const saved = reloadSessionRef.current;
+      if (saved) {
+        reloadSessionRef.current = null;
+        clearReloadSession();
+        const resumable = event.calls?.find((call) => call.callId === saved.callId);
+        if (resumable && saved.userId === session.user.id && Date.now() - saved.savedAt < RELOAD_SESSION_TTL_MS) {
+          await joinActiveCall(resumable, { microphoneMode: saved.microphoneMode, cameraEnabled: saved.cameraEnabled });
+        }
+      }
       const current = event.calls?.find((call) => call.callId === activeRef.current?.callId);
       if (current) { receiveHands(current); if (confirmedCallIdRef.current) void syncMeetingChat(); }
       return;
@@ -1650,7 +1711,7 @@ export function useTeamCallRuntime({
       setStatus("Gravacao disponivel no chat por 24 horas.");
       return;
     }
-  }, [abandonAdmission, completeAdmission, receiveHands, receiveMessages, syncMeetingChat, callPayload, ensureMediaTransport, finishCall, publishMediaState, revokeAccess, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
+  }, [abandonAdmission, completeAdmission, receiveHands, receiveMessages, syncMeetingChat, callPayload, ensureMediaTransport, finishCall, joinActiveCall, publishMediaState, revokeAccess, sendSocketEvent, session.user.id, showReaction, startConnectingSound, stopConnectingSound, stopRecording, syncActiveCalls]);
 
   handleSocketEventRef.current = handleSocketEvent;
 

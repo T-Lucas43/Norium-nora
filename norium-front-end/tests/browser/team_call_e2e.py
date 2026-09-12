@@ -869,6 +869,29 @@ async def scenario_simultaneous_offer(runtime: ScenarioRuntime) -> dict[str, Any
     return {"callId": call_id, "offerers": 2, "stablePeers": len(states)}
 
 
+async def scenario_page_reload(runtime: ScenarioRuntime) -> dict[str, Any]:
+    owner = await runtime.page("owner")
+    member = await runtime.page("member")
+    call_id = await start_call(owner.page, "group", "muted")
+    await owner.page.reload()
+    await wait_diagnostic(owner.page, "value.callId === argument && value.socketState === 'open'", call_id)
+    assert await join_call(member.page, "on") == call_id
+    await wait_rtp(owner.page, "inbound")
+    for participant, muted in [(owner, True), (member, False)]:
+        await participant.page.reload()
+        await wait_diagnostic(participant.page, "value.callId === argument && value.socketState === 'open' && value.phase === 'connected'", call_id)
+        state = await diagnostics(participant.page)
+        assert state["localTrackStates"] == [{"kind": "audio", "enabled": not muted, "readyState": "live"}]
+        await wait_rtp(owner.page, "inbound")
+        await wait_rtp(member.page, "outbound")
+    await end_host_call(owner.page)
+    await wait_diagnostic(member.page, "!value.callId")
+    await owner.page.reload()
+    await wait_diagnostic(owner.page, "value.socketState === 'open'")
+    assert not (await diagnostics(owner.page))["callId"]
+    return {"hostReload": True, "memberReload": True, "nativeRtp": True, "endedCallNotResumed": True}
+
+
 async def scenario_reconnect(runtime: ScenarioRuntime) -> dict[str, Any]:
     owner = await runtime.page("owner")
     member = await runtime.page("member")
@@ -1319,6 +1342,7 @@ async def scenario_call_studio(runtime: ScenarioRuntime) -> dict[str, Any]:
 
 
 SCENARIOS: dict[str, Callable[[ScenarioRuntime], Awaitable[dict[str, Any]]]] = {
+    "page_reload": scenario_page_reload,
     "call_studio": scenario_call_studio,
     "group_media": scenario_group_media,
     "entry_modes": scenario_entry_modes,

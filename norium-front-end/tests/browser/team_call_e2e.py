@@ -586,9 +586,9 @@ async def wait_call_after_reload(page: Page, call_id: str, *, connected: bool = 
     phase_clause = " && value.phase === 'connected'" if connected else ""
     expression = f"value.callId === argument && value.socketState === 'open'{phase_clause}"
     last_error: PlaywrightTimeoutError | None = None
-    for attempt in range(3):
+    for attempt in range(2):
         try:
-            await wait_diagnostic(page, expression, call_id, timeout=30_000)
+            await wait_diagnostic(page, expression, call_id, timeout=20_000)
             return
         except PlaywrightTimeoutError as error:
             last_error = error

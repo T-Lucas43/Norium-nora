@@ -26,7 +26,27 @@ ProposalStatus = Literal[
     "archived",
 ]
 ContractStatus = Literal["draft", "awaiting_signatures", "signed", "active", "completed", "cancelled"]
-TemplateDocumentType = Literal["proposal", "contract", "term", "budget", "report", "custom"]
+TemplateDocumentType = Literal[
+    "proposal",
+    "contract",
+    "term",
+    "budget",
+    "report",
+    "resume",
+    "letter",
+    "invoice",
+    "receipt",
+    "plan",
+    "policy",
+    "hr",
+    "certificate",
+    "meeting",
+    "project",
+    "marketing",
+    "academic",
+    "personal",
+    "custom",
+]
 PdfOperation = Literal[
     "merge",
     "split",
@@ -93,7 +113,7 @@ class DeliverableInput(StrictModel):
 
 
 class ProposalCreate(StrictModel):
-    clientId: str = Field(min_length=1, max_length=180)
+    clientId: str = Field(default="", max_length=180)
     brainstormId: str | None = Field(default=None, max_length=180)
     title: str = Field(min_length=2, max_length=220)
     contentHtml: str = Field(default="<p>Descreva o escopo da proposta.</p>", max_length=350_000)
@@ -122,6 +142,22 @@ class ProposalBriefRequest(StrictModel):
     amount: float = Field(default=0, ge=0, le=999_999_999)
     currency: str = Field(default="BRL", min_length=3, max_length=3)
     tone: Literal["consultive", "executive", "technical", "friendly"] = "consultive"
+
+
+class SmartDocumentRequest(StrictModel):
+    templateId: str = Field(min_length=1, max_length=180)
+    clientId: str = Field(default="", max_length=180)
+    title: str = Field(default="", max_length=220)
+    brief: str = Field(min_length=3, max_length=12_000)
+    details: str = Field(default="", max_length=12_000)
+    amount: float = Field(default=0, ge=0, le=999_999_999)
+    currency: str = Field(default="BRL", min_length=3, max_length=3)
+    validUntil: str | None = None
+    tone: Literal["consultive", "executive", "technical", "friendly"] = "consultive"
+    photoDataUrl: str = Field(default="", max_length=2_000_000)
+    primaryColor: str = Field(default="#1E293B", pattern=r"^#[0-9A-Fa-f]{6}$")
+    secondaryColor: str = Field(default="#3B82F6", pattern=r"^#[0-9A-Fa-f]{6}$")
+    textColor: str = Field(default="#0F172A", pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class ProposalUpdate(StrictModel):

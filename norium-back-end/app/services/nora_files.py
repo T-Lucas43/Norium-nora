@@ -110,7 +110,7 @@ def _validate_content(content: bytes, mime_type: str) -> None:
 def _artifact(record: dict[str, Any]) -> dict[str, Any]:
     file_id = str(record["id"])
     content_url = f"/api/nora/files/{file_id}/content"
-    return {
+    artifact = {
         "id": file_id,
         "name": str(record.get("name") or "arquivo"),
         "mimeType": str(record.get("mimeType") or "application/octet-stream"),
@@ -121,9 +121,23 @@ def _artifact(record: dict[str, Any]) -> dict[str, Any]:
         "createdAt": record.get("createdAt"),
         "inLibrary": bool(record.get("inLibrary", False)),
     }
+    metadata = record.get("metadata")
+    if isinstance(metadata, dict):
+        artifact["metadata"] = metadata
+        if isinstance(metadata.get("editTarget"), dict):
+            artifact["editTarget"] = metadata["editTarget"]
+    return artifact
 
 
-def save_bytes(user_id: str, content: bytes, filename: str, mime_type: str, *, source: str) -> dict[str, Any]:
+def save_bytes(
+    user_id: str,
+    content: bytes,
+    filename: str,
+    mime_type: str,
+    *,
+    source: str,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not content or len(content) > MAX_FILE_BYTES:
         raise HTTPException(status_code=413, detail="O arquivo deve ter entre 1 byte e 24 MB.")
     _validate_content(content, mime_type)
@@ -145,6 +159,8 @@ def save_bytes(user_id: str, content: bytes, filename: str, mime_type: str, *, s
         "createdAt": _now_iso(),
         "inLibrary": False,
     }
+    if metadata:
+        record["metadata"] = metadata
     store = read_user_db(user_id, DB_NAME, {"files": []})
     items = [item for item in store.get("files", []) if isinstance(item, dict)]
     write_user_db(user_id, DB_NAME, {"files": [record, *items][:MAX_FILES]})

@@ -19,6 +19,7 @@ import {
   Link2,
   LayoutTemplate,
   List,
+  ImagePlus,
   Palette,
   Pencil,
   Plus,
@@ -52,6 +53,7 @@ import {
   duplicateTemplate,
   generateContract,
   generateProposalDraft,
+  generateSmartDocumentDraft,
   importDocument,
   instantiateContract,
   loadContract,
@@ -86,6 +88,8 @@ import {
   type PdfOperation,
   type ProposalBriefInput,
   type ProposalDraft,
+  type SmartDocumentDraft,
+  type SmartDocumentInput,
   type SignatureLink,
   type TemplateDocumentType,
   type UploadedDocument,
@@ -100,7 +104,7 @@ import A4ContentPages from "./A4ContentPages";
 import CommercialEditor from "./CommercialEditor";
 import PdfToolsWorkspace from "./PdfToolsWorkspace";
 
-type View = "all" | "proposals" | "contracts" | "files" | "templates" | "brands";
+type View = "all" | "documents" | "proposals" | "contracts" | "files" | "templates" | "brands";
 type DisplayMode = "list" | "grid";
 type SortMode = "updated_desc" | "updated_asc" | "title";
 
@@ -172,6 +176,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [preferredTemplateId, setPreferredTemplateId] = useState("");
   const [signOpen, setSignOpen] = useState(false);
   const [instantiateOpen, setInstantiateOpen] = useState(false);
   const [brandOpen, setBrandOpen] = useState(false);
@@ -225,7 +230,8 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     }
   }, []);
 
-  const openCreate = useCallback(() => {
+  const openCreate = useCallback((templateId = "") => {
+    setPreferredTemplateId(templateId);
     setCreateOpen(true);
     void loadCreationOptions();
   }, [loadCreationOptions]);
@@ -239,15 +245,27 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   const hasCommercialData = Boolean(data);
   useEffect(() => {
     if (!hasCommercialData) return;
-    let link: { tab?: string; entityType?: string; entityId?: string };
-    try { link = JSON.parse(localStorage.getItem("norium-deep-link") || "null"); } catch { return; }
-    if (link?.tab !== "Propostas" || link.entityType !== "contract" || !link.entityId) return;
-    localStorage.removeItem("norium-deep-link");
-    setView("contracts");
-    setOpeningDocumentId(link.entityId);
     let active = true;
-    void loadContract(link.entityId).then(response => { if (active) setSelected(response.contract); }).catch(reason => { if (active) setError(messageFromError(reason, "Não foi possível abrir o contrato vinculado.")); }).finally(() => { if (active) setOpeningDocumentId(null); });
-    return () => { active = false; };
+    const consume = (event?: Event) => {
+      let link: { tab?: string; entityType?: string; entityId?: string } | null = null;
+      if (event instanceof CustomEvent && event.detail) link = event.detail;
+      if (!link) {
+        try { link = JSON.parse(localStorage.getItem("norium-deep-link") || "null"); } catch { return; }
+      }
+      if (!link?.entityId || !["Documentos", "Propostas"].includes(String(link.tab || "")) || !["proposal", "contract", "commercial_document"].includes(String(link.entityType || ""))) return;
+      localStorage.removeItem("norium-deep-link");
+      const isContractLink = link.entityType === "contract";
+      setView(isContractLink ? "contracts" : "all");
+      setOpeningDocumentId(link.entityId);
+      const request = isContractLink ? loadContract(link.entityId) : loadProposal(link.entityId);
+      void request.then(response => {
+        if (!active) return;
+        setSelected("contract" in response ? response.contract : response.proposal);
+      }).catch(reason => { if (active) setError(messageFromError(reason, "Não foi possível abrir o documento vinculado.")); }).finally(() => { if (active) setOpeningDocumentId(null); });
+    };
+    consume();
+    window.addEventListener("norium:deep-link", consume);
+    return () => { active = false; window.removeEventListener("norium:deep-link", consume); };
   }, [hasCommercialData]);
 
   useEffect(() => {
@@ -284,7 +302,9 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     const source: CommercialDocumentSummary[] = view === "contracts"
       ? data.contracts
       : view === "proposals"
-        ? data.proposals
+        ? data.proposals.filter((item) => (item.templateDocumentType || "proposal") === "proposal")
+        : view === "documents"
+          ? data.proposals.filter((item) => (item.templateDocumentType || "proposal") !== "proposal")
         : [...data.proposals, ...data.contracts];
     const needle = query.trim().toLocaleLowerCase("pt-BR");
     return source.filter((item) => {
@@ -784,13 +804,13 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   return (
     <main className="clean-workspace documents-workspace min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
       <div className="mx-auto max-w-[1660px]">
-        <WorkspaceHeader title="Documentos" description="Organize propostas, contratos e arquivos do início à assinatura." icon={FileText}>
+        <WorkspaceHeader title="Documentos" description="Crie, edite e compartilhe documentos profissionais com a Nora e uma biblioteca completa de modelos." icon={FileText}>
             <Button variant="secondary" loading={loading} onClick={() => void load()} icon={<RefreshCw size={15} />}>Atualizar</Button>
             <Button variant="secondary" onClick={() => { setProposalUploadTarget(undefined); setProposalUploadSigned(false); setProposalUploadOpen(true); void loadCreationOptions(); }} icon={<Upload size={15} />}>Importar proposta</Button>
             <Button variant="secondary" onClick={() => setImportOpen(true)} icon={<Upload size={15} />}>Importar arquivo</Button>
             <Button variant="secondary" onClick={() => void openPdfTools()} icon={<Wrench size={15} />}>Ferramentas PDF</Button>
-            <Button variant="secondary" onClick={() => onOpenNora("Quero criar ou revisar um documento comercial. Pergunte o tipo, cliente, origem, escopo, valor, validade, entregaveis e assinantes antes de executar qualquer acao.")} icon={<Sparkles size={15} />}>Criar com Nora</Button>
-            <Button variant="primary" className="workspace-primary" onClick={openCreate} icon={<Plus size={16} />}>Novo documento</Button>
+            <Button variant="secondary" onClick={() => onOpenNora("Quero criar um documento. Pergunte tudo o que for essencial em uma única mensagem e gere mesmo que alguns detalhes fiquem como A definir.")} icon={<Sparkles size={15} />}>Criar com Nora</Button>
+            <Button variant="primary" className="workspace-primary" onClick={() => openCreate()} icon={<Plus size={16} />}>Novo documento</Button>
 </WorkspaceHeader>
 
         {error && (
@@ -816,7 +836,8 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
               <div className="documents-toolbar flex gap-3 border-b border-[var(--border)] p-4">
                 <div className="workspace-tabs" aria-label="Tipos de documento">
                   <ViewTab active={view === "all"} label="Todos" count={liveSummary?.documentCount || 0} onClick={() => { setView("all"); setStatusFilter("all"); }} />
-                  <ViewTab active={view === "proposals"} label="Propostas" count={data.proposals.length} onClick={() => { setView("proposals"); setStatusFilter("all"); }} />
+                  <ViewTab active={view === "documents"} label="Editáveis" count={data.proposals.filter((item) => (item.templateDocumentType || "proposal") !== "proposal").length} onClick={() => { setView("documents"); setStatusFilter("all"); }} />
+                  <ViewTab active={view === "proposals"} label="Propostas" count={data.proposals.filter((item) => (item.templateDocumentType || "proposal") === "proposal").length} onClick={() => { setView("proposals"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "contracts"} label="Contratos" count={data.contracts.length} onClick={() => { setView("contracts"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "files"} label="Arquivos e PDFs" count={data.uploadedDocuments.length} onClick={() => { setView("files"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "templates"} label="Modelos" count={data.templates.length} onClick={() => setView("templates")} />
@@ -824,7 +845,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                   <label className="flex h-10 min-w-64 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Search size={15} className="text-[var(--text-secondary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Buscar documentos" placeholder="Buscar por documento ou cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
-                  {(view === "all" || view === "proposals" || view === "contracts" || view === "files") && (
+                  {(view === "all" || view === "documents" || view === "proposals" || view === "contracts" || view === "files") && (
                     <>
                       <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Filter size={14} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="commercial-status-select min-w-[150px] bg-transparent text-xs font-bold outline-none"><option value="all">Todos os status</option>{view === "files" ? <><option value="pdf">PDFs</option><option value="sent">Enviados</option><option value="received">Recebidos</option><option value="archived">Arquivados</option></> : Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                       <select aria-label="Ordenar documentos" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="commercial-field h-10 w-auto min-w-[150px] text-xs font-bold"><option value="updated_desc">Mais recentes</option><option value="updated_asc">Mais antigos</option><option value="title">Titulo A-Z</option></select>
@@ -836,27 +857,27 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                 </div>
               </div>
 
-              {(view === "all" || view === "proposals" || view === "contracts") && (
+              {(view === "all" || view === "documents" || view === "proposals" || view === "contracts") && (
                 <div className={`min-h-0 ${displayMode === "grid" ? "grid gap-3 p-4 sm:grid-cols-2 2xl:grid-cols-3" : ""}`}>
                   {currentItems.map((item) => (
                     <article key={item.id} className={displayMode === "grid" ? "flex min-h-72 flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 transition hover:border-blue-400/30" : "grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_148px] xl:items-center"}>
-                      <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{item.documentType === "proposal" ? <FileSignature size={19} /> : <FileCheck2 size={19} />}</span>
+                      <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{item.documentType === "contract" ? <FileCheck2 size={19} /> : (item.templateDocumentType || "proposal") === "proposal" ? <FileSignature size={19} /> : <FileText size={19} />}</span>
                       <button type="button" disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} className="min-w-0 text-left disabled:cursor-wait disabled:opacity-70">
                         <strong className="block truncate text-sm">{item.title}</strong>
-                        <small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.client?.name || "Cliente nao informado"} {item.brainstormId ? "- vinculado ao Estúdio" : ""}</small>
+                        <small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.documentTypeLabel || (item.documentType === "contract" ? "Contrato" : "Proposta")}{item.client?.name ? ` · ${item.client.name}` : ""} {item.brainstormId ? "· vinculado ao Estúdio" : ""}</small>
                       </button>
-                      <span className="col-start-2 text-xs font-bold xl:col-auto">{formatMoney(item.amount, item.currency)}</span>
+                      <span className="col-start-2 text-xs font-bold xl:col-auto">{(item.templateDocumentType || "proposal") === "proposal" || item.templateDocumentType === "budget" || item.documentType === "contract" ? formatMoney(item.amount, item.currency) : item.documentTypeLabel || "Documento"}</span>
                       <span className="col-start-2 xl:col-auto"><StatusChip status={item.status} /></span>
                       <time className="col-start-2 text-xs font-bold text-[var(--text-secondary)] xl:col-auto">{formatDate(item.updatedAt)}</time>
                       <DocumentPreviewButton
                         title={item.title}
-                        label={item.documentType === "proposal" ? "Proposta comercial" : "Contrato"}
+                        label={item.documentTypeLabel || (item.documentType === "contract" ? "Contrato" : "Proposta")}
                         primaryColor={item.primaryColor}
                         onClick={() => void openDocument(item)}
                         className="col-span-2 xl:col-auto"
                       />
                       <div className="col-span-2 flex min-h-10 flex-wrap items-center gap-2 xl:col-auto xl:justify-end">
-                        {item.documentType === "proposal" && (
+                        {item.documentType === "proposal" && (item.templateDocumentType || "proposal") === "proposal" && (
                           <>
                             <select aria-label={`Alterar status de ${item.title}`} value="" disabled={busy} onChange={(event) => event.target.value && void handleProposalStatus(item, event.target.value as CommercialProposal["status"])} className="commercial-status-select h-9 max-w-[150px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="">Alterar status</option>{(proposalTransitions[item.status] || []).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>
                             <Button variant="secondary" iconOnly onClick={() => void handleDuplicateProposal(item)} aria-label={`Duplicar proposta ${item.title}`} title="Duplicar proposta"><Copy size={15} /></Button>
@@ -866,7 +887,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                           <Button variant="secondary" iconOnly loading={openingDocumentId === item.id} disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} aria-label={`Editar contrato ${item.title}`} title="Editar contrato"><Pencil size={16} /></Button>
                         )}
                         {item.documentType === "proposal" && !item.contractId && (
-                          <Button variant="danger" iconOnly onClick={() => void handleDeleteProposal(item)} className="border-red-400/20 text-red-400 hover:bg-red-500/10" aria-label={`Excluir proposta ${item.title}`} title="Excluir proposta"><Trash2 size={16} /></Button>
+                          <Button variant="danger" iconOnly onClick={() => void handleDeleteProposal(item)} className="border-red-400/20 text-red-400 hover:bg-red-500/10" aria-label={`Excluir documento ${item.title}`} title="Excluir documento"><Trash2 size={16} /></Button>
                         )}
                         {item.documentType === "contract" && item.status !== "cancelled" && item.status !== "completed" && (
                           <Button variant="danger" iconOnly onClick={() => void handleCancelContract(item)} className="border-amber-400/20 text-amber-300 hover:bg-amber-500/10" aria-label={`Cancelar contrato ${item.title}`} title="Cancelar contrato"><Ban size={16} /></Button>
@@ -877,7 +898,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                       </div>
                     </article>
                   ))}
-                  {!currentItems.length && <EmptyState title="Nenhum documento encontrado" description="Crie uma proposta ou ajuste os filtros." icon={FilePlus2} className="min-h-[430px] border-none" />}
+                  {!currentItems.length && <EmptyState title="Nenhum documento encontrado" description="Escolha um dos modelos, escreva um briefing curto e deixe a Nora montar a primeira versão." icon={FilePlus2} className="min-h-[430px] border-none" />}
                 </div>
               )}
 
@@ -911,9 +932,9 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
               {view === "templates" && (
                 <LibraryView
                   title="Modelos inteligentes"
-                  description="Reutilize estruturas comerciais pessoais ou compartilhadas pela empresa."
+                  description="Modelos editáveis para propostas, contratos, currículos, RH, gestão, financeiro, marketing, operações, educação e uso pessoal."
                   icon={LayoutTemplate}
-                  items={data.templates.map((item) => ({ id: item.id, title: item.name, description: item.description || (item.shared ? "Modelo compartilhado" : "Modelo pessoal"), template: item }))}
+                  items={data.templates.filter((item) => !query.trim() || `${item.name} ${item.description} ${item.category} ${(item.keywords || []).join(" ")}`.toLocaleLowerCase("pt-BR").includes(query.trim().toLocaleLowerCase("pt-BR"))).map((item) => ({ id: item.id, title: item.name, description: `${item.category} · ${item.description || (item.shared ? "Modelo compartilhado" : "Modelo pessoal")}`, template: item }))}
                   actionLabel="Salvar modelo"
                   onAction={() => setTemplateOpen(true)}
                   onItemClick={(id) => setTemplatePreview(data.templates.find((item) => item.id === id) || null)}
@@ -936,22 +957,24 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       </div>
 
       {createOpen && data && (
-        <CreateProposalDialog
+        <CreateSmartDocumentDialog
           clients={clients}
           brainstorms={brainstorms}
           optionsLoading={creationOptionsLoading}
           optionsError={creationOptionsError}
           onRetryOptions={() => void loadCreationOptions()}
           templates={data.templates}
+          initialTemplateId={preferredTemplateId}
           brands={data.brandProfiles.map((item) => ({ id: item.id, name: item.name, branding: item.branding }))}
           busy={busy}
           onClose={() => setCreateOpen(false)}
           onCreate={(input) => void runAction(async () => {
             const response = await createProposal(input);
-            setData((current) => current ? { ...current, proposals: [commercialDocumentSummary(response.proposal) as typeof current.proposals[number], ...current.proposals], summary: { ...current.summary, proposalCount: current.summary.proposalCount + 1, draftCount: current.summary.draftCount + 1 } } : current);
+            const isCommercialProposal = input.metadata.documentType === "proposal";
+            setData((current) => current ? { ...current, proposals: [commercialDocumentSummary(response.proposal) as typeof current.proposals[number], ...current.proposals], summary: { ...current.summary, documentCount: current.summary.documentCount + 1, proposalCount: current.summary.proposalCount + (isCommercialProposal ? 1 : 0), draftCount: current.summary.draftCount + 1 } } : current);
             setCreateOpen(false);
             setSelected(response.proposal);
-          }, "Proposta criada. O salvamento automatico esta ativo.")}
+          }, "Documento criado. O salvamento automático está ativo.")}
         />
       )}
 
@@ -966,14 +989,238 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
         setData((current) => current ? { ...current, templates: [...current.templates, response.template] } : current);
         setTemplateOpen(false);
       }, "Modelo salvo na biblioteca.")} />}
-      {templatePreview && <TemplatePreviewDialog template={templatePreview} busy={busy} onClose={() => setTemplatePreview(null)} onRename={() => void handleRenameTemplate(templatePreview)} onDuplicate={() => void handleDuplicateTemplate(templatePreview)} onDelete={templatePreview.id.startsWith("standard_") ? undefined : () => void handleDeleteTemplate(templatePreview)} />}
+      {templatePreview && <TemplatePreviewDialog template={templatePreview} busy={busy} onClose={() => setTemplatePreview(null)} onUse={() => { const id = templatePreview.id; setTemplatePreview(null); openCreate(id); }} onRename={() => void handleRenameTemplate(templatePreview)} onDuplicate={() => void handleDuplicateTemplate(templatePreview)} onDelete={templatePreview.id.startsWith("standard_") ? undefined : () => void handleDeleteTemplate(templatePreview)} />}
       {proposalUploadOpen && <ProposalPdfUploadDialog initialSigned={proposalUploadSigned} proposal={proposalUploadTarget} clients={clients} onClose={() => setProposalUploadOpen(false)} onUploaded={proposalUploaded}/>}
       {importOpen && <ImportDocumentDialog busy={busy} onClose={() => setImportOpen(false)} onSubmit={(input) => void handleImport(input)} />}
     </main>
   );
 }
 
-function CreateProposalDialog({
+function CreateSmartDocumentDialog({
+  clients,
+  brainstorms,
+  optionsLoading,
+  optionsError,
+  onRetryOptions,
+  templates,
+  initialTemplateId,
+  brands,
+  busy,
+  onClose,
+  onCreate,
+}: {
+  clients: ClientOption[];
+  brainstorms: BrainstormOption[];
+  optionsLoading: boolean;
+  optionsError: string;
+  onRetryOptions: () => void;
+  templates: CommercialTemplate[];
+  initialTemplateId: string;
+  brands: Array<{ id: string; name: string; branding: typeof defaultBranding }>;
+  busy: boolean;
+  onClose: () => void;
+  onCreate: (input: CreateInput) => void;
+}) {
+  const availableTemplates = templates.filter((item) => item.active !== false);
+  const suggestedTemplate = availableTemplates.find((item) => item.id === initialTemplateId) || availableTemplates.find((item) => item.id === "standard_proposal_consultoria") || availableTemplates.find((item) => item.featured) || availableTemplates[0];
+  const [templateId, setTemplateId] = useState(suggestedTemplate?.id || "");
+  const [clientId, setClientId] = useState("");
+  const [brainstormId, setBrainstormId] = useState("");
+  const [title, setTitle] = useState("");
+  const [brief, setBrief] = useState("");
+  const [details, setDetails] = useState("");
+  const [amount, setAmount] = useState(0);
+  const [validUntil, setValidUntil] = useState("");
+  const [tone, setTone] = useState<SmartDocumentInput["tone"]>("consultive");
+  const [brandId, setBrandId] = useState("");
+  const [primaryColor, setPrimaryColor] = useState(defaultBranding.primaryColor);
+  const [secondaryColor, setSecondaryColor] = useState(defaultBranding.secondaryColor);
+  const [textColor, setTextColor] = useState(defaultBranding.textColor);
+  const [photoDataUrl, setPhotoDataUrl] = useState("");
+  const [draft, setDraft] = useState<SmartDocumentDraft | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const [localError, setLocalError] = useState("");
+  const selectedTemplate = availableTemplates.find((item) => item.id === templateId);
+  const selectedBrand = brands.find((item) => item.id === brandId);
+  const client = clients.find((item) => item.id === clientId);
+  const isResume = selectedTemplate?.documentType === "resume";
+  const groupedTemplates = useMemo(() => {
+    const groups = new Map<string, CommercialTemplate[]>();
+    availableTemplates.forEach((template) => {
+      const category = template.category || "Outros";
+      groups.set(category, [...(groups.get(category) || []), template]);
+    });
+    return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, "pt-BR"));
+  }, [availableTemplates]);
+
+  useEffect(() => {
+    const pendingBrainstormId = window.localStorage.getItem("norium:commercial-brainstorm-id") || "";
+    if (!pendingBrainstormId || optionsLoading) return;
+    if (brainstorms.some((item) => item.id === pendingBrainstormId)) setBrainstormId(pendingBrainstormId);
+    window.localStorage.removeItem("norium:commercial-brainstorm-id");
+  }, [brainstorms, optionsLoading]);
+
+  function requestInput(): SmartDocumentInput {
+    return {
+      templateId,
+      clientId,
+      title: title.trim(),
+      brief: brief.trim(),
+      details: details.trim(),
+      amount,
+      currency: "BRL",
+      validUntil: validUntil || null,
+      tone,
+      photoDataUrl: isResume ? photoDataUrl : "",
+      primaryColor,
+      secondaryColor,
+      textColor,
+    };
+  }
+
+  async function choosePhoto(file?: File) {
+    if (!file) return;
+    if (!file.type.startsWith("image/") || file.size > 1_450_000) {
+      setLocalError("Use uma foto JPG, PNG ou WebP de até 1,4 MB.");
+      return;
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Não foi possível ler a foto."));
+      reader.readAsDataURL(file);
+    });
+    setPhotoDataUrl(dataUrl);
+    setLocalError("");
+  }
+
+  function selectBrand(nextId: string) {
+    setBrandId(nextId);
+    const brand = brands.find((item) => item.id === nextId);
+    if (!brand) return;
+    setPrimaryColor(brand.branding.primaryColor);
+    setSecondaryColor(brand.branding.secondaryColor);
+    setTextColor(brand.branding.textColor);
+  }
+
+  async function generateDraft() {
+    if (!templateId || brief.trim().length < 3) {
+      setLocalError("Escolha um modelo e descreva o essencial em pelo menos três caracteres.");
+      return;
+    }
+    setGenerating(true);
+    setLocalError("");
+    try {
+      const response = await generateSmartDocumentDraft(requestInput());
+      setDraft(response.draft);
+    } catch (requestError) {
+      setLocalError(messageFromError(requestError, "A Nora não conseguiu gerar esta primeira versão."));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function submit() {
+    if (!draft || !selectedTemplate) return;
+    const baseBranding = selectedBrand?.branding || defaultBranding;
+    onCreate({
+      clientId,
+      brainstormId: brainstormId || null,
+      title: draft.title,
+      contentHtml: draft.contentHtml,
+      scopeSummary: draft.summary,
+      amount: draft.amount,
+      currency: draft.currency,
+      validUntil: draft.validUntil,
+      brandProfileId: brandId || null,
+      branding: {
+        ...baseBranding,
+        logoUrl: isResume && photoDataUrl ? photoDataUrl : baseBranding.logoUrl,
+        logoAlignment: isResume && photoDataUrl ? "center" : baseBranding.logoAlignment,
+        logoScale: isResume && photoDataUrl ? 112 : baseBranding.logoScale,
+        primaryColor,
+        secondaryColor,
+        textColor,
+      },
+      signers: selectedTemplate.requiresClient && client?.email ? [{ name: client.name || client.company, email: client.email, role: "client", order: 1, required: true }] : [],
+      deliverables: [],
+      metadata: {
+        createdByNora: true,
+        documentType: draft.template.documentType,
+        templateId: draft.template.id,
+        templateCategory: draft.template.category,
+        templateLayout: draft.template.layout,
+        minimalBrief: brief.trim(),
+        noraDraft: draft.noraComment,
+        legalReview: draft.template.legalReview,
+        photoAsPortrait: Boolean(isResume && photoDataUrl),
+      },
+    });
+  }
+
+  return (
+    <Dialog
+      title={draft ? `Revisar ${draft.template.name}` : "Criar documento com a Nora"}
+      subtitle={draft ? "A primeira versão continua totalmente editável depois de criada." : "Escolha um modelo e escreva só o essencial. A Nora estrutura o restante e marca lacunas como “A definir”."}
+      onClose={onClose}
+      wide
+    >
+      {localError && <StatusBanner tone="error">{localError}</StatusBanner>}
+      {optionsError && <StatusBanner tone="warning" action={<Button size="sm" variant="secondary" onClick={onRetryOptions}>Tentar novamente</Button>}>Clientes e sessões opcionais não puderam ser carregados. Você ainda pode gerar um documento sem vínculo.</StatusBanner>}
+      {draft ? (
+        <div className="mt-4 grid min-h-0 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <section className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-400">Prévia editável</p><h3 className="mt-1 text-lg font-black">{draft.title}</h3></div><span className="rounded-full border border-[var(--border)] px-3 py-1 text-xs font-bold">{draft.template.category}</span></div>
+            <article className="commercial-rich-editor max-h-[60dvh] overflow-y-auto rounded-lg bg-white p-6 text-slate-900 shadow-inner" style={{ borderTop: `7px solid ${primaryColor}` }} dangerouslySetInnerHTML={{ __html: draft.contentHtml }} />
+          </section>
+          <aside className="space-y-3">
+            <ReviewBlock label="Comentário da Nora" value={draft.noraComment} accent />
+            <ReviewBlock label="Tipo" value={draft.template.name} />
+            <ReviewBlock label="Resumo" value={draft.summary} />
+            {draft.template.legalReview && <StatusBanner tone="warning">Revise esta minuta com profissional habilitado antes de assinar ou publicar.</StatusBanner>}
+            <div className="flex flex-col gap-2 pt-2 sm:flex-row"><Button variant="ghost" onClick={() => setDraft(null)}>Voltar e ajustar</Button><Button loading={busy} onClick={submit}>Criar e editar</Button></div>
+          </aside>
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <section className="space-y-4">
+            <FormField label={`Modelo (${availableTemplates.length} disponíveis)`}>
+              <select value={templateId} onChange={(event) => { setTemplateId(event.target.value); setDraft(null); }} className="commercial-field">
+                {groupedTemplates.map(([category, items]) => <optgroup key={category} label={category}>{items.map((item) => <option key={item.id} value={item.id}>{item.featured ? "★ " : ""}{item.name}</option>)}</optgroup>)}
+              </select>
+            </FormField>
+            <FormField label="Conte o essencial">
+              <textarea value={brief} onChange={(event) => setBrief(event.target.value)} className="commercial-field min-h-32 resize-y" placeholder={isResume ? "Ex.: João Silva, desenvolvedor front-end, 4 anos com React, trabalhou na Empresa X, formado em ADS. Quero um currículo azul." : "Ex.: Proposta de site para a Clínica Aurora, com agenda online, entrega em 45 dias e valor de R$ 12 mil."} />
+            </FormField>
+            <div className="grid gap-4 md:grid-cols-2">
+              <FormField label="Título (opcional)"><input value={title} onChange={(event) => setTitle(event.target.value)} className="commercial-field" placeholder="A Nora pode sugerir" /></FormField>
+              <FormField label="Cliente ou pessoa (opcional)"><select value={clientId} disabled={optionsLoading} onChange={(event) => setClientId(event.target.value)} className="commercial-field"><option value="">Sem vínculo</option>{clients.map((item) => <option key={item.id} value={item.id}>{item.name}{item.company ? ` · ${item.company}` : ""}</option>)}</select></FormField>
+            </div>
+            {isResume && <FormField label="Foto do currículo (opcional)"><div className="flex flex-wrap items-center gap-3"><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold hover:bg-[var(--surface-hover)]"><ImagePlus size={15} /> Escolher foto<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => void choosePhoto(event.target.files?.[0])} /></label>{photoDataUrl && <><img src={photoDataUrl} alt="Prévia da foto" className="h-14 w-14 rounded-full border-2 object-cover" style={{ borderColor: secondaryColor }} /><Button size="sm" variant="ghost" onClick={() => setPhotoDataUrl("")}>Remover</Button></>}</div></FormField>}
+            <button type="button" className="text-xs font-bold text-cyan-300" onClick={() => setAdvanced((current) => !current)}>{advanced ? "Ocultar opções" : "Cores e opções adicionais"}</button>
+            {advanced && <div className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+              <div className="grid gap-3 sm:grid-cols-3"><FormField label="Cor principal"><input type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} className="commercial-field h-11 p-1" /></FormField><FormField label="Destaque"><input type="color" value={secondaryColor} onChange={(event) => setSecondaryColor(event.target.value)} className="commercial-field h-11 p-1" /></FormField><FormField label="Texto"><input type="color" value={textColor} onChange={(event) => setTextColor(event.target.value)} className="commercial-field h-11 p-1" /></FormField></div>
+              <FormField label="Marca"><select value={brandId} onChange={(event) => selectBrand(event.target.value)} className="commercial-field"><option value="">Identidade padrão</option>{brands.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></FormField>
+              <FormField label="Detalhes adicionais"><textarea value={details} onChange={(event) => setDetails(event.target.value)} className="commercial-field min-h-20 resize-y" placeholder="Preferências, limites ou observações — tudo opcional." /></FormField>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><FormField label="Valor"><input type="number" min="0" value={amount} onChange={(event) => setAmount(Number(event.target.value))} className="commercial-field" /></FormField><FormField label="Validade"><input type="date" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} className="commercial-field" /></FormField><FormField label="Tom"><select value={tone} onChange={(event) => setTone(event.target.value as SmartDocumentInput["tone"])} className="commercial-field"><option value="consultive">Consultivo</option><option value="executive">Executivo</option><option value="technical">Técnico</option><option value="friendly">Próximo</option></select></FormField><FormField label="Estúdio"><select value={brainstormId} onChange={(event) => setBrainstormId(event.target.value)} className="commercial-field"><option value="">Sem vínculo</option>{brainstorms.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></FormField></div>
+            </div>}
+            <div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={generating} disabled={!templateId || brief.trim().length < 3} onClick={() => void generateDraft()} icon={<Sparkles size={15} />}>Gerar primeira versão</Button></div>
+          </section>
+          <aside className="space-y-3 rounded-lg border border-cyan-400/20 bg-cyan-500/5 p-4">
+            <p className="text-xs font-black uppercase tracking-wider text-cyan-300">{selectedTemplate?.name || "Modelo"}</p>
+            <p className="text-sm font-semibold leading-6">{selectedTemplate?.description}</p>
+            <p className="text-xs font-semibold leading-5 text-[var(--text-secondary)]">{selectedTemplate?.generationGuide || "A Nora organiza o conteúdo com base somente nas informações fornecidas."}</p>
+            <div className="flex flex-wrap gap-2">{selectedTemplate?.sections?.slice(0, 6).map((section) => <span key={section} className="rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold">{section}</span>)}</div>
+            <p className="border-t border-[var(--border)] pt-3 text-xs font-semibold text-[var(--text-secondary)]">Foto, logo, cores, texto, páginas e assinantes continuam editáveis depois da criação.</p>
+          </aside>
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+export function CreateProposalDialog({
   clients,
   brainstorms,
   optionsLoading,
@@ -1433,7 +1680,7 @@ function TemplateDialog({ busy, onClose, onSubmit }: { busy: boolean; onClose: (
   const [shared, setShared] = useState(false);
   const [documentType, setDocumentType] = useState<TemplateDocumentType>("proposal");
   const [category, setCategory] = useState("geral");
-  return <Dialog title="Salvar novo modelo" subtitle="Crie uma estrutura reutilizavel e classificada para a biblioteca." onClose={onClose}><div className="space-y-4"><FormField label="Nome"><input value={name} onChange={(event) => setName(event.target.value)} className="commercial-field" /></FormField><FormField label="Descricao"><textarea value={description} onChange={(event) => setDescription(event.target.value)} className="commercial-field min-h-20 resize-y" /></FormField><div className="grid gap-3 sm:grid-cols-2"><FormField label="Tipo"><select value={documentType} onChange={(event) => setDocumentType(event.target.value as TemplateDocumentType)} className="commercial-field"><option value="proposal">Proposta</option><option value="contract">Contrato</option><option value="term">Termo</option><option value="budget">Orcamento</option><option value="report">Relatorio</option><option value="custom">Personalizado</option></select></FormField><FormField label="Categoria"><input value={category} onChange={(event) => setCategory(event.target.value)} className="commercial-field" /></FormField></div><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={shared} onChange={(event) => setShared(event.target.checked)} /> Compartilhar com a empresa</label><div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!name.trim()} onClick={() => onSubmit(name.trim(), description.trim(), shared, documentType, category.trim() || "geral")}>Salvar modelo</Button></div></div></Dialog>;
+  return <Dialog title="Salvar novo modelo" subtitle="Crie uma estrutura reutilizável e classificada para a biblioteca." onClose={onClose}><div className="space-y-4"><FormField label="Nome"><input value={name} onChange={(event) => setName(event.target.value)} className="commercial-field" /></FormField><FormField label="Descrição"><textarea value={description} onChange={(event) => setDescription(event.target.value)} className="commercial-field min-h-20 resize-y" /></FormField><div className="grid gap-3 sm:grid-cols-2"><FormField label="Tipo"><select value={documentType} onChange={(event) => setDocumentType(event.target.value as TemplateDocumentType)} className="commercial-field">{(["proposal", "contract", "term", "budget", "report", "resume", "letter", "invoice", "receipt", "plan", "policy", "hr", "certificate", "meeting", "project", "marketing", "academic", "personal", "custom"] as TemplateDocumentType[]).map((type) => <option key={type} value={type}>{templateTypeLabel(type)}</option>)}</select></FormField><FormField label="Categoria"><input value={category} onChange={(event) => setCategory(event.target.value)} className="commercial-field" /></FormField></div><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={shared} onChange={(event) => setShared(event.target.checked)} /> Compartilhar com a empresa</label><div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button loading={busy} disabled={!name.trim()} onClick={() => onSubmit(name.trim(), description.trim(), shared, documentType, category.trim() || "geral")}>Salvar modelo</Button></div></div></Dialog>;
 }
 
 function ImportDocumentDialog({ busy, onClose, onSubmit }: { busy: boolean; onClose: () => void; onSubmit: (input: { file: File; category: UploadedDocument["category"]; direction: UploadedDocument["direction"]; confidential: boolean }) => void }) {
@@ -1470,6 +1717,16 @@ function StatusChip({ status }: { status: string }) {
         ? "border-amber-400/25 bg-amber-500/10 text-amber-300"
         : "border-blue-400/20 bg-blue-500/10 text-blue-300";
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold uppercase ${tone}`}>{statusLabels[status] || status}</span>;
+}
+
+function templateTypeLabel(value: TemplateDocumentType) {
+  const labels: Record<TemplateDocumentType, string> = {
+    proposal: "Proposta", contract: "Contrato", term: "Termo", budget: "Orçamento", report: "Relatório",
+    resume: "Currículo", letter: "Carta", invoice: "Fatura", receipt: "Recibo", plan: "Plano",
+    policy: "Política", hr: "RH", certificate: "Certificado", meeting: "Reunião", project: "Projeto",
+    marketing: "Marketing", academic: "Acadêmico", personal: "Pessoal", custom: "Documento",
+  };
+  return labels[value];
 }
 
 function DocumentCover({ label, primaryColor = "#1266f1" }: { label: string; primaryColor?: string }) {
@@ -1528,10 +1785,10 @@ function LibraryView({
   onAction: () => void;
   onItemClick?: (id: string) => void;
 }) {
-  return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="grid min-h-48 grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><button type="button" disabled={!onItemClick} onClick={() => onItemClick?.(item.id)} className="self-start disabled:cursor-default" aria-label={onItemClick ? `Pre-visualizar ${item.title}` : undefined}>{item.template ? <DocumentCover label={item.template.documentType === "contract" ? "Contrato" : "Proposta comercial"} /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span>}</button><div className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong><p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)} icon={<Eye size={14} />}>Visualizar em A4</Button>}</div></article>)}</div>{!items.length && <EmptyState title="Biblioteca vazia" description={`Use "${actionLabel}" para criar o primeiro item.`} icon={Icon} className="mt-5 min-h-72" />}</div>;
+  return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="grid min-h-48 grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><button type="button" disabled={!onItemClick} onClick={() => onItemClick?.(item.id)} className="self-start disabled:cursor-default" aria-label={onItemClick ? `Pre-visualizar ${item.title}` : undefined}>{item.template ? <DocumentCover label={templateTypeLabel(item.template.documentType)} /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span>}</button><div className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong><p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)} icon={<Eye size={14} />}>Visualizar em A4</Button>}</div></article>)}</div>{!items.length && <EmptyState title="Nenhum modelo encontrado" description="Ajuste a busca ou salve um modelo personalizado." icon={Icon} className="mt-5 min-h-72" />}</div>;
 }
 
-function TemplatePreviewDialog({ template, busy, onClose, onRename, onDuplicate, onDelete }: { template: CommercialTemplate; busy: boolean; onClose: () => void; onRename: () => void; onDuplicate: () => void; onDelete?: () => void }) {
+function TemplatePreviewDialog({ template, busy, onClose, onUse, onRename, onDuplicate, onDelete }: { template: CommercialTemplate; busy: boolean; onClose: () => void; onUse: () => void; onRename: () => void; onDuplicate: () => void; onDelete?: () => void }) {
   return (
     <Dialog
       title={template.name}
@@ -1539,7 +1796,7 @@ function TemplatePreviewDialog({ template, busy, onClose, onRename, onDuplicate,
       onClose={onClose}
       wide
     >
-      <div className="mb-5 flex flex-wrap justify-end gap-2"><Button variant="secondary" onClick={onRename} disabled={busy || template.id.startsWith("standard_")} icon={<Pencil size={14} />}>Renomear</Button><Button variant="secondary" onClick={onDuplicate} loading={busy} icon={<Copy size={14} />}>Duplicar</Button>{onDelete && <Button variant="danger" onClick={onDelete} disabled={busy} icon={<Trash2 size={14} />}>Excluir</Button>}</div>
+      <div className="mb-5 flex flex-wrap justify-end gap-2"><Button onClick={onUse} disabled={busy} icon={<Sparkles size={14} />}>Usar este modelo</Button><Button variant="secondary" onClick={onRename} disabled={busy || template.id.startsWith("standard_")} icon={<Pencil size={14} />}>Renomear</Button><Button variant="secondary" onClick={onDuplicate} loading={busy} icon={<Copy size={14} />}>Duplicar</Button>{onDelete && <Button variant="danger" onClick={onDelete} disabled={busy} icon={<Trash2 size={14} />}>Excluir</Button>}</div>
       <TemplateA4Preview template={template} />
     </Dialog>
   );

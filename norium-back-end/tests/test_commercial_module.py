@@ -7,6 +7,7 @@ import json
 import shutil
 import tempfile
 import unittest
+from unittest.mock import AsyncMock, patch
 
 
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="norium_commercial_")
@@ -25,6 +26,7 @@ from app.modules.commercial.schemas import (  # noqa: E402
     ProposalUpdate,
     SignatureRequest,
     SignerInput,
+    SmartDocumentRequest,
     TemplateCreate,
     TemplateUpdate,
     PdfProcessRequest,
@@ -51,6 +53,7 @@ from app.modules.commercial.service import (  # noqa: E402
     change_proposal_status,
     create_contract,
     create_proposal,
+    create_smart_document,
     create_template,
     delete_template,
     decide_suggestion,
@@ -535,6 +538,37 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         for category in ("desenvolvimento", "marketing", "consultoria", "manutencao", "design", "recorrente"):
             self.assertTrue(any(item["id"] == f"standard_proposal_{category}" for item in templates))
             self.assertTrue(any(item["id"] == f"standard_contract_{category}" for item in templates))
+
+    def test_complete_document_library_covers_all_requested_segments_and_types(self) -> None:
+        templates = standard_templates()
+        types = {str(item["documentType"]) for item in templates}
+        segmented = [item for item in templates if item.get("category") == "Propostas por segmento"]
+
+        self.assertGreaterEqual(len(templates), 150)
+        self.assertEqual(len(segmented), 45)
+        self.assertTrue({"proposal", "contract", "resume", "hr", "report", "policy", "academic", "personal"}.issubset(types))
+        self.assertTrue(any(item["id"] == "standard_resume_foto_clean" and item.get("layout") == "resume-photo" for item in templates))
+
+    async def test_smart_document_uses_minimal_brief_and_returns_editable_chat_pdf(self) -> None:
+        payload = SmartDocumentRequest(
+            templateId="standard_resume_foto_clean",
+            brief="Ana Lima, analista de dados com experiência em Python e SQL.",
+            primaryColor="#4C1D95",
+            secondaryColor="#8B5CF6",
+        )
+        with patch(
+            "app.modules.commercial.service._nora.perguntar_nora",
+            new=AsyncMock(side_effect=RuntimeError("provider indisponivel no teste")),
+        ):
+            document, artifact = await create_smart_document(self.user, payload)
+
+        self.assertEqual(document["metadata"]["documentType"], "resume")
+        self.assertEqual(document["metadata"]["templateLayout"], "resume-photo")
+        self.assertEqual(document["branding"]["primaryColor"], "#4C1D95")
+        self.assertIn("Ana Lima", document["contentHtml"])
+        self.assertEqual(artifact["mimeType"], "application/pdf")
+        self.assertEqual(artifact["editTarget"]["entityId"], document["id"])
+        self.assertEqual(artifact["editTarget"]["tab"], "Documentos")
 
     def test_structured_nora_briefing_is_rendered_as_readable_document(self) -> None:
         payload = ProposalBriefRequest(

@@ -26,7 +26,7 @@ export type ContractStatus =
 
 export type SignerRole = "client" | "contractor" | "witness";
 export type DocumentKind = "proposal" | "contract";
-export type TemplateDocumentType = DocumentKind | "term" | "budget" | "report" | "custom";
+export type TemplateDocumentType = DocumentKind | "term" | "budget" | "report" | "resume" | "letter" | "invoice" | "receipt" | "plan" | "policy" | "hr" | "certificate" | "meeting" | "project" | "marketing" | "academic" | "personal" | "custom";
 export type PdfOperation =
   | "merge" | "split" | "reorder" | "delete_pages" | "rotate" | "compress"
   | "images_to_pdf" | "watermark" | "edit_pdf" | "page_numbers" | "add_password" | "remove_password"
@@ -234,6 +234,13 @@ export type CommercialTemplate = {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  featured?: boolean;
+  requiresClient?: boolean;
+  legalReview?: boolean;
+  keywords?: string[];
+  generationGuide?: string;
+  sections?: string[];
+  layout?: string;
 };
 
 export type CommercialSummary = {
@@ -259,9 +266,11 @@ export type CommercialProposalSummary = Pick<
   "id" | "client" | "brainstormId" | "contractId" | "title" | "amount" | "currency" | "status" | "updatedAt"
 > & {
   documentType: "proposal";
+  templateDocumentType?: TemplateDocumentType;
+  documentTypeLabel?: string;
   primaryColor: string;
   favorite: boolean;
-  category: "proposals";
+  category: "proposals" | "documents";
   validUntil?: string | null;
 };
 
@@ -270,6 +279,8 @@ export type CommercialContractSummary = Pick<
   "id" | "proposalId" | "client" | "brainstormId" | "title" | "amount" | "currency" | "status" | "updatedAt"
 > & {
   documentType: "contract";
+  templateDocumentType?: "contract";
+  documentTypeLabel?: string;
   primaryColor: string;
   favorite: boolean;
   category: "contracts";
@@ -394,6 +405,43 @@ export type ProposalDraft = {
   briefing: ProposalBriefInput;
 };
 
+export type SmartDocumentInput = {
+  templateId: string;
+  clientId: string;
+  title: string;
+  brief: string;
+  details: string;
+  amount: number;
+  currency: string;
+  validUntil: string | null;
+  tone: ProposalTone;
+  photoDataUrl: string;
+  primaryColor: string;
+  secondaryColor: string;
+  textColor: string;
+};
+
+export type SmartDocumentDraft = {
+  title: string;
+  summary: string;
+  contentHtml: string;
+  noraComment: string;
+  client: ClientSnapshot;
+  amount: number;
+  currency: string;
+  validUntil: string | null;
+  template: {
+    id: string;
+    name: string;
+    documentType: TemplateDocumentType;
+    category: string;
+    layout: string;
+    requiresClient: boolean;
+    legalReview: boolean;
+  };
+  briefing: SmartDocumentInput;
+};
+
 export type CommercialDocument = CommercialProposal | CommercialContract;
 
 export const defaultBranding: Branding = {
@@ -423,7 +471,9 @@ export function commercialDocumentSummary(document: CommercialDocument): Commerc
     primaryColor: document.branding?.primaryColor || defaultBranding.primaryColor,
     favorite: Boolean(document.metadata?.favorite),
   };
+  const templateDocumentType = String(document.metadata?.documentType || (isProposal(document) ? "proposal" : "contract")) as TemplateDocumentType;
+  const labels: Partial<Record<TemplateDocumentType, string>> = { proposal: "Proposta", contract: "Contrato", resume: "Currículo e carreira", report: "Relatório", letter: "Carta e comunicado", budget: "Orçamento", meeting: "Reunião", plan: "Plano", hr: "Pessoas e RH", policy: "Política e norma", term: "Termo e declaração", invoice: "Fatura", receipt: "Recibo", certificate: "Certificado", project: "Projeto", marketing: "Marketing", academic: "Educação e pesquisa", personal: "Pessoal", custom: "Documento" };
   return isProposal(document)
-    ? { ...base, documentType: "proposal", contractId: document.contractId, status: document.status, category: "proposals", validUntil: document.validUntil }
-    : { ...base, documentType: "contract", proposalId: document.proposalId, status: document.status, category: "contracts" };
+    ? { ...base, documentType: "proposal", templateDocumentType, documentTypeLabel: labels[templateDocumentType] || "Documento", contractId: document.contractId, status: document.status, category: templateDocumentType === "proposal" ? "proposals" : "documents", validUntil: document.validUntil }
+    : { ...base, documentType: "contract", templateDocumentType: "contract", documentTypeLabel: "Contrato", proposalId: document.proposalId, status: document.status, category: "contracts" };
 }

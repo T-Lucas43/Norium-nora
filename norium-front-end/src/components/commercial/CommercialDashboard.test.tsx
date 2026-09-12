@@ -147,7 +147,7 @@ describe("CommercialDashboard leve", () => {
 
     await waitFor(() => expect(clientApi.apiRequest).toHaveBeenCalledWith("/api/clientes"));
     await waitFor(() => expect(clientApi.apiRequest).toHaveBeenCalledWith("/api/brainstorm/sessions"));
-    expect(await screen.findByText("Briefing da nova proposta")).toBeInTheDocument();
+    expect(await screen.findByText("Criar documento com a Nora")).toBeInTheDocument();
   });
 
   it("busca o documento completo apenas quando o usuario o abre", async () => {

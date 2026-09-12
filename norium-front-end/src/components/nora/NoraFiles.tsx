@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bookmark, Download, Eye, File, FileImage, FileText, Library, Loader2, X } from "lucide-react";
+import { Bookmark, Download, Eye, File, FileImage, FilePenLine, FileText, Library, Loader2, X } from "lucide-react";
 import { apiBlobRequest, apiRequest } from "../../core/api/client";
 import { apiBaseUrl } from "../../core/api/config";
 
@@ -14,6 +14,12 @@ export type NoraChatFile = {
   source?: string;
   createdAt?: string;
   inLibrary?: boolean;
+  editTarget?: {
+    tab: string;
+    entityType: string;
+    entityId: string;
+    label?: string;
+  };
 };
 
 function readableSize(size: number) {
@@ -133,6 +139,12 @@ export function NoraFileCards({ files, compact = false, onLibraryChange }: { fil
     }
   }
 
+  function editDocument(file: NoraChatFile) {
+    if (!file.editTarget) return;
+    window.localStorage.setItem("norium-deep-link", JSON.stringify(file.editTarget));
+    window.dispatchEvent(new CustomEvent("norium:deep-link", { detail: file.editTarget }));
+  }
+
   if (!files.length) return null;
   return (
     <>
@@ -145,6 +157,7 @@ export function NoraFileCards({ files, compact = false, onLibraryChange }: { fil
               <small>{fileKind(file)} · {readableSize(file.size)}</small>
             </span>
             <span className="nora-file-actions">
+              {file.editTarget && <button type="button" onClick={() => editDocument(file)} title={file.editTarget.label || `Editar ${file.name}`} aria-label={`${file.editTarget.label || "Editar no Documentos"}: ${file.name}`}><FilePenLine size={15} /><span>Editar</span></button>}
               {canPreview(file) && <button type="button" onClick={() => void openPreview(file)} title={`Visualizar ${file.name}`} aria-label={`Visualizar ${file.name}`}><Eye size={15} /><span>Visualizar</span></button>}
               <button type="button" className={(libraryState[file.id] ?? file.inLibrary) ? "is-saved" : ""} disabled={libraryBusy === file.id} onClick={() => void toggleLibrary(file)} title={`${(libraryState[file.id] ?? file.inLibrary) ? "Remover da" : "Adicionar à"} biblioteca`} aria-label={`${(libraryState[file.id] ?? file.inLibrary) ? "Remover da" : "Adicionar à"} biblioteca: ${file.name}`}>
                 {libraryBusy === file.id ? <Loader2 className="animate-spin" size={15} /> : <Bookmark size={15} fill={(libraryState[file.id] ?? file.inLibrary) ? "currentColor" : "none"} />}<span>{(libraryState[file.id] ?? file.inLibrary) ? "Salvo" : "Biblioteca"}</span>
@@ -168,7 +181,7 @@ export function NoraFileCards({ files, compact = false, onLibraryChange }: { fil
               {!loading && !error && previewUrl && preview.mimeType.startsWith("audio/") && <audio src={previewUrl} controls autoPlay />}
               {!loading && !error && previewUrl && preview.mimeType.startsWith("video/") && <video src={previewUrl} controls autoPlay />}
             </div>
-            <footer><button type="button" onClick={() => void download(preview)}><Download size={16} /> Baixar arquivo</button></footer>
+            <footer>{preview.editTarget && <button type="button" onClick={() => editDocument(preview)}><FilePenLine size={16} /> Editar no Documentos</button>}<button type="button" onClick={() => void download(preview)}><Download size={16} /> Baixar arquivo</button></footer>
           </section>
         </div>
       , document.body)}

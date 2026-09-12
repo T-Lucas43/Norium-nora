@@ -6,6 +6,7 @@ import re
 from html.parser import HTMLParser
 from typing import Any
 from app.modules.commercial.pdf_editor import apply_pdf_edits, decode_image
+from app.modules.commercial.document_templates import document_type_label
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -34,7 +35,15 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
     text_color = safe_color(branding.get("textColor"), "#0F172A")
     title = str(document.get("title") or "Documento comercial").strip()
     client = document.get("client") if isinstance(document.get("client"), dict) else {}
-    kind = "Proposta comercial" if document_type == "proposal" else "Contrato comercial"
+    metadata = document.get("metadata") if isinstance(document.get("metadata"), dict) else {}
+    template_document_type = str(metadata.get("documentType") or document_type)
+    kind = (
+        "Contrato comercial"
+        if document_type == "contract"
+        else "Proposta comercial"
+        if template_document_type == "proposal"
+        else document_type_label(template_document_type)
+    )
     filename = f"{slugify(kind)}-{slugify(title)}.pdf"
     if document_type == "proposal" and document.get("sourceDocumentId"):
         from app.modules.commercial.document_files import document_path, imported_document_or_404
@@ -63,43 +72,60 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
     story: list[Any] = []
 
     logo = logo_flowable(branding.get("logoUrl"), branding.get("logoAlignment"), branding.get("logoScale"))
-    if logo:
-        story.append(logo)
-        story.append(Spacer(1, 18 * mm))
+    uses_commercial_cover = document_type == "contract" or template_document_type == "proposal"
+    if uses_commercial_cover:
+        if logo:
+            story.append(logo)
+            story.append(Spacer(1, 18 * mm))
+        else:
+            story.append(Spacer(1, 24 * mm))
+        story.extend(
+            [
+                Paragraph(kind.upper(), styles["CoverLabel"]),
+                Spacer(1, 7 * mm),
+                Paragraph(escape_reportlab(title), styles["CoverTitle"]),
+                Spacer(1, 16 * mm),
+                HRFlowable(width="100%", thickness=2, color=secondary),
+                Spacer(1, 7 * mm),
+                Paragraph("Preparado para", styles["MetaLabel"]),
+                Paragraph(escape_reportlab(str(client.get("company") or client.get("name") or "Cliente")), styles["Client"]),
+            ]
+        )
+        client_details = " | ".join(str(value) for value in [client.get("document"), client.get("email")] if value)
+        if client_details:
+            story.append(Paragraph(escape_reportlab(client_details), styles["BodyMuted"]))
+        story.extend(
+            [
+                Spacer(1, 55 * mm),
+                Paragraph(f"Atualizado em {format_date(document.get('updatedAt'))}", styles["BodyMuted"]),
+                PageBreak(),
+            ]
+        )
     else:
-        story.append(Spacer(1, 24 * mm))
-
-    story.extend(
-        [
-            Paragraph(kind.upper(), styles["CoverLabel"]),
-            Spacer(1, 7 * mm),
-            Paragraph(escape_reportlab(title), styles["CoverTitle"]),
-            Spacer(1, 16 * mm),
-            HRFlowable(width="100%", thickness=2, color=secondary),
-            Spacer(1, 7 * mm),
-            Paragraph("Preparado para", styles["MetaLabel"]),
-            Paragraph(escape_reportlab(str(client.get("company") or client.get("name") or "Cliente")), styles["Client"]),
-        ]
-    )
-    client_details = " | ".join(str(value) for value in [client.get("document"), client.get("email")] if value)
-    if client_details:
-        story.append(Paragraph(escape_reportlab(client_details), styles["BodyMuted"]))
-    story.extend(
-        [
-            Spacer(1, 55 * mm),
-            Paragraph(f"Atualizado em {format_date(document.get('updatedAt'))}", styles["BodyMuted"]),
-            PageBreak(),
-        ]
-    )
+        if logo:
+            story.append(logo)
+            story.append(Spacer(1, 7 * mm))
+        story.extend(
+            [
+                Paragraph(kind.upper(), styles["CoverLabel"]),
+                Spacer(1, 3 * mm),
+                Paragraph(escape_reportlab(title), styles["CoverTitle"]),
+                Spacer(1, 5 * mm),
+                HRFlowable(width="100%", thickness=2, color=secondary),
+                Spacer(1, 6 * mm),
+            ]
+        )
 
     header_html = clean_text(str(branding.get("headerHtml") or ""))
     if header_html:
         story.append(Paragraph(escape_reportlab(header_html), styles["BodyMuted"]))
         story.append(HRFlowable(width="100%", thickness=0.6, color=colors.HexColor("#CBD5E1")))
         story.append(Spacer(1, 5 * mm))
-    story.append(Paragraph(escape_reportlab(title), styles["Title"]))
-    story.append(Spacer(1, 6 * mm))
-    story.extend(html_story(str(document.get("contentHtml") or ""), styles))
+    content_html = str(document.get("contentHtml") or "")
+    if uses_commercial_cover or not re.search(r"<h1\b", content_html, flags=re.IGNORECASE):
+        story.append(Paragraph(escape_reportlab(title), styles["Title"]))
+        story.append(Spacer(1, 6 * mm))
+    story.extend(html_story(content_html, styles))
 
     signers = [item for item in document.get("signers", []) if isinstance(item, dict)]
     if signers:
@@ -145,7 +171,7 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
         canvas.line(18 * mm, 13 * mm, A4[0] - 18 * mm, 13 * mm)
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(colors.HexColor("#64748B"))
-        footer = footer_text[:100] if footer_text else "Norium | Documento comercial"
+        footer = footer_text[:100] if footer_text else f"Norium | {kind}"
         canvas.drawString(18 * mm, 8.5 * mm, footer)
         canvas.drawRightString(A4[0] - 18 * mm, 8.5 * mm, f"Pagina {doc.page}")
         canvas.restoreState()

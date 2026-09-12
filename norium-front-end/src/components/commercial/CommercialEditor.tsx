@@ -11,6 +11,7 @@ import {
   Eye,
   FileCheck2,
   FileSignature,
+  FileText,
   Maximize2,
   Minus,
   Minimize2,
@@ -129,6 +130,14 @@ export default function CommercialEditor({
   const advancedPlan = ["equipe", "enterprise"].includes(session.user.plan);
   const proposal = isProposal(sourceDocument) ? sourceDocument : null;
   const contract = isProposal(sourceDocument) ? null : sourceDocument;
+  const templateDocumentType = String(sourceDocument.metadata?.documentType || (proposal ? "proposal" : "contract"));
+  const documentLabel = documentTypeLabel(templateDocumentType);
+  const isCommercialProposal = Boolean(proposal && templateDocumentType === "proposal");
+  const usesCommercialCover = Boolean(contract || isCommercialProposal);
+  const showsFinancialFields = Boolean(contract || ["proposal", "budget", "invoice", "receipt"].includes(templateDocumentType));
+  const displayContentHtml = templateDocumentType === "resume" && branding.logoUrl.startsWith("data:image/")
+    ? `<div data-document-decoration contenteditable="false" style="display:flex;justify-content:flex-end;margin-bottom:20px"><img src="${branding.logoUrl.replaceAll('"', "&quot;")}" alt="Foto do currículo" style="width:112px;height:112px;border-radius:999px;object-fit:cover;border:5px solid ${branding.secondaryColor}" /></div>${contentHtml}`
+    : contentHtml;
 
   const currentDraft = useMemo<DocumentDraft>(
     () => ({ title, contentHtml, scopeSummary, amount, currency, validUntil, branding, signers, deliverables }),
@@ -631,7 +640,7 @@ export default function CommercialEditor({
       <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
           <Button size="sm" iconOnly onClick={onBack} aria-label="Voltar para documentos"><ArrowLeft size={17} /></Button>
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400">{proposal ? <FileSignature size={18} /> : <FileCheck2 size={18} />}</span>
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400">{contract ? <FileCheck2 size={18} /> : isCommercialProposal ? <FileSignature size={18} /> : <FileText size={18} />}</span>
           <div className="min-w-0">
             <input value={title} disabled={readOnly} onChange={(event) => setTitle(event.target.value)} className="block w-full min-w-0 bg-transparent text-base font-black outline-none" aria-label="Titulo do documento" />
             <div className="mt-0.5 flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)]">
@@ -661,7 +670,7 @@ export default function CommercialEditor({
               Salvar
             </Button>
           )}
-          {proposal && onUploadProposal && <Button size="sm" variant="secondary" disabled={saveState === "saving" || Boolean(proposal.contractId)} loading={openingPdf} onClick={() => void uploadNewProposalVersion()} icon={<Upload size={14}/>}>Enviar nova versão</Button>}
+          {isCommercialProposal && proposal && onUploadProposal && <Button size="sm" variant="secondary" disabled={saveState === "saving" || Boolean(proposal.contractId)} loading={openingPdf} onClick={() => void uploadNewProposalVersion()} icon={<Upload size={14}/>}>Enviar nova versão</Button>}
           {!readOnly && <Button size="sm" variant="secondary" loading={openingPdf} disabled={saveState === "saving"} onClick={() => void openVisualPdfEditor()} icon={<FileSignature size={14}/>}>Editar / assinar PDF</Button>}
           <Button size="sm" variant="secondary" onClick={() => void exportPdf()} icon={<Download size={14} />}>Exportar PDF</Button>
           <div ref={shareButtonRef}>
@@ -675,13 +684,14 @@ export default function CommercialEditor({
               Compartilhar
             </Button>
           </div>
-          {proposal && !proposal.contractId && <Button variant="danger" size="sm" iconOnly onClick={() => void onDeleteProposal(proposal)} className="border-rose-500/25 text-rose-400 hover:bg-rose-500/10" aria-label="Excluir proposta"><Trash2 size={15} /></Button>}
+          {proposal && !proposal.contractId && <Button variant="danger" size="sm" iconOnly onClick={() => void onDeleteProposal(proposal)} className="border-rose-500/25 text-rose-400 hover:bg-rose-500/10" aria-label="Excluir documento"><Trash2 size={15} /></Button>}
           <Button size="sm" iconOnly onClick={() => setFullScreen((current) => !current)} aria-label={fullScreen ? "Sair da tela cheia" : "Abrir em tela cheia"}>{fullScreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</Button>
         </div>
       </header>
 
       <WorkflowBar
         document={sourceDocument}
+        commercialProposal={isCommercialProposal}
         busy={busy || saveState === "saving"}
         onSubmit={() => proposal && void onSubmitProposal(proposal)}
         onApprove={() => proposal && void onApproveProposal(proposal)}
@@ -706,6 +716,7 @@ export default function CommercialEditor({
             revisions={sourceDocument.revisions}
             advancedPlan={advancedPlan}
             readOnly={readOnly}
+            imageLabel={templateDocumentType === "resume" ? "Foto do currículo" : "Logo"}
             onBrandingChange={setBranding}
             onSignersChange={setSigners}
             onDeliverablesChange={setDeliverables}
@@ -720,9 +731,8 @@ export default function CommercialEditor({
               <Eye size={12} /> {readOnly ? "Documento A4 (somente leitura)" : "Documento A4 editável"}
             </span>
             <label className="flex min-w-[170px] flex-1 items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Resumo <input value={scopeSummary} disabled={readOnly} onChange={(event) => setScopeSummary(event.target.value)} placeholder="Resumo executivo do escopo" className="commercial-field normal-case" /></label>
-            <label className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Valor <input value={amount} disabled={readOnly} onChange={(event) => setAmount(Number(event.target.value))} type="number" min="0" className="commercial-field w-32 normal-case" /></label>
-            <select value={currency} disabled={readOnly} onChange={(event) => setCurrency(event.target.value)} className="commercial-field w-20"><option>BRL</option><option>USD</option><option>EUR</option></select>
-            {proposal && <label className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Validade <input value={validUntil || ""} disabled={readOnly} onChange={(event) => setValidUntil(event.target.value || null)} type="date" className="commercial-field normal-case" /></label>}
+            {showsFinancialFields && <><label className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Valor <input value={amount} disabled={readOnly} onChange={(event) => setAmount(Number(event.target.value))} type="number" min="0" className="commercial-field w-32 normal-case" /></label><select value={currency} disabled={readOnly} onChange={(event) => setCurrency(event.target.value)} className="commercial-field w-20"><option>BRL</option><option>USD</option><option>EUR</option></select></>}
+            {isCommercialProposal && <label className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Validade <input value={validUntil || ""} disabled={readOnly} onChange={(event) => setValidUntil(event.target.value || null)} type="date" className="commercial-field normal-case" /></label>}
           </div>
           <div className={`grid min-h-0 flex-1 ${!readOnly && toolbarDock === "right" ? "commercial-editor-with-side-toolbar grid-cols-[minmax(0,1fr)_240px]" : "grid-cols-1"}`}>
           <div className="min-h-0 overflow-auto bg-[color-mix(in_srgb,var(--background)_88%,#64748b)] p-4 sm:p-8">
@@ -732,7 +742,7 @@ export default function CommercialEditor({
                 zoom: zoom / 100,
               } as CSSProperties}
             >
-              <section className="commercial-page-shell">
+              {usesCommercialCover && <section className="commercial-page-shell">
                 <article
                   className="commercial-document-page commercial-document-cover relative flex min-h-[1123px] w-full flex-col overflow-hidden bg-white shadow-2xl"
                   style={{
@@ -749,7 +759,7 @@ export default function CommercialEditor({
                       </div>
                     )}
                     <div className="mt-auto max-w-2xl pb-12">
-                      <p className="text-xs font-bold uppercase tracking-[0.22em]" style={{ color: branding.secondaryColor }}>{proposal ? "Proposta comercial" : "Contrato comercial"}</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.22em]" style={{ color: branding.secondaryColor }}>{documentLabel}</p>
                       <h1 className="mt-5 text-4xl font-bold leading-tight" style={{ color: branding.primaryColor }}>{title}</h1>
                       <div className="mt-10 border-l-4 py-3 pl-5" style={{ borderColor: branding.secondaryColor }}>
                         <p className="text-xl font-bold">{sourceDocument.client.company || sourceDocument.client.name || "Cliente"}</p>
@@ -764,19 +774,19 @@ export default function CommercialEditor({
                     </div>
                   </div>
                 </article>
-              </section>
+              </section>}
 
               {readOnly ? (
                 <A4ContentPages
                   title={title}
-                  contentHtml={contentHtml}
+                  contentHtml={displayContentHtml}
                   branding={branding}
                   signers={signers}
                 />
               ) : (
                 <A4ContentPages
                   title={title}
-                  contentHtml={contentHtml}
+                  contentHtml={displayContentHtml}
                   branding={branding}
                   signers={signers}
                   editable
@@ -832,6 +842,7 @@ export default function CommercialEditor({
 
 function WorkflowBar({
   document,
+  commercialProposal,
   busy,
   onSubmit,
   onApprove,
@@ -842,6 +853,7 @@ function WorkflowBar({
   onInstantiate,
 }: {
   document: CommercialDocument;
+  commercialProposal: boolean;
   busy: boolean;
   onSubmit: () => void;
   onApprove: () => void;
@@ -856,12 +868,12 @@ function WorkflowBar({
     <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--background)] px-4 py-2">
       <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)]"><Clock3 size={13} /> Atualizado em {formatDate(document.updatedAt)}</div>
       <div className="flex flex-wrap gap-2">
-        {proposal && ["draft", "changes_requested", "rejected"].includes(document.status) && <Button size="sm" loading={busy} onClick={onSubmit} icon={<Send size={13} />}>Enviar para aprovacao</Button>}
-        {proposal && document.status === "in_review" && <>
+        {proposal && commercialProposal && ["draft", "changes_requested", "rejected"].includes(document.status) && <Button size="sm" loading={busy} onClick={onSubmit} icon={<Send size={13} />}>Enviar para aprovacao</Button>}
+        {proposal && commercialProposal && document.status === "in_review" && <>
           <Button size="sm" loading={busy} onClick={onApprove} icon={<CheckCircle2 size={13} />} className="bg-emerald-500 text-white">Aprovar</Button>
           <Button size="sm" variant="secondary" disabled={busy} onClick={onRequestChanges}>Solicitar ajustes</Button>
         </>}
-        {proposal && ["approved", "sent", "accepted"].includes(document.status) && <Button size="sm" loading={busy} onClick={onGenerate} icon={<FileSignature size={13} />}>Gerar contrato</Button>}
+        {proposal && commercialProposal && ["approved", "sent", "accepted"].includes(document.status) && <Button size="sm" loading={busy} onClick={onGenerate} icon={<FileSignature size={13} />}>Gerar contrato</Button>}
         {!proposal && document.status === "draft" && <Button size="sm" loading={busy} onClick={onSend} icon={<Send size={13} />}>Enviar para assinatura</Button>}
         {!proposal && document.status === "awaiting_signatures" && <Button size="sm" loading={busy} onClick={onSign} icon={<FileSignature size={13} />}>Registrar assinatura</Button>}
         {!proposal && document.status === "signed" && <Button size="sm" loading={busy} onClick={onInstantiate} icon={<CheckCircle2 size={13} />}>Criar tarefas e agenda</Button>}
@@ -914,6 +926,17 @@ function formatMoney(value: number, currency: string) {
     style: "currency",
     currency: currency || "BRL",
   }).format(value || 0);
+}
+
+function documentTypeLabel(value: string) {
+  const labels: Record<string, string> = {
+    proposal: "Proposta comercial", contract: "Contrato comercial", resume: "Currículo", report: "Relatório",
+    letter: "Carta", budget: "Orçamento", meeting: "Ata ou reunião", plan: "Plano", policy: "Política ou manual",
+    hr: "Documento de RH", term: "Termo ou declaração", invoice: "Fatura", receipt: "Recibo",
+    certificate: "Certificado", project: "Documento de projeto", marketing: "Documento de marketing",
+    academic: "Documento acadêmico", personal: "Documento pessoal", custom: "Documento",
+  };
+  return labels[value] || "Documento";
 }
 
 function safeFileName(value: string) {

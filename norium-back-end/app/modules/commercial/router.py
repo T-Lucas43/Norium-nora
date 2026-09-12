@@ -33,6 +33,7 @@ from app.modules.commercial.schemas import (
     ProposalStatusChange,
     ProposalSubmit,
     ProposalUpdate,
+    SmartDocumentRequest,
     SignatureRequest,
     SuggestionDecision,
     TemplateCreate,
@@ -72,6 +73,8 @@ from app.modules.commercial.service import (
     delete_template,
     document_for_response,
     generate_proposal_draft,
+    generate_smart_document_draft,
+    create_smart_document,
     duplicate_proposal,
     duplicate_template,
     instantiate_obligations,
@@ -409,6 +412,30 @@ async def post_proposal_draft(
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     return {"draft": await generate_proposal_draft(user, payload)}
+
+
+@router.post("/document-draft")
+async def post_document_draft(
+    payload: SmartDocumentRequest,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    """Gera uma previa editavel com um unico briefing curto."""
+
+    return {"draft": await generate_smart_document_draft(user, payload)}
+
+
+@router.post("/documents/generate")
+async def post_generate_document(
+    payload: SmartDocumentRequest,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    """Gera e salva documento + PDF; usado pela Central e pelo chat."""
+
+    document, artifact = await create_smart_document(user, payload)
+    template_type = str((document.get("metadata") or {}).get("documentType") or "custom")
+    await audit(user, "document_generated", f'Documento "{document["title"]}" gerado pela Nora.', template_type, document["id"], "success")
+    await notify(user, "Novo documento", document["title"], "document_generated", document["id"])
+    return {"document": document_for_response(document), "file": artifact}
 
 
 @router.get("/proposals/{proposal_id}")

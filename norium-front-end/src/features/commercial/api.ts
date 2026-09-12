@@ -13,6 +13,8 @@ import type {
   PdfProcessingJob,
   ProposalBriefInput,
   ProposalDraft,
+  SmartDocumentDraft,
+  SmartDocumentInput,
   SignatureLink,
   Signer,
   TemplateDocumentType,
@@ -101,6 +103,22 @@ export function updateProposal(id: string, input: DocumentUpdateInput) {
   return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export function generateSmartDocumentDraft(input: SmartDocumentInput) {
+  return apiRequest<{ draft: SmartDocumentDraft }>("/api/comercial/document-draft", {
+    method: "POST",
+    body: JSON.stringify(input),
+    timeoutMs: 60_000,
+  });
+}
+
+export function createSmartDocument(input: SmartDocumentInput) {
+  return apiRequest<{ document: CommercialProposal; file: { id: string; previewUrl: string; downloadUrl: string } }>("/api/comercial/documents/generate", {
+    method: "POST",
+    body: JSON.stringify(input),
+    timeoutMs: 60_000,
   });
 }
 

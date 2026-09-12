@@ -270,7 +270,23 @@ function normalizeChatFiles(value: unknown): NoraChatFile[] {
     const previewUrl = String(record.previewUrl || record.url || "").trim();
     const downloadUrl = String(record.downloadUrl || record.url || previewUrl).trim();
     if (!id || !previewUrl || !downloadUrl) return [];
-    return [{ id, name, mimeType: String(record.mimeType || "application/octet-stream"), size: Number(record.size || 0), previewUrl, downloadUrl, source: String(record.source || "") || undefined, createdAt: String(record.createdAt || "") || undefined }];
+    const editTarget = record.editTarget && typeof record.editTarget === "object" ? record.editTarget as Record<string, unknown> : undefined;
+    return [{
+      id,
+      name,
+      mimeType: String(record.mimeType || "application/octet-stream"),
+      size: Number(record.size || 0),
+      previewUrl,
+      downloadUrl,
+      source: String(record.source || "") || undefined,
+      createdAt: String(record.createdAt || "") || undefined,
+      editTarget: editTarget && editTarget.entityId ? {
+        tab: String(editTarget.tab || "Documentos"),
+        entityType: String(editTarget.entityType || "proposal"),
+        entityId: String(editTarget.entityId),
+        label: String(editTarget.label || "Editar no Documentos"),
+      } : undefined,
+    }];
   }).slice(0, 40);
 }
 
@@ -1097,7 +1113,7 @@ function isAutomationIntent(text: string) {
 
 function isCommercialIntent(text: string) {
   const normalized = normalizeIntentText(text);
-  return /proposta|propostas|contrato|contratos|assinatura|assinante|escopo comercial|orcamento comercial|documento comercial/.test(normalized);
+  return /proposta|propostas|contrato|contratos|assinatura|assinante|escopo comercial|orcamento|documento|curriculo|cv|carta|relatorio|ata|plano de negocio|recibo|fatura|politica|termo|declaracao|certificado|briefing|manual|checklist/.test(normalized);
 }
 
 function isTeamIntent(text: string) {

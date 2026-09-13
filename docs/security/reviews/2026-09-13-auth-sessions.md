@@ -83,6 +83,12 @@ Logout e troca de senha incrementam `sessionVersion`. Tokens HTTP e tickets aind
 
 **Critério de validação:** `PATCH` da própria conta não aceita senha sem reautenticação, inclusive no plano gratuito; `/change-password` rejeita senha atual incorreta. Não foi executada reprodução desse cenário nesta rodada.
 
+**Status da correção em 13/09/2026:** **corrigido e validado localmente** no commit `2eb5ab5` da branch `codex/auth-04-reautenticacao-senha`, criada a partir de `origin/main` em `9f94db86bc6f105dc46daabe0a290f0fb4ceb96c`. A aplicabilidade foi revalidada antes da correção: a primeira regressão recebeu `200` no `PATCH` próprio com senha quando esperava `403`.
+
+O endpoint de gestão agora rejeita `password` quando ator e alvo são a mesma conta, depois da autorização hierárquica de AUTH-01 e antes da cópia ou de qualquer mutação. A alteração própria permanece exclusivamente em `/change-password`, que comprova a senha atual e preserva a rotação de `sessionVersion`; redefinições autorizadas de outras contas continuam no `PATCH`. Não houve mudança de esquema, contrato ou frontend porque nenhum consumidor atual envia senha própria pela rota de gestão.
+
+**Evidência da correção:** as 6 regressões HTTP de AUTH-04, as 6 de AUTH-01 e a regressão de recuperação por token passaram (**13/13**); a suíte completa do backend passou (**751/751**). Também passaram compilação, `pip check`, `pip-audit`, Bandit, lint do frontend sem erros, **634/634** testes de frontend, build de produção, auditoria npm de severidade alta e a verificação do bundle de chamadas. Contas, segredo de assinatura, hashes e armazenamento foram sintéticos; conexões externas foram bloqueadas nos cenários AUTH-04. Logs locais estão em `output/security-fix-auth-04/`.
+
 ### AUTH-05 — Remoção de equipe é revertida ao salvar
 
 **Local:** [auth/router.py:532](../../../norium-back-end/app/modules/auth/router.py#L532), linhas 532–538; atribuição do novo vínculo nas linhas 1054–1058.

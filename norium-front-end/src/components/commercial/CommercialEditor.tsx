@@ -25,6 +25,7 @@ import {
   Trash2,
   UsersRound,
   Upload,
+  X,
 } from "lucide-react";
 import { authToken, wsBaseUrl } from "../../core/api/config";
 import { authenticatedWebSocketUrl } from "../../core/api/client";
@@ -112,8 +113,16 @@ export default function CommercialEditor({
   const [deliverables, setDeliverables] = useState<Deliverable[]>(sourceDocument.deliverables);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [saveError, setSaveError] = useState("");
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(() => !window.matchMedia("(max-width: 1100px)").matches);
   const [noraOpen, setNoraOpen] = useState(false);
+  useEffect(() => {
+    const viewport = window.matchMedia("(max-width: 1100px)");
+    const closeMobilePanels = () => {
+      if (viewport.matches) { setInspectorOpen(false); setNoraOpen(false); }
+    };
+    viewport.addEventListener("change", closeMobilePanels);
+    return () => viewport.removeEventListener("change", closeMobilePanels);
+  }, []);
   const [fullScreen, setFullScreen] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -652,8 +661,8 @@ export default function CommercialEditor({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {participants.length > 0 && <span className="hidden items-center gap-1.5 rounded-full border border-[var(--border)] px-3 py-2 text-xs font-bold sm:flex"><UsersRound size={13} className="text-emerald-400" /> {participants.length} online</span>}
-          {proposal && <Button size="sm" variant={noraOpen ? "primary" : "secondary"} onClick={() => setNoraOpen((current) => !current)} icon={<Sparkles size={14} />}>Nora</Button>}
-          <Button size="sm" variant="secondary" onClick={() => setInspectorOpen((current) => !current)} icon={inspectorOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}>Propriedades</Button>
+          {proposal && <Button size="sm" variant={noraOpen ? "primary" : "secondary"} aria-expanded={noraOpen} onClick={() => { setNoraOpen((current) => !current); if (window.matchMedia("(max-width: 1100px)").matches) setInspectorOpen(false); }} icon={<Sparkles size={14} />}>Nora</Button>}
+          <Button size="sm" variant="secondary" aria-expanded={inspectorOpen} onClick={() => { setInspectorOpen((current) => !current); if (window.matchMedia("(max-width: 1100px)").matches) setNoraOpen(false); }} icon={inspectorOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}>Propriedades</Button>
           <div className="flex h-9 items-center rounded-lg border border-[var(--border)] bg-[var(--background)]">
             <button type="button" onClick={() => setZoom((current) => Math.max(50, current - 10))} className="grid h-full w-8 place-items-center hover:bg-[var(--surface-hover)]" aria-label="Diminuir zoom"><Minus size={14} /></button>
             <span className="w-12 text-center text-xs font-bold">{zoom}%</span>
@@ -708,7 +717,8 @@ export default function CommercialEditor({
           gridTemplateColumns: `${inspectorOpen ? "minmax(230px, 280px)" : "0px"} minmax(0, 1fr) ${noraOpen && proposal ? "minmax(300px, 370px)" : "0px"}`,
         }}
       >
-        <div className={`commercial-editor-inspector h-full min-h-0 overflow-hidden transition-all ${inspectorOpen ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+        <div inert={!inspectorOpen} className={`commercial-editor-inspector h-full min-h-0 overflow-hidden transition-all ${inspectorOpen ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+          <div className="commercial-editor-panel-close"><span>Propriedades do documento</span><Button size="sm" iconOnly aria-label="Fechar propriedades" onClick={() => setInspectorOpen(false)}><X size={16} /></Button></div>
           <CommercialInspector
             branding={branding}
             signers={signers}
@@ -805,7 +815,8 @@ export default function CommercialEditor({
           </div>
         </section>
 
-        <div className={`commercial-editor-nora h-full min-h-0 overflow-hidden transition-all ${noraOpen && proposal ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+        <div inert={!noraOpen || !proposal} className={`commercial-editor-nora h-full min-h-0 overflow-hidden transition-all ${noraOpen && proposal ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+          <div className="commercial-editor-panel-close"><span>Revisão com a Nora</span><Button size="sm" iconOnly aria-label="Fechar revisão da Nora" onClick={() => setNoraOpen(false)}><X size={16} /></Button></div>
           {proposal && (
             <NoraReviewPanel
               proposal={proposal}

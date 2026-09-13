@@ -4,6 +4,7 @@ import { proposalTransitions, statusLabels } from "./proposalWorkflow";
 import SignatureComposer from "./SignatureComposer";
 import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Ban,
   BadgeCheck,
@@ -1889,7 +1890,7 @@ function sanitizeTemplateHtml(value: string) {
 }
 
 function FloatingMessage({ kind, message, onClose }: { kind: "error" | "success"; message: string; onClose: () => void }) {
-  return <div className={`fixed bottom-5 left-1/2 z-[130] flex max-w-xl -translate-x-1/2 items-center gap-3 rounded-lg border px-4 py-3 text-sm font-bold shadow-2xl ${kind === "error" ? "border-rose-500/40 bg-rose-950 text-rose-100" : "border-emerald-500/40 bg-emerald-950 text-emerald-100"}`}><span>{message}</span><button type="button" onClick={onClose} aria-label="Fechar"><X size={15} /></button></div>;
+  return createPortal(<div role={kind === "error" ? "alert" : "status"} className={`fixed bottom-5 left-1/2 z-[130] flex w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 items-center gap-3 rounded-lg border px-4 py-3 text-sm font-bold shadow-2xl ${kind === "error" ? "border-rose-500/40 bg-rose-950" : "border-emerald-500/40 bg-emerald-950"}`} style={{ color: "#fff" }}><span className="min-w-0 flex-1">{message}</span><button type="button" className="shrink-0 p-2" onClick={onClose} aria-label="Fechar aviso"><X size={15} /></button></div>, document.body);
 }
 
 function messageFromError(error: unknown, fallback: string) {

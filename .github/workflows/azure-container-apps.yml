@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Uma revisão antiga nunca deve terminar depois de uma revisão mais nova e
 # recolocar uma imagem obsoleta em produção.

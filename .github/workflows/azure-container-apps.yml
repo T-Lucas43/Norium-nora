@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Uma revisão antiga nunca deve terminar depois de uma revisão mais nova e
 # recolocar uma imagem obsoleta em produção.
@@ -78,6 +79,8 @@ jobs:
       - name: Scan repository for committed secrets
         # Scanner failures (including service/licensing failures) block release.
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check production frontend for permanent call secrets and test harnesses
         run: python norium-back-end/scripts/team_call_frontend_security.py norium-front-end

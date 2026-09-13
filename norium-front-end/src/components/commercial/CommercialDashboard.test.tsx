@@ -188,6 +188,9 @@ describe("CommercialDashboard leve", () => {
   it("mostra texto e retrato ficticios na previa de curriculo", async () => {
     commercialApi.loadCommercialTemplate.mockResolvedValue({ template: {
       id: "standard_resume_foto_clean",
+      layout: "resume-photo",
+      paletteName: "Rosa queimado",
+      branding: { primaryColor: "#7D3247", secondaryColor: "#C98F86", textColor: "#32242A" },
       contentHtml: '<h1>Marina Costa</h1><p>Todos os nomes, contatos, valores, datas e resultados são fictícios.</p><img src="/template-demo-portrait.svg" alt="Imagem demonstrativa fictícia" /><h2>Projeto selecionado 2</h2><p>Biblioteca de conhecimento com 40 conteúdos e avaliação de oito participantes.</p><h2>Informações complementares</h2><p>Conteúdo integral do servidor, incluindo a última seção.</p>',
     } });
     commercialApi.loadCommercialData.mockResolvedValue({
@@ -209,6 +212,8 @@ describe("CommercialDashboard leve", () => {
         demoContent: true,
         sections: ["Contato e objetivo", "Resumo profissional", "Experiência"],
         layout: "resume-photo",
+        paletteName: "Rosa queimado",
+        branding: { primaryColor: "#7D3247", secondaryColor: "#C98F86", textColor: "#32242A" },
       }],
     });
     render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
@@ -226,6 +231,7 @@ describe("CommercialDashboard leve", () => {
     expect(await screen.findByText("Editor aberto: [Exemplo] Currículo clean com foto")).toBeInTheDocument();
     expect(commercialApi.createProposal).toHaveBeenCalledWith(expect.objectContaining({
       clientId: "__workspace__", contentHtml: expect.stringContaining("incluindo a última seção"),
+      branding: expect.objectContaining({ primaryColor: "#7D3247", secondaryColor: "#C98F86", textColor: "#32242A" }),
       metadata: expect.objectContaining({ fictionalExample: true }),
     }));
   });

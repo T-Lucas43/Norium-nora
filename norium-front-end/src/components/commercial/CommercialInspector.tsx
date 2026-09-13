@@ -42,6 +42,15 @@ const tabs: Array<{ id: InspectorTab; label: string; icon: typeof Palette }> = [
   { id: "history", label: "Historico", icon: FileClock },
 ];
 
+const palettePresets = [
+  { name: "Azul editorial", primaryColor: "#1F3A5F", secondaryColor: "#AFC6DC", textColor: "#172033" },
+  { name: "Rosa queimado", primaryColor: "#7D3247", secondaryColor: "#C98F86", textColor: "#32242A" },
+  { name: "Verde sálvia", primaryColor: "#214E45", secondaryColor: "#A9C8B8", textColor: "#18312C" },
+  { name: "Lilás criativo", primaryColor: "#5B2A86", secondaryColor: "#C5A3DE", textColor: "#2F2337" },
+  { name: "Bege moderno", primaryColor: "#795548", secondaryColor: "#E5D4BD", textColor: "#332A26" },
+  { name: "Executivo", primaryColor: "#171A1F", secondaryColor: "#B9985A", textColor: "#171A1F" },
+];
+
 function emptySigner(index: number): Signer {
   return {
     id: `draft_signer_${crypto.randomUUID()}`,
@@ -130,6 +139,19 @@ export default function CommercialInspector({
         {tab === "brand" && (
           <div className="space-y-5">
             <InspectorHeading title="Identidade visual" description={advancedPlan ? "Perfis de marca da empresa." : "Perfil de marca pessoal."} />
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Paletas editoriais</p>
+              <div className="grid grid-cols-2 gap-2" role="group" aria-label="Paletas de cores">
+                {palettePresets.map((palette) => {
+                  const active = branding.primaryColor.toUpperCase() === palette.primaryColor && branding.secondaryColor.toUpperCase() === palette.secondaryColor;
+                  return <button key={palette.name} type="button" disabled={readOnly} aria-pressed={active} onClick={() => onBrandingChange({ ...branding, primaryColor: palette.primaryColor, secondaryColor: palette.secondaryColor, textColor: palette.textColor })} className={`rounded-lg border p-2 text-left transition ${active ? "border-cyan-400 bg-cyan-500/10" : "border-[var(--border)] bg-[var(--background)] hover:border-cyan-400/60"}`}>
+                    <span className="mb-1.5 flex overflow-hidden rounded-full"><span className="h-3 flex-1" style={{ backgroundColor: palette.primaryColor }} /><span className="h-3 flex-1" style={{ backgroundColor: palette.secondaryColor }} /><span className="h-3 flex-1" style={{ backgroundColor: palette.textColor }} /></span>
+                    <span className="block truncate text-[11px] font-bold">{palette.name}</span>
+                  </button>;
+                })}
+              </div>
+              <p className="mt-2 text-[11px] font-semibold leading-4 text-[var(--text-secondary)]">Escolha uma base e ajuste cada cor abaixo.</p>
+            </div>
             <label className={`flex min-h-24 items-center justify-center gap-3 rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] p-3 text-center ${readOnly ? "opacity-60" : "cursor-pointer hover:border-blue-500"}`}>
               {branding.logoUrl ? <img src={branding.logoUrl} alt={imageLabel} className={`max-h-16 max-w-full ${imageLabel.startsWith("Foto") ? "aspect-square rounded-full object-cover" : "object-contain"}`} /> : <><ImagePlus size={20} /><span className="text-xs font-bold">Enviar {imageLabel.toLocaleLowerCase("pt-BR")}</span></>}
               <input type="file" accept="image/*" className="sr-only" disabled={readOnly} onChange={uploadLogo} />

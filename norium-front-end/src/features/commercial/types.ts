@@ -244,6 +244,8 @@ export type CommercialTemplate = {
   contentDeferred?: boolean;
   sections?: string[];
   layout?: string;
+  paletteName?: string;
+  branding?: Pick<Branding, "primaryColor" | "secondaryColor" | "textColor">;
 };
 
 export type CommercialSummary = {
@@ -439,6 +441,8 @@ export type SmartDocumentDraft = {
     documentType: TemplateDocumentType;
     category: string;
     layout: string;
+    paletteName?: string;
+    branding?: Pick<Branding, "primaryColor" | "secondaryColor" | "textColor">;
     requiresClient: boolean;
     legalReview: boolean;
   };

@@ -634,14 +634,21 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         segmented = [item for item in templates if item.get("category") == "Propostas por segmento"]
 
         self.assertGreaterEqual(len(templates), 150)
+        self.assertEqual(len(templates), len({item["id"] for item in templates}))
         self.assertEqual(len(segmented), 45)
         self.assertTrue({"proposal", "contract", "resume", "hr", "report", "policy", "academic", "personal"}.issubset(types))
         self.assertTrue(any(item["id"] == "standard_resume_foto_clean" and item.get("layout") == "resume-photo" for item in templates))
         for template in templates:
             content = str(template.get("contentHtml") or "")
-            self.assertIn("data:image/png;base64,", content, template["id"])
+            if template.get("documentType") != "resume" or template.get("layout") == "resume-photo":
+                self.assertIn("data:image/png;base64,", content, template["id"])
+            else:
+                self.assertNotIn("data:image/png;base64,", content, template["id"])
             self.assertIn("fict", content.casefold(), template["id"])
             self.assertIn("{{NORA_CONTENT}}", str(template.get("generationContentHtml") or ""), template["id"])
+            self.assertRegex(str((template.get("branding") or {}).get("primaryColor") or ""), r"^#[0-9A-F]{6}$")
+            self.assertRegex(str((template.get("branding") or {}).get("secondaryColor") or ""), r"^#[0-9A-F]{6}$")
+            self.assertTrue(str(template.get("paletteName") or "").strip())
 
         resume = next(item for item in templates if item["id"] == "standard_resume_foto_clean")
         proposal = next(item for item in templates if item["id"] == "standard_proposal_consultoria")
@@ -660,21 +667,37 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(b"/Subtype /Image", pdf_bytes)
 
-    def test_all_standard_examples_are_substantial_multipage_documents(self) -> None:
+    def test_standard_examples_use_length_appropriate_to_the_document_type(self) -> None:
         import io
         from pypdf import PdfReader
         for template in standard_templates():
             with self.subTest(template=template["id"]):
                 content = template["contentHtml"]
                 words = re.sub(r"<[^>]+>", " ", content).split()
-                self.assertGreaterEqual(len(words), 850)
                 self.assertNotIn("{{NORA_CONTENT}}", content)
-                self.assertGreaterEqual(content.count("<h2>"), 7)
-                pdf, _ = build_commercial_pdf({"title": template["name"], "contentHtml": content, "metadata": {"documentType": template["documentType"]}}, "contract" if template["documentType"] == "contract" else "proposal")
+                if template["documentType"] == "resume":
+                    self.assertGreaterEqual(len(words), 240)
+                    self.assertLessEqual(len(words), 360)
+                    self.assertGreaterEqual(content.count("<h2>"), 5)
+                else:
+                    self.assertGreaterEqual(len(words), 850)
+                    self.assertGreaterEqual(content.count("<h2>"), 7)
+                pdf, _ = build_commercial_pdf({
+                    "title": template["name"],
+                    "contentHtml": content,
+                    "metadata": {"documentType": template["documentType"], "templateLayout": template.get("layout")},
+                    "branding": template.get("branding") or {},
+                }, "contract" if template["documentType"] == "contract" else "proposal")
                 reader = PdfReader(io.BytesIO(pdf))
-                self.assertGreaterEqual(len(reader.pages), 3)
+                if template["documentType"] == "resume":
+                    self.assertLessEqual(len(reader.pages), 2)
+                else:
+                    self.assertGreaterEqual(len(reader.pages), 3)
                 for page in reader.pages:
                     self.assertGreater(len(page.extract_text().strip()), 70)
+
+        resumes = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", item["contentHtml"])).strip() for item in standard_templates() if item["documentType"] == "resume"]
+        self.assertEqual(len(resumes), len(set(resumes)), "Cada currículo de exemplo precisa ter uma trajetória própria.")
 
     async def test_template_detail_loads_full_example_without_bloating_catalog(self) -> None:
         from app.modules.commercial.service import get_template, list_commercial_data
@@ -684,7 +707,7 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(summary["contentDeferred"])
         detail = await get_template(self.user, summary["id"])
         self.assertFalse(detail["contentDeferred"])
-        self.assertIn("Projeto selecionado 2", detail["contentHtml"])
+        self.assertIn("Projeto em destaque", detail["contentHtml"])
         self.assertIn("data:image/png;base64,", detail["contentHtml"])
         with self.assertRaises(HTTPException) as caught:
             await get_template(self.user, "template_from_another_workspace")
@@ -710,6 +733,21 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(artifact["mimeType"], "application/pdf")
         self.assertEqual(artifact["editTarget"]["entityId"], document["id"])
         self.assertEqual(artifact["editTarget"]["tab"], "Documentos")
+
+    async def test_smart_resume_uses_its_editorial_palette_when_colors_are_not_overridden(self) -> None:
+        payload = SmartDocumentRequest(
+            templateId="standard_resume_foto_clean",
+            brief="Ana Lima, analista de dados com experiência em Python e SQL.",
+        )
+        with patch(
+            "app.modules.commercial.service._nora.perguntar_nora",
+            new=AsyncMock(side_effect=RuntimeError("provider indisponivel no teste")),
+        ):
+            document, _ = await create_smart_document(self.user, payload)
+
+        self.assertEqual(document["branding"]["primaryColor"], "#7D3247")
+        self.assertEqual(document["branding"]["secondaryColor"], "#C98F86")
+        self.assertEqual(document["metadata"]["templateLayout"], "resume-photo")
 
     def test_structured_nora_briefing_is_rendered_as_readable_document(self) -> None:
         payload = ProposalBriefRequest(

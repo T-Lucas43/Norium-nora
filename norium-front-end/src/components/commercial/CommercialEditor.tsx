@@ -140,6 +140,7 @@ export default function CommercialEditor({
   const proposal = isProposal(sourceDocument) ? sourceDocument : null;
   const contract = isProposal(sourceDocument) ? null : sourceDocument;
   const templateDocumentType = String(sourceDocument.metadata?.documentType || (proposal ? "proposal" : "contract"));
+  const templateLayout = String(sourceDocument.metadata?.templateLayout || "classic").replace(/[^a-z0-9_-]/gi, "").toLocaleLowerCase("pt-BR") || "classic";
   const documentLabel = documentTypeLabel(templateDocumentType);
   const isCommercialProposal = Boolean(proposal && templateDocumentType === "proposal");
   const usesCommercialCover = Boolean(contract || isCommercialProposal);
@@ -591,7 +592,7 @@ export default function CommercialEditor({
       /<h([1-3])[^>]*>\s*Assinaturas\s*<\/h\1>/gi,
       "",
     );
-    const documentKind = proposal ? "Proposta comercial" : "Contrato comercial";
+    const documentKind = documentLabel;
     const clientName = sourceDocument.client.company || sourceDocument.client.name || "Cliente";
     const clientDetails = [sourceDocument.client.document, sourceDocument.client.email].filter(Boolean).map(escapeHtml).join(" · ");
     const logoMarkup = branding.logoUrl
@@ -608,6 +609,7 @@ export default function CommercialEditor({
       .content{page:document;width:auto;min-height:auto;margin:0;padding:0;font-size:11pt;line-height:1.62;overflow-wrap:anywhere}.content header,.content footer{color:#475569;font-size:9pt}.content header{margin-bottom:8mm;padding-bottom:3mm;border-bottom:1px solid #cbd5e1}.content footer{margin-top:10mm;padding-top:3mm;border-top:1px solid #cbd5e1}
       .logo{text-align:${branding.logoAlignment};margin:0 0 7mm}.logo img{max-height:${Math.max(36, branding.logoScale * 0.62)}px;max-width:64mm}
       .content h1,.content h2,.content h3{color:${branding.primaryColor};break-after:avoid;page-break-after:avoid}.content p,.content li{orphans:3;widows:3}.content a{color:${branding.secondaryColor}}.content img{max-width:100%;height:auto}table{width:100%;border-collapse:collapse;break-inside:avoid}td,th{border:1px solid #cbd5e1;padding:8px}
+      .content[class*="commercial-layout-resume-"]{font-size:10.2pt;line-height:1.42}.content[class*="commercial-layout-resume-"] h1{margin:0 0 2mm;font-size:27pt;line-height:1.05}.content[class*="commercial-layout-resume-"] h2{margin:5mm 0 2mm;padding-bottom:1.5mm;border-bottom:1.5px solid ${branding.secondaryColor};font-size:12pt;text-transform:uppercase;letter-spacing:.7px}.content[class*="commercial-layout-resume-"] h3{margin:3mm 0 1mm;font-size:10.5pt}.content[class*="commercial-layout-resume-"] p,.content[class*="commercial-layout-resume-"] ul{margin:1.5mm 0}.content.commercial-layout-resume-sidebar{border-left:10mm solid ${branding.primaryColor};padding-left:8mm}.content.commercial-layout-resume-photo{border-top:7mm solid ${branding.secondaryColor};padding-top:8mm}.content.commercial-layout-resume-timeline h2,.content.commercial-layout-resume-timeline h3{border-left:3px solid ${branding.secondaryColor};padding-left:4mm}.content.commercial-layout-resume-skills h2,.content.commercial-layout-resume-first-job h2{background:${branding.secondaryColor}22;padding:2mm 3mm;border-bottom:0}.content.commercial-layout-resume-executive{border-top:8mm solid ${branding.primaryColor};padding-top:8mm}.content.commercial-layout-resume-creative{border-top:8mm solid ${branding.secondaryColor};padding-top:8mm}.content.commercial-layout-resume-academic h2{border-bottom-style:double}.content.commercial-layout-resume-transition h2{border-left:5px solid ${branding.secondaryColor};padding-left:3mm}
       .signature-wrap{margin-top:10mm;break-inside:avoid;page-break-inside:avoid}.signature-wrap h2{margin:0 0 7mm;break-after:avoid;page-break-after:avoid}.signatures{display:grid;grid-template-columns:repeat(2,1fr);gap:36px;break-inside:avoid;page-break-inside:avoid}.signature{break-inside:avoid;page-break-inside:avoid}.signature div{border-top:1px solid #334155;margin-bottom:8px}.signature strong,.signature span{display:block;font-size:11px}
       @media print{button{display:none}}
     </style></head><body>
@@ -621,7 +623,7 @@ export default function CommercialEditor({
           <div><small>Investimento</small><strong>${escapeHtml(formatMoney(amount, currency))}</strong></div>
         </div>
       </section>
-      <main class="page content"><header>${safeHeader}</header>${logoMarkup}<h1>${escapeHtml(title)}</h1>${safeContent}${signerBlocks ? `<section class="signature-wrap"><h2>Assinaturas</h2><div class="signatures">${signerBlocks}</div></section>` : ""}<footer>${safeFooter}</footer></main>
+      <main class="page content commercial-layout-${templateLayout}"><header>${safeHeader}</header>${logoMarkup}${templateDocumentType === "resume" ? "" : `<h1>${escapeHtml(title)}</h1>`}${safeContent}${signerBlocks ? `<section class="signature-wrap"><h2>Assinaturas</h2><div class="signatures">${signerBlocks}</div></section>` : ""}<footer>${safeFooter}</footer></main>
       <script>window.onload=()=>window.print()</script>
     </body></html>`);
     printWindow.document.close();
@@ -792,6 +794,7 @@ export default function CommercialEditor({
                   contentHtml={displayContentHtml}
                   branding={branding}
                   signers={signers}
+                  layout={templateLayout}
                 />
               ) : (
                 <A4ContentPages
@@ -799,6 +802,7 @@ export default function CommercialEditor({
                   contentHtml={displayContentHtml}
                   branding={branding}
                   signers={signers}
+                  layout={templateLayout}
                   editable
                   editorRef={editorRef}
                   onChange={setContentHtml}

@@ -38,6 +38,8 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
     client = document.get("client") if isinstance(document.get("client"), dict) else {}
     metadata = document.get("metadata") if isinstance(document.get("metadata"), dict) else {}
     template_document_type = str(metadata.get("documentType") or document_type)
+    template_layout = re.sub(r"[^a-z0-9_-]", "", str(metadata.get("templateLayout") or "classic").casefold()) or "classic"
+    is_resume = template_document_type == "resume"
     kind = (
         "Contrato comercial"
         if document_type == "contract"
@@ -60,16 +62,16 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
     pdf = SimpleDocTemplate(
         output,
         pagesize=A4,
-        rightMargin=18 * mm,
-        leftMargin=18 * mm,
-        topMargin=22 * mm,
-        bottomMargin=20 * mm,
+        rightMargin=(14 if is_resume else 18) * mm,
+        leftMargin=(14 if is_resume else 18) * mm,
+        topMargin=(12 if is_resume else 22) * mm,
+        bottomMargin=(14 if is_resume else 20) * mm,
         title=title,
         author="Norium",
         subject=kind,
         pageCompression=1,
     )
-    styles = document_styles(primary, secondary, text_color)
+    styles = document_styles(primary, secondary, text_color, compact=is_resume)
     story: list[Any] = []
 
     logo = logo_flowable(branding.get("logoUrl"), branding.get("logoAlignment"), branding.get("logoScale"))
@@ -105,17 +107,18 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
     else:
         if logo:
             story.append(logo)
-            story.append(Spacer(1, 7 * mm))
-        story.extend(
-            [
-                Paragraph(kind.upper(), styles["CoverLabel"]),
-                Spacer(1, 3 * mm),
-                Paragraph(escape_reportlab(title), styles["CoverTitle"]),
-                Spacer(1, 5 * mm),
-                HRFlowable(width="100%", thickness=2, color=secondary),
-                Spacer(1, 6 * mm),
-            ]
-        )
+            story.append(Spacer(1, 4 * mm if is_resume else 7 * mm))
+        if not is_resume:
+            story.extend(
+                [
+                    Paragraph(kind.upper(), styles["CoverLabel"]),
+                    Spacer(1, 3 * mm),
+                    Paragraph(escape_reportlab(title), styles["CoverTitle"]),
+                    Spacer(1, 5 * mm),
+                    HRFlowable(width="100%", thickness=2, color=secondary),
+                    Spacer(1, 6 * mm),
+                ]
+            )
 
     header_html = clean_text(str(branding.get("headerHtml") or ""))
     if header_html:
@@ -127,13 +130,13 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
     if uses_commercial_cover and not has_content_title:
         story.append(Paragraph(escape_reportlab(title), styles["Title"]))
         story.append(Spacer(1, 6 * mm))
-    elif not uses_commercial_cover:
+    elif not uses_commercial_cover and not is_resume:
         # The inline document header already prints the title. Preserve a
         # distinct authored h1, but don't repeat the same title immediately.
         heading = re.search(r"<h1\b[^>]*>(.*?)</h1>", content_html, flags=re.I | re.S)
         if heading and clean_text(heading.group(1)) == title:
             content_html = content_html[:heading.start()] + content_html[heading.end():]
-    story.extend(html_story(content_html, styles))
+    story.extend(html_story(content_html, styles, compact=is_resume))
 
     signers = [item for item in document.get("signers", []) if isinstance(item, dict)]
     if signers:
@@ -174,6 +177,29 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
 
     def decorate_page(canvas, doc) -> None:
         canvas.saveState()
+        if is_resume:
+            canvas.setFillColor(primary)
+            if template_layout == "resume-sidebar":
+                canvas.rect(0, 0, 10 * mm, A4[1], fill=1, stroke=0)
+                canvas.setFillColor(secondary)
+                canvas.rect(10 * mm, 0, 1.5 * mm, A4[1], fill=1, stroke=0)
+            elif template_layout == "resume-executive":
+                canvas.rect(0, A4[1] - 9 * mm, A4[0] * 0.76, 9 * mm, fill=1, stroke=0)
+                canvas.setFillColor(secondary)
+                canvas.rect(A4[0] * 0.76, A4[1] - 9 * mm, A4[0] * 0.24, 9 * mm, fill=1, stroke=0)
+            elif template_layout == "resume-creative":
+                canvas.setFillColor(secondary)
+                canvas.rect(0, A4[1] - 7 * mm, A4[0], 7 * mm, fill=1, stroke=0)
+                canvas.setFillColor(primary)
+                canvas.rect(0, A4[1] - 3 * mm, A4[0] * 0.62, 3 * mm, fill=1, stroke=0)
+            else:
+                canvas.rect(0, A4[1] - 5 * mm, A4[0], 5 * mm, fill=1, stroke=0)
+                canvas.setFillColor(secondary)
+                canvas.rect(A4[0] - 42 * mm, A4[1] - 5 * mm, 42 * mm, 5 * mm, fill=1, stroke=0)
+            if template_layout == "resume-timeline":
+                canvas.setStrokeColor(secondary)
+                canvas.setLineWidth(2)
+                canvas.line(14 * mm, 22 * mm, 14 * mm, A4[1] - 18 * mm)
         canvas.setStrokeColor(secondary)
         canvas.setLineWidth(1.2)
         canvas.line(18 * mm, 13 * mm, A4[0] - 18 * mm, 13 * mm)
@@ -284,12 +310,15 @@ class BlockParser(HTMLParser):
         self.current_tag = "p"
 
 
-def html_story(value: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
+def html_story(value: str, styles: dict[str, ParagraphStyle], *, compact: bool = False) -> list[Any]:
     parser = BlockParser()
     parser.feed(value)
     parser.flush()
     blocks = parser.blocks or [("p", "Documento sem conteudo.")]
     flowables: list[Any] = []
+    block_gap = (0.8 if compact else 2.5) * mm
+    heading_gap = (0.65 if compact else 2) * mm
+    paired_gap = (0.9 if compact else 2.5) * mm
     index = 0
     while index < len(blocks):
         tag, text = blocks[index]
@@ -309,9 +338,9 @@ def html_story(value: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
             index += 1
             continue
         if tag == "img":
-            image = content_image_flowable(text)
+            image = content_image_flowable(text, compact=compact)
             if image:
-                flowables.extend([image, Spacer(1, 4 * mm)])
+                flowables.extend([image, Spacer(1, (1.2 if compact else 4) * mm)])
             index += 1
             continue
         style_name = {"h1": "Heading1", "h2": "Heading2", "h3": "Heading3", "blockquote": "Quote", "li": "Bullet"}.get(tag, "Body")
@@ -321,10 +350,10 @@ def html_story(value: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
             next_tag, next_text = blocks[index + 1]
             next_style = "Bullet" if next_tag == "li" else "Body"
             next_paragraph = Paragraph(("&#8226; " if next_tag == "li" else "") + next_text, styles[next_style])
-            flowables.append(KeepTogether([paragraph, Spacer(1, 2 * mm), next_paragraph, Spacer(1, 2.5 * mm)]))
+            flowables.append(KeepTogether([paragraph, Spacer(1, heading_gap), next_paragraph, Spacer(1, paired_gap)]))
             index += 2
             continue
-        flowables.extend([paragraph, Spacer(1, 2.5 * mm)])
+        flowables.extend([paragraph, Spacer(1, block_gap)])
         index += 1
     # A final spacer can overflow onto an otherwise empty trailing page.
     while flowables and isinstance(flowables[-1], Spacer):
@@ -332,39 +361,46 @@ def html_story(value: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
     return flowables
 
 
-def content_image_flowable(value: str) -> Image | None:
+def content_image_flowable(value: str, *, compact: bool = False) -> Image | None:
     """Converte imagens embutidas do editor em imagens proporcionais no PDF."""
     match = re.match(r"^data:image/[^;]+;base64,(.+)$", value, flags=re.DOTALL | re.IGNORECASE)
     if not match:
         return None
     try:
         image = Image(io.BytesIO(base64.b64decode(match.group(1), validate=True)))
-        ratio = min(160 * mm / max(image.imageWidth, 1), 70 * mm / max(image.imageHeight, 1), 1)
+        max_width = 30 * mm if compact else 160 * mm
+        max_height = 24 * mm if compact else 70 * mm
+        ratio = min(max_width / max(image.imageWidth, 1), max_height / max(image.imageHeight, 1), 1)
         image.drawWidth = image.imageWidth * ratio
         image.drawHeight = image.imageHeight * ratio
-        image.hAlign = "CENTER"
+        image.hAlign = "RIGHT" if compact else "CENTER"
         return image
     except Exception:
         return None
 
 
-def document_styles(primary, secondary, text_color) -> dict[str, ParagraphStyle]:
+def document_styles(primary, secondary, text_color, *, compact: bool = False) -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
+    body_size = 9.2 if compact else 10.5
+    body_leading = 12.2 if compact else 16
+    heading_1_size = 23 if compact else 18
+    heading_2_size = 11 if compact else 15
+    heading_3_size = 9.6 if compact else 12
     return {
         "CoverLabel": ParagraphStyle("CoverLabel", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=10, leading=13, textColor=secondary, spaceAfter=0),
         "CoverTitle": ParagraphStyle("CoverTitle", parent=base["Title"], fontName="Helvetica-Bold", fontSize=29, leading=35, textColor=primary, alignment=TA_LEFT),
         "MetaLabel": ParagraphStyle("MetaLabel", parent=base["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=colors.HexColor("#64748B")),
         "Client": ParagraphStyle("Client", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=17, leading=22, textColor=text_color),
         "Title": ParagraphStyle("Title", parent=base["Title"], fontName="Helvetica-Bold", fontSize=23, leading=29, textColor=primary, keepWithNext=True),
-        "Heading1": ParagraphStyle("Heading1", parent=base["Heading1"], fontName="Helvetica-Bold", fontSize=18, leading=23, textColor=primary, spaceBefore=10, keepWithNext=True),
-        "Heading2": ParagraphStyle("Heading2", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=15, leading=20, textColor=primary, spaceBefore=9, keepWithNext=True),
-        "Heading3": ParagraphStyle("Heading3", parent=base["Heading3"], fontName="Helvetica-Bold", fontSize=12, leading=17, textColor=primary, spaceBefore=7, keepWithNext=True),
+        "Heading1": ParagraphStyle("Heading1", parent=base["Heading1"], fontName="Helvetica-Bold", fontSize=heading_1_size, leading=heading_1_size + 3, textColor=primary, spaceBefore=2 if compact else 10, spaceAfter=0, keepWithNext=True),
+        "Heading2": ParagraphStyle("Heading2", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=heading_2_size, leading=heading_2_size + 3, textColor=primary, spaceBefore=5 if compact else 9, spaceAfter=1, borderColor=secondary, borderWidth=0 if compact else 0, keepWithNext=True),
+        "Heading3": ParagraphStyle("Heading3", parent=base["Heading3"], fontName="Helvetica-Bold", fontSize=heading_3_size, leading=heading_3_size + 3, textColor=primary, spaceBefore=4 if compact else 7, keepWithNext=True),
         "SignatureHeading": ParagraphStyle("SignatureHeading", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=15, leading=20, textColor=primary, spaceBefore=0, spaceAfter=0, keepWithNext=True),
-        "Body": ParagraphStyle("Body", parent=base["BodyText"], fontName="Helvetica", fontSize=10.5, leading=16, textColor=text_color, splitLongWords=True, allowWidows=0, allowOrphans=0),
-        "TableCell": ParagraphStyle("TableCell", parent=base["BodyText"], fontName="Helvetica", fontSize=9, leading=13, textColor=text_color, splitLongWords=True),
+        "Body": ParagraphStyle("Body", parent=base["BodyText"], fontName="Helvetica", fontSize=body_size, leading=body_leading, textColor=text_color, splitLongWords=True, allowWidows=0, allowOrphans=0),
+        "TableCell": ParagraphStyle("TableCell", parent=base["BodyText"], fontName="Helvetica", fontSize=8.3 if compact else 9, leading=11 if compact else 13, textColor=text_color, splitLongWords=True),
         "BodyMuted": ParagraphStyle("BodyMuted", parent=base["BodyText"], fontName="Helvetica", fontSize=9, leading=13, textColor=colors.HexColor("#64748B")),
-        "Bullet": ParagraphStyle("Bullet", parent=base["BodyText"], fontName="Helvetica", fontSize=10.5, leading=16, leftIndent=5 * mm, firstLineIndent=-3 * mm, textColor=text_color, allowWidows=0, allowOrphans=0),
-        "Quote": ParagraphStyle("Quote", parent=base["BodyText"], fontName="Helvetica-Oblique", fontSize=10.5, leading=16, leftIndent=5 * mm, borderColor=secondary, borderWidth=1.5, borderPadding=5, textColor=colors.HexColor("#475569")),
+        "Bullet": ParagraphStyle("Bullet", parent=base["BodyText"], fontName="Helvetica", fontSize=body_size, leading=body_leading, leftIndent=4 * mm if compact else 5 * mm, firstLineIndent=-3 * mm, textColor=text_color, allowWidows=0, allowOrphans=0),
+        "Quote": ParagraphStyle("Quote", parent=base["BodyText"], fontName="Helvetica-Oblique", fontSize=8 if compact else 10.5, leading=10 if compact else 16, leftIndent=3 * mm if compact else 5 * mm, borderColor=secondary, borderWidth=1.5, borderPadding=4 if compact else 5, textColor=colors.HexColor("#475569")),
         "Signature": ParagraphStyle("Signature", parent=base["BodyText"], fontName="Helvetica", fontSize=9, leading=13, textColor=text_color),
     }
 

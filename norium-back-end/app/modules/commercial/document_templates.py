@@ -106,28 +106,84 @@ def demo_template_html(
     legal_review: bool = False,
     existing_html: str = "",
     focus: str = "",
+    layout: str = "classic",
 ) -> str:
     """Cria a prévia de demonstração que acompanha todos os modelos."""
     safe_name = html.escape(name)
     label = html.escape(document_type_label(document_type))
     notice = (
-        "<blockquote><strong>Minuta demonstrativa:</strong> todos os nomes, contatos, valores, datas e resultados abaixo são fictícios. "
-        "Edite o conteúdo antes de usar.</blockquote>"
+        "<blockquote><strong>Exemplo preenchido:</strong> a pessoa, os contatos e os resultados são fictícios. "
+        "Substitua tudo antes de enviar.</blockquote>"
+        if document_type == "resume"
+        else "<blockquote><strong>Minuta demonstrativa:</strong> todos os nomes, contatos, valores, datas e resultados abaixo são fictícios. Edite o conteúdo antes de usar.</blockquote>"
     )
     legal = (
         "<blockquote><strong>Revisão recomendada:</strong> adapte esta minuta ao caso concreto e submeta o texto a um profissional habilitado antes de assinar ou publicar.</blockquote>"
         if legal_review
         else ""
     )
-    image_url = DEMO_PORTRAIT_DATA_URL if document_type == "resume" else DEMO_IMAGE_DATA_URL
-    image_alt = "Retrato ilustrado de Marina Costa, pessoa fictícia" if document_type == "resume" else f"Imagem demonstrativa fictícia do modelo {safe_name}"
-    image = f'<p><img src="{image_url}" alt="{image_alt}" /></p>'
+    if document_type == "resume":
+        image = (
+            f'<p><img src="{DEMO_PORTRAIT_DATA_URL}" alt="Retrato ilustrado da pessoa fictícia deste currículo" /></p>'
+            if layout == "resume-photo"
+            else ""
+        )
+    else:
+        image = f'<p><img src="{DEMO_IMAGE_DATA_URL}" alt="Imagem demonstrativa fictícia do modelo {safe_name}" /></p>'
     body = specific_example(name, document_type) + detailed_example(name, document_type, sections, focus)
+    if document_type == "resume":
+        # O nome da pessoa abre o currículo. Repetir o nome do modelo, o rótulo
+        # da categoria e um dossiê genérico antes dele desperdiçava a primeira
+        # página e fazia todos os exemplos parecerem iguais.
+        return f"{notice}{image}{body}{existing_html}"
     return f"<h1>{safe_name}</h1><p><strong>Base de exemplo · {label}</strong></p>{notice}{legal}{image}{body}{existing_html}"
 
 
 def document_type_label(value: str) -> str:
     return DOCUMENT_TYPE_LABELS.get(value, "Documento")
+
+
+RESUME_PALETTES: dict[str, tuple[str, str, str, str]] = {
+    "resume-ats": ("Grafite ATS", "#111827", "#6B7280", "#111827"),
+    "resume-sidebar": ("Azul editorial", "#1F3A5F", "#AFC6DC", "#172033"),
+    "resume-photo": ("Rosa queimado", "#7D3247", "#C98F86", "#32242A"),
+    "resume-timeline": ("Vinho cronológico", "#7A1F45", "#D4A3B4", "#2F2430"),
+    "resume-skills": ("Verde sálvia", "#214E45", "#A9C8B8", "#18312C"),
+    "resume-first-job": ("Bege acolhedor", "#795548", "#E5D4BD", "#332A26"),
+    "resume-executive": ("Executivo dourado", "#171A1F", "#B9985A", "#171A1F"),
+    "resume-tech": ("Azul tecnologia", "#173A5E", "#2D8CFF", "#142433"),
+    "resume-creative": ("Lilás criativo", "#5B2A86", "#C5A3DE", "#2F2337"),
+    "resume-academic": ("Verde acadêmico", "#244B3A", "#C9B77D", "#20332A"),
+    "resume-transition": ("Terracota moderno", "#7A3E2E", "#D79A73", "#382A25"),
+}
+
+
+DOCUMENT_PALETTES: dict[str, tuple[str, str, str, str]] = {
+    "proposal": ("Oceano profissional", "#173A5E", "#2BB3C0", "#172033"),
+    "contract": ("Grafite e dourado", "#1F2937", "#B08D57", "#172033"),
+    "term": ("Grafite e dourado", "#1F2937", "#B08D57", "#172033"),
+    "policy": ("Grafite e dourado", "#1F2937", "#B08D57", "#172033"),
+    "budget": ("Verde financeiro", "#174C3C", "#D0A63B", "#18312C"),
+    "invoice": ("Verde financeiro", "#174C3C", "#D0A63B", "#18312C"),
+    "receipt": ("Verde financeiro", "#174C3C", "#D0A63B", "#18312C"),
+    "report": ("Azul analítico", "#293462", "#5B8DEF", "#1D263B"),
+    "plan": ("Azul analítico", "#293462", "#5B8DEF", "#1D263B"),
+    "project": ("Azul analítico", "#293462", "#5B8DEF", "#1D263B"),
+    "hr": ("Rosa institucional", "#6E304B", "#C88B9D", "#35252D"),
+    "letter": ("Terracota editorial", "#704133", "#D09A78", "#382A25"),
+    "marketing": ("Roxo criativo", "#5A2A82", "#E28B5B", "#302238"),
+    "academic": ("Verde acadêmico", "#244B3A", "#C9B77D", "#20332A"),
+    "certificate": ("Verde acadêmico", "#244B3A", "#C9B77D", "#20332A"),
+    "meeting": ("Azul colaborativo", "#24506B", "#65B7A5", "#19303D"),
+    "personal": ("Lilás suave", "#60437A", "#C5A3DE", "#30283A"),
+    "custom": ("Norium", "#1E293B", "#3B82F6", "#0F172A"),
+}
+
+
+def template_palette(document_type: str, layout: str) -> tuple[str, str, str, str]:
+    if document_type == "resume":
+        return RESUME_PALETTES.get(layout, RESUME_PALETTES["resume-ats"])
+    return DOCUMENT_PALETTES.get(document_type, DOCUMENT_PALETTES["custom"])
 
 
 def _spec(
@@ -145,13 +201,35 @@ def _spec(
     layout: str = "classic",
     focus: str = "",
 ) -> dict[str, Any]:
+    palette_name, primary_color, secondary_color, text_color = template_palette(document_type, layout)
+    generation_guide = (
+        f"Produza um currículo profissional do tipo {name}, pronto para triagem humana e automatizada. "
+        f"Organize o texto nas seções: {', '.join(sections)}. "
+        "Limite o resultado a uma ou duas páginas, use frases curtas e dois a quatro tópicos por experiência. "
+        "Destaque cargo, contexto, ação e resultado comprovável; não repita no resumo o que já aparece nas experiências. "
+        "Use somente fatos fornecidos e marque cada lacuna de modo específico, sem inventar competências, datas ou resultados."
+        if document_type == "resume"
+        else (
+            f"Produza um {document_type_label(document_type).lower()} profissional do tipo {name}. "
+            f"Organize o texto nas seções: {', '.join(sections)}. "
+            "Use somente fatos fornecidos; marque informações ausentes como 'A definir' e não invente dados. "
+            "Desenvolva cada seção com explicações completas, critérios verificáveis e anexos pertinentes, sem repetir o mesmo contexto em seções diferentes."
+        )
+    )
     return {
         "id": f"standard_{document_type}_{slug}",
         "name": name,
         "description": description,
         "documentType": document_type,
         "category": category,
-        "contentHtml": demo_template_html(name, document_type, sections, legal_review=legal_review, focus=focus),
+        "contentHtml": demo_template_html(
+            name,
+            document_type,
+            sections,
+            legal_review=legal_review,
+            focus=focus,
+            layout=layout,
+        ),
         # A prévia ensina pelo exemplo; ao gerar com a Nora, entra apenas o
         # conteúdo produzido a partir dos dados reais informados pelo usuário.
         "generationContentHtml": "{{NORA_CONTENT}}",
@@ -166,13 +244,14 @@ def _spec(
         "requiresClient": requires_client,
         "legalReview": legal_review,
         "layout": layout,
+        "paletteName": palette_name,
+        "branding": {
+            "primaryColor": primary_color,
+            "secondaryColor": secondary_color,
+            "textColor": text_color,
+        },
         "keywords": sorted({slug.replace("_", " "), name.lower(), category.lower(), *keywords}),
-        "generationGuide": (
-            f"Produza um {document_type_label(document_type).lower()} profissional do tipo {name}. "
-            f"Organize o texto nas seções: {', '.join(sections)}. "
-            "Use somente fatos fornecidos; marque informações ausentes como 'A definir' e não invente dados."
-            " Desenvolva cada seção com explicações completas, critérios verificáveis e anexos pertinentes; não entregue apenas títulos ou frases-resumo."
-        ),
+        "generationGuide": generation_guide,
         "sections": list(sections),
     }
 
@@ -193,8 +272,8 @@ def extended_document_templates() -> list[dict[str, Any]]:
         _spec("nda", "Acordo de confidencialidade (NDA)", "contract", "Jurídico e conformidade", "Minuta bilateral para proteção de informações confidenciais.", ("Partes", "Finalidade", "Informações confidenciais", "Obrigações e exceções", "Prazo", "Responsabilidade e foro"), keywords=("confidencialidade", "sigilo", "nda"), legal_review=True, requires_client=True, featured=True),
         _spec("parceria", "Contrato de parceria", "contract", "Jurídico e conformidade", "Regras de colaboração, responsabilidades, receitas e propriedade intelectual.", ("Partes e objetivo", "Responsabilidades", "Governança", "Receitas e despesas", "Propriedade intelectual", "Vigência e encerramento"), keywords=("sociedade", "colaboracao"), legal_review=True, requires_client=True),
         _spec("software", "Contrato de desenvolvimento de software", "contract", "Jurídico e conformidade", "Minuta para escopo, aceite, código, segurança e suporte.", ("Objeto e requisitos", "Etapas e aceite", "Preço e pagamento", "Código e propriedade intelectual", "Segurança e dados", "Garantia, suporte e rescisão"), keywords=("sistema", "aplicativo", "site", "tecnologia"), legal_review=True, requires_client=True, featured=True),
-        _spec("marketing", "Contrato de serviços de marketing", "contract", "Jurídico e conformidade", "Minuta para campanhas, conteúdo, mídia, aprovações e métricas.", ("Objeto", "Canais e entregas", "Aprovações", "Mídia e orçamento", "Direitos de uso", "Vigência e rescisão"), keywords=("agencia", "trafego", "conteudo"), legal_review=True, requires_client=True),
-        _spec("design", "Contrato de design e criação", "contract", "Jurídico e conformidade", "Minuta para criação visual, revisões, arquivos e licenças.", ("Briefing e objeto", "Entregáveis", "Rodadas de revisão", "Prazos", "Direitos autorais e licenças", "Pagamento e cancelamento"), keywords=("identidade visual", "branding", "ux", "ui"), legal_review=True, requires_client=True),
+        _spec("servicos_marketing", "Contrato de serviços de marketing", "contract", "Jurídico e conformidade", "Minuta para campanhas, conteúdo, mídia, aprovações e métricas.", ("Objeto", "Canais e entregas", "Aprovações", "Mídia e orçamento", "Direitos de uso", "Vigência e rescisão"), keywords=("agencia", "trafego", "conteudo"), legal_review=True, requires_client=True),
+        _spec("design_criacao", "Contrato de design e criação", "contract", "Jurídico e conformidade", "Minuta para criação visual, revisões, arquivos e licenças.", ("Briefing e objeto", "Entregáveis", "Rodadas de revisão", "Prazos", "Direitos autorais e licenças", "Pagamento e cancelamento"), keywords=("identidade visual", "branding", "ux", "ui"), legal_review=True, requires_client=True),
         _spec("sla", "Acordo de nível de serviço (SLA)", "contract", "Jurídico e conformidade", "Níveis de atendimento, disponibilidade, severidade e escalonamento.", ("Serviços cobertos", "Disponibilidade", "Severidades", "Tempos de resposta e solução", "Medição e créditos", "Exclusões e governança"), keywords=("suporte", "manutencao", "nivel de servico"), legal_review=True, requires_client=True),
         _spec("licenciamento", "Contrato de licenciamento", "contract", "Jurídico e conformidade", "Condições de uso de software, marca, conteúdo ou propriedade intelectual.", ("Objeto licenciado", "Licença concedida", "Restrições", "Remuneração", "Garantias", "Prazo e término"), keywords=("licenca", "royalty", "direitos"), legal_review=True, requires_client=True),
         _spec("dados_lgpd", "Acordo de tratamento de dados (LGPD)", "contract", "Jurídico e conformidade", "Papéis, finalidades, segurança, incidentes e direitos dos titulares.", ("Partes e papéis", "Dados e finalidades", "Base e instruções", "Segurança", "Suboperadores e transferências", "Incidentes, término e auditoria"), keywords=("lgpd", "dpa", "privacidade", "dados pessoais"), legal_review=True, requires_client=True, featured=True),
@@ -213,12 +292,12 @@ def extended_document_templates() -> list[dict[str, Any]]:
         _spec("foto_clean", "Currículo clean com foto", "resume", "Carreira", "Composição clara com retrato opcional, cores suaves e hierarquia profissional.", ("Contato e objetivo", "Perfil profissional", "Experiência", "Formação", "Competências", "Idiomas e certificações"), keywords=("foto", "retrato", "clean", "elegante"), featured=True, layout="resume-photo"),
         _spec("linha_tempo", "Currículo em linha do tempo", "resume", "Carreira", "Trajetória organizada cronologicamente para evidenciar progressão e continuidade.", ("Contato e objetivo", "Resumo profissional", "Linha do tempo da experiência", "Resultados", "Formação", "Competências e idiomas"), keywords=("timeline", "cronologico", "carreira"), layout="resume-timeline"),
         _spec("competencias", "Currículo orientado a competências", "resume", "Carreira", "Competências transferíveis e resultados em primeiro plano, indicado para transição ou lacunas.", ("Contato e objetivo", "Perfil", "Competências-chave", "Resultados e projetos", "Experiência", "Formação e cursos"), keywords=("habilidades", "transicao", "lacunas"), layout="resume-skills"),
-        _spec("primeiro_emprego", "Currículo para primeiro emprego", "resume", "Carreira", "Destaque para formação, projetos, cursos e potencial.", ("Contato e objetivo", "Perfil", "Formação", "Projetos e atividades", "Cursos", "Competências"), keywords=("estagio", "jovem aprendiz", "sem experiencia")),
-        _spec("executivo", "Currículo executivo", "resume", "Carreira", "Narrativa de liderança, resultados, governança e transformação.", ("Proposta de valor", "Resultados executivos", "Experiência de liderança", "Conselhos e governança", "Formação", "Idiomas"), keywords=("diretor", "gerente", "lideranca")),
-        _spec("tecnologia", "Currículo de tecnologia", "resume", "Carreira", "Experiência, stack, projetos, arquitetura e impacto técnico.", ("Resumo técnico", "Competências", "Experiência", "Projetos relevantes", "Formação", "Certificações e links"), keywords=("desenvolvedor", "programador", "dados", "devops"), featured=True),
+        _spec("primeiro_emprego", "Currículo para primeiro emprego", "resume", "Carreira", "Destaque para formação, projetos, cursos e potencial.", ("Contato e objetivo", "Perfil", "Formação", "Projetos e atividades", "Cursos", "Competências"), keywords=("estagio", "jovem aprendiz", "sem experiencia"), layout="resume-first-job"),
+        _spec("executivo", "Currículo executivo", "resume", "Carreira", "Narrativa de liderança, resultados, governança e transformação.", ("Proposta de valor", "Resultados executivos", "Experiência de liderança", "Conselhos e governança", "Formação", "Idiomas"), keywords=("diretor", "gerente", "lideranca"), layout="resume-executive"),
+        _spec("tecnologia", "Currículo de tecnologia", "resume", "Carreira", "Experiência, stack, projetos, arquitetura e impacto técnico.", ("Resumo técnico", "Competências", "Experiência", "Projetos relevantes", "Formação", "Certificações e links"), keywords=("desenvolvedor", "programador", "dados", "devops"), featured=True, layout="resume-tech"),
         _spec("criativo", "Currículo criativo", "resume", "Carreira", "Perfil para design, conteúdo, audiovisual e áreas criativas.", ("Apresentação", "Especialidades", "Experiência", "Portfólio e projetos", "Ferramentas", "Formação e reconhecimentos"), keywords=("designer", "portfolio", "criacao"), layout="resume-creative"),
-        _spec("academico", "Currículo acadêmico", "resume", "Carreira", "Formação, pesquisa, publicações, docência e eventos.", ("Perfil acadêmico", "Formação", "Pesquisa", "Publicações", "Docência", "Projetos, prêmios e idiomas"), keywords=("lattes", "pesquisador", "professor")),
-        _spec("transicao", "Currículo para transição de carreira", "resume", "Carreira", "Competências transferíveis, projetos e direção profissional.", ("Objetivo de transição", "Competências transferíveis", "Resultados relevantes", "Projetos e formação recente", "Experiência", "Plano de desenvolvimento"), keywords=("mudar de carreira", "recolocacao")),
+        _spec("academico", "Currículo acadêmico", "resume", "Carreira", "Formação, pesquisa, publicações, docência e eventos.", ("Perfil acadêmico", "Formação", "Pesquisa", "Publicações", "Docência", "Projetos, prêmios e idiomas"), keywords=("lattes", "pesquisador", "professor"), layout="resume-academic"),
+        _spec("transicao", "Currículo para transição de carreira", "resume", "Carreira", "Competências transferíveis, projetos e direção profissional.", ("Objetivo de transição", "Competências transferíveis", "Resultados relevantes", "Projetos e formação recente", "Experiência", "Plano de desenvolvimento"), keywords=("mudar de carreira", "recolocacao"), layout="resume-transition"),
         _spec("carta_apresentacao", "Carta de apresentação", "letter", "Carreira", "Carta personalizada para candidatura, vaga e empresa.", ("Saudação", "Motivação", "Aderência à vaga", "Evidências e resultados", "Disponibilidade", "Encerramento"), keywords=("cover letter", "candidatura", "vaga"), featured=True),
         _spec("recomendacao", "Carta de recomendação", "letter", "Carreira", "Recomendação profissional ou acadêmica baseada em evidências.", ("Relação com a pessoa", "Contexto", "Competências observadas", "Resultados", "Recomendação", "Contato"), keywords=("referencia", "indicacao")),
 

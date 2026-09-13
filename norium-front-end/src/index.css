@@ -5335,6 +5335,158 @@ textarea.finance-field {
 }
 .commercial-rich-editor th { background: #f1f5f9; }
 
+/* Currículos editoriais: cada modelo usa uma composição própria e as cores
+   continuam ligadas às variáveis editáveis do documento. */
+.commercial-a4-preview-page[class*="commercial-layout-resume-"] {
+  position: relative;
+  background: #fff;
+}
+
+.commercial-a4-preview-page[class*="commercial-layout-resume-"] .commercial-a4-page-content,
+.commercial-draft-preview[class*="commercial-layout-resume-"] {
+  font-size: max(7px, 1.58cqw);
+  line-height: 1.46;
+}
+
+.commercial-draft-preview[class*="commercial-layout-resume-"] {
+  container-type: inline-size;
+  position: relative;
+}
+
+.commercial-a4-preview-page[class*="commercial-layout-resume-"] h1,
+.commercial-draft-preview[class*="commercial-layout-resume-"] h1 {
+  margin: 0 0 0.15em;
+  font-size: 2.45em;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+}
+
+.commercial-a4-preview-page[class*="commercial-layout-resume-"] h2,
+.commercial-draft-preview[class*="commercial-layout-resume-"] h2 {
+  margin: 1.05em 0 0.42em;
+  padding-bottom: 0.32em;
+  border-bottom: 2px solid var(--document-secondary, #3b82f6);
+  font-size: 1.06em;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+.commercial-a4-preview-page[class*="commercial-layout-resume-"] h3,
+.commercial-draft-preview[class*="commercial-layout-resume-"] h3 {
+  margin: 0.78em 0 0.2em;
+  font-size: 1em;
+}
+
+.commercial-a4-preview-page[class*="commercial-layout-resume-"] p,
+.commercial-a4-preview-page[class*="commercial-layout-resume-"] ul,
+.commercial-draft-preview[class*="commercial-layout-resume-"] p,
+.commercial-draft-preview[class*="commercial-layout-resume-"] ul {
+  margin: 0.4em 0;
+}
+
+.commercial-a4-preview-page[class*="commercial-layout-resume-"] blockquote,
+.commercial-draft-preview[class*="commercial-layout-resume-"] blockquote {
+  margin: 0 0 0.9em;
+  padding: 0.35em 0.7em;
+  border-left-width: 3px;
+  background: color-mix(in srgb, var(--document-secondary, #3b82f6) 10%, white);
+  font-size: 0.82em;
+}
+
+.commercial-layout-resume-ats::before,
+.commercial-layout-resume-tech::before,
+.commercial-layout-resume-photo::before,
+.commercial-layout-resume-executive::before,
+.commercial-layout-resume-creative::before,
+.commercial-layout-resume-academic::before,
+.commercial-layout-resume-transition::before,
+.commercial-layout-resume-first-job::before,
+.commercial-layout-resume-skills::before,
+.commercial-layout-resume-timeline::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: 1.4cqw;
+  background: linear-gradient(90deg, var(--document-primary, #1e293b), var(--document-secondary, #3b82f6));
+}
+
+.commercial-layout-resume-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 0;
+  width: 15.5cqw;
+  background: linear-gradient(180deg, var(--document-primary, #1f3a5f), color-mix(in srgb, var(--document-primary, #1f3a5f) 88%, black));
+}
+
+.commercial-layout-resume-sidebar .commercial-a4-page-header,
+.commercial-layout-resume-sidebar .commercial-a4-page-footer,
+.commercial-layout-resume-sidebar .commercial-a4-page-content {
+  padding-left: 21cqw;
+}
+
+.commercial-layout-resume-photo .commercial-a4-page-content img:first-of-type,
+.commercial-draft-preview.commercial-layout-resume-photo img:first-of-type {
+  float: right;
+  width: 19cqw;
+  height: 19cqw;
+  margin: 0 0 2cqw 4cqw;
+  border: 0.9cqw solid color-mix(in srgb, var(--document-secondary, #c98f86) 55%, white);
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.commercial-layout-resume-timeline h2,
+.commercial-layout-resume-timeline h3 {
+  position: relative;
+  border-bottom: 0;
+  border-left: 3px solid var(--document-secondary, #d4a3b4);
+  padding: 0.15em 0 0.15em 1em;
+}
+
+.commercial-layout-resume-timeline h2::before,
+.commercial-layout-resume-timeline h3::before {
+  content: "";
+  position: absolute;
+  left: -0.48em;
+  top: 0.55em;
+  width: 0.75em;
+  height: 0.75em;
+  border: 2px solid white;
+  border-radius: 999px;
+  background: var(--document-secondary, #d4a3b4);
+}
+
+.commercial-layout-resume-skills h2,
+.commercial-layout-resume-first-job h2 {
+  border: 0;
+  border-radius: 0.45em;
+  padding: 0.45em 0.65em;
+  background: color-mix(in srgb, var(--document-secondary, #a9c8b8) 25%, white);
+}
+
+.commercial-layout-resume-executive::before {
+  height: 3.5cqw;
+  background: linear-gradient(90deg, var(--document-primary, #171a1f) 0 76%, var(--document-secondary, #b9985a) 76%);
+}
+
+.commercial-layout-resume-creative::before {
+  height: 4cqw;
+  clip-path: polygon(0 0, 100% 0, 82% 100%, 0 54%);
+}
+
+.commercial-layout-resume-academic h2 {
+  border-bottom-style: double;
+  border-bottom-width: 4px;
+}
+
+.commercial-layout-resume-transition h2 {
+  border-bottom: 0;
+  border-left: 5px solid var(--document-secondary, #d79a73);
+  padding: 0.25em 0 0.25em 0.7em;
+}
+
 .commercial-rich-editor p,
 .commercial-rich-editor li,
 .commercial-rich-editor blockquote {
@@ -5392,7 +5544,7 @@ textarea.finance-field {
   .commercial-editor-inspector,
   .commercial-editor-nora {
     position: fixed;
-    inset-block: auto 12px;
+    inset-block: 12px auto;
     z-index: 125;
     display: flex;
     flex-direction: column;

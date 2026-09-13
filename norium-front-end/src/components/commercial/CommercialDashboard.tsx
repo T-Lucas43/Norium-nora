@@ -3,7 +3,7 @@ import ProposalPdfWorkspace from "./ProposalPdfWorkspace";
 import { proposalTransitions, statusLabels } from "./proposalWorkflow";
 import SignatureComposer from "./SignatureComposer";
 import WorkspaceHeader from "../shared/WorkspaceHeader";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   Ban,
@@ -96,6 +96,7 @@ import {
   type TemplateDocumentType,
   type UploadedDocument,
 } from "../../features/commercial/types";
+
 import type { AuthSession } from "../../types/auth";
 import Button from "../shared/Button";
 import EmptyState from "../shared/EmptyState";
@@ -105,6 +106,13 @@ import { showConfirm, showPrompt } from "../shared/AppDialogProvider";
 import A4ContentPages from "./A4ContentPages";
 import CommercialEditor from "./CommercialEditor";
 import PdfToolsWorkspace from "./PdfToolsWorkspace";
+
+function brandingForTemplate(template?: CommercialTemplate | null) {
+  return {
+    ...defaultBranding,
+    ...(template?.branding || {}),
+  };
+}
 
 type View = "all" | "documents" | "proposals" | "contracts" | "files" | "templates" | "brands";
 type DisplayMode = "list" | "grid";
@@ -681,7 +689,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       const { proposal } = await createProposal({
         clientId: "__workspace__", brainstormId: null, title: `[Exemplo] ${full.name}`,
         contentHtml: full.contentHtml, scopeSummary: full.description || "", amount: 0, currency: "BRL",
-        validUntil: null, brandProfileId: null, branding: defaultBranding, signers: [], deliverables: [],
+        validUntil: null, brandProfileId: null, branding: brandingForTemplate(full), signers: [], deliverables: [],
         metadata: { documentType: full.documentType, templateId: full.id, templateLayout: full.layout, fictionalExample: true },
       });
       setData((current) => current ? { ...current, proposals: [commercialDocumentSummary(proposal) as typeof current.proposals[number], ...current.proposals], summary: { ...current.summary, documentCount: current.summary.documentCount + 1, draftCount: current.summary.draftCount + 1, proposalCount: current.summary.proposalCount + (full.documentType === "proposal" ? 1 : 0) } } : current);
@@ -1040,6 +1048,7 @@ function CreateSmartDocumentDialog({
 }) {
   const availableTemplates = templates.filter((item) => item.active !== false);
   const suggestedTemplate = availableTemplates.find((item) => item.id === initialTemplateId) || availableTemplates.find((item) => item.id === "standard_proposal_consultoria") || availableTemplates.find((item) => item.featured) || availableTemplates[0];
+  const suggestedBranding = brandingForTemplate(suggestedTemplate);
   const [templateId, setTemplateId] = useState(suggestedTemplate?.id || "");
   const [clientId, setClientId] = useState("");
   const [brainstormId, setBrainstormId] = useState("");
@@ -1050,9 +1059,9 @@ function CreateSmartDocumentDialog({
   const [validUntil, setValidUntil] = useState("");
   const [tone, setTone] = useState<SmartDocumentInput["tone"]>("consultive");
   const [brandId, setBrandId] = useState("");
-  const [primaryColor, setPrimaryColor] = useState(defaultBranding.primaryColor);
-  const [secondaryColor, setSecondaryColor] = useState(defaultBranding.secondaryColor);
-  const [textColor, setTextColor] = useState(defaultBranding.textColor);
+  const [primaryColor, setPrimaryColor] = useState(suggestedBranding.primaryColor);
+  const [secondaryColor, setSecondaryColor] = useState(suggestedBranding.secondaryColor);
+  const [textColor, setTextColor] = useState(suggestedBranding.textColor);
   const [photoDataUrl, setPhotoDataUrl] = useState("");
   const [draft, setDraft] = useState<SmartDocumentDraft | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -1115,10 +1124,20 @@ function CreateSmartDocumentDialog({
   function selectBrand(nextId: string) {
     setBrandId(nextId);
     const brand = brands.find((item) => item.id === nextId);
-    if (!brand) return;
-    setPrimaryColor(brand.branding.primaryColor);
-    setSecondaryColor(brand.branding.secondaryColor);
-    setTextColor(brand.branding.textColor);
+    const nextBranding = brand?.branding || brandingForTemplate(selectedTemplate);
+    setPrimaryColor(nextBranding.primaryColor);
+    setSecondaryColor(nextBranding.secondaryColor);
+    setTextColor(nextBranding.textColor);
+  }
+
+  function selectTemplate(nextId: string) {
+    setTemplateId(nextId);
+    setDraft(null);
+    if (brandId) return;
+    const nextBranding = brandingForTemplate(availableTemplates.find((item) => item.id === nextId));
+    setPrimaryColor(nextBranding.primaryColor);
+    setSecondaryColor(nextBranding.secondaryColor);
+    setTextColor(nextBranding.textColor);
   }
 
   async function generateDraft() {
@@ -1140,7 +1159,7 @@ function CreateSmartDocumentDialog({
 
   function submit() {
     if (!draft || !selectedTemplate) return;
-    const baseBranding = selectedBrand?.branding || defaultBranding;
+    const baseBranding = selectedBrand?.branding || brandingForTemplate(selectedTemplate);
     onCreate({
       clientId,
       brainstormId: brainstormId || null,
@@ -1189,7 +1208,11 @@ function CreateSmartDocumentDialog({
         <div className="mt-4 grid min-h-0 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-bold uppercase tracking-wider text-cyan-400">Prévia editável</p><h3 className="mt-1 text-lg font-black">{draft.title}</h3></div><span className="rounded-full border border-[var(--border)] px-3 py-1 text-xs font-bold">{draft.template.category}</span></div>
-            <article className="commercial-rich-editor max-h-[60dvh] overflow-y-auto rounded-lg bg-white p-6 text-slate-900 shadow-inner" style={{ borderTop: `7px solid ${primaryColor}` }} dangerouslySetInnerHTML={{ __html: draft.contentHtml }} />
+            <article
+              className={`commercial-rich-editor commercial-draft-preview commercial-layout-${draft.template.layout || "classic"} max-h-[60dvh] overflow-y-auto rounded-lg bg-white p-6 text-slate-900 shadow-inner`}
+              style={{ borderTop: `7px solid ${primaryColor}`, "--document-primary": primaryColor, "--document-secondary": secondaryColor, "--document-text": textColor } as CSSProperties}
+              dangerouslySetInnerHTML={{ __html: draft.contentHtml }}
+            />
           </section>
           <aside className="space-y-3">
             <ReviewBlock label="Comentário da Nora" value={draft.noraComment} accent />
@@ -1203,7 +1226,7 @@ function CreateSmartDocumentDialog({
         <div className="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
           <section className="space-y-4">
             <FormField label={`Modelo (${availableTemplates.length} disponíveis)`}>
-              <select value={templateId} onChange={(event) => { setTemplateId(event.target.value); setDraft(null); }} className="commercial-field">
+              <select value={templateId} onChange={(event) => selectTemplate(event.target.value)} className="commercial-field">
                 {groupedTemplates.map(([category, items]) => <optgroup key={category} label={category}>{items.map((item) => <option key={item.id} value={item.id}>{item.featured ? "★ " : ""}{item.name}</option>)}</optgroup>)}
               </select>
             </FormField>
@@ -1217,6 +1240,10 @@ function CreateSmartDocumentDialog({
             {isResume && <FormField label="Foto do currículo (opcional)"><div className="flex flex-wrap items-center gap-3"><label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-bold hover:bg-[var(--surface-hover)]"><ImagePlus size={15} /> Escolher foto<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={(event) => void choosePhoto(event.target.files?.[0])} /></label>{photoDataUrl && <><img src={photoDataUrl} alt="Prévia da foto" className="h-14 w-14 rounded-full border-2 object-cover" style={{ borderColor: secondaryColor }} /><Button size="sm" variant="ghost" onClick={() => setPhotoDataUrl("")}>Remover</Button></>}</div></FormField>}
             <button type="button" className="text-xs font-bold text-cyan-300" onClick={() => setAdvanced((current) => !current)}>{advanced ? "Ocultar opções" : "Cores e opções adicionais"}</button>
             {advanced && <div className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+              {selectedTemplate?.branding && <button type="button" onClick={() => selectBrand("")} className="flex w-full items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-left text-xs font-bold hover:border-cyan-400" aria-label={`Aplicar paleta ${selectedTemplate.paletteName || selectedTemplate.name}`}>
+                <span><span className="block">Paleta do modelo</span><small className="font-semibold text-[var(--text-secondary)]">{selectedTemplate.paletteName || "Editorial"}</small></span>
+                <span className="flex overflow-hidden rounded-full border border-white/10">{[selectedTemplate.branding.primaryColor, selectedTemplate.branding.secondaryColor, selectedTemplate.branding.textColor].map((color) => <span key={color} className="h-6 w-7" style={{ backgroundColor: color }} />)}</span>
+              </button>}
               <div className="grid gap-3 sm:grid-cols-3"><FormField label="Cor principal"><input type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} className="commercial-field h-11 p-1" /></FormField><FormField label="Destaque"><input type="color" value={secondaryColor} onChange={(event) => setSecondaryColor(event.target.value)} className="commercial-field h-11 p-1" /></FormField><FormField label="Texto"><input type="color" value={textColor} onChange={(event) => setTextColor(event.target.value)} className="commercial-field h-11 p-1" /></FormField></div>
               <FormField label="Marca"><select value={brandId} onChange={(event) => selectBrand(event.target.value)} className="commercial-field"><option value="">Identidade padrão</option>{brands.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></FormField>
               <FormField label="Detalhes adicionais"><textarea value={details} onChange={(event) => setDetails(event.target.value)} className="commercial-field min-h-20 resize-y" placeholder="Preferências, limites ou observações — tudo opcional." /></FormField>
@@ -1747,10 +1774,11 @@ function templateTypeLabel(value: TemplateDocumentType) {
 }
 
 
-function DocumentCover({ label, primaryColor = "#1266f1" }: { label: string; primaryColor?: string }) {
+function DocumentCover({ label, primaryColor = "#1266f1", secondaryColor = "#22d3ee" }: { label: string; primaryColor?: string; secondaryColor?: string }) {
   return (
     <span className="relative grid aspect-[210/297] h-20 shrink-0 place-items-center overflow-hidden rounded border border-slate-300/25 bg-slate-100 text-center text-[5px] font-black uppercase leading-tight text-slate-700 shadow-lg">
-      <span className="absolute left-0 top-0 h-1.5 w-full" style={{ background: primaryColor }} />
+      <span className="absolute left-0 top-0 h-1.5 w-full" style={{ background: `linear-gradient(90deg, ${primaryColor}, ${secondaryColor})` }} />
+      <span className="absolute bottom-1.5 left-1.5 h-7 w-1 rounded-full" style={{ background: secondaryColor }} />
       <span className="px-1">{label}</span>
     </span>
   );
@@ -1803,14 +1831,14 @@ function LibraryView({
   onAction: () => void;
   onItemClick?: (id: string) => void;
 }) {
-  return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="grid min-h-48 grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><button type="button" disabled={!onItemClick} onClick={() => onItemClick?.(item.id)} className="self-start disabled:cursor-default" aria-label={onItemClick ? `Pre-visualizar ${item.title}` : undefined}>{item.template ? <DocumentCover label={templateTypeLabel(item.template.documentType)} /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span>}</button><div className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong><p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)} icon={<Eye size={14} />}>Visualizar em A4</Button>}</div></article>)}</div>{!items.length && <EmptyState title="Nenhum modelo encontrado" description="Ajuste a busca ou salve um modelo personalizado." icon={Icon} className="mt-5 min-h-72" />}</div>;
+  return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="grid min-h-48 grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><button type="button" disabled={!onItemClick} onClick={() => onItemClick?.(item.id)} className="self-start disabled:cursor-default" aria-label={onItemClick ? `Pre-visualizar ${item.title}` : undefined}>{item.template ? <DocumentCover label={templateTypeLabel(item.template.documentType)} primaryColor={item.template.branding?.primaryColor} secondaryColor={item.template.branding?.secondaryColor} /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span>}</button><div className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong>{item.template?.paletteName && <small className="mt-1 block truncate text-[11px] font-bold text-cyan-300">{item.template.paletteName}</small>}<p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)} icon={<Eye size={14} />}>Visualizar em A4</Button>}</div></article>)}</div>{!items.length && <EmptyState title="Nenhum modelo encontrado" description="Ajuste a busca ou salve um modelo personalizado." icon={Icon} className="mt-5 min-h-72" />}</div>;
 }
 
 function TemplatePreviewDialog({ template, busy, onClose, onUse, onEditExample, onRename, onDuplicate, onDelete }: { template: CommercialTemplate; busy: boolean; onClose: () => void; onUse: () => void; onEditExample: () => void; onRename: () => void; onDuplicate: () => void; onDelete?: () => void }) {
   return (
     <Dialog
       title={template.name}
-      subtitle="Prévia A4 com texto, imagem e dados fictícios editáveis. Substitua tudo antes de enviar ou publicar."
+      subtitle="Prévia A4 preenchida com dados fictícios editáveis. Substitua tudo antes de enviar ou publicar."
       onClose={onClose}
       wide
     >
@@ -1845,7 +1873,7 @@ function TemplateA4Preview({ template, compact = false }: { template: Commercial
   );
   const kind = templateTypeLabel(template.documentType);
   const previewBranding = {
-    ...defaultBranding,
+    ...brandingForTemplate(fullTemplate),
     headerHtml: `<strong>${kind}</strong> · ${template.name}`,
     footerHtml: "Norium · exemplo fictício completo · texto e imagens editáveis",
   };
@@ -1865,6 +1893,7 @@ function TemplateA4Preview({ template, compact = false }: { template: Commercial
         title={template.name}
         contentHtml={content}
         branding={previewBranding}
+        layout={fullTemplate.layout}
         compact
       />
     </div>

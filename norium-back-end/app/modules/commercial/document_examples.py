@@ -112,48 +112,171 @@ def commercial_example(name: str, focus: str) -> str:
 
 def resume_example(name: str) -> str:
     key = normalized(name)
-    junior = "primeiro emprego" in key
-    academic = "academico" in key
-    creative = "criativo" in key
-    technical = "tecnologia" in key
-    executive = "executivo" in key
-    transition = "transicao" in key
-    role = "Assistente administrativa" if junior else "Pesquisadora em aprendizagem digital" if academic else "Designer de produto" if creative else "Engenheira de software" if technical else "Diretora de operações" if executive else "Analista de dados e operações" if transition else "Gerente de produto digital"
-    result = section("Marina Costa · " + role,
-        "São Paulo, SP · marina.costa@candidata.example · portfólio: marina.example · disponibilidade para trabalho híbrido. Contato e endereço eletrônico são demonstrativos e não correspondem a uma candidatura real. A imagem apresentada é um retrato ilustrado substituível por uma foto enviada pelo usuário.",
-        ("Estudante de Administração com conclusão prevista para dezembro de 2026. Busco minha primeira oportunidade profissional para apoiar organização de documentos, atendimento e controles administrativos. Minha experiência vem de projetos acadêmicos e voluntariado; não possuo vínculo de emprego anterior." if junior else f"{role} com trajetória em projetos que aproximam necessidades das pessoas, decisões baseadas em dados e execução disciplinada. Atuo na definição do problema, na construção de soluções e no acompanhamento dos resultados, mantendo documentação acessível a áreas técnicas e de negócio. Busco contribuir em uma organização que valorize qualidade, colaboração e aprendizagem contínua."))
-    result += section("Resumo de competências e proposta de valor",
-        ("Durante a formação, desenvolvi organização de planilhas, redação de comunicações, apresentação de resultados e colaboração em pequenos grupos. Tenho facilidade para aprender ferramentas digitais e sigo instruções de conferência para reduzir erros em tarefas repetitivas. Em atividades voluntárias, aprendi a ouvir a demanda antes de indicar uma solução e a encaminhar dúvidas que ultrapassam minha responsabilidade." if junior else "Minha atuação combina análise estruturada, comunicação clara e capacidade de transformar problemas amplos em entregas menores. Facilito reuniões de alinhamento, organizo critérios de priorização e acompanho indicadores sem perder de vista as limitações da amostra. Procuro documentar decisões importantes para que a equipe possa compreender o contexto e continuar o trabalho com autonomia."),
-        ("Em tecnologia, trabalho com Python, TypeScript, SQL, testes automatizados e revisão de código. Participo de decisões de arquitetura considerando manutenção, segurança, observabilidade e custo operacional. A experiência descrita abaixo inclui implementação e acompanhamento da solução em uso, e não apenas protótipos." if technical else "Tenho experiência demonstrativa com planilhas, apresentações, organização de projetos e síntese de informações. Uso esses recursos para tornar o trabalho visível, combinar responsabilidades e reduzir ruídos na passagem de atividades. Os exemplos deste currículo foram escritos para mostrar como relacionar competências a situações concretas, sem depender de adjetivos genéricos."))
-    employer = "Instituto Horizonte · projetos acadêmicos" if junior or academic else "Aurora Labs · empresa fictícia"
-    result += section("Experiência principal · " + employer,
-        ("Março de 2025 a setembro de 2026 — integrante de projetos de extensão e organização estudantil. Apoiei uma equipe de quatro alunos na preparação de oficinas de educação financeira e na organização de inscrições, materiais e listas de presença. A responsabilidade foi voluntária e supervisionada, sem contratação profissional." if junior else f"Janeiro de 2023 a setembro de 2026 — {role}. Atuação em uma operação com 24 profissionais, atendendo três áreas internas. Responsável por estruturar o acompanhamento de solicitações, facilitar decisões com as lideranças e transformar necessidades recorrentes em melhorias documentadas. Trabalho realizado em conjunto com atendimento, tecnologia e gestão."),
-        extra=bullets(
-            "Organizei um diagnóstico com 18 entrevistas e análise de 120 registros, consolidando problemas por frequência e impacto. O material permitiu separar dificuldades de processo de solicitações pontuais e foi usado para definir o primeiro ciclo de melhoria.",
-            "Estruturei um quadro de prioridades com critérios explícitos, responsáveis e datas de revisão. A equipe passou a discutir decisões com base em evidências e dependências, preservando um histórico das escolhas e das alternativas descartadas.",
-            "Preparei um guia de execução com exemplos, perguntas frequentes e critérios de conferência. O guia foi validado por cinco participantes antes da distribuição e recebeu uma revisão após o primeiro mês de uso.",
-        ))
-    result += section("Trajetória anterior e progressão",
-        ("Agosto de 2024 a fevereiro de 2025 — voluntária no Coletivo Ponte, organização fictícia. Organizei a agenda de oito encontros, preparei materiais de apoio e acompanhei a confirmação de presença. Ao final de cada encontro, consolidei dúvidas e encaminhamentos para a coordenação. Essa atividade desenvolveu pontualidade, escrita objetiva e responsabilidade sobre informações de outras pessoas." if junior else "Fevereiro de 2020 a dezembro de 2022 — analista de projetos no Estúdio Horizonte, empresa fictícia. Apoiei seis projetos de melhoria, desde o levantamento inicial até a entrega dos materiais. Preparei atas, organizei o controle de versões e acompanhei pendências com clientes internos. A evolução para maior autonomia ocorreu após assumir a coordenação de um piloto com três participantes de áreas diferentes."),
-        "Um aprendizado importante dessa etapa foi distinguir conclusão de uma tarefa de resultado para o usuário. Passei a registrar como a entrega seria utilizada, quem deveria validá-la e que evidência demonstraria o atendimento da necessidade. Também aprendi a comunicar atrasos cedo, propondo alternativas e explicando as dependências envolvidas.")
-    result += section("Projeto selecionado 1 · Jornada de atendimento Aurora",
-        "Problema: solicitações chegavam por três canais, com informações incompletas e sem acompanhamento uniforme. Minha participação foi mapear o percurso, identificar pontos de perda e preparar um piloto de organização. A equipe criou um formulário de entrada, definiu categorias de demanda e combinou regras para encaminhamento e retorno.",
-        "Método: análise de 120 registros, entrevistas com seis participantes e teste de quatro semanas. A amostra demonstrativa registrou redução do retrabalho de 25 para 17 ocorrências, equivalente a 32%. O resultado foi apresentado com o tamanho da amostra e as limitações de comparação, sem atribuir causalidade a uma única mudança.",
-        "Entregas: mapa da jornada, matriz de responsabilidades, guia de triagem e apresentação executiva. No portfólio fictício, o caso está descrito sem dados pessoais dos participantes. As competências evidenciadas são investigação, síntese, desenho de processo, comunicação e avaliação de resultado.")
-    result += section("Projeto selecionado 2 · Biblioteca de conhecimento",
-        "Contexto: materiais de orientação estavam distribuídos em pastas com nomes diferentes. A proposta foi organizar uma biblioteca com 40 conteúdos, classificação por tema e indicação da última revisão. Defini um padrão de título, resumo, responsável e critério de atualização, além de preparar os primeiros dez exemplos para orientar a equipe.",
-        "Resultado demonstrativo: em um teste com oito participantes, o tempo mediano para localizar uma orientação passou de seis para três minutos. A biblioteca recebeu um roteiro de manutenção mensal para evitar que o ganho inicial se perdesse com o crescimento do conteúdo. Minha principal contribuição foi a organização da informação e a validação da experiência de consulta.")
-    result += section("Formação e desenvolvimento contínuo",
-        ("Bacharelado em Administração — Instituto Horizonte, instituição fictícia; início em 2023 e conclusão prevista em dezembro de 2026. Projetos relevantes: organização administrativa, análise de dados em planilhas e comunicação empresarial. Trabalho final em desenvolvimento sobre padronização de rotinas em pequenos negócios." if junior else "Graduação em Gestão e Tecnologia — Instituto Horizonte, instituição fictícia, 2016–2019. Projeto final: melhoria do fluxo de atendimento em pequenos negócios. Especialização demonstrativa em gestão de projetos e análise de dados, concluída em 2022, com aplicação prática em planejamento, indicadores e avaliação de resultados."),
-        "Cursos complementares fictícios: Análise de Dados Aplicada, 40 horas, 2024; Facilitação de Reuniões, 16 horas, 2025; Comunicação de Resultados, 20 horas, 2026. O estudo contínuo é acompanhado por registros de aplicação: uma planilha revisada, uma reunião facilitada ou uma apresentação aprimorada após feedback.")
-    if academic:
-        result += section("Pesquisa, docência e produção acadêmica demonstrativa",
-            "Linha de pesquisa: aprendizagem digital em equipes de pequenos negócios. Participei da construção de instrumentos de observação e da organização de resultados de oficinas. O material didático foi revisado para apresentar instruções em linguagem simples e atividades com diferentes níveis de dificuldade.",
-            "Produção fictícia: Costa, Marina. Organização do conhecimento em equipes de aprendizagem. Caderno Interno Horizonte, 2025. Esta referência é inventada para demonstrar formatação e não deve ser apresentada como publicação real. Atividades de docência incluem facilitação supervisionada de quatro oficinas de duas horas e preparação de rubricas de avaliação.")
-    result += section("Ferramentas, idiomas e informações complementares",
-        "Ferramentas: planilhas com tabelas dinâmicas e validação de dados; apresentações executivas; quadros de organização de projetos; documentação colaborativa. A proficiência deve ser ajustada à experiência real do candidato. Em uma entrevista, cada ferramenta pode ser relacionada a um projeto descrito neste currículo, evitando listas de tecnologias sem contexto.",
-        "Idiomas no cenário fictício: português nativo e inglês avançado para leitura, escrita e reuniões de trabalho. Participação voluntária em mentoria de organização de estudos, com dois encontros mensais. Disponibilidade para início em novembro de 2026, a combinar conforme a oportunidade.",
-        "Referências profissionais não são expostas neste modelo. Contatos de outras pessoas somente devem ser compartilhados com autorização. Antes de enviar a candidatura, revise o cargo-alvo, substitua todos os dados demonstrativos e mantenha apenas experiências, resultados, formações e links que possam ser comprovados.")
+    profiles = (
+        (("primeiro emprego",), {
+            "name": "João Pedro Martins", "role": "Estudante de Administração | Assistente administrativo júnior",
+            "contact": "Campinas, SP · joao.martins@candidato.example · linkedin.example/joaomartins",
+            "profile": "Estudante no 6º semestre, com experiência prática em projeto de extensão, organização estudantil e atendimento voluntário. Procuro a primeira oportunidade formal para apoiar cadastro, conferência de documentos e rotina de atendimento. Tenho disponibilidade no período da tarde e apresento neste exemplo apenas atividades que consigo explicar e demonstrar.",
+            "current": "Projeto Integrador de Gestão · Instituto Vale · fev–jun/2026",
+            "current_text": "Atuei em uma equipe de cinco estudantes que organizou o fluxo de inscrição de uma feira de profissões com 180 participantes.",
+            "outcomes": ("Conferi 196 cadastros e sinalizei 16 registros incompletos antes da emissão das listas.", "Montei uma planilha de presença com validação de dados e resumo por oficina.", "Preparei respostas para as 12 dúvidas mais frequentes, revisadas pela professora responsável."),
+            "previous": "Voluntário de atendimento · Biblioteca Comunitária Ponte · ago–dez/2025",
+            "previous_text": "Recepcionei visitantes em oito eventos, organizei empréstimos em planilha e encaminhei ocorrências à coordenação. A atividade era voluntária e supervisionada; não representa vínculo de emprego.",
+            "project": "Criei um painel simples para acompanhar inscrições confirmadas, pendências e limite por turma. A equipe passou a identificar lotação sem revisar linha por linha e encerrou o evento com as listas conciliadas.",
+            "education": "Bacharelado em Administração · Instituto Vale · 2023–2026 (previsão). Cursos: Excel aplicado, 24 h; Redação empresarial, 12 h; Atendimento inclusivo, 8 h.",
+            "skills": ("Excel: filtros, PROCV/XLOOKUP, tabelas e validação", "Conferência de cadastros e documentos", "Atendimento presencial e por e-mail", "Organização de agenda e arquivos"),
+            "extras": "Português nativo; inglês intermediário para leitura. Disponibilidade para estágio ou vaga júnior. Referências mediante autorização.",
+        }),
+        (("academico",), {
+            "name": "Rafael Dias", "role": "Pesquisador em aprendizagem digital",
+            "contact": "Recife, PE · rafael.dias@pesquisador.example · orcid.example/0000-0000-demo",
+            "profile": "Mestre em Educação e pesquisador de desenho instrucional para adultos. Investigo como orientações curtas, feedback formativo e acessibilidade influenciam a conclusão de atividades online. Minha prática combina desenho de estudo, organização de dados e devolutiva compreensível para docentes e participantes.",
+            "current": "Pesquisador associado · Instituto Horizonte · 2023–atual",
+            "current_text": "Coordeno um estudo demonstrativo com 84 participantes adultos distribuídos em quatro turmas de formação profissional.",
+            "outcomes": ("Elaborei protocolo de observação, dicionário de dados e plano de anonimização antes da coleta.", "Treinei seis bolsistas e realizei dupla codificação de 20% da amostra para conferir consistência.", "Apresentei resultados preliminares em dois seminários internos e incorporei as limitações ao relatório."),
+            "previous": "Professor substituto · Faculdade Aurora · 2020–2022",
+            "previous_text": "Ministrei Metodologia de Pesquisa e Tecnologias Educacionais para seis turmas. Redesenhei rubricas de avaliação e ofereci alternativas acessíveis para atividades audiovisuais.",
+            "project": "Artigo demonstrativo: DIAS, Rafael. Feedback formativo em trilhas digitais de curta duração. Caderno Horizonte, v. 4, 2025. Referência inteiramente fictícia, incluída apenas para mostrar o padrão de citação.",
+            "education": "Mestrado em Educação · Universidade do Litoral · 2020. Licenciatura em Pedagogia · Faculdade Aurora · 2017. Formação complementar em pesquisa qualitativa e acessibilidade digital.",
+            "skills": ("Desenho de pesquisa e instrumentos", "Análise qualitativa e estatística descritiva", "Docência e desenho instrucional", "Zotero, R básico e planilhas"),
+            "extras": "Português nativo; inglês avançado para leitura e apresentação. Disponível para colaborações em pesquisa aplicada e formação docente.",
+        }),
+        (("criativo",), {
+            "name": "Beatriz Lima", "role": "Designer de marca e direção de arte",
+            "contact": "Belo Horizonte, MG · beatriz@portfolio.example · beatrizlima.example",
+            "profile": "Designer com seis anos de experiência em identidades visuais e campanhas para negócios de alimentação, cultura e serviços. Transformo posicionamento em sistemas visuais que funcionam do avatar ao material impresso. Prefiro apresentar decisões, restrições e resultado de uso, não apenas imagens finais.",
+            "current": "Designer sênior · Estúdio Prisma · 2022–atual",
+            "current_text": "Conduzo projetos de marca da pesquisa inicial à entrega do guia, em parceria com redação, fotografia e atendimento.",
+            "outcomes": ("Redesenhei o sistema de embalagens de seis produtos e reduzi de 18 para 9 os arquivos-base mantidos pela equipe.", "Criei templates editáveis para uma rede de 12 unidades, com regras de contraste e área segura.", "Facilitei quatro oficinas de escolha de rota e registrei os critérios que sustentaram cada aprovação."),
+            "previous": "Designer visual · Coletivo Norte · 2019–2022",
+            "previous_text": "Produzi campanhas digitais, sinalização e materiais editoriais. Assumi o fechamento de arquivos para gráfica e organizei a biblioteca de componentes da equipe.",
+            "project": "Aurora Essencial: sistema autoral fictício com logotipo responsivo, paleta acessível, tipografia e 14 aplicações. O case explica o desafio de leitura em embalagens pequenas e os testes feitos antes da entrega.",
+            "education": "Tecnologia em Design Gráfico · Escola Mineira de Design · 2019. Cursos: Direção de arte, 32 h; Acessibilidade visual, 16 h; Produção gráfica, 20 h.",
+            "skills": ("Identidade visual e sistemas de marca", "Direção de arte e apresentação de conceito", "Figma, Illustrator, InDesign e Photoshop", "Fechamento de arquivos e documentação"),
+            "extras": "Português nativo; inglês intermediário. Portfólio com estudos fictícios e trabalhos autorizados, identificados individualmente.",
+        }),
+        (("tecnologia",), {
+            "name": "Diego Martins", "role": "Engenheiro de software full stack",
+            "contact": "Florianópolis, SC · diego@dev.example · github.example/diegomartins",
+            "profile": "Engenheiro de software com sete anos de experiência em produtos B2B. Trabalho com TypeScript, Python e PostgreSQL, da descoberta de requisitos à operação observável. Tenho experiência em modernização gradual de sistemas, revisão de código e resposta a incidentes sem confundir velocidade com ausência de controle.",
+            "current": "Staff engineer · Nuvem Sul · 2022–atual",
+            "current_text": "Atuo em uma plataforma de atendimento usada por 38 empresas, com foco em arquitetura, confiabilidade e evolução da equipe.",
+            "outcomes": ("Dividi um serviço crítico em filas idempotentes e reduzi falhas de reprocessamento de 4,1% para 0,6% em oito semanas.", "Implementei rastreamento distribuído em 14 fluxos e reduzi o tempo mediano de diagnóstico de 52 para 19 minutos.", "Criei um roteiro de migração com feature flags que permitiu substituir um módulo sem interrupção planejada."),
+            "previous": "Desenvolvedor pleno · Aurora Sistemas · 2019–2022",
+            "previous_text": "Desenvolvi APIs FastAPI, interfaces React e integrações assíncronas. Mantive cobertura dos fluxos de cobrança e participei do plantão com retrospectivas pós-incidente.",
+            "project": "Console de operação: painel com trilha de auditoria, busca por correlação e reexecução controlada. A primeira versão eliminou consultas diretas ao banco em 70% dos chamados analisados na amostra interna.",
+            "education": "Bacharelado em Sistemas de Informação · Universidade do Sul · 2018. Certificações demonstrativas: AWS Developer Associate, 2024; Kubernetes Application Developer, 2025.",
+            "skills": ("TypeScript, React e Node.js", "Python, FastAPI e processamento assíncrono", "PostgreSQL, Redis e mensageria", "Testes, observabilidade, CI/CD e segurança de aplicação"),
+            "extras": "Português nativo; inglês avançado para reuniões técnicas. Participação em rotação de plantão e mentoria de duas pessoas desenvolvedoras.",
+        }),
+        (("executivo",), {
+            "name": "Helena Prado", "role": "Diretora de operações",
+            "contact": "São Paulo, SP · helena.prado@executiva.example · linkedin.example/helenaprado",
+            "profile": "Executiva com 16 anos em operações de serviços e expansão regional. Lidero transformações que conectam experiência do cliente, disciplina financeira e desenvolvimento de lideranças. Meu escopo mais recente reuniu 240 pessoas, cinco unidades e orçamento operacional anual fictício de R$ 48 milhões.",
+            "current": "Diretora de operações · Grupo Aurora · 2020–atual",
+            "current_text": "Responsável por operação, qualidade, planejamento de capacidade e governança de fornecedores em cinco unidades.",
+            "outcomes": ("Redesenhei o modelo de capacidade e reduzi horas extras em 18%, preservando o nível de serviço acompanhado.", "Implantei revisão mensal de 12 indicadores com planos de ação nomeados, prazo e evidência de conclusão.", "Formei uma sucessão para oito posições críticas; seis foram preenchidas internamente no ciclo seguinte."),
+            "previous": "Gerente-geral · Rede Horizonte · 2014–2020",
+            "previous_text": "Conduzi a integração de três unidades adquiridas, uniformizando controles sem eliminar particularidades locais. O programa alcançou 92% dos marcos no prazo aprovado.",
+            "project": "Programa Rota Clara: revisão de ponta a ponta do atendimento, com comitê quinzenal e 34 iniciativas priorizadas. Em nove meses, a taxa demonstrativa de retrabalho caiu de 14% para 8%.",
+            "education": "MBA em Gestão Empresarial · Escola Horizonte · 2015. Graduação em Engenharia de Produção · Universidade Central · 2010. Formação executiva em governança, 2024.",
+            "skills": ("Estratégia operacional e P&L", "Transformação e gestão de portfólio", "Governança, risco e fornecedores", "Desenvolvimento de lideranças e sucessão"),
+            "extras": "Português nativo; inglês fluente; espanhol intermediário. Disponibilidade para viagens previamente planejadas.",
+        }),
+        (("competencias",), {
+            "name": "Paula Mendes", "role": "Coordenadora de operações | melhoria de processos",
+            "contact": "Salvador, BA · paula.mendes@operacoes.example · linkedin.example/paulamendes",
+            "profile": "Profissional de operações com experiência em organizar rotinas, treinar equipes e acompanhar qualidade em ambientes de serviços. Este formato funcional destaca competências demonstradas em diferentes contratos e projetos, sem esconder os respectivos períodos. Busco coordenação de operações com responsabilidade sobre melhoria contínua e desenvolvimento de pessoas.",
+            "current": "Consultora de processos · projetos independentes · 2024–atual",
+            "current_text": "Apoiei três pequenos negócios na documentação de atendimento, repasse de turno e tratamento de pendências.",
+            "outcomes": ("Mapeei 11 rotinas e transformei instruções verbais em checklists testados pelas pessoas responsáveis.", "Facilitei seis encontros de treinamento e registrei dúvidas para revisar o material após o uso.", "Criei um quadro semanal de capacidade e pendências que reduziu tarefas sem responsável de 23 para 6 na amostra."),
+            "previous": "Supervisora de unidade · Rede Caminho · 2018–2023",
+            "previous_text": "Coordenei 18 pessoas em dois turnos, acompanhei escala, qualidade e inventário e conduzi a abertura de uma nova unidade. Entre 2023 e 2024, interrompi a atividade formal para cuidado familiar, período apresentado de forma objetiva neste exemplo.",
+            "project": "Competência em formação: redesenhei a integração de novos atendentes em quatro blocos práticos com avaliação por tarefa. O tempo demonstrativo até atuação supervisionada caiu de dez para sete dias.",
+            "education": "Tecnologia em Processos Gerenciais · Faculdade da Bahia · 2018. Cursos: Lean Office, 20 h; Liderança situacional, 16 h; Indicadores operacionais, 18 h.",
+            "skills": ("Padronização e melhoria de processos", "Treinamento, feedback e integração de equipe", "Planejamento de capacidade e escala", "Excel, checklists digitais e painéis operacionais"),
+            "extras": "Português nativo; inglês básico. Disponibilidade para trabalho presencial ou híbrido em Salvador. Períodos e vínculos devem ser mantidos na adaptação real.",
+        }),
+        (("transicao",), {
+            "name": "Renata Azevedo", "role": "Analista de projetos | transição de operações para produto",
+            "contact": "Curitiba, PR · renata.azevedo@carreira.example · portfolio.example/renata",
+            "profile": "Profissional de operações com oito anos de experiência, em transição planejada para gestão de produto. Trago investigação de problemas, priorização, comunicação entre áreas e acompanhamento de adoção. A mudança não apaga a trajetória anterior: traduz competências comprovadas para um novo contexto.",
+            "current": "Analista sênior de operações · Vértice Serviços · 2021–atual",
+            "current_text": "Lidero melhorias no fluxo de 1.200 solicitações mensais e represento a operação nas decisões de produto interno.",
+            "outcomes": ("Mapeei 22 pontos de falha e priorizei seis melhorias com base em volume, impacto e esforço.", "Escrevi critérios de aceite e conduzi testes com 12 usuários antes da liberação de um novo formulário.", "Acompanhei adoção por oito semanas; o preenchimento correto passou de 71% para 89% na amostra."),
+            "previous": "Supervisora de atendimento · Central Ponte · 2017–2021",
+            "previous_text": "Coordenei 14 pessoas, organizei escala e qualidade e transformei dúvidas recorrentes em materiais de orientação. A equipe elevou a resolução no primeiro contato de 68% para 79% no período analisado.",
+            "project": "Projeto de transição: protótipo de central de ajuda baseado em 160 buscas sem resultado. Produzi mapa do problema, hipóteses, protótipo navegável e plano de medição; não apresento o protótipo como produto implantado.",
+            "education": "Pós-graduação em Gestão de Produtos Digitais · Escola Aberta · 2026. Graduação em Administração · Faculdade Vértice · 2017. Curso de pesquisa com usuários, 24 h.",
+            "skills": ("Descoberta e enquadramento de problemas", "Priorizacão e critérios de aceite", "Facilitação com operação, tecnologia e negócio", "Métricas de adoção, Excel, Miro e Figma básico"),
+            "extras": "Português nativo; inglês intermediário. Busco posição júnior ou associada em produto, com abertura para manter interface próxima com operações.",
+        }),
+        (("linha do tempo",), {
+            "name": "Lucas Ferreira", "role": "Coordenador de logística",
+            "contact": "Jundiaí, SP · lucas.ferreira@logistica.example · linkedin.example/lucasferreira",
+            "profile": "Coordenador de logística com dez anos de progressão entre estoque, planejamento e liderança. Minha experiência concentra-se em operações de produtos não perecíveis, inventário, capacidade de expedição e desenvolvimento de rotinas seguras. Os resultados abaixo usam a mesma base de medição indicada em cada período.",
+            "current": "Coordenador · Distribuidora Horizonte · 2022–atual",
+            "current_text": "Coordeno dois turnos, 36 pessoas e expedição média fictícia de 4.800 volumes por semana.",
+            "outcomes": ("Reorganizei endereçamento por giro e reduzi deslocamento mediano de separação em 21%.", "Implantei conferência por amostragem estratificada e reduzi divergências de 2,4% para 1,1% em seis meses.", "Criei reunião de dez minutos por turno com riscos do dia, capacidade e pendências de equipamento."),
+            "previous": "Planejador logístico · 2019–2022 | Assistente de estoque · 2016–2019",
+            "previous_text": "Como planejador, consolidei previsão de entrada, equipe e janelas de coleta. Como assistente, executei recebimento, contagem cíclica e tratamento de divergências, base prática que orienta minhas decisões de coordenação.",
+            "project": "Pico de novembro: simulei três cenários de volume, antecipei treinamento de temporários e defini limite de corte por transportadora. A operação encerrou o ciclo com 96% das coletas dentro da janela combinada.",
+            "education": "Tecnologia em Logística · Faculdade Regional · 2018. Cursos: Lean aplicado a armazéns, 20 h; Liderança de turno, 16 h; Segurança em movimentação, 12 h.",
+            "skills": ("Planejamento de capacidade e expedição", "Inventário, endereçamento e acuracidade", "Indicadores de produtividade e qualidade", "WMS, Excel e gestão de equipe"),
+            "extras": "Português nativo; espanhol intermediário. CNH B e disponibilidade para turnos planejados; informações incluídas por relação com o cargo demonstrativo.",
+        }),
+        (("foto",), {
+            "name": "Marina Costa", "role": "Gerente de produto digital",
+            "contact": "São Paulo, SP · marina.costa@produto.example · marina.example/cases",
+            "profile": "Gerente de produto com seis anos em ferramentas B2B para equipes de atendimento. Combino pesquisa, priorização e análise de uso para transformar problemas recorrentes em entregas mensuráveis. Trabalho próxima a design e engenharia e deixo explícita a diferença entre hipótese, entrega publicada e resultado observado.",
+            "current": "Product manager · Aurora Labs · 2022–atual",
+            "current_text": "Responsável por onboarding e autosserviço de uma plataforma usada por 7.400 pessoas em contas empresariais fictícias.",
+            "outcomes": ("Conduzi 18 entrevistas e análise de 3.200 eventos para priorizar as três maiores barreiras de ativação.", "Redesenhei o checklist inicial; a conclusão em sete dias passou de 46% para 61% no experimento acompanhado.", "Organizei revisão quinzenal de feedback e reduzi em 35% o estoque de itens sem decisão por mais de 60 dias."),
+            "previous": "Analista de produto · Estúdio Horizonte · 2020–2022",
+            "previous_text": "Apoiei descoberta e entrega em seis projetos internos. Escrevi histórias, critérios de aceite e notas de lançamento e acompanhei adoção com suporte e dados.",
+            "project": "Central de modelos: defini taxonomia, busca e métricas de reutilização. Após o piloto com 24 pessoas, o tempo mediano para iniciar uma tarefa caiu de 11 para 6 minutos, sem alteração na taxa de erro observada.",
+            "education": "Pós-graduação em Produtos Digitais · Escola Horizonte · 2022. Comunicação Social · Universidade Central · 2019. Curso de experimentação, 24 h.",
+            "skills": ("Descoberta, entrevistas e testes de usabilidade", "Estratégia, priorização e roadmap", "Métricas de funil e experimentação", "Figma, SQL básico, Jira e documentação"),
+            "extras": "Português nativo; inglês avançado. Disponibilidade para trabalho híbrido. A foto ilustrada pode ser removida sem perda de informação.",
+        }),
+        (("duas colunas",), {
+            "name": "Camila Torres", "role": "Especialista em sucesso do cliente",
+            "contact": "Rio de Janeiro, RJ · camila.torres@sucesso.example · linkedin.example/camilatorres",
+            "profile": "Especialista em sucesso do cliente com cinco anos em software por assinatura. Atuo em onboarding, adoção e prevenção de risco para carteiras de pequenas e médias empresas. Minha comunicação parte do objetivo do cliente, registra o próximo passo e não promete resultado que dependa de decisões fora do meu alcance.",
+            "current": "Customer success specialist · Ponte Cloud · 2023–atual",
+            "current_text": "Gerencio uma carteira demonstrativa de 64 contas, segmentada por maturidade, uso e momento de contrato.",
+            "outcomes": ("Criei trilhas de 30, 60 e 90 dias e elevei de 58% para 76% a conclusão do onboarding no prazo.", "Implementei sinais de risco com uso, chamados e atraso de marcos; 80% das contas críticas passaram a ter plano registrado.", "Transformei dúvidas recorrentes em 22 artigos e reduzi chamados sobre configuração inicial em 19%."),
+            "previous": "Analista de atendimento · Conecta Mais · 2020–2023",
+            "previous_text": "Atendi clientes por e-mail e reunião, documentei causas de contato e participei de um piloto de atendimento proativo para contas com baixa adoção.",
+            "project": "Programa Primeiros 30 Dias: entrevistas com dez clientes, mapa de marcos e painel de acompanhamento semanal. A taxa de contas sem próximo passo definido caiu de 27% para 9% no trimestre demonstrativo.",
+            "education": "Administração · Faculdade Carioca · 2020. Cursos: Customer Success, 30 h; Comunicação não violenta, 12 h; Análise de dados para negócios, 20 h.",
+            "skills": ("Onboarding e planos de sucesso", "Gestão de carteira e sinais de risco", "Facilitação de reuniões e negociação", "CRM, planilhas e análise de adoção"),
+            "extras": "Português nativo; inglês avançado; espanhol intermediário. Disponibilidade para encontros remotos com clientes em horário comercial.",
+        }),
+    )
+    fallback = {
+        "name": "Gabriel Nunes", "role": "Analista financeiro",
+        "contact": "São Paulo, SP · gabriel.nunes@financeiro.example · linkedin.example/gabrielnunes",
+        "profile": "Analista financeiro com cinco anos em planejamento, fechamento gerencial e automação de controles. Traduzo variações de receita, custo e caixa em explicações objetivas para as áreas responsáveis. Procuro uma posição em FP&A na qual possa combinar modelagem, disciplina de dados e proximidade com a operação.",
+        "current": "Analista financeiro pleno · Grupo Horizonte · 2022–atual",
+        "current_text": "Responsável pelo fechamento gerencial de três unidades e pelo acompanhamento mensal de despesas operacionais.",
+        "outcomes": ("Automatizei a consolidação de 14 planilhas e reduzi o fechamento de cinco para dois dias úteis.", "Criei análise de variação por centro de custo que identificou R$ 180 mil em despesas sem classificação adequada.", "Implementei previsão de caixa de 13 semanas com revisão semanal e registro de premissas."),
+        "previous": "Assistente financeiro · Aurora Comércio · 2020–2022",
+        "previous_text": "Realizei conciliação, controle de contas a pagar e suporte ao orçamento. Organizei o arquivo de comprovantes e padronizei a identificação de divergências para revisão da liderança.",
+        "project": "Modelo de rentabilidade por serviço: reuni custos diretos, horas e premissas comerciais em um painel. A análise mostrou diferença de 11 pontos percentuais entre duas linhas e apoiou a revisão de preços.",
+        "education": "Ciências Contábeis · Universidade Metropolitana · 2020. Curso de Modelagem Financeira, 32 h, 2025; Power BI para Controladoria, 24 h, 2024.",
+        "skills": ("Planejamento e análise financeira", "Fechamento gerencial e conciliação", "Excel avançado, Power Query e Power BI", "Modelagem de caixa e comunicação de variações"),
+        "extras": "Português nativo; inglês intermediário para leitura. Disponibilidade para trabalho híbrido. CRC não informado neste exemplo.",
+    }
+    profile = next((value for words, value in profiles if any(word in key for word in words)), fallback)
+    result = f"<h1>{html.escape(profile['name'])}</h1><p><strong>{html.escape(profile['role'])}</strong></p><p>{html.escape(profile['contact'])}</p>"
+    result += section("Perfil profissional", profile["profile"])
+    result += f"<h2>Experiência</h2><h3>{html.escape(profile['current'])}</h3>{paragraphs(profile['current_text'])}{bullets(*profile['outcomes'])}"
+    result += f"<h3>{html.escape(profile['previous'])}</h3>{paragraphs(profile['previous_text'])}"
+    result += section("Projeto em destaque", profile["project"])
+    result += section("Formação e cursos", profile["education"])
+    result += section("Competências e ferramentas", extra=bullets(*profile["skills"]))
+    result += section("Idiomas e informações adicionais", profile["extras"])
     return result
 
 

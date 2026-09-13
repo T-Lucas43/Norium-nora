@@ -12,6 +12,7 @@ type A4ContentPagesProps = {
   editorRef?: RefObject<HTMLDivElement | null>;
   onChange?: (contentHtml: string) => void;
   paginationKey?: string | number;
+  layout?: string;
 };
 
 type EditablePageContentProps = {
@@ -56,7 +57,9 @@ export default function A4ContentPages({
   editorRef,
   onChange,
   paginationKey,
+  layout = "classic",
 }: A4ContentPagesProps) {
+  const layoutClass = `commercial-layout-${layout.replace(/[^a-z0-9_-]/gi, "").toLocaleLowerCase("pt-BR") || "classic"}`;
   const printableHtml = useMemo(
     () => [
       sanitizeRichHtml(contentHtml),
@@ -147,7 +150,7 @@ export default function A4ContentPages({
       {/* Pagina gabarito, invisivel: mede o espaco real disponivel (mesmas classes/
           largura/padding/font-size da pagina de verdade) para paginar com precisao. */}
       <div aria-hidden className="pointer-events-none invisible absolute inset-x-0 top-0 -z-10">
-        <article className="commercial-document-page commercial-a4-preview-page flex w-full flex-col overflow-hidden bg-white shadow-2xl">
+        <article className={`commercial-document-page commercial-a4-preview-page ${layoutClass} flex w-full flex-col overflow-hidden bg-white shadow-2xl`}>
           <header
             className="commercial-a4-page-header border-b border-slate-200 text-xs text-slate-500"
             dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(branding.headerHtml) }}
@@ -163,7 +166,7 @@ export default function A4ContentPages({
       {pages.map((pageHtml, index) => (
         <section className="commercial-page-shell" key={index}>
           <article
-            className="commercial-document-page commercial-a4-preview-page flex w-full flex-col overflow-hidden bg-white shadow-2xl"
+            className={`commercial-document-page commercial-a4-preview-page ${layoutClass} flex w-full flex-col overflow-hidden bg-white shadow-2xl`}
             style={{
               color: branding.textColor,
               "--document-primary": branding.primaryColor,

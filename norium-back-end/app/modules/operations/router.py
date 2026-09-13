@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
@@ -26,6 +27,7 @@ from app.modules.operations.schemas import (
     OperationTemplateUpdate,
     ReceiptCreate,
 )
+from app.modules.operations.panel import PanelSection, panel_section
 from app.modules.operations.service import (
     create_follow_up,
     create_approval,
@@ -69,6 +71,11 @@ def _redact_sensitive(value: Any) -> Any:
 @router.get("/resumo")
 async def get_overview(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     return await operations_overview(user)
+
+
+@router.get("/painel/{section}")
+async def get_panel_section(section: PanelSection, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return await panel_section(user, section)
 
 
 @router.get("/busca")
@@ -202,7 +209,8 @@ async def test_integration(
 
     events = await read_events(user_id)
     audits = await list_items(user_id, AUDIT_DB)
-    item = next((entry for entry in integration_health(user_id, events, audits) if entry["id"] == integration_id), None)
+    integrations = await asyncio.to_thread(integration_health, user_id, events, audits)
+    item = next((entry for entry in integrations if entry["id"] == integration_id), None)
     if item is None:
         raise HTTPException(status_code=404, detail="Integracao nao encontrada.")
     await record_audit(

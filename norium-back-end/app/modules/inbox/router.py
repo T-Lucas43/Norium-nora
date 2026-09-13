@@ -267,8 +267,16 @@ async def record_event(
     if not resolved_user_id:
         raise ValueError("record_event exige metadata.userId para impedir mistura entre usuarios.")
     event_payload, changed = await persist_event(event, resolved_user_id)
+    # Queue first, before optional notifications. Queue failures never roll back
+    # the user's original message/task; duplicate deliveries are idempotent.
+    from app.modules.automations.events import publish_event
+    await publish_event(event_payload)
     if changed and broadcast:
         await manager.broadcast(resolved_user_id, {"type": "NEW_EVENT", "event": event_payload})
+    if changed:
+        from app.services.system_email import notify_event
+        from app.core.request_context import current_workspace_id
+        await notify_event(event_payload, current_workspace_id())
     return event_payload
 
 

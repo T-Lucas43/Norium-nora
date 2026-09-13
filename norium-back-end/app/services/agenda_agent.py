@@ -200,7 +200,7 @@ class AgendaAgent:
                 hora = inicio[11:16] if "T" in inicio else "dia todo"
                 linhas.append(f"- {hora} - {evento.get('titulo', 'Sem titulo')}")
             response = f"Seus compromissos em {selected_date.strftime('%d/%m/%Y')}:\n" + "\n".join(linhas)
-        return {"session_id": None, "status": "consulta", "response": response, "events": eventos}
+        return {"session_id": None, "status": "consulta", "response": response, "events": eventos, "date": selected_date.isoformat()}
 
     def _edit_existing_event(self, text: str, normalized: str, user_id: str) -> dict[str, Any]:
         service = CalendarService(user_id)

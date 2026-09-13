@@ -33,6 +33,7 @@ var baselineEnvironment = [
   { name: 'ENVIRONMENT', value: 'production' }
   { name: 'PORT', value: '8000' }
   { name: 'NORIUM_DATA_DIR', value: '/app/data' }
+  { name: 'NORIUM_AI_COSTS_SQLITE_VFS', value: 'unix-dotfile' }
   { name: 'NORIUM_SPA_DIR', value: '/app/static' }
   { name: 'BACKEND_PUBLIC_URL', value: publicUrl }
   { name: 'FRONTEND_URL', value: publicUrl }
@@ -153,8 +154,8 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           image: containerImage
           env: concat(baselineEnvironment, secretEnvironment)
           resources: {
-            cpu: json('0.25')
-            memory: '0.5Gi'
+            cpu: json('1.0')
+            memory: '2Gi'
           }
           volumeMounts: [
             {
@@ -191,7 +192,7 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
         }
       ]
       scale: {
-        minReplicas: 0
+        minReplicas: 1
         maxReplicas: 1
       }
       volumes: [

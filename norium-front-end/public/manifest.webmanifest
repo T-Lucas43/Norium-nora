@@ -12,16 +12,10 @@
   "categories": ["productivity", "business", "utilities"],
   "icons": [
     {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/norium-logo.png",
+      "sizes": "745x376",
+      "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "maskable"
     }
   ]
 }

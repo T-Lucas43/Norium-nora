@@ -854,7 +854,7 @@ async def handle_task_agent(user_id: str, message: str) -> dict[str, Any]:
         )
         tasks = rank_tasks_for_planning(data.get("tasks", []))[:5]
         if not tasks:
-            return {"status": "planejamento", "response": "Nao encontrei tarefas ativas para priorizar agora."}
+            return {"status": "planejamento", "response": "Nao encontrei tarefas ativas para priorizar agora.", "tasks": [], "total": 0}
         lines = []
         for index, task in enumerate(tasks, start=1):
             due = task.get("dueDate") or "sem vencimento"
@@ -874,18 +874,18 @@ async def handle_task_agent(user_id: str, message: str) -> dict[str, Any]:
         )
         tasks = data.get("tasks", [])[:8]
         if not tasks:
-            return {"status": "consulta", "response": "Nao encontrei tarefas nesse filtro."}
+            return {"status": "consulta", "response": "Nao encontrei tarefas nesse filtro.", "tasks": [], "total": 0}
         lines = [f"- {task['title']} ({task['priority']}, {task.get('dueDate') or 'sem vencimento'})" for task in tasks]
-        return {"status": "consulta", "response": "Aqui estao suas tarefas filtradas:\n" + "\n".join(lines), "tasks": tasks}
+        return {"status": "consulta", "response": "Aqui estao suas tarefas filtradas:\n" + "\n".join(lines), "tasks": tasks, "total": len(data.get("tasks", []))}
 
     if is_list_intent(normalized):
         status = "concluida" if "concluida" in normalized else "ativas"
         data = list_tasks(user_id, status=status)
         tasks = data.get("tasks", [])[:8]
         if not tasks:
-            return {"status": "consulta", "response": "Não encontrei tarefas nesse filtro."}
+            return {"status": "consulta", "response": "Não encontrei tarefas nesse filtro.", "tasks": [], "total": 0}
         lines = [f"- {task['title']} ({task['priority']}, {task.get('dueDate') or 'sem vencimento'})" for task in tasks]
-        return {"status": "consulta", "response": "Aqui estão suas tarefas:\n" + "\n".join(lines), "tasks": tasks}
+        return {"status": "consulta", "response": "Aqui estão suas tarefas:\n" + "\n".join(lines), "tasks": tasks, "total": len(data.get("tasks", []))}
 
     if is_complete_intent(normalized):
         title = extract_after(message, ["concluir", "finalizar", "marcar como concluida", "marcar como concluída"])

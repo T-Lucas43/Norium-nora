@@ -7,11 +7,15 @@ from app.core.tenant import read_user_db, write_user_db
 
 
 DB_NAME = "comercial"
+STORE_LOCK = asyncio.Lock()
 DEFAULT_STORE: dict[str, list[dict[str, Any]]] = {
     "proposals": [],
     "contracts": [],
     "brandProfiles": [],
     "templates": [],
+    "uploadedDocuments": [],
+    "processingJobs": [],
+    "publicLinks": [],
 }
 
 

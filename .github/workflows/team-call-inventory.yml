@@ -1,0 +1,70 @@
+name: Team call infrastructure inventory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+      - name: Authenticate with the existing deployment identity
+        uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Inspect existing resources without reading secret values
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RESOURCE_GROUP}"
+          test -n "${APP_NAME}"
+          mkdir -p output/team-call-inventory
+          az resource list --resource-group "${RESOURCE_GROUP}" \
+            --query '[].{name:name,type:type,location:location}' --output json \
+            > output/team-call-inventory/resources.json
+          az containerapp show --resource-group "${RESOURCE_GROUP}" --name "${APP_NAME}" \
+            --query '{name:name,revision:properties.latestReadyRevisionName,environment:properties.managedEnvironmentId,image:properties.template.containers[0].image,volumes:properties.template.volumes[].{name:name,storageName:storageName,storageType:storageType},mounts:properties.template.containers[0].volumeMounts,environmentNames:properties.template.containers[0].env[].name,minReplicas:properties.template.scale.minReplicas,maxReplicas:properties.template.scale.maxReplicas,ingress:properties.configuration.ingress.{external:external,transport:transport,targetPort:targetPort,exposedPort:exposedPort,allowInsecure:allowInsecure}}' \
+            --output json > output/team-call-inventory/application.json
+          az vm list --resource-group "${RESOURCE_GROUP}" \
+            --query '[].{name:name,size:hardwareProfile.vmSize,os:storageProfile.osDisk.osType}' \
+            --output json > output/team-call-inventory/virtual-machines.json
+          az container list --resource-group "${RESOURCE_GROUP}" \
+            --query '[].{name:name,ipType:ipAddress.type,ports:ipAddress.ports}' \
+            --output json > output/team-call-inventory/container-groups.json
+          az monitor action-group list --resource-group "${RESOURCE_GROUP}" \
+            --query '[].{name:name,enabled:enabled,emailReceiverCount:length(emailReceivers)}' \
+            --output json > output/team-call-inventory/action-groups.json
+          az storage account list --resource-group "${RESOURCE_GROUP}" \
+            --query '[].{name:name,kind:kind,sku:sku.name}' \
+            --output json > output/team-call-inventory/storage-accounts.json
+          echo 'Read-only infrastructure inventory completed. No resources or access permissions changed.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Inspect persisted databases without storing their contents
+        shell: bash
+        run: |
+          python -m pip install azure-storage-file-share
+          python infra/azure/team_call_storage_audit.py \
+            --resource-group "${RESOURCE_GROUP}" --app-name "${APP_NAME}" \
+            --report output/team-call-inventory/storage-audit.json
+      - name: Preserve infrastructure metadata only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: team-call-infrastructure-inventory
+          path: output/team-call-inventory/*.json
+          if-no-files-found: error
+          retention-days: 5

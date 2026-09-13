@@ -49,6 +49,9 @@ INTENTIONAL_SCHEMA_CHANGES = {
     "components.schemas.ModificarChatPayload.required",
     "components.schemas.ApagarMensagemPayload.properties.user_id",
     "components.schemas.ApagarMensagemPayload.required",
+    # A Central de Documentos amplia o enum historico sem remover os valores
+    # proposal/contract aceitos pelos consumidores existentes.
+    "components.schemas.TemplateCreate.properties.documentType.enum",
 }
 
 
@@ -108,8 +111,15 @@ def _assert_operation_backward_compatible(
         current_operation.pop("security")
     baseline_parameters = baseline_operation.pop("parameters", [])
     current_parameters = current_operation.pop("parameters", [])
+    baseline_responses = baseline_operation.pop("responses", {})
+    current_responses = current_operation.pop("responses", {})
 
     test_case.assertEqual(baseline_operation, current_operation, path)
+    # An optional query parameter adds FastAPI's 422 validation response. Existing
+    # response contracts must stay identical; additional status codes are additive.
+    for status, response in baseline_responses.items():
+        test_case.assertIn(status, current_responses, f"Resposta removida: {path}.{status}")
+        test_case.assertEqual(response, current_responses[status], f"Resposta alterada: {path}.{status}")
 
     current_by_identity = {
         (parameter.get("name"), parameter.get("in")): parameter
@@ -144,6 +154,32 @@ def _assert_operation_backward_compatible(
 
 class OpenApiContractTest(unittest.TestCase):
     """Impede mudanças acidentais em rotas, parâmetros e estruturas JSON."""
+
+    def test_optional_parameter_may_add_validation_response(self) -> None:
+        baseline = {"responses": {"200": {"description": "OK"}}}
+        current = {
+            "responses": {"200": {"description": "OK"}, "422": {"description": "Validation error"}},
+            "parameters": [{"name": "include_team", "in": "query", "required": False}],
+        }
+        _assert_operation_backward_compatible(self, baseline, current, "GET /example")
+
+    def test_changed_existing_response_is_rejected(self) -> None:
+        with self.assertRaises(AssertionError):
+            _assert_operation_backward_compatible(
+                self,
+                {"responses": {"200": {"description": "OK"}}},
+                {"responses": {"200": {"description": "Changed"}}},
+                "GET /example",
+            )
+
+    def test_new_required_parameter_is_rejected(self) -> None:
+        with self.assertRaises(AssertionError):
+            _assert_operation_backward_compatible(
+                self,
+                {"responses": {}},
+                {"responses": {}, "parameters": [{"name": "scope", "in": "query", "required": True}]},
+                "GET /example",
+            )
 
     def test_public_openapi_contract_is_unchanged(self) -> None:
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))

@@ -6,7 +6,7 @@ import uuid
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from app.core.tenant import get_user_dir, read_user_db, write_user_db
 from app.modules.auth.router import read_user_store, sanitize_user
@@ -25,7 +25,6 @@ from app.modules.operations.schemas import FollowUpCreate
 from app.modules.operations.service import (
     actor_payload,
     create_follow_up,
-    integration_health,
     now_iso,
     record_audit,
 )
@@ -50,6 +49,11 @@ from app.modules.workhub.schemas import (
 )
 from app.services.finance_store import create_lancamento, list_finance
 from app.services.task_store import create_task, list_projects, list_tasks
+from app.services.wapi_binding import (
+    migrate_account_binding_credentials,
+    migrate_binding_file,
+    restore_binding_snapshot,
+)
 
 
 LOCAL_TZ = timezone(timedelta(hours=-3))
@@ -132,6 +136,12 @@ async def shared_inbox(user: dict[str, Any]) -> dict[str, Any]:
         read_events(user_id),
         list_records(user_id, SHARED_INBOX_DB),
     )
+    return _shared_inbox_from_events(events, overrides)
+
+
+def _shared_inbox_from_events(
+    events: Sequence[dict[str, Any]], overrides: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
     overrides_by_id = {str(item.get("eventId") or item.get("id")): item for item in overrides}
     items: list[dict[str, Any]] = []
     for event in events:
@@ -223,16 +233,25 @@ async def update_shared_inbox(
 
 
 async def pending_center(user: dict[str, Any]) -> dict[str, Any]:
-    user_id = tenant_id(user)
-    events, approvals, followups, audits, shared = await asyncio.gather(
-        read_events(user_id),
-        list_items(user_id, APPROVAL_DB),
-        list_items(user_id, FOLLOWUP_DB),
-        list_items(user_id, AUDIT_DB),
-        shared_inbox(user),
-    )
-    tasks_payload = list_tasks(user_id, status="todas")
-    finance = list_finance(user_id)
+    from app.modules.workhub.pending import pending_overview
+
+    return await pending_overview(user)
+
+
+def pending_from_records(
+    *,
+    events: Sequence[dict[str, Any]] = (),
+    approvals: Sequence[dict[str, Any]] = (),
+    followups: Sequence[dict[str, Any]] = (),
+    audits: Sequence[dict[str, Any]] = (),
+    overrides: Sequence[dict[str, Any]] = (),
+    tasks_payload: dict[str, Any] | None = None,
+    finance: dict[str, Any] | None = None,
+    integrations: Sequence[dict[str, Any]] = (),
+) -> dict[str, Any]:
+    tasks_payload = tasks_payload or {}
+    finance = finance or {}
+    shared = _shared_inbox_from_events(events, overrides)
     today = datetime.now(LOCAL_TZ).date()
     items: list[dict[str, Any]] = []
 
@@ -349,7 +368,6 @@ async def pending_center(user: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
-    integrations = integration_health(user_id, events, audits)
     for integration in integrations:
         if integration.get("connected"):
             continue
@@ -391,6 +409,10 @@ async def pending_center(user: dict[str, Any]) -> dict[str, Any]:
         "items": ordered,
         "total": len(ordered),
         "counts": kind_counts,
+        "inboxOpen": sum(
+            count for status, count in shared["statusCounts"].items()
+            if status not in {"resolvido", "arquivado"}
+        ),
         "generatedAt": now_iso(),
         "firstRecommended": ordered[0] if ordered else None,
     }
@@ -508,7 +530,7 @@ async def client_360(user: dict[str, Any], client_id: str) -> dict[str, Any] | N
         "tasks": [],
         "finance": [],
         "calendar": [],
-        "attachments": [],
+        "attachments": list(client.get("attachments") or []),
         "followUps": [],
     }
     timeline: list[dict[str, Any]] = []
@@ -821,15 +843,16 @@ async def weekly_productivity(user: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def weekly_summary(user: dict[str, Any]) -> dict[str, Any]:
-    productivity = await weekly_productivity(user)
+async def weekly_summary(user: dict[str, Any], *, include_team: bool = True) -> dict[str, Any]:
+    # The Central header only needs aggregate activity, not every member's metrics.
+    productivity = await weekly_productivity(user) if include_team else {}
     user_id = tenant_id(user)
     events, receipts, audits = await asyncio.gather(
         read_events(user_id),
         list_items(user_id, RECEIPT_DB),
         list_items(user_id, AUDIT_DB),
     )
-    period_start = _parse_datetime(productivity["period"]["start"]) or datetime.now(timezone.utc) - timedelta(days=7)
+    period_start = _parse_datetime(productivity.get("period", {}).get("start")) or datetime.now(timezone.utc) - timedelta(days=7)
     recent_events = [item for item in events if (_parse_datetime(item.get("timestamp")) or datetime.min.replace(tzinfo=timezone.utc)) >= period_start]
     recent_receipts = [item for item in receipts if (_parse_datetime(item.get("timestamp")) or datetime.min.replace(tzinfo=timezone.utc)) >= period_start]
     saved_minutes = 0
@@ -1118,7 +1141,9 @@ async def usage_meter(user: dict[str, Any]) -> dict[str, Any]:
     user_id = tenant_id(user)
     events, receipts = await asyncio.gather(read_events(user_id), list_items(user_id, RECEIPT_DB))
     user_dir = get_user_dir(user_id)
-    storage_bytes = sum(path.stat().st_size for path in user_dir.rglob("*") if path.is_file())
+    storage_bytes = await asyncio.to_thread(
+        lambda: sum(path.stat().st_size for path in user_dir.rglob("*") if path.is_file())
+    )
     try:
         from app.routers.automacoes_router import read_store
 
@@ -1154,6 +1179,9 @@ async def usage_meter(user: dict[str, Any]) -> dict[str, Any]:
 async def create_backup_snapshot(user: dict[str, Any]) -> dict[str, Any]:
     user_id = tenant_id(user)
     source_dir = get_user_dir(user_id)
+    # Nunca replique um binding legado: saneia o arquivo ativo e snapshots
+    # históricos antes que qualquer byte seja copiado para um novo backup.
+    migrate_account_binding_credentials(user_id, include_backups=True)
     backup_id = f"backup_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid.uuid4().hex[:8]}"
     backup_dir = source_dir / "backups" / backup_id
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -1183,11 +1211,18 @@ async def restore_backup_snapshot(user: dict[str, Any], backup_id: str) -> dict[
     backup_dir = user_dir / "backups" / backup_id
     if not backup_dir.exists():
         return None
+    # Um snapshot criado por versão antiga pode conter o formato legado. Migre
+    # a origem primeiro para que nem mesmo a janela de restauração grave texto puro.
+    migrate_binding_file(backup_dir / "wapi_instance_db.json")
     restored: list[str] = []
     for source in backup_dir.glob("*.json"):
         target = user_dir / source.name
-        target.write_bytes(source.read_bytes())
+        if source.name == "wapi_instance_db.json":
+            restore_binding_snapshot(user_id, source)
+        else:
+            target.write_bytes(source.read_bytes())
         restored.append(source.name)
+    migrate_account_binding_credentials(user_id, include_backups=False)
     await record_audit(
         user,
         AuditCreate(

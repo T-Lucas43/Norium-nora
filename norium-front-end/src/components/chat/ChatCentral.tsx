@@ -45,6 +45,7 @@ import { useChatWallpaper } from "./chatWallpaper";
 const BACKEND_URL = apiBaseUrl();
 
 interface ChatCentralProps {
+  active?: boolean;
   userId?: string;
   onConversaAtivaChange?: (conversaId: string | null) => void;
   onOpenNora?: (prompt?: string) => void;
@@ -151,7 +152,7 @@ function normalizarGrupoWhatsApp(value: unknown): ChatConversa | null {
   };
 }
 
-export default function ChatCentral({ userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
+export default function ChatCentral({ active: isActive = true, userId = "primary", onConversaAtivaChange, onOpenNora }: ChatCentralProps) {
   const chatWallpaper = useChatWallpaper(userId);
   const [loadingStatus, setLoadingStatus] = useState<boolean>(true);
   const [canaisStatus, setCanaisStatus] = useState<{ whatsapp?: WhatsAppConnection }>({});
@@ -619,6 +620,7 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
   }, []);
 
   useEffect(() => {
+    if (!isActive) return undefined;
     let active = true;
     let inFlight = false;
 
@@ -673,10 +675,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       active = false;
       window.clearInterval(intervalo);
     };
-  }, [recarregarCatalogosAposSync, userId]);
+  }, [isActive, recarregarCatalogosAposSync, userId]);
 
   useEffect(() => {
-    if (canalSelecionadoLogin !== "whatsapp") return;
+    if (!isActive || canalSelecionadoLogin !== "whatsapp") return;
     let active = true;
     let inFlight = false;
 
@@ -722,9 +724,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       active = false;
       window.clearInterval(interval);
     };
-  }, [canalSelecionadoLogin, recarregarCatalogosAposSync, userId]);
+  }, [isActive, canalSelecionadoLogin, recarregarCatalogosAposSync, userId]);
 
   useEffect(() => {
+    if (!isActive) return undefined;
     const atualizarSeVisivel = () => {
       if (!document.hidden && !canalSelecionadoLogin && canaisStatus.whatsapp?.conectado) {
         void carregarConversasDoBackend(true, false, false);
@@ -736,9 +739,10 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       window.clearInterval(intervaloChats);
       document.removeEventListener("visibilitychange", atualizarSeVisivel);
     };
-  }, [canalSelecionadoLogin, canaisStatus.whatsapp?.conectado, carregarConversasDoBackend]);
+  }, [isActive, canalSelecionadoLogin, canaisStatus.whatsapp?.conectado, carregarConversasDoBackend]);
 
   useEffect(() => {
+    if (!isActive) return undefined;
     const atualizarEmTempoReal = () => {
       if (!whatsappConectadoRef.current) return;
       void carregarConversasDoBackend(true, false, false);
@@ -750,20 +754,20 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
     };
     window.addEventListener("norium:whatsapp-event", atualizarEmTempoReal);
     return () => window.removeEventListener("norium:whatsapp-event", atualizarEmTempoReal);
-  }, [carregarConversasDoBackend, carregarHistorico, carregarStatusDoBackend, conversaSelecionada]);
+  }, [isActive, carregarConversasDoBackend, carregarHistorico, carregarStatusDoBackend, conversaSelecionada]);
 
   useEffect(() => {
-    if (secaoWhatsApp !== "status" || !canaisStatus.whatsapp?.conectado) return;
+    if (!isActive || secaoWhatsApp !== "status" || !canaisStatus.whatsapp?.conectado) return;
     const atualizarStatusVisivel = () => {
       if (!document.hidden) void carregarStatusDoBackend(false, true);
     };
     void atualizarStatusVisivel();
     const interval = window.setInterval(atualizarStatusVisivel, 3_000);
     return () => window.clearInterval(interval);
-  }, [canaisStatus.whatsapp?.conectado, carregarStatusDoBackend, secaoWhatsApp]);
+  }, [isActive, canaisStatus.whatsapp?.conectado, carregarStatusDoBackend, secaoWhatsApp]);
 
   useEffect(() => {
-    if (!canaisStatus.whatsapp?.conectado || typeof whatsappApi.syncStatus !== "function") return;
+    if (!isActive || !canaisStatus.whatsapp?.conectado || typeof whatsappApi.syncStatus !== "function") return;
     let active = true;
     const controller = new AbortController();
     let interval: number | undefined;
@@ -826,16 +830,17 @@ export default function ChatCentral({ userId = "primary", onConversaAtivaChange,
       controller.abort();
       stopPolling();
     };
-  }, [canaisStatus.whatsapp?.conectado, mostrarAviso, recarregarCatalogosAposSync, syncPollVersion]);
+  }, [isActive, canaisStatus.whatsapp?.conectado, mostrarAviso, recarregarCatalogosAposSync, syncPollVersion]);
 
   useEffect(() => {
-    if (!canaisStatus.whatsapp?.conectado) return;
+    if (!isActive || !canaisStatus.whatsapp?.conectado) return;
     if (secaoWhatsApp === "contacts" && !contatosCarregados && !carregandoContatos && !erroContatos) void carregarContatosDoBackend(false);
     if (secaoWhatsApp === "groups" && !gruposCarregados && !carregandoGrupos && !erroGrupos) void carregarGruposDoBackend(false);
     if (secaoWhatsApp === "status" && !statusWhatsAppCarregados && !carregandoStatusWhatsApp && !erroStatusWhatsApp) void carregarStatusDoBackend(false);
     if (secaoWhatsApp === "channels" && !canaisWhatsAppCarregados && !carregandoCanaisWhatsApp && !erroCanaisWhatsApp) void carregarCanaisDoBackend(false);
     if (secaoWhatsApp === "profile" && !perfilWhatsApp) void carregarPerfilWhatsApp();
   }, [
+    isActive,
     canaisStatus.whatsapp?.conectado,
     carregandoContatos,
     carregandoGrupos,

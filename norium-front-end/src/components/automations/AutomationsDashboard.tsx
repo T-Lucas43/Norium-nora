@@ -1,6 +1,16 @@
+import AutomaticEventHistory from "./AutomaticEventHistory";
+import EventTriggerFields, { eventTriggers } from "./EventTriggerFields";
+import IntegrationLogo from "../shared/IntegrationLogo";
+import MessageActionFields, { messageIssues } from "./MessageActionFields";
+import "./automationBuilder.css";
+import AutomationFlowPreview from "./AutomationFlowPreview";
+import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  ArrowUp,
+  ArrowDown,
+  Workflow,
   Activity,
   BarChart3,
   Bell,
@@ -14,12 +24,14 @@ import {
   Filter,
   FlaskConical,
   GitBranch,
+  Globe2,
   History,
   Layers,
   ListChecks,
   Mail,
   MessageSquare,
   MousePointer2,
+  Network,
   Play,
   Plus,
   Rocket,
@@ -73,7 +85,7 @@ const filters: Array<{ key: FilterKey; label: string }> = [
   { key: "recentes", label: "Recentes" },
 ];
 
-const triggers = ["WhatsApp", "Chat da Equipe", "E-mail", "Agenda", "Tarefas", "Gastos", "Relatorios", "Webhook", "API", "Agendamento", "Manual"];
+const triggers = ["Manual", ...eventTriggers.map(item => item.title)];
 const actions = [
   "Enviar WhatsApp",
   "Enviar mensagem no Chat",
@@ -145,6 +157,8 @@ const iconMap: Record<string, LucideIcon> = {
   tags: Tags,
   users: Users,
   webhook: Webhook,
+  globe: Globe2,
+  network: Network,
   zap: Zap,
 };
 
@@ -175,7 +189,7 @@ const fallbackIntegrations: AutomationIntegration[] = [
   "Tarefas",
   "Gastos",
   "Relatórios",
-].map((name) => ({ name, status: "Conectado" }));
+].map((name) => ({ name, status: "Disponível" }));
 
 const componentLibrary: Array<{
   group: string;
@@ -184,12 +198,8 @@ const componentLibrary: Array<{
   {
     group: "Gatilhos",
     items: [
-      { title: "Novo e-mail", description: "Dispara quando chegar mensagem no Gmail.", icon: "mail", kind: "trigger", category: "E-mail" },
-      { title: "Mensagem WhatsApp", description: "Dispara com mensagem recebida no chat.", icon: "message-square", kind: "trigger", category: "WhatsApp" },
-      { title: "Evento na agenda", description: "Dispara com evento criado ou próximo.", icon: "calendar-days", kind: "trigger", category: "Agenda" },
-      { title: "Tarefa atualizada", description: "Dispara quando um card mudar de status.", icon: "check-square", kind: "trigger", category: "Tarefas" },
-      { title: "Novo gasto", description: "Dispara ao registrar lançamento financeiro.", icon: "credit-card", kind: "trigger", category: "Gastos" },
-      { title: "Webhook", description: "Recebe dados de sistemas externos.", icon: "webhook", kind: "trigger", category: "Webhook" },
+      { title: "Manual", description: "Executa quando você clicar em Executar.", icon: "manual", kind: "trigger", category: "Manual" },
+      ...eventTriggers.map(item => ({ ...item, kind: "trigger" as const })),
     ],
   },
   {
@@ -201,7 +211,9 @@ const componentLibrary: Array<{
       { title: "Criar tarefa", description: "Cria card com prioridade, prazo e etiquetas.", icon: "check-square", kind: "action", category: "Tarefas" },
       { title: "Registrar gasto", description: "Cria lançamento financeiro com categoria.", icon: "credit-card", kind: "action", category: "Gastos" },
       { title: "Atualizar relatório", description: "Atualiza indicadores operacionais.", icon: "bar-chart-3", kind: "action", category: "Relatórios" },
-      { title: "Notificar equipe", description: "Envia aviso no chat interno.", icon: "users", kind: "action", category: "Equipe" },
+      { title: "Enviar mensagem no Chat", description: "Escolha toda a equipe, um membro ou uma subequipe.", icon: "users", kind: "action", category: "Equipe" },
+      { title: "Executar tarefa no navegador", description: "Opera um Chromium real com cliques, formulários, arquivos, aprovações e evidências.", icon: "globe", kind: "action", category: "Navegador" },
+      { title: "Executar IA com roteamento", description: "Seleciona provedor por política de custo, capacidade e privacidade.", icon: "network", kind: "nora", category: "IA e Modelos" },
     ],
   },
   {
@@ -237,6 +249,7 @@ const defaultForm: AutomationFormState = {
 };
 
 function IconByName({ name, size = 18, className = "" }: { name: string; size?: number; className?: string }) {
+  if (/mail|message|calendar|users|webhook|clock|manual/.test(name)) return <IntegrationLogo name={name} size={size} className={className} />;
   const Icon = iconMap[name] || Zap;
   return <Icon size={size} className={className} />;
 }
@@ -388,7 +401,7 @@ function normalizeAutomationResponse(value: Partial<AutomationResponse>): Automa
     automations,
     history,
     templates: value.templates?.length ? value.templates : fallbackTemplates,
-    integrations: value.integrations?.length ? value.integrations : fallbackIntegrations,
+    integrations: value.integrations ?? fallbackIntegrations,
     metrics: value.metrics || calculateMetrics(automations, history),
     updatedAt: value.updatedAt || nowIso(),
   };
@@ -459,19 +472,19 @@ async function apiJson<T>(path = "", init?: RequestInit): Promise<T> {
   return automationsApiRequest<T>(path, init);
 }
 
-function StatCard({ title, value, icon: Icon, detail }: { title: string; value: string | number; icon: LucideIcon; detail: string }) {
+function StatCard({ title, value, icon: Icon, detail, tone = "blue" }: { title: string; value: string | number; icon: LucideIcon; detail: string; tone?: "blue" | "green" | "amber" }) {
+  const accent = { blue: "text-blue-300", green: "text-emerald-300", amber: "text-amber-300" }[tone];
   return (
     <motion.article
-      whileHover={{ y: -3, scale: 1.01 }}
-      className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl"
+      className="workspace-metric"
     >
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">{title}</p>
-          <strong className="mt-3 block text-3xl font-black text-[var(--text)]">{value}</strong>
+          <strong className={`mt-3 block text-3xl font-black ${accent}`}>{value}</strong>
           <span className="mt-1 block text-xs font-semibold text-[var(--text-secondary)]">{detail}</span>
         </div>
-        <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/14 text-cyan-200">
+        <span className={`grid h-11 w-11 place-items-center rounded-lg ${accent}`}>
           <Icon size={21} />
         </span>
       </div>
@@ -483,8 +496,10 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (next: bool
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`relative h-7 w-12 rounded-full border transition ${
+      className={`automation-toggle relative h-7 w-12 rounded-full border transition ${
         checked ? "border-emerald-300/40 bg-emerald-400/45" : "border-[var(--border)] bg-[var(--background)]"
       }`}
       aria-label={checked ? "Desativar automacao" : "Ativar automacao"}
@@ -501,11 +516,15 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (next: bool
 export default function AutomationsDashboard({ onOpenNora, userId }: AutomationsDashboardProps) {
   const [data, setData] = useState<AutomationResponse>(emptyResponse);
   const [query, setQuery] = useState("");
+  const [dashboardView, setDashboardView] = useState<"flows" | "templates" | "history" | "preview">("flows");
   const [filter, setFilter] = useState<FilterKey>("todas");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [localMode, setLocalMode] = useState(false);
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [libraryQuery, setLibraryQuery] = useState("");
+  const [inspectorTab, setInspectorTab] = useState<"block" | "settings">("block");
+  const [builderPreview, setBuilderPreview] = useState(false);
   const [builderEditingId, setBuilderEditingId] = useState<string | null>(null);
   const [builderFlow, setBuilderFlow] = useState<AutomationFlow>(() => flowFromFormState(defaultForm));
   const [builderZoom, setBuilderZoom] = useState(0.86);
@@ -514,8 +533,6 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
   const [builderValidation, setBuilderValidation] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [flow, setFlow] = useState<AutomationFlow | null>(null);
-  const [zoom, setZoom] = useState(0.9);
   const [modal, setModal] = useState<"create" | "edit" | null>(null);
   const [form, setForm] = useState<AutomationFormState>(defaultForm);
   const [logAutomation, setLogAutomation] = useState<Automation | null>(null);
@@ -523,9 +540,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     { id: "default", name: "Operacao Norium", category: "operacao" },
   ]);
   const importRef = useRef<HTMLInputElement>(null);
-  const draggingRef = useRef<{ id: string; startX: number; startY: number; originalX: number; originalY: number } | null>(null);
   const builderDraggingRef = useRef<{ id: string; startX: number; startY: number; originalX: number; originalY: number } | null>(null);
-  const saveFlowRef = useRef<() => Promise<void>>(async () => undefined);
 
   const selectedAutomation = useMemo(
     () => data.automations.find((automation) => automation.id === selectedId) || data.automations[0] || null,
@@ -557,54 +572,9 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
 
   useEffect(() => {
     if (!builderOpen) return;
+    setLibraryQuery(""); setInspectorTab("block"); setBuilderPreview(false);
     setBuilderZoom(window.innerWidth <= 720 ? 0.62 : window.innerWidth <= 1200 ? 0.74 : 0.86);
   }, [builderOpen]);
-
-  useEffect(() => {
-    if (!selectedAutomation) {
-      setFlow(null);
-      return;
-    }
-    setFlow(selectedAutomation.flow);
-  }, [selectedAutomation]);
-
-  useEffect(() => {
-    function onMove(event: PointerEvent) {
-      const dragging = draggingRef.current;
-      if (!dragging) return;
-      const nextX = dragging.originalX + (event.clientX - dragging.startX) / zoom;
-      const nextY = dragging.originalY + (event.clientY - dragging.startY) / zoom;
-      setFlow((current) =>
-        current
-          ? {
-              ...current,
-              nodes: current.nodes.map((nodeItem) =>
-                nodeItem.id === dragging.id
-                  ? { ...nodeItem, x: Math.max(20, Math.min(980, nextX)), y: Math.max(30, Math.min(320, nextY)) }
-                  : nodeItem,
-              ),
-            }
-          : current,
-      );
-    }
-
-    function onUp() {
-      const wasDragging = Boolean(draggingRef.current);
-      draggingRef.current = null;
-      if (wasDragging) {
-        window.setTimeout(() => {
-          void saveFlowRef.current();
-        }, 0);
-      }
-    }
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-  }, [zoom, flow, selectedAutomation?.id]);
 
   useEffect(() => {
     function onMove(event: PointerEvent) {
@@ -616,7 +586,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
         ...current,
         nodes: current.nodes.map((nodeItem) =>
           nodeItem.id === dragging.id
-            ? { ...nodeItem, x: Math.max(40, Math.min(1320, nextX)), y: Math.max(40, Math.min(560, nextY)) }
+            ? { ...nodeItem, x: Math.max(40, nextX), y: Math.max(40, nextY) }
             : nodeItem,
         ),
       }));
@@ -690,16 +660,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     setData(normalizeAutomationResponse(response));
   }
 
-  async function saveFlow() {
-    if (!selectedAutomation || !flow) return;
-    try {
-      await updateAutomation(selectedAutomation.id, { flow } as Partial<Automation>);
-      setStatusMessage("Fluxo salvo.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível salvar o fluxo.");
-    }
-  }
-  saveFlowRef.current = saveFlow;
+
 
   async function executeAutomation(automation: Automation) {
     setSaving(true);
@@ -1029,8 +990,22 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     });
   }
 
+  function moveBuilderNode(index: number, direction: number) {
+    const nodes = [...builderFlow.nodes];
+    const target = index + direction;
+    if (index < 1 || target < 1 || target >= nodes.length) return;
+    [nodes[index], nodes[target]] = [nodes[target], nodes[index]];
+    const arranged = nodes.map((node, position) => ({ ...node, x: 40 + position * 290, y: 100 }));
+    setBuilderFlow({ nodes: arranged, connections: connectNodes(arranged) });
+    setForm((current) => ({ ...current, actions: actionsFromFlow({ nodes: arranged, connections: [] }).join(", ") }));
+  }
+
   function validateBuilderFlow() {
-    const issues: string[] = [];
+    const issues: string[] = messageIssues(builderFlow.nodes);
+    const eventConfig = builderFlow.nodes.find(node => node.kind === "trigger")?.config;
+    if (eventConfig?.automatic === "true" && !eventTriggers.some(item => item.value === eventConfig.eventType)) issues.push("Selecione um evento válido para o gatilho automático.");
+    if (eventConfig?.automatic === "true" && form.approvalRequired) issues.push("Desative a execução automática ou a aprovação obrigatória para salvar este fluxo.");
+    if (eventConfig?.automatic === "true" && localMode) issues.push("Conecte ao servidor para ativar gatilhos automáticos. O modo local permite apenas simulações.");
     const triggersInFlow = builderFlow.nodes.filter((nodeItem) => nodeItem.kind === "trigger");
     const actionsInFlow = builderFlow.nodes.filter((nodeItem) => nodeItem.kind !== "trigger");
     if (!form.name.trim()) issues.push("Informe um nome para a automacao.");
@@ -1155,13 +1130,11 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     setStatusMessage(`${response.imported || automations.length} automação(ões) importada(s).`);
   }
 
-  const editorNodes = flow?.nodes || [];
-  const editorConnections = flow?.connections || [];
   const selectedBuilderNode = builderFlow.nodes.find((nodeItem) => nodeItem.id === selectedBuilderNodeId) || builderFlow.nodes[0] || null;
 
   if (builderOpen) {
     return (
-      <main className="automation-builder h-full min-h-[calc(100dvh-78px)] overflow-hidden bg-[var(--background)] text-[var(--text)]">
+      <main className="clean-workspace automation-builder professional-automation-builder h-full min-h-[calc(100dvh-78px)] overflow-hidden bg-[var(--background)] text-[var(--text)]">
         <div className="flex h-full min-h-[calc(100dvh-78px)] flex-col">
           <header className="flex shrink-0 flex-col gap-4 border-b border-[var(--border)] bg-[var(--surface)]/92 p-4 backdrop-blur-2xl xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
@@ -1180,6 +1153,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                   Construtor visual
                 </p>
                 <input
+                  aria-label="Nome da automação"
                   value={form.name}
                   onChange={(event) => setForm({ ...form, name: event.target.value })}
                   className="mt-1 w-full max-w-xl bg-transparent text-2xl font-black outline-none"
@@ -1189,11 +1163,12 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
+              <span className="builder-help inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
                 <MousePointer2 size={14} />
                 Clique para inserir, arraste para posicionar
               </span>
-              <Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
+              <span className="builder-status-label">{form.active ? "Ativa ao salvar" : "Desativada"}</span><Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
+              <Button size="lg" onClick={() => setBuilderPreview((current) => !current)} icon={<Network size={16} />}>{builderPreview ? "Voltar ao editor" : "Pré-visualizar"}</Button>
               <Button size="lg"
                 onClick={validateBuilderFlow}
                 className="border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
@@ -1218,6 +1193,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
             </div>
           </header>
 
+          {error && <div role="alert" className="builder-error">{error}</div>}
           <section className="automation-builder-grid grid min-h-0 flex-1 grid-cols-[290px_minmax(0,1fr)_320px] overflow-hidden max-xl:grid-cols-1">
             <aside className="min-h-0 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)]/82 p-4 backdrop-blur-2xl max-xl:max-h-[320px] max-xl:border-b max-xl:border-r-0">
               <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
@@ -1226,8 +1202,9 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                   Insira gatilhos, ações e blocos da Nora no fluxo.
                 </p>
               </div>
+              <label className="builder-library-search"><Search size={15} /><input aria-label="Buscar componentes" placeholder="Buscar gatilho ou ação" value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} /></label>
               <div className="space-y-4">
-                {componentLibrary.map((group) => (
+                {componentLibrary.map((group) => ({ ...group, items: group.items.filter((item) => `${item.title} ${item.description}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").includes(libraryQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim())) })).filter((group) => group.items.length > 0).map((group) => (
                   <section key={group.group}>
                     <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{group.group}</h2>
                     <div className="space-y-2">
@@ -1253,7 +1230,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
               </div>
             </aside>
 
-            <div className="relative min-h-[620px] min-w-0 overflow-auto bg-[#101316]">
+            <div className={`builder-work-area ${builderPreview ? "is-preview" : ""} relative min-h-[620px] min-w-0 overflow-auto bg-[#101316]`}>
+              {builderPreview ? <AutomationFlowPreview flow={builderFlow} /> : <>
               <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-[#17191c]/92 px-4 py-3 text-white backdrop-blur-xl">
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/8 px-3 py-1.5 text-xs font-bold">
@@ -1271,8 +1249,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </div>
               </div>
 
-              <div className="relative h-[720px] min-w-[1280px] bg-[radial-gradient(circle_at_1px_1px,rgba(148,163,184,.24)_1px,transparent_0)] [background-size:22px_22px]">
-                <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${builderZoom})`, width: 1500, height: 760 }}>
+              <div className="relative builder-canvas-scroll bg-[radial-gradient(circle_at_1px_1px,rgba(148,163,184,.24)_1px,transparent_0)] [background-size:22px_22px]" style={{ width: Math.max(900, ...builderFlow.nodes.map((node) => node.x + 280)) * builderZoom, height: Math.max(600, ...builderFlow.nodes.map((node) => node.y + 230)) * builderZoom }}>
+                <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${builderZoom})`, width: Math.max(900, ...builderFlow.nodes.map((node) => node.x + 280)), height: Math.max(600, ...builderFlow.nodes.map((node) => node.y + 230)) }}>
                   <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
                     {builderFlow.connections.map((connection) => {
                       const source = builderFlow.nodes.find((item) => item.id === connection.source);
@@ -1298,7 +1276,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                     <motion.div
                       key={nodeItem.id}
                       whileHover={{ scale: 1.02 }}
-                      onClick={() => setSelectedBuilderNodeId(nodeItem.id)}
+                      onClick={() => { setSelectedBuilderNodeId(nodeItem.id); setInspectorTab("block"); }}
+                      role="button" tabIndex={0} aria-label={`Selecionar bloco ${nodeItem.title}`} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedBuilderNodeId(nodeItem.id); setInspectorTab("block"); } }}
                       onPointerDown={(event) => {
                         builderDraggingRef.current = {
                           id: nodeItem.id,
@@ -1317,18 +1296,20 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                         <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${nodeItem.kind === "nora" ? "bg-cyan-400/18 text-cyan-100" : nodeItem.kind === "trigger" ? "bg-emerald-400/18 text-emerald-100" : "bg-blue-400/18 text-blue-100"}`}>
                           <IconByName name={nodeItem.icon} size={20} />
                         </span>
-                        <span className="rounded-full border border-white/10 px-2 py-1 text-xs font-bold uppercase text-white/60">{nodeItem.kind}</span>
+                        <span className="rounded-full border border-white/10 px-2 py-1 text-xs font-bold uppercase text-white/60">{nodeItem.kind === "trigger" ? "Gatilho" : nodeItem.kind === "nora" ? "Nora IA" : "Ação"}</span>
                       </div>
                       <h3 className="mt-3 text-sm font-bold">{nodeItem.title}</h3>
+                      {nodeItem.kind === "trigger" && <span className="text-xs text-emerald-300">{nodeItem.config?.automatic === "true" ? "Disparo automático ativado" : "Execução manual"}</span>}
                       <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-white/62">{nodeItem.description}</p>
                     </motion.div>
                   ))}
                 </div>
-              </div>
+              </div></>}
             </div>
 
-            <aside className="min-h-0 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)]/86 p-4 backdrop-blur-2xl max-xl:border-l-0 max-xl:border-t">
-              <section className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
+            <aside className="builder-inspector min-h-0 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)]/86 p-4 backdrop-blur-2xl max-xl:border-l-0 max-xl:border-t">
+              <nav className="builder-inspector-tabs" aria-label="Configurações do editor"><button type="button" aria-pressed={inspectorTab === "block"} onClick={() => setInspectorTab("block")}>Bloco</button><button type="button" aria-pressed={inspectorTab === "settings"} onClick={() => setInspectorTab("settings")}>Automação</button></nav>
+              <section hidden={inspectorTab !== "settings"} className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
                 <h2 className="text-sm font-bold">Configuração do fluxo</h2>
                 <div className="mt-4 space-y-3">
                   <label className="block space-y-1.5">
@@ -1434,7 +1415,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </div>
               </section>
 
-              <section className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
+              <section hidden={inspectorTab !== "block"} className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
                 <h2 className="text-sm font-bold">Bloco selecionado</h2>
                 {selectedBuilderNode ? (
                   <div className="mt-4 space-y-3">
@@ -1444,9 +1425,11 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                       </span>
                       <div className="min-w-0">
                         <strong className="block truncate text-sm font-bold">{selectedBuilderNode.title}</strong>
-                        <span className="text-xs font-semibold text-[var(--text-secondary)]">{selectedBuilderNode.kind}</span>
+                        <span className="text-xs font-semibold text-[var(--text-secondary)]">{selectedBuilderNode.kind === "trigger" ? "Gatilho" : selectedBuilderNode.kind === "nora" ? "Nora IA" : "Ação"}</span>
                       </div>
                     </div>
+                    <MessageActionFields key={selectedBuilderNode.id} node={selectedBuilderNode} onChange={(config) => updateBuilderNode(selectedBuilderNode.id, { config })} />
+                    {selectedBuilderNode.kind === "trigger" && <EventTriggerFields key={`event-${selectedBuilderNode.id}`} node={selectedBuilderNode} onChange={(config) => { const event = eventTriggers.find(item => item.value === config.eventType); updateBuilderNode(selectedBuilderNode.id, { config, ...(event ? { title: event.title, icon: event.icon } : {}) }); }} />}
                     <label className="block space-y-1.5">
                       <span className="text-xs font-bold text-[var(--text-secondary)]">Nome do bloco</span>
                       <input
@@ -1464,15 +1447,59 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                         className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none"
                       />
                     </label>
-                    <label className="block space-y-1.5">
-                      <span className="text-xs font-bold text-[var(--text-secondary)]">Condição opcional</span>
-                      <input
-                        value={selectedBuilderNode.config?.condition || ""}
-                        onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), condition: event.target.value } })}
-                        placeholder="Ex.: prioridade alta ou valor acima de 500"
-                        className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"
-                      />
-                    </label>
+
+                    {selectedBuilderNode.title.toLowerCase().includes("navegador") && (
+                      <>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">URL pública autorizada</span>
+                          <input type="url" value={selectedBuilderNode.config?.targetUrl || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), targetUrl: event.target.value } })} placeholder="https://exemplo.com/pagina" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                        </label>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">Objetivo da tarefa</span>
+                          <textarea value={selectedBuilderNode.config?.objective || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), objective: event.target.value } })} rows={3} placeholder="Pesquisar, preencher o formulário e baixar o comprovante" className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-bold text-[var(--text-secondary)]">Modo</span>
+                            <select value={selectedBuilderNode.config?.executionMode || "automatic"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), executionMode: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"><option value="automatic">Automático</option><option value="assisted">Assistido por etapa</option></select>
+                          </label>
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-bold text-[var(--text-secondary)]">Resultado</span>
+                            <select value={selectedBuilderNode.config?.expectedResult || "structured"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), expectedResult: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"><option value="structured">Dados estruturados</option><option value="summary">Resumo</option><option value="files">Arquivos</option></select>
+                          </label>
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-bold text-[var(--text-secondary)]">Máximo de etapas</span>
+                            <input type="number" min="1" max="40" value={selectedBuilderNode.config?.maxSteps || "20"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), maxSteps: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                          </label>
+                          <label className="block space-y-1.5">
+                            <span className="text-xs font-bold text-[var(--text-secondary)]">Tempo limite (s)</span>
+                            <input type="number" min="30" max="900" value={selectedBuilderNode.config?.timeoutSeconds || "300"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), timeoutSeconds: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                          </label>
+                        </div>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">ID do perfil seguro (opcional)</span>
+                          <input value={selectedBuilderNode.config?.profileId || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), profileId: event.target.value } })} placeholder="browser-profile-..." className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                        </label>
+                      </>
+                    )}
+                    {selectedBuilderNode.title.toLowerCase().includes("roteamento") && selectedBuilderNode.title.toLowerCase().includes("ia") && (
+                      <>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">ID da política (opcional)</span>
+                          <input value={selectedBuilderNode.config?.policyId || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), policyId: event.target.value } })} placeholder="policy_..." className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                        </label>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">Privacidade mínima</span>
+                          <select value={selectedBuilderNode.config?.privacy || "any"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), privacy: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none">
+                            <option value="any">Qualquer provedor permitido</option><option value="private">Privado ou local</option><option value="local">Somente local</option>
+                          </select>
+                        </label>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-bold text-[var(--text-secondary)]">Prompt executado pelo modelo</span>
+                          <textarea value={selectedBuilderNode.config?.prompt || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), prompt: event.target.value } })} rows={3} placeholder="Resuma os dados recebidos e devolva próximos passos." className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
+                        </label>
+                      </>
+                    )}
                     <button
                       onClick={() => removeBuilderNode(selectedBuilderNode.id)}
                       className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-rose-300/30 text-xs font-bold text-rose-200"
@@ -1501,19 +1528,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </section>
               )}
 
-              <section className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <h2 className="text-sm font-bold">Ações do fluxo</h2>
-                <div className="mt-3 space-y-2">
-                  {actionsFromFlow(builderFlow).length ? (
-                    actionsFromFlow(builderFlow).map((action) => (
-                      <span key={action} className="block rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-bold">
-                        {action}
-                      </span>
-                    ))
-                  ) : (
-                    <p className="text-xs font-semibold text-[var(--text-secondary)]">Adicione ações pela biblioteca.</p>
-                  )}
-                </div>
+              <section className="builder-sequence mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
+                <h2 className="text-sm font-bold">Ordem de execução</h2><ol>{builderFlow.nodes.map((node, index) => <li key={node.id}><button type="button" onClick={() => { setSelectedBuilderNodeId(node.id); setInspectorTab("block"); }}><span>{index + 1}</span>{node.title}</button><Button size="sm" iconOnly disabled={node.kind === "trigger" || index < 2} aria-label={`Mover ${node.title} para cima`} onClick={() => moveBuilderNode(index, -1)}><ArrowUp size={14} /></Button><Button size="sm" iconOnly disabled={node.kind === "trigger" || index === builderFlow.nodes.length - 1} aria-label={`Mover ${node.title} para baixo`} onClick={() => moveBuilderNode(index, 1)}><ArrowDown size={14} /></Button></li>)}</ol>
               </section>
             </aside>
           </section>
@@ -1523,72 +1539,40 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1700px] space-y-5 p-5 text-[var(--text)]">
-      <motion.header
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="overflow-hidden rounded-lg border border-[var(--dashboard-panel-border)] bg-[var(--dashboard-hero-bg)] p-6 shadow-[var(--dashboard-panel-shadow)] backdrop-blur-2xl"
-      >
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 items-start gap-4">
-            <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-blue-500/20 text-cyan-100 shadow-lg shadow-blue-950/20">
-              <GitBranch size={26} />
-            </span>
-            <div className="min-w-0">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-1 text-xs font-bold text-[var(--text)]">
-                <Sparkles size={14} />
-                Nora pronta para automatizar
-              </span>
-              <h1 className="mt-4 text-3xl font-black tracking-tight md:text-4xl">Automações Inteligentes</h1>
-              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[var(--text-secondary)]">
-                Automatize processos repetitivos e deixe a Nora executar tarefas por você.
-              </p>
-            </div>
-          </div>
+    <main className="clean-workspace automations-workspace mx-auto w-full max-w-[1700px] space-y-5 p-4 sm:p-6 text-[var(--text)]">
+      <WorkspaceHeader title="Automações" description="Crie fluxos, acompanhe execuções e simplifique a rotina." icon={Workflow}>
+        <Button onClick={onOpenNora}><Sparkles size={16} />Criar com Nora</Button>
+        <Button variant="primary" className="workspace-primary" onClick={() => openCreateModal()}><Plus size={16} />Nova automação</Button>
+      </WorkspaceHeader>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="ghost"
-             
-              onClick={() => openCreateModal()}
-              className="h-12 bg-gradient-to-r from-blue-700 via-sky-600 to-cyan-500 shadow-lg shadow-blue-950/25 hover:scale-[1.02]"
-            >
-              <Plus size={18} />
-              Nova Automação
-            </Button>
-            <Button
-             
-              onClick={onOpenNora}
-              className="h-12"
-            >
-              <Sparkles size={18} />
-              Pedir para Nora
-            </Button>
-          </div>
-        </div>
-      </motion.header>
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="workspace-metrics grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatCard title="Total de automações" value={data.metrics.total} icon={GitBranch} detail="Fluxos configurados" />
-        <StatCard title="Ativas" value={data.metrics.active} icon={Zap} detail="Prontas para executar" />
+        <StatCard title="Ativas" value={data.metrics.active} icon={Zap} detail="Prontas para executar" tone="green" />
         <StatCard title="Execuções hoje" value={data.metrics.runsToday} icon={Activity} detail="Disparos registrados" />
-        <StatCard title="Tempo economizado" value={formatSavedTime(data.metrics.savedMinutes)} icon={Clock3} detail="Estimativa operacional" />
+        <StatCard title="Tempo economizado" value={formatSavedTime(data.metrics.savedMinutes)} icon={Clock3} detail="Estimativa operacional" tone="amber" />
       </section>
 
-      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
+      <nav className="workspace-tabs" aria-label="Áreas de automações">
+        {([
+          ["flows", "Meus fluxos", Workflow], ["templates", "Modelos", Layers], ["history", "Histórico e dados", History], ["preview", "Visão do fluxo", Network],
+        ] as const).map(([view, label, Icon]) => <button key={view} type="button" aria-pressed={dashboardView === view} onClick={() => setDashboardView(view)}><Icon size={16} />{label}{view === "flows" && <span>{data.automations.length}</span>}</button>)}
+      </nav>
+      {dashboardView === "flows" && <section className="workspace-toolbar">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <label className="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4">
             <Search size={18} className="text-[var(--text-secondary)]" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Pesquisar automações..."
+              aria-label="Pesquisar automações" placeholder="Pesquisar automações..."
               className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none"
             />
           </label>
-          <div className="flex gap-2 overflow-x-auto">
+          <div className="workspace-tabs automation-filters">
             {filters.map((item) => (
               <button
                 key={item.key}
+                aria-pressed={filter === item.key}
                 onClick={() => setFilter(item.key)}
                 className={`h-10 shrink-0 rounded-full border px-4 text-xs font-bold transition ${
                   filter === item.key
@@ -1601,7 +1585,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
             ))}
           </div>
         </div>
-      </section>
+      </section>}
 
       <AnimatePresence>
         {(error || statusMessage) && (
@@ -1620,9 +1604,9 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
         )}
       </AnimatePresence>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(440px,0.85fr)]">
-        <div className="min-w-0 space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+      <section className="automation-library grid gap-4">
+        {(dashboardView === "flows" || dashboardView === "templates") && <div className="min-w-0 space-y-4">
+          {dashboardView === "flows" && <div className="automation-cards grid gap-4">
             {loading ? (
               <div className="col-span-full rounded-lg border border-[var(--border)] bg-[var(--surface)]">
                 <LoadingState label="Carregando automações..." />
@@ -1634,9 +1618,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(index * 0.035, 0.24) }}
-                  whileHover={{ y: -3 }}
                   onClick={() => setSelectedId(automation.id)}
-                  className={`min-w-0 rounded-lg border bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl transition ${
+                  className={`workspace-card min-w-0 p-5 transition ${
                     selectedAutomation?.id === automation.id ? "border-cyan-300/55" : "border-[var(--border)]"
                   }`}
                 >
@@ -1647,7 +1630,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                       </span>
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
-                          <h2 className="truncate text-base font-black">{automation.name}</h2>
+                          <h2 className="min-w-0"><button type="button" className="automation-card-select truncate" title={`Ver fluxo ${automation.name}`} onClick={() => { setSelectedId(automation.id); setDashboardView("preview"); }}>{automation.name}</button></h2>
                           {automation.favorite && <Star size={14} className="shrink-0 fill-amber-300 text-amber-300" />}
                         </div>
                         <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{automation.description}</p>
@@ -1664,7 +1647,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                     {automation.aiEnabled && <span className="rounded-full bg-cyan-400/14 px-2.5 py-1 text-xs font-bold text-cyan-100">Nora IA</span>}
                   </div>
 
-                  <div className="mt-4 grid gap-3 text-xs font-semibold text-[var(--text-secondary)] sm:grid-cols-3">
+                  <div className="automation-card-details mt-4 grid grid-cols-3 gap-3 text-xs text-[var(--text-secondary)]">
                     <span>
                       <strong className="block text-[var(--text)]">Ultima execucao</strong>
                       {formatDateTime(automation.lastRunAt)}
@@ -1679,7 +1662,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                     </span>
                   </div>
 
-                  <div className="mt-5 flex flex-wrap gap-2">
+                  <div className="automation-card-actions mt-4 flex flex-wrap"><Button size="sm" onClick={() => { setSelectedId(automation.id); setDashboardView("preview"); }} icon={<Network size={15} />}>Pré-visualizar fluxo</Button>
                     <Button variant="primary"
                      
                       disabled={saving || !automation.active}
@@ -1752,17 +1735,18 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </motion.article>
               ))
             )}
-          </div>
+            {!loading && filteredAutomations.length === 0 && <div className="workspace-empty col-span-full"><Workflow size={30} /><strong>{data.automations.length ? "Nenhum fluxo neste filtro" : "Sua primeira automação começa aqui"}</strong><p>{data.automations.length ? "Ajuste a busca ou mostre todos os fluxos." : "Crie um fluxo ou comece com um modelo pronto."}</p><button type="button" onClick={() => { if (data.automations.length) { setQuery(""); setFilter("todas"); } else { setDashboardView("templates"); } }}>{data.automations.length ? "Limpar filtros" : "Explorar modelos"}</button></div>}
+          </div>}
 
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
+          {dashboardView === "templates" && <section className="workspace-panel p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-black">Templates</h2>
+                <h2 className="text-lg font-black">Comece com um modelo</h2>
                 <p className="text-sm font-semibold text-[var(--text-secondary)]">Fluxos prontos para criar em um clique.</p>
               </div>
               <Rocket size={22} className="text-cyan-200" />
             </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="automation-templates grid gap-3">
               {data.templates.map((template) => (
                 <button
                   key={template.id}
@@ -1780,94 +1764,25 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 </button>
               ))}
             </div>
-          </section>
-        </div>
+          </section>}
+        </div>}
 
-        <div className="min-w-0 space-y-4">
+        {dashboardView === "preview" && <div className="automation-preview min-w-0 space-y-4">
           <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--glass-shadow)] backdrop-blur-2xl">
             <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] p-4">
               <div>
-                <h2 className="text-lg font-black">Editor visual de fluxos</h2>
+                <h2 className="text-lg font-black">Visão do fluxo</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">
-                  {selectedAutomation ? selectedAutomation.name : "Selecione uma automacao"}
+                  <select aria-label="Automação para pré-visualizar" value={selectedAutomation?.id || ""} onChange={(event) => setSelectedId(event.target.value)}>{!data.automations.length && <option value="">Selecione uma automação</option>}{data.automations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
                 </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={() => setZoom((current) => Math.max(0.65, current - 0.1))} className="bg-[var(--background)]">-</Button>
-                <span className="min-w-14 text-center text-xs font-bold">{Math.round(zoom * 100)}%</span>
-                <Button size="sm" onClick={() => setZoom((current) => Math.min(1.25, current + 0.1))} className="bg-[var(--background)]">+</Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" disabled={!selectedAutomation} onClick={() => selectedAutomation && openEditModal(selectedAutomation)}><Settings2 size={14} />Editar fluxo</Button>
               </div>
             </header>
 
-            <div className="relative h-[430px] overflow-hidden bg-[radial-gradient(circle_at_1px_1px,rgba(125,211,252,.24)_1px,transparent_0)] [background-size:22px_22px]">
-              <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${zoom})`, width: 1120, height: 420 }}>
-                <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
-                  {editorConnections.map((connection) => {
-                    const source = editorNodes.find((item) => item.id === connection.source);
-                    const target = editorNodes.find((item) => item.id === connection.target);
-                    if (!source || !target) return null;
-                    const x1 = source.x + 190;
-                    const y1 = source.y + 45;
-                    const x2 = target.x;
-                    const y2 = target.y + 45;
-                    return (
-                      <path
-                        key={`${connection.source}-${connection.target}`}
-                        d={`M ${x1} ${y1} C ${x1 + 70} ${y1}, ${x2 - 70} ${y2}, ${x2} ${y2}`}
-                        fill="none"
-                        stroke="rgba(125,211,252,.72)"
-                        strokeWidth="3"
-                      />
-                    );
-                  })}
-                </svg>
-
-                {editorNodes.map((nodeItem) => (
-                  <motion.div
-                    key={nodeItem.id}
-                    whileHover={{ scale: 1.03 }}
-                    onPointerDown={(event) => {
-                      draggingRef.current = {
-                        id: nodeItem.id,
-                        startX: event.clientX,
-                        startY: event.clientY,
-                        originalX: nodeItem.x,
-                        originalY: nodeItem.y,
-                      };
-                    }}
-                    className={`absolute w-[190px] cursor-grab rounded-lg border p-4 shadow-xl backdrop-blur-xl active:cursor-grabbing ${
-                      nodeItem.kind === "nora"
-                        ? "border-cyan-200/45 bg-cyan-400/18"
-                        : nodeItem.kind === "trigger"
-                          ? "border-blue-200/45 bg-blue-500/18"
-                          : "border-[var(--border)] bg-[var(--surface)]"
-                    }`}
-                    style={{ left: nodeItem.x, top: nodeItem.y }}
-                  >
-                    <span className="mb-3 grid h-10 w-10 place-items-center rounded-lg bg-blue-500/16 text-cyan-100">
-                      <IconByName name={nodeItem.icon} size={19} />
-                    </span>
-                    <h3 className="text-sm font-bold">{nodeItem.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{nodeItem.description}</p>
-                    <span className="mt-3 inline-flex rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
-                      {nodeItem.kind}
-                    </span>
-                  </motion.div>
-                ))}
-              </div>
-
-              <div className="absolute bottom-4 right-4 h-24 w-36 rounded-lg border border-[var(--border)] bg-[var(--surface)]/90 p-2 shadow-xl backdrop-blur-xl">
-                <div className="relative h-full w-full overflow-hidden rounded-md bg-[var(--background)]">
-                  {editorNodes.map((nodeItem) => (
-                    <span
-                      key={nodeItem.id}
-                      className="absolute h-3 w-5 rounded-sm bg-cyan-300"
-                      style={{ left: `${Math.min(88, nodeItem.x / 11)}%`, top: `${Math.min(82, nodeItem.y / 4)}%` }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
+            {!selectedAutomation && <div className="workspace-empty"><Workflow size={28} /><strong>Selecione um fluxo para visualizar</strong><button type="button" onClick={() => setDashboardView("flows")}>Ver meus fluxos</button></div>}
+            {selectedAutomation && <AutomationFlowPreview key={selectedAutomation.id} flow={selectedAutomation.flow} />}
           </section>
 
           <section className="rounded-lg border border-cyan-200/24 bg-[var(--dashboard-nora-bg)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
@@ -1894,14 +1809,14 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
               ))}
             </div>
           </section>
-        </div>
+        </div>}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
+      {dashboardView === "history" && <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
         <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--glass-shadow)] backdrop-blur-2xl">
           <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
             <div>
-              <h2 className="text-lg font-black">Historico de execucoes</h2>
+              <h2 className="text-lg font-black">Histórico de execuções</h2>
               <p className="text-xs font-semibold text-[var(--text-secondary)]">Auditoria das últimas automações disparadas.</p>
             </div>
             <History size={20} className="text-cyan-200" />
@@ -1947,20 +1862,22 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
         </div>
 
         <aside className="space-y-4">
+          {!localMode && <AutomaticEventHistory automations={data.automations} />}
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
-            <h2 className="text-lg font-black">Integracoes Disponiveis</h2>
+            <h2 className="text-lg font-black">Integrações disponíveis</h2>
             <div className="mt-4 space-y-2">
+              {!data.integrations.length && <p className="text-sm text-[var(--text-secondary)]">Nenhuma integração informada para os fluxos.</p>}
               {data.integrations.map((integration) => (
                 <div key={integration.name} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-3">
-                  <span className="font-black">{integration.name}</span>
-                  <span className="rounded-full bg-emerald-400/14 px-2 py-1 text-xs font-bold text-emerald-200">Conectado</span>
+                  <span className="flex items-center gap-3 font-black"><IntegrationLogo name={integration.name} />{integration.name}</span>
+                  <span className="rounded-full bg-[var(--surface-hover)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{integration.status}</span>
                 </div>
               ))}
             </div>
           </section>
 
           <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
-            <h2 className="text-lg font-black">Ferramentas extras</h2>
+            <h2 className="text-lg font-black">Importação e registros</h2>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <Button size="lg" onClick={exportAutomations} className="bg-[var(--background)]">
                 <Download size={15} />
@@ -1970,21 +1887,21 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                 <Upload size={15} />
                 Importar
               </Button>
-              <Button size="lg" onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
+              <Button size="lg" disabled={!selectedAutomation} onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
                 <History size={15} />
                 Logs
               </Button>
-              <Button size="lg" onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
+              <Button size="lg" disabled={!selectedAutomation} onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
                 <GitBranch size={15} />
                 Versoes
               </Button>
-              <Button size="lg" onClick={() => setFilter("ia")} className="bg-[var(--background)]">
+              <Button size="lg" onClick={() => { setFilter("ia"); setDashboardView("flows"); }} className="bg-[var(--background)]">
                 <Filter size={15} />
-                Categorias
+                Fluxos com IA
               </Button>
               <Button size="lg" onClick={onOpenNora} className="bg-[var(--background)]">
                 <Variable size={15} />
-                Variaveis
+                Consultar Nora
               </Button>
             </div>
             <input
@@ -2001,7 +1918,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
             />
           </section>
         </aside>
-      </section>
+      </section>}
 
       <AnimatePresence>
         {modal && (
@@ -2055,7 +1972,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                     <strong className="block text-sm font-bold">Ativa</strong>
                     <span className="text-xs font-semibold text-[var(--text-secondary)]">Permite execução manual e agendada.</span>
                   </span>
-                  <Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
+                  <span className="builder-status-label">{form.active ? "Ativa ao salvar" : "Desativada"}</span><Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
                 </div>
                 <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
                   <span>

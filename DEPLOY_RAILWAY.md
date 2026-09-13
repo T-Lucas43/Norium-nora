@@ -21,6 +21,10 @@ NORIUM_DATA_DIR=/app/data
 BACKEND_PUBLIC_URL=https://norium-hub-production.up.railway.app
 FRONTEND_URL=https://SEU-FRONTEND.up.railway.app
 NORIUM_AUTH_SECRET=troque-por-uma-chave-grande-e-secreta
+WAPI_BASE_URL=https://api.w-api.app
+WAPI_MASTER_API_KEY=<secret-da-conta-wapi>
+WAPI_CREDENTIAL_ENCRYPTION_KEY=<chave-fernet-gerenciada-como-secret>
+WAPI_WEBHOOK_SECRET=<secret-ascii-do-webhook>
 
 GMAIL_CLIENT_ID=seu-client-id.apps.googleusercontent.com
 GMAIL_CLIENT_SECRET=seu-client-secret
@@ -38,6 +42,22 @@ Configure um volume persistente no servico do backend montado em:
 ```
 
 Todos os bancos JSON multi-tenant ficam dentro desse volume.
+
+`WAPI_CREDENTIAL_ENCRYPTION_KEY` é obrigatória e deve ser criada como
+variável protegida do serviço, nunca como variável de build ou valor no
+repositório. Gere uma chave Fernet fora do Railway:
+
+```text
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Em uma migração existente, configure o secret antes do primeiro deploy desta
+versão e, depois que o container saudável estiver usando o volume, execute
+`python scripts/migrate_wapi_credentials.py` no shell do backend. Repita e
+exija zero regravações. Durante rotação, configure temporariamente
+`WAPI_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS` com a chave anterior, promova a
+nova chave, execute o sweep duas vezes e só então remova a anterior. O runbook
+completo está em `docs/architecture/wapi-integration-plan.md`.
 
 ## 2. Frontend
 

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
 from app.core.tenant import read_user_db, write_user_db
+from app.services.studio_templates import build_template_board
 
 
 DB_NAME = "brainstorm"
@@ -160,12 +163,41 @@ async def create_brainstorm_session(
                 }
             ],
             "timer": {"durationMinutes": int(payload.get("durationMinutes") or 15), "endsAt": None, "running": False},
-            "board": {"nodes": [], "edges": [], "viewport": {"x": 0, "y": 0, "zoom": 1}},
+            "board": build_template_board(template, objective),
             "history": [_history_entry("session_created", actor, f"Sessao '{title}' criada")],
         }
         store["sessions"] = [session, *store.get("sessions", [])][:MAX_SESSIONS]
         _write_store(tenant_id, store)
         return _public_session(session, include_board=True)
+
+
+async def import_call_studio(tenant_id: str, source: dict[str, Any], actor: dict[str, Any]) -> str:
+    """Atomically archive a call snapshot; retries never duplicate or overwrite edited boards."""
+    board = deepcopy(source["board"])
+    fingerprint = hashlib.sha256(json.dumps(board, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    session_id = "brain_call_" + hashlib.sha256(f"{source['id']}:{fingerprint}".encode()).hexdigest()[:32]
+    async with brainstorm_lock:
+        store = await asyncio.to_thread(_read_store, tenant_id)
+        if any(item.get("id") == session_id for item in store["sessions"]):
+            return session_id
+        # Saving a meeting must never silently evict an existing library session.
+        if len(store["sessions"]) >= MAX_SESSIONS:
+            raise ValueError("O Estúdio atingiu o limite de sessões. Exclua uma sessão antiga antes de salvar esta reunião.")
+        created_at = now_iso()
+        saved = {
+            "id": session_id, "title": source["title"], "objective": "Quadro salvo a partir do estúdio de uma reunião.",
+            "template": source.get("template", "livre"), "status": "ativo", "board": board,
+            "responsibleId": str(actor["id"]), "responsibleName": str(actor.get("nome") or "Organizador"),
+            "createdBy": str(actor["id"]), "createdByName": str(actor.get("nome") or "Organizador"),
+            "createdAt": created_at, "updatedAt": created_at, "revision": 1,
+            "timer": {"durationMinutes": 15, "running": False, "endsAt": None},
+            "participants": [], "sourceCallStudioId": source["id"],
+            "noraMessages": deepcopy(source.get("noraMessages", [])),
+            "history": [_history_entry("call_studio_saved", actor, "Quadro, comentários, votos e contribuições da Nora salvos da reunião.")],
+        }
+        store["sessions"].insert(0, saved)
+        await asyncio.to_thread(_write_store, tenant_id, store)
+    return session_id
 
 
 async def update_brainstorm_session(

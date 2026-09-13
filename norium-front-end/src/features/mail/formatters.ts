@@ -1,14 +1,61 @@
 // Formatadores e classificadores puros do modulo de e-mail.
 // Extraidos de EmailDashboard.tsx sem alteracao de comportamento.
-import type { GmailMessage, GmailStatus } from "./types";
+import type { GmailLabel, GmailMessage, GmailStatus } from "./types";
+
+export const inboxCategoryMeta = {
+  principal: {
+    label: "Principal",
+    description: "Conversas e mensagens diretas",
+    query: "category:primary",
+    gmailLabels: ["CATEGORY_PERSONAL"],
+  },
+  promocoes: {
+    label: "Promoções",
+    description: "Ofertas, campanhas e novidades",
+    query: "category:promotions",
+    gmailLabels: ["CATEGORY_PROMOTIONS"],
+  },
+  social: {
+    label: "Social",
+    description: "Redes, contatos e comunidades",
+    query: "category:social",
+    gmailLabels: ["CATEGORY_SOCIAL"],
+  },
+  atualizacoes: {
+    label: "Atualizações",
+    description: "Alertas, confirmações e fóruns",
+    query: "{category:updates category:forums}",
+    gmailLabels: ["CATEGORY_UPDATES", "CATEGORY_FORUMS"],
+  },
+} as const;
+
+export type InboxCategoryKey = keyof typeof inboxCategoryMeta;
+
+export function inboxCategoryQuery(category: InboxCategoryKey) {
+  return inboxCategoryMeta[category].query;
+}
+
+export function inboxCategoryUnreadCounts(labels: GmailLabel[]): Record<InboxCategoryKey, number> {
+  const unreadByLabel = new Map(labels.map((label) => [label.id.toUpperCase(), label.messagesUnread || 0]));
+  return (Object.keys(inboxCategoryMeta) as InboxCategoryKey[]).reduce<Record<InboxCategoryKey, number>>(
+    (counts, category) => {
+      counts[category] = inboxCategoryMeta[category].gmailLabels.reduce(
+        (total, label) => total + (unreadByLabel.get(label) || 0),
+        0,
+      );
+      return counts;
+    },
+    { principal: 0, promocoes: 0, social: 0, atualizacoes: 0 },
+  );
+}
 
 export const emailCategoryMeta = {
   principal: { label: "Principal", tone: "bg-sky-400/12 text-sky-100 border-sky-300/25" },
   financeiro: { label: "Financeiro", tone: "bg-emerald-400/12 text-emerald-100 border-emerald-300/25" },
   trabalho: { label: "Trabalho", tone: "bg-blue-400/12 text-blue-100 border-blue-300/25" },
-  promocoes: { label: "Promocoes", tone: "bg-pink-400/12 text-pink-100 border-pink-300/25" },
+  promocoes: { label: "Promoções", tone: "bg-pink-400/12 text-pink-100 border-pink-300/25" },
   social: { label: "Social", tone: "bg-violet-400/12 text-violet-100 border-violet-300/25" },
-  atualizacoes: { label: "Atualizacoes", tone: "bg-cyan-400/12 text-cyan-100 border-cyan-300/25" },
+  atualizacoes: { label: "Atualizações", tone: "bg-cyan-400/12 text-cyan-100 border-cyan-300/25" },
   suporte: { label: "Suporte", tone: "bg-amber-400/12 text-amber-100 border-amber-300/25" },
 } as const;
 

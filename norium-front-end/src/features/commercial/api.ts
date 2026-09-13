@@ -1,3 +1,4 @@
+import type { PdfEdits } from "../../components/commercial/pdfEditorModel";
 import { apiBlobRequest, apiRequest } from "../../core/api/client";
 import type {
   Branding,
@@ -7,10 +8,17 @@ import type {
   CommercialProposal,
   CommercialTemplate,
   Deliverable,
+  PdfCapabilities,
+  PdfOperation,
+  PdfProcessingJob,
   ProposalBriefInput,
   ProposalDraft,
+  SmartDocumentDraft,
+  SmartDocumentInput,
   SignatureLink,
   Signer,
+  TemplateDocumentType,
+  UploadedDocument,
 } from "./types";
 
 export type ProposalCreateInput = {
@@ -30,6 +38,8 @@ export type ProposalCreateInput = {
 };
 
 export type DocumentUpdateInput = {
+  clientId?: string;
+  pdfEdits?: PdfEdits;
   expectedVersion: number;
   title?: string;
   contentHtml?: string;
@@ -44,6 +54,14 @@ export type DocumentUpdateInput = {
 
 export function loadCommercialData(signal?: AbortSignal) {
   return apiRequest<CommercialData>("/api/comercial", { signal });
+}
+
+export function loadProposal(id: string, signal?: AbortSignal) {
+  return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}`, { signal });
+}
+
+export function loadContract(id: string, signal?: AbortSignal) {
+  return apiRequest<{ contract: CommercialContract }>(`/api/comercial/contracts/${id}`, { signal });
 }
 
 export function createProposal(input: ProposalCreateInput) {
@@ -67,10 +85,57 @@ export function deleteProposal(id: string) {
   });
 }
 
+export function duplicateProposal(id: string, title?: string) {
+  return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify({ title: title || null }),
+  });
+}
+
+export function changeProposalStatus(id: string, status: CommercialProposal["status"], note = "", expectedVersion?: number) {
+  return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status, note, expectedVersion }),
+  });
+}
+
 export function updateProposal(id: string, input: DocumentUpdateInput) {
   return apiRequest<{ proposal: CommercialProposal }>(`/api/comercial/proposals/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export function loadCommercialTemplate(id: string, signal?: AbortSignal) {
+  return apiRequest<{ template: CommercialTemplate }>(`/api/comercial/templates/${encodeURIComponent(id)}`, { signal });
+}
+
+export function generateSmartDocumentDraft(input: SmartDocumentInput) {
+  return apiRequest<{ draft: SmartDocumentDraft }>("/api/comercial/document-draft", {
+    method: "POST",
+    body: JSON.stringify(input),
+    timeoutMs: 60_000,
+  });
+}
+
+export function createSmartDocument(input: SmartDocumentInput) {
+  return apiRequest<{ document: CommercialProposal; file: { id: string; previewUrl: string; downloadUrl: string } }>("/api/comercial/documents/generate", {
+    method: "POST",
+    body: JSON.stringify(input),
+    timeoutMs: 60_000,
+  });
+}
+
+export async function uploadProposalPdf(file: File, input: { title?: string; clientId?: string; signed: boolean; note: string; expectedVersion?: number }, proposalId?: string) {
+  const dataBase64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+  return apiRequest<{ proposal: CommercialProposal }>(proposalId ? `/api/comercial/proposals/${proposalId}/files` : "/api/comercial/proposals/import-pdf", {
+    method: "POST", timeoutMs: 90_000,
+    body: JSON.stringify({ ...input, fileName: file.name, mimeType: "application/pdf", dataBase64, direction: input.signed ? "received" : "internal" }),
   });
 }
 
@@ -154,9 +219,9 @@ export function deleteContract(id: string) {
   });
 }
 
-export function exportCommercialDocumentPdf(documentType: "proposal" | "contract", id: string) {
+export function exportCommercialDocumentPdf(documentType: "proposal" | "contract", id: string, includeEdits = true) {
   const collection = documentType === "proposal" ? "proposals" : "contracts";
-  return apiBlobRequest(`/api/comercial/${collection}/${id}/pdf`, { timeoutMs: 60_000 });
+  return apiBlobRequest(`/api/comercial/${collection}/${id}/pdf${includeEdits ? "" : "?include_edits=false"}`, { timeoutMs: 60_000 });
 }
 
 export function decideSuggestion(id: string, suggestionId: string, decision: "accepted" | "rejected") {
@@ -211,10 +276,80 @@ export function createTemplate(
   contentHtml: string,
   shared: boolean,
   category = "geral",
-  documentType: "proposal" | "contract" = "proposal",
+  documentType: TemplateDocumentType = "proposal",
+  options: { active?: boolean; isDefault?: boolean; variables?: string[] } = {},
 ) {
   return apiRequest<{ template: CommercialTemplate }>("/api/comercial/templates", {
     method: "POST",
-    body: JSON.stringify({ name, description, contentHtml, shared, category, documentType }),
+    body: JSON.stringify({ name, description, contentHtml, shared, category, documentType, ...options }),
   });
+}
+
+export function updateTemplate(id: string, input: Partial<Omit<CommercialTemplate, "id" | "createdBy" | "createdAt" | "updatedAt">>) {
+  return apiRequest<{ template: CommercialTemplate }>(`/api/comercial/templates/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function duplicateTemplate(id: string, title?: string) {
+  return apiRequest<{ template: CommercialTemplate }>(`/api/comercial/templates/${id}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify({ title: title || null }),
+  });
+}
+
+export function deleteTemplate(id: string) {
+  return apiRequest<{ ok: boolean; template: CommercialTemplate }>(`/api/comercial/templates/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function importDocument(input: {
+  fileName: string;
+  mimeType: "application/pdf" | "image/png" | "image/jpeg" | "image/webp";
+  dataBase64: string;
+  category: UploadedDocument["category"];
+  direction: UploadedDocument["direction"];
+  confidential: boolean;
+}) {
+  return apiRequest<{ document: UploadedDocument }>("/api/comercial/documents/import", {
+    method: "POST",
+    body: JSON.stringify(input),
+    timeoutMs: 60_000,
+  });
+}
+
+export function updateImportedDocument(id: string, input: Partial<Pick<UploadedDocument, "title" | "category" | "favorite" | "archived" | "confidential">>) {
+  return apiRequest<{ document: UploadedDocument }>(`/api/comercial/documents/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteImportedDocument(id: string) {
+  return apiRequest<{ ok: boolean; document: UploadedDocument }>(`/api/comercial/documents/${id}`, { method: "DELETE" });
+}
+
+export function downloadImportedDocument(id: string) {
+  return apiBlobRequest(`/api/comercial/documents/${id}/download`, { timeoutMs: 60_000 });
+}
+
+export function loadPdfCapabilities() {
+  return apiRequest<PdfCapabilities>("/api/comercial/pdf/capabilities", { timeoutMs: 15_000 });
+}
+
+export function processPdf(operation: PdfOperation, documentIds: string[], options: Record<string, unknown> = {}) {
+  return apiRequest<{ job: PdfProcessingJob }>("/api/comercial/pdf/process", {
+    method: "POST",
+    body: JSON.stringify({ operation, documentIds, options }),
+  });
+}
+
+export function loadPdfJob(id: string) {
+  return apiRequest<{ job: PdfProcessingJob }>(`/api/comercial/pdf/jobs/${id}`);
+}
+
+export function cancelPdfJob(id: string) {
+  return apiRequest<{ job: PdfProcessingJob }>(`/api/comercial/pdf/jobs/${id}/cancel`, { method: "POST" });
 }

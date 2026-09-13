@@ -1,3 +1,4 @@
+import type { PdfEdits } from "../../components/commercial/pdfEditorModel";
 export type ProposalStatus =
   | "draft"
   | "in_review"
@@ -5,7 +6,13 @@ export type ProposalStatus =
   | "approved"
   | "rejected"
   | "sent"
+  | "viewed"
+  | "negotiating"
   | "accepted"
+  | "awaiting_signatures"
+  | "signed"
+  | "declined"
+  | "expired"
   | "contracted"
   | "archived";
 
@@ -19,6 +26,11 @@ export type ContractStatus =
 
 export type SignerRole = "client" | "contractor" | "witness";
 export type DocumentKind = "proposal" | "contract";
+export type TemplateDocumentType = DocumentKind | "term" | "budget" | "report" | "resume" | "letter" | "invoice" | "receipt" | "plan" | "policy" | "hr" | "certificate" | "meeting" | "project" | "marketing" | "academic" | "personal" | "custom";
+export type PdfOperation =
+  | "merge" | "split" | "reorder" | "delete_pages" | "rotate" | "compress"
+  | "images_to_pdf" | "watermark" | "edit_pdf" | "page_numbers" | "add_password" | "remove_password"
+  | "ocr" | "extract_text" | "remove_metadata" | "sanitize" | "compare";
 export type ProposalTone = "consultive" | "executive" | "technical" | "friendly";
 
 export type ClientSnapshot = {
@@ -78,7 +90,7 @@ export type DocumentRevision = {
   version: number;
   title: string;
   contentHtml: string;
-  branding: Branding;
+  branding: Omit<Branding, "logoUrl"> & { logoUrl?: string };
   savedBy: string;
   savedById: string;
   savedAt: string;
@@ -104,7 +116,24 @@ export type NoraAnalysis = {
   analyzedAt: string;
 };
 
+export type ProposalFileVersion = {
+  documentId: string;
+  editedDocumentId?: string;
+  fileName: string;
+  size: number;
+  sha256: string;
+  signed: boolean;
+  uploadedAt: string;
+  uploadedBy: string;
+  note: string;
+};
+
 export type CommercialProposal = {
+  sourceDocumentId?: string;
+  signedDocumentId?: string | null;
+  signedAt?: string | null;
+  fileVersions?: ProposalFileVersion[];
+  pdfEdits?: PdfEdits;
   id: string;
   clientId: string;
   client: ClientSnapshot;
@@ -133,6 +162,7 @@ export type CommercialProposal = {
   suggestions: NoraSuggestion[];
   version: number;
   revisions: DocumentRevision[];
+  events?: DocumentEvent[];
   createdBy: string;
   createdByName: string;
   createdAt: string;
@@ -152,6 +182,7 @@ export type AuditTrailEntry = {
 };
 
 export type CommercialContract = {
+  pdfEdits?: PdfEdits;
   id: string;
   proposalId: string;
   clientId: string;
@@ -169,6 +200,7 @@ export type CommercialContract = {
   version: number;
   revisions: DocumentRevision[];
   auditTrail: AuditTrailEntry[];
+  events?: DocumentEvent[];
   tasksCreated: Array<{ id: string; title: string; dueDate: string | null }>;
   calendarEventsCreated: Array<{ id: string; title: string; start?: string; error?: string }>;
   createdBy: string;
@@ -195,30 +227,136 @@ export type CommercialTemplate = {
   contentHtml: string;
   shared: boolean;
   category: string;
-  documentType: DocumentKind;
+  documentType: TemplateDocumentType;
+  active: boolean;
+  isDefault: boolean;
+  variables: string[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  featured?: boolean;
+  requiresClient?: boolean;
+  legalReview?: boolean;
+  keywords?: string[];
+  generationGuide?: string;
+  generationContentHtml?: string;
+  demoContent?: boolean;
+  contentDeferred?: boolean;
+  sections?: string[];
+  layout?: string;
 };
 
 export type CommercialSummary = {
+  documentCount: number;
   proposalCount: number;
   draftCount: number;
   reviewCount: number;
   approvedCount: number;
+  negotiationCount: number;
   contractCount: number;
+  awaitingSignatureCount: number;
   signedCount: number;
+  expiringCount: number;
+  archivedCount: number;
+  fileCount: number;
   planMode: "solo" | "enterprise";
   requiresApproval: boolean;
   maxBrandProfiles: number | null;
 };
 
+export type CommercialProposalSummary = Pick<
+  CommercialProposal,
+  "id" | "client" | "brainstormId" | "contractId" | "title" | "amount" | "currency" | "status" | "updatedAt"
+> & {
+  documentType: "proposal";
+  templateDocumentType?: TemplateDocumentType;
+  documentTypeLabel?: string;
+  primaryColor: string;
+  favorite: boolean;
+  category: "proposals" | "documents";
+  validUntil?: string | null;
+};
+
+export type CommercialContractSummary = Pick<
+  CommercialContract,
+  "id" | "proposalId" | "client" | "brainstormId" | "title" | "amount" | "currency" | "status" | "updatedAt"
+> & {
+  documentType: "contract";
+  templateDocumentType?: "contract";
+  documentTypeLabel?: string;
+  primaryColor: string;
+  favorite: boolean;
+  category: "contracts";
+};
+
+export type CommercialDocumentSummary = CommercialProposalSummary | CommercialContractSummary;
+
 export type CommercialData = {
-  proposals: CommercialProposal[];
-  contracts: CommercialContract[];
+  proposals: CommercialProposalSummary[];
+  contracts: CommercialContractSummary[];
   brandProfiles: BrandProfile[];
   templates: CommercialTemplate[];
+  uploadedDocuments: UploadedDocument[];
+  processingJobs: PdfProcessingJob[];
   summary: CommercialSummary;
+};
+
+export type DocumentEvent = {
+  id: string;
+  action: string;
+  label: string;
+  note?: string;
+  metadata?: Record<string, unknown>;
+  actorId: string;
+  actorName: string;
+  timestamp: string;
+};
+
+export type UploadedDocument = {
+  id: string;
+  documentType: "pdf" | "image" | "text";
+  title: string;
+  originalFileName: string;
+  mimeType: string;
+  size: number;
+  sha256: string;
+  category: "pdf" | "sent" | "received" | "draft" | "archived";
+  direction: "internal" | "sent" | "received";
+  status: "ready" | "processing";
+  favorite: boolean;
+  archived: boolean;
+  confidential: boolean;
+  scanStatus: string;
+  securityReviewRequired: boolean;
+  events: DocumentEvent[];
+  createdBy: string;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PdfProcessingJob = {
+  id: string;
+  operation: PdfOperation;
+  label: string;
+  documentIds: string[];
+  options: Record<string, unknown>;
+  status: "queued" | "processing" | "completed" | "failed" | "cancelled";
+  progress: number;
+  attempts: number;
+  maxAttempts: number;
+  cancelRequested: boolean;
+  outputDocumentIds: string[];
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PdfCapabilities = {
+  operations: Array<{ id: PdfOperation; label: string; engine: "native" | "stirling" }>;
+  stirling: { configured: boolean; available: boolean; operations: PdfOperation[]; message: string };
+  maxUploadBytes: number;
+  asynchronous: boolean;
 };
 
 export type ClientOption = {
@@ -270,6 +408,43 @@ export type ProposalDraft = {
   briefing: ProposalBriefInput;
 };
 
+export type SmartDocumentInput = {
+  templateId: string;
+  clientId: string;
+  title: string;
+  brief: string;
+  details: string;
+  amount: number;
+  currency: string;
+  validUntil: string | null;
+  tone: ProposalTone;
+  photoDataUrl: string;
+  primaryColor: string;
+  secondaryColor: string;
+  textColor: string;
+};
+
+export type SmartDocumentDraft = {
+  title: string;
+  summary: string;
+  contentHtml: string;
+  noraComment: string;
+  client: ClientSnapshot;
+  amount: number;
+  currency: string;
+  validUntil: string | null;
+  template: {
+    id: string;
+    name: string;
+    documentType: TemplateDocumentType;
+    category: string;
+    layout: string;
+    requiresClient: boolean;
+    legalReview: boolean;
+  };
+  briefing: SmartDocumentInput;
+};
+
 export type CommercialDocument = CommercialProposal | CommercialContract;
 
 export const defaultBranding: Branding = {
@@ -285,4 +460,23 @@ export const defaultBranding: Branding = {
 
 export function isProposal(document: CommercialDocument): document is CommercialProposal {
   return "approval" in document;
+}
+
+export function commercialDocumentSummary(document: CommercialDocument): CommercialDocumentSummary {
+  const base = {
+    id: document.id,
+    client: document.client,
+    brainstormId: document.brainstormId,
+    title: document.title,
+    amount: document.amount,
+    currency: document.currency,
+    updatedAt: document.updatedAt,
+    primaryColor: document.branding?.primaryColor || defaultBranding.primaryColor,
+    favorite: Boolean(document.metadata?.favorite),
+  };
+  const templateDocumentType = String(document.metadata?.documentType || (isProposal(document) ? "proposal" : "contract")) as TemplateDocumentType;
+  const labels: Partial<Record<TemplateDocumentType, string>> = { proposal: "Proposta", contract: "Contrato", resume: "Currículo e carreira", report: "Relatório", letter: "Carta e comunicado", budget: "Orçamento", meeting: "Reunião", plan: "Plano", hr: "Pessoas e RH", policy: "Política e norma", term: "Termo e declaração", invoice: "Fatura", receipt: "Recibo", certificate: "Certificado", project: "Projeto", marketing: "Marketing", academic: "Educação e pesquisa", personal: "Pessoal", custom: "Documento" };
+  return isProposal(document)
+    ? { ...base, documentType: "proposal", templateDocumentType, documentTypeLabel: labels[templateDocumentType] || "Documento", contractId: document.contractId, status: document.status, category: templateDocumentType === "proposal" ? "proposals" : "documents", validUntil: document.validUntil }
+    : { ...base, documentType: "contract", templateDocumentType: "contract", documentTypeLabel: "Contrato", proposalId: document.proposalId, status: document.status, category: "contracts" };
 }

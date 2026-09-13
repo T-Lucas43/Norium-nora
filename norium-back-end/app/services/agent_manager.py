@@ -91,7 +91,7 @@ class AgentManager:
             f"Historico real:\n{history}\n\n"
             "Responda apenas com o texto do rascunho que poderia ser enviado ao cliente."
         )
-        draft = await self.nora_service.perguntar_nora([{"role": "user", "content": prompt}])
+        draft = await self.nora_service.perguntar_nora([{"role": "user", "content": prompt}], user_id=user_id)
         return {
             "agent_id": "mensagens",
             "status": "rascunho_gerado",

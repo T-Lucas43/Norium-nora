@@ -9,6 +9,10 @@ export type PermissionKey =
   | "automacoes"
   | "relatorios"
   | "propostas"
+  | "navegador"
+  | "conhecimento"
+  | "marketplace"
+  | "modelos"
   | "nora"
   | "perfil"
   | "equipe"
@@ -32,6 +36,7 @@ export interface NoriumUser {
   email: string;
   fotoUrl?: string;
   jobTitle?: string;
+  jobRoleId?: string | null;
   online?: boolean;
   role: UserRole;
   plan: UserPlan;
@@ -82,7 +87,11 @@ export const permissionLabels: Record<PermissionKey, string> = {
   gastos: "Financeiro",
   automacoes: "Automações",
   relatorios: "Relatorios",
-  propostas: "Propostas e contratos",
+  propostas: "Documentos comerciais",
+  navegador: "Agente Navegador",
+  conhecimento: "Conhecimento empresarial",
+  marketplace: "Marketplace interno",
+  modelos: "IA e Modelos",
   nora: "Nora",
   perfil: "Perfil",
   equipe: "Modo equipe",
@@ -94,7 +103,7 @@ export const permissionLabels: Record<PermissionKey, string> = {
 };
 
 export const permissionGroups: Array<{ title: string; keys: PermissionKey[] }> = [
-  { title: "Telas", keys: ["dashboard", "central", "emails", "agenda", "chat", "tarefas", "gastos", "automacoes", "relatorios", "propostas", "perfil"] },
+  { title: "Telas", keys: ["dashboard", "central", "emails", "agenda", "chat", "tarefas", "gastos", "automacoes", "relatorios", "propostas", "navegador", "conhecimento", "marketplace", "modelos", "perfil"] },
   { title: "IA e equipe", keys: ["nora", "equipe", "admin"] },
   { title: "Integracoes", keys: ["integracao_gmail", "integracao_whatsapp", "integracao_agenda", "integracao_financeiro"] },
 ];
@@ -110,6 +119,10 @@ export const defaultMemberPermissions: PermissionMap = {
   automacoes: false,
   relatorios: false,
   propostas: false,
+  navegador: false,
+  conhecimento: false,
+  marketplace: false,
+  modelos: false,
   nora: false,
   perfil: true,
   equipe: false,
@@ -131,6 +144,10 @@ export const ownerPermissions: PermissionMap = {
   automacoes: true,
   relatorios: true,
   propostas: true,
+  navegador: true,
+  conhecimento: true,
+  marketplace: true,
+  modelos: true,
   nora: true,
   perfil: true,
   equipe: true,

@@ -1,0 +1,64 @@
+/* Solid application surfaces. Color stays on actions, status and data. */
+.browser-agent .intelligence-field:focus {border-color:var(--text-secondary);box-shadow:0 0 0 2px color-mix(in srgb,var(--text-secondary) 15%,transparent);}
+:root:not([data-norium-custom-theme="true"]) {
+  --app-background:#f5f6f8;--app-overlay:none;--background:#f5f6f8;--surface:#fff;--surface-hover:#e9ebef;
+  --border:#d5d8df;--text:#1d2027;--text-primary:#1d2027;--text-secondary:#5e6470;
+  --primary:#2563eb;--on-primary:#fff;--dashboard-hero-bg:var(--surface);--dashboard-nora-bg:var(--surface);
+  --glass-shadow:none;--glass-inner:none;--motion-stream:none;--dashboard-panel-shadow:none;
+}
+:root.dark:not([data-norium-custom-theme="true"]) {
+  --app-background:#0c0d10;--app-overlay:none;--background:#0c0d10;--surface:#16171c;--surface-hover:#25272f;
+  --border:#30323c;--text:#f3f4f6;--text-primary:#f3f4f6;--text-secondary:#a6a9b4;
+  --primary:#2563eb;--on-primary:#fff;
+}
+.norium-modern-shell {
+  --primary:#2563eb;--on-primary:#fff;
+  --dashboard-hero-bg:var(--surface);--dashboard-nora-bg:var(--surface);
+  --dashboard-panel-shadow:none;--dashboard-panel-border:var(--border);
+}
+.dark .norium-modern-shell {--primary:#2563eb;--on-primary:#fff;}
+.dark header {background:var(--surface)!important;border-color:var(--border)!important;box-shadow:none;}
+.dark [class*="bg-[var(--background)]"] {background-color:var(--background);}
+.dark [class*="bg-[var(--surface)]"] {box-shadow:none;}
+.norium-modern-shell :is(input,select,textarea) {color-scheme:light;}
+.dark .norium-modern-shell :is(input,select,textarea) {color-scheme:dark;}
+.norium-modern-shell button[class*="bg-[var(--primary)]"] {color:var(--on-primary)!important;}
+.norium-modern-shell button[class*="bg-[var(--primary)]"] svg {color:inherit!important;}
+.norium-modern-shell :is(section,article,aside,header,main)[class*="bg-[linear-gradient"],
+.norium-modern-shell :is(section,article,aside,header,main)[class*="bg-[radial-gradient"] {background:var(--surface)!important;}
+.norium-modern-shell :is(button,a)[class*="from-blue-"]:not([class*="text-blue-"]) {background:#2563eb!important;color:#fff!important;}
+.norium-modern-shell button:disabled {opacity:1;color:var(--text-secondary)!important;box-shadow:none!important;}
+.norium-modern-shell button:disabled[class*="bg-[var(--primary)]"] {background:var(--surface-hover)!important;border-color:var(--border)!important;}
+/* Task chrome follows the selected theme; custom label and project colors stay intact. */
+:root:not(.dark) :is(.app-panel-tasks,.tasks-home,.tasks-workspace,.tasks-modal) {
+  --background:#f5f6f8;--surface:#fff;--surface-hover:#e9ebef;--border:#d5d8df;
+  --text:#1d2027;--text-secondary:#5e6470;--primary:#2563eb;--on-primary:#fff;
+  background:var(--background)!important;color:var(--text)!important;
+}
+:root:not(.dark) :is(.tasks-home,.tasks-workspace,.tasks-modal) :is(input,select,textarea) {color:var(--text)!important;background:var(--surface)!important;border-color:var(--border)!important;color-scheme:light;}
+:root:not(.dark) :is(.tasks-home,.tasks-workspace,.tasks-modal) :is(header,footer,.tasks-project-card,.tasks-project-create,.tasks-task-card,.tasks-details,.tasks-search,.tasks-list-scroll,.tasks-list-heading,.tasks-view-switch,.tasks-category) {background:var(--surface)!important;color:var(--text);border-color:var(--border)!important;}
+:root:not(.dark) .tasks-workspace .tasks-column {background:var(--background)!important;}
+:root:not(.dark) .app-panel-tasks>.norium-module-coach-compact {background:var(--background)!important;border-color:var(--border);}
+:root:not(.dark) .tasks-modal>div {background:var(--surface)!important;}
+
+/* KPI colors share one accessible palette throughout the product. */
+[data-metric-tone] {--metric-color:#2456a6;}
+[data-metric-tone="emerald"] {--metric-color:#08754d;}
+[data-metric-tone="rose"] {--metric-color:#be2446;}
+[data-metric-tone="amber"] {--metric-color:#865600;}
+[data-metric-tone="violet"] {--metric-color:#7141b8;}
+[data-metric-tone="cyan"] {--metric-color:#08728a;}
+.dark [data-metric-tone] {--metric-color:#8bbdff;}
+.dark [data-metric-tone="emerald"] {--metric-color:#73deb0;}
+.dark [data-metric-tone="rose"] {--metric-color:#ff9cae;}
+.dark [data-metric-tone="amber"] {--metric-color:#f5ce77;}
+.dark [data-metric-tone="violet"] {--metric-color:#c5a4ff;}
+.dark [data-metric-tone="cyan"] {--metric-color:#78dce8;}
+[data-metric-tone] :is(.metric-value.metric-value,.metric-icon.metric-icon) {color:var(--metric-color)!important;}
+.norium-modern-shell .clean-workspace button:disabled:disabled {color:var(--text-secondary)!important;background:var(--surface-hover)!important;}
+.norium-modern-shell .clean-workspace button:disabled:disabled svg {color:inherit!important;}
+.norium-modern-shell button[data-variant="danger"]:not(:disabled),
+.clean-workspace button[data-variant="danger"]:not(:disabled) {background:#be123c!important;color:#fff!important;}
+.norium-modern-shell button[data-variant="danger"]:not(:disabled) svg,
+.clean-workspace button[data-variant="danger"]:not(:disabled) svg {color:inherit!important;}
+.norium-modern-shell button[data-variant="primary"][class*="bg-emerald-"]:not(:disabled) {background:#047857!important;color:#fff!important;}

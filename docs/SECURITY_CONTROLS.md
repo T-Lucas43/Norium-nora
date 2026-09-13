@@ -8,6 +8,7 @@
 | Webhook forjado | Segredo obrigatorio em producao, comparacao constante, instancia verificada e destino fixo da integracao | Testes fail-closed e de destino divergente |
 | XSS e rastreamento por e-mail | iframe sem scripts, CSP interno e bloqueio de recursos remotos | Teste do documento responsivo |
 | Roubo persistente de token | `sessionStorage`, CSP, logout e troca de senha revogam sessoes; WebSockets usam ticket efemero de uso unico | Testes de autenticacao e reutilizacao de ticket |
+| Token W-API exposto no volume/snapshot | Envelope Fernet autenticado com chave em secret manager; migração legada e rotação read-through; backups migrados antes de copiar/restaurar | `test_wapi_binding_credentials` cobre bytes persistidos, adulteração, chave, migração, logs e snapshots |
 | Elevacao de plano/permissao | Plano pago exige operacao administrativa; permissoes da conta sao intersectadas com os direitos do plano em toda API protegida | Testes de acesso direto e autoativacao negada |
 | Troca arbitraria de workspace | `X-Norium-Workspace` e validado contra workspaces ativos da conta autenticada | Testes com workspace conhecido e workspace de terceiro |
 | Dependencia vulneravel | Dependabot, SCA, SAST, secret scan, SBOM e proveniencia | Workflow do GitHub Actions |

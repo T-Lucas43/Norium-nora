@@ -49,7 +49,8 @@ class OAuthSecurityTests(unittest.IsolatedAsyncioTestCase):
         oauth_state = {
             "state": state,
             "codeVerifier": "verifier",
-            "createdAt": (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat(),
+            # Stay strictly beyond the 20-minute TTL, even within one Windows clock tick.
+            "createdAt": (datetime.now(timezone.utc) - timedelta(minutes=21)).isoformat(),
         }
         with (
             patch.object(service, "_read_profile_section", return_value=oauth_state),

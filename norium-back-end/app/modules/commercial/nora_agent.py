@@ -1,19 +1,25 @@
 from __future__ import annotations
 
+import base64
 import os
 import re
 import unicodedata
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.modules.clients.repository import list_clients
+from app.modules.commercial.repository import read_store
 from app.modules.commercial.schemas import (
     Branding,
+    ContractUpdate,
     NoraAnalysisRequest,
     ProposalBriefRequest,
     ProposalCreate,
+    ProposalUpdate,
     SignerInput,
+    SmartDocumentRequest,
 )
 from app.modules.commercial.service import (
     analyze_with_nora,
@@ -21,19 +27,30 @@ from app.modules.commercial.service import (
     collaboration_tenant_id,
     create_contract,
     create_proposal,
+    create_smart_document,
     delete_contract,
     delete_proposal,
     generate_proposal_draft,
     list_commercial_data,
+    plain_text,
+    replace_visible_text,
     send_for_signature,
     signature_links,
     standard_templates,
     submit_proposal,
+    update_contract,
+    update_proposal,
 )
 from app.services.brainstorm_store import list_brainstorm_sessions
+from app.modules.commercial.pdf_export import build_commercial_pdf
+from app.services.nora_files import owned_file, save_bytes
 
 
 _sessions: dict[str, dict[str, Any]] = {}
+
+
+def _today() -> date:
+    return datetime.now(ZoneInfo("America/Sao_Paulo")).date()
 
 
 def _normalize(value: str) -> str:
@@ -83,16 +100,35 @@ def _infer_category(value: str) -> str:
 
 
 def _extract_amount(value: str) -> float:
-    match = re.search(r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})|\d+(?:[.,]\d{1,2})?)", value, flags=re.I)
+    normalized = _normalize(value)
+    matches = list(re.finditer(
+        r"(?P<currency>r\$\s*)?"
+        r"(?P<number>\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?|\d+(?:\.\d{1,2})?)"
+        r"\s*(?P<multiplier>milhoes?|milhares?|mil|mi|k)?\b",
+        normalized,
+        flags=re.I,
+    ))
+    match = next(
+        (candidate for candidate in matches if candidate.group("currency") or candidate.group("multiplier")),
+        matches[0] if matches else None,
+    )
     if not match:
         return 0
-    raw = match.group(1)
+    raw = match.group("number")
     if "," in raw:
         raw = raw.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", raw):
+        raw = raw.replace(".", "")
     try:
-        return float(raw)
+        amount = float(raw)
     except ValueError:
         return 0
+    multiplier = match.group("multiplier") or ""
+    if multiplier in {"mil", "milhar", "milhares", "k"}:
+        amount *= 1_000
+    elif multiplier in {"milhao", "milhoes", "mi"}:
+        amount *= 1_000_000
+    return amount
 
 
 def _extract_valid_until(value: str) -> str:
@@ -105,7 +141,316 @@ def _extract_valid_until(value: str) -> str:
             pass
     days_match = re.search(r"\b(\d{1,3})\s+dias?\b", _normalize(value))
     days = int(days_match.group(1)) if days_match else 15
-    return (date.today() + timedelta(days=max(1, min(days, 365)))).isoformat()
+    return (_today() + timedelta(days=max(1, min(days, 365)))).isoformat()
+
+
+def _is_document_creation(value: str) -> bool:
+    return _contains_any(
+        value,
+        (
+            "criar", "crie", "gere", "gerar", "fazer", "monte", "produza", "quero um", "quero uma",
+            "querer um", "querer uma", "gostaria de um", "gostaria de uma", "preciso de um", "preciso de uma",
+        ),
+    ) and _contains_any(
+        value,
+        (
+            "documento", "proposta", "contrato", "curriculo", "cv", "carta", "relatorio", "ata",
+            "plano", "orcamento", "recibo", "fatura", "politica", "termo", "declaracao", "certificado",
+            "briefing", "manual", "checklist", "roteiro", "descricao de vaga", "pauta", "apresentacao",
+            "slides", "powerpoint", "pptx", "pitch deck",
+        ),
+    )
+
+
+def _is_document_edit(value: str) -> bool:
+    return _contains_any(
+        value,
+        ("editar", "edite", "alterar", "altere", "corrigir", "corrija", "trocar", "troque", "substituir", "substitua", "atualizar", "atualize"),
+    ) and _contains_any(value, ("documento", "pdf", "proposta", "contrato", "minuta", "arquivo"))
+
+
+def _is_document_catalog(value: str) -> bool:
+    asks_about_documents = bool(
+        re.search(r"\b(?:que|quais)\s+(?:tipos?\s+de\s+|modelos?\s+de\s+)?documentos?\b", value)
+        or _contains_any(value, ("modelo de documento", "modelos de documento", "tipos de documento", "documentos que"))
+    )
+    asks_capability = _contains_any(
+        value,
+        ("gerar", "criar", "fazer", "montar", "sabe", "pode", "consegue", "disponiveis", "modelo", "modelos"),
+    )
+    return asks_about_documents and asks_capability
+
+
+def _document_catalog_response() -> str:
+    groups = {
+        "Comercial": {"proposal", "contract", "budget", "invoice", "receipt"},
+        "Gestão e comunicação": {"report", "letter", "meeting", "plan", "policy"},
+        "Pessoas e carreira": {"resume", "hr", "certificate", "term"},
+        "Marketing e conhecimento": {"marketing", "academic", "custom"},
+    }
+    labels = {
+        "proposal": "Proposta", "contract": "Contrato", "budget": "Orçamento", "invoice": "Fatura",
+        "receipt": "Recibo", "report": "Relatório", "letter": "Carta e comunicado", "meeting": "Ata e pauta",
+        "plan": "Plano", "policy": "Política e manual", "resume": "Currículo", "hr": "RH",
+        "certificate": "Certificado", "term": "Termo e declaração", "marketing": "Marketing",
+        "academic": "Acadêmico", "custom": "Apresentações e personalizados",
+    }
+    templates = standard_templates()
+    sections: list[str] = [
+        "Posso criar os modelos reais cadastrados em Documentos. Todos saem editáveis, com PDF salvo automaticamente na Biblioteca. Apresentações são criadas como roteiros visuais editáveis e PDF; a exportação nativa em PowerPoint ainda não está disponível.",
+    ]
+    for heading, types in groups.items():
+        rows: list[str] = []
+        for document_type in sorted(types, key=lambda item: labels.get(item, item)):
+            names = [str(item.get("name") or "") for item in templates if str(item.get("documentType") or "custom") == document_type]
+            if names:
+                rows.append(f"| {labels.get(document_type, document_type.title())} | {'; '.join(names)} |")
+        if rows:
+            sections.append("\n".join([f"## {heading}", "| Tipo | Modelos disponíveis |", "| --- | --- |", *rows]))
+    sections.append(
+        "## Como pedir\nDiga o tipo, objetivo, público ou cliente e o conteúdo principal. Também posso revisar um documento, corrigir datas e textos, gerar uma nova versão e devolver o PDF no chat."
+    )
+    return "\n\n".join(sections)
+
+
+def _requested_replacement(message: str, content_html: str) -> tuple[str, str] | None:
+    direct = re.search(
+        r"\b(?:troque|substitua|altere|corrija)\s+[\"“]?(.{1,120}?)[\"”]?\s+(?:por|para)\s+[\"“]?(.{1,120}?)[\"”]?(?:[.!]|$)",
+        message,
+        flags=re.I,
+    )
+    if direct:
+        before = direct.group(1).strip(" \"“”')")
+        after = direct.group(2).strip(" \"“”')")
+        if before and after and before != after:
+            return before, after
+
+    current_year = _today().year
+    year_match = re.search(r"\b(?:estamos\s+em|ano\s+atual(?:\s+e|\s+é)?|use\s+o\s+ano)\s*(20\d{2})\b", _normalize(message))
+    target_year = year_match.group(1) if year_match else str(current_year)
+    asks_current_date = bool(year_match or _contains_any(_normalize(message), ("ano atual", "data atual", "data de hoje")))
+    if not asks_current_date:
+        return None
+    years = sorted(set(re.findall(r"\b20\d{2}\b", plain_text(content_html))))
+    stale_years = [year for year in years if year != target_year and abs(int(year) - int(target_year)) <= 5]
+    if len(stale_years) == 1:
+        return stale_years[0], target_year
+    return None
+
+
+async def _edit_document_from_chat(
+    user: dict[str, Any],
+    message: str,
+    proposals: list[dict[str, Any]],
+    contracts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    document_type = "contract" if "contrat" in _normalize(message) or "minuta" in _normalize(message) else "proposal"
+    items = contracts if document_type == "contract" else proposals
+    document = _find_named_document(items, message)
+    if not document:
+        return _response("nao_encontrado", f"Não encontrei {'um contrato' if document_type == 'contract' else 'uma proposta'} para editar.")
+    store = read_store(collaboration_tenant_id(user))
+    full_items = store["contracts"] if document_type == "contract" else store["proposals"]
+    document = next((item for item in full_items if str(item.get("id")) == str(document.get("id"))), document)
+    content_html = str(document.get("contentHtml") or "")
+    if not content_html:
+        return _response(
+            "precisa_dados",
+            "Este PDF não possui uma fonte textual editável. Abra-o no editor visual de Documentos para marcar a alteração; depois posso gerar e devolver a nova versão.",
+            document=document,
+        )
+    replacement = _requested_replacement(message, content_html)
+    if not replacement:
+        return _response(
+            "precisa_dados",
+            "Informe o trecho exato e o novo texto. Exemplo: `troque \"2024\" por \"2026\" na proposta`. Para uma revisão ampla, abra o documento e use Escrever com a Nora.",
+            document=document,
+        )
+    before, after = replacement
+    updated_html = content_html
+    replacements = 0
+    for _ in range(50):
+        next_html, applied = replace_visible_text(updated_html, before, after)
+        if not applied or next_html == updated_html:
+            break
+        updated_html = next_html
+        replacements += 1
+    if not replacements:
+        return _response("nao_encontrado", f"Não encontrei o trecho “{before}” no documento. Nada foi alterado.", document=document)
+
+    if document_type == "contract":
+        updated = await update_contract(
+            user,
+            str(document["id"]),
+            ContractUpdate(contentHtml=updated_html, expectedVersion=int(document.get("version") or 1)),
+        )
+    else:
+        updated = await update_proposal(
+            user,
+            str(document["id"]),
+            ProposalUpdate(contentHtml=updated_html, expectedVersion=int(document.get("version") or 1)),
+        )
+    pdf_bytes, pdf_name = build_commercial_pdf(updated, document_type, tenant_id=collaboration_tenant_id(user))
+    artifact = save_bytes(
+        str(user.get("id") or "lucas123"),
+        pdf_bytes,
+        pdf_name,
+        "application/pdf",
+        source=f"commercial:{document_type}:revision",
+        metadata={"editTarget": {"tab": "Documentos", "entityType": document_type, "entityId": updated["id"], "label": "Editar no Documentos"}},
+    )
+    return _response(
+        "editada",
+        f"Executado. Corrigi “{before}” para “{after}” em “{updated['title']}”, gerei uma nova versão do PDF e salvei automaticamente na Biblioteca.",
+        document=updated,
+        proposal=updated if document_type == "proposal" else None,
+        contract=updated if document_type == "contract" else None,
+        files=[artifact],
+    )
+
+
+def is_document_creation_request(value: str) -> bool:
+    """Sinal publico para o roteador preservar anexos de documentos."""
+
+    return _is_document_creation(_normalize(value))
+
+
+def _has_useful_document_brief(value: str) -> bool:
+    normalized = _normalize(value)
+    stripped = re.sub(
+        r"\b(?:nora|por favor|quero|preciso|criar|crie|gere|gerar|fazer|monte|produza|um|uma|novo|nova|documento|"
+        r"proposta|contrato|curriculo|cv|carta|relatorio|ata|plano|orcamento|recibo|fatura|politica|termo|"
+        r"declaracao|certificado|briefing|manual|checklist|roteiro|apresentacao|slides?|powerpoint|pptx)\b",
+        " ",
+        normalized,
+    )
+    return len([token for token in stripped.split() if len(token) > 2]) >= 2
+
+
+def _document_template(message: str, has_photo: bool = False) -> dict[str, Any]:
+    normalized = _normalize(message)
+    templates = standard_templates()
+    if _contains_any(normalized, ("curriculo", "curriculum", " cv ", "resume")):
+        preferred = (
+            "standard_resume_foto_clean"
+            if has_photo or "foto" in normalized
+            else "standard_resume_duas_colunas"
+            if "coluna" in normalized
+            else "standard_resume_linha_tempo"
+            if _contains_any(normalized, ("linha do tempo", "cronologico"))
+            else "standard_resume_competencias"
+            if _contains_any(normalized, ("competencia", "transicao", "sem experiencia"))
+            else "standard_resume_ats"
+        )
+        match = next((item for item in templates if item.get("id") == preferred), None)
+        if match:
+            return match
+
+    if _contains_any(normalized, ("apresentacao", "slides", "powerpoint", "pptx", "pitch deck")):
+        match = next((item for item in templates if item.get("id") == "standard_custom_apresentacao_executiva"), None)
+        if match:
+            return match
+
+    desired_type = next(
+        (
+            document_type
+            for document_type, terms in (
+                ("proposal", ("proposta",)), ("contract", ("contrato",)), ("resume", ("curriculo", "cv")),
+                ("budget", ("orcamento", "cotacao")), ("report", ("relatorio",)), ("letter", ("carta", "comunicado")),
+                ("meeting", ("ata", "pauta")), ("plan", ("plano",)), ("term", ("termo", "declaracao", "autorizacao")),
+                ("receipt", ("recibo",)), ("invoice", ("fatura",)), ("certificate", ("certificado",)),
+                ("policy", ("politica", "manual", "procedimento", "checklist")), ("hr", ("vaga", "onboarding", "feedback")),
+                ("marketing", ("briefing", "persona", "midia kit")), ("academic", ("pesquisa academica", "plano de aula", "fichamento")),
+            )
+            if _contains_any(normalized, terms)
+        ),
+        "custom",
+    )
+    candidates = [item for item in templates if str(item.get("documentType") or "") == desired_type]
+    if not candidates:
+        candidates = templates
+
+    def score(item: dict[str, Any]) -> tuple[int, int]:
+        tokens = {
+            _normalize(str(token))
+            for token in [item.get("name"), item.get("category"), *(item.get("keywords") or [])]
+            if str(token or "").strip()
+        }
+        points = sum(4 if token and token in normalized else 0 for token in tokens)
+        for word in set(normalized.split()):
+            if len(word) >= 5 and any(word in token for token in tokens):
+                points += 1
+        return points, 1 if item.get("featured") else 0
+
+    return max(candidates, key=score)
+
+
+def _document_palette(message: str) -> tuple[str, str, str]:
+    normalized = _normalize(message)
+    hex_colors = re.findall(r"#[0-9a-fA-F]{6}\b", message)
+    if hex_colors:
+        return hex_colors[0], hex_colors[1] if len(hex_colors) > 1 else hex_colors[0], "#0F172A"
+    palettes = (
+        (("verde", "esmeralda"), ("#14532D", "#10B981", "#052E16")),
+        (("roxo", "violeta"), ("#4C1D95", "#8B5CF6", "#1E1B4B")),
+        (("rosa", "pink"), ("#9D174D", "#EC4899", "#500724")),
+        (("laranja",), ("#9A3412", "#F97316", "#431407")),
+        (("vermelho",), ("#991B1B", "#EF4444", "#450A0A")),
+        (("preto", "grafite"), ("#111827", "#64748B", "#020617")),
+        (("azul", "ciano"), ("#1E3A8A", "#2563EB", "#0F172A")),
+    )
+    return next((palette for terms, palette in palettes if _contains_any(normalized, terms)), ("#1E293B", "#3B82F6", "#0F172A"))
+
+
+def _attached_photo(user_id: str, attachment_ids: list[str]) -> str:
+    for file_id in attachment_ids:
+        record, path = owned_file(user_id, file_id)
+        mime_type = str(record.get("mimeType") or "")
+        if not mime_type.startswith("image/"):
+            continue
+        content = path.read_bytes()
+        if len(content) > 1_450_000:
+            raise ValueError("A foto do currículo deve ter até 1,4 MB. Envie uma imagem menor para eu incorporá-la ao documento.")
+        return f"data:{mime_type};base64,{base64.b64encode(content).decode('ascii')}"
+    return ""
+
+
+async def _create_document_from_chat(
+    user: dict[str, Any],
+    message: str,
+    template: dict[str, Any],
+    attachment_ids: list[str],
+) -> dict[str, Any]:
+    try:
+        photo_data_url = _attached_photo(str(user.get("id") or "lucas123"), attachment_ids)
+    except ValueError as exc:
+        return _response("precisa_dados", str(exc))
+    primary, secondary, text = _document_palette(message)
+    client = _find_client(collaboration_tenant_id(user), message)
+    amount = _extract_amount(message) if template.get("documentType") in {"proposal", "budget", "invoice", "receipt"} else 0
+    document, artifact = await create_smart_document(
+        user,
+        SmartDocumentRequest(
+            templateId=str(template["id"]),
+            clientId=str(client.get("id") or "") if client else "",
+            brief=message.strip(),
+            amount=amount,
+            validUntil=_extract_valid_until(message) if template.get("documentType") == "proposal" else None,
+            photoDataUrl=photo_data_url,
+            primaryColor=primary,
+            secondaryColor=secondary,
+            textColor=text,
+        ),
+    )
+    label = str(template.get("name") or "Documento")
+    return _response(
+        "criada",
+        f"Criei “{document['title']}” usando o modelo {label}. O PDF está abaixo e a opção Editar abre diretamente a versão completa em Documentos.",
+        None,
+        document=document,
+        proposal=document,
+        files=[artifact],
+    )
 
 
 def _find_named_document(items: list[dict[str, Any]], message: str) -> dict[str, Any] | None:
@@ -170,7 +515,7 @@ async def _proposal_preview(user: dict[str, Any], session_id: str, state: dict[s
         deadline=str(state.get("deadline") or ""),
         deliverablesNotes=str(state.get("deliverables") or ""),
         exclusions=str(state.get("exclusions") or ""),
-        notes=str(state.get("notes") or ""),
+        notes="\n\n".join(part for part in (str(state.get("notes") or ""), str(state.get("companyResearch") or "")) if part),
         amount=float(state.get("amount") or 0),
         currency="BRL",
         tone="consultive",
@@ -202,7 +547,11 @@ async def _persist_proposal(user: dict[str, Any], session_id: str, state: dict[s
         None,
     )
     draft_html = str(draft.get("contentHtml") or "<p></p>")
-    template_html = str((template or {}).get("contentHtml") or "{{NORA_CONTENT}}")
+    template_html = str(
+        (template or {}).get("generationContentHtml")
+        or (template or {}).get("contentHtml")
+        or "{{NORA_CONTENT}}"
+    )
     content_html = (
         template_html.replace("{{NORA_CONTENT}}", draft_html)
         if "{{NORA_CONTENT}}" in template_html
@@ -241,6 +590,15 @@ async def _persist_proposal(user: dict[str, Any], session_id: str, state: dict[s
             },
         ),
     )
+    pdf_bytes, pdf_name = build_commercial_pdf(proposal, "proposal")
+    artifact = save_bytes(
+        str(user.get("id") or "lucas123"),
+        pdf_bytes,
+        pdf_name,
+        "application/pdf",
+        source="commercial:proposal",
+        metadata={"editTarget": {"tab": "Documentos", "entityType": "proposal", "entityId": proposal["id"], "label": "Editar no Documentos"}},
+    )
     _sessions.pop(session_id, None)
     return _response(
         "criada",
@@ -254,6 +612,7 @@ async def _persist_proposal(user: dict[str, Any], session_id: str, state: dict[s
         ),
         None,
         proposal=proposal,
+        files=[artifact],
     )
 
 
@@ -261,10 +620,15 @@ async def handle_commercial_agent(
     user: dict[str, Any],
     message: str,
     session_id: str | None = None,
+    company_research: str | None = None,
+    attachment_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     tenant_id = collaboration_tenant_id(user)
     normalized = _normalize(message)
     state = _sessions.get(session_id or "")
+    attachment_ids = list(attachment_ids or [])
+    if state is not None and company_research:
+        state["companyResearch"] = company_research[:12_000]
 
     if state:
         if _contains_any(normalized, ("cancelar", "cancele", "desistir", "parar")):
@@ -272,6 +636,15 @@ async def handle_commercial_agent(
             return _response("cancelado", "Criação da proposta cancelada. Nenhum documento foi criado.")
 
         stage = str(state.get("stage") or "client")
+        if stage == "document_brief":
+            template = next(
+                (item for item in standard_templates() if str(item.get("id") or "") == str(state.get("templateId") or "")),
+                _document_template(f"{state.get('initialMessage') or ''} {message}", bool(attachment_ids)),
+            )
+            combined = "\n".join(part for part in (str(state.get("initialMessage") or ""), message.strip()) if part)
+            combined_attachments = [*state.get("attachmentIds", []), *attachment_ids]
+            _sessions.pop(str(session_id), None)
+            return await _create_document_from_chat(user, combined, template, list(dict.fromkeys(combined_attachments)))
         if stage == "brainstorm":
             brainstorms = await list_brainstorm_sessions(tenant_id)
             brainstorm = _find_named_brainstorm(brainstorms, message)
@@ -357,11 +730,38 @@ async def handle_commercial_agent(
             state.pop("draft", None)
             return await _proposal_preview(user, str(session_id), state)
 
+    if _is_document_catalog(normalized):
+        return _response("consulta", _document_catalog_response(), templates=standard_templates())
+
+    if _is_document_creation(normalized):
+        template = _document_template(message, bool(attachment_ids))
+        if _has_useful_document_brief(message):
+            return await _create_document_from_chat(user, message, template, attachment_ids)
+        new_session_id = f"commercial_{uuid.uuid4().hex}"
+        _sessions[new_session_id] = {
+            "stage": "document_brief",
+            "templateId": str(template.get("id") or ""),
+            "initialMessage": message.strip(),
+            "attachmentIds": attachment_ids,
+        }
+        document_type = str(template.get("documentType") or "custom")
+        hint = (
+            "Em uma única mensagem, envie nome, objetivo profissional ou vaga e as experiências/formação que quiser incluir. Você também pode anexar uma foto e indicar uma cor; o restante ficará como ‘A definir’."
+            if document_type == "resume"
+            else "Qual é o tema, o público e o objetivo da apresentação? Eu preparo um roteiro visual editável em Documentos e o PDF vai automaticamente para a Biblioteca. A exportação em PowerPoint ainda não está disponível."
+            if str(template.get("id") or "") == "standard_custom_apresentacao_executiva"
+            else "Em uma única mensagem, diga qual cliente ou público, o objetivo e o conteúdo principal. Valor, prazo e detalhes são opcionais; o que faltar ficará como ‘A definir’."
+        )
+        return _response("precisa_dados", hint, new_session_id, template={"id": template.get("id"), "name": template.get("name")})
+
     data = await list_commercial_data(user)
     proposals = data["proposals"]
     contracts = data["contracts"]
 
-    if _contains_any(normalized, ("listar", "liste", "mostrar", "mostre", "quais")):
+    if _is_document_edit(normalized):
+        return await _edit_document_from_chat(user, message, proposals, contracts)
+
+    if _contains_any(normalized, ("listar", "liste", "mostrar", "mostre", "quais", "minha proposta", "minhas propostas", "meu contrato", "meus contratos")):
         if "contrat" in normalized:
             if not contracts:
                 return _response("vazio", "Você ainda não possui contratos.")
@@ -480,8 +880,9 @@ async def handle_commercial_agent(
             "client": client,
             "brainstormId": str(brainstorm["id"]) if brainstorm else None,
             "amount": 0,
-            "validUntil": (date.today() + timedelta(days=15)).isoformat(),
+            "validUntil": (_today() + timedelta(days=15)).isoformat(),
             "category": _infer_category(message),
+            "companyResearch": (company_research or "")[:12_000],
         }
         _sessions[new_session_id] = state
         if wants_brainstorm and not brainstorm:

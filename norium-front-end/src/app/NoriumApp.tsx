@@ -9,10 +9,20 @@ import type { AppMode, AuthSession, PermissionKey } from "../types/auth";
 import { canUse } from "../types/auth";
 import { applyNoriumTheme } from "../utils/theme";
 import { authJson } from "../utils/authApi";
+import { CallSessionProvider } from "../components/team-chat/CallSession";
 import AppPanels from "./components/AppPanels";
+import { preloadPanel } from "./navigation/panelModules";
 import { useAuthSession } from "./hooks/useAuthSession";
 import { useOperatorProfile } from "./hooks/useOperatorProfile";
-import { ACTIVE_TAB_STORAGE, initialTab, PRIMARY_TABS, TAB_PERMISSIONS } from "./navigation/tabs";
+import {
+  ACTIVE_TAB_STORAGE,
+  canonicalTab,
+  initialTab,
+  navigateNoriumTab,
+  PRIMARY_TABS,
+  tabFromPath,
+  TAB_PERMISSIONS,
+} from "./navigation/tabs";
 import {
   currentNoriumView,
   legacyViewFromHash,
@@ -23,11 +33,11 @@ import {
 
 const AdminDashboard = lazy(() => import("../components/admin/AdminDashboard"));
 const AuthScreen = lazy(() => import("../components/auth/AuthScreen"));
+const AccountEmailAction = lazy(() => import("../components/auth/AccountEmailAction"));
 const Nora = lazy(() => import("../components/layout/Nora"));
 const PublicAccess = lazy(() => import("../components/public/PublicAccess"));
 const LegalPage = lazy(() => import("../components/public/LegalPage"));
 const TeamChatDrawer = lazy(() => import("../components/team-chat/TeamChatDrawer"));
-const SESSION_TABS = ["Dashboard", "Central", "E-mails", "Agenda", "Chat", "Chat da Equipe", "Tarefas"];
 const SIMULATION_BACKUP_STORAGE = "norium-simulation-backup";
 
 type NoriumDeepLink = {
@@ -62,8 +72,9 @@ export default function NoriumApp() {
   const [noraContextRequest, setNoraContextRequest] = useState<{ id: number; prompt: string } | null>(null);
   const [activeChatConversationId, setActiveChatConversationId] = useState<string | null>(null);
   const [teamChatOpen, setTeamChatOpen] = useState(false);
+  const [teamThreadToOpen, setTeamThreadToOpen] = useState<string | null>(null);
+  const [teamChatMounted, setTeamChatMounted] = useState(false);
   const [emailToOpenId, setEmailToOpenId] = useState<string | null>(null);
-  const [mountedTabs, setMountedTabs] = useState<Set<string>>(() => new Set(["Dashboard"]));
   const {
     appMode,
     authLoading,
@@ -86,6 +97,8 @@ export default function NoriumApp() {
     clearTeamChatUnread,
     addTeamChatUnread,
     dismissSystemToast,
+    dismissCallNotifications,
+    handleTeamSocketEvent,
   } = useWebSockets(
     activeTab,
     Boolean(authSession),
@@ -102,7 +115,11 @@ export default function NoriumApp() {
       if (legacyView) navigateNoriumView(legacyView);
     };
     const syncView = (event: Event) => setCurrentView((event as CustomEvent<NoriumView>).detail);
-    const syncHistory = () => setCurrentView(currentNoriumView());
+    const syncHistory = () => {
+      setCurrentView(currentNoriumView());
+      const routedTab = tabFromPath();
+      if (routedTab) setActiveTab(routedTab);
+    };
     window.addEventListener("hashchange", syncHash);
     window.addEventListener(NORIUM_VIEW_EVENT, syncView);
     window.addEventListener("popstate", syncHistory);
@@ -128,6 +145,13 @@ export default function NoriumApp() {
     [canAccessTab],
   );
 
+  const navigateTab = useCallback((tab: string, options: { replace?: boolean } = {}) => {
+    const nextTab = canonicalTab(tab);
+    preloadPanel(nextTab);
+    setActiveTab(nextTab);
+    navigateNoriumTab(nextTab, options);
+  }, []);
+
   const handleAuthenticated = useCallback((session: AuthSession, mode: AppMode) => {
     sessionStorage.removeItem(SIMULATION_BACKUP_STORAGE);
     localStorage.removeItem(SIMULATION_BACKUP_STORAGE);
@@ -149,6 +173,7 @@ export default function NoriumApp() {
     clearSession();
     setIsNoraOpen(false);
     setTeamChatOpen(false);
+    setTeamThreadToOpen(null);
     navigateNoriumView("login");
   }, [authSession, clearSession]);
 
@@ -170,9 +195,13 @@ export default function NoriumApp() {
 
   useEffect(() => {
     if (TAB_PERMISSIONS[activeTab] !== undefined) localStorage.setItem(ACTIVE_TAB_STORAGE, activeTab);
+    if (authSession && appMode === "app" && currentView === "app") {
+      navigateNoriumTab(activeTab, { replace: true });
+      document.title = `${activeTab} | Norium`;
+    }
     const main = document.getElementById("norium-main");
     main?.scrollTo({ top: 0, left: 0, behavior: "auto" });
-  }, [activeTab]);
+  }, [activeTab, appMode, authSession, currentView]);
 
   useEffect(() => {
     localStorage.setItem("norium-sidebar-collapsed", String(sidebarCollapsed));
@@ -180,46 +209,40 @@ export default function NoriumApp() {
 
   useEffect(() => {
     if (!authSession || canAccessTab(activeTab)) return;
-    setActiveTab(allowedTabs[0] || "Perfil");
-  }, [activeTab, allowedTabs, authSession, canAccessTab]);
+    navigateTab(allowedTabs[0] || "Perfil", { replace: true });
+  }, [activeTab, allowedTabs, authSession, canAccessTab, navigateTab]);
 
   useEffect(() => {
-    setMountedTabs((current) => {
-      if (current.has(activeTab)) return current;
-      const next = new Set(current);
-      next.add(activeTab);
-      return next;
-    });
-  }, [activeTab]);
+    setTeamChatMounted(false);
+  }, [authSession?.user.id]);
 
   useEffect(() => {
-    if (!authSession) return;
-    setMountedTabs((current) => {
-      const next = new Set(current);
-      SESSION_TABS.filter(canAccessTab).forEach((tab) => next.add(tab));
-      return next.size === current.size ? current : next;
-    });
-  }, [authSession, canAccessTab]);
+    if (teamChatOpen || activeTab === "Chat da Equipe") setTeamChatMounted(true);
+  }, [activeTab, teamChatOpen]);
 
   const openNotifications = useCallback(() => {
-    setActiveTab("Notificações");
+    navigateTab("Notificações");
     clearSystemUnread();
-  }, [clearSystemUnread]);
+  }, [clearSystemUnread, navigateTab]);
 
   const openNora = useCallback((prompt?: string) => {
     if (!canAccessPermission("nora")) return;
     const contextualPrompt = typeof prompt === "string" ? prompt.trim() : "";
     if (contextualPrompt) {
       setNoraContextRequest({ id: Date.now(), prompt: contextualPrompt });
+      setIsNoraOpen(true);
+    } else {
+      setIsNoraOpen(false);
+      navigateTab("Nora");
     }
-    setIsNoraOpen(true);
-  }, [canAccessPermission]);
+  }, [canAccessPermission, navigateTab]);
 
   const openDeepLink = useCallback((link: NoriumDeepLink) => {
     localStorage.setItem("norium-deep-link", JSON.stringify(link));
     if (link.tab === "E-mails" && link.entityId) setEmailToOpenId(link.entityId);
-    setActiveTab(link.tab || "Central");
-  }, []);
+    if (link.tab === "Chat da Equipe" && link.metadata?.threadId) setTeamThreadToOpen(String(link.metadata.threadId));
+    navigateTab(link.tab || "Central");
+  }, [navigateTab]);
 
   useEffect(() => {
     const handleDeepLink = (event: Event) => {
@@ -230,6 +253,14 @@ export default function NoriumApp() {
     window.addEventListener("norium:deep-link", handleDeepLink);
     return () => window.removeEventListener("norium:deep-link", handleDeepLink);
   }, [openDeepLink]);
+
+  const emailAction = currentHash.match(/^#\/(redefinir-senha|confirmar-email)\/([A-Za-z0-9_-]{32,128})$/);
+  if (emailAction) {
+    return <Suspense fallback={<AppLoading label="Abrindo acesso seguro..." />}><AccountEmailAction
+      key={currentHash} mode={emailAction[1] === "redefinir-senha" ? "reset" : "verify"} token={emailAction[2]}
+      onReset={clearSession} onBack={() => { window.location.hash = ""; }}
+    /></Suspense>;
+  }
 
   if (publicRoute) {
     return (
@@ -268,20 +299,36 @@ export default function NoriumApp() {
 
   if (appMode === "admin") {
     return (
-      <Suspense fallback={<AppLoading label="Carregando administracao..." />}>
-        <AdminDashboard
-          session={authSession}
-          onUseSystem={useSystemMode}
-          onSessionUpdate={updateSession}
-        />
-      </Suspense>
+      <CallSessionProvider
+        session={authSession}
+        onTeamEvent={handleTeamSocketEvent}
+        onCallDismissed={dismissCallNotifications}
+        onIncomingCall={() => setTeamChatOpen(true)}
+      >
+        <Suspense fallback={<AppLoading label="Carregando administracao..." />}>
+          <AdminDashboard
+            session={authSession}
+            onUseSystem={useSystemMode}
+            onSessionUpdate={updateSession}
+          />
+        </Suspense>
+      </CallSessionProvider>
     );
   }
 
   return (
+    <CallSessionProvider
+      session={authSession}
+      onTeamEvent={handleTeamSocketEvent}
+      onCallDismissed={dismissCallNotifications}
+      onIncomingCall={() => {
+        setTeamChatMounted(true);
+        if (activeTab !== "Chat da Equipe") setTeamChatOpen(true);
+      }}
+    >
     <div className="app-shell norium-modern-shell flex overflow-hidden bg-[var(--background)] font-sans antialiased">
       <a className="norium-skip-link" href="#norium-main">Pular para o conteudo</a>
-      {canAccessPermission("nora") && (
+      {canAccessPermission("nora") && isNoraOpen && (
         <Suspense fallback={null}>
           <Nora
             key={`nora-${currentUser?.id || "anonymous"}`}
@@ -295,27 +342,15 @@ export default function NoriumApp() {
             contextualRequest={noraContextRequest}
             onOpenEmail={(messageId) => {
               setEmailToOpenId(messageId);
-              setActiveTab("E-mails");
+              navigateTab("E-mails");
             }}
           />
         </Suspense>
       )}
 
-      {canAccessPermission("chat") && teamChatOpen && (
-        <Suspense fallback={null}>
-          <TeamChatDrawer
-            key={`team-chat-${currentUser?.id || "anonymous"}`}
-            open={teamChatOpen}
-            onClose={() => setTeamChatOpen(false)}
-            session={authSession}
-            onUnread={(count) => addTeamChatUnread(count)}
-            onOpenNora={openNora}
-          />
-        </Suspense>
-      )}
-
       <SystemNotificationToasts
-        toasts={systemToasts}
+        toasts={profile?.interface_preferences?.showToasts === false ? [] : systemToasts}
+        preferences={profile?.interface_preferences}
         onDismiss={dismissSystemToast}
         onOpenNotifications={openNotifications}
       />
@@ -328,22 +363,22 @@ export default function NoriumApp() {
         currentUser={currentUser}
         profile={profile}
         onCloseMobile={() => setMobileSidebarOpen(false)}
-        onNavigate={setActiveTab}
+        onNavigate={navigateTab}
         onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
       />
 
       <div className="norium-workspace flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <Header
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={navigateTab}
           onOpenNora={openNora}
           onOpenTeamChat={() => {
             setTeamChatOpen(true);
             clearTeamChatUnread();
           }}
           onOpenNotifications={openNotifications}
-          onOpenProfile={() => setActiveTab("Perfil")}
-          onOpenSettings={() => setActiveTab("Configurações")}
+          onOpenProfile={() => navigateTab("Perfil")}
+          onOpenSettings={() => navigateTab("Configurações")}
           onOpenLegal={() => navigateNoriumView("terms")}
           onLogout={handleLogout}
           onToggleSidebar={() => {
@@ -374,7 +409,6 @@ export default function NoriumApp() {
             connected={connected}
             emailToOpenId={emailToOpenId}
             eventsBySource={eventsBySource}
-            mountedTabs={mountedTabs}
             profile={profile}
             systemNotifications={systemNotifications}
             onActiveConversationChange={setActiveChatConversationId}
@@ -382,7 +416,7 @@ export default function NoriumApp() {
             onEmailHandled={() => setEmailToOpenId(null)}
             onLogout={handleLogout}
             onOpenAdmin={useAdminMode}
-            onNavigate={setActiveTab}
+            onNavigate={navigateTab}
             onOpenDeepLink={openDeepLink}
             onOpenNora={openNora}
             onOpenTeamChat={() => {
@@ -393,9 +427,26 @@ export default function NoriumApp() {
             onRefreshEvents={() => void refreshEvents()}
             onSessionUpdate={updateSession}
           />
+          {canAccessPermission("chat") && (teamChatMounted || teamChatOpen || activeTab === "Chat da Equipe") && (
+            <Suspense fallback={null}>
+              <TeamChatDrawer
+                initialThreadId={teamThreadToOpen}
+                onInitialThreadHandled={() => setTeamThreadToOpen(null)}
+                key={`team-chat-${currentUser?.id || "anonymous"}`}
+                open={teamChatOpen || activeTab === "Chat da Equipe"}
+                variant={activeTab === "Chat da Equipe" ? "page" : "drawer"}
+                onClose={() => { setTeamChatOpen(false); if (activeTab === "Chat da Equipe") navigateTab("Equipe"); }}
+                session={authSession}
+                onUnread={addTeamChatUnread}
+                onOpenNora={openNora}
+                onOpenCalendar={() => navigateTab("Agenda")}
+              />
+            </Suspense>
+          )}
         </main>
       </div>
     </div>
+    </CallSessionProvider>
   );
 }
 

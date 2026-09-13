@@ -13,6 +13,7 @@ export type MailPreferences = {
 type MailSettingsDrawerProps = {
   preferences: MailPreferences;
   status: GmailStatus | null;
+  connecting?: boolean;
   onPreferenceChange: <K extends keyof MailPreferences>(key: K, value: MailPreferences[K]) => void;
   onRefreshNow: () => void;
   onConnect: () => void;
@@ -24,6 +25,7 @@ type MailSettingsDrawerProps = {
 export default function MailSettingsDrawer({
   preferences,
   status,
+  connecting = false,
   onPreferenceChange,
   onRefreshNow,
   onConnect,
@@ -102,7 +104,9 @@ export default function MailSettingsDrawer({
                 : "Aguardando autorizacao"}
             </p>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <Button onClick={onConnect} className="mail-hover border-white/12">Reconectar</Button>
+              <Button onClick={onConnect} disabled={connecting} className="mail-hover border-white/12">
+                {connecting ? "Abrindo Google..." : "Reconectar"}
+              </Button>
               <Button onClick={onDisconnect} disabled={!status?.connected} className="border-red-500/35 text-red-300">
                 Desconectar
               </Button>

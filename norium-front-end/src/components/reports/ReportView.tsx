@@ -1,104 +1,12 @@
+import { useState } from "react";
+import { ArrowDownLeft, ArrowUpRight, ChartNoAxesCombined, ChevronLeft, ChevronRight, Info, TriangleAlert } from "lucide-react";
+import type { ReportDocument, ReportTable } from "../../features/reports/reportDocument";
 import Button from "../shared/Button";
-import { Calendar, Filter, ArrowUpRight, ArrowDownRight, CheckSquare, MessageSquare, Clock, ThumbsUp } from "lucide-react";
-
-interface ReportViewProps {
-  title: string;
-  onClose: () => void;
+export function ReportDataTable({ table }: { table: ReportTable }) {
+  const [page, setPage] = useState(0), [size, setSize] = useState(10);
+  const pages = Math.max(1, Math.ceil(table.rows.length / size)), current = Math.min(page, pages - 1);
+  return <section className="report-table-card" aria-label={table.title}><header><div><h3>{table.title}</h3><span>{table.rows.length.toLocaleString("pt-BR")} registros</span></div><label>Por página<select aria-label={`Linhas por página: ${table.title}`} value={size} onChange={event => { setSize(Number(event.target.value)); setPage(0); }}>{[10, 25, 50].map(value => <option key={value}>{value}</option>)}</select></label></header><div className="report-table-scroll" tabIndex={0} aria-label={`Tabela: ${table.title}`}><table><colgroup>{table.columns.map((column, index) => <col key={index} style={{ width: `${column.width}%` }}/>)}</colgroup><thead><tr>{table.columns.map(column => <th key={column.label} scope="col" className={column.align === "right" ? "is-number" : ""}>{column.label}</th>)}</tr></thead><tbody>{table.rows.slice(current * size, (current + 1) * size).map((row, rowIndex) => <tr key={`${row.id}-${rowIndex}`}>{row.cells.map((cell, index) => <td key={index} className={`${table.columns[index].align === "right" ? "is-number" : ""} ${index === row.cells.length - 1 && row.tone ? `report-tone-${row.tone}` : ""}`}><span>{cell}</span></td>)}</tr>)}</tbody></table>{!table.rows.length && <div className="report-empty"><ChartNoAxesCombined size={24}/><strong>Nenhum registro neste recorte</strong><span>Altere o período ou remova os filtros para ampliar a consulta.</span></div>}</div><footer><span>{table.rows.length ? `${current * size + 1}–${Math.min((current + 1) * size, table.rows.length)} de ${table.rows.length}` : "0 registros"}</span><div><Button size="sm" iconOnly aria-label={`Anterior: ${table.title}`} disabled={current === 0} onClick={() => setPage(current - 1)}><ChevronLeft size={14}/></Button><span>{current + 1} / {pages}</span><Button size="sm" iconOnly aria-label={`Próxima: ${table.title}`} disabled={current + 1 >= pages} onClick={() => setPage(current + 1)}><ChevronRight size={14}/></Button></div></footer></section>;
 }
-
-export default function ReportView({ title }: ReportViewProps) {
-  return (
-    <section className="flex-1 bg-[var(--background)] flex flex-col h-full min-w-0 overflow-y-auto p-6 space-y-6">
-      {/* Topo do Relatório */}
-      <div className="flex items-center justify-between shrink-0">
-        <div>
-          <h1 className="text-lg font-bold text-[var(--foreground)]">{title}</h1>
-          <p className="text-xs text-[var(--secondary-foreground)] font-medium">Acompanhe os principais indicadores do seu negócio.</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--secondary-foreground)] bg-[var(--card-background)] border border-[var(--border)] px-3 py-2 rounded-xl cursor-pointer hover:bg-[var(--hover-background)] transition shadow-sm">
-            <Calendar size={14} />
-            <span>01 - 31 Mai, 2025</span>
-          </div>
-          <Button className="text-[var(--secondary-foreground)] bg-[var(--card-background)] py-2 hover:bg-[var(--hover-background)] shadow-sm">
-            <Filter size={14} />
-            <span>Filtros</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* Grid Superior: KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
-        {[
-          { label: "Projetos em andamento", value: "12", trend: "20% vs. mês anterior", isPos: true },
-          { label: "Tarefas concluídas", value: "128", trend: "15% vs. mês anterior", isPos: true },
-          { label: "Horas registradas", value: "342h", trend: "8% vs. mês anterior", isPos: false },
-          { label: "Clientes ativos", value: "28", trend: "12% vs. mês anterior", isPos: true },
-        ].map((card, i) => (
-          <div key={i} className="bg-[var(--card-background)] border border-[var(--border)] p-5 rounded-2xl shadow-sm relative overflow-hidden flex flex-col justify-between min-h-[105px]">
-            <div className="flex justify-between items-start">
-              <p className="text-xs font-bold text-[var(--secondary-foreground)] tracking-tight">{card.label}</p>
-              <div className="w-7 h-7 rounded-lg bg-[var(--background)] border border-[var(--border)] flex items-center justify-center text-[var(--secondary-foreground)]">
-                {i === 0 && <CheckSquare size={13} />}
-                {i === 1 && <MessageSquare size={13} />}
-                {i === 2 && <Clock size={13} />}
-                {i === 3 && <ThumbsUp size={13} />}
-              </div>
-            </div>
-            <div className="mt-2">
-              <p className="text-2xl font-bold text-[var(--foreground)] leading-none mb-1">{card.value}</p>
-              <p className={`text-xs font-bold flex items-center gap-0.5 ${card.isPos ? "text-emerald-500" : "text-rose-500"}`}>
-                {card.isPos ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                <span>{card.trend}</span>
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Gráficos do Meio */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 shrink-0">
-        <div className="bg-[var(--card-background)] border border-[var(--border)] p-5 rounded-2xl shadow-sm lg:col-span-7 flex flex-col justify-between min-h-[280px]">
-          <div className="flex justify-between items-center mb-4">
-            <div>
-              <h3 className="text-xs font-bold text-[var(--foreground)]">Desempenho de projetos</h3>
-              <p className="text-xs text-[var(--secondary-foreground)] font-medium">Progresso médio dos projetos</p>
-            </div>
-            <select className="text-xs font-bold text-[var(--secondary-foreground)] border border-[var(--border)] rounded-lg p-1.5 px-2 bg-[var(--background)] outline-none cursor-pointer">
-              <option>Este mês</option>
-            </select>
-          </div>
-          <div className="flex-1 flex items-end justify-between h-32 relative border-b border-l border-[var(--border)] pl-4 pb-2">
-            <div className="absolute right-8 top-4 bg-blue-500/10 text-blue-500 font-bold text-xs px-2 py-0.5 rounded-md border border-blue-500/20 shadow-sm">78%</div>
-            <svg className="absolute inset-x-0 bottom-6 h-20 w-full overflow-visible" preserveAspectRatio="none">
-              <path d="M 0 60 Q 50 40 100 50 T 200 20 T 300 30 T 400 10" fill="none" stroke="#6366f1" strokeWidth="2.5" />
-            </svg>
-            {["01 Mai", "08 Mai", "15 Mai", "22 Mai", "31 Mai"].map((day, i) => (
-              <span key={i} className="text-xs font-bold text-[var(--secondary-foreground)]">{day}</span>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-[var(--card-background)] border border-[var(--border)] p-5 rounded-2xl shadow-sm lg:col-span-5 flex flex-col justify-between min-h-[280px]">
-          <div>
-            <h3 className="text-xs font-bold text-[var(--foreground)]">Tarefas por status</h3>
-            <p className="text-xs text-[var(--secondary-foreground)] font-medium">Distribuição das tarefas no período</p>
-          </div>
-          <div className="flex items-center gap-8 my-auto">
-            <div className="w-28 h-28 rounded-full border-[12px] border-emerald-500 relative flex items-center justify-center shrink-0">
-              <div className="absolute inset-0 rounded-full border-[12px] border-t-blue-500 border-r-amber-400 border-b-rose-500 border-l-transparent transform rotate-45" />
-            </div>
-            <div className="flex-1 space-y-2 text-xs font-bold text-[var(--secondary-foreground)]">
-              <div className="flex justify-between items-center"><span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500"/>Concluídas</span><span className="text-[var(--foreground)]">128 (48%)</span></div>
-              <div className="flex justify-between items-center"><span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500"/>Em andamento</span><span className="text-[var(--foreground)]">82 (31%)</span></div>
-              <div className="flex justify-between items-center"><span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400"/>Pausadas</span><span className="text-[var(--foreground)]">28 (11%)</span></div>
-              <div className="flex justify-between items-center"><span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-rose-500"/>Atrasadas</span><span className="text-[var(--foreground)]">18 (7%)</span></div>
-              <div className="flex justify-between items-center"><span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-[var(--border)]"/>Não iniciadas</span><span className="text-[var(--foreground)]">12 (3%)</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
+export default function ReportView({ report }: { report: ReportDocument }) {
+  return <><div className="report-metrics">{report.metrics.map(item => { const Icon = item.tone === "positive" ? ArrowDownLeft : item.tone === "negative" ? ArrowUpRight : item.tone === "warning" ? TriangleAlert : ChartNoAxesCombined; return <article key={item.id}><div><span>{item.label}</span><i className={`report-tone-${item.tone}`}><Icon size={16}/></i></div><strong className={`report-tone-${item.tone}`}>{item.value}</strong><small>{item.detail}</small></article>; })}</div>{report.tables.map(table => <ReportDataTable key={`${report.id}-${table.id}-${report.filters.join()}`} table={table}/>)}<details className="report-reading-notes"><summary><Info size={14}/>Critérios e notas de leitura</summary><ul>{report.notes.map(note => <li key={note}>{note}</li>)}</ul></details></>;
 }

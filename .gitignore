@@ -2,6 +2,10 @@
 tmp/
 output/
 *.log
+**/artifacts/
+**/test-results/
+**/playwright-report/
+.npm-cache/
 
 # Ambientes e dependências (também cobertos pelos .gitignore internos)
 **/venv/

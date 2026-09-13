@@ -1,0 +1,45 @@
+name: Set recovered system administrators
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: azure-container-apps-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: python -m pip install azure-storage-file-share==12.23.1
+      - name: Set Tarcisio as principal and Fernando as assistant
+        run: python infra/azure/set_system_administrators.py
+      - name: Resume original revision on interrupted update
+        if: always()
+        run: |
+          if [ -f resume-revision.txt ] && [ ! -f roles-completed.txt ]; then
+            az containerapp revision activate -g "$RESOURCE_GROUP" --revision "$(cat resume-revision.txt)" --output none
+          fi
+      - name: Verify public health
+        env:
+          PUBLIC_URL: ${{ vars.AZURE_PUBLIC_URL }}
+        run: curl --fail --silent --show-error --retry 18 --retry-delay 10 --retry-all-errors --max-time 25 "$PUBLIC_URL/health"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: administrator-roles-report
+          path: output/recovery-report.json
+          if-no-files-found: ignore
+          retention-days: 7

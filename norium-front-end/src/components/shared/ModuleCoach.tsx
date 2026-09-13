@@ -170,10 +170,10 @@ const guides: Record<GuidedModule, ModuleGuide> = {
     ],
   },
   Propostas: {
-    title: "Propostas e contratos",
+    title: "Central de documentos",
     description: "Crie documentos comerciais, revise com a Nora, obtenha aprovacoes e converta propostas em contratos.",
     topics: ["Vincule cliente e brainstorm de origem", "Edite com salvamento automatico e historico", "Depois da aprovacao, gere o contrato e transforme obrigacoes em tarefas"],
-    prompt: "Explique a tela de Propostas e contratos e me ajude a preparar um documento comercial completo, perguntando os dados que estiverem faltando antes de executar qualquer acao.",
+    prompt: "Explique a Central de Documentos e me ajude a preparar, revisar ou processar um documento comercial completo, perguntando os dados que estiverem faltando antes de executar qualquer acao.",
   },
   Perfil: {
     title: "Perfil do operador",
@@ -207,16 +207,16 @@ const guides: Record<GuidedModule, ModuleGuide> = {
   },
   Governanca: {
     title: "Governanca",
-    description: "Administre ambientes de trabalho, atendimento, documentos, seguranca e politicas operacionais.",
-    topics: ["Cada ambiente mantem dados isolados (nao confunda com Clientes, seu CRM)", "Documentos autorizados fundamentam respostas da Nora", "Regras protegem credenciais e acoes sensiveis"],
-    prompt: "Explique a Governanca do Norium e avalie ambientes de trabalho, documentos, atendimento e seguranca que precisam de configuracao.",
+    description: "Administre ambientes de trabalho, fontes de conhecimento, permissões e auditoria.",
+    topics: ["Cada ambiente mantem dados isolados (nao confunda com Clientes, seu CRM)", "Documentos autorizados fundamentam respostas da Nora", "Confira os acessos da equipe e as ações registradas"],
+    prompt: "Explique a Governanca do Norium e avalie ambientes de trabalho, fontes de conhecimento e acessos da equipe.",
     quickPrompts: [
-      { label: "Analisar seguranca", prompt: "Analise as regras de aprovacao, o cofre de credenciais e as simulacoes de permissao configuradas na Governanca." },
+      { label: "Analisar seguranca", prompt: "Explique a matriz de permissões e a trilha de auditoria disponíveis na Governança." },
       { label: "Resumir documentos", prompt: "Resuma os documentos e a base de conhecimento cadastrados na Governanca." },
     ],
   },
   Brainstorm: {
-    title: "Brainstorm colaborativo",
+    title: "Estúdio colaborativo",
     description: "Organize ideias em tempo real, defina responsavel e encerre a sessao com decisoes claras.",
     topics: ["O cronometro delimita a dinamica", "Blocos podem ser agrupados e conectados", "Depois do encerramento a sessao fica bloqueada"],
     prompt: "Explique como conduzir um brainstorm no Norium e me ajude a preparar objetivo, duracao e estrutura da sessao.",

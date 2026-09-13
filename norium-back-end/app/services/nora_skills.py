@@ -46,25 +46,29 @@ SKILLS: tuple[NoraSkill, ...] = (
         ),
         supporting_terms=("mensagem", "contato", "grupo", "enviar", "mandar", "responder"),
         conflict_patterns=(
-            r"\bchat\s+(?:da|do)\s+(?:equipe|time)\b",
+            r"\bchat\s+(?:da|de|do)\s+(?:equip\w*|time)\b",
             r"\b(?:e-?mail|gmail)\b",
         ),
     ),
     NoraSkill(
         id="comercial",
-        name="Propostas e contratos",
-        description="Cria, revisa, lista, exclui e converte propostas em contratos e prepara links de assinatura.",
+        name="Documentos, propostas e contratos",
+        description="Cria e revisa documentos editaveis, roteiros de apresentacao, curriculos, propostas, contratos e PDFs prontos para o editor.",
         examples=(
             "quero criar uma proposta",
             "gere um contrato a partir da proposta do cliente Acme",
             "envie o contrato para assinatura",
+            "crie um curriculo com esta foto",
+            "gere uma ata de reuniao",
+            "quero uma apresentacao sobre o meu produto",
         ),
         strong_patterns=(
-            r"\bpropostas?\s+(?:comerciais?)?\b",
+            r"\bpropostas?\b",
             r"\bcontratos?\b",
             r"\b(?:gerar|criar|fazer|montar|preparar)\s+(?:uma\s+)?proposta\b",
             r"\b(?:gerar|criar|converter)\s+(?:um\s+)?contrato\b",
             r"\b(?:link|enviar)\s+(?:para\s+)?assinatura\b",
+            r"\b(?:gerar|criar|fazer|montar|preparar|querer)\s+(?:um|uma)?\s*(?:curriculo|cv|documento|carta|relatorio|ata|plano|orcamento|recibo|fatura|politica|termo|declaracao|certificado|briefing|manual|checklist|apresentacao|slides?|powerpoint|pptx|pitch\s+deck)\b",
         ),
         supporting_terms=(
             "cliente",
@@ -75,6 +79,9 @@ SKILLS: tuple[NoraSkill, ...] = (
             "assinantes",
             "aprovacao",
             "minuta",
+            "curriculo",
+            "documento",
+            "pdf",
         ),
         conflict_patterns=(r"\bproposta\s+de\s+(?:tarefa|automacao)\b",),
     ),
@@ -88,7 +95,7 @@ SKILLS: tuple[NoraSkill, ...] = (
             "envie uma mensagem interna para todos",
         ),
         strong_patterns=(
-            r"\bchat\s+(?:da|do)\s+(?:equipe|time)\b",
+            r"\bchat\s+(?:da|de|do)\s+(?:equip\w*|time)\b",
             r"\bchat\s+interno\b",
             r"\b(?:avise|avisar|notifique|notificar)\s+(?:a|o)?\s*(?:equipe|time)\b",
             r"\bmensagem\s+(?:interna|para\s+(?:a\s+)?equipe|para\s+o\s+time)\b",
@@ -172,13 +179,13 @@ SKILLS: tuple[NoraSkill, ...] = (
             "resuma meus e-mails nao lidos",
         ),
         strong_patterns=(
-            r"\b(?:e-?mail|emails|gmail)\b",
+            r"\b(?:e-?mails?|emails?|gmail)\b",
             r"\bcaixa\s+de\s+entrada\b",
             r"\b(?:destinatario|remetente|assunto|rascunho)\b",
             r"[\w.+-]+@[\w-]+\.[\w.-]+",
         ),
         supporting_terms=("ler", "leia", "listar", "resumir", "responda", "responder", "enviar", "redigir", "anexo"),
-        conflict_patterns=(r"\bchat\s+(?:da|do)\s+(?:equipe|time)\b", r"\bmensagem\s+no\s+whatsapp\b"),
+        conflict_patterns=(r"\bchat\s+(?:da|de|do)\s+(?:equip\w*|time)\b", r"\bmensagem\s+no\s+whatsapp\b"),
     ),
     NoraSkill(
         id="financeiro",
@@ -279,8 +286,10 @@ def _score_skill(skill: NoraSkill, text: str) -> tuple[float, tuple[str, ...]]:
         score += 5.0
     if skill.id == "brainstorm" and re.search(r"\b(?:criar|crie|abrir|abra|resumir|organizar|agrupar)\b", text) and re.search(r"\b(?:brain\s*storm|ideias|mapa\s+mental|quadro)\b", text):
         score += 7.0
-    if skill.id == "comercial" and re.search(r"\b(?:proposta|contrato)\b", text):
+    if skill.id == "comercial" and re.search(r"\b(?:proposta|contrato|curriculo|cv|documento|carta|relatorio|ata|plano|orcamento|recibo|fatura|politica|termo|declaracao|certificado|briefing|manual|checklist|apresentacao|slides?|powerpoint|pptx)\b", text):
         score += 10.0
+    if skill.id == "comercial" and re.search(r"\b(?:apresentacao|slides?|powerpoint|pptx|pitch\s+deck)\b", text) and re.search(r"\b(?:criar|crie|gerar|gere|fazer|monte|montar|preparar|quero|querer|preciso)\b", text):
+        score += 12.0
     if skill.id == "comercial" and re.search(r"\b(?:assinatura|assinante|minuta|escopo\s+comercial)\b", text):
         score += 6.0
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   accountInitials,
   classifyEmailCategory,
+  inboxCategoryQuery,
+  inboxCategoryUnreadCounts,
   cleanEmailSourceText,
   formatBytes,
   friendlyGmailLabel,
@@ -93,6 +95,27 @@ describe("classifyEmailCategory", () => {
 
   it("cai em principal quando nada casa", () => {
     expect(classifyEmailCategory(message({ subject: "Oi" }))).toBe("principal");
+  });
+});
+
+describe("categorias da caixa de entrada", () => {
+  it("usa consultas nativas do Gmail para cada aba", () => {
+    expect(inboxCategoryQuery("principal")).toBe("category:primary");
+    expect(inboxCategoryQuery("promocoes")).toBe("category:promotions");
+    expect(inboxCategoryQuery("social")).toBe("category:social");
+    expect(inboxCategoryQuery("atualizacoes")).toContain("category:forums");
+  });
+
+  it("calcula os nao lidos pelos rotulos oficiais e soma foruns em atualizacoes", () => {
+    const labels = [
+      { id: "CATEGORY_PERSONAL", messagesUnread: 2 },
+      { id: "CATEGORY_PROMOTIONS", messagesUnread: 7 },
+      { id: "CATEGORY_SOCIAL", messagesUnread: 3 },
+      { id: "CATEGORY_UPDATES", messagesUnread: 4 },
+      { id: "CATEGORY_FORUMS", messagesUnread: 1 },
+    ].map((label) => ({ name: label.id, type: "system", messagesTotal: label.messagesUnread, ...label })) as never;
+
+    expect(inboxCategoryUnreadCounts(labels)).toEqual({ principal: 2, promocoes: 7, social: 3, atualizacoes: 5 });
   });
 });
 

@@ -23,9 +23,11 @@ import {
   buildGmailSearchQuery,
   emptyAdvancedFilters,
 } from "../../features/mail/queryBuilder";
-import type { EmailCategoryKey } from "../../features/mail/formatters";
+import type { EmailCategoryKey, InboxCategoryKey } from "../../features/mail/formatters";
 import {
   classifyEmailCategory,
+  inboxCategoryQuery,
+  inboxCategoryUnreadCounts,
 } from "../../features/mail/formatters";
 import { useGmailConnection } from "../../features/mail/hooks/useGmailConnection";
 import { useMailbox } from "../../features/mail/hooks/useMailbox";
@@ -60,14 +62,16 @@ const systemFolders: Array<{ key: string; label: string; icon: LucideIcon; count
 
 
 type EmailDashboardProps = {
+  active?: boolean;
   userId?: string;
   canUseNora?: boolean;
   selectedEmailId?: string | null;
   onSelectedEmailHandled?: () => void;
 };
 
-export default function EmailDashboard({ userId = "primary", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
+export default function EmailDashboard({ active = true, userId = "primary", canUseNora = true, selectedEmailId, onSelectedEmailHandled }: EmailDashboardProps) {
   const [activeFolder, setActiveFolder] = useState("inbox");
+  const [activeInboxCategory, setActiveInboxCategory] = useState<InboxCategoryKey>("principal");
   const [activeFilter, setActiveFilter] = useState<MailQuickFilter>("all");
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -109,11 +113,12 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
     status,
     setStatus,
     labels,
+    connecting: gmailConnecting,
     fetchStatus,
     fetchLabels,
     connect: connectGmail,
     disconnect: disconnectGmail,
-  } = useGmailConnection({ userId, onError: setError, onDisconnected: handleDisconnected });
+  } = useGmailConnection({ active, userId, onError: setError, onDisconnected: handleDisconnected });
 
   const handleMailboxChanged = useCallback(() => {
     setSelectedIds(new Set());
@@ -127,6 +132,11 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
   const handleRefreshLabels = useCallback(() => {
     void fetchLabels().catch(() => undefined);
   }, [fetchLabels]);
+
+  const mailboxSearchQuery = useMemo(() => {
+    if (activeFolder !== "inbox") return searchQuery;
+    return [inboxCategoryQuery(activeInboxCategory), searchQuery].filter(Boolean).join(" ");
+  }, [activeFolder, activeInboxCategory, searchQuery]);
 
   const {
     messages,
@@ -142,8 +152,8 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
     userId,
     folder: activeFolder,
     filter: activeFilter,
-    searchQuery,
-    connected: Boolean(status?.connected),
+    searchQuery: mailboxSearchQuery,
+    connected: active && Boolean(status?.connected),
     autoRefresh,
     onError: setError,
     onStatusPayload: handleStatusPayload,
@@ -230,7 +240,7 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
 
   const labelById = useMemo(() => new Map(labels.map((label) => [label.id, label])), [labels]);
   const userLabels = labels.filter((label) => label.type === "user").slice(0, 14);
-  const inboxUnread = labelById.get("INBOX")?.messagesUnread || 0;
+  const inboxCategoryCounts = useMemo(() => inboxCategoryUnreadCounts(labels), [labels]);
   const groupedMessages = useMemo(() => {
     const groups = new Map<EmailCategoryKey, GmailMessage[]>();
     messages.forEach((message) => {
@@ -247,13 +257,14 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
 
 
   useEffect(() => {
+    if (!active) return;
     void fetchStatus().catch((err) => setError(err instanceof Error ? err.message : "Falha ao checar Gmail."));
-  }, [fetchStatus]);
+  }, [active, fetchStatus]);
 
   useEffect(() => {
-    if (!status?.connected) return;
+    if (!active || !status?.connected) return;
     void fetchLabels().catch(() => undefined);
-  }, [fetchLabels, status?.connected]);
+  }, [active, fetchLabels, status?.connected]);
 
   useEffect(() => {
     setReplyText("");
@@ -324,12 +335,20 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
 
   function selectMailbox(folder: string) {
     setActiveFolder(folder);
+    if (folder === "inbox") setActiveInboxCategory("principal");
     setActiveFilter("all");
     setSearchDraft("");
     setSearchQuery("");
     setAdvancedFilters(emptyAdvancedFilters);
     setFiltersOpen(false);
     setMobileSidebarOpen(false);
+  }
+
+  function selectInboxCategory(category: InboxCategoryKey) {
+    if (category === activeInboxCategory) return;
+    setActiveInboxCategory(category);
+    setSelectedMessage(null);
+    setSelectedIds(new Set());
   }
 
   async function createLabel() {
@@ -377,6 +396,9 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
     : activeFolder.startsWith("label:")
       ? labelById.get(activeFolder.split(":", 2)[1])?.name || "Marcador"
       : systemFolders.find((folder) => folder.key === activeFolder)?.label || "Caixa De Entrada";
+  const visibleUnreadCount = activeFolder === "inbox"
+    ? inboxCategoryCounts[activeInboxCategory]
+    : messages.filter((message) => message.unread).length;
 
 
   return (
@@ -441,10 +463,11 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
               <div className="mt-6 flex justify-center gap-3">
                 <Button variant="ghost" size="lg"
                   onClick={() => void connectGmail()}
+                  disabled={gmailConnecting}
                   className="mail-primary bg-[#0EA5E9] hover:bg-[#0284C7]"
                 >
                   <Sparkles size={17} />
-                  Conectar Gmail
+                  {gmailConnecting ? "Abrindo Google..." : "Conectar Gmail"}
                 </Button>
                 <Button size="lg"
                   onClick={() => void fetchStatus()}
@@ -460,7 +483,7 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
           <main className="flex min-h-0 flex-1 overflow-hidden">
             <MailMessageList
               title={mailboxTitle}
-              unreadCount={inboxUnread}
+              unreadCount={visibleUnreadCount}
               autoRefresh={autoRefresh}
               loading={loading}
               error={error}
@@ -475,7 +498,11 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
               activeFilter={activeFilter}
               compactMode={compactMode}
               showPreview={showPreview}
-              groupByCategory={groupByCategory}
+              groupByCategory={activeFolder === "inbox" ? false : groupByCategory}
+              showInboxCategories={activeFolder === "inbox"}
+              activeInboxCategory={activeInboxCategory}
+              inboxCategoryCounts={inboxCategoryCounts}
+              onInboxCategoryChange={selectInboxCategory}
               onRefresh={() => void fetchMessages(false)}
               onFirstPage={() => void fetchMessages(false, null)}
               onNextPage={() => void fetchMessages(true, nextPageToken)}
@@ -593,9 +620,13 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
         <MailSettingsDrawer
           preferences={preferences}
           status={status}
+          connecting={gmailConnecting}
           onPreferenceChange={setPreference}
           onRefreshNow={() => void fetchMessages(false)}
-          onConnect={() => void connectGmail()}
+          onConnect={() => {
+            setSettingsOpen(false);
+            void connectGmail();
+          }}
           onDisconnect={() => void disconnectGmail()}
           onClose={() => setSettingsOpen(false)}
         />
@@ -604,10 +635,14 @@ export default function EmailDashboard({ userId = "primary", canUseNora = true, 
       {profileOpen && (
         <ProfilePopover
           status={status}
+          connecting={gmailConnecting}
           onClose={() => setProfileOpen(false)}
           onOpenSettings={() => { setSettingsOpen(true); setProfileOpen(false); }}
           onRefresh={() => void fetchStatus()}
-          onConnect={() => void connectGmail()}
+          onConnect={() => {
+            setProfileOpen(false);
+            void connectGmail();
+          }}
           onDisconnect={() => void disconnectGmail()}
         />
       )}

@@ -28,6 +28,7 @@ type CommercialInspectorProps = {
   revisions: DocumentRevision[];
   advancedPlan: boolean;
   readOnly?: boolean;
+  imageLabel?: string;
   onBrandingChange: (branding: Branding) => void;
   onSignersChange: (signers: Signer[]) => void;
   onDeliverablesChange: (deliverables: Deliverable[]) => void;
@@ -74,6 +75,7 @@ export default function CommercialInspector({
   revisions,
   advancedPlan,
   readOnly = false,
+  imageLabel = "Logo",
   onBrandingChange,
   onSignersChange,
   onDeliverablesChange,
@@ -129,20 +131,20 @@ export default function CommercialInspector({
           <div className="space-y-5">
             <InspectorHeading title="Identidade visual" description={advancedPlan ? "Perfis de marca da empresa." : "Perfil de marca pessoal."} />
             <label className={`flex min-h-24 items-center justify-center gap-3 rounded-lg border border-dashed border-[var(--border)] bg-[var(--background)] p-3 text-center ${readOnly ? "opacity-60" : "cursor-pointer hover:border-blue-500"}`}>
-              {branding.logoUrl ? <img src={branding.logoUrl} alt="Logo da proposta" className="max-h-16 max-w-full object-contain" /> : <><ImagePlus size={20} /><span className="text-xs font-bold">Enviar logo</span></>}
+              {branding.logoUrl ? <img src={branding.logoUrl} alt={imageLabel} className={`max-h-16 max-w-full ${imageLabel.startsWith("Foto") ? "aspect-square rounded-full object-cover" : "object-contain"}`} /> : <><ImagePlus size={20} /><span className="text-xs font-bold">Enviar {imageLabel.toLocaleLowerCase("pt-BR")}</span></>}
               <input type="file" accept="image/*" className="sr-only" disabled={readOnly} onChange={uploadLogo} />
             </label>
             {branding.logoUrl && !readOnly && (
-              <Button size="sm" variant="ghost" onClick={() => onBrandingChange({ ...branding, logoUrl: "" })} icon={<Trash2 size={13} />}>Remover logo</Button>
+              <Button size="sm" variant="ghost" onClick={() => onBrandingChange({ ...branding, logoUrl: "" })} icon={<Trash2 size={13} />}>Remover {imageLabel.toLocaleLowerCase("pt-BR")}</Button>
             )}
-            <Field label="Alinhamento da logo">
+            <Field label={`Alinhamento da ${imageLabel.toLocaleLowerCase("pt-BR")}`}>
               <select value={branding.logoAlignment} disabled={readOnly} onChange={(event) => onBrandingChange({ ...branding, logoAlignment: event.target.value as Branding["logoAlignment"] })} className="commercial-field">
                 <option value="left">Esquerda</option>
                 <option value="center">Centro</option>
                 <option value="right">Direita</option>
               </select>
             </Field>
-            <Field label={`Escala da logo (${branding.logoScale}%)`}>
+            <Field label={`Escala da ${imageLabel.toLocaleLowerCase("pt-BR")} (${branding.logoScale}%)`}>
               <input type="range" min="30" max="180" value={branding.logoScale} disabled={readOnly} onChange={(event) => onBrandingChange({ ...branding, logoScale: Number(event.target.value) })} className="w-full accent-blue-500" />
             </Field>
             <div className="grid grid-cols-3 gap-2">

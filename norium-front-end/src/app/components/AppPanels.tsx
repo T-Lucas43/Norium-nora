@@ -1,5 +1,5 @@
 // Concentra o roteamento visual e carrega cada modulo somente quando necessario.
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { AuthSession } from "../../types/auth";
 import type {
   EventSource,
@@ -9,6 +9,7 @@ import type {
 } from "../../types/omnichannel";
 import ModuleCoach, { type GuidedModule } from "../../components/shared/ModuleCoach";
 
+const NoraWorkspace = lazy(() => import("../../components/nora/NoraWorkspace"));
 const AgendaDashboard = lazy(() => import("../../components/agenda/AgendaDashboard"));
 const AutomationsDashboard = lazy(() => import("../../components/automations/AutomationsDashboard"));
 const BrainstormDashboard = lazy(() => import("../../components/brainstorm/BrainstormDashboard"));
@@ -19,7 +20,7 @@ const Dashboard = lazy(() => import("../../components/dashboard/Dashboard"));
 const EmailDashboard = lazy(() => import("../../components/emails/EmailDashboard"));
 const FinanceDashboard = lazy(() => import("../../components/finance/FinanceDashboard"));
 const HelpDashboard = lazy(() => import("../../components/help/HelpDashboard"));
-const InboxUniversal = lazy(() => import("../../components/inbox/InboxUniversal"));
+const IntelligenceHubDashboard = lazy(() => import("../../components/intelligence/IntelligenceHubDashboard"));
 const MoreDashboard = lazy(() => import("../../components/more/MoreDashboard"));
 const OperationsDashboard = lazy(() => import("../../components/operations/OperationsDashboard"));
 const ProfileSettings = lazy(() => import("../../components/profile/ProfileSettings"));
@@ -29,7 +30,6 @@ const SettingsDashboard = lazy(() => import("../../components/settings/SettingsD
 const SystemNotificationsCenter = lazy(() => import("../../components/notifications/SystemNotificationsCenter"));
 const TasksDashboard = lazy(() => import("../../components/tasks/TasksDashboard"));
 const TeamDashboard = lazy(() => import("../../components/team/TeamDashboard"));
-const TeamChatDrawer = lazy(() => import("../../components/team-chat/TeamChatDrawer"));
 const WorkHubDashboard = lazy(() => import("../../components/workhub/WorkHubDashboard"));
 
 function PanelLoading() {
@@ -49,7 +49,6 @@ type AppPanelsProps = {
   connected: boolean;
   emailToOpenId: string | null;
   eventsBySource: EventGroups;
-  mountedTabs: Set<string>;
   profile: PerfilOperador | null;
   systemNotifications: SystemNotification[];
   onActiveConversationChange: (conversationId: string | null) => void;
@@ -73,7 +72,6 @@ export default function AppPanels({
   connected,
   emailToOpenId,
   eventsBySource,
-  mountedTabs,
   profile,
   systemNotifications,
   onActiveConversationChange,
@@ -86,13 +84,14 @@ export default function AppPanels({
   onOpenNora,
   onOpenTeamChat,
   onProfileSaved,
-  onRefreshEvents,
   onSessionUpdate,
 }: AppPanelsProps) {
+  const [noraVisited, setNoraVisited] = useState(activeTab === "Nora");
+  useEffect(() => { if (activeTab === "Nora") setNoraVisited(true); }, [activeTab]);
   const currentUser = authSession.user;
   const activePanelClass = (...tabs: string[]) => (tabs.includes(activeTab) ? "app-panel" : "hidden");
-  const isPanelMounted = (...tabs: string[]) => tabs.some((tab) => mountedTabs.has(tab) || tabs.includes(activeTab));
-  const coach = (module: GuidedModule, compact = false) => (
+  const isPanelMounted = (...tabs: string[]) => tabs.includes(activeTab);
+  const coach = (module: GuidedModule, compact = false) => profile?.interface_preferences?.showGuides === false ? null : (
     <ModuleCoach module={module} onAskNora={onOpenNora} compact={compact} />
   );
 
@@ -112,20 +111,12 @@ export default function AppPanels({
       )}
       {isPanelMounted("Inbox", "Central") && (
         <section className={activePanelClass("Inbox", "Central")}>
-          {coach("Central")}
-          <InboxUniversal eventsBySource={eventsBySource} connected={connected} onRefresh={onRefreshEvents} />
+          <WorkHubDashboard onNavigate={onNavigate} onOpenDeepLink={onOpenDeepLink} onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Controle") && (
         <section className={activePanelClass("Controle")}>
-          {coach("Controle")}
-          <OperationsDashboard onNavigate={onNavigate} userId={currentUser.id} />
-        </section>
-      )}
-      {isPanelMounted("Pendencias") && (
-        <section className={activePanelClass("Pendencias")}>
-          {coach("Pendencias")}
-          <WorkHubDashboard onNavigate={onNavigate} onOpenDeepLink={onOpenDeepLink} />
+          <OperationsDashboard onNavigate={onNavigate} onOpenNora={onOpenNora} userId={currentUser.id} />
         </section>
       )}
       {isPanelMounted("Notificacoes", "Notificações") && (
@@ -143,6 +134,7 @@ export default function AppPanels({
         <section className={activePanelClass("E-mail", "E-mails")}>
           {coach("Emails")}
           <EmailDashboard
+            active={activeTab === "E-mail" || activeTab === "E-mails"}
             userId={currentUser.id}
             canUseNora={canUseNora}
             selectedEmailId={emailToOpenId}
@@ -160,6 +152,7 @@ export default function AppPanels({
         <section className={`${activePanelClass("Chat")} app-panel-chat`}>
           {coach("Chat")}
           <ChatCentral
+            active={activeTab === "Chat"}
             userId={currentUser.id}
             onConversaAtivaChange={onActiveConversationChange}
             onOpenNora={onOpenNora}
@@ -167,20 +160,19 @@ export default function AppPanels({
         </section>
       )}
       {isPanelMounted("Tarefas") && (
-        <section className={activePanelClass("Tarefas")}>
-          {coach("Tarefas")}
+        <section className={`${activePanelClass("Tarefas")} app-panel-tasks`}>
+          {coach("Tarefas", true)}
           <TasksDashboard session={authSession} />
         </section>
       )}
       {isPanelMounted("Gastos", "Financeiro") && (
         <section className={activePanelClass("Gastos", "Financeiro")}>
-          {coach("Gastos")}
-          <FinanceDashboard userId={currentUser.id} />
+          <FinanceDashboard userId={currentUser.id} onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Automacoes", "Automações") && (
         <section className={activePanelClass("Automacoes", "Automações")}>
-          {coach("Automacoes")}
+          {coach("Automacoes", true)}
           <AutomationsDashboard onOpenNora={onOpenNora} userId={currentUser.id} />
         </section>
       )}
@@ -196,10 +188,30 @@ export default function AppPanels({
           />
         </section>
       )}
-      {isPanelMounted("Propostas") && (
-        <section className={activeTab === "Propostas" ? "app-panel" : "hidden"}>
-          {coach("Propostas")}
+      {isPanelMounted("Documentos", "Propostas") && (
+        <section className={activeTab === "Documentos" || activeTab === "Propostas" ? "app-panel" : "hidden"}>
+          {coach("Propostas", true)}
           <CommercialDashboard session={authSession} onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("Agente Navegador") && (
+        <section className={activePanelClass("Agente Navegador")}>
+          <IntelligenceHubDashboard mode="browser" onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("Conhecimento") && (
+        <section className={activePanelClass("Conhecimento")}>
+          <IntelligenceHubDashboard mode="knowledge" onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("Marketplace") && (
+        <section className={activePanelClass("Marketplace")}>
+          <IntelligenceHubDashboard mode="marketplace" onOpenNora={onOpenNora} />
+        </section>
+      )}
+      {isPanelMounted("IA e Modelos") && (
+        <section className={activePanelClass("IA e Modelos")}>
+          <IntelligenceHubDashboard mode="models" onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Perfil") && (
@@ -231,16 +243,8 @@ export default function AppPanels({
         </section>
       )}
       {isPanelMounted("Chat da Equipe") && (
-        <section className={activePanelClass("Chat da Equipe")}>
-          {coach("TeamChat")}
-          <TeamChatDrawer
-            open
-            variant="page"
-            session={authSession}
-            onClose={() => onNavigate("Equipe")}
-            onUnread={() => undefined}
-            onOpenNora={onOpenNora}
-          />
+        <section className="team-chat-page-intro">
+          {coach("TeamChat", true)}
         </section>
       )}
       {isPanelMounted("Clientes") && (
@@ -255,9 +259,10 @@ export default function AppPanels({
           <PlatformDashboard session={authSession} onNavigate={onNavigate} />
         </section>
       )}
-      {isPanelMounted("Brainstorm") && (
-        <section className={activePanelClass("Brainstorm")}>
-          {coach("Brainstorm")}
+      {(noraVisited || isPanelMounted("Nora")) && canUseNora && <section className={`${activePanelClass("Nora")} app-panel-nora`}><NoraWorkspace userId={currentUser.id} profile={profile} eventsBySource={eventsBySource} onOpenEmail={(id) => onOpenDeepLink({ tab: "E-mails", entityType: "email", entityId: id })} /></section>}
+      {isPanelMounted("Estúdio", "Brainstorm") && (
+        <section className={activePanelClass("Estúdio", "Brainstorm")}>
+          {coach("Brainstorm", true)}
           <BrainstormDashboard session={authSession} onNavigate={onNavigate} />
         </section>
       )}

@@ -15,11 +15,13 @@ atuam somente sobre o vínculo daquela conta.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import logging
 import os
 import time
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import quote, urlparse
 
@@ -43,7 +45,7 @@ class WapiConfigurationError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class _HomologationConfig:
     instance_id: str
-    token: str
+    token: str = field(repr=False)
     tenant_id: str
 
 
@@ -274,23 +276,340 @@ class WapiConnectService:
         *,
         require_pro: bool = False,
     ) -> dict[str, Any] | None:
-        """Procura na conta uma instância já criada com este nome (idempotência)."""
-        try:
-            listing = await self._client.list_instances()
-        except WapiError:
-            return None
-        items = listing.get("instances") if isinstance(listing, dict) else listing
+        """Reconcilia por nome; falha de listagem nunca autoriza um novo POST."""
+        listing = await self._client.list_instances()
+        if isinstance(listing, dict):
+            items = listing.get("instances")
+            if items is None:
+                items = listing.get("data")
+        else:
+            items = listing
         for item in items or []:
+            credential = (
+                item.get("token") or item.get("instanceToken")
+                if isinstance(item, dict)
+                else ""
+            )
             if (
                 isinstance(item, dict)
                 and item.get("instanceName") == name
                 and item.get("instanceId")
-                and item.get("token")
+                and credential
             ):
                 if require_pro and self._instance_declares_lite(item):
                     continue
-                return item
+                normalized = dict(item)
+                normalized["token"] = credential
+                return normalized
         return None
+
+    @staticmethod
+    def _duration_from_env(
+        name: str,
+        default: float,
+        *,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        try:
+            value = float(os.getenv(name, str(default)))
+        except (TypeError, ValueError):
+            value = default
+        return min(maximum, max(minimum, value))
+
+    @staticmethod
+    def _tenant_log_ref(user_id: str) -> str:
+        return hashlib.sha256(str(user_id).encode("utf-8")).hexdigest()[:12]
+
+    @staticmethod
+    def _remote_failure_retry_safe(exc: WapiError) -> bool:
+        return bool(
+            exc.status is not None
+            and 400 <= exc.status < 500
+            and exc.status not in _RETRIABLE_WEBHOOK_STATUSES
+        )
+
+    async def _fail_provisioning_safely(
+        self,
+        user_id: str,
+        claim: wb.ProvisioningClaim,
+        *,
+        error_code: str,
+        retry_safe: bool,
+    ) -> None:
+        try:
+            await asyncio.to_thread(
+                wb.fail_provisioning,
+                user_id,
+                claim,
+                error_code=error_code,
+                retry_safe=retry_safe,
+            )
+        except Exception:
+            logger.warning(
+                "W-API lifecycle state=failed_persistence tenant_ref=%s attempt=%s.",
+                self._tenant_log_ref(user_id),
+                claim.attempt_id[:12],
+            )
+
+    async def _finish_provisioning(
+        self,
+        user_id: str,
+        claim: wb.ProvisioningClaim,
+        binding: InstanceBinding,
+        *,
+        record_remote: bool,
+        lease_seconds: float,
+    ) -> InstanceBinding:
+        try:
+            if record_remote:
+                await asyncio.to_thread(
+                    wb.record_remote_result,
+                    user_id,
+                    claim,
+                    binding,
+                    lease_seconds=lease_seconds,
+                )
+            completed = await asyncio.to_thread(
+                wb.complete_provisioning,
+                user_id,
+                claim,
+                binding,
+            )
+        except wb.InstanceOwnershipError as exc:
+            await self._fail_provisioning_safely(
+                user_id,
+                claim,
+                error_code="instance_ownership_conflict",
+                retry_safe=False,
+            )
+            raise WapiError(
+                "Instância W-API já vinculada a outra conta.",
+                code="instance_owned_by_another_tenant",
+            ) from exc
+        except wb.ProvisioningLeaseLostError as exc:
+            raise WapiError(
+                "O provisionamento continua em outra réplica.",
+                code="provisioning_lease_lost",
+            ) from exc
+        except (wb.BindingPersistenceError, ValueError) as exc:
+            await self._fail_provisioning_safely(
+                user_id,
+                claim,
+                error_code="binding_persistence_failed",
+                retry_safe=False,
+            )
+            raise WapiError(
+                "A instância foi criada, mas o vínculo local ainda precisa ser recuperado.",
+                code="binding_persistence_failed",
+            ) from exc
+
+        logger.info(
+            "W-API lifecycle state=active tenant_ref=%s attempt=%s.",
+            self._tenant_log_ref(user_id),
+            claim.attempt_id[:12],
+        )
+        return completed
+
+    async def _provision_claim(
+        self,
+        user_id: str,
+        claim: wb.ProvisioningClaim,
+        *,
+        desired_instance_name: str,
+        legacy_instance_name: str,
+        lite: bool,
+        lease_seconds: float,
+    ) -> InstanceBinding:
+        logger.info(
+            "W-API lifecycle state=provisioning tenant_ref=%s attempt=%s retry=%s.",
+            self._tenant_log_ref(user_id),
+            claim.attempt_id[:12],
+            claim.attempt_count,
+        )
+        if claim.remote_binding is not None:
+            return await self._finish_provisioning(
+                user_id,
+                claim,
+                claim.remote_binding,
+                record_remote=False,
+                lease_seconds=lease_seconds,
+            )
+
+        instance_name = claim.instance_name or desired_instance_name
+        try:
+            await asyncio.to_thread(
+                wb.renew_provisioning,
+                user_id,
+                claim,
+                lease_seconds=lease_seconds,
+            )
+            existing = await self._find_instance_by_name(
+                instance_name,
+                require_pro=not lite,
+            )
+            if (
+                not existing
+                and not lite
+                and legacy_instance_name != instance_name
+            ):
+                await asyncio.to_thread(
+                    wb.renew_provisioning,
+                    user_id,
+                    claim,
+                    lease_seconds=lease_seconds,
+                )
+                existing = await self._find_instance_by_name(
+                    legacy_instance_name,
+                    require_pro=True,
+                )
+                if existing:
+                    instance_name = legacy_instance_name
+        except WapiError as exc:
+            await self._fail_provisioning_safely(
+                user_id,
+                claim,
+                error_code=exc.code or f"list_status_{exc.status or 'unknown'}",
+                retry_safe=not claim.remote_started,
+            )
+            raise
+        except (wb.BindingPersistenceError, wb.ProvisioningLeaseLostError) as exc:
+            await self._fail_provisioning_safely(
+                user_id,
+                claim,
+                error_code="lease_renewal_failed",
+                retry_safe=not claim.remote_started,
+            )
+            raise WapiError(
+                "Não foi possível coordenar o provisionamento W-API.",
+                code="provisioning_persistence_failed",
+            ) from exc
+
+        if existing:
+            recovered = InstanceBinding(
+                instance_id=str(existing.get("instanceId") or ""),
+                token=str(existing.get("token") or ""),
+                instance_name=instance_name,
+                state="awaiting_qr",
+                created_at=time.time(),
+                consent=claim.binding.consent,
+            )
+            return await self._finish_provisioning(
+                user_id,
+                claim,
+                recovered,
+                record_remote=True,
+                lease_seconds=lease_seconds,
+            )
+
+        if claim.remote_started:
+            await self._fail_provisioning_safely(
+                user_id,
+                claim,
+                error_code="remote_outcome_unknown",
+                retry_safe=False,
+            )
+            raise WapiError(
+                "O resultado de uma criação anterior é incerto; nenhuma nova instância foi criada.",
+                code="remote_outcome_unknown",
+            )
+
+        try:
+            await asyncio.to_thread(
+                wb.mark_remote_started,
+                user_id,
+                claim,
+                lease_seconds=lease_seconds,
+            )
+        except (wb.BindingPersistenceError, wb.ProvisioningLeaseLostError) as exc:
+            await self._fail_provisioning_safely(
+                user_id,
+                claim,
+                error_code="remote_start_persistence_failed",
+                retry_safe=True,
+            )
+            raise WapiError(
+                "Não foi possível iniciar o provisionamento W-API com segurança.",
+                code="provisioning_persistence_failed",
+            ) from exc
+
+        try:
+            # A W-API não documenta chave de idempotência. O lease e a
+            # reconciliação por nome determinístico protegem este POST.
+            created = await self._client.create_instance(
+                instance_name=instance_name,
+                lite=lite,
+                webhooks=self._webhook_urls(),
+            )
+        except WapiError as exc:
+            await self._fail_provisioning_safely(
+                user_id,
+                claim,
+                error_code=exc.code or f"create_status_{exc.status or 'unknown'}",
+                retry_safe=self._remote_failure_retry_safe(exc),
+            )
+            logger.warning(
+                "W-API lifecycle state=failed tenant_ref=%s attempt=%s status=%s code=%s.",
+                self._tenant_log_ref(user_id),
+                claim.attempt_id[:12],
+                exc.status,
+                exc.code,
+            )
+            raise
+        except Exception as exc:
+            await self._fail_provisioning_safely(
+                user_id,
+                claim,
+                error_code="unexpected_create_failure",
+                retry_safe=False,
+            )
+            logger.warning(
+                "W-API lifecycle state=failed tenant_ref=%s attempt=%s exception=%s.",
+                self._tenant_log_ref(user_id),
+                claim.attempt_id[:12],
+                type(exc).__name__,
+            )
+            raise WapiError(
+                "Falha inesperada ao criar a instância W-API.",
+                code="create_failed",
+            ) from None
+
+        created_payload = created if isinstance(created, dict) else {}
+        new_id = str(
+            created_payload.get("instanceId") or created_payload.get("id") or ""
+        )
+        new_token = str(
+            created_payload.get("token")
+            or created_payload.get("instanceToken")
+            or ""
+        )
+        if not new_id or not new_token:
+            await self._fail_provisioning_safely(
+                user_id,
+                claim,
+                error_code="invalid_create_response",
+                retry_safe=False,
+            )
+            raise WapiError(
+                "A W-API não retornou instância válida na criação.",
+                code="create_failed",
+            )
+
+        created_binding = InstanceBinding(
+            instance_id=new_id,
+            token=new_token,
+            instance_name=instance_name,
+            state="awaiting_qr",
+            created_at=time.time(),
+            consent=claim.binding.consent,
+        )
+        return await self._finish_provisioning(
+            user_id,
+            claim,
+            created_binding,
+            record_remote=True,
+            lease_seconds=lease_seconds,
+        )
 
     async def ensure_instance(self, user_id: str, *, allow_create: bool = True) -> InstanceBinding:
         """Garante o vínculo de uma instância à conta, de forma idempotente."""
@@ -312,8 +631,17 @@ class WapiConnectService:
             # painel). Se sumiu, limpa o vínculo e recria/reutiliza abaixo.
             try:
                 await self._client.status(binding.instance_id, binding.token)
-                await self._refresh_existing_webhooks(binding)
-                return binding
+                latest = self._get_owned_binding(user_id)
+                if (
+                    latest.exists
+                    and latest.instance_id == binding.instance_id
+                    and latest.token == binding.token
+                ):
+                    await self._refresh_existing_webhooks(latest)
+                    return latest
+                if latest.exists:
+                    return latest
+                binding = latest
             except WapiError as exc:
                 if exc.status not in {401, 404}:
                     # Rate limit/5xx/rede não provam que a instância sumiu.
@@ -321,8 +649,15 @@ class WapiConnectService:
                     # WhatsApp já conectado em uma indisponibilidade transitória.
                     raise
                 logger.info("Vínculo aponta para instância inexistente; recriando.")
-                wb.clear_binding(user_id)
+                wb.clear_binding_if_matches(
+                    user_id,
+                    binding.instance_id,
+                    expected_updated_at=binding.updated_at,
+                )
                 binding = self._get_owned_binding(user_id)
+                if binding.exists:
+                    # Outra réplica já substituiu o binding observado como inválido.
+                    return binding
 
         # Homologação: vincula uma instância pré-provisionada (sem create-instance).
         test_id, test_token = self._homolog_instance(user_id)
@@ -346,9 +681,7 @@ class WapiConnectService:
         if not allow_create:
             raise WapiError("Nenhuma instância de WhatsApp vinculada.", code="no_instance")
 
-        # Produção: cria a instância pela API Key Mestra, já com os webhooks.
-        binding.state = "creating"
-        wb.save_binding(user_id, binding)
+        # Produção: o claim SQLite é o ponto de serialização entre processos.
         legacy_instance_name = f"norium-{user_id}"[:60]
         lite = os.getenv("WAPI_INSTANCE_LITE", "false").strip().lower() in {"1", "true", "yes"}
         # Instâncias PRO usam um nome próprio para que uma reconexão local não
@@ -358,45 +691,74 @@ class WapiConnectService:
             if lite
             else f"norium-{user_id}-pro"[:60]
         )
-
-        # Idempotência: se já existe uma instância deste usuário, reutiliza — evita
-        # criar duplicatas que religam o mesmo número e derrubam outras sessões.
-        existing = await self._find_instance_by_name(instance_name, require_pro=not lite)
-        if not existing and not lite and legacy_instance_name != instance_name:
-            # Compatibilidade com instâncias PRO criadas antes do sufixo. Se a
-            # listagem declarar LITE, ela é preservada na W-API, mas não vinculada.
-            existing = await self._find_instance_by_name(legacy_instance_name, require_pro=True)
-            if existing:
-                instance_name = legacy_instance_name
-        if existing:
-            binding.instance_id = str(existing.get("instanceId") or "")
-            binding.token = str(existing.get("token") or "")
-            binding.instance_name = instance_name
-            binding.state = "awaiting_qr"
-            binding.created_at = time.time()
-            if binding.exists:
-                binding = self._save_owned_binding(user_id, binding)
-                await self._refresh_existing_webhooks(binding)
-                return binding
-
-        # Plano da instância criada: PRO por padrão (LITE bloqueia reações,
-        # figurinhas, listagem e sync de enviadas). Override por WAPI_INSTANCE_LITE.
-        created = await self._client.create_instance(
-            instance_name=instance_name,
-            lite=lite,
-            webhooks=self._webhook_urls(),
+        lease_seconds = self._duration_from_env(
+            "WAPI_PROVISIONING_LEASE_SECONDS",
+            120.0,
+            # list_instances pode consumir 3 x 25s com backoff no cliente.
+            minimum=90.0,
+            maximum=900.0,
         )
-        new_id = str(created.get("instanceId") or created.get("id") or "")
-        new_token = str(created.get("token") or created.get("instanceToken") or "")
-        if not new_id or not new_token:
-            binding.state = "error"
-            wb.save_binding(user_id, binding)
-            raise WapiError("A W-API não retornou instância válida na criação.", code="create_failed")
-        binding.instance_id = new_id
-        binding.token = new_token
-        binding.state = "awaiting_qr"
-        binding.created_at = time.time()
-        return self._save_owned_binding(user_id, binding)
+        wait_seconds = self._duration_from_env(
+            "WAPI_PROVISIONING_WAIT_SECONDS",
+            45.0,
+            minimum=0.1,
+            maximum=300.0,
+        )
+        poll_seconds = self._duration_from_env(
+            "WAPI_PROVISIONING_POLL_SECONDS",
+            0.05,
+            minimum=0.01,
+            maximum=1.0,
+        )
+        lease_owner = uuid.uuid4().hex
+        deadline = time.monotonic() + wait_seconds
+        backoff = poll_seconds
+
+        while True:
+            try:
+                claim = await asyncio.to_thread(
+                    wb.claim_provisioning,
+                    user_id,
+                    instance_name,
+                    lease_owner,
+                    lease_seconds=lease_seconds,
+                )
+            except wb.InstanceOwnershipError as exc:
+                raise WapiError(
+                    "Instância W-API já vinculada a outra conta.",
+                    code="instance_owned_by_another_tenant",
+                ) from exc
+            except wb.BindingPersistenceError as exc:
+                raise WapiError(
+                    "Não foi possível coordenar o provisionamento W-API.",
+                    code="provisioning_persistence_failed",
+                ) from exc
+
+            if claim.role == "active":
+                return claim.binding
+            if claim.acquired:
+                return await self._provision_claim(
+                    user_id,
+                    claim,
+                    desired_instance_name=instance_name,
+                    legacy_instance_name=legacy_instance_name,
+                    lite=lite,
+                    lease_seconds=lease_seconds,
+                )
+            if claim.role == "disconnecting":
+                raise WapiError(
+                    "A instância está sendo desconectada.",
+                    code="instance_disconnecting",
+                )
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise WapiError(
+                    "O provisionamento já está em andamento em outra réplica.",
+                    code="provisioning_in_progress",
+                )
+            await asyncio.sleep(min(backoff, remaining))
+            backoff = min(0.5, backoff * 1.5)
 
     # ---- estado / QR -----------------------------------------------------
 
@@ -622,9 +984,55 @@ class WapiConnectService:
         if not binding.exists:
             return False
         try:
+            lifecycle = await asyncio.to_thread(
+                wb.begin_disconnecting,
+                user_id,
+                binding.instance_id,
+                uuid.uuid4().hex,
+            )
+        except wb.BindingPersistenceError:
+            return False
+        if lifecycle is None or not lifecycle.acquired:
+            return False
+        try:
             await self._client.disconnect(binding.instance_id, binding.token)
-        except WapiError:
+        except WapiError as exc:
+            try:
+                await asyncio.to_thread(
+                    wb.fail_disconnecting,
+                    user_id,
+                    lifecycle,
+                    error_code=exc.code or f"disconnect_status_{exc.status or 'unknown'}",
+                )
+            except wb.BindingPersistenceError:
+                pass
+            logger.warning(
+                "W-API lifecycle state=failed tenant_ref=%s attempt=%s status=%s code=%s.",
+                self._tenant_log_ref(user_id),
+                lifecycle.attempt_id[:12],
+                exc.status,
+                exc.code,
+            )
             return False
         self._drop_qr_cache(binding.instance_id)
-        self._apply_state(user_id, binding, "disconnected")
+        binding.state = "disconnected"
+        binding.connected_at = None
+        try:
+            await asyncio.to_thread(
+                wb.complete_disconnecting,
+                user_id,
+                lifecycle,
+                binding,
+            )
+        except (wb.BindingPersistenceError, wb.ProvisioningLeaseLostError):
+            try:
+                await asyncio.to_thread(
+                    wb.fail_disconnecting,
+                    user_id,
+                    lifecycle,
+                    error_code="disconnect_persistence_failed",
+                )
+            except wb.BindingPersistenceError:
+                pass
+            return False
         return True

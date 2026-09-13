@@ -9,7 +9,10 @@
 
 - **Base**: `https://api.w-api.app/v1`
 - **Auth (instância)**: header `Authorization: Bearer <instanceToken>`, `?instanceId=<id>` na query.
-- **Auth (conta/mestra)**: `client/*` usa a API Key Mestra (no corpo, campo `apiKey`, e/ou header).
+- **Auth (conta/mestra)**: `GET /client/list-instances` usa a API Key Mestra em
+  `Authorization: Bearer <WAPI_MASTER_API_KEY>`. A coleção chama essa credencial
+  genericamente de `{{token}}`; `apiKey`, token e segredos nunca vão na query.
+  Outros endpoints `client/*` mantêm seus contratos individuais documentados.
 - **Envio enfileira mesmo desconectado** (categoria "Fila de mensagens") — nunca sondar envio.
 
 ## Isolamento (regra crítica)
@@ -24,7 +27,7 @@ recurso de outro dono, sem revelar existência). Webhooks mapeados por `instance
 | Área | Endpoint W-API | Tela/fluxo Norium | Serviço backend | Persistência | Teste |
 |---|---|---|---|---|---|
 | Instância (criar) | `POST /client/create-instance` | Conectar WhatsApp | `wapi_client.create_instance` | binding store | isolamento, idempotência |
-| Instância (listar) | `GET /client/list-instances` | (admin/diagnóstico) | `wapi_client.list_instances` | — | — |
+| Instância (listar) | `GET /client/list-instances` | (admin/diagnóstico) | `wapi_client.list_instances` | — | Bearer mestra sem segredo na URL; 401; vazio/múltiplas |
 | Instância (QR) | `GET /instance/qr-code` | Etapa QR (pós-aceite) | `connect_flow.qr` | consent gate | QR só com aceite |
 | Instância (pareamento) | `GET /instance/pairing-code` | Conectar por telefone | `connect_flow.pairing` | — | — |
 | Instância (status) | `GET /instance/status-instance` | Estado conexão | `connect_flow.status` | — | — |
@@ -77,7 +80,8 @@ Limitações reais confirmadas:
 ## Operação
 
 - Configurar no ambiente: `WAPI_BASE_URL`, `WAPI_MASTER_API_KEY`,
-  `WAPI_WEBHOOK_SECRET`. Em produção defina `BACKEND_PUBLIC_URL` para que os
+  `WAPI_CREDENTIAL_ENCRYPTION_KEY` e `WAPI_WEBHOOK_SECRET`. Em produção
+  defina `BACKEND_PUBLIC_URL` para que os
   webhooks sejam registrados na criação da instância. O startup exige um
   `WAPI_WEBHOOK_SECRET` válido em qualquer ambiente fora da allowlist local/teste
   (`local`, `development`, `dev`, `test`, `testing`). O valor deve usar ASCII e
@@ -92,11 +96,76 @@ Limitações reais confirmadas:
   instância. Qualquer uma dessas variáveis em ambiente compartilhado
   (`production`, `prod`, `railway`, `staging` etc.) interrompe o startup.
 
+### Credencial de instância em repouso
+
+- O campo `InstanceBinding.token` existe somente em memória. No JSON é
+  persistido um envelope Fernet autenticado e versionado em `credential`; o
+  campo legado `token` nunca é escrito pelo código novo.
+- `WAPI_CREDENTIAL_ENCRYPTION_KEY` deve ser uma chave Fernet de 32 bytes em
+  base64 URL-safe, armazenada como secret no provedor. O startup falha em
+  qualquer ambiente que não seja explicitamente `test`/`testing` quando a
+  chave está ausente ou inválida.
+- `WAPI_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS` é opcional e aceita chaves
+  anteriores separadas por vírgula. Elas servem somente para leitura durante
+  rotação; toda leitura com chave antiga regrava o envelope com a chave ativa.
+- Nenhum token, chave, plaintext recuperado, fragmento desses valores ou
+  ciphertext é enviado aos logs ou incorporado às exceções. Erros de
+  autenticação criptográfica usam mensagem estática e falham fechados.
+
+### Migração segura do formato legado
+
+1. Trate o volume e snapshots anteriores como material sensível. Se houver
+   possibilidade de acesso indevido, rotacione também os tokens das instâncias
+   no painel W-API; criptografar o arquivo não revoga uma credencial já exposta.
+2. Gere a chave em uma estação confiável com
+   `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+   Transfira o valor diretamente para o secret manager. Não o cole em chat,
+   issue, arquivo versionado, saída de CI ou ferramenta de observabilidade.
+3. Cadastre `WAPI_CREDENTIAL_ENCRYPTION_KEY` no ambiente de destino **antes**
+   de publicar esta versão. Não faça deploy se o secret estiver ausente.
+4. Publique a versão. Registros ativos são migrados no primeiro acesso por
+   leitura controlada: o código cifra, regrava atomicamente e só então devolve
+   a credencial ao chamador. Falha de regravação interrompe o uso.
+5. No container/processo que monta o volume persistente, execute a partir de
+   `norium-back-end`:
+
+   ```text
+   python scripts/migrate_wapi_credentials.py
+   ```
+
+   O sweep cobre `user_*/wapi_instance_db.json` e
+   `user_*/backups/*/wapi_instance_db.json`, preserva campos desconhecidos e
+   imprime somente quantidades. A criação de backup também migra o arquivo
+   antes da cópia; a restauração migra o snapshot antes de torná-lo ativo.
+6. Execute o comando novamente. O resultado esperado é zero arquivos
+   regravados. Qualquer falha deve bloquear a retirada do formato legado.
+7. Avalie snapshots externos ao volume, imagens de máquina e cópias exportadas:
+   eles não são alcançados pelo sweep. Recriptografe-os ou elimine-os conforme a
+   política de retenção, e rotacione o token W-API quando não for possível
+   comprovar sua confidencialidade.
+
+### Rotação da chave de criptografia
+
+1. Gere uma nova chave fora do código e mantenha a chave ativa atual disponível.
+2. Configure a nova chave em `WAPI_CREDENTIAL_ENCRYPTION_KEY` e coloque a
+   chave anterior em `WAPI_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS` na mesma
+   atualização. Reinicie todas as réplicas com o mesmo keyring.
+3. Execute `python scripts/migrate_wapi_credentials.py`. Envelopes lidos com
+   chave anterior são autenticados e regravados com a nova chave ativa.
+4. Execute o sweep uma segunda vez e exija zero regravações. Valide também
+   snapshots externos ou mantenha a chave antiga em armazenamento de recuperação
+   isolado até que a retenção deles expire.
+5. Remova a chave antiga de `WAPI_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS`,
+   reinicie todas as réplicas e execute os testes de status/envio W-API. Nunca
+   troque somente a chave ativa: isso torna todos os envelopes irrecuperáveis.
+
 ## Rollback
 
-Reverter o commit da migração restaura o serviço legado (`git revert`). Os dados
-de conversa (JSON por tenant) permanecem compatíveis. Remover as variáveis
-`WAPI_*` desativa a integração de forma limpa (rotas degradam sem quebrar).
+Não reverta para uma versão que persista ou espere `token` em texto puro.
+Rollback deve usar uma versão compatível com o envelope `credential` e manter
+a chave ativa/anteriores configuradas. Remover
+`WAPI_CREDENTIAL_ENCRYPTION_KEY` é deliberadamente um erro de startup, não um
+mecanismo de desativação. Os dados de conversa continuam independentes.
 
 ## Pendências externas
 

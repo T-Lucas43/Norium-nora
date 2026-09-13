@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import asyncio
+from contextlib import asynccontextmanager, suppress
 import logging
 import os
 import re
@@ -13,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, Response
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.core.request_context import reset_request_context, set_request_context
 from app.core.rate_limit import SlidingWindowRateLimiter
@@ -27,6 +30,9 @@ from app.infrastructure.reliability.idempotency import (
     complete_request,
 )
 from app.services.wapi_connect import validate_wapi_test_configuration
+from app.services.wapi_credentials import (
+    validate_wapi_credential_encryption_configuration,
+)
 from app.modules.auth.router import (
     assert_route_permissions,
     assert_workspace_access,
@@ -41,14 +47,30 @@ from app.modules.chat.router import router as chat_router
 from app.modules.clients.router import router as clients_router
 from app.modules.commercial.router import router as commercial_router
 from app.modules.finance.router import router as financeiro_router
+from app.modules.reports.router import router as reports_router
 from app.modules.inbox.router import router as inbox_router
+from app.modules.intelligence.router import (
+    browser_router,
+    knowledge_router,
+    marketplace_router,
+    models_router,
+)
+from app.modules.auth.email_router import router as account_email_router
 from app.modules.mail.router import router as gmail_router
 from app.modules.nora.router import router as nora_router
 from app.modules.operations.router import router as operations_router
 from app.modules.platform.router import router as platform_router
 from app.modules.profile.router import router as perfil_router
 from app.modules.tasks.router import router as tarefas_router
-from app.modules.team.router import router as team_chat_router
+from app.modules.team.router import (
+    router as team_chat_router,
+    start_recording_maintenance,
+    stop_recording_maintenance,
+)
+from app.modules.team.studio_router import router as call_studio_router
+from app.modules.team.turn_credentials import validate_turn_configuration
+from app.modules.team.call_configuration import validate_team_call_configuration
+from app.modules.team.sfu_tokens import validate_sfu_configuration
 from app.modules.system.router import router as system_router
 from app.modules.workhub.router import clients_router as workhub_clients_router
 from app.modules.workhub.router import router as workhub_router
@@ -120,9 +142,9 @@ def rate_limit_bucket(path: str) -> str:
         return "message"
     if path.startswith(("/api/admin", "/api/auth/admin")):
         return "admin"
-    if path.startswith(("/api/auth/login", "/api/auth/register")):
+    if path.startswith(("/api/auth/login", "/api/auth/register", "/api/auth/forgot-password", "/api/auth/reset-password", "/api/auth/verify-email")):
         return "auth"
-    if "/public/" in path or "/publico/" in path or path == "/health":
+    if "/public/" in path or "/publico/" in path or path.startswith("/health"):
         return "public"
     return "api" if path.startswith("/api/") else "none"
 
@@ -165,17 +187,56 @@ def cors_origins() -> list[str]:
 
 
 def create_app() -> FastAPI:
+    validate_wapi_credential_encryption_configuration()
     validate_wapi_test_configuration()
     validate_wapi_webhook_configuration()
+    validate_team_call_configuration()
+    validate_turn_configuration()
+    validate_sfu_configuration()
     configure_webhook_secret_log_redaction()
-    app = FastAPI(title="Norium Engine Chat Central Unificado API")
+    from app.modules.team.call_observability import configure_call_logging
+    configure_call_logging()
+    @asynccontextmanager
+    async def lifespan(_app):
+        from app.services.system_email import worker
+        from app.services.system_email_reminders import worker as reminder_worker
+        from app.modules.automations.events import worker as automation_worker
+        await start_recording_maintenance()
+        delivery = asyncio.create_task(worker())
+        reminders = asyncio.create_task(reminder_worker())
+        automations = asyncio.create_task(automation_worker())
+        try:
+            yield
+        finally:
+            await stop_recording_maintenance()
+            delivery.cancel()
+            reminders.cancel()
+            automations.cancel()
+            with suppress(asyncio.CancelledError):
+                await delivery
+            with suppress(asyncio.CancelledError):
+                await reminders
+            with suppress(asyncio.CancelledError):
+                await automations
+
+    app = FastAPI(title="Norium Engine Chat Central Unificado API", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins(),
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID", "X-Norium-Workspace"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Request-ID",
+            "X-Norium-Workspace",
+            "X-Call-Client-Id",
+            "X-Recording-Chunk-Id",
+            "X-Recording-Operation-Id",
+        ],
     )
+    app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
 
     @app.middleware("http")
     async def request_reliability_middleware(request: Request, call_next):
@@ -278,7 +339,12 @@ def create_app() -> FastAPI:
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-            response.headers["Permissions-Policy"] = "camera=(), geolocation=(), payment=(), usb=()"
+            # Camera e microfone sao recursos centrais das reunioes do Modo
+            # Equipe. `camera=()` bloqueia getUserMedia antes mesmo de o
+            # navegador poder mostrar o pedido de permissao ao usuario.
+            response.headers["Permissions-Policy"] = (
+                "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()"
+            )
             response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
@@ -299,6 +365,9 @@ def create_app() -> FastAPI:
     # A ordem é mantida para preservar a documentação e a resolução das rotas.
     app.include_router(nora_router)
     app.include_router(auth_router)
+    from app.modules.auth.ai_costs_router import router as ai_costs_router
+    app.include_router(ai_costs_router)
+    app.include_router(account_email_router)
     app.include_router(admin_finance_router)
     app.include_router(agenda_router)
     app.include_router(integracoes_google_router)
@@ -312,8 +381,14 @@ def create_app() -> FastAPI:
     app.include_router(perfil_router)
     app.include_router(tarefas_router)
     app.include_router(financeiro_router)
+    app.include_router(reports_router)
     app.include_router(automacoes_router)
+    app.include_router(browser_router)
+    app.include_router(knowledge_router)
+    app.include_router(marketplace_router)
+    app.include_router(models_router)
     app.include_router(team_chat_router)
+    app.include_router(call_studio_router)
     app.include_router(brainstorm_router)
     app.include_router(chat_router)
     app.include_router(system_router)

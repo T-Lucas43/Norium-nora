@@ -124,14 +124,72 @@ class WapiClientSecurityTests(unittest.IsolatedAsyncioTestCase):
         client_factory.assert_called_once_with(follow_redirects=False)
 
     async def test_master_api_key_is_never_placed_in_request_url(self) -> None:
+        secret = "master-key-must-not-appear-in-url"
+        instances = [
+            {"instanceId": "INSTANCE-1", "instanceName": "norium-a", "token": "token-a"},
+            {"instanceId": "INSTANCE-2", "instanceName": "norium-b", "token": "token-b"},
+        ]
+        payloads = (
+            {"instances": []},
+            {"instances": instances},
+            {"data": instances},
+            instances,
+        )
+
+        for payload in payloads:
+            with self.subTest(payload_type=type(payload).__name__, payload=payload):
+                requests: list[httpx.Request] = []
+
+                def ok_response(request: httpx.Request) -> httpx.Response:
+                    requests.append(request)
+                    return httpx.Response(200, json=payload)
+
+                transport_client = httpx.AsyncClient(
+                    transport=httpx.MockTransport(ok_response)
+                )
+                client = WapiClient(
+                    WapiConfig(
+                        base_url="https://api.w-api.app",
+                        master_api_key=secret,
+                        webhook_secret="",
+                    )
+                )
+                with patch.object(
+                    wapi_client_module.httpx,
+                    "AsyncClient",
+                    return_value=transport_client,
+                ):
+                    result = await client.list_instances()
+
+                self.assertEqual(payload, result)
+                self.assertEqual(1, len(requests))
+                request = requests[0]
+                self.assertEqual("GET", request.method)
+                self.assertEqual(
+                    "https://api.w-api.app/v1/client/list-instances",
+                    str(request.url),
+                )
+                self.assertEqual({}, dict(request.url.params))
+                self.assertNotIn(secret, str(request.url))
+                self.assertEqual(
+                    f"Bearer {secret}",
+                    request.headers.get("Authorization"),
+                )
+
+    async def test_list_instances_authentication_error_is_safe(self) -> None:
+        secret = "master-key-must-not-leak-on-auth-error"
         requests: list[httpx.Request] = []
 
-        def ok_response(request: httpx.Request) -> httpx.Response:
+        def rejected_response(request: httpx.Request) -> httpx.Response:
             requests.append(request)
-            return httpx.Response(200, json={"instances": []})
+            return httpx.Response(
+                401,
+                json={"message": f"invalid bearer {secret}"},
+            )
 
-        secret = "master-key-must-not-appear-in-url"
-        transport_client = httpx.AsyncClient(transport=httpx.MockTransport(ok_response))
+        transport_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(rejected_response)
+        )
         client = WapiClient(
             WapiConfig(
                 base_url="https://api.w-api.app",
@@ -139,12 +197,32 @@ class WapiClientSecurityTests(unittest.IsolatedAsyncioTestCase):
                 webhook_secret="",
             )
         )
-        with patch.object(wapi_client_module.httpx, "AsyncClient", return_value=transport_client):
-            await client.list_instances()
+        with (
+            patch.object(
+                wapi_client_module.httpx,
+                "AsyncClient",
+                return_value=transport_client,
+            ),
+            self.assertLogs(wapi_client_module.logger.name, level="WARNING") as logs,
+        ):
+            with self.assertRaises(WapiError) as error:
+                await client.list_instances()
 
+        self.assertEqual(401, error.exception.status)
         self.assertEqual(1, len(requests))
-        self.assertNotIn(secret, str(requests[0].url))
-        self.assertEqual(f"Bearer {secret}", requests[0].headers.get("Authorization"))
+        request = requests[0]
+        self.assertEqual(
+            "https://api.w-api.app/v1/client/list-instances",
+            str(request.url),
+        )
+        self.assertEqual({}, dict(request.url.params))
+        self.assertNotIn(secret, str(request.url))
+        self.assertEqual(
+            f"Bearer {secret}",
+            request.headers.get("Authorization"),
+        )
+        self.assertNotIn(secret, str(error.exception))
+        self.assertNotIn(secret, "\n".join(logs.output))
 
     async def test_provider_error_does_not_echo_instance_token(self) -> None:
         secret = "instance-token-must-not-leak"

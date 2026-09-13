@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator
 
 from app.shared.schemas import StrictModel
+from app.modules.commercial.pdf_editor import PdfEdits
 
 
 ProposalStatus = Literal[
@@ -14,11 +15,57 @@ ProposalStatus = Literal[
     "approved",
     "rejected",
     "sent",
+    "viewed",
+    "negotiating",
     "accepted",
+    "awaiting_signatures",
+    "signed",
+    "declined",
+    "expired",
     "contracted",
     "archived",
 ]
 ContractStatus = Literal["draft", "awaiting_signatures", "signed", "active", "completed", "cancelled"]
+TemplateDocumentType = Literal[
+    "proposal",
+    "contract",
+    "term",
+    "budget",
+    "report",
+    "resume",
+    "letter",
+    "invoice",
+    "receipt",
+    "plan",
+    "policy",
+    "hr",
+    "certificate",
+    "meeting",
+    "project",
+    "marketing",
+    "academic",
+    "personal",
+    "custom",
+]
+PdfOperation = Literal[
+    "merge",
+    "split",
+    "reorder",
+    "delete_pages",
+    "rotate",
+    "compress",
+    "images_to_pdf",
+    "watermark",
+    "edit_pdf",
+    "page_numbers",
+    "add_password",
+    "remove_password",
+    "ocr",
+    "extract_text",
+    "remove_metadata",
+    "sanitize",
+    "compare",
+]
 SignerRole = Literal["client", "contractor", "witness"]
 LogoAlignment = Literal["left", "center", "right"]
 SuggestionSeverity = Literal["info", "warning", "critical"]
@@ -97,7 +144,24 @@ class ProposalBriefRequest(StrictModel):
     tone: Literal["consultive", "executive", "technical", "friendly"] = "consultive"
 
 
+class SmartDocumentRequest(StrictModel):
+    templateId: str = Field(min_length=1, max_length=180)
+    clientId: str = Field(default="", max_length=180)
+    title: str = Field(default="", max_length=220)
+    brief: str = Field(min_length=3, max_length=12_000)
+    details: str = Field(default="", max_length=12_000)
+    amount: float = Field(default=0, ge=0, le=999_999_999)
+    currency: str = Field(default="BRL", min_length=3, max_length=3)
+    validUntil: str | None = None
+    tone: Literal["consultive", "executive", "technical", "friendly"] = "consultive"
+    photoDataUrl: str = Field(default="", max_length=2_000_000)
+    primaryColor: str = Field(default="#1E293B", pattern=r"^#[0-9A-Fa-f]{6}$")
+    secondaryColor: str = Field(default="#3B82F6", pattern=r"^#[0-9A-Fa-f]{6}$")
+    textColor: str = Field(default="#0F172A", pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
 class ProposalUpdate(StrictModel):
+    pdfEdits: PdfEdits | None = None
     expectedVersion: int | None = Field(default=None, ge=1)
     clientId: str | None = Field(default=None, max_length=180)
     brainstormId: str | None = Field(default=None, max_length=180)
@@ -119,6 +183,16 @@ class ProposalSubmit(StrictModel):
 
 class ProposalApprovalDecision(StrictModel):
     note: str = Field(default="", max_length=1200)
+
+
+class ProposalStatusChange(StrictModel):
+    status: ProposalStatus
+    note: str = Field(default="", max_length=1200)
+    expectedVersion: int | None = Field(default=None, ge=1)
+
+
+class DocumentDuplicateRequest(StrictModel):
+    title: str | None = Field(default=None, max_length=220)
 
 
 class NoraAnalysisRequest(StrictModel):
@@ -152,6 +226,7 @@ class ContractCreate(StrictModel):
 
 
 class ContractUpdate(StrictModel):
+    pdfEdits: PdfEdits | None = None
     expectedVersion: int | None = Field(default=None, ge=1)
     title: str | None = Field(default=None, min_length=2, max_length=220)
     contentHtml: str | None = Field(default=None, max_length=350_000)
@@ -189,4 +264,64 @@ class TemplateCreate(StrictModel):
     contentHtml: str = Field(min_length=1, max_length=350_000)
     shared: bool = False
     category: str = Field(default="geral", max_length=80)
-    documentType: Literal["proposal", "contract"] = "proposal"
+    documentType: TemplateDocumentType = "proposal"
+    active: bool = True
+    isDefault: bool = False
+    variables: list[str] = Field(default_factory=list, max_length=100)
+
+
+class TemplateUpdate(StrictModel):
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    description: str | None = Field(default=None, max_length=800)
+    contentHtml: str | None = Field(default=None, min_length=1, max_length=350_000)
+    shared: bool | None = None
+    category: str | None = Field(default=None, max_length=80)
+    documentType: TemplateDocumentType | None = None
+    active: bool | None = None
+    isDefault: bool | None = None
+    variables: list[str] | None = Field(default=None, max_length=100)
+
+
+class DocumentImportRequest(StrictModel):
+    fileName: str = Field(min_length=1, max_length=220)
+    mimeType: Literal["application/pdf", "image/png", "image/jpeg", "image/webp"]
+    dataBase64: str = Field(min_length=4, max_length=40_000_000)
+    category: Literal["pdf", "sent", "received", "draft", "archived"] = "pdf"
+    direction: Literal["internal", "sent", "received"] = "internal"
+    confidential: bool = False
+
+
+class ProposalPdfUpload(DocumentImportRequest):
+    mimeType: Literal["application/pdf"] = "application/pdf"
+    title: str = Field(default="", max_length=220)
+    clientId: str = Field(default="", max_length=180)
+    expectedVersion: int | None = Field(default=None, ge=1)
+    signed: bool = False
+    note: str = Field(default="", max_length=1200)
+
+
+class ImportedDocumentUpdate(StrictModel):
+    title: str | None = Field(default=None, min_length=1, max_length=220)
+    category: Literal["pdf", "sent", "received", "draft", "archived"] | None = None
+    favorite: bool | None = None
+    archived: bool | None = None
+    confidential: bool | None = None
+
+
+class PdfProcessRequest(StrictModel):
+    operation: PdfOperation
+    documentIds: list[str] = Field(min_length=1, max_length=50)
+    options: dict[str, Any] = Field(default_factory=dict, max_length=20)
+
+
+class PublicDocumentLinkRequest(StrictModel):
+    expiresInHours: int = Field(default=168, ge=1, le=24 * 90)
+    allowDownload: bool = True
+    allowComment: bool = True
+    allowDecision: bool = True
+
+
+class PublicDocumentAction(StrictModel):
+    action: Literal["comment", "request_changes", "accept", "decline"]
+    name: str = Field(default="", max_length=180)
+    message: str = Field(default="", max_length=4000)

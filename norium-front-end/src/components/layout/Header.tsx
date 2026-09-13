@@ -119,12 +119,13 @@ export default function Header({
       { title: "Automações", description: "Fluxos, gatilhos e execuções.", keywords: "workflow fluxo nora gatilho", icon: GitBranch, tab: "Automações" },
       { title: "Relatórios", description: "Produtividade, canais e exportações.", keywords: "graficos pdf indicadores", icon: BarChart3, tab: "Relatórios" },
       { title: "Equipe", description: "Membros, acessos e produtividade.", keywords: "usuarios permissoes time", icon: UsersRound, tab: "Equipe" },
-      { title: "Brainstorm", description: "Quadros colaborativos da equipe.", keywords: "ideias miro postit reuniao", icon: BrainCircuit, tab: "Brainstorm" },
+      { title: "Nora", description: "Assistente e histórico de conversas.", keywords: "ia assistente chat historico", icon: BrainCircuit, tab: "Nora" },
+      { title: "Estúdio", description: "Quadros colaborativos da equipe.", keywords: "ideias miro postit reuniao", icon: BrainCircuit, tab: "Estúdio" },
       { title: "Clientes", description: "Relacionamentos, etapas e proximos contatos.", keywords: "crm cliente lead proposta contato", icon: UserRoundCheck, tab: "Clientes" },
       { title: "Meu perfil", description: "Foto, nome, idioma e CEP.", keywords: "perfil foto nome cep", icon: UserCircle2, tab: "Perfil" },
       { title: "Configurações", description: "Tema, aparência e preferências.", keywords: "tema cores nora notificacoes", icon: Settings, tab: "Configurações" },
       { title: "Ajuda e guia", description: "Guia prático de módulos, integrações e atalhos.", keywords: "ajuda suporte guia como usar primeiros passos", icon: CircleHelp, tab: "Ajuda" },
-      { title: "Nora", description: "Conversar com sua assistente inteligente.", keywords: "assistente ia voz ajuda", icon: Sparkles, run: onOpenNora },
+      { title: "Ajuda contextual da Nora", description: "Conversar sobre a tela atual.", keywords: "assistente ia voz ajuda", icon: Sparkles, run: onOpenNora },
     ],
     [onOpenNora],
   );
@@ -262,7 +263,9 @@ export default function Header({
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => runCommand(command)}
                     >
-                      <span><Icon size={17} /></span>
+                      <span aria-hidden="true">
+                        {command.tab === "Nora" ? <NoraAvatar className="h-6 w-6 shrink-0" /> : <Icon size={17} />}
+                      </span>
                       <span>
                         <strong>{command.title}</strong>
                         <small>{command.description}</small>

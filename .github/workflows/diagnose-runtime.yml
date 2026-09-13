@@ -1,0 +1,44 @@
+name: Diagnose deployed runtime
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Inspect resource health and sanitized exceptions
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+        run: |
+          python - <<'PY'
+          import subprocess, os, json, re
+          app=['-g',os.environ['RESOURCE_GROUP'],'-n',os.environ['APP_NAME']]
+          def run(args):
+              return subprocess.run(['az','containerapp',*args,*app],capture_output=True,text=True,timeout=90)
+          result=run(['show','--query','{revision:properties.latestRevisionName,ready:properties.latestReadyRevisionName,state:properties.runningStatus,resources:properties.template.containers[0].resources}','-o','json'])
+          if result.returncode == 0: print(result.stdout)
+          for kind in ['system','console']:
+              result=run(['logs','show','--type',kind,'--tail','60','--format','json'])
+              for line in result.stdout.splitlines():
+                  try: item=json.loads(line)
+                  except ValueError: continue
+                  message=item.get('Log') or item.get('log') or ''
+                  if kind == 'system':
+                      print(json.dumps({key:item[key] for key in ('Reason','Type','EventSource') if key in item}))
+                  else:
+                      labels=re.findall(r'\b(?:[A-Za-z]+Error|[A-Za-z]+Exception|SIGKILL|OOMKilled|Timeout|Killed|Traceback)\b',message)
+                      if labels: print('runtime_exception_labels: '+','.join(labels))
+                      if re.match(r'^\s*File "/app/[^"\n]+", line \d+', message):
+                          print(re.match(r'^\s*File "/app/[^"\n]+", line \d+', message).group())
+          PY

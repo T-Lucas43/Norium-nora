@@ -20,7 +20,7 @@ export const sourceLabels: Record<EventSource, string> = {
   equipe: "Equipe",
   automacoes: "Automações",
   relatorios: "Relatórios",
-  brainstorm: "Brainstorm",
+  brainstorm: "Estúdio",
   sistema: "Sistema",
 };
 

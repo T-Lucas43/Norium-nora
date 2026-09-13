@@ -1,6 +1,8 @@
 import type { RefObject } from "react";
-import { Bot, Send, X } from "lucide-react";
+import { Send, X } from "lucide-react";
 import Button from "../../shared/Button";
+import NoraAvatar from "../../layout/NoraAvatar";
+import { NoraMarkdown } from "../../nora/NoraResponseContent";
 import { cn } from "../../../utils/cn";
 import type { AgentMessage, GmailMessage } from "../../../features/mail/types";
 
@@ -43,9 +45,7 @@ export default function NoraMailDrawer({
     <aside className="mail-modal fixed right-6 top-24 z-50 flex h-[640px] w-[390px] max-w-[calc(100vw-48px)] flex-col overflow-hidden rounded-lg border border-white/12 bg-[#18181B] shadow-2xl">
       <div className="flex h-14 items-center justify-between border-b border-white/10 px-4">
         <div className="flex items-center gap-3">
-          <div className="mail-primary flex h-9 w-9 items-center justify-center rounded-lg bg-[#0EA5E9]">
-            <Bot size={18} />
-          </div>
+          <NoraAvatar className="h-9 w-9" />
           <div>
             <h3 className="text-sm font-bold">Nora para E-mails</h3>
             <p className="max-w-[240px] truncate text-xs font-semibold text-white/45">
@@ -74,7 +74,7 @@ export default function NoraMailDrawer({
         )}
       </div>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+      <div ref={scrollRef} className="nora-native-scroll min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         {messages.map((message, index) => (
           <div
             key={`${message.role}-${index}`}
@@ -85,7 +85,7 @@ export default function NoraMailDrawer({
                 : "mail-card max-w-[90%] border-white/10 bg-[#121217] text-white",
             )}
           >
-            {message.text}
+            {message.role === "ai" ? <NoraMarkdown text={message.text} /> : message.text}
           </div>
         ))}
         {loading && <div className="text-sm font-bold text-white/50">Nora lendo seus e-mails...</div>}

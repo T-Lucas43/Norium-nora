@@ -27,5 +27,7 @@ mock_database.json
 # Logs e artefatos
 *.log
 reports/
+!app/modules/reports/
+!app/modules/reports/*.py
 output/
 dist/

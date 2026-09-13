@@ -12,7 +12,61 @@ class ModuleHelp:
     response: str
 
 
+NORA_CAPABILITIES_RESPONSE = """Eu atuo sobre os módulos reais do Norium e separo claramente consulta, preparação, confirmação e execução.
+
+## Comunicação
+
+| Área | O que posso fazer |
+| --- | --- |
+| E-mails | Listar, resumir, pesquisar, redigir, revisar, responder e enviar pelo Gmail conectado. |
+| WhatsApp | Resumir a conversa selecionada e preparar uma resposta; o envio exige destinatário e texto revisados. |
+| Chat da Equipe | Resumir conversas, organizar decisões e enviar mensagens internas autorizadas. |
+
+## Organização e operação
+
+| Área | O que posso fazer |
+| --- | --- |
+| Agenda | Consultar disponibilidade e criar, editar ou cancelar eventos com os dados obrigatórios. |
+| Tarefas | Criar projetos e cards, consultar o Kanban e alterar responsável, prioridade, prazo ou status. |
+| Financeiro | Registrar e consultar entradas, saídas, boletos, anexos e lembretes; não faço pagamentos. |
+| Automações | Montar gatilhos, condições e ações, testar o fluxo e acompanhar execuções. |
+| Estúdio | Criar sessões, resumir ideias, sugerir próximos passos e converter decisões em tarefas. |
+
+## Documentos e conhecimento
+
+| Área | O que posso fazer |
+| --- | --- |
+| Documentos | Criar propostas, contratos, currículos, relatórios e outros modelos cadastrados; revisar, editar a fonte e gerar novamente o PDF. |
+| PDFs | Visualizar, extrair texto, comprimir, numerar, dividir, girar, combinar e converter imagens; PDFs ficam na Biblioteca automaticamente. |
+| Conhecimento | Consultar fontes autorizadas do workspace com identificação da origem. |
+| Relatórios | Organizar métricas reais do sistema em tabelas e exportações. |
+
+## Administração e segurança
+
+| Área | O que posso explicar ou consultar |
+| --- | --- |
+| Governança | Ambientes, fontes, permissões, riscos, controles e auditoria. |
+| Clientes e equipe | Cadastros, relacionamentos, responsáveis, acessos e distribuição do trabalho. |
+| Controle | Aprovações, integrações, auditoria, memória operacional e ações reversíveis. |
+
+## Limites importantes
+
+Não invento dados ausentes, não exponho segredos, não atravesso workspaces e não afirmo que uma ação foi executada sem confirmação real. Pagamentos, exclusões, assinaturas, compartilhamentos e envios sensíveis exigem revisão ou confirmação."""
+
+
 MODULE_HELP: tuple[ModuleHelp, ...] = (
+    ModuleHelp(
+        module="nora",
+        aliases=("tela da nora", "espaco da nora", "histórico da nora", "historico da nora"),
+        response=(
+            "A Nora tem uma tela própria no menu lateral do Norium. Clique em Nova conversa para começar "
+            "e use o histórico lateral para buscar e retomar conversas anteriores. As mensagens são salvas "
+            "na sua conta e no espaço de trabalho atual. Você pode renomear, exportar e excluir conversas. "
+            "Peça ajuda para escrever, organizar tarefas, consultar e-mails, agenda e finanças. "
+            "As ações disponíveis respeitam suas permissões e as integrações conectadas. "
+            "O botão de microfone permite usar voz; as preferências ficam no botão de ajustes da conversa."
+        ),
+    ),
     ModuleHelp(
         module="dashboard",
         aliases=("meu dashboard", "tela dashboard", "dashboard", "meu dia"),
@@ -24,7 +78,7 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
             "2. Revise a atividade recente e a agenda de hoje.\n"
             "3. Abra os atalhos para ir diretamente ao e-mail, conversa, tarefa ou compromisso.\n"
             "4. Use o painel da Nora para pedir uma priorização do que merece atenção.\n\n"
-            "O Centro de pendências fica reservado ao que ainda exige decisão ou correção; o Meu Dia permanece aqui."
+            "A Central de trabalho reúne pendências e a caixa compartilhada; o Meu Dia permanece no Dashboard."
         ),
     ),
     ModuleHelp(
@@ -86,16 +140,15 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
     ),
     ModuleHelp(
         module="central",
-        aliases=("central de atividades", "central"),
+        aliases=("central de trabalho", "central de atividades", "central"),
         response=(
-            "A Central de atividades separa os acontecimentos por canal, para você acompanhar "
-            "Gmail, WhatsApp, Agenda, Tarefas, Gastos, Equipe, Automações e Relatórios sem misturar "
-            "tudo em uma única lista.\n\n"
+            "A Central de trabalho unificou a antiga Central e o Centro de pendências. Ela reúne prioridades, "
+            "caixa compartilhada, follow-ups, metas da equipe e gestão de dados.\n\n"
             "Como usar:\n"
-            "1. Confira primeiro os canais com contador ou atividade recente.\n"
-            "2. Role cada painel de forma independente.\n"
+            "1. Confira os indicadores e a próxima prioridade sugerida.\n"
+            "2. Alterne entre Pendências, Caixa compartilhada, Follow-ups, Metas e equipe e Dados e segurança.\n"
             "3. Clique em um evento para abrir exatamente o item na tela de origem.\n"
-            "4. Reordene ou redimensione os painéis conforme sua rotina.\n\n"
+            "4. Use Priorizar com a Nora para consultar os dados atuais e organizar os próximos passos.\n\n"
             "Para decidir o que exige atenção agora, priorize erros de integração, vencimentos, "
             "mensagens sem resposta e itens que aguardam aprovação."
         ),
@@ -105,7 +158,7 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         aliases=("controle operacional", "controle"),
         response=(
             "O Controle operacional reúne aprovações, saúde das integrações, auditoria, memória da "
-            "Nora, modelos e ações que podem ser desfeitas.\n\n"
+            "Nora, alertas e ações que podem ser desfeitas.\n\n"
             "Ordem recomendada:\n"
             "1. Revise aprovações pendentes antes de autorizar ações sensíveis.\n"
             "2. Verifique integrações com erro ou sincronização atrasada.\n"
@@ -118,7 +171,7 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         module="pendencias",
         aliases=("centro de pendencias", "pendencias"),
         response=(
-            "O Centro de pendências concentra o que ainda precisa de decisão ou ação: aprovações, "
+            "O antigo Centro de pendências agora fica na aba Pendências da Central de trabalho. Ela concentra aprovações, "
             "e-mails e conversas sem resposta, tarefas vencidas, pagamentos próximos e automações com erro.\n\n"
             "Sugestão de prioridade:\n"
             "1. Falhas de integração e automação que interrompem outros fluxos.\n"
@@ -245,18 +298,24 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         module="governanca",
         aliases=("governanca", "administracao da empresa"),
         response=(
-            "Governança centraliza empresas, documentos, atendimento, segurança e políticas operacionais.\n\n"
-            "Cada empresa mantém dados e permissões isolados. Em Documentos, envie materiais autorizados "
-            "para a base de conhecimento; PDFs com texto são indexados e ficam disponíveis para consultas "
-            "da Nora com a fonte identificada. Use as demais áreas para regras de aprovação, credenciais, "
-            "qualidade dos dados, portal externo e formulários públicos."
+            "Governança é o sistema que orienta decisões, distribui responsabilidades e monitora a execução com transparência. No Norium, ela conecta estrutura, conhecimento, riscos, controles e evidências.\n\n"
+            "## Estrutura e direção\n\n"
+            "Use Ambientes para separar dados e integrações por operação. Defina responsáveis e permissões coerentes com cada papel.\n\n"
+            "## Informação e transparência\n\n"
+            "Em Conhecimento, envie somente materiais autorizados. PDFs com texto são indexados e a Nora identifica a fonte consultada.\n\n"
+            "## Riscos, controles e responsabilização\n\n"
+            "Revise a matriz de permissões e a trilha de auditoria. O Controle operacional concentra aprovações, falhas de integração, histórico de ações e evidências para acompanhamento contínuo.\n\n"
+            "## Princípios\n\n"
+            "A tela adota integridade, transparência, equidade, responsabilização e sustentabilidade como referências de boa governança, sem substituir análise jurídica ou regulatória."
         ),
     ),
     ModuleHelp(
         module="brainstorm",
-        aliases=("brainstorm colaborativo", "brainstorm", "sessao de ideias"),
+        aliases=("estudio", "estúdio", "brainstorm colaborativo", "brainstorm", "sessao de ideias"),
         response=(
-            "Brainstorm é um quadro colaborativo para transformar ideias em decisões.\n\n"
+            "O Estúdio (antigo Brainstorm) é um quadro colaborativo para transformar ideias em decisões.\n\n"
+            "Comece com Plano do projeto, Brainstorming, Lista de afazeres, Anotações de reunião, "
+            "Status do projeto ou Retrospectiva. Os modelos já trazem seções e cartões editáveis. "
             "Defina título, objetivo, responsável e duração; depois adicione notas, agrupe temas, conecte "
             "ideias e use votação quando necessário. O cronômetro é compartilhado. Quando a sessão termina, "
             "o quadro é bloqueado para novas alterações, preservando o resultado. Sessões anteriores podem "
@@ -266,6 +325,9 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
     ModuleHelp(
         module="propostas",
         aliases=(
+            "tela de documentos",
+            "central de documentos",
+            "documentos comerciais",
             "tela de propostas",
             "propostas e contratos",
             "propostas",
@@ -274,8 +336,8 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
             "assinatura digital",
         ),
         response=(
-            "Propostas e contratos leva um documento comercial do rascunho até a assinatura, "
-            "com revisão da Nora e aprovação humana antes de qualquer envio.\n\n"
+            "Documentos e a central que leva propostas e contratos do rascunho ate a assinatura, "
+            "reune arquivos importados e oferece ferramentas de PDF com revisao da Nora e aprovacao humana.\n\n"
             "Fluxo completo:\n"
             "1. Crie a proposta a partir de um cliente cadastrado; a origem pode ser uma sessão "
             "de brainstorm encerrada.\n"
@@ -292,6 +354,50 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
             "7. Com todas as assinaturas, o escopo vira tarefas e prazos automaticamente.\n\n"
             "Nenhum e-mail ou link de assinatura sai sem passar pela aprovação humana. "
             "A trilha de auditoria de cada etapa fica na Governança."
+        ),
+    ),
+    ModuleHelp(
+        module="agente navegador",
+        aliases=("tela agente navegador", "agente navegador", "navegador web"),
+        response=(
+            "O Agente Navegador planeja e executa leituras de paginas publicas com controles de seguranca.\n\n"
+            "Informe objetivo, URL e, se desejar, um perfil de dominios permitidos. Revise o risco e as etapas "
+            "antes de executar. Pedidos com login, envio, compra, formulario, download ou outra acao sensivel "
+            "param para aprovacao humana. A tela mostra progresso, resultado, erro e linha do tempo. Nesta versao "
+            "o executor e somente leitura e bloqueia redes privadas, redirecionamentos e conteudo nao textual."
+        ),
+    ),
+    ModuleHelp(
+        module="conhecimento",
+        aliases=("tela conhecimento", "conhecimento empresarial", "base de conhecimento"),
+        response=(
+            "Conhecimento organiza o contexto autorizado da empresa em bases independentes.\n\n"
+            "Crie uma base, escolha visibilidade e adicione texto ou uma pagina publica. O Norium deduplica a fonte, "
+            "divide o conteudo em trechos e registra a indexacao. Na busca, cada resultado informa base, fonte, "
+            "trecho citavel, relevancia e aviso de desatualizacao. Permissoes sao aplicadas antes da recuperacao; "
+            "nao use a tela para armazenar segredos ou materiais que voce nao esta autorizado a indexar."
+        ),
+    ),
+    ModuleHelp(
+        module="marketplace",
+        aliases=("tela marketplace", "marketplace interno", "catalogo de componentes"),
+        response=(
+            "Marketplace interno instala agentes, automacoes, modelos e pacotes governados.\n\n"
+            "Abra um item para revisar autor, versao, permissoes e dependencias. A instalacao exige confirmacao e "
+            "cria um recurso real, sempre desativado para revisao. Atualizacoes preservam configuracoes e tambem "
+            "exigem confirmacao. Ao remover, o Norium mantem historico e desativa o recurso associado em vez de "
+            "apagar evidencias da operacao."
+        ),
+    ),
+    ModuleHelp(
+        module="ia e modelos",
+        aliases=("tela ia e modelos", "ia e modelos", "roteamento de modelos", "multi modelo"),
+        response=(
+            "IA e Modelos administra provedores e politicas de roteamento da Nora e das automacoes.\n\n"
+            "Cadastre provedor, modelo, capacidades, custo, privacidade e chave; o segredo e criptografado e nao "
+            "volta pela API. Depois crie uma politica manual ou automatica, simule a rota sem consumir tokens e "
+            "confira por que provedores foram aceitos ou rejeitados. O fallback considera capacidade, privacidade, "
+            "custo e contexto e e bloqueado depois que uma acao externa ja foi confirmada."
         ),
     ),
     ModuleHelp(
@@ -324,6 +430,12 @@ def _normalize(value: str) -> str:
 
 def answer_module_help(message: str) -> dict[str, str] | None:
     text = _normalize(message)
+    if re.search(r"\b(?:o\s+que\s+(?:voce|a\s+nora)\s+(?:e\s+capaz\s+de|pode|sabe)\s+fazer|tudo\s+(?:o\s+)?que\s+(?:voce|a\s+nora)\s+(?:pode|faz)|capacidades\s+da\s+nora)\b", text):
+        return {
+            "status": "orientacao",
+            "module": "nora",
+            "response": NORA_CAPABILITIES_RESPONSE,
+        }
     asks_for_guidance = bool(
         re.search(
             r"\b(?:explique|explica|como\s+(?:usar|funciona)|me\s+ajude|ajuda|oriente|analise|"

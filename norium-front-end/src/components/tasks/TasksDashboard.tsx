@@ -1,16 +1,14 @@
+import "./TasksDashboard.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
-  AlertTriangle,
   Archive,
   ArrowLeft,
-  Briefcase,
   ClipboardList,
   CalendarPlus,
   CalendarClock,
   CheckCircle2,
   Circle,
-  Clock3,
   DollarSign,
   FileUp,
   FileText,
@@ -18,7 +16,15 @@ import {
   FolderPlus,
   Headphones,
   Layers3,
-  Menu,
+  ListTodo,
+  LayoutGrid,
+  ArrowUpRight,
+  MoreHorizontal,
+  SlidersHorizontal,
+  CircleDot,
+  ScanEye,
+  LoaderCircle,
+  UserRound,
   MessageSquare,
   Paperclip,
   Plus,
@@ -82,7 +88,7 @@ const emptyWorkspaceForm: WorkspaceForm = {
 };
 
 const projectCategoryLabels: Record<ProjectCategory, string> = {
-  operacao: "Operacao",
+  operacao: "Operação",
   cliente: "Cliente",
   produto: "Produto",
   financeiro: "Financeiro",
@@ -94,24 +100,17 @@ const projectStatusLabels: Record<ProjectStatus, string> = {
   planejamento: "Planejamento",
   ativo: "Ativo",
   pausado: "Pausado",
-  concluido: "Concluido",
-};
-
-const projectStatusStyle: Record<ProjectStatus, string> = {
-  planejamento: "bg-sky-500/12 text-sky-200 border-sky-400/25",
-  ativo: "bg-emerald-500/12 text-emerald-200 border-emerald-400/25",
-  pausado: "bg-amber-500/12 text-amber-200 border-amber-400/25",
-  concluido: "bg-blue-500/12 text-blue-200 border-blue-400/25",
+  concluido: "Concluído",
 };
 
 const taskCategoryOptions = [
   { id: "geral", label: "Geral" },
-  { id: "operacao", label: "Operacao" },
+  { id: "operacao", label: "Operação" },
   { id: "cliente", label: "Cliente" },
   { id: "produto", label: "Produto" },
   { id: "briefing", label: "Briefing" },
-  { id: "execucao", label: "Execucao" },
-  { id: "revisao", label: "Revisao" },
+  { id: "execucao", label: "Execução" },
+  { id: "revisao", label: "Revisão" },
   { id: "follow-up", label: "Follow-up" },
   { id: "financeiro", label: "Financeiro" },
   { id: "suporte", label: "Suporte" },
@@ -134,17 +133,10 @@ const taskCategoryVisual: Record<string, { icon: LucideIcon; className: string }
 
 const projectColorOptions = ["#0EA5E9", "#06B6D4", "#2563EB", "#14B8A6", "#22C55E", "#F59E0B", "#F43F5E"];
 
-const priorityStyle: Record<TaskPriority, string> = {
-  baixa: "bg-slate-500/12 text-slate-300 border-slate-400/25",
-  media: "bg-sky-500/12 text-sky-300 border-sky-400/25",
-  alta: "bg-amber-500/12 text-amber-300 border-amber-400/25",
-  urgente: "bg-rose-500/12 text-rose-300 border-rose-400/25",
-};
-
 const statusIcon: Record<TaskStatus, typeof Circle> = {
   pendente: Circle,
-  andamento: Clock3,
-  revisao: AlertTriangle,
+  andamento: CircleDot,
+  revisao: ScanEye,
   concluida: CheckCircle2,
 };
 
@@ -239,18 +231,39 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [view, setView] = useState<"board" | "list">("board");
+  const [projectQuery, setProjectQuery] = useState("");
+  const [projectsLoading, setProjectsLoading] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [filters, setFilters] = useState({
-    status: "ativas",
+    status: "todas",
     category: "todas",
     priority: "todas",
     label: "todas",
     due: "todas",
     q: "",
   });
+  const taskRequestVersion = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeWorkspaces = useMemo(() => workspaces.filter((workspace) => !workspace.archived), [workspaces]);
+  const visibleProjects = activeWorkspaces.filter(workspace => [workspace.name, workspace.description, workspace.responsibleName].join(" ").toLocaleLowerCase("pt-BR").includes(projectQuery.toLocaleLowerCase("pt-BR")));
   const archivedWorkspaces = useMemo(() => workspaces.filter((workspace) => workspace.archived), [workspaces]);
+
+  function switchProject(workspace: TaskWorkspace | null) {
+    taskRequestVersion.current += 1;
+    setSelectedTask(null);
+    setTasks([]);
+    setColumns([]);
+    setLabels([]);
+    setLoading(Boolean(workspace));
+    setShowCreate(false);
+    setShowProjectSettings(false);
+    setMobileSidebarOpen(false);
+    setError("");
+    setNotice("");
+    setFilters({ status: "todas", category: "todas", priority: "todas", label: "todas", due: "todas", q: "" });
+    setActiveWorkspace(workspace);
+  }
 
   const canManageProject = useCallback(
     (workspace: TaskWorkspace | null) => Boolean(workspace && (!workspace.ownerUserId || workspace.ownerUserId === userId)),
@@ -276,7 +289,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao carregar projetos.");
-    }
+    } finally { setProjectsLoading(false); }
   }, [userId]);
 
   useEffect(() => {
@@ -468,10 +481,11 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   }
 
   const loadTasks = useCallback(async () => {
+    const version = ++taskRequestVersion.current;
     if (!activeWorkspace) {
       setTasks([]);
       setSelectedTask(null);
-      setLoading(false);
+      if (version === taskRequestVersion.current) setLoading(false);
       return;
     }
     const params = new URLSearchParams({ user_id: userId, project_id: activeWorkspace.id });
@@ -488,6 +502,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
         labels?: TaskLabel[];
         stats?: TaskStats;
       }>(`?${params.toString()}`, { cache: "no-store" });
+      if (version !== taskRequestVersion.current) return;
       setTasks(data.tasks || []);
       setColumns(data.columns || []);
       setLabels(data.labels || []);
@@ -497,9 +512,9 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
         return (data.tasks || []).find((task: TaskItem) => task.id === current.id) || null;
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao carregar tarefas.");
+      if (version === taskRequestVersion.current) setError(err instanceof Error ? err.message : "Falha ao carregar tarefas.");
     } finally {
-      setLoading(false);
+      if (version === taskRequestVersion.current) setLoading(false);
     }
   }, [activeWorkspace, filters, userId]);
 
@@ -714,6 +729,25 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
     }));
   }
 
+  function openNewTask() {
+    setForm({ ...emptyForm, category: activeWorkspace?.category || "geral", priority: activeWorkspace?.defaultPriority || "media", assigneeId: activeWorkspace?.responsibleUserId || userId });
+    setShowCreate(true);
+  }
+  const filterCount = [filters.status !== "todas", filters.priority !== "todas", filters.category !== "todas", filters.due !== "todas", filters.label !== "todas"].filter(Boolean).length;
+
+  useEffect(() => {
+    const closeOverlay = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (showCreate) setShowCreate(false);
+      else if (showProjectSettings) setShowProjectSettings(false);
+      else if (pendingProjectAction) setPendingProjectAction(null);
+      else if (mobileSidebarOpen) setMobileSidebarOpen(false);
+      else setSelectedTask(null);
+    };
+    window.addEventListener("keydown", closeOverlay);
+    return () => window.removeEventListener("keydown", closeOverlay);
+  }, [showCreate, showProjectSettings, pendingProjectAction, mobileSidebarOpen]);
+
   const projectOverlays = (
     <>
       {showProjectSettings && (
@@ -743,17 +777,17 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
 
   if (!activeWorkspace) {
     return (
-      <div className="flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
-        <header className="border-b border-[var(--border)] bg-[var(--surface)] px-8 py-6">
+      <div className="tasks-home flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
+        <header className="tasks-home-header">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
             <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/12 text-blue-300">
-              <Briefcase size={23} />
+              <ListTodo size={23} />
             </span>
             <div>
-              <h1 className="text-xl font-black">Projetos e listas de tarefas</h1>
+              <h1 className="text-xl font-black">Tarefas</h1>
               <p className="text-sm font-semibold text-[var(--text-secondary)]">
-                Escolha um projeto para abrir o Kanban ou crie uma nova lista.
+                Do planejamento à entrega. Organize o trabalho por projeto.
               </p>
             </div>
             </div>
@@ -778,90 +812,35 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto p-8">
+        <main className="tasks-home-content min-h-0 flex-1 overflow-y-auto">
+          {error && <p role="alert" className="tasks-feedback is-error">{error}</p>}
+          {notice && <p role="status" className="tasks-feedback">{notice}</p>}
+          <div className="tasks-project-toolbar">
+            <div><h2>Seus projetos <span>{activeWorkspaces.length}</span></h2><p>Um espaço para cada frente de trabalho.</p></div>
+            <label className="tasks-search"><Search size={17} /><input value={projectQuery} onChange={event => setProjectQuery(event.target.value)} placeholder="Buscar projetos" aria-label="Buscar projetos" />{projectQuery && <button onClick={() => setProjectQuery("")} aria-label="Limpar busca de projetos"><X size={14} /></button>}</label>
+          </div>
           <section className={`grid gap-5 ${showWorkspaceCreate ? "xl:grid-cols-[minmax(0,1fr)_360px]" : ""}`}>
             <div className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {activeWorkspaces.map((workspace) => (
-                <article
-                  key={workspace.id}
-                  className="min-h-56 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 text-left transition hover:border-blue-400 hover:bg-[var(--surface-hover)]"
-                >
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <span
-                      className="grid h-11 w-11 place-items-center rounded-lg text-white shadow-sm"
-                      style={{ backgroundColor: workspace.color }}
-                    >
-                      <Briefcase size={20} />
-                    </span>
-                    <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-2 py-1 text-xs font-bold text-blue-200">
-                      {projectCategoryLabels[workspace.category]}
-                    </span>
-                  </div>
-                  <h2 className="text-base font-black">{workspace.name}</h2>
-                  <p className="mt-2 line-clamp-2 text-sm font-semibold text-[var(--text-secondary)]">{workspace.description}</p>
-                  <div className="mt-4 space-y-2 text-xs font-bold">
-                    <p className={projectDeadlineTone(workspace)}>
-                      <CalendarClock size={13} className="mr-1 inline" />
-                      {projectDateRange(workspace)}
-                    </p>
-                    <p className="text-[var(--text-secondary)]">Responsavel: {workspace.responsibleName || workspace.owner}</p>
-                    <p className="text-[var(--text-secondary)]">
-                      {workspace.ownerUserId === userId
-                        ? `Compartilhado com ${workspace.sharedUserIds?.length || 0} membro(s)`
-                        : "Compartilhado comigo"}
-                    </p>
-                  </div>
-                  <div className="mt-5 flex items-center justify-between gap-3 text-xs font-bold">
-                    <span className="text-blue-300">Abrir Kanban</span>
-                    <span className={`rounded-full border px-2 py-0.5 ${projectStatusStyle[workspace.status]}`}>
-                      {projectStatusLabels[workspace.status]}
-                    </span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-[1fr_auto_auto] gap-2">
-                    <Button variant="primary"
-                      onClick={() => setActiveWorkspace(workspace)}
-                      className="bg-blue-600 hover:bg-blue-500"
-                    >
-                      Abrir Kanban
-                    </Button>
-                    <Button size="lg" iconOnly
-                      onClick={() => openProjectSettings(workspace)}
-                      disabled={!canManageProject(workspace)}
-                      className="text-[var(--text-secondary)] hover:bg-[var(--background)] hover:text-blue-300"
-                      title="Configuracoes do projeto"
-                     aria-label="Configuracoes do projeto">
-                      <Settings size={16} />
-                    </Button>
-                    <Button size="lg" iconOnly
-                      onClick={() => setPendingProjectAction({ type: "archive", workspace })}
-                      disabled={!canManageProject(workspace)}
-                      className="border-amber-400/25 text-amber-200 hover:bg-amber-500/10"
-                      title="Arquivar projeto"
-                     aria-label="Arquivar projeto">
-                      <Archive size={16} />
-                    </Button>
-                  </div>
-                  <button
-                    onClick={() => setPendingProjectAction({ type: "delete", workspace })}
-                    disabled={!canManageProject(workspace)}
-                    className="mt-2 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-rose-400/25 text-xs font-bold text-rose-200 transition hover:bg-rose-500/10"
-                  >
-                    <Trash2 size={14} />
-                    Excluir projeto
-                  </button>
-                </article>
-              ))}
-              </div>
-
-              {activeWorkspaces.length === 0 && (
-                <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface)] p-8 text-center">
-                  <h2 className="text-base font-black">Nenhum projeto ativo</h2>
-                  <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
-                    Crie uma nova lista ou restaure um projeto arquivado.
-                  </p>
-                </div>
-              )}
+              {projectsLoading ? <div className="tasks-empty"><LoaderCircle className="animate-spin" size={24} /><p>Carregando projetos…</p></div> : <div className="tasks-project-grid">
+                {visibleProjects.map(workspace => {
+                  const ProjectIcon = taskCategoryVisual[workspace.category]?.icon || Layers3;
+                  return <article key={workspace.id} className="tasks-project-card" style={{ "--project-color": workspace.color } as React.CSSProperties}>
+                    <div className="tasks-project-top"><span className="tasks-project-icon"><ProjectIcon size={22} strokeWidth={1.7} /></span>
+                      <details className="tasks-project-menu"><summary aria-label={"Ações de " + workspace.name}><MoreHorizontal size={20} /></summary><div>
+                        <button disabled={!canManageProject(workspace)} onClick={() => openProjectSettings(workspace)}><Settings size={15} />Configurações</button>
+                        <button disabled={!canManageProject(workspace)} onClick={() => setPendingProjectAction({ type: "archive", workspace })}><Archive size={15} />Arquivar</button>
+                        <button className="is-danger" disabled={!canManageProject(workspace)} onClick={() => setPendingProjectAction({ type: "delete", workspace })}><Trash2 size={15} />Excluir projeto</button>
+                      </div></details>
+                    </div>
+                    <span className="tasks-eyebrow">{projectCategoryLabels[workspace.category]}</span>
+                    <button className="tasks-project-title" onClick={() => setActiveWorkspace(workspace)}><h3>{workspace.name}</h3><ArrowUpRight size={19} /></button>
+                    <p className="tasks-project-description">{workspace.description || "Organize as próximas entregas deste projeto."}</p>
+                    <div className="tasks-project-meta"><span><UserRound size={14} />{workspace.responsibleName || workspace.owner}</span><span className={projectDeadlineTone(workspace)}><CalendarClock size={14} />{projectDateRange(workspace)}</span></div>
+                    <footer><span className={"tasks-project-status status-" + workspace.status}><span />{projectStatusLabels[workspace.status]}</span><button onClick={() => setActiveWorkspace(workspace)}>Abrir projeto <ArrowUpRight size={14} /></button></footer>
+                  </article>;
+                })}
+              </div>}
+              {!projectsLoading && visibleProjects.length === 0 && <div className="tasks-empty"><Layers3 size={32} /><h3>{projectQuery ? "Nenhum projeto encontrado" : "Seu próximo projeto começa aqui"}</h3><p>{projectQuery ? "Tente outro nome ou responsável." : "Crie um projeto e organize as primeiras tarefas da equipe."}</p><Button onClick={() => projectQuery ? setProjectQuery("") : setShowWorkspaceCreate(true)}>{projectQuery ? "Limpar busca" : "Criar primeiro projeto"}</Button></div>}
 
               {showArchivedProjects && archivedWorkspaces.length > 0 && (
                 <section className="space-y-3">
@@ -912,7 +891,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
             </div>
 
             {showWorkspaceCreate && (
-            <aside className="rounded-lg border border-blue-400/30 bg-[var(--surface)] p-5 shadow-xl shadow-black/10">
+            <aside className="tasks-project-create rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
               <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/12 text-blue-300">
                 <FolderPlus size={21} />
               </span>
@@ -1058,26 +1037,18 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   }
 
   return (
-    <div className={`norium-tasks ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
-      <button
-        type="button"
-        className="mobile-sidebar-toggle mobile-screen-fab"
-        aria-label="Abrir filtros do projeto"
-        onClick={() => setMobileSidebarOpen(true)}
-      >
-        <Menu size={18} />
-      </button>
+    <div className={`tasks-workspace ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
       {mobileSidebarOpen && (
         <button
           type="button"
-          className="mobile-sidebar-backdrop"
-          aria-label="Fechar filtros do projeto"
+          className="tasks-filter-backdrop"
+          aria-label="Fechar filtros pelo fundo"
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
-      <aside className="task-sidebar flex h-full w-72 shrink-0 flex-col gap-4 border-r border-[var(--border)] bg-[var(--surface)] p-4">
+      {mobileSidebarOpen && <aside className="task-sidebar flex h-full w-72 shrink-0 flex-col gap-4 border-r border-[var(--border)] bg-[var(--surface)] p-4">
         <div className="module-sidebar-mobile-header">
-          <span><Layers3 size={18} /> Projeto</span>
+          <span><SlidersHorizontal size={18} /> Filtros do projeto</span>
           <button type="button" onClick={() => setMobileSidebarOpen(false)} aria-label="Fechar filtros do projeto">
             <X size={19} />
           </button>
@@ -1092,76 +1063,6 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           <ArrowLeft size={15} />
           Trocar projeto
         </Button>
-        <div className="rounded-lg border border-blue-400/20 bg-blue-500/10 p-3">
-          <div className="flex items-start gap-3">
-            <span
-              className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-lg text-white"
-              style={{ backgroundColor: activeWorkspace.color }}
-            >
-              <Layers3 size={18} />
-            </span>
-            <div className="min-w-0">
-              <p className="text-xs font-bold uppercase text-blue-200/80">Projeto atual</p>
-              <h2 className="mt-1 truncate text-sm font-bold text-blue-100">{activeWorkspace.name}</h2>
-              <p className="mt-1 line-clamp-2 text-xs font-semibold text-blue-100/70">{activeWorkspace.description}</p>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-full border border-blue-300/20 bg-blue-950/35 px-2 py-1 text-xs font-bold text-blue-100">
-              {projectCategoryLabels[activeWorkspace.category]}
-            </span>
-            <span className={`rounded-full border px-2 py-1 text-xs font-bold ${projectStatusStyle[activeWorkspace.status]}`}>
-              {projectStatusLabels[activeWorkspace.status]}
-            </span>
-          </div>
-          <p className={`mt-3 text-xs font-bold ${projectDeadlineTone(activeWorkspace)}`}>
-            <CalendarClock size={13} className="mr-1 inline" />
-            {projectDateRange(activeWorkspace)}
-          </p>
-          <p className="mt-2 text-xs font-bold text-blue-100/80">
-            Responsavel: {activeWorkspace.responsibleName || activeWorkspace.owner}
-          </p>
-          <p className="mt-1 text-xs font-bold text-blue-100/70">
-            {activeWorkspace.ownerUserId === userId
-              ? `Compartilhado com ${activeWorkspace.sharedUserIds?.length || 0} membro(s)`
-              : "Projeto compartilhado com voce"}
-          </p>
-        </div>
-        <Button
-          onClick={() => {
-            setMobileSidebarOpen(false);
-            openProjectSettings(activeWorkspace);
-          }}
-          disabled={!canManageProject(activeWorkspace)}
-          className="text-[var(--text-secondary)] hover:text-[var(--text)]"
-        >
-          <Settings size={15} />
-          Configuracoes do projeto
-        </Button>
-        <Button variant="primary" size="lg"
-          onClick={() => {
-            setMobileSidebarOpen(false);
-            setForm({
-              ...emptyForm,
-              category: activeWorkspace.category,
-              priority: activeWorkspace.defaultPriority,
-              assigneeId: activeWorkspace.responsibleUserId || userId,
-            });
-            setShowCreate(true);
-          }}
-          className="shadow-sm"
-        >
-          <Plus size={17} />
-          Nova tarefa
-        </Button>
-
-        <div className="grid grid-cols-2 gap-2">
-          <Metric label="Ativas" value={stats.ativas} />
-          <Metric label="Vencidas" value={stats.vencidas} alert />
-          <Metric label="Andamento" value={stats.andamento} />
-          <Metric label="Concluídas" value={stats.concluidas} />
-        </div>
-
         <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
           <div className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">
             <Filter size={14} />
@@ -1176,7 +1077,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
               className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none placeholder:text-[var(--text-secondary)]"
             />
           </div>
-          <Select value={filters.status} onChange={(value) => setFilters({ ...filters, status: value })}>
+          <Select label="Filtrar por etapa" value={filters.status} onChange={(value) => setFilters({ ...filters, status: value })}>
             <option value="ativas">Ativas</option>
             <option value="pendente">Pendentes</option>
             <option value="andamento">Em andamento</option>
@@ -1184,26 +1085,26 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
             <option value="concluida">Concluídas</option>
             <option value="todas">Todas</option>
           </Select>
-          <Select value={filters.priority} onChange={(value) => setFilters({ ...filters, priority: value })}>
+          <Select label="Filtrar por prioridade" value={filters.priority} onChange={(value) => setFilters({ ...filters, priority: value })}>
             <option value="todas">Todas prioridades</option>
             <option value="urgente">Urgente</option>
             <option value="alta">Alta</option>
             <option value="media">Média</option>
             <option value="baixa">Baixa</option>
           </Select>
-          <Select value={filters.category} onChange={(value) => setFilters({ ...filters, category: value })}>
+          <Select label="Filtrar por categoria" value={filters.category} onChange={(value) => setFilters({ ...filters, category: value })}>
             <option value="todas">Todas categorias</option>
             {taskCategoryOptions.map((category) => (
               <option key={category.id} value={category.id}>{category.label}</option>
             ))}
           </Select>
-          <Select value={filters.due} onChange={(value) => setFilters({ ...filters, due: value })}>
+          <Select label="Filtrar por prazo" value={filters.due} onChange={(value) => setFilters({ ...filters, due: value })}>
             <option value="todas">Todos vencimentos</option>
             <option value="vencidas">Vencidas</option>
             <option value="hoje">Hoje</option>
             <option value="semana">Próximos 7 dias</option>
           </Select>
-          <Select value={filters.label} onChange={(value) => setFilters({ ...filters, label: value })}>
+          <Select label="Filtrar por etiqueta" value={filters.label} onChange={(value) => setFilters({ ...filters, label: value })}>
             <option value="todas">Todas etiquetas</option>
             {labels.map((label) => (
               <option key={label.id} value={label.id}>{label.name}</option>
@@ -1226,34 +1127,40 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
             ))}
           </div>
         </div>
-      </aside>
+      </aside>}
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-5 py-4">
-          <div>
-            <h1 className="text-lg font-bold">{activeWorkspace.name}</h1>
-            <p className="text-xs font-semibold text-[var(--text-secondary)]">
-              {stats.total} tarefas neste projeto
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)]">
-            <Clock3 size={15} />
-            {loading ? "Sincronizando" : "Atualização local"}
-          </div>
+      <main className="tasks-board-main flex min-w-0 flex-1 flex-col">
+        <header className="tasks-board-header">
+          <nav className="tasks-project-navigation" aria-label="Navegação entre projetos">
+            <button type="button" onClick={() => switchProject(null)}><ArrowLeft size={16} />Voltar aos projetos</button>
+            <label><span>Trocar projeto</span><select value={activeWorkspace.id} onChange={(event) => {
+              const workspace = activeWorkspaces.find((item) => item.id === event.target.value);
+              if (workspace && workspace.id !== activeWorkspace.id) switchProject(workspace);
+            }}>{activeWorkspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></label>
+          </nav>
+          <div className="tasks-board-heading"><div><h1>{activeWorkspace.name}</h1><p>{activeWorkspace.description || "Organize as entregas e acompanhe cada etapa."}</p></div><div className="tasks-heading-actions"><Button iconOnly aria-label="Configurações do projeto" title="Configurações do projeto" disabled={!canManageProject(activeWorkspace)} onClick={() => openProjectSettings(activeWorkspace)}><Settings size={17} /></Button><Button variant="primary" className="tasks-primary" onClick={openNewTask}><Plus size={17} />Nova tarefa</Button></div></div>
+          <div className="tasks-metrics"><Metric tone="amber" label="Ativas" value={stats.ativas} /><Metric label="Em andamento" value={stats.andamento} /><Metric tone="emerald" label="Concluídas" value={stats.concluidas} /><Metric label="Vencidas" value={stats.vencidas} alert /></div>
         </header>
+        <div className="tasks-board-toolbar">
+          <div className="tasks-view-switch" aria-label="Visualização das tarefas"><button aria-pressed={view === "board"} onClick={() => setView("board")}><LayoutGrid size={16} />Quadro</button><button aria-pressed={view === "list"} onClick={() => setView("list")}><ListTodo size={16} />Lista</button></div>
+          <label className="tasks-search"><Search size={16} /><input aria-label="Buscar tarefas" placeholder="Buscar tarefas" value={filters.q} onChange={event => setFilters({ ...filters, q: event.target.value })} /></label>
+          <Button aria-expanded={mobileSidebarOpen} onClick={() => setMobileSidebarOpen(!mobileSidebarOpen)}><SlidersHorizontal size={16} />Filtros{filterCount > 0 && <span className="tasks-filter-count">{filterCount}</span>}</Button>
+          {filterCount > 0 && <button className="tasks-clear-filters" onClick={() => setFilters({ status: "todas", category: "todas", priority: "todas", label: "todas", due: "todas", q: "" })}>Limpar</button>}
+        </div>
 
         {error && (
-          <div className="border-b border-amber-500/20 bg-amber-500/10 px-5 py-2 text-xs font-bold text-amber-300">
+          <div role="alert" className="border-b border-amber-500/20 bg-amber-500/10 px-5 py-2 text-xs font-bold text-amber-300">
             {error}
           </div>
         )}
         {notice && (
-          <div className="border-b border-emerald-500/20 bg-emerald-500/10 px-5 py-2 text-xs font-bold text-emerald-300">
+          <div role="status" className="border-b border-emerald-500/20 bg-emerald-500/10 px-5 py-2 text-xs font-bold text-emerald-300">
             {notice}
           </div>
         )}
 
-        <div className="tasks-kanban-scroll flex-1 overflow-x-auto overflow-y-hidden p-4">
+        {loading && <p role="status" className="tasks-loading"><LoaderCircle size={13} className="animate-spin" /> Atualizando tarefas…</p>}
+        {view === "board" ? <div className="tasks-kanban-scroll flex-1 overflow-x-auto overflow-y-hidden p-4">
           <div className="tasks-kanban-grid grid h-full min-w-[1060px] grid-cols-4 gap-4">
             {columns.map((column) => (
               <KanbanColumn
@@ -1268,7 +1175,10 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
               />
             ))}
           </div>
-        </div>
+        </div> : <div className="tasks-list-scroll"><div className="tasks-list-heading"><span>Tarefa</span><span>Etapa</span><span>Prioridade</span><span>Prazo</span><span>Responsável</span></div>{tasks.map(task => {
+          const Icon = statusIcon[task.status];
+          return <button className="tasks-list-row" key={task.id} onClick={() => setSelectedTask(task)}><span className="tasks-list-title"><Icon size={17} /><strong>{task.title}</strong></span><span>{columns.find(column => column.id === task.status)?.title || task.status}</span><span className={"tasks-priority priority-" + task.priority}>{task.priority === "media" ? "Média" : task.priority}</span><span className={isOverdue(task) ? "tasks-overdue" : ""}>{dateLabel(task.dueDate)}</span><span>{task.assigneeName || "Sem responsável"}</span></button>;
+        })}{!tasks.length && <div className="tasks-empty"><ListTodo size={28} /><p>{loading ? "Carregando tarefas…" : "Nenhuma tarefa nesta seleção."}</p></div>}</div>}
       </main>
 
       {selectedTask && (
@@ -1307,10 +1217,10 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   );
 }
 
-function Metric({ label, value, alert = false }: { label: string; value: number; alert?: boolean }) {
+function Metric({ label, value, alert = false, tone = "blue" }: { label: string; value: number; alert?: boolean; tone?: string }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-      <p className={`text-lg font-bold ${alert && value > 0 ? "text-rose-300" : ""}`}>{value || 0}</p>
+    <div className="tasks-metric" data-metric-tone={alert ? "rose" : tone}>
+      <p className={`metric-value text-lg font-bold ${alert && value > 0 ? "text-rose-300" : ""}`}>{value || 0}</p>
       <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
     </div>
   );
@@ -1386,9 +1296,10 @@ function ProjectActionConfirmModal({
   );
 }
 
-function Select({ value, onChange, children }: { value: string; onChange: (value: string) => void; children: ReactNode }) {
+function Select({ value, onChange, children, label }: { value: string; onChange: (value: string) => void; children: ReactNode; label?: string }) {
   return (
     <select
+      aria-label={label}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-bold outline-none"
@@ -1420,7 +1331,7 @@ function KanbanColumn({
     <section
       onDragOver={(event) => event.preventDefault()}
       onDrop={() => onDrop(column.id)}
-      className="flex min-h-0 flex-col rounded-lg border border-[var(--border)] bg-[var(--surface)]"
+      className={"tasks-column column-" + column.id + " flex min-h-0 flex-col"}
     >
       <header className="flex items-center justify-between border-b border-[var(--border)] px-3 py-3">
         <div className="flex items-center gap-2">
@@ -1431,7 +1342,8 @@ function KanbanColumn({
           {tasks.length}{column.limit ? `/${column.limit}` : ""}
         </span>
       </header>
-      <div className="flex-1 space-y-3 overflow-y-auto p-3">
+      <div className="tasks-column-body flex-1 space-y-3 overflow-y-auto p-3">
+        {!tasks.length && <div className="tasks-column-empty"><Icon size={20} /><p>Nenhuma tarefa nesta etapa</p><small>Arraste uma tarefa para cá</small></div>}
         {tasks.map((task) => (
           <TaskCard
             key={task.id}
@@ -1468,18 +1380,18 @@ function TaskCard({
       draggable
       onDragStart={onDragStart}
       onClick={onSelect}
-      className={`w-full rounded-lg border bg-[var(--background)] p-3 text-left shadow-sm transition hover:border-[var(--primary)] ${
+      className={`tasks-task-card w-full rounded-lg border bg-[var(--background)] p-3 text-left shadow-sm transition hover:border-[var(--primary)] ${
         selected ? "border-[var(--primary)]" : "border-[var(--border)]"
       }`}
     >
       <div className="mb-3 flex items-start justify-between gap-2">
         <h3 className="min-w-0 text-sm font-bold leading-snug">{task.title}</h3>
-        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-bold uppercase ${priorityStyle[task.priority]}`}>
-          {task.priority}
+        <span className={"tasks-priority priority-" + task.priority}>
+          {task.priority === "media" ? "Média" : task.priority}
         </span>
       </div>
 
-      <span className={`mb-3 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold uppercase ${categoryVisual.className}`}>
+      <span className="tasks-category mb-3 inline-flex items-center gap-1 px-2 py-0.5">
         <CategoryIcon size={11} />
         {taskCategoryOptions.find((category) => category.id === task.category)?.label || task.category}
       </span>
@@ -1546,13 +1458,13 @@ function TaskDetails({
   onUpload: (file: File) => void;
 }) {
   return (
-    <aside className="flex h-full w-[420px] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--surface)]">
+    <aside className="tasks-details flex h-full w-[420px] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--surface)]" aria-label="Detalhes da tarefa">
       <header className="flex items-center justify-between border-b border-[var(--border)] p-4">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Detalhes</p>
           <h2 className="truncate text-base font-bold">{task.title}</h2>
         </div>
-        <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
+        <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar painel">
           <X size={18} />
         </Button>
       </header>
@@ -1560,6 +1472,7 @@ function TaskDetails({
       <div className="flex-1 space-y-5 overflow-y-auto p-4">
         <section className="space-y-3">
           <input
+            aria-label="Título da tarefa"
             value={task.title}
             onChange={(event) => onPatch({ title: event.target.value } as Partial<TaskItem>)}
             className="h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none"
@@ -1572,13 +1485,13 @@ function TaskDetails({
             placeholder="Descrição"
           />
           <div className="grid grid-cols-2 gap-2">
-            <Select value={task.status} onChange={(value) => onPatch({ status: value as TaskStatus } as Partial<TaskItem>)}>
+            <Select label="Etapa" value={task.status} onChange={(value) => onPatch({ status: value as TaskStatus } as Partial<TaskItem>)}>
               <option value="pendente">Pendente</option>
               <option value="andamento">Em andamento</option>
               <option value="revisao">Em revisão</option>
               <option value="concluida">Concluída</option>
             </Select>
-            <Select value={task.priority} onChange={(value) => onPatch({ priority: value as TaskPriority } as Partial<TaskItem>)}>
+            <Select label="Prioridade" value={task.priority} onChange={(value) => onPatch({ priority: value as TaskPriority } as Partial<TaskItem>)}>
               <option value="baixa">Baixa</option>
               <option value="media">Média</option>
               <option value="alta">Alta</option>
@@ -1720,7 +1633,7 @@ function ProjectSettingsModal({
   onSubmit: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+    <div role="dialog" aria-modal="true" aria-label="Formulário de tarefa ou projeto" className="tasks-modal fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
       <div className="w-full max-w-2xl rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
         <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div>
@@ -1729,7 +1642,7 @@ function ProjectSettingsModal({
               Prazos, responsavel, categoria e padroes para tarefas e agenda.
             </p>
           </div>
-          <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
+          <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar painel">
             <X size={18} />
           </Button>
         </header>
@@ -1793,12 +1706,12 @@ function ProjectSettingsModal({
 
           <section className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Select value={form.category} onChange={(value) => setForm({ ...form, category: value as ProjectCategory })}>
+              <Select label="Categoria" value={form.category} onChange={(value) => setForm({ ...form, category: value as ProjectCategory })}>
                 {Object.entries(projectCategoryLabels).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
               </Select>
-              <Select value={form.status} onChange={(value) => setForm({ ...form, status: value as ProjectStatus })}>
+              <Select label="Etapa" value={form.status} onChange={(value) => setForm({ ...form, status: value as ProjectStatus })}>
                 {Object.entries(projectStatusLabels).map(([value, label]) => (
                   <option key={value} value={value}>{label}</option>
                 ))}
@@ -1908,11 +1821,11 @@ function CreateTaskModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+    <div role="dialog" aria-modal="true" aria-label="Formulário de tarefa ou projeto" className="tasks-modal fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
       <div className="w-full max-w-xl rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl">
         <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <h2 className="text-base font-bold">Nova tarefa</h2>
-          <Button variant="ghost" size="sm" iconOnly onClick={onClose}>
+          <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar painel">
             <X size={18} />
           </Button>
         </header>
@@ -1943,7 +1856,7 @@ function CreateTaskModal({
             </Button>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Select value={form.priority} onChange={(value) => setForm({ ...form, priority: value as TaskPriority })}>
+            <Select label="Prioridade" value={form.priority} onChange={(value) => setForm({ ...form, priority: value as TaskPriority })}>
               <option value="baixa">Baixa</option>
               <option value="media">Média</option>
               <option value="alta">Alta</option>
@@ -1956,12 +1869,12 @@ function CreateTaskModal({
               className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none"
             />
           </div>
-          <Select value={form.category} onChange={(value) => setForm({ ...form, category: value })}>
+          <Select label="Categoria" value={form.category} onChange={(value) => setForm({ ...form, category: value })}>
             {taskCategoryOptions.map((category) => (
               <option key={category.id} value={category.id}>{category.label}</option>
             ))}
           </Select>
-          <Select value={form.assigneeId} onChange={(value) => setForm({ ...form, assigneeId: value })}>
+          <Select label="Responsável" value={form.assigneeId} onChange={(value) => setForm({ ...form, assigneeId: value })}>
             <option value="">Responsavel padrao do projeto</option>
             {teamMembers.map((member) => (
               <option key={member.id} value={member.id}>{member.nome}</option>
@@ -1986,7 +1899,7 @@ function CreateTaskModal({
           <Button onClick={onClose}>
             Cancelar
           </Button>
-          <Button variant="primary" disabled={!form.title.trim()} onClick={onSubmit}>
+          <Button variant="primary" className="tasks-primary" disabled={!form.title.trim()} onClick={onSubmit}>
             Criar
           </Button>
         </footer>

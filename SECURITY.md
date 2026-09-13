@@ -10,7 +10,7 @@ Nao abra uma issue publica para vulnerabilidades. Envie o relato de forma privad
 - Eventos, WebSockets, notificacoes, arquivos, OAuth e caches devem ser isolados por usuario ou equipe autorizada.
 - Webhooks exigem segredo quando o provedor o suporta e nunca escolhem o tenant a partir de um campo livre do payload.
 - URLs remotas usam HTTPS, allowlist de host, sem redirecionamento e com limite de tamanho.
-- Segredos ficam apenas no ambiente/Azure secrets. Tokens de sessao ficam em `sessionStorage`, nao em armazenamento persistente.
+- Segredos ficam apenas no ambiente/Azure secrets. Tokens de sessao ficam em `sessionStorage`, nao em armazenamento persistente. Tokens de instância W-API recuperáveis são persistidos somente com criptografia autenticada e chave dedicada do secret manager.
 - Conteudo externo exibido ou enviado a IA e tratado como nao confiavel e passa por minimizacao de dados.
 
 ## Resposta a incidentes

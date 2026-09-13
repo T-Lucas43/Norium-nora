@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import os
 import uuid
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from weakref import WeakKeyDictionary
 
-from app.core.tenant import read_profile_db
+from app.core.tenant import read_profile_db, get_data_root
+from app.core.request_context import current_workspace_id
+from fastapi import HTTPException
 from app.modules.clients.repository import list_clients
 from app.modules.inbox.router import manager, read_events, record_event
 from app.modules.operations.repository import (
@@ -657,6 +662,41 @@ def _last_event_by_source(events: list[dict[str, Any]], source: str) -> str | No
     return next((str(event.get("timestamp")) for event in events if event.get("source") == source), None)
 
 
+_integration_reads: dict[tuple[int, str, str, str], asyncio.Task] = {}
+_integration_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="integration-health")
+_integration_slots: WeakKeyDictionary = WeakKeyDictionary()
+
+
+async def _load_integration_health(user_id: str, events: list[dict[str, Any]], audits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    loop = asyncio.get_running_loop()
+    slots = _integration_slots.setdefault(loop, asyncio.Semaphore(2))
+    # Locked W-API reads must never exhaust the default pool used by JSON stores.
+    # Acquire before submission so waiting accounts don't fill an executor queue.
+    async with slots:
+        context = contextvars.copy_context()
+        return await loop.run_in_executor(_integration_executor, context.run, integration_health, user_id, events, audits)
+
+
+async def read_integration_health(user_id: str, events: list[dict[str, Any]], audits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # The W-API ownership store may wait on a process/SQLite lock. Keep that wait
+    # off the event loop and reuse unfinished work when the browser retries.
+    key = (id(asyncio.get_running_loop()), str(get_data_root()), user_id, current_workspace_id())
+    task = _integration_reads.get(key)
+    if task is None or task.done():
+        task = asyncio.create_task(_load_integration_health(user_id, events, audits))
+        _integration_reads[key] = task
+        def finished(completed: asyncio.Task) -> None:
+            if _integration_reads.get(key) is completed:
+                _integration_reads.pop(key, None)
+            if not completed.cancelled():
+                completed.exception()
+        task.add_done_callback(finished)
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=8)
+    except TimeoutError:
+        raise HTTPException(status_code=504, detail="A verificação das integrações ainda está em andamento. Tente atualizar esta seção.") from None
+
+
 def integration_health(user_id: str, events: list[dict[str, Any]], audits: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     profile = read_profile_db(user_id, {})
     gmail_connected = _token_connected(profile, "gmailToken")
@@ -856,8 +896,9 @@ def _daily_briefing(summary: dict[str, int], alerts: list[dict[str, Any]]) -> di
     highlights = [
         f'{summary.get("todayEvents", 0)} compromisso(s) hoje',
         f'{summary.get("activeTasks", 0)} tarefa(s) ativa(s)',
-        f'{summary.get("pendingApprovals", 0)} aprovacao(oes) pendente(s)',
     ]
+    if "pendingApprovals" in summary:
+        highlights.append(f'{summary["pendingApprovals"]} aprovacao(oes) pendente(s)')
     return {
         "greeting": greeting,
         "title": "Seu resumo operacional esta pronto",
@@ -1063,19 +1104,23 @@ async def global_search(user: dict[str, Any], query: str, limit: int = 20) -> di
 
 async def operations_overview(user: dict[str, Any]) -> dict[str, Any]:
     user_id = str(user.get("id") or "lucas123")
-    events = await read_events(user_id)
-    approvals = await list_items(user_id, APPROVAL_DB)
-    audits = await list_items(user_id, AUDIT_DB)
-    receipts = await list_items(user_id, RECEIPT_DB)
-    templates = await list_items(user_id, TEMPLATE_DB)
-    follow_ups = await list_items(user_id, FOLLOWUP_DB)
-    tasks = list_tasks(user_id, status="todas")
-    finance = list_finance(user_id)
+    events, approvals, audits, receipts, templates, follow_ups, tasks, finance, memory, settings = await asyncio.gather(
+        read_events(user_id),
+        list_items(user_id, APPROVAL_DB),
+        list_items(user_id, AUDIT_DB),
+        list_items(user_id, RECEIPT_DB),
+        list_items(user_id, TEMPLATE_DB),
+        list_items(user_id, FOLLOWUP_DB),
+        asyncio.to_thread(list_tasks, user_id, status="todas"),
+        asyncio.to_thread(list_finance, user_id),
+        list_nora_memory(user),
+        get_operation_settings(user),
+    )
     task_stats = tasks.get("stats") if isinstance(tasks.get("stats"), dict) else {}
     finance_summary = finance.get("resumo") if isinstance(finance.get("resumo"), dict) else {}
 
     pending_approvals = [item for item in approvals if item.get("status") == "pending"]
-    integrations = integration_health(user_id, events, audits)
+    integrations = await read_integration_health(user_id, events, audits)
     today_events = _today_calendar_events(events)
     summary = {
         "pendingApprovals": len(pending_approvals),
@@ -1086,8 +1131,6 @@ async def operations_overview(user: dict[str, Any]) -> dict[str, Any]:
         "unhealthyIntegrations": len([item for item in integrations if item.get("status") != "online"]),
     }
     alerts = _proactive_alerts(tasks.get("tasks") or [], finance, events, integrations, audits)
-    memory = await list_nora_memory(user)
-    settings = await get_operation_settings(user)
     return {
         "generatedAt": now_iso(),
         "summary": summary,

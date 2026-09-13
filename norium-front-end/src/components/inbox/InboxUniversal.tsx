@@ -123,7 +123,7 @@ const panels: InboxPanelConfig[] = [
   },
   {
     source: "brainstorm",
-    title: "Brainstorm",
+    title: "Estúdio",
     subtitle: "Sessões, ideias e decisões",
     emptyTitle: "Nenhuma sessão recente",
     emptyDescription: "Criações de quadros e ideias convertidas em tarefas aparecem aqui.",

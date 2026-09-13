@@ -1,3 +1,4 @@
+import { applyInterfacePreferences } from "../../utils/interfacePreferences";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { AppMode, AuthSession } from "../../types/auth";
@@ -16,6 +17,7 @@ export function useOperatorProfile(authSession: AuthSession | null, appMode: App
   const saveLocalProfile = useCallback((nextProfile: PerfilOperador) => {
     setProfileUserId(activeUserIdRef.current);
     setProfile(nextProfile);
+    applyInterfacePreferences(nextProfile.interface_preferences);
     applyNoriumTheme(nextProfile.tema, nextProfile.tema_personalizado);
   }, []);
 
@@ -39,6 +41,7 @@ export function useOperatorProfile(authSession: AuthSession | null, appMode: App
   useEffect(() => {
     requestVersionRef.current += 1;
     setProfile(null);
+    applyInterfacePreferences();
     setProfileUserId(authSession?.user.id || "");
   }, [authSession?.user.id]);
 

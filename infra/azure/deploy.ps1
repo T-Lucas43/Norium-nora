@@ -25,6 +25,8 @@ $allowedSecretNames = @(
     "ELEVENLABS_LANGUAGE_CODE", "EDGE_TTS_VOICE", "EDGE_TTS_RATE",
     "EDGE_TTS_PITCH", "EDGE_TTS_VOLUME", "GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET",
     "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "WHATSAPP_API_URL",
+    "WAPI_MASTER_API_KEY", "WAPI_CREDENTIAL_ENCRYPTION_KEY",
+    "WAPI_CREDENTIAL_ENCRYPTION_PREVIOUS_KEYS", "WAPI_WEBHOOK_SECRET",
     "WHATSAPP_API_KEY", "WHATSAPP_WEBHOOK_HMAC_SECRET", "WHATSAPP_LEGACY_OWNER_USER_ID",
     "WHATSAPP_WEBHOOK_SECRET", "WHATSAPP_MEDIA_HOSTS", "SAMIERP_ID_PARCEIRO",
     "SAMIERP_SIGLA", "SAMIERP_SENHA", "SAMIERP_BOLETO_URL"
@@ -143,6 +145,9 @@ if (Test-Path -LiteralPath $authConfigPath) {
 }
 if (-not $secretSettings.ContainsKey("NORIUM_AUTH_SECRET")) {
     throw "O segredo persistente nao foi encontrado em data/auth_config_db.json."
+}
+if (-not $secretSettings.ContainsKey("WAPI_CREDENTIAL_ENCRYPTION_KEY")) {
+    throw "WAPI_CREDENTIAL_ENCRYPTION_KEY nao foi encontrada no .env local."
 }
 
 $parameterPath = Join-Path ([System.IO.Path]::GetTempPath()) ("norium-container-parameters-" + [guid]::NewGuid().ToString("N") + ".json")

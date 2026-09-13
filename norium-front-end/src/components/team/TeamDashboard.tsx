@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Badge, BarChart3, Building2, Check, CheckCircle2, Clock3, ListChecks, Lock, MessageCircle, PlayCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound, type LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, Badge, BarChart3, Lock, MessageCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound } from "lucide-react";
 import type { AuthSession, NoriumTeam, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
+import TeamProductivity from "./TeamProductivity";
+import TeamRoles, { type TeamRole } from "./TeamRoles";
 import Button from "../shared/Button";
 
 interface TeamDashboardProps {
@@ -48,6 +50,7 @@ interface TeamTaskReport {
 const initialForm = {
   nome: "",
   jobTitle: "Membro",
+  jobRoleId: "",
   email: "",
   password: "",
   permissions: defaultMemberPermissions,
@@ -60,6 +63,7 @@ function mergePermissions(value?: Partial<PermissionMap>) {
 export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat }: TeamDashboardProps) {
   const [view, setView] = useState<"overview" | "access" | "roles">("overview");
   const [users, setUsers] = useState<NoriumUser[]>([]);
+  const [roles, setRoles] = useState<TeamRole[]>([]);
   const [selectedUserId, setSelectedUserId] = useState(session.user.id);
   const [form, setForm] = useState(initialForm);
   const [loading, setLoading] = useState(false);
@@ -69,6 +73,8 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   const [report, setReport] = useState<TeamTaskReport | null>(null);
   const [team, setTeam] = useState<NoriumTeam | null>(null);
   const [teamName, setTeamName] = useState("");
+  const memberProfiles = useRef(new Map<string, NoriumUser>());
+  const [detailsRevision, setDetailsRevision] = useState(0);
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) || users[0] || session.user,
@@ -76,29 +82,38 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   );
 
   const refresh = useCallback(async () => {
+    setDetailsRevision((current) => current + 1);
     setLoading(true);
     setError("");
     try {
-      const [data, reportData, teamData, memberData] = await Promise.all([
-        authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token),
-        authJson<TeamTaskReport>("/api/tarefas/relatorio-equipe", session.token),
-        authJson<{ team: NoriumTeam }>("/api/auth/team-profile", session.token),
-        authJson<{ members: NoriumUser[] }>("/api/team-chat/members", session.token).catch(() => ({ members: [] })),
-      ]);
-      const profileById = new Map(memberData.members.map((member) => [member.id, member]));
-      setUsers(data.users.map((user) => ({ ...user, ...profileById.get(user.id) })));
-      setReport(reportData);
-      setTeam(teamData.team);
-      setTeamName(teamData.team.name);
-      if (!data.users.some((user) => user.id === selectedUserId)) {
-        setSelectedUserId(data.users[0]?.id || session.user.id);
-      }
+      const data = await authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token);
+      setUsers(data.users.map((user) => ({ ...user, ...memberProfiles.current.get(user.id) })));
+      setSelectedUserId((current) => data.users.some((user) => user.id === current) ? current : data.users[0]?.id || session.user.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nao foi possivel carregar a equipe.");
     } finally {
       setLoading(false);
     }
-  }, [selectedUserId, session.token, session.user.id]);
+  }, [session.token, session.user.id]);
+
+  useEffect(() => {
+    if (!detailsRevision) return;
+    let active = true;
+    const failed = (err: unknown) => { if (active) setError(err instanceof Error ? err.message : "Não foi possível atualizar os indicadores da equipe."); };
+    void authJson<{roles: TeamRole[]}>("/api/auth/team-roles", session.token)
+      .then(payload => { if (active) setRoles(payload.roles); }).catch(failed);
+    void authJson<TeamTaskReport>("/api/tarefas/relatorio-equipe", session.token)
+      .then((payload) => { if (active) setReport(payload); }).catch(failed);
+    void authJson<{ team: NoriumTeam }>("/api/auth/team-profile", session.token)
+      .then((payload) => { if (active) { setTeam(payload.team); setTeamName(payload.team.name); } }).catch(failed);
+    void authJson<{ members: NoriumUser[] }>("/api/team-chat/members", session.token)
+      .then((payload) => {
+        if (!active) return;
+        memberProfiles.current = new Map(payload.members.map((member) => [member.id, member]));
+        setUsers((current) => current.map((user) => ({ ...user, ...memberProfiles.current.get(user.id) })));
+      }).catch(failed);
+    return () => { active = false; };
+  }, [detailsRevision, session.token]);
 
   async function saveTeamName() {
     const normalized = teamName.trim();
@@ -135,6 +150,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
         body: JSON.stringify({
           nome: form.nome,
           jobTitle: form.jobTitle,
+          jobRoleId: form.jobRoleId || null,
           email: form.email,
           password: form.password,
           role: "member",
@@ -145,7 +161,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
       setUsers((current) => [result.user, ...current]);
       setSelectedUserId(result.user.id);
       setForm(initialForm);
-      setNotice("Usuario menor criado com sucesso.");
+      setNotice("Membro criado com sucesso.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao criar usuario.");
     } finally {
@@ -163,6 +179,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
         body: JSON.stringify(payload),
       });
       setUsers((current) => current.map((item) => (item.id === user.id ? result.user : item)));
+      memberProfiles.current.set(result.user.id, result.user);
       if (result.user.id === session.user.id) {
         onSessionUpdate({ ...session, user: result.user });
       }
@@ -177,6 +194,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   function toggleFormPermission(key: PermissionKey) {
     setForm((current) => ({
       ...current,
+      jobRoleId: "",
       permissions: { ...current.permissions, [key]: !current.permissions[key] },
     }));
   }
@@ -205,7 +223,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   }
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
+    <section className="team-workspace flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-6 py-5 backdrop-blur-2xl">
         <div className="flex items-center gap-3">
           <span className="grid h-12 w-12 place-items-center rounded-xl border border-[var(--border)] bg-[var(--background)] text-[var(--primary)]">
@@ -232,33 +250,13 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
       </nav>
 
       {view === "overview" ? (
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
-          {(notice || error) && (
-            <div className={`rounded-2xl border px-4 py-3 text-sm font-bold ${error ? "border-red-400/30 bg-red-500/12 text-red-100" : "border-emerald-300/30 bg-emerald-400/12 text-emerald-100"}`}>
-              {error || notice}
-            </div>
-          )}
-          <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]"><Building2 size={15} /> Empresa ou equipe</p>
-                <h2 className="mt-1 text-xl font-black">Identidade da colaboração</h2>
-                <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Esse nome aparece para todos os usuários vinculados à equipe.</p>
-              </div>
-              {team && session.user.id === team.ownerUserId ? (
-                <div className="flex w-full max-w-xl gap-2">
-                  <input value={teamName} onChange={(event) => setTeamName(event.target.value)} maxLength={140} placeholder="Nome da empresa ou equipe" className="h-11 min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
-                  <Button variant="primary" onClick={() => void saveTeamName()} disabled={!teamName.trim() || teamName.trim() === team.name || saving === "team-name"} icon={<Check size={15} />}>
-                    {saving === "team-name" ? "Salvando" : "Salvar"}
-                  </Button>
-                </div>
-              ) : (
-                <strong className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">{team?.name || "Equipe"}</strong>
-              )}
-            </div>
-          </section>
-          <TeamGoals storageKey={`norium:team-goals:${session.user.teamOwnerId || session.user.id}`} />
-          <TeamPerformanceReport report={report} users={users} selectedUserId={selectedUser.id} onSelect={setSelectedUserId} />
+        <div className="team-overview">
+          {(notice || error) && <p role={error ? "alert" : "status"} className="report-feedback">{error || notice}</p>}
+          <TeamProductivity data={report} name={team?.name || "Equipe"} onManage={id => { setSelectedUserId(id); setView("access"); }}/>
+          <details className="team-settings"><summary>Nome da equipe e objetivos</summary>
+            {team && session.user.id === team.ownerUserId && <div className="team-name-editor"><input aria-label="Nome da equipe" value={teamName} onChange={e => setTeamName(e.target.value)} maxLength={140}/><Button size="sm" onClick={() => void saveTeamName()} disabled={saving === "team-name" || !teamName.trim() || teamName === team.name}>Salvar nome</Button></div>}
+            <TeamGoals storageKey={`norium:team-goals:${session.user.teamOwnerId || session.user.id}`} />
+          </details>
         </div>
       ) : view === "access" ? (
       <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 xl:grid-cols-[360px_1fr]">
@@ -269,13 +267,13 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
                 <UserPlus size={18} />
               </span>
               <div>
-                <h2 className="font-black">Novo usuario menor</h2>
+                <h2 className="font-black">Novo membro</h2>
                 <p className="text-xs font-semibold text-[var(--text-secondary)]">Clique para cadastrar e liberar acessos.</p>
               </div>
             </summary>
             <div className="mt-4 grid gap-3">
               <input value={form.nome} onChange={(event) => setForm({ ...form, nome: event.target.value })} placeholder="Nome" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
-              <input value={form.jobTitle} onChange={(event) => setForm({ ...form, jobTitle: event.target.value })} placeholder="Cargo na empresa" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
+              <select aria-label="Cargo do novo membro" value={form.jobRoleId} onChange={event=>{ const role=roles.find(r=>r.id===event.target.value); setForm({...form,jobRoleId:role?.id || '',jobTitle:role?.name || 'Membro',permissions:role ? {...role.permissions} : {...defaultMemberPermissions}}); }} className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"><option value="">Acessos personalizados</option>{roles.map(role=><option key={role.id} value={role.id}>{role.name}</option>)}</select>
               <input value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="E-mail" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
               <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="Senha inicial" className="h-11 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none" />
             </div>
@@ -337,7 +335,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
             </div>
 
             <div className="mb-5 grid gap-3 md:grid-cols-3">
-              <label className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3"><span className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Cargo</span><input defaultValue={selectedUser.jobTitle || "Membro"} onBlur={(event) => { const jobTitle = event.target.value.trim(); if (jobTitle && jobTitle !== selectedUser.jobTitle) void patchUser(selectedUser, { jobTitle }, "Cargo atualizado."); }} className="mt-2 h-9 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-black outline-none focus:border-blue-500" /></label>
+              <div className="team-role-assignment"><label>Cargo e acessos<select aria-label="Atribuir cargo" value={selectedUser.jobRoleId || ''} disabled={selectedUser.systemAdmin || selectedUser.id === session.user.id || saving === selectedUser.id} onChange={event=>{if(event.target.value) void patchUser(selectedUser,{jobRoleId:event.target.value},'Cargo e permissões aplicados.');}}><option value="">{selectedUser.jobTitle || 'Acessos personalizados'}</option>{roles.map(role=><option key={role.id} value={role.id}>{role.name}</option>)}</select></label>{selectedUser.jobRoleId && <Button size="sm" disabled={selectedUser.systemAdmin || selectedUser.id===session.user.id || saving===selectedUser.id} onClick={()=>void patchUser(selectedUser,{jobRoleId:selectedUser.jobRoleId},'Permissões do cargo reaplicadas.')}>Reaplicar acessos</Button>}<small>{selectedUser.systemAdmin ? 'Administrador do sistema mantém seus acessos próprios.' : 'Selecionar um cargo substitui os acessos deste membro.'}</small></div>
               <Info label="Perfil" value={selectedUser.role === "owner" ? "Principal" : "Membro"} />
               <Info label="Status" value={selectedUser.status} />
             </div>
@@ -359,18 +357,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
       </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <section className="mx-auto max-w-[1400px] rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
-              <div><p className="text-xs font-bold uppercase text-blue-400">Estrutura da equipe</p><h2 className="mt-1 text-xl font-black">Cargos e membros</h2><p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">Confira quem ocupa cada cargo e edite o cargo na área Membros e acessos.</p></div>
-              <Badge size={24} className="text-blue-400" />
-            </div>
-            <div className="mt-5 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-              {Array.from(new Set(users.map((user) => user.jobTitle || (user.role === "owner" ? "Lider" : "Membro")))).map((jobTitle) => {
-                const occupants = users.filter((user) => (user.jobTitle || (user.role === "owner" ? "Lider" : "Membro")) === jobTitle);
-                return <article key={jobTitle} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><div className="flex items-center justify-between"><strong>{jobTitle}</strong><span className="rounded-full bg-blue-500/12 px-2 py-1 text-xs font-bold text-blue-300">{occupants.length}</span></div><div className="mt-4 space-y-2">{occupants.map((user) => <button key={user.id} type="button" onClick={() => { setSelectedUserId(user.id); setView("access"); }} className="flex w-full items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 text-left hover:bg-[var(--surface-hover)]"><MemberAvatar user={user} /><span className="min-w-0"><strong className="block truncate text-xs">{user.nome}</strong><small className="text-[var(--text-secondary)]">{user.status}</small></span></button>)}</div></article>;
-              })}
-            </div>
-          </section>
+          <TeamRoles roles={roles} users={users} token={session.token} onSaved={role=>setRoles(current=>current.some(r=>r.id===role.id)?current.map(r=>r.id===role.id?role:r):[...current,role])}/>
         </div>
       )}
     </section>
@@ -445,106 +432,6 @@ function TeamGoals({ storageKey }: { storageKey: string }) {
   );
 }
 
-function TeamPerformanceReport({
-  report,
-  users,
-  selectedUserId,
-  onSelect,
-}: {
-  report: TeamTaskReport | null;
-  users: NoriumUser[];
-  selectedUserId: string;
-  onSelect: (userId: string) => void;
-}) {
-  const userById = new Map(users.map((user) => [user.id, user]));
-  const selected = report?.members.find((member) => member.id === selectedUserId) || report?.members[0];
-  const totals = report?.totals || {};
-
-  return (
-    <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl shadow-blue-950/10 backdrop-blur-2xl">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Relatorio da equipe</p>
-          <h2 className="mt-1 text-2xl font-black">Produtividade por usuario</h2>
-          <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">
-            Tarefas por responsavel, status, vencimento e execucao.
-          </p>
-        </div>
-        <span className="grid h-12 w-12 place-items-center rounded-xl bg-cyan-400/12 text-cyan-200">
-          <BarChart3 size={22} />
-        </span>
-      </div>
-
-      <div className="mb-5 grid gap-3 md:grid-cols-5">
-        <Metric icon={ListChecks} label="Pendentes" value={totals.pendentes || 0} />
-        <Metric icon={PlayCircle} label="Em execucao" value={totals.andamento || 0} />
-        <Metric icon={Clock3} label="Em revisao" value={totals.revisao || 0} />
-        <Metric icon={CheckCircle2} label="Finalizadas" value={totals.concluidas || 0} />
-        <Metric icon={AlertTriangle} label="Vencidas" value={totals.vencidas || 0} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="grid gap-3 md:grid-cols-2">
-          {(report?.members || []).map((member) => {
-            const profile = userById.get(member.id);
-            const displayMember = { ...profile, ...member } as NoriumUser;
-            return (
-            <button
-              key={member.id}
-              type="button"
-              onClick={() => onSelect(member.id)}
-              className={`rounded-2xl border p-4 text-left transition ${
-                selectedUserId === member.id ? "border-cyan-300/60 bg-cyan-400/12" : "border-[var(--border)] bg-[var(--background)] hover:bg-[var(--surface-hover)]"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <MemberAvatar user={displayMember} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-black">{member.nome}</p>
-                  <p className="truncate text-xs font-bold text-blue-300">{profile?.jobTitle || member.jobTitle || (member.role === "owner" ? "Lider" : "Membro")}</p>
-                  <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">{member.email}</p>
-                </div>
-                <span className="rounded-full border border-[var(--border)] px-2 py-1 text-xs font-bold uppercase text-[var(--text-secondary)]">
-                  {member.status}
-                </span>
-              </div>
-              <div className="mt-4 grid grid-cols-4 gap-2 text-center">
-                <MiniNumber label="Pend." value={member.stats.pendentes} />
-                <MiniNumber label="Exec." value={member.stats.andamento} />
-                <MiniNumber label="Rev." value={member.stats.revisao} />
-                <MiniNumber label="Fim" value={member.stats.concluidas} />
-              </div>
-            </button>
-            );
-          })}
-        </div>
-
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">Tarefas recentes</p>
-          <h3 className="mt-1 truncate text-lg font-black">{selected?.nome || "Usuario"}</h3>
-          <div className="mt-4 max-h-72 space-y-2 overflow-y-auto pr-1">
-            {(selected?.recentes || []).length === 0 && (
-              <p className="rounded-xl border border-[var(--border)] px-3 py-4 text-sm font-semibold text-[var(--text-secondary)]">
-                Nenhuma tarefa atribuida ainda.
-              </p>
-            )}
-            {(selected?.recentes || []).map((task) => (
-              <div key={task.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                <p className="line-clamp-2 text-sm font-bold">{task.title}</p>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold uppercase">
-                  <span className="rounded-full bg-blue-500/14 px-2 py-1 text-blue-100">{task.status}</span>
-                  <span className="rounded-full bg-cyan-500/14 px-2 py-1 text-cyan-100">{task.priority}</span>
-                  {task.dueDate && <span className="rounded-full bg-amber-500/14 px-2 py-1 text-amber-100">{task.dueDate}</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function MemberAvatar({ user, large = false }: { user: Pick<NoriumUser, "nome" | "fotoUrl">; large?: boolean }) {
   const size = large ? "h-16 w-16 text-lg" : "h-10 w-10 text-sm";
   if (user.fotoUrl) {
@@ -552,25 +439,6 @@ function MemberAvatar({ user, large = false }: { user: Pick<NoriumUser, "nome" |
   }
   const initials = user.nome.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "N";
   return <span aria-label={`Foto de ${user.nome}`} className={`grid ${size} shrink-0 place-items-center rounded-full border border-blue-400/35 bg-blue-500/15 font-black text-blue-200`}>{initials}</span>;
-}
-
-function Metric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
-      <Icon size={16} className="text-[var(--primary)]" />
-      <p className="mt-2 text-2xl font-black">{value}</p>
-      <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
-    </div>
-  );
-}
-
-function MiniNumber({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-2 py-2">
-      <p className="text-base font-black">{value}</p>
-      <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
-    </div>
-  );
 }
 
 function Info({ label, value }: { label: string; value: string }) {

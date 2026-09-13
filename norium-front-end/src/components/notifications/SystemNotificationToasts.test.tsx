@@ -33,3 +33,11 @@ describe("SystemNotificationToasts", () => {
     expect(container).not.toHaveTextContent("Aviso 2");
   });
 });
+
+it("hides private alert content and applies the selected position", () => {
+  const { container } = render(<SystemNotificationToasts toasts={[toast("private")]} onDismiss={vi.fn()} onOpenNotifications={vi.fn()} preferences={{ textSize: "normal", reducedMotion: true, strongFocus: false, underlineLinks: false, showGuides: true, showToasts: true, toastPreview: false, toastPosition: "bottom" }} />);
+  expect(container).toHaveTextContent("Nova notificação");
+  expect(container).not.toHaveTextContent("Aviso private");
+  expect(container).not.toHaveTextContent("Descricao private");
+  expect(container.firstChild).toHaveClass("bottom-5");
+});

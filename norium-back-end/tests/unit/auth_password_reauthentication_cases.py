@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import socket
 import unittest
@@ -95,7 +96,7 @@ class PasswordReauthenticationTests(unittest.TestCase):
         self.addCleanup(self.password_verifier_patch.stop)
 
         self.user = account("free-owner")
-        self.store = {
+        self.persisted_store = {
             "users": [self.user],
             "teams": [],
             "adminAudit": [],
@@ -103,12 +104,13 @@ class PasswordReauthenticationTests(unittest.TestCase):
         self.read_store_patch = patch.object(
             auth_router,
             "read_user_store",
-            AsyncMock(side_effect=lambda: self.store),
+            AsyncMock(side_effect=self.read_persisted_store),
         )
+        self.write_store = AsyncMock(side_effect=self.persist_store)
         self.write_store_patch = patch.object(
             auth_router,
             "write_user_store",
-            AsyncMock(),
+            self.write_store,
         )
         self.auth_secret_patch = patch.object(
             auth_router,
@@ -128,6 +130,12 @@ class PasswordReauthenticationTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.client.close()
+
+    def read_persisted_store(self) -> dict:
+        return copy.deepcopy(self.persisted_store)
+
+    def persist_store(self, store: dict) -> None:
+        self.persisted_store = copy.deepcopy(store)
 
     def test_management_patch_cannot_change_own_password(self) -> None:
         original_token = auth_router.create_token(self.user)
@@ -242,7 +250,7 @@ class PasswordReauthenticationTests(unittest.TestCase):
 
         for actor in actors:
             with self.subTest(actor=actor["id"]):
-                self.store["users"] = [actor]
+                self.persisted_store["users"] = [actor]
                 original_token = auth_router.create_token(actor)
 
                 response = self.client.patch(
@@ -274,8 +282,8 @@ class PasswordReauthenticationTests(unittest.TestCase):
             plan="equipe",
             team_owner_id=team_owner["id"],
         )
-        self.store["users"] = [team_owner, regular_member]
-        self.store["teams"] = [
+        self.persisted_store["users"] = [team_owner, regular_member]
+        self.persisted_store["teams"] = [
             {
                 "id": team_owner["id"],
                 "ownerUserId": team_owner["id"],

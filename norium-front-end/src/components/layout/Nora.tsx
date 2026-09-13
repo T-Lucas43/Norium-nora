@@ -1113,7 +1113,7 @@ function isAutomationIntent(text: string) {
 
 function isCommercialIntent(text: string) {
   const normalized = normalizeIntentText(text);
-  return /proposta|propostas|contrato|contratos|assinatura|assinante|escopo comercial|orcamento|documento|curriculo|cv|carta|relatorio|ata|plano de negocio|recibo|fatura|politica|termo|declaracao|certificado|briefing|manual|checklist/.test(normalized);
+  return /proposta|propostas|contrato|contratos|assinatura|assinante|escopo comercial|orcamento|documento|curriculo|cv|carta|relatorio|ata|plano de negocio|recibo|fatura|politica|termo|declaracao|certificado|briefing|manual|checklist|apresentacao|slides?|powerpoint|pptx|pitch deck/.test(normalized);
 }
 
 function isTeamIntent(text: string) {
@@ -2151,7 +2151,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 500, opacity: 0 }}
             transition={{ type: "spring", stiffness: 120, damping: 18 }}
-            className={`nora-drawer ${variant === "page" ? "nora-page relative" : "fixed"} z-[90] flex max-w-[100vw] flex-col overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-2xl transition-all duration-300 ${
+            className={`nora-drawer ${variant === "page" ? `nora-page relative ${messages.length === 0 ? "nora-page-empty" : ""}` : "fixed"} z-[90] flex max-w-[100vw] flex-col overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-2xl transition-all duration-300 ${
               variant === "page" ? "" : expanded
                 ? "nora-drawer-expanded"
                 : "nora-drawer-side"
@@ -2281,14 +2281,8 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             >
               {messages.length === 0 && !loading && (
                 <div className="nora-empty-state">
-                  <div className="nora-empty-portrait">
-                    <NoraAvatar className="nora-empty-avatar" />
-                    <span className="nora-empty-online" aria-label="Nora online" />
-                  </div>
-                  <span className="nora-empty-kicker"><Sparkles size={13} /> Nora no comando</span>
-                  <h3>{welcomeName ? `Olá, ${welcomeName}` : "Olá"}</h3>
-                  <p>O que vamos resolver hoje?</p>
-                  <small>Converse, crie documentos e acione qualquer área do Norium em um só lugar.</small>
+                  <h3>{welcomeName && <span>{`Olá, ${welcomeName}. `}</span>}<strong>O que vamos resolver hoje?</strong></h3>
+                  <p>Converse, crie e acione qualquer área do Norium.</p>
                 </div>
               )}
 
@@ -2395,6 +2389,30 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 >
                   {uploadingFiles ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
                 </button>
+                <textarea
+                  aria-label="Mensagem para a Nora"
+                  maxLength={4000}
+                  rows={2}
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMessage(); } }}
+                  placeholder={transcribing ? "Transcrevendo sua voz..." : listening ? "Ouvindo sua mensagem..." : "Escreva para a Nora..."}
+                  className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm font-semibold outline-none text-[var(--text)] placeholder:text-[var(--text-secondary)]"
+                />
+
+                {variant === "page" && (
+                  <button
+                    type="button"
+                    onClick={() => setControlsOpen((value) => !value)}
+                    className="nora-composer-model"
+                    title="Modelo e preferências da conversa"
+                    aria-label="Modelo e preferências da conversa"
+                    aria-expanded={controlsOpen}
+                  >
+                    <BrainCircuit size={14} />
+                    <span>{modelChoice === "auto" ? "Automático" : modelOptions.find((item) => item.id === modelChoice)?.name || "Modelo"}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -2412,25 +2430,15 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                   }}
                   disabled={voiceAccess === "requesting" || transcribing}
                   data-recording={listening ? "true" : "false"}
-                  className={`nora-voice-button flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${
+                  className={`nora-voice-button flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition ${
                     listening
-                      ? "is-recording border-cyan-300/50 bg-cyan-400/20 text-cyan-200"
-                      : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                      ? "is-recording bg-cyan-400/15 text-cyan-200"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
                   }`}
                   title={voiceButtonLabel}
                  aria-label={voiceButtonLabel}>
                   {listening ? <span className="nora-voice-waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span> : <Mic size={18} />}
                 </button>
-                <textarea
-                  aria-label="Mensagem para a Nora"
-                  maxLength={4000}
-                  rows={2}
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void sendMessage(); } }}
-                  placeholder={transcribing ? "Transcrevendo sua voz..." : listening ? "Ouvindo sua mensagem..." : "Escreva para a Nora..."}
-                  className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm font-semibold outline-none text-[var(--text)] placeholder:text-[var(--text-secondary)]"
-                />
 
                 <motion.button
                   whileTap={{ scale: 0.94 }}

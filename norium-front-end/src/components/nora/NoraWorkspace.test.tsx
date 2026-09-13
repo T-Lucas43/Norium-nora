@@ -46,7 +46,9 @@ describe("NoraWorkspace", () => {
 
     expect(await screen.findByText("Nora · Assistente inteligente")).toBeInTheDocument();
     expect(screen.getByText("O que vamos resolver hoje?")).toBeInTheDocument();
-    expect(screen.getByText(/Converse, crie documentos e acione qualquer área/)).toBeInTheDocument();
+    expect(screen.getByText("Converse, crie e acione qualquer área do Norium.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Modelo e preferências da conversa" })).toBeInTheDocument();
+    expect(document.querySelector(".nora-empty-portrait")).not.toBeInTheDocument();
     for (const image of screen.getAllByRole("img", { name: "Nora" })) {
       expect(image).toHaveAttribute("src", expect.stringContaining("nora-brand.png"));
       expect(image).not.toHaveAttribute("src", expect.stringContaining("nora-avatar.jpeg"));

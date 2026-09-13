@@ -42,8 +42,7 @@ from app.modules.commercial.document_files import (  # noqa: E402
 )
 from app.modules.commercial.schemas import ImportedDocumentUpdate  # noqa: E402
 from pypdf import PdfReader, PdfWriter  # noqa: E402
-from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
-from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
+from app.modules.commercial.nora_agent import handle_commercial_agent, is_document_creation_request  # noqa: E402
 from app.modules.commercial.pdf_export import build_commercial_pdf  # noqa: E402
 from app.services.nora_files import list_library_files  # noqa: E402
 from app.modules.commercial.repository import read_store, write_store  # noqa: E402
@@ -475,11 +474,27 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(result["files"][0]["id"], [item["id"] for item in list_library_files(self.user["id"])])
 
     async def test_nora_lists_the_real_document_catalog_as_markdown_tables(self) -> None:
-        result = await handle_commercial_agent(self.user, "Quais modelos de documento você sabe fazer?")
-        self.assertEqual(result["status"], "consulta")
-        self.assertIn("## Comercial", result["response"])
-        self.assertIn("| Tipo | Modelos disponíveis |", result["response"])
-        self.assertIn("Currículo", result["response"])
+        for question in ("Quais modelos de documento você sabe fazer?", "Que documentos você pode gerar?"):
+            with self.subTest(question=question):
+                result = await handle_commercial_agent(self.user, question)
+                self.assertEqual(result["status"], "consulta")
+                self.assertIn("## Comercial", result["response"])
+                self.assertIn("| Tipo | Modelos disponíveis |", result["response"])
+                self.assertIn("Currículo", result["response"])
+                self.assertIn("Roteiro de apresentação executiva", result["response"])
+                self.assertNotIn("Google Slides", result["response"])
+
+    async def test_nora_requests_only_blocking_data_for_a_presentation(self) -> None:
+        result = await handle_commercial_agent(self.user, "quero uma apresentação")
+
+        self.assertEqual(result["status"], "precisa_dados")
+        self.assertEqual(result["template"]["id"], "standard_custom_apresentacao_executiva")
+        self.assertIn("tema", result["response"].lower())
+        self.assertIn("pdf", result["response"].lower())
+        self.assertIn("powerpoint", result["response"].lower())
+
+    def test_nora_understands_a_typo_in_a_document_creation_request(self) -> None:
+        self.assertTrue(is_document_creation_request("querer uma proposta de desenvolvimento de software"))
 
     def test_pdf_replaces_unsupported_hyphens_without_breaking_portuguese_accents(self) -> None:
         pdf_bytes, _ = build_commercial_pdf(

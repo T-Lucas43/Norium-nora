@@ -72,6 +72,10 @@ class NoraWhatsAppParsingTests(unittest.TestCase):
         self.assertEqual("whatsapp", resolve_skill("mande para Ana no WhatsApp dizendo que chego as 18h").skill_id)
         self.assertEqual("whatsapp", resolve_skill("fala pro Carlos no zap dizendo que vou atrasar").skill_id)
 
+    def test_presentations_route_to_the_real_document_flow(self) -> None:
+        self.assertEqual("comercial", resolve_skill("quero uma apresentação sobre o meu produto").skill_id)
+        self.assertEqual("comercial", resolve_skill("crie slides para apresentar o projeto").skill_id)
+
 
 class NoraWhatsAppRecipientTests(unittest.IsolatedAsyncioTestCase):
     async def test_resolves_recipient_only_from_tenant_records(self) -> None:

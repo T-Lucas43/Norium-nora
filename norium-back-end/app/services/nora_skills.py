@@ -53,13 +53,14 @@ SKILLS: tuple[NoraSkill, ...] = (
     NoraSkill(
         id="comercial",
         name="Documentos, propostas e contratos",
-        description="Cria e revisa documentos editaveis, curriculos, propostas, contratos e PDFs prontos para o editor.",
+        description="Cria e revisa documentos editaveis, roteiros de apresentacao, curriculos, propostas, contratos e PDFs prontos para o editor.",
         examples=(
             "quero criar uma proposta",
             "gere um contrato a partir da proposta do cliente Acme",
             "envie o contrato para assinatura",
             "crie um curriculo com esta foto",
             "gere uma ata de reuniao",
+            "quero uma apresentacao sobre o meu produto",
         ),
         strong_patterns=(
             r"\bpropostas?\b",
@@ -67,7 +68,7 @@ SKILLS: tuple[NoraSkill, ...] = (
             r"\b(?:gerar|criar|fazer|montar|preparar)\s+(?:uma\s+)?proposta\b",
             r"\b(?:gerar|criar|converter)\s+(?:um\s+)?contrato\b",
             r"\b(?:link|enviar)\s+(?:para\s+)?assinatura\b",
-            r"\b(?:gerar|criar|fazer|montar|preparar)\s+(?:um|uma)?\s*(?:curriculo|cv|documento|carta|relatorio|ata|plano|orcamento|recibo|fatura|politica|termo|declaracao|certificado|briefing|manual|checklist)\b",
+            r"\b(?:gerar|criar|fazer|montar|preparar|querer)\s+(?:um|uma)?\s*(?:curriculo|cv|documento|carta|relatorio|ata|plano|orcamento|recibo|fatura|politica|termo|declaracao|certificado|briefing|manual|checklist|apresentacao|slides?|powerpoint|pptx|pitch\s+deck)\b",
         ),
         supporting_terms=(
             "cliente",
@@ -285,8 +286,10 @@ def _score_skill(skill: NoraSkill, text: str) -> tuple[float, tuple[str, ...]]:
         score += 5.0
     if skill.id == "brainstorm" and re.search(r"\b(?:criar|crie|abrir|abra|resumir|organizar|agrupar)\b", text) and re.search(r"\b(?:brain\s*storm|ideias|mapa\s+mental|quadro)\b", text):
         score += 7.0
-    if skill.id == "comercial" and re.search(r"\b(?:proposta|contrato|curriculo|cv|documento|carta|relatorio|ata|plano|orcamento|recibo|fatura|politica|termo|declaracao|certificado|briefing|manual|checklist)\b", text):
+    if skill.id == "comercial" and re.search(r"\b(?:proposta|contrato|curriculo|cv|documento|carta|relatorio|ata|plano|orcamento|recibo|fatura|politica|termo|declaracao|certificado|briefing|manual|checklist|apresentacao|slides?|powerpoint|pptx)\b", text):
         score += 10.0
+    if skill.id == "comercial" and re.search(r"\b(?:apresentacao|slides?|powerpoint|pptx|pitch\s+deck)\b", text) and re.search(r"\b(?:criar|crie|gerar|gere|fazer|monte|montar|preparar|quero|querer|preciso)\b", text):
+        score += 12.0
     if skill.id == "comercial" and re.search(r"\b(?:assinatura|assinante|minuta|escopo\s+comercial)\b", text):
         score += 6.0
 

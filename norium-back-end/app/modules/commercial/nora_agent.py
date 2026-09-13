@@ -130,13 +130,15 @@ def _is_document_creation(value: str) -> bool:
         value,
         (
             "criar", "crie", "gere", "gerar", "fazer", "monte", "produza", "quero um", "quero uma",
+            "querer um", "querer uma", "gostaria de um", "gostaria de uma", "preciso de um", "preciso de uma",
         ),
     ) and _contains_any(
         value,
         (
             "documento", "proposta", "contrato", "curriculo", "cv", "carta", "relatorio", "ata",
             "plano", "orcamento", "recibo", "fatura", "politica", "termo", "declaracao", "certificado",
-            "briefing", "manual", "checklist", "roteiro", "descricao de vaga", "pauta",
+            "briefing", "manual", "checklist", "roteiro", "descricao de vaga", "pauta", "apresentacao",
+            "slides", "powerpoint", "pptx", "pitch deck",
         ),
     )
 
@@ -149,10 +151,15 @@ def _is_document_edit(value: str) -> bool:
 
 
 def _is_document_catalog(value: str) -> bool:
-    return _contains_any(value, ("modelo", "modelos", "tipos de documento", "documentos que")) and _contains_any(
-        value,
-        ("documento", "pdf", "proposta", "contrato", "curriculo", "sabe fazer", "pode fazer", "disponiveis"),
+    asks_about_documents = bool(
+        re.search(r"\b(?:que|quais)\s+(?:tipos?\s+de\s+|modelos?\s+de\s+)?documentos?\b", value)
+        or _contains_any(value, ("modelo de documento", "modelos de documento", "tipos de documento", "documentos que"))
     )
+    asks_capability = _contains_any(
+        value,
+        ("gerar", "criar", "fazer", "montar", "sabe", "pode", "consegue", "disponiveis", "modelo", "modelos"),
+    )
+    return asks_about_documents and asks_capability
 
 
 def _document_catalog_response() -> str:
@@ -167,11 +174,11 @@ def _document_catalog_response() -> str:
         "receipt": "Recibo", "report": "Relatório", "letter": "Carta e comunicado", "meeting": "Ata e pauta",
         "plan": "Plano", "policy": "Política e manual", "resume": "Currículo", "hr": "RH",
         "certificate": "Certificado", "term": "Termo e declaração", "marketing": "Marketing",
-        "academic": "Acadêmico", "custom": "Personalizado",
+        "academic": "Acadêmico", "custom": "Apresentações e personalizados",
     }
     templates = standard_templates()
     sections: list[str] = [
-        "Posso criar os modelos reais cadastrados em Documentos. Todos saem editáveis, com PDF salvo automaticamente na Biblioteca.",
+        "Posso criar os modelos reais cadastrados em Documentos. Todos saem editáveis, com PDF salvo automaticamente na Biblioteca. Apresentações são criadas como roteiros visuais editáveis e PDF; a exportação nativa em PowerPoint ainda não está disponível.",
     ]
     for heading, types in groups.items():
         rows: list[str] = []
@@ -294,7 +301,7 @@ def _has_useful_document_brief(value: str) -> bool:
     stripped = re.sub(
         r"\b(?:nora|por favor|quero|preciso|criar|crie|gere|gerar|fazer|monte|produza|um|uma|novo|nova|documento|"
         r"proposta|contrato|curriculo|cv|carta|relatorio|ata|plano|orcamento|recibo|fatura|politica|termo|"
-        r"declaracao|certificado|briefing|manual|checklist|roteiro)\b",
+        r"declaracao|certificado|briefing|manual|checklist|roteiro|apresentacao|slides?|powerpoint|pptx)\b",
         " ",
         normalized,
     )
@@ -317,6 +324,11 @@ def _document_template(message: str, has_photo: bool = False) -> dict[str, Any]:
             else "standard_resume_ats"
         )
         match = next((item for item in templates if item.get("id") == preferred), None)
+        if match:
+            return match
+
+    if _contains_any(normalized, ("apresentacao", "slides", "powerpoint", "pptx", "pitch deck")):
+        match = next((item for item in templates if item.get("id") == "standard_custom_apresentacao_executiva"), None)
         if match:
             return match
 
@@ -717,6 +729,8 @@ async def handle_commercial_agent(
         hint = (
             "Em uma única mensagem, envie nome, objetivo profissional ou vaga e as experiências/formação que quiser incluir. Você também pode anexar uma foto e indicar uma cor; o restante ficará como ‘A definir’."
             if document_type == "resume"
+            else "Qual é o tema, o público e o objetivo da apresentação? Eu preparo um roteiro visual editável em Documentos e o PDF vai automaticamente para a Biblioteca. A exportação em PowerPoint ainda não está disponível."
+            if str(template.get("id") or "") == "standard_custom_apresentacao_executiva"
             else "Em uma única mensagem, diga qual cliente ou público, o objetivo e o conteúdo principal. Valor, prazo e detalhes são opcionais; o que faltar ficará como ‘A definir’."
         )
         return _response("precisa_dados", hint, new_session_id, template={"id": template.get("id"), "name": template.get("name")})

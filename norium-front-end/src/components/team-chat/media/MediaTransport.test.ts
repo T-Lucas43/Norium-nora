@@ -76,10 +76,16 @@ describe("MediaTransport", () => {
       type: "participant-joined", callId: "call_current", userId: "member", clientId: "old-tab",
     });
     await transport.receive({
-      type: "participant-joined", callId: "call_current", userId: "member", clientId: "new-tab",
+      type: "participant-joined", callId: "call_current", userId: "member", clientId: "old-tab",
     });
     expect(peers).toHaveLength(2);
     expect(peers[0].close).toHaveBeenCalledOnce();
+
+    await transport.receive({
+      type: "participant-joined", callId: "call_current", userId: "member", clientId: "new-tab",
+    });
+    expect(peers).toHaveLength(3);
+    expect(peers[1].close).toHaveBeenCalledOnce();
 
     await transport.receive({
       type: "signal", callId: "call_current", userId: "member", clientId: "old-tab",
@@ -88,14 +94,14 @@ describe("MediaTransport", () => {
     await transport.receive({
       type: "participant-left", callId: "call_current", userId: "member", clientId: "old-tab",
     });
-    expect(peers[1].setRemoteDescription).not.toHaveBeenCalled();
-    expect(peers[1].close).not.toHaveBeenCalled();
+    expect(peers[2].setRemoteDescription).not.toHaveBeenCalled();
+    expect(peers[2].close).not.toHaveBeenCalled();
 
     await transport.receive({
       type: "signal", callId: "call_current", userId: "member", clientId: "new-tab",
       signal: { type: "offer", sdp: "current" },
     });
-    expect(peers[1].setRemoteDescription).toHaveBeenCalledWith({ type: "offer", sdp: "current" });
+    expect(peers[2].setRemoteDescription).toHaveBeenCalledWith({ type: "offer", sdp: "current" });
     await transport.close();
   });
 });

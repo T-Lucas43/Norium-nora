@@ -213,8 +213,12 @@ export class MeshMediaTransport implements MediaTransport {
     if (event.userId === this.call.selfUserId) return;
     if (event.type === "participant-joined") {
       const clientId = event.clientId || "";
-      const previousClientId = this.remoteClientIds.get(event.userId);
-      if (clientId && previousClientId && previousClientId !== clientId) this.closePeer(event.userId);
+      // CALL_ACCEPT also represents a page-reload resume. The client id is
+      // intentionally preserved across reloads, but the browser-owned
+      // RTCPeerConnection is not. Always discard the remote peer before the
+      // resumed participant negotiates so media cannot remain attached to the
+      // document that just closed.
+      if (this.peers.has(event.userId)) this.closePeer(event.userId);
       if (clientId) this.remoteClientIds.set(event.userId, clientId);
       await this.createPeer(event.userId, true);
       return;

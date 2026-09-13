@@ -9,13 +9,11 @@ import {
   FileSignature,
   FolderKanban,
   Loader2,
-  Lock,
   Languages,
   Mail,
   Maximize2,
   MessageSquare,
   Mic,
-  MicOff,
   Minimize2,
   Paperclip,
   SendHorizontal,
@@ -2123,14 +2121,13 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   }
 
   const voiceIsLocked = voiceAccess !== "unlocked";
-  const voiceStatusLabel =
-    voiceAccess === "requesting"
-      ? "Solicitando microfone..."
-      : voiceAccess === "denied"
-        ? "Microfone bloqueado"
-        : voiceAccess === "unsupported"
-          ? "Voz indisponivel"
-          : "Voz bloqueada";
+  const voiceButtonLabel = listening
+    ? "Parar gravação de voz"
+    : voiceAccess === "requesting"
+      ? "Solicitando acesso ao microfone"
+      : transcribing
+        ? "Transcrevendo mensagem de voz"
+        : "Gravar mensagem de voz";
 
   function closeNora() {
     cancelActiveResponse(false);
@@ -2284,9 +2281,14 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             >
               {messages.length === 0 && !loading && (
                 <div className="nora-empty-state">
-                  <NoraAvatar className="nora-empty-avatar" />
+                  <div className="nora-empty-portrait">
+                    <NoraAvatar className="nora-empty-avatar" />
+                    <span className="nora-empty-online" aria-label="Nora online" />
+                  </div>
+                  <span className="nora-empty-kicker"><Sparkles size={13} /> Nora no comando</span>
                   <h3>{welcomeName ? `Olá, ${welcomeName}` : "Olá"}</h3>
-                  <p>Como posso ajudar?</p>
+                  <p>O que vamos resolver hoje?</p>
+                  <small>Converse, crie documentos e acione qualquer área do Norium em um só lugar.</small>
                 </div>
               )}
 
@@ -2363,19 +2365,6 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                 </div>
               )}
               {fileError && <p className="nora-file-composer-error">{fileError}</p>}
-              {voiceIsLocked && (
-                <Button
-                 
-                  onClick={() => void unlockVoice()}
-                  disabled={voiceAccess === "requesting"}
-                  className="mb-2 h-7 rounded-full text-[var(--text-secondary)] hover:text-[var(--text)]"
-                  title={voiceStatusLabel}
-                 aria-label={voiceStatusLabel}>
-                  {voiceAccess === "requesting" ? <Loader2 size={12} className="animate-spin" /> : <Lock size={12} />}
-                  {voiceAccess === "requesting" ? "Solicitando microfone..." : "Ativar microfone"}
-                </Button>
-              )}
-
               {voiceError && (
                 <p className="mb-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-300">
                   {voiceError}
@@ -2383,7 +2372,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
               )}
               {listening && (
                 <div className="nora-listening-status mb-2 flex items-center gap-3 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2">
-                  <span className="nora-listening-pulse" aria-hidden="true" />
+                  <span className="nora-voice-waveform nora-voice-waveform-status" aria-hidden="true"><i /><i /><i /><i /><i /></span>
                   <span className="min-w-0 text-xs font-bold text-cyan-100">
                     {voicePreview ? `Ouvindo: ${voicePreview}` : "Ouvindo... fale normalmente em portugues."}
                   </span>
@@ -2422,16 +2411,15 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                     }
                   }}
                   disabled={voiceAccess === "requesting" || transcribing}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${
-                    voiceIsLocked
-                      ? "border-amber-300/40 bg-amber-300/10 text-amber-200"
-                      : listening
-                      ? "border-cyan-300/50 bg-cyan-400/20 text-cyan-200"
+                  data-recording={listening ? "true" : "false"}
+                  className={`nora-voice-button flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${
+                    listening
+                      ? "is-recording border-cyan-300/50 bg-cyan-400/20 text-cyan-200"
                       : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
                   }`}
-                  title={voiceIsLocked ? "Desbloquear voz" : listening ? "Parar voz" : "Falar com a Nora"}
-                 aria-label={voiceIsLocked ? "Desbloquear voz" : listening ? "Parar voz" : "Falar com a Nora"}>
-                  {voiceIsLocked ? <Lock size={18} /> : listening ? <MicOff size={18} /> : <Mic size={18} />}
+                  title={voiceButtonLabel}
+                 aria-label={voiceButtonLabel}>
+                  {listening ? <span className="nora-voice-waveform" aria-hidden="true"><i /><i /><i /><i /><i /></span> : <Mic size={18} />}
                 </button>
                 <textarea
                   aria-label="Mensagem para a Nora"

@@ -1,4 +1,4 @@
-import noraAvatar from "../../assets/nora-avatar.jpeg";
+import noraAvatar from "../../assets/nora-brand.png";
 
 type NoraAvatarProps = {
   className?: string;

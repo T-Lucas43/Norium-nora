@@ -486,7 +486,7 @@ def standard_templates() -> list[dict[str, Any]]:
             continue
         generation_html = str(item.get("contentHtml") or "")
         headings = [plain_text(value) for value in re.findall(r"<h[1-3][^>]*>(.*?)</h[1-3]>", generation_html, re.I | re.S)]
-        sections = [value for value in headings if value][:8] or ["Contexto", "Escopo e entregas", "Cronograma", "Condições"]
+        sections = [value for value in headings if value] or ["Contexto", "Escopo e entregas", "Cronograma", "Condições"]
         item["sections"] = sections
         item["generationContentHtml"] = generation_html
         item["contentHtml"] = demo_template_html(
@@ -494,7 +494,7 @@ def standard_templates() -> list[dict[str, Any]]:
             str(item.get("documentType") or "custom"),
             sections,
             legal_review=str(item.get("documentType") or "") == "contract",
-            existing_html=generation_html,
+            focus=categories.get(str(item.get("category")), ("", "", str(item.get("description") or "")))[2],
         )
     return templates
 
@@ -595,11 +595,11 @@ async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
     ]:
         response_item = {"active": True, "isDefault": False, "variables": [], **item}
         if str(response_item.get("id") or "").startswith("standard_"):
-            # A galeria monta a prévia demonstrativa com estes metadados e os
-            # dois assets compartilhados. A minuta integral fica no servidor,
-            # onde também é usada na duplicação e na geração do PDF.
+            # Conteúdo integral carregado sob demanda, sem enviar 150 minutas
+            # completas na abertura da central ou reconstruir uma prévia curta.
             response_item["contentHtml"] = ""
             response_item["demoContent"] = True
+            response_item["contentDeferred"] = True
             response_item.pop("generationContentHtml", None)
             response_item.pop("generationGuide", None)
         elif not re.search(r"<img\b", str(response_item.get("contentHtml") or ""), re.I):
@@ -1399,6 +1399,14 @@ async def generate_proposal_draft(user: dict[str, Any], payload: ProposalBriefRe
     }
 
 
+async def get_template(user: dict[str, Any], template_id: str) -> dict[str, Any]:
+    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
+    source = next((item for item in [*store["templates"], *standard_templates()] if str(item.get("id")) == template_id), None)
+    if not source:
+        raise HTTPException(status_code=404, detail="Modelo não encontrado.")
+    return {"active": True, "isDefault": False, "variables": [], **source, "contentDeferred": False}
+
+
 def _workspace_document_client(user: dict[str, Any]) -> dict[str, str]:
     tenant_id = collaboration_tenant_id(user)
     return {
@@ -1509,6 +1517,8 @@ async def generate_smart_document_draft(user: dict[str, Any], payload: SmartDocu
         "Para conteúdo jurídico, trabalhista, fiscal ou de privacidade, preserve um aviso de revisão por profissional habilitado. "
         "Retorne somente JSON válido com title, summary, contentHtml e noraComment. contentHtml pode usar apenas h1, h2, h3, p, ul, ol, li, "
         "strong, em, blockquote, table, thead, tbody, tr, th, td e hr. Não inclua markdown. "
+        "Desenvolva as seções em parágrafos substanciais, com método, responsabilidades, critérios e anexos pertinentes. "
+        "Não se limite a uma frase por seção. Produza várias páginas quando o tipo comportar, sem repetir conteúdo nem inventar fatos para preencher espaço. "
         f"Tipo: {document_type_label(template_type)}. Modelo: {template.get('name')}. Descrição: {template.get('description')}. "
         f"Estrutura esperada: {json.dumps(template.get('sections') or [], ensure_ascii=False)}. "
         f"Orientação do modelo: {template.get('generationGuide') or 'Siga a estrutura do modelo.'}. "
@@ -1519,7 +1529,7 @@ async def generate_smart_document_draft(user: dict[str, Any], payload: SmartDocu
     try:
         response = await _nora.perguntar_nora(
             [{"role": "user", "content": prompt}],
-            max_tokens=3500,
+            max_tokens=6500,
             require_complete=True,
             user_id=str(user.get("id") or ""),
         )
@@ -2826,7 +2836,7 @@ async def create_template(user: dict[str, Any], payload: TemplateCreate) -> dict
         store = await asyncio.to_thread(read_store, tenant_id)
         now = now_iso()
         sanitized = sanitize_document_html(payload.contentHtml)
-        if not re.search(r"<img\b", sanitized, re.I):
+        if not plain_text(sanitized) and not re.search(r"<img\b", sanitized, re.I):
             headings = [
                 plain_text(value)
                 for value in re.findall(r"<h[1-3][^>]*>(.*?)</h[1-3]>", sanitized, re.I | re.S)
@@ -2836,9 +2846,8 @@ async def create_template(user: dict[str, Any], payload: TemplateCreate) -> dict
                 demo_template_html(
                     payload.name,
                     payload.documentType,
-                    headings[:8] or ["Contexto", "Conteúdo principal", "Próximos passos"],
+                    headings or ["Contexto", "Conteúdo principal", "Próximos passos"],
                     legal_review=payload.documentType in {"contract", "term", "policy"},
-                    existing_html=sanitized,
                 )
             )
         item = {

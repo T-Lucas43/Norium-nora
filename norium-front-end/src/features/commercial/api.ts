@@ -106,6 +106,10 @@ export function updateProposal(id: string, input: DocumentUpdateInput) {
   });
 }
 
+export function loadCommercialTemplate(id: string, signal?: AbortSignal) {
+  return apiRequest<{ template: CommercialTemplate }>(`/api/comercial/templates/${encodeURIComponent(id)}`, { signal });
+}
+
 export function generateSmartDocumentDraft(input: SmartDocumentInput) {
   return apiRequest<{ draft: SmartDocumentDraft }>("/api/comercial/document-draft", {
     method: "POST",

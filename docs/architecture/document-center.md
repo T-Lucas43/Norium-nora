@@ -4,6 +4,31 @@
 
 A Central de Documentos amplia o antigo modulo de propostas sem quebrar seus fluxos. Propostas, contratos, aprovacoes, assinaturas, modelos, arquivos importados e ferramentas de PDF continuam isolados por tenant e workspace na API `/api/comercial`.
 
+## Biblioteca de exemplos completos
+
+Os 150 modelos padrão possuem conteúdo autoral fictício, ilustrações embutidas e
+dossiês de 3 a 6 páginas na exportação A4 de referência. O catálogo fica em
+`document_templates.py`; o texto desenvolvido por família e suas aplicações
+específicas ficam em `document_examples.py`. Propostas segmentadas usam os eixos
+do próprio segmento. Recibos, cartas e certificados incluem anexos de apoio.
+
+Referências de estrutura e apresentação indicadas pelo usuário: [currículos
+LiveCareer](https://www.livecareer.com.br/curriculo/pronto), [propostas comerciais
+da Comunidade TK](https://materiais.comunidade.tk-ia.com/flp-f0101-modelos-proposta-comercial/)
+e [recursos Sebrae/PR](https://sebraepr.com.br/modelos/). Os textos não são cópias
+dos materiais desses sites. Exemplos jurídicos e fiscais exigem revisão antes do
+uso real; nenhuma identidade, reserva, assinatura ou comprovante é autêntico.
+
+A listagem `/api/comercial` envia metadados com `contentDeferred: true` para os
+modelos padrão. A prévia busca o mesmo HTML integral usado na duplicação em
+`GET /api/comercial/templates/{id}`, autenticado e isolado por workspace. Não há
+reconstrução resumida no frontend. O botão **Editar este exemplo** cria uma cópia
+em rascunho e abre o editor; **Gerar com meus dados** usa o briefing real na Nora.
+O conteúdo demonstrativo nunca é enviado como fatos do usuário à geração.
+Modelos personalizados com conteúdo próprio são preservados, sem acrescentar
+automaticamente narrativas fictícias. O exportador mantém tabelas com cabeçalho
+repetido e remove espaçamento final que poderia gerar uma página vazia.
+
 ## Persistencia e isolamento
 
 - Metadados permanecem no repositorio JSON `comercial`, com as colecoes `proposals`, `contracts`, `templates`, `uploadedDocuments`, `processingJobs` e `publicLinks`.

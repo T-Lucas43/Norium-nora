@@ -7,6 +7,8 @@ import { ownerPermissions, type AuthSession } from "../../types/auth";
 
 const commercialApi = vi.hoisted(() => ({
   loadCommercialData: vi.fn(),
+  loadCommercialTemplate: vi.fn(),
+  createProposal: vi.fn(),
   loadProposal: vi.fn(),
   loadContract: vi.fn(),
   loadPdfCapabilities: vi.fn(),
@@ -184,6 +186,10 @@ describe("CommercialDashboard leve", () => {
   });
 
   it("mostra texto e retrato ficticios na previa de curriculo", async () => {
+    commercialApi.loadCommercialTemplate.mockResolvedValue({ template: {
+      id: "standard_resume_foto_clean",
+      contentHtml: '<h1>Marina Costa</h1><p>Todos os nomes, contatos, valores, datas e resultados são fictícios.</p><img src="/template-demo-portrait.svg" alt="Imagem demonstrativa fictícia" /><h2>Projeto selecionado 2</h2><p>Biblioteca de conhecimento com 40 conteúdos e avaliação de oito participantes.</p><h2>Informações complementares</h2><p>Conteúdo integral do servidor, incluindo a última seção.</p>',
+    } });
     commercialApi.loadCommercialData.mockResolvedValue({
       ...commercialData,
       templates: [{
@@ -213,6 +219,15 @@ describe("CommercialDashboard leve", () => {
     expect(await screen.findByText(/Marina Costa/)).toBeInTheDocument();
     expect(screen.getByAltText("Imagem demonstrativa fictícia")).toHaveAttribute("src", "/template-demo-portrait.svg");
     expect(screen.getByText(/nomes, contatos, valores, datas e resultados são fictícios/i)).toBeInTheDocument();
+    expect(screen.getByText(/incluindo a última seção/i)).toBeInTheDocument();
+    expect(commercialApi.loadCommercialTemplate).toHaveBeenCalledWith("standard_resume_foto_clean", expect.any(AbortSignal));
+    commercialApi.createProposal.mockResolvedValue({ proposal: { ...proposal, title: "[Exemplo] Currículo clean com foto" } });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Editar este exemplo" }));
+    expect(await screen.findByText("Editor aberto: [Exemplo] Currículo clean com foto")).toBeInTheDocument();
+    expect(commercialApi.createProposal).toHaveBeenCalledWith(expect.objectContaining({
+      clientId: "__workspace__", contentHtml: expect.stringContaining("incluindo a última seção"),
+      metadata: expect.objectContaining({ fictionalExample: true }),
+    }));
   });
 
   it("offers proposal upload directly and counts signed proposals in the signed filter", async () => {

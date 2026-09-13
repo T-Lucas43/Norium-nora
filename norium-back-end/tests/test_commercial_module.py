@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
+from fastapi import HTTPException
 
 
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="norium_commercial_")
@@ -573,6 +574,36 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(b"/Subtype /Image", pdf_bytes)
 
+    def test_all_standard_examples_are_substantial_multipage_documents(self) -> None:
+        import io
+        from pypdf import PdfReader
+        for template in standard_templates():
+            with self.subTest(template=template["id"]):
+                content = template["contentHtml"]
+                words = re.sub(r"<[^>]+>", " ", content).split()
+                self.assertGreaterEqual(len(words), 850)
+                self.assertNotIn("{{NORA_CONTENT}}", content)
+                self.assertGreaterEqual(content.count("<h2>"), 7)
+                pdf, _ = build_commercial_pdf({"title": template["name"], "contentHtml": content, "metadata": {"documentType": template["documentType"]}}, "contract" if template["documentType"] == "contract" else "proposal")
+                reader = PdfReader(io.BytesIO(pdf))
+                self.assertGreaterEqual(len(reader.pages), 3)
+                for page in reader.pages:
+                    self.assertGreater(len(page.extract_text().strip()), 70)
+
+    async def test_template_detail_loads_full_example_without_bloating_catalog(self) -> None:
+        from app.modules.commercial.service import get_template, list_commercial_data
+        data = await list_commercial_data(self.user)
+        summary = next(item for item in data["templates"] if item["id"] == "standard_resume_foto_clean")
+        self.assertEqual(summary["contentHtml"], "")
+        self.assertTrue(summary["contentDeferred"])
+        detail = await get_template(self.user, summary["id"])
+        self.assertFalse(detail["contentDeferred"])
+        self.assertIn("Projeto selecionado 2", detail["contentHtml"])
+        self.assertIn("data:image/png;base64,", detail["contentHtml"])
+        with self.assertRaises(HTTPException) as caught:
+            await get_template(self.user, "template_from_another_workspace")
+        self.assertEqual(caught.exception.status_code, 404)
+
     async def test_smart_document_uses_minimal_brief_and_returns_editable_chat_pdf(self) -> None:
         payload = SmartDocumentRequest(
             templateId="standard_resume_foto_clean",
@@ -879,8 +910,7 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
                 variables=["CLIENT_NAME", "DATE"],
             ),
         )
-        self.assertIn("data:image/png;base64,", template["contentHtml"])
-        self.assertIn("fict", template["contentHtml"].casefold())
+        self.assertEqual(template["contentHtml"], "<h1>{{CLIENT_NAME}}</h1><p>{{DATE}}</p>")
         updated = await update_template(
             self.user,
             template["id"],

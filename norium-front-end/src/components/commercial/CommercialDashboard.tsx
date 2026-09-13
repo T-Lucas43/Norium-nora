@@ -58,6 +58,7 @@ import {
   instantiateContract,
   loadContract,
   loadCommercialData,
+  loadCommercialTemplate,
   loadPdfCapabilities,
   loadProposal,
   processPdf,
@@ -673,6 +674,21 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     }, "Modelo duplicado como copia pessoal.");
   }
 
+  async function handleEditTemplateExample(template: CommercialTemplate) {
+    await runAction(async () => {
+      const { template: full } = await loadCommercialTemplate(template.id);
+      const { proposal } = await createProposal({
+        clientId: "__workspace__", brainstormId: null, title: `[Exemplo] ${full.name}`,
+        contentHtml: full.contentHtml, scopeSummary: full.description || "", amount: 0, currency: "BRL",
+        validUntil: null, brandProfileId: null, branding: defaultBranding, signers: [], deliverables: [],
+        metadata: { documentType: full.documentType, templateId: full.id, templateLayout: full.layout, fictionalExample: true },
+      });
+      setData((current) => current ? { ...current, proposals: [commercialDocumentSummary(proposal) as typeof current.proposals[number], ...current.proposals], summary: { ...current.summary, documentCount: current.summary.documentCount + 1, draftCount: current.summary.draftCount + 1, proposalCount: current.summary.proposalCount + (full.documentType === "proposal" ? 1 : 0) } } : current);
+      setTemplatePreview(null);
+      setSelected(proposal);
+    }, "Cópia editável criada. Substitua os dados fictícios antes de enviar.");
+  }
+
   async function handleDeleteTemplate(template: CommercialTemplate) {
     const confirmed = await showConfirm({ title: "Excluir modelo?", description: `O modelo "${template.name}" sera removido da biblioteca.`, confirmLabel: "Excluir modelo", tone: "danger" });
     if (!confirmed) return;
@@ -989,7 +1005,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
         setData((current) => current ? { ...current, templates: [...current.templates, response.template] } : current);
         setTemplateOpen(false);
       }, "Modelo salvo na biblioteca.")} />}
-      {templatePreview && <TemplatePreviewDialog template={templatePreview} busy={busy} onClose={() => setTemplatePreview(null)} onUse={() => { const id = templatePreview.id; setTemplatePreview(null); openCreate(id); }} onRename={() => void handleRenameTemplate(templatePreview)} onDuplicate={() => void handleDuplicateTemplate(templatePreview)} onDelete={templatePreview.id.startsWith("standard_") ? undefined : () => void handleDeleteTemplate(templatePreview)} />}
+      {templatePreview && <TemplatePreviewDialog template={templatePreview} busy={busy} onClose={() => setTemplatePreview(null)} onEditExample={() => void handleEditTemplateExample(templatePreview)} onUse={() => { const id = templatePreview.id; setTemplatePreview(null); openCreate(id); }} onRename={() => void handleRenameTemplate(templatePreview)} onDuplicate={() => void handleDuplicateTemplate(templatePreview)} onDelete={templatePreview.id.startsWith("standard_") ? undefined : () => void handleDeleteTemplate(templatePreview)} />}
       {proposalUploadOpen && <ProposalPdfUploadDialog initialSigned={proposalUploadSigned} proposal={proposalUploadTarget} clients={clients} onClose={() => setProposalUploadOpen(false)} onUploaded={proposalUploaded}/>}
       {importOpen && <ImportDocumentDialog busy={busy} onClose={() => setImportOpen(false)} onSubmit={(input) => void handleImport(input)} />}
     </main>
@@ -1729,47 +1745,6 @@ function templateTypeLabel(value: TemplateDocumentType) {
   return labels[value];
 }
 
-function escapeTemplateText(value: string) {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
-
-function fictionalTemplateSectionText(template: CommercialTemplate, section: string, index: number) {
-  const normalized = section.toLocaleLowerCase("pt-BR");
-  if (template.documentType === "resume") {
-    return [
-      "Marina Costa · marina.costa@exemplo.com · São Paulo, SP · (11) 98888-1212.",
-      "Profissional fictícia de produto digital, com seis anos de experiência em atendimento e dados.",
-      "Aurora Labs (empresa fictícia) — Product Manager, 2021–2025: aumentou a ativação em 28% no cenário demonstrativo.",
-    ][index % 3];
-  }
-  if (["valor", "investimento", "preço", "pagamento", "financeir"].some((word) => normalized.includes(word))) {
-    return "Exemplo fictício: investimento de R$ 12.800,00 em duas parcelas, com validade demonstrativa de 15 dias.";
-  }
-  if (["prazo", "cronograma", "agenda", "etapa", "vigência", "período"].some((word) => normalized.includes(word))) {
-    return "Exemplo fictício: início em 10/10/2026, entrega principal em 30 dias e uma revisão de acompanhamento.";
-  }
-  if (["partes", "cliente", "contato", "identificação", "participantes"].some((word) => normalized.includes(word))) {
-    return "Exemplo fictício: Aurora Café & Co. e Estúdio Horizonte Ltda., com Marina Costa como ponto focal.";
-  }
-  if (["resultado", "métrica", "indicador", "benefício"].some((word) => normalized.includes(word))) {
-    return "Exemplo fictício: alcançar 20% mais solicitações qualificadas e acompanhar qualidade e satisfação mensalmente.";
-  }
-  if (["contract", "term", "policy"].includes(template.documentType)) {
-    return "Exemplo fictício: substitua esta orientação pelos dados, limites e obrigações do caso concreto.";
-  }
-  return `Exemplo fictício: a equipe da Aurora Labs organiza “${section}” com responsáveis, evidências e próximos passos.`;
-}
-
-function templateDemoHtml(template: CommercialTemplate) {
-  if (!template.demoContent) return template.contentHtml;
-  const sections = (template.sections?.length ? template.sections : ["Contexto", "Conteúdo principal", "Próximos passos"]).slice(0, 3);
-  const image = template.documentType === "resume" ? "/template-demo-portrait.svg" : "/template-demo-document.svg";
-  const legal = template.legalReview || ["contract", "term", "policy"].includes(template.documentType)
-    ? "<blockquote><strong>Revisão recomendada:</strong> adapte esta minuta ao caso concreto e consulte um profissional habilitado antes de assinar ou publicar.</blockquote>"
-    : "";
-  const body = sections.map((section, index) => `<h2>${escapeTemplateText(section)}</h2><p>${escapeTemplateText(fictionalTemplateSectionText(template, section, index))}</p>`).join("");
-  return `<h1>${escapeTemplateText(template.name)}</h1><p><strong>Base de exemplo · ${escapeTemplateText(templateTypeLabel(template.documentType))}</strong></p><blockquote><strong>Minuta demonstrativa:</strong> nomes, contatos, valores, datas e resultados são fictícios. Edite tudo antes de usar.</blockquote>${legal}<p><img src="${image}" alt="Imagem demonstrativa fictícia" /></p>${body}${template.contentHtml}`;
-}
 
 function DocumentCover({ label, primaryColor = "#1266f1" }: { label: string; primaryColor?: string }) {
   return (
@@ -1830,7 +1805,7 @@ function LibraryView({
   return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="grid min-h-48 grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><button type="button" disabled={!onItemClick} onClick={() => onItemClick?.(item.id)} className="self-start disabled:cursor-default" aria-label={onItemClick ? `Pre-visualizar ${item.title}` : undefined}>{item.template ? <DocumentCover label={templateTypeLabel(item.template.documentType)} /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span>}</button><div className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong><p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)} icon={<Eye size={14} />}>Visualizar em A4</Button>}</div></article>)}</div>{!items.length && <EmptyState title="Nenhum modelo encontrado" description="Ajuste a busca ou salve um modelo personalizado." icon={Icon} className="mt-5 min-h-72" />}</div>;
 }
 
-function TemplatePreviewDialog({ template, busy, onClose, onUse, onRename, onDuplicate, onDelete }: { template: CommercialTemplate; busy: boolean; onClose: () => void; onUse: () => void; onRename: () => void; onDuplicate: () => void; onDelete?: () => void }) {
+function TemplatePreviewDialog({ template, busy, onClose, onUse, onEditExample, onRename, onDuplicate, onDelete }: { template: CommercialTemplate; busy: boolean; onClose: () => void; onUse: () => void; onEditExample: () => void; onRename: () => void; onDuplicate: () => void; onDelete?: () => void }) {
   return (
     <Dialog
       title={template.name}
@@ -1838,15 +1813,31 @@ function TemplatePreviewDialog({ template, busy, onClose, onUse, onRename, onDup
       onClose={onClose}
       wide
     >
-      <div className="mb-5 flex flex-wrap justify-end gap-2"><Button onClick={onUse} disabled={busy} icon={<Sparkles size={14} />}>Usar este modelo</Button><Button variant="secondary" onClick={onRename} disabled={busy || template.id.startsWith("standard_")} icon={<Pencil size={14} />}>Renomear</Button><Button variant="secondary" onClick={onDuplicate} loading={busy} icon={<Copy size={14} />}>Duplicar</Button>{onDelete && <Button variant="danger" onClick={onDelete} disabled={busy} icon={<Trash2 size={14} />}>Excluir</Button>}</div>
+      <div className="mb-5 flex flex-wrap justify-end gap-2"><Button onClick={onEditExample} disabled={busy} icon={<Pencil size={14} />}>Editar este exemplo</Button><Button variant="secondary" onClick={onUse} disabled={busy} icon={<Sparkles size={14} />}>Gerar com meus dados</Button><Button variant="secondary" onClick={onRename} disabled={busy || template.id.startsWith("standard_")} icon={<Pencil size={14} />}>Renomear</Button><Button variant="secondary" onClick={onDuplicate} loading={busy} icon={<Copy size={14} />}>Duplicar</Button>{onDelete && <Button variant="danger" onClick={onDelete} disabled={busy} icon={<Trash2 size={14} />}>Excluir</Button>}</div>
       <TemplateA4Preview template={template} />
     </Dialog>
   );
 }
 
 function TemplateA4Preview({ template, compact = false }: { template: CommercialTemplate; compact?: boolean }) {
+  const [loaded, setLoaded] = useState<CommercialTemplate | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [retry, setRetry] = useState(0);
+  const deferred = template.contentDeferred || (!template.contentHtml && template.id.startsWith("standard_"));
+  useEffect(() => {
+    if (!deferred) return;
+    const controller = new AbortController();
+    loadCommercialTemplate(template.id, controller.signal).then(({ template: detail }) => {
+      if (!controller.signal.aborted) { setLoaded(detail); setLoadError(""); }
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setLoadError(messageFromError(error, "Não foi possível carregar o modelo completo."));
+    });
+    return () => controller.abort();
+  }, [deferred, template.id, retry]);
+  const fullTemplate = deferred ? (loaded?.id === template.id ? loaded : null) : template;
+  if (!fullTemplate) return <div className="rounded-lg border border-[var(--border)] p-6" role="status">{loadError ? <><p>{loadError}</p><Button className="mt-3" onClick={() => { setLoadError(""); setRetry((value) => value + 1); }}>Tentar novamente</Button></> : "Carregando documento completo de várias páginas…"}</div>;
   const content = sanitizeTemplateHtml(
-    templateDemoHtml(template).replace(
+    fullTemplate.contentHtml.replace(
       "{{NORA_CONTENT}}",
       "<h2>Conteúdo detalhado pela Nora</h2><p>O briefing aprovado será desenvolvido nesta seção, mantendo escopo, entregáveis, responsabilidades, prazos e condições comerciais.</p>",
     ),
@@ -1855,20 +1846,20 @@ function TemplateA4Preview({ template, compact = false }: { template: Commercial
   const previewBranding = {
     ...defaultBranding,
     headerHtml: `<strong>${kind}</strong> · ${template.name}`,
-    footerHtml: "Documento gerado no Norium · conteúdo adaptado ao briefing aprovado",
+    footerHtml: "Norium · exemplo fictício completo · texto e imagens editáveis",
   };
   return (
     <div className={compact ? "max-h-[56dvh] space-y-5 overflow-auto pr-1" : "space-y-7"}>
-      <section className="mx-auto w-full max-w-[794px]">
+      {(template.documentType === "proposal" || template.documentType === "contract") && <section className="mx-auto w-full max-w-[794px]">
         <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">Página 1 · Capa A4</p>
         <article className="commercial-template-a4 flex aspect-[210/297] flex-col overflow-hidden bg-white p-8 text-slate-900 shadow-xl">
           <div className="h-2 w-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" />
           <p className="mt-auto text-xs font-bold uppercase tracking-[0.18em] text-blue-600">{kind}</p>
           <h3 className="mt-3 text-2xl font-black leading-tight">{template.name}</h3>
-          <div className="mt-7 border-l-4 border-cyan-500 py-2 pl-4"><strong className="block text-sm">Cliente / Empresa</strong><span className="mt-1 block text-xs text-slate-500">Dados preenchidos ao gerar o documento</span></div>
+          <div className="mt-7 border-l-4 border-cyan-500 py-2 pl-4"><strong className="block text-sm">Aurora Café & Co.</strong><span className="mt-1 block text-xs text-slate-500">Documento demonstrativo · Estúdio Horizonte</span></div>
           <div className="mt-auto grid grid-cols-2 gap-4 border-t border-slate-200 pt-5 text-xs"><span>Emissão automática</span><span className="text-right">Identidade da empresa</span></div>
         </article>
-      </section>
+      </section>}
       <A4ContentPages
         title={template.name}
         contentHtml={content}

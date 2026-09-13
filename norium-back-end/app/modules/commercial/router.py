@@ -65,6 +65,7 @@ from app.modules.commercial.service import (
     create_proposal,
     upload_proposal_pdf,
     create_template,
+    get_template,
     change_proposal_status,
     decide_proposal,
     decide_suggestion,
@@ -810,6 +811,11 @@ async def post_brand_profile(
 ) -> dict[str, Any]:
     item = await create_brand_profile(user, payload)
     return {"brandProfile": item}
+
+
+@router.get("/templates/{template_id}")
+async def get_template_detail(template_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return {"template": await get_template(user, template_id)}
 
 
 @router.post("/templates")

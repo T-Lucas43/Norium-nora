@@ -122,9 +122,16 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
         story.append(HRFlowable(width="100%", thickness=0.6, color=colors.HexColor("#CBD5E1")))
         story.append(Spacer(1, 5 * mm))
     content_html = str(document.get("contentHtml") or "")
-    if uses_commercial_cover or not re.search(r"<h1\b", content_html, flags=re.IGNORECASE):
+    has_content_title = bool(re.search(r"<h1\b", content_html, flags=re.IGNORECASE))
+    if uses_commercial_cover and not has_content_title:
         story.append(Paragraph(escape_reportlab(title), styles["Title"]))
         story.append(Spacer(1, 6 * mm))
+    elif not uses_commercial_cover:
+        # The inline document header already prints the title. Preserve a
+        # distinct authored h1, but don't repeat the same title immediately.
+        heading = re.search(r"<h1\b[^>]*>(.*?)</h1>", content_html, flags=re.I | re.S)
+        if heading and clean_text(heading.group(1)) == title:
+            content_html = content_html[:heading.start()] + content_html[heading.end():]
     story.extend(html_story(content_html, styles))
 
     signers = [item for item in document.get("signers", []) if isinstance(item, dict)]
@@ -186,13 +193,31 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
 class BlockParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.blocks: list[tuple[str, str]] = []
+        self.blocks: list[tuple[str, Any]] = []
         self.current_tag = "p"
         self.buffer: list[str] = []
         self.list_depth = 0
+        self.table_rows: list[list[str]] | None = None
+        self.table_row: list[str] = []
 
     def handle_starttag(self, tag: str, attrs) -> None:
         tag = tag.lower()
+        if tag == "table":
+            self.flush()
+            self.table_rows = []
+            return
+        if self.table_rows is not None:
+            if tag == "tr":
+                self.table_row = []
+                self.buffer = []
+                return
+            if tag in {"td", "th"}:
+                self.buffer = []
+                return
+            if tag in {"p", "div", "li"}:
+                if self.buffer:
+                    self.buffer.append("<br/>")
+                return
         if tag == "img":
             self.flush()
             source = next((str(value or "") for name, value in attrs if str(name).lower() == "src"), "")
@@ -216,6 +241,26 @@ class BlockParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
+        if self.table_rows is not None:
+            if tag in {"td", "th"}:
+                self.table_row.append("".join(self.buffer).strip())
+                self.buffer = []
+                return
+            if tag == "tr":
+                if self.table_row:
+                    self.table_rows.append(self.table_row)
+                self.table_row = []
+                self.buffer = []
+                return
+            if tag == "table":
+                if self.table_rows:
+                    self.blocks.append(("table", self.table_rows))
+                self.table_rows = None
+                self.buffer = []
+                self.current_tag = "p"
+                return
+            if tag in {"p", "div", "li"}:
+                return
         if tag in {"strong", "b"}:
             self.buffer.append("</b>")
         if tag in {"em", "i"}:
@@ -247,6 +292,21 @@ def html_story(value: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
     index = 0
     while index < len(blocks):
         tag, text = blocks[index]
+        if tag == "table":
+            columns = max(len(row) for row in text)
+            rows = [[Paragraph(cell or " ", styles["TableCell"]) for cell in row + [""] * (columns - len(row))] for row in text]
+            grid = Table(rows, colWidths=[(A4[0] - 36 * mm) / columns] * columns, repeatRows=1, hAlign="LEFT")
+            grid.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]))
+            flowables.extend([grid, Spacer(1, 4 * mm)])
+            index += 1
+            continue
         if tag == "img":
             image = content_image_flowable(text)
             if image:
@@ -256,7 +316,7 @@ def html_story(value: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
         style_name = {"h1": "Heading1", "h2": "Heading2", "h3": "Heading3", "blockquote": "Quote", "li": "Bullet"}.get(tag, "Body")
         paragraph = Paragraph(("&#8226; " if tag == "li" else "") + text, styles[style_name])
         # Mantem o titulo com o primeiro paragrafo da secao, evitando quebras sem sentido.
-        if tag in {"h1", "h2", "h3"} and index + 1 < len(blocks) and blocks[index + 1][0] not in {"h1", "h2", "h3"}:
+        if tag in {"h1", "h2", "h3"} and index + 1 < len(blocks) and blocks[index + 1][0] not in {"h1", "h2", "h3", "img", "table"}:
             next_tag, next_text = blocks[index + 1]
             next_style = "Bullet" if next_tag == "li" else "Body"
             next_paragraph = Paragraph(("&#8226; " if next_tag == "li" else "") + next_text, styles[next_style])
@@ -265,6 +325,9 @@ def html_story(value: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
             continue
         flowables.extend([paragraph, Spacer(1, 2.5 * mm)])
         index += 1
+    # A final spacer can overflow onto an otherwise empty trailing page.
+    while flowables and isinstance(flowables[-1], Spacer):
+        flowables.pop()
     return flowables
 
 
@@ -297,8 +360,9 @@ def document_styles(primary, secondary, text_color) -> dict[str, ParagraphStyle]
         "Heading3": ParagraphStyle("Heading3", parent=base["Heading3"], fontName="Helvetica-Bold", fontSize=12, leading=17, textColor=primary, spaceBefore=7, keepWithNext=True),
         "SignatureHeading": ParagraphStyle("SignatureHeading", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=15, leading=20, textColor=primary, spaceBefore=0, spaceAfter=0, keepWithNext=True),
         "Body": ParagraphStyle("Body", parent=base["BodyText"], fontName="Helvetica", fontSize=10.5, leading=16, textColor=text_color, splitLongWords=True, allowWidows=0, allowOrphans=0),
+        "TableCell": ParagraphStyle("TableCell", parent=base["BodyText"], fontName="Helvetica", fontSize=9, leading=13, textColor=text_color, splitLongWords=True),
         "BodyMuted": ParagraphStyle("BodyMuted", parent=base["BodyText"], fontName="Helvetica", fontSize=9, leading=13, textColor=colors.HexColor("#64748B")),
-        "Bullet": ParagraphStyle("Bullet", parent=base["BodyText"], fontName="Helvetica", fontSize=10.5, leading=16, leftIndent=5 * mm, firstLineIndent=-3 * mm, textColor=text_color),
+        "Bullet": ParagraphStyle("Bullet", parent=base["BodyText"], fontName="Helvetica", fontSize=10.5, leading=16, leftIndent=5 * mm, firstLineIndent=-3 * mm, textColor=text_color, allowWidows=0, allowOrphans=0),
         "Quote": ParagraphStyle("Quote", parent=base["BodyText"], fontName="Helvetica-Oblique", fontSize=10.5, leading=16, leftIndent=5 * mm, borderColor=secondary, borderWidth=1.5, borderPadding=5, textColor=colors.HexColor("#475569")),
         "Signature": ParagraphStyle("Signature", parent=base["BodyText"], fontName="Helvetica", fontSize=9, leading=13, textColor=text_color),
     }

@@ -12,6 +12,7 @@ import html
 import struct
 import zlib
 from typing import Any
+from app.modules.commercial.document_examples import detailed_example, specific_example
 
 
 DOCUMENT_TYPE_LABELS: dict[str, str] = {
@@ -95,32 +96,6 @@ DEMO_IMAGE_DATA_URL = _demo_png_data_url()
 DEMO_PORTRAIT_DATA_URL = _demo_png_data_url(portrait=True)
 
 
-def _demo_section_text(document_type: str, section: str, name: str, index: int) -> str:
-    """Texto curto e concreto para a prévia, sempre explicitamente fictício."""
-    normalized = section.casefold()
-    if document_type == "resume":
-        values = (
-            "Marina Costa · marina.costa@exemplo.com · São Paulo, SP · (11) 98888-1212.",
-            "Profissional fictícia de produto digital, com 6 anos de experiência em projetos de atendimento e dados.",
-            "Aurora Labs (fictícia) — Product Manager, 2021–2025: aumentou a ativação em 28% no cenário demonstrativo.",
-            "Tecnologia em Gestão de Produtos, Instituto Horizonte (fictício), 2018–2020.",
-            "Discovery, priorização, facilitação, análise de métricas e comunicação executiva.",
-            "Português nativo · Inglês avançado · Certificação de exemplo em Product Discovery.",
-        )
-        return values[index % len(values)]
-    if any(word in normalized for word in ("valor", "investimento", "preço", "preco", "pagamento", "financeir")):
-        return "Exemplo fictício: investimento de R$ 12.800,00, em duas parcelas de R$ 6.400,00, com validade demonstrativa de 15 dias."
-    if any(word in normalized for word in ("prazo", "cronograma", "agenda", "etapa", "vigência", "vigencia", "período", "periodo")):
-        return "Exemplo fictício: início em 10/10/2026, entrega principal em 30 dias corridos e revisão de acompanhamento na semana seguinte."
-    if any(word in normalized for word in ("partes", "cliente", "contato", "identificação", "identificacao", "participantes")):
-        return "Exemplo fictício: Aurora Café & Co. (cliente) e Estúdio Horizonte Ltda. (fornecedor), com Marina Costa como ponto focal."
-    if any(word in normalized for word in ("resultado", "métrica", "metrica", "indicador", "benefício", "beneficio")):
-        return "Exemplo fictício: alcançar 20% mais solicitações qualificadas e acompanhar prazo, qualidade e satisfação em um painel mensal."
-    if document_type in {"contract", "term", "policy"}:
-        return "Exemplo fictício: as partes devem substituir esta orientação pelos dados, limites e obrigações aplicáveis ao caso concreto."
-    if document_type in {"proposal", "budget", "invoice", "receipt"}:
-        return "Exemplo fictício: a Aurora Labs apresenta uma solução modular para organizar o atendimento da empresa Horizonte, com escopo e aceite editáveis."
-    return f"Exemplo fictício: a equipe da Aurora Labs organiza “{section}” com responsáveis, evidências e próximos passos. Substitua pelo seu contexto."
 
 
 def demo_template_html(
@@ -130,6 +105,7 @@ def demo_template_html(
     *,
     legal_review: bool = False,
     existing_html: str = "",
+    focus: str = "",
 ) -> str:
     """Cria a prévia de demonstração que acompanha todos os modelos."""
     safe_name = html.escape(name)
@@ -146,11 +122,7 @@ def demo_template_html(
     image_url = DEMO_PORTRAIT_DATA_URL if document_type == "resume" else DEMO_IMAGE_DATA_URL
     image_alt = "Retrato ilustrado de Marina Costa, pessoa fictícia" if document_type == "resume" else f"Imagem demonstrativa fictícia do modelo {safe_name}"
     image = f'<p><img src="{image_url}" alt="{image_alt}" /></p>'
-    sample_sections = list(sections)[:8]
-    body = "".join(
-        f"<h2>{html.escape(section)}</h2><p>{html.escape(_demo_section_text(document_type, section, name, index))}</p>"
-        for index, section in enumerate(sample_sections)
-    )
+    body = specific_example(name, document_type) + detailed_example(name, document_type, sections, focus)
     return f"<h1>{safe_name}</h1><p><strong>Base de exemplo · {label}</strong></p>{notice}{legal}{image}{body}{existing_html}"
 
 
@@ -171,6 +143,7 @@ def _spec(
     requires_client: bool = False,
     legal_review: bool = False,
     layout: str = "classic",
+    focus: str = "",
 ) -> dict[str, Any]:
     return {
         "id": f"standard_{document_type}_{slug}",
@@ -178,7 +151,7 @@ def _spec(
         "description": description,
         "documentType": document_type,
         "category": category,
-        "contentHtml": demo_template_html(name, document_type, sections, legal_review=legal_review),
+        "contentHtml": demo_template_html(name, document_type, sections, legal_review=legal_review, focus=focus),
         # A prévia ensina pelo exemplo; ao gerar com a Nora, entra apenas o
         # conteúdo produzido a partir dos dados reais informados pelo usuário.
         "generationContentHtml": "{{NORA_CONTENT}}",
@@ -198,6 +171,7 @@ def _spec(
             f"Produza um {document_type_label(document_type).lower()} profissional do tipo {name}. "
             f"Organize o texto nas seções: {', '.join(sections)}. "
             "Use somente fatos fornecidos; marque informações ausentes como 'A definir' e não invente dados."
+            " Desenvolva cada seção com explicações completas, critérios verificáveis e anexos pertinentes; não entregue apenas títulos ou frases-resumo."
         ),
         "sections": list(sections),
     }
@@ -381,6 +355,7 @@ def extended_document_templates() -> list[dict[str, Any]]:
             keywords=(slug.replace("_", " "), name.lower()),
             requires_client=True,
             featured=slug in {"arquitetura", "software", "social_media", "eventos_corporativos"},
+            focus=guide,
         )
         | {"generationGuide": f"Estruture uma proposta profissional de {name.lower()}. Detalhe {guide}. Use somente fatos fornecidos, sinalize lacunas como 'A definir' e mantenha o texto editável."}
         for slug, name, guide in segment_proposals

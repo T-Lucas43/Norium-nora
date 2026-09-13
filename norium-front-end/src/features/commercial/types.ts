@@ -241,6 +241,7 @@ export type CommercialTemplate = {
   generationGuide?: string;
   generationContentHtml?: string;
   demoContent?: boolean;
+  contentDeferred?: boolean;
   sections?: string[];
   layout?: string;
 };

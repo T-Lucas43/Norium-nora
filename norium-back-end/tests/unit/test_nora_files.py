@@ -41,7 +41,8 @@ class NoraFilesTests(unittest.TestCase):
         self.assertEqual(record["name"], "entrada.pdf")
         self.assertTrue(path.read_bytes().startswith(b"%PDF-"))
         self.assertIn("/api/nora/files/", artifact["previewUrl"])
-        self.assertFalse(artifact["inLibrary"])
+        self.assertTrue(artifact["inLibrary"])
+        self.assertEqual([artifact["id"]], [item["id"] for item in list_library_files("user-a")])
         with self.assertRaises(HTTPException) as error:
             owned_file("user-b", artifact["id"])
         self.assertEqual(error.exception.status_code, 404)
@@ -90,6 +91,7 @@ class NoraFilesTests(unittest.TestCase):
         result = deterministic_file_command("user-a", "gere meu relatorio financeiro em pdf", [])
         self.assertEqual(result["tokenUsage"], 0)
         self.assertEqual(result["files"][0]["mimeType"], "application/pdf")
+        self.assertTrue(result["files"][0]["inLibrary"])
         _, path = owned_file("user-a", result["files"][0]["id"])
         self.assertTrue(path.read_bytes().startswith(b"%PDF-"))
 

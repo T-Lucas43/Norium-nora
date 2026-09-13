@@ -157,7 +157,9 @@ def save_bytes(
         "storageName": path.name,
         "source": source,
         "createdAt": _now_iso(),
-        "inLibrary": False,
+        # PDFs recebidos ou gerados pela Nora ficam disponíveis imediatamente
+        # na Biblioteca; outros formatos continuam opt-in.
+        "inLibrary": mime_type == "application/pdf",
     }
     if metadata:
         record["metadata"] = metadata
@@ -350,10 +352,10 @@ def deterministic_file_command(user_id: str, text: str, file_ids: list[str], con
     normalized = normalize_command(text)
     if "relatorio" in normalized and any(term in normalized for term in ("finance", "gasto", "receita")):
         artifact = generate_finance_report(user_id)
-        return {"status": "arquivo_pronto", "response": "Relatório financeiro gerado com os dados atuais do Norium. Você pode visualizar ou baixar o PDF abaixo.", "files": [artifact], "tokenUsage": 0}
+        return {"status": "arquivo_pronto", "response": "Relatório financeiro gerado com os dados atuais do Norium e salvo automaticamente na Biblioteca. Você pode visualizar ou baixar o PDF abaixo.", "files": [artifact], "tokenUsage": 0}
     if "relatorio" in normalized and any(term in normalized for term in ("operacional", "operacao", "tarefas", "equipe")):
         artifact = generate_operations_report(user_id)
-        return {"status": "arquivo_pronto", "response": "Relatório operacional gerado com os dados atuais do Norium. Você pode visualizar ou baixar o PDF abaixo.", "files": [artifact], "tokenUsage": 0}
+        return {"status": "arquivo_pronto", "response": "Relatório operacional gerado com os dados atuais do Norium e salvo automaticamente na Biblioteca. Você pode visualizar ou baixar o PDF abaixo.", "files": [artifact], "tokenUsage": 0}
 
     operation = file_operation_for(f"{context}\n{text}", file_ids)
     if operation:
@@ -374,9 +376,9 @@ def deterministic_file_command(user_id: str, text: str, file_ids: list[str], con
             files = process_files(user_id, file_ids, operation_name, options)
         except (ValueError, OSError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return {"status": "arquivo_pronto", "response": "Processamento concluído dentro do Norium, sem uso de tokens. O resultado está pronto para visualizar ou baixar.", "files": files, "tokenUsage": 0}
+        return {"status": "arquivo_pronto", "response": "Processamento concluído dentro do Norium, sem uso de tokens. PDFs resultantes foram salvos automaticamente na Biblioteca e estão prontos para visualizar ou baixar.", "files": files, "tokenUsage": 0}
 
     if file_ids:
         artifacts_for_ids(user_id, file_ids)
-        return {"status": "arquivo_recebido", "response": "Recebi o arquivo e ele já está salvo com acesso privado. Diga o que deseja fazer: visualizar, extrair texto, comprimir, numerar páginas, combinar PDFs ou converter imagens em PDF.", "files": [], "tokenUsage": 0}
+        return {"status": "arquivo_recebido", "response": "Recebi o arquivo e ele já está salvo com acesso privado. Se for PDF, também está na Biblioteca. Diga o que deseja fazer: visualizar, extrair texto, comprimir, numerar páginas, combinar PDFs ou converter imagens em PDF.", "files": [], "tokenUsage": 0}
     return None

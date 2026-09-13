@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Bot, LayoutGrid, Plus, Save, ThumbsUp, Trash2, X } from "lucide-react";
 import { ApiError } from "../../core/api/client";
 import IdeaCard, { type IdeaNode } from "../brainstorm/StudioIdeaNode";
+import { NoraMarkdown } from "../nora/NoraResponseContent";
 import { STUDIO_TEMPLATES } from "../brainstorm/studioTemplateCatalog";
 import { useTeamApiRequest, useTeamSocketEvents } from "./CallSession";
 
@@ -253,7 +254,7 @@ export default function TeamCallStudio({ callId, clientId, currentUserId, isHost
           <div style={{ display: noraOpen ? undefined : "none" }}>
             <h3>Nora na reunião</h3><p>A Nora usa o conteúdo do quadro. Os pedidos e respostas ficam visíveis para os participantes, e cada resposta entra como um cartão.</p>
             {!canUseNora && <p>Sua conta pode acompanhar as respostas. Para fazer pedidos, o administrador precisa liberar a Nora.</p>}
-            {session.noraMessages?.map((message) => <article key={message.requestKey} className="team-call-studio-comment"><strong>{message.authorName}</strong><p>{message.instruction}</p><strong>Nora</strong><p>{message.response}</p></article>)}
+            {session.noraMessages?.map((message) => <article key={message.requestKey} className="team-call-studio-comment"><strong>{message.authorName}</strong><p>{message.instruction}</p><strong>Nora</strong><NoraMarkdown text={message.response} /></article>)}
             <form onSubmit={(event) => { event.preventDefault(); void askNora(); }}>
               <label>Ação da Nora<select value={noraAction} disabled={noraBusy || !!noraRetry} onChange={(event) => setNoraAction(event.target.value)}><option value="perguntar">Fazer um pedido</option><option value="resumir">Resumir o quadro</option><option value="gerar_ideias">Gerar ideias</option><option value="proximos_passos">Definir próximos passos</option></select></label>
               <label>Pedido para a Nora<textarea aria-label="Pedido para a Nora" rows={3} maxLength={2000} value={noraPrompt} disabled={noraBusy || !!noraRetry} onChange={(event) => setNoraPrompt(event.target.value)} /></label>

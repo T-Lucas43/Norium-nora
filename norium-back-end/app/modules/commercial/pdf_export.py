@@ -5,6 +5,7 @@ import io
 import re
 from html.parser import HTMLParser
 from typing import Any
+import unicodedata
 from app.modules.commercial.pdf_editor import apply_pdf_edits, decode_image
 from app.modules.commercial.document_templates import document_type_label
 
@@ -391,11 +392,32 @@ def safe_color(value: Any, fallback: str):
 
 
 def clean_text(value: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", value)).strip()
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", normalize_pdf_text(value))).strip()
+
+
+def normalize_pdf_text(value: Any) -> str:
+    """Mantem acentos e troca apenas glifos que as fontes PDF base nao renderizam."""
+
+    text = unicodedata.normalize("NFC", str(value or ""))
+    replacements = {
+        "\u00a0": " ",
+        "\u2007": " ",
+        "\u202f": " ",
+        "\u2010": "-",
+        "\u2011": "-",
+        "\u2012": "-",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2212": "-",
+        "\u2022": "-",
+        "\u25aa": "-",
+        "\ufeff": "",
+    }
+    return "".join(replacements.get(character, character) for character in text if character in "\n\t" or ord(character) >= 32)
 
 
 def escape_reportlab(value: str) -> str:
-    return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return normalize_pdf_text(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def slugify(value: str) -> str:
@@ -405,4 +427,8 @@ def slugify(value: str) -> str:
 
 def format_date(value: Any) -> str:
     text = str(value or "")
-    return text[:10].split("T")[0] if text else "data nao informada"
+    if not text:
+        return "data não informada"
+    date_part = text[:10].split("T")[0]
+    match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", date_part)
+    return f"{match.group(3)}/{match.group(2)}/{match.group(1)}" if match else normalize_pdf_text(date_part)

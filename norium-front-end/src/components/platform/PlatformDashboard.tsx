@@ -54,10 +54,10 @@ type AuditEntry = JsonItem & {
 };
 
 const areas: Array<{ id: PlatformArea; label: string; icon: typeof Gauge }> = [
-  { id: "overview", label: "Visao geral", icon: Gauge },
-  { id: "companies", label: "Ambientes", icon: Building2 },
-  { id: "knowledge", label: "IA e documentos", icon: BookOpen },
-  { id: "security", label: "Seguranca", icon: ShieldCheck },
+  { id: "overview", label: "Visão executiva", icon: Gauge },
+  { id: "companies", label: "Estrutura", icon: Building2 },
+  { id: "knowledge", label: "Conhecimento", icon: BookOpen },
+  { id: "security", label: "Riscos e controles", icon: ShieldCheck },
 ];
 
 const initialSummary: PlatformSummary = {
@@ -145,18 +145,18 @@ export default function PlatformDashboard({ onNavigate }: PlatformDashboardProps
   );
 
   return (
-    <div className="min-h-full bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
+    <div className="norium-governance min-h-full bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
       <div className="mx-auto w-full max-w-[1500px] space-y-4">
-        <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 lg:flex-row lg:items-center lg:justify-between">
+        <header className="governance-hero flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-400">
+            <span className="governance-hero-icon grid h-12 w-12 shrink-0 place-items-center rounded-xl text-blue-300">
               <ShieldCheck size={22} />
             </span>
             <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-wider text-blue-400">Operacao e governanca</p>
-              <h1 className="text-2xl font-black">Governança</h1>
-              <p className="text-sm text-[var(--text-secondary)]">
-                Organize ambientes, consulte fontes e acompanhe os acessos da equipe.
+              <p className="text-xs font-bold uppercase tracking-wider text-blue-300">Direção, controle e prestação de contas</p>
+              <h1 className="text-2xl font-black sm:text-3xl">Governança</h1>
+              <p className="max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
+                Estruture decisões, informação confiável, riscos, controles e evidências usando os recursos reais do Norium.
               </p>
             </div>
           </div>
@@ -223,18 +223,39 @@ export default function PlatformDashboard({ onNavigate }: PlatformDashboardProps
 }
 
 function OverviewArea({ summary, onSelect }: { summary: PlatformSummary; onSelect: (area: PlatformArea) => void }) {
-  return <div className="grid gap-4 md:grid-cols-3">
-    <Panel title="Ambientes de trabalho" subtitle="Organize os dados da operação em ambientes separados." icon={Building2}>
-      <p className="mb-4 text-2xl font-bold">{summary.workspaces ?? 0}</p>
-      <button className="norium-platform-button" onClick={() => onSelect("companies")}>Gerenciar ambientes</button>
-    </Panel>
-    <Panel title="Fontes de conhecimento" subtitle="Cadastre textos e PDFs pesquisáveis e consulte os trechos encontrados." icon={BookOpen}>
-      <p className="mb-4 text-2xl font-bold">{summary.knowledgeDocuments ?? 0}</p>
-      <button className="norium-platform-button" onClick={() => onSelect("knowledge")}>Consultar documentos</button>
-    </Panel>
-    <Panel title="Acessos e auditoria" subtitle="Confira as permissões da equipe e as ações registradas no sistema." icon={ShieldCheck}>
-      <button className="norium-platform-button" onClick={() => onSelect("security")}>Revisar acessos</button>
-    </Panel>
+  const principles = ["Integridade", "Transparência", "Equidade", "Responsabilização", "Sustentabilidade"];
+  return <div className="space-y-4">
+    <section className="governance-principles" aria-labelledby="governance-principles-title">
+      <div><p className="governance-kicker">Princípios de referência</p><h2 id="governance-principles-title">Governar é direcionar, monitorar e prestar contas</h2></div>
+      <div className="governance-principle-list">{principles.map((principle, index) => <span key={principle}><b>{String(index + 1).padStart(2, "0")}</b>{principle}</span>)}</div>
+    </section>
+
+    <section className="governance-cycle" aria-label="Ciclo de governança no Norium">
+      <button type="button" onClick={() => onSelect("companies")}><span>01</span><Building2 size={19} /><strong>Estruturar</strong><small>Ambientes e responsabilidades da operação.</small></button>
+      <button type="button" onClick={() => onSelect("knowledge")}><span>02</span><BookOpen size={19} /><strong>Informar</strong><small>Fontes verificáveis para decisões e para a Nora.</small></button>
+      <button type="button" onClick={() => onSelect("security")}><span>03</span><ShieldCheck size={19} /><strong>Controlar</strong><small>Permissões, riscos e controles proporcionais.</small></button>
+      <button type="button" onClick={() => onSelect("security")}><span>04</span><ScanSearch size={19} /><strong>Evidenciar</strong><small>Auditoria e rastreabilidade das ações sensíveis.</small></button>
+    </section>
+
+    <div className="grid gap-4 lg:grid-cols-[1fr_1fr_.9fr]">
+      <Panel title="Ambientes de trabalho" subtitle="Estruturas operacionais separadas e identificáveis." icon={Building2}>
+        <p className="governance-metric"><strong>{summary.workspaces ?? 0}</strong><span>ambientes cadastrados</span></p>
+        <button className="norium-platform-button" onClick={() => onSelect("companies")}>Gerenciar estrutura</button>
+      </Panel>
+      <Panel title="Fontes de conhecimento" subtitle="Textos e PDFs pesquisáveis com consulta por fonte." icon={BookOpen}>
+        <p className="governance-metric"><strong>{summary.knowledgeDocuments ?? 0}</strong><span>fontes disponíveis</span></p>
+        <button className="norium-platform-button" onClick={() => onSelect("knowledge")}>Consultar conhecimento</button>
+      </Panel>
+      <Panel title="Riscos e prestação de contas" subtitle="Acesse a matriz de permissões e as evidências da operação." icon={ShieldCheck}>
+        <p className="mb-4 text-xs leading-5 text-[var(--text-secondary)]">A situação é apresentada com dados registrados; o painel não inventa indicadores ausentes.</p>
+        <button className="norium-platform-button" onClick={() => onSelect("security")}>Revisar controles</button>
+      </Panel>
+    </div>
+
+    <section className="governance-references">
+      <div><p className="governance-kicker">Metodologia</p><h2>Referências usadas nesta estrutura</h2></div>
+      <div><a href="https://complianceenforcement.com.br/glossario/o-que-e-sistema-de-governanca/" target="_blank" rel="noreferrer">Sistema de governança · Compliance Enforcement</a><a href="https://www3.ibgc.org.br/conhecimento" target="_blank" rel="noreferrer">Princípios de governança · IBGC</a><a href="https://www.gov.br/cgu/pt-br/acesso-a-informacao/governanca/gestao-de-riscos" target="_blank" rel="noreferrer">Gestão de riscos · CGU</a></div>
+    </section>
   </div>;
 }
 
@@ -556,6 +577,14 @@ function SecurityArea({
 }) {
   return (
     <div className="grid gap-4 xl:grid-cols-2">
+      <Panel title="Mapa de riscos e controles" subtitle="Relação entre riscos relevantes e mecanismos que já existem no sistema." icon={ShieldCheck} className="xl:col-span-2">
+        <div className="governance-control-table" role="table" aria-label="Riscos e controles do sistema">
+          <div role="row"><strong role="columnheader">Risco</strong><strong role="columnheader">Controle existente</strong><strong role="columnheader">Evidência ou destino</strong></div>
+          <div role="row"><span role="cell">Acesso além da responsabilidade</span><span role="cell">Permissões por usuário e função</span><button role="cell" type="button" onClick={() => document.querySelector<HTMLElement>("[data-governance-permissions]")?.scrollIntoView({ behavior: "smooth" })}>Matriz abaixo</button></div>
+          <div role="row"><span role="cell">Ação sensível sem rastreabilidade</span><span role="cell">Trilha de auditoria operacional</span><button role="cell" type="button" disabled={!onNavigate} onClick={() => onNavigate?.("Controle")}>Abrir Controle</button></div>
+          <div role="row"><span role="cell">Resposta de IA sem base verificável</span><span role="cell">Conhecimento com consulta e citações</span><span role="cell">Aba Conhecimento</span></div>
+        </div>
+      </Panel>
       <Panel title="Trilha de auditoria" subtitle="Registro de acoes sensiveis do sistema, consolidado no Controle operacional." icon={ScanSearch}>
         {auditPreview.length === 0 ? (
           <EmptyState text="Nenhum evento de auditoria registrado ainda." />
@@ -584,7 +613,8 @@ function SecurityArea({
         </button>
       </Panel>
 
-      <Panel title="Matriz de permissoes" subtitle="Quem tem acesso a cada tela e integracao, de relance." icon={UserRoundCog} className="xl:col-span-2">
+      <Panel title="Matriz de permissões" subtitle="Quem tem acesso a cada tela e integração, de relance." icon={UserRoundCog} className="xl:col-span-2">
+        <span data-governance-permissions className="sr-only">Início da matriz de permissões</span>
         {users.length === 0 ? (
           <EmptyState text="Nenhum usuario encontrado." />
         ) : (

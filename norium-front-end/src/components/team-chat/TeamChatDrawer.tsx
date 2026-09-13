@@ -8,6 +8,7 @@ import TeamConversationList from "./TeamConversationList";
 import { mentionParts, mentionQuery, type TeamConversation } from "./teamChatConversations";
 import "./teamChat.css";
 import NoraAvatar from "../layout/NoraAvatar";
+import { NoraMarkdown } from "../nora/NoraResponseContent";
 import Button from "../shared/Button";
 import TeamCallOverlay from "./TeamCallOverlay";
 import TeamActiveCallCard from "./TeamActiveCallCard";
@@ -253,6 +254,7 @@ function NoraMessageContent({ message }: { message: TeamMessage }) {
   const parsed = parseNoraContent(message);
 
   if (!parsed) {
+    if (message.senderId === "nora") return <NoraMarkdown text={message.text} />;
     const parts = mentionParts(message.text, message.metadata?.mentions);
     return (
       <p className="whitespace-pre-wrap leading-5">

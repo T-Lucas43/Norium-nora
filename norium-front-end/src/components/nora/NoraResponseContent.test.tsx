@@ -47,6 +47,15 @@ describe("Nora structured responses", () => {
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(document.querySelector("script")).toBeNull();
   });
+  it("turns multi-section answers into compact accessible tabs", () => {
+    render(<NoraMarkdown text={'Introdução curta.\n\n## Documentos\n\n| Tipo | Estado |\n| --- | --- |\n| PDF | Automático |\n\n## Limites\n\nNada é enviado sem confirmação.'} />);
+    expect(screen.getByRole("tablist", { name: "Seções da resposta" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Documentos" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Limites" }));
+    expect(screen.getByRole("tabpanel")).toHaveTextContent("Nada é enviado sem confirmação.");
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
   it("renders automation details as distinct professional cards", () => {
     render(<NoraAutomationCards text="Suas automações:" view={{ kind: "automations", total: 1, active: 1, runsToday: 2, items: [{ id: "a", name: "Novo e-mail", active: true, aiEnabled: true, trigger: "Gmail", actions: ["Resumir", "Criar tarefa"], executions: 4, savedMinutes: 40 }] }} />);
     expect(screen.getByRole("region", { name: "Automações da consulta" })).toBeInTheDocument();

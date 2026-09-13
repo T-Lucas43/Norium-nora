@@ -12,6 +12,48 @@ class ModuleHelp:
     response: str
 
 
+NORA_CAPABILITIES_RESPONSE = """Eu atuo sobre os módulos reais do Norium e separo claramente consulta, preparação, confirmação e execução.
+
+## Comunicação
+
+| Área | O que posso fazer |
+| --- | --- |
+| E-mails | Listar, resumir, pesquisar, redigir, revisar, responder e enviar pelo Gmail conectado. |
+| WhatsApp | Resumir a conversa selecionada e preparar uma resposta; o envio exige destinatário e texto revisados. |
+| Chat da Equipe | Resumir conversas, organizar decisões e enviar mensagens internas autorizadas. |
+
+## Organização e operação
+
+| Área | O que posso fazer |
+| --- | --- |
+| Agenda | Consultar disponibilidade e criar, editar ou cancelar eventos com os dados obrigatórios. |
+| Tarefas | Criar projetos e cards, consultar o Kanban e alterar responsável, prioridade, prazo ou status. |
+| Financeiro | Registrar e consultar entradas, saídas, boletos, anexos e lembretes; não faço pagamentos. |
+| Automações | Montar gatilhos, condições e ações, testar o fluxo e acompanhar execuções. |
+| Estúdio | Criar sessões, resumir ideias, sugerir próximos passos e converter decisões em tarefas. |
+
+## Documentos e conhecimento
+
+| Área | O que posso fazer |
+| --- | --- |
+| Documentos | Criar propostas, contratos, currículos, relatórios e outros modelos cadastrados; revisar, editar a fonte e gerar novamente o PDF. |
+| PDFs | Visualizar, extrair texto, comprimir, numerar, dividir, girar, combinar e converter imagens; PDFs ficam na Biblioteca automaticamente. |
+| Conhecimento | Consultar fontes autorizadas do workspace com identificação da origem. |
+| Relatórios | Organizar métricas reais do sistema em tabelas e exportações. |
+
+## Administração e segurança
+
+| Área | O que posso explicar ou consultar |
+| --- | --- |
+| Governança | Ambientes, fontes, permissões, riscos, controles e auditoria. |
+| Clientes e equipe | Cadastros, relacionamentos, responsáveis, acessos e distribuição do trabalho. |
+| Controle | Aprovações, integrações, auditoria, memória operacional e ações reversíveis. |
+
+## Limites importantes
+
+Não invento dados ausentes, não exponho segredos, não atravesso workspaces e não afirmo que uma ação foi executada sem confirmação real. Pagamentos, exclusões, assinaturas, compartilhamentos e envios sensíveis exigem revisão ou confirmação."""
+
+
 MODULE_HELP: tuple[ModuleHelp, ...] = (
     ModuleHelp(
         module="nora",
@@ -256,11 +298,15 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         module="governanca",
         aliases=("governanca", "administracao da empresa"),
         response=(
-            "Governança centraliza ambientes de trabalho, fontes de conhecimento, permissões e auditoria.\n\n"
-            "Cada ambiente mantém dados separados. Em IA e documentos, envie materiais autorizados "
-            "para a base de conhecimento; PDFs com texto são indexados e ficam disponíveis para consultas "
-            "da Nora com a fonte identificada. Em Segurança, consulte a matriz de permissões "
-            "e a trilha de auditoria. O Controle reúne o histórico operacional."
+            "Governança é o sistema que orienta decisões, distribui responsabilidades e monitora a execução com transparência. No Norium, ela conecta estrutura, conhecimento, riscos, controles e evidências.\n\n"
+            "## Estrutura e direção\n\n"
+            "Use Ambientes para separar dados e integrações por operação. Defina responsáveis e permissões coerentes com cada papel.\n\n"
+            "## Informação e transparência\n\n"
+            "Em Conhecimento, envie somente materiais autorizados. PDFs com texto são indexados e a Nora identifica a fonte consultada.\n\n"
+            "## Riscos, controles e responsabilização\n\n"
+            "Revise a matriz de permissões e a trilha de auditoria. O Controle operacional concentra aprovações, falhas de integração, histórico de ações e evidências para acompanhamento contínuo.\n\n"
+            "## Princípios\n\n"
+            "A tela adota integridade, transparência, equidade, responsabilização e sustentabilidade como referências de boa governança, sem substituir análise jurídica ou regulatória."
         ),
     ),
     ModuleHelp(
@@ -384,6 +430,12 @@ def _normalize(value: str) -> str:
 
 def answer_module_help(message: str) -> dict[str, str] | None:
     text = _normalize(message)
+    if re.search(r"\b(?:o\s+que\s+(?:voce|a\s+nora)\s+(?:e\s+capaz\s+de|pode|sabe)\s+fazer|tudo\s+(?:o\s+)?que\s+(?:voce|a\s+nora)\s+(?:pode|faz)|capacidades\s+da\s+nora)\b", text):
+        return {
+            "status": "orientacao",
+            "module": "nora",
+            "response": NORA_CAPABILITIES_RESPONSE,
+        }
     asks_for_guidance = bool(
         re.search(
             r"\b(?:explique|explica|como\s+(?:usar|funciona)|me\s+ajude|ajuda|oriente|analise|"

@@ -4479,6 +4479,47 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   background: rgba(22, 119, 255, .1);
 }
 
+.norium-governance .governance-hero {
+  position:relative;
+  overflow:hidden;
+  border:1px solid color-mix(in srgb,#2563eb 28%,var(--border));
+  border-radius:18px;
+  background:linear-gradient(125deg,color-mix(in srgb,#1d4ed8 15%,var(--surface)),color-mix(in srgb,#0891b2 7%,var(--surface)) 55%,var(--surface));
+  padding:clamp(1.1rem,2vw,1.65rem);
+  box-shadow:0 20px 55px rgba(2,8,23,.08);
+}
+.norium-governance .governance-hero::after { content:""; position:absolute; right:-80px; top:-120px; width:280px; height:280px; border-radius:999px; background:#2563eb16; filter:blur(2px); pointer-events:none; }
+.norium-governance .governance-hero-icon { border:1px solid #60a5fa55; background:linear-gradient(145deg,#2563eb33,#0891b225); box-shadow:inset 0 1px 0 #ffffff20,0 12px 28px #1d4ed822; }
+.governance-kicker { color:#60a5fa; font-size:.66rem; font-weight:850; letter-spacing:.11em; text-transform:uppercase; }
+.governance-principles,.governance-references { display:flex; align-items:center; justify-content:space-between; gap:1rem; border:1px solid var(--border); border-radius:14px; background:color-mix(in srgb,var(--surface) 92%,transparent); padding:1rem 1.15rem; }
+.governance-principles h2,.governance-references h2 { margin-top:.25rem; font-size:.9rem; font-weight:850; }
+.governance-principle-list { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.45rem; }
+.governance-principle-list span { display:flex; align-items:center; gap:.42rem; border:1px solid var(--border); border-radius:999px; background:var(--background); padding:.43rem .65rem; color:var(--text-secondary); font-size:.67rem; font-weight:750; white-space:nowrap; }
+.governance-principle-list b { color:#60a5fa; font-size:.57rem; }
+.governance-cycle { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); overflow:hidden; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
+.governance-cycle button { position:relative; display:grid; min-width:0; grid-template-columns:auto 1fr; gap:.35rem .65rem; align-items:center; border:0; border-right:1px solid var(--border); background:transparent; padding:1rem; color:var(--text); text-align:left; cursor:pointer; }
+.governance-cycle button:last-child { border-right:0; }
+.governance-cycle button:hover { background:color-mix(in srgb,#2563eb 8%,var(--surface)); }
+.governance-cycle button>span { position:absolute; right:.75rem; top:.55rem; color:var(--text-secondary); font-size:.55rem; font-weight:850; }
+.governance-cycle svg { grid-row:1/3; color:#60a5fa; }
+.governance-cycle strong { font-size:.78rem; }
+.governance-cycle small { min-width:0; color:var(--text-secondary); font-size:.65rem; line-height:1.5; }
+.governance-metric { display:flex; align-items:baseline; gap:.6rem; margin:0 0 1rem; }
+.governance-metric strong { font-size:2rem; line-height:1; font-variant-numeric:tabular-nums; }
+.governance-metric span { color:var(--text-secondary); font-size:.72rem; }
+.governance-references>div:last-child { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.45rem; }
+.governance-references a { border:1px solid var(--border); border-radius:8px; padding:.48rem .65rem; color:var(--text-secondary); font-size:.65rem; font-weight:750; text-decoration:none; }
+.governance-references a:hover { border-color:#3b82f6; color:var(--text); }
+.governance-control-table { display:grid; overflow:hidden; border:1px solid var(--border); border-radius:10px; }
+.governance-control-table>div { display:grid; grid-template-columns:1.1fr 1.15fr .75fr; align-items:center; }
+.governance-control-table>div+div { border-top:1px solid var(--border); }
+.governance-control-table :is(strong,span,button) { min-width:0; padding:.72rem .8rem; font-size:.7rem; line-height:1.5; text-align:left; }
+.governance-control-table strong { background:color-mix(in srgb,var(--background) 75%,transparent); color:var(--text-secondary); font-size:.62rem; text-transform:uppercase; letter-spacing:.05em; }
+.governance-control-table button { border:0; background:transparent; color:#60a5fa; font-weight:800; cursor:pointer; }
+.governance-control-table button:disabled { color:var(--text-secondary); cursor:default; }
+@media(max-width:850px){.governance-principles,.governance-references{align-items:flex-start;flex-direction:column}.governance-principle-list,.governance-references>div:last-child{justify-content:flex-start}.governance-cycle{grid-template-columns:repeat(2,minmax(0,1fr))}.governance-cycle button:nth-child(2){border-right:0}.governance-cycle button:nth-child(-n+2){border-bottom:1px solid var(--border)}}
+@media(max-width:560px){.governance-cycle{grid-template-columns:1fr}.governance-cycle button{border-right:0!important;border-bottom:1px solid var(--border)}.governance-cycle button:last-child{border-bottom:0}.governance-control-table>div{grid-template-columns:1fr}.governance-control-table>div:first-child{display:none}.governance-control-table>div :is(span,button):first-child{padding-bottom:.2rem;font-weight:850}.governance-control-table>div :is(span,button):not(:first-child){padding-top:.25rem}}
+
 .norium-skip-link {
   position: fixed;
   left: 1rem;
@@ -7450,3 +7491,5 @@ html[data-underline-links="true"] a[href] {
   top: auto !important;
   bottom: max(1.25rem, env(safe-area-inset-bottom)) !important;
 }
+.nora-native-scroll{scrollbar-width:none}
+.nora-native-scroll::-webkit-scrollbar{display:none}

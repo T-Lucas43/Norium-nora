@@ -280,6 +280,7 @@ function normalizeChatFiles(value: unknown): NoraChatFile[] {
       downloadUrl,
       source: String(record.source || "") || undefined,
       createdAt: String(record.createdAt || "") || undefined,
+      inLibrary: Boolean(record.inLibrary),
       editTarget: editTarget && editTarget.entityId ? {
         tab: String(editTarget.tab || "Documentos"),
         entityType: String(editTarget.entityType || "proposal"),
@@ -813,8 +814,9 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
       transition={{ duration: 0.2 }}
       className={`${presentation.className} nora-assistant-message group flex w-full max-w-full items-start gap-3 text-sm select-text`}
     >
-      <span className="nora-agent-icon mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full" aria-hidden="true">
-        <Icon size={16} />
+      <span className="nora-agent-portrait mt-0.5" aria-hidden="true">
+        <NoraAvatar className="h-9 w-9" />
+        <span className="nora-agent-badge"><Icon size={11} /></span>
       </span>
       <div className="min-w-0 flex-1">
         <div className="nora-assistant-meta mb-2 flex min-h-5 items-center justify-between gap-3">
@@ -1449,7 +1451,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     if (intent === "comercial") {
       setCommercialSessionId(result.session_id);
       setCommercialAgentActive(Boolean(result.session_id && ["precisa_dados", "confirmar"].includes(status)));
-      if (["criada", "excluida", "analisada", "contrato_criado", "enviado_assinatura"].includes(status)) {
+      if (["criada", "editada", "excluida", "analisada", "contrato_criado", "enviado_assinatura"].includes(status)) {
         window.dispatchEvent(new Event("commercial:changed"));
       }
     }

@@ -5,15 +5,19 @@ import os
 import re
 import unicodedata
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.modules.clients.repository import list_clients
+from app.modules.commercial.repository import read_store
 from app.modules.commercial.schemas import (
     Branding,
+    ContractUpdate,
     NoraAnalysisRequest,
     ProposalBriefRequest,
     ProposalCreate,
+    ProposalUpdate,
     SignerInput,
     SmartDocumentRequest,
 )
@@ -28,10 +32,14 @@ from app.modules.commercial.service import (
     delete_proposal,
     generate_proposal_draft,
     list_commercial_data,
+    plain_text,
+    replace_visible_text,
     send_for_signature,
     signature_links,
     standard_templates,
     submit_proposal,
+    update_contract,
+    update_proposal,
 )
 from app.services.brainstorm_store import list_brainstorm_sessions
 from app.modules.commercial.pdf_export import build_commercial_pdf
@@ -39,6 +47,10 @@ from app.services.nora_files import owned_file, save_bytes
 
 
 _sessions: dict[str, dict[str, Any]] = {}
+
+
+def _today() -> date:
+    return datetime.now(ZoneInfo("America/Sao_Paulo")).date()
 
 
 def _normalize(value: str) -> str:
@@ -110,7 +122,7 @@ def _extract_valid_until(value: str) -> str:
             pass
     days_match = re.search(r"\b(\d{1,3})\s+dias?\b", _normalize(value))
     days = int(days_match.group(1)) if days_match else 15
-    return (date.today() + timedelta(days=max(1, min(days, 365)))).isoformat()
+    return (_today() + timedelta(days=max(1, min(days, 365)))).isoformat()
 
 
 def _is_document_creation(value: str) -> bool:
@@ -126,6 +138,148 @@ def _is_document_creation(value: str) -> bool:
             "plano", "orcamento", "recibo", "fatura", "politica", "termo", "declaracao", "certificado",
             "briefing", "manual", "checklist", "roteiro", "descricao de vaga", "pauta",
         ),
+    )
+
+
+def _is_document_edit(value: str) -> bool:
+    return _contains_any(
+        value,
+        ("editar", "edite", "alterar", "altere", "corrigir", "corrija", "trocar", "troque", "substituir", "substitua", "atualizar", "atualize"),
+    ) and _contains_any(value, ("documento", "pdf", "proposta", "contrato", "minuta", "arquivo"))
+
+
+def _is_document_catalog(value: str) -> bool:
+    return _contains_any(value, ("modelo", "modelos", "tipos de documento", "documentos que")) and _contains_any(
+        value,
+        ("documento", "pdf", "proposta", "contrato", "curriculo", "sabe fazer", "pode fazer", "disponiveis"),
+    )
+
+
+def _document_catalog_response() -> str:
+    groups = {
+        "Comercial": {"proposal", "contract", "budget", "invoice", "receipt"},
+        "Gestão e comunicação": {"report", "letter", "meeting", "plan", "policy"},
+        "Pessoas e carreira": {"resume", "hr", "certificate", "term"},
+        "Marketing e conhecimento": {"marketing", "academic", "custom"},
+    }
+    labels = {
+        "proposal": "Proposta", "contract": "Contrato", "budget": "Orçamento", "invoice": "Fatura",
+        "receipt": "Recibo", "report": "Relatório", "letter": "Carta e comunicado", "meeting": "Ata e pauta",
+        "plan": "Plano", "policy": "Política e manual", "resume": "Currículo", "hr": "RH",
+        "certificate": "Certificado", "term": "Termo e declaração", "marketing": "Marketing",
+        "academic": "Acadêmico", "custom": "Personalizado",
+    }
+    templates = standard_templates()
+    sections: list[str] = [
+        "Posso criar os modelos reais cadastrados em Documentos. Todos saem editáveis, com PDF salvo automaticamente na Biblioteca.",
+    ]
+    for heading, types in groups.items():
+        rows: list[str] = []
+        for document_type in sorted(types, key=lambda item: labels.get(item, item)):
+            names = [str(item.get("name") or "") for item in templates if str(item.get("documentType") or "custom") == document_type]
+            if names:
+                rows.append(f"| {labels.get(document_type, document_type.title())} | {'; '.join(names)} |")
+        if rows:
+            sections.append("\n".join([f"## {heading}", "| Tipo | Modelos disponíveis |", "| --- | --- |", *rows]))
+    sections.append(
+        "## Como pedir\nDiga o tipo, objetivo, público ou cliente e o conteúdo principal. Também posso revisar um documento, corrigir datas e textos, gerar uma nova versão e devolver o PDF no chat."
+    )
+    return "\n\n".join(sections)
+
+
+def _requested_replacement(message: str, content_html: str) -> tuple[str, str] | None:
+    direct = re.search(
+        r"\b(?:troque|substitua|altere|corrija)\s+[\"“]?(.{1,120}?)[\"”]?\s+(?:por|para)\s+[\"“]?(.{1,120}?)[\"”]?(?:[.!]|$)",
+        message,
+        flags=re.I,
+    )
+    if direct:
+        before = direct.group(1).strip(" \"“”')")
+        after = direct.group(2).strip(" \"“”')")
+        if before and after and before != after:
+            return before, after
+
+    current_year = _today().year
+    year_match = re.search(r"\b(?:estamos\s+em|ano\s+atual(?:\s+e|\s+é)?|use\s+o\s+ano)\s*(20\d{2})\b", _normalize(message))
+    target_year = year_match.group(1) if year_match else str(current_year)
+    asks_current_date = bool(year_match or _contains_any(_normalize(message), ("ano atual", "data atual", "data de hoje")))
+    if not asks_current_date:
+        return None
+    years = sorted(set(re.findall(r"\b20\d{2}\b", plain_text(content_html))))
+    stale_years = [year for year in years if year != target_year and abs(int(year) - int(target_year)) <= 5]
+    if len(stale_years) == 1:
+        return stale_years[0], target_year
+    return None
+
+
+async def _edit_document_from_chat(
+    user: dict[str, Any],
+    message: str,
+    proposals: list[dict[str, Any]],
+    contracts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    document_type = "contract" if "contrat" in _normalize(message) or "minuta" in _normalize(message) else "proposal"
+    items = contracts if document_type == "contract" else proposals
+    document = _find_named_document(items, message)
+    if not document:
+        return _response("nao_encontrado", f"Não encontrei {'um contrato' if document_type == 'contract' else 'uma proposta'} para editar.")
+    store = read_store(collaboration_tenant_id(user))
+    full_items = store["contracts"] if document_type == "contract" else store["proposals"]
+    document = next((item for item in full_items if str(item.get("id")) == str(document.get("id"))), document)
+    content_html = str(document.get("contentHtml") or "")
+    if not content_html:
+        return _response(
+            "precisa_dados",
+            "Este PDF não possui uma fonte textual editável. Abra-o no editor visual de Documentos para marcar a alteração; depois posso gerar e devolver a nova versão.",
+            document=document,
+        )
+    replacement = _requested_replacement(message, content_html)
+    if not replacement:
+        return _response(
+            "precisa_dados",
+            "Informe o trecho exato e o novo texto. Exemplo: `troque \"2024\" por \"2026\" na proposta`. Para uma revisão ampla, abra o documento e use Escrever com a Nora.",
+            document=document,
+        )
+    before, after = replacement
+    updated_html = content_html
+    replacements = 0
+    for _ in range(50):
+        next_html, applied = replace_visible_text(updated_html, before, after)
+        if not applied or next_html == updated_html:
+            break
+        updated_html = next_html
+        replacements += 1
+    if not replacements:
+        return _response("nao_encontrado", f"Não encontrei o trecho “{before}” no documento. Nada foi alterado.", document=document)
+
+    if document_type == "contract":
+        updated = await update_contract(
+            user,
+            str(document["id"]),
+            ContractUpdate(contentHtml=updated_html, expectedVersion=int(document.get("version") or 1)),
+        )
+    else:
+        updated = await update_proposal(
+            user,
+            str(document["id"]),
+            ProposalUpdate(contentHtml=updated_html, expectedVersion=int(document.get("version") or 1)),
+        )
+    pdf_bytes, pdf_name = build_commercial_pdf(updated, document_type, tenant_id=collaboration_tenant_id(user))
+    artifact = save_bytes(
+        str(user.get("id") or "lucas123"),
+        pdf_bytes,
+        pdf_name,
+        "application/pdf",
+        source=f"commercial:{document_type}:revision",
+        metadata={"editTarget": {"tab": "Documentos", "entityType": document_type, "entityId": updated["id"], "label": "Editar no Documentos"}},
+    )
+    return _response(
+        "editada",
+        f"Executado. Corrigi “{before}” para “{after}” em “{updated['title']}”, gerei uma nova versão do PDF e salvei automaticamente na Biblioteca.",
+        document=updated,
+        proposal=updated if document_type == "proposal" else None,
+        contract=updated if document_type == "contract" else None,
+        files=[artifact],
     )
 
 
@@ -545,6 +699,9 @@ async def handle_commercial_agent(
             state.pop("draft", None)
             return await _proposal_preview(user, str(session_id), state)
 
+    if _is_document_catalog(normalized):
+        return _response("consulta", _document_catalog_response(), templates=standard_templates())
+
     if _is_document_creation(normalized):
         template = _document_template(message, bool(attachment_ids))
         if _has_useful_document_brief(message):
@@ -567,6 +724,9 @@ async def handle_commercial_agent(
     data = await list_commercial_data(user)
     proposals = data["proposals"]
     contracts = data["contracts"]
+
+    if _is_document_edit(normalized):
+        return await _edit_document_from_chat(user, message, proposals, contracts)
 
     if _contains_any(normalized, ("listar", "liste", "mostrar", "mostre", "quais", "minha proposta", "minhas propostas", "meu contrato", "meus contratos")):
         if "contrat" in normalized:
@@ -687,7 +847,7 @@ async def handle_commercial_agent(
             "client": client,
             "brainstormId": str(brainstorm["id"]) if brainstorm else None,
             "amount": 0,
-            "validUntil": (date.today() + timedelta(days=15)).isoformat(),
+            "validUntil": (_today() + timedelta(days=15)).isoformat(),
             "category": _infer_category(message),
             "companyResearch": (company_research or "")[:12_000],
         }

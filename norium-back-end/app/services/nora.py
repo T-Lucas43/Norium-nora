@@ -5,7 +5,9 @@ import asyncio
 import time
 import os
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import HTTPException
@@ -81,7 +83,13 @@ class NoraIAService:
         return f"A Nora nao conseguiu acessar o provedor de IA ({status_code}). Nenhuma acao foi executada."
 
     def _build_payload_messages(self, mensagens: list[dict[str, str]], screen_context: str | None) -> list[dict[str, str]]:
-        system_content = self.system_prompt
+        now = datetime.now(ZoneInfo("America/Sao_Paulo"))
+        system_content = (
+            f"{self.system_prompt}\n\n"
+            f"DATA ATUAL DO SISTEMA: {now.strftime('%d/%m/%Y')} ({now.strftime('%Y')}), "
+            "fuso America/Sao_Paulo. Use esta data para interpretar hoje, amanhã, prazos, "
+            "documentos e exemplos. Nunca reutilize um ano antigo como se fosse o atual."
+        )
         if screen_context:
             system_content = f"{system_content}\n\nContexto atual do usuario na interface: {minimize_for_ai(screen_context, max_chars=4_000)}"
 

@@ -219,7 +219,7 @@ export function NoraFileLibrary({ query = "", onCountChange }: { query?: string;
   const visible = normalized ? files.filter((file) => file.name.toLocaleLowerCase("pt-BR").includes(normalized)) : files;
   if (loading) return <div className="nora-library-files-state"><Loader2 className="animate-spin" size={17} /> Carregando arquivos...</div>;
   if (error) return <div className="nora-library-files-state is-error">{error}<button type="button" onClick={() => void loadLibrary()}>Tentar novamente</button></div>;
-  if (!visible.length) return <div className="nora-library-files-state"><Library size={22} /><strong>{query ? "Nenhum arquivo encontrado" : "Nenhum arquivo salvo"}</strong><span>{query ? "Tente buscar por outro nome." : "Nos PDFs do chat, use Biblioteca para guardar aqui."}</span></div>;
+  if (!visible.length) return <div className="nora-library-files-state"><Library size={22} /><strong>{query ? "Nenhum arquivo encontrado" : "Nenhum arquivo salvo"}</strong><span>{query ? "Tente buscar por outro nome." : "Todo PDF criado ou revisado pela Nora aparece aqui automaticamente."}</span></div>;
   return <section className="nora-library-files" aria-label="Arquivos da biblioteca"><div className="nora-library-files-heading"><span>Arquivos</span><strong>{visible.length}</strong></div><NoraFileCards files={visible} compact onLibraryChange={(updated) => {
     if (!updated.inLibrary) {
       setFiles((items) => items.filter((item) => item.id !== updated.id));

@@ -45,6 +45,7 @@ from pypdf import PdfReader, PdfWriter  # noqa: E402
 from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
 from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
 from app.modules.commercial.pdf_export import build_commercial_pdf  # noqa: E402
+from app.services.nora_files import list_library_files  # noqa: E402
 from app.modules.commercial.repository import read_store, write_store  # noqa: E402
 from app.modules.commercial.service import (  # noqa: E402
     _briefing_sentence_count,
@@ -453,6 +454,47 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "precisa_dados")
         self.assertTrue(str(result.get("session_id") or "").startswith("commercial_"))
         self.assertIn("cliente", result["response"].lower())
+
+    async def test_nora_corrects_stale_year_regenerates_pdf_and_saves_it_to_library(self) -> None:
+        proposal = await create_proposal(
+            self.user,
+            ProposalCreate(
+                clientId=self.client_id,
+                title="Proposta de marketing",
+                contentHtml="<h1>Proposta 2024</h1><p>Campanha planejada para 2024.</p>",
+            ),
+        )
+
+        result = await handle_commercial_agent(self.user, "Estamos em 2026; corrija o ano na proposta.")
+
+        self.assertEqual(result["status"], "editada")
+        self.assertNotIn("2024", result["proposal"]["contentHtml"])
+        self.assertIn("2026", result["proposal"]["contentHtml"])
+        self.assertEqual(result["proposal"]["id"], proposal["id"])
+        self.assertTrue(result["files"][0]["inLibrary"])
+        self.assertIn(result["files"][0]["id"], [item["id"] for item in list_library_files(self.user["id"])])
+
+    async def test_nora_lists_the_real_document_catalog_as_markdown_tables(self) -> None:
+        result = await handle_commercial_agent(self.user, "Quais modelos de documento você sabe fazer?")
+        self.assertEqual(result["status"], "consulta")
+        self.assertIn("## Comercial", result["response"])
+        self.assertIn("| Tipo | Modelos disponíveis |", result["response"])
+        self.assertIn("Currículo", result["response"])
+
+    def test_pdf_replaces_unsupported_hyphens_without_breaking_portuguese_accents(self) -> None:
+        pdf_bytes, _ = build_commercial_pdf(
+            {
+                "title": "Informações de contato",
+                "contentHtml": "<h2>Informações de contato</h2><p>E‑mail: criação@exemplo.com</p>",
+                "metadata": {"documentType": "proposal"},
+                "branding": {},
+            },
+            "proposal",
+        )
+        extracted = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf_bytes)).pages)
+        self.assertIn("E-mail", extracted)
+        self.assertIn("criação@exemplo.com", extracted)
+        self.assertNotIn("■", extracted)
 
     async def test_consecutive_nora_suggestions_are_idempotent(self) -> None:
         proposal = await create_proposal(

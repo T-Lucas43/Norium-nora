@@ -24,3 +24,9 @@
 .nora-library-files .nora-file-icon{width:32px;height:32px;border-radius:8px}.nora-library-files .nora-file-actions{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.nora-library-files .nora-file-actions button{min-width:0;padding:5px 3px}.nora-library-files .nora-file-actions button span{display:none}
 .nora-conversation-action{padding:10px 5px;color:var(--text-secondary)}
 .nora-conversation-action.is-saved{color:#38bdf8}
+.nora-page .nora-drawer-conversation,.nora-history-list,.nora-page .nora-drawer-controls{scrollbar-width:none}
+.nora-page .nora-drawer-conversation::-webkit-scrollbar,.nora-history-list::-webkit-scrollbar,.nora-page .nora-drawer-controls::-webkit-scrollbar{display:none}
+.nora-page .nora-assistant-content{border-radius:16px!important;border-color:color-mix(in srgb,var(--border) 76%,transparent)!important;background:color-mix(in srgb,var(--surface) 88%,transparent)!important;box-shadow:0 10px 32px rgba(2,8,23,.045)!important}
+.nora-agent-portrait{position:relative;display:block;width:36px;height:36px;flex:0 0 36px}
+.nora-agent-portrait>img{width:36px;height:36px}
+.nora-agent-badge{position:absolute;right:-3px;bottom:-3px;display:grid;width:18px;height:18px;place-items:center;border:2px solid var(--background);border-radius:999px;background:var(--nora-agent-icon-bg);color:var(--nora-agent-icon-text);backdrop-filter:blur(8px)}

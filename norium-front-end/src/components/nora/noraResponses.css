@@ -94,6 +94,18 @@
 .nora-message-markdown ul { list-style:disc; }
 .nora-message-markdown ol { list-style:decimal; }
 .nora-message-markdown hr { border:0; border-top:1px solid var(--border); margin:18px 0; }
+.nora-markdown-tabs { display:flex; min-width:0; flex-direction:column; gap:12px; }
+.nora-markdown-intro > :first-child,.nora-markdown-tabpanel > :first-child { margin-top:0; }
+.nora-markdown-intro > :last-child,.nora-markdown-tabpanel > :last-child { margin-bottom:0; }
+.nora-markdown-tablist { display:flex; max-width:100%; gap:5px; overflow-x:auto; padding:4px; border:1px solid color-mix(in srgb,var(--border) 82%,transparent); border-radius:11px; background:color-mix(in srgb,var(--surface) 72%,var(--background)); scrollbar-width:none; }
+.nora-markdown-tablist::-webkit-scrollbar { display:none; }
+.nora-markdown-tablist button { flex:0 0 auto; border:0; border-radius:8px; padding:8px 11px; background:transparent; color:var(--text-secondary); font-size:11px; font-weight:650; line-height:1.2; cursor:pointer; white-space:nowrap; }
+.nora-markdown-tablist button:hover { color:var(--text); background:var(--surface-hover); }
+.nora-markdown-tablist button[aria-selected="true"] { color:#fff; background:linear-gradient(135deg,#2563eb,#0891b2); box-shadow:0 5px 15px rgba(37,99,235,.18); }
+.nora-markdown-tablist button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+.nora-markdown-tabpanel { min-width:0; padding:2px 2px 0; }
+.nora-message-markdown .nora-table-scroll { scrollbar-width:none; }
+.nora-message-markdown .nora-table-scroll::-webkit-scrollbar { display:none; }
 @container (max-width:560px) {
   .nora-table-hint { display:block; }
   .nora-task-grid { grid-template-columns:1fr; }

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Bot, CalendarDays, ChevronLeft, ChevronRight, Clock3, FolderKanban, MapPin, Play, UserRound, Zap } from "lucide-react";
@@ -18,10 +18,57 @@ function ModuleLink({ tab, children }: { tab: string; children: ReactNode }) {
   }}>{children}</a>;
 }
 
-export function NoraMarkdown({ text }: { text: string }) {
-  return <div className="nora-message-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+function MarkdownBody({ text }: { text: string }) {
+  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
     table: ({ children }) => <div className="nora-table-scroll" role="region" aria-label="Tabela da resposta" tabIndex={0}><table>{children}</table></div>,
-  }}>{text}</ReactMarkdown></div>;
+  }}>{text}</ReactMarkdown>;
+}
+
+function markdownSections(text: string) {
+  const intro: string[] = [];
+  const sections: Array<{ title: string; body: string }> = [];
+  let current: { title: string; lines: string[] } | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      if (current) sections.push({ title: current.title, body: current.lines.join("\n").trim() });
+      current = { title: heading[1], lines: [] };
+    } else if (current) current.lines.push(line);
+    else intro.push(line);
+  }
+  if (current) sections.push({ title: current.title, body: current.lines.join("\n").trim() });
+  return { intro: intro.join("\n").trim(), sections: sections.filter((section) => section.body) };
+}
+
+export function NoraMarkdown({ text }: { text: string }) {
+  const tabId = useId();
+  const parsed = useMemo(() => markdownSections(text), [text]);
+  const [activeTab, setActiveTab] = useState(0);
+  const active = parsed.sections[activeTab] || parsed.sections[0];
+  if (parsed.sections.length < 2) {
+    return <div className="nora-message-markdown"><MarkdownBody text={text} /></div>;
+  }
+  return <div className="nora-message-markdown nora-markdown-tabs">
+    {parsed.intro ? <div className="nora-markdown-intro"><MarkdownBody text={parsed.intro} /></div> : null}
+    <div className="nora-markdown-tablist" role="tablist" aria-label="Seções da resposta">
+      {parsed.sections.map((section, index) => <button
+        key={`${section.title}-${index}`}
+        type="button"
+        role="tab"
+        id={`${tabId}-tab-${index}`}
+        aria-controls={`${tabId}-panel-${index}`}
+        aria-selected={active === section}
+        tabIndex={active === section ? 0 : -1}
+        onClick={() => setActiveTab(index)}
+      >{section.title}</button>)}
+    </div>
+    {active ? <div
+      className="nora-markdown-tabpanel"
+      role="tabpanel"
+      id={`${tabId}-panel-${Math.max(0, activeTab)}`}
+      aria-labelledby={`${tabId}-tab-${Math.max(0, activeTab)}`}
+    ><MarkdownBody text={active.body} /></div> : null}
+  </div>;
 }
 
 function Metrics({ items }: { items: NoraMetric[] }) {

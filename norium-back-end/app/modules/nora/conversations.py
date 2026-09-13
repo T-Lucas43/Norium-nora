@@ -28,6 +28,7 @@ def history_user(user: dict = Depends(current_user)) -> dict:
 class SavedMessage(StrictModel):
     role: Literal["user", "ai"]
     text: str = Field(max_length=100_000)
+    feedback: Literal["positive", "negative"] | None = None
     agent: str | None = Field(default=None, max_length=50)
     status: str | None = Field(default=None, max_length=100)
     emailMessages: list[dict[str, Any]] | None = Field(default=None, max_length=100)

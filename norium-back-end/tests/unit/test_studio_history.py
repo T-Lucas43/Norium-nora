@@ -55,7 +55,7 @@ class NoraHistoryTests(unittest.TestCase):
         self.directory.cleanup()
 
     def payload(self, revision=0):
-        return {"title": "Planejamento", "revision": revision, "state": {"messages": [{"role": "user", "text": "Meu plano"}, {"role": "ai", "text": "Vamos organizar."}], "agendaSessionId": "agenda-123", "agendaAgentActive": True}}
+        return {"title": "Planejamento", "revision": revision, "state": {"messages": [{"role": "user", "text": "Meu plano"}, {"role": "ai", "text": "Vamos organizar.", "feedback": "positive"}], "agendaSessionId": "agenda-123", "agendaAgentActive": True}}
 
     def test_save_reopen_rename_and_delete_without_resurrection(self):
         response = self.client.put(self.url, json=self.payload())
@@ -63,6 +63,7 @@ class NoraHistoryTests(unittest.TestCase):
         self.assertEqual(response.json()["revision"], 1)
         record = self.client.get(self.url).json()
         self.assertEqual(record["state"]["messages"][1]["text"], "Vamos organizar.")
+        self.assertEqual(record["state"]["messages"][1]["feedback"], "positive")
         self.assertTrue(record["state"]["agendaAgentActive"])
         renamed = {**self.payload(1), "title": "Novo nome"}
         self.assertEqual(self.client.put(self.url, json=renamed).status_code, 200)

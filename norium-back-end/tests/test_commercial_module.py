@@ -42,7 +42,7 @@ from app.modules.commercial.document_files import (  # noqa: E402
 )
 from app.modules.commercial.schemas import ImportedDocumentUpdate  # noqa: E402
 from pypdf import PdfReader, PdfWriter  # noqa: E402
-from app.modules.commercial.nora_agent import handle_commercial_agent, is_document_creation_request  # noqa: E402
+from app.modules.commercial.nora_agent import _extract_amount, handle_commercial_agent, is_document_creation_request  # noqa: E402
 from app.modules.commercial.pdf_export import build_commercial_pdf  # noqa: E402
 from app.services.nora_files import list_library_files  # noqa: E402
 from app.modules.commercial.repository import read_store, write_store  # noqa: E402
@@ -495,6 +495,35 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
 
     def test_nora_understands_a_typo_in_a_document_creation_request(self) -> None:
         self.assertTrue(is_document_creation_request("querer uma proposta de desenvolvimento de software"))
+
+    def test_nora_preserves_written_monetary_multipliers(self) -> None:
+        cases = {
+            "proposta no valor de 5 mil reais": 5_000,
+            "orçamento de R$ 5,5 mil": 5_500,
+            "contrato de 2 milhões": 2_000_000,
+            "projeto por R$ 12.800,00": 12_800,
+            "projeto por R$ 5.000": 5_000,
+            "proposta para 2026 por 5 mil": 5_000,
+            "serviço de 8k": 8_000,
+        }
+        for message, expected in cases.items():
+            with self.subTest(message=message):
+                self.assertEqual(_extract_amount(message), expected)
+
+    async def test_nora_sends_full_written_amount_to_document_creation(self) -> None:
+        document = {"id": "proposal-value", "title": "Proposta de site", "amount": 5_000}
+        artifact = {"id": "file-value", "mimeType": "application/pdf", "inLibrary": True}
+        with patch(
+            "app.modules.commercial.nora_agent.create_smart_document",
+            new=AsyncMock(return_value=(document, artifact)),
+        ) as create_document:
+            result = await handle_commercial_agent(
+                self.user,
+                "Crie uma proposta comercial de site para Cliente Comercial no valor de 5 mil reais.",
+            )
+
+        self.assertEqual(result["status"], "criada")
+        self.assertEqual(create_document.await_args.args[1].amount, 5_000)
 
     def test_pdf_replaces_unsupported_hyphens_without_breaking_portuguese_accents(self) -> None:
         pdf_bytes, _ = build_commercial_pdf(

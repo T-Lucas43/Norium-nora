@@ -18,7 +18,7 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
   const [query, setQuery] = useState("");
   const [historyView, setHistoryView] = useState<"history" | "library">("history");
   const [libraryFileCount, setLibraryFileCount] = useState(0);
-  const [historyOpen, setHistoryOpen] = useState(() => window.innerWidth > 900);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [switching, setSwitching] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -139,7 +139,21 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
   }
   const filtered = conversations.filter((item) => (historyView === "history" || item.inLibrary) && `${item.title} ${item.preview}`.toLocaleLowerCase("pt-BR").includes(query.toLocaleLowerCase("pt-BR")));
   const activeSummary = conversations.find((item) => item.id === active.id);
+  const profileName = profile?.nome?.trim() || "Usuário Norium";
+  const profileInitials = profileName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("pt-BR");
+  function openSidebar(view: "history" | "library") {
+    setHistoryView(view);
+    setHistoryOpen(true);
+  }
   return <div className={`nora-workspace ${historyOpen ? "history-open" : ""}`}>
+    <nav className="nora-rail" aria-label="Navegação da Nora">
+      <span className="nora-rail-logo" title="Nora"><NoraAvatar className="h-8 w-8" /></span>
+      <button type="button" onClick={() => void selectConversation()} disabled={busy || switching} aria-label="Nova conversa" title="Nova conversa"><Plus size={18} /></button>
+      <button type="button" onClick={() => openSidebar("history")} className={historyOpen && historyView === "history" ? "is-active" : ""} aria-label="Abrir histórico de conversas" aria-expanded={historyOpen && historyView === "history"} title="Histórico"><MessageSquare size={18} /></button>
+      <button type="button" onClick={() => openSidebar("library")} className={historyOpen && historyView === "library" ? "is-active" : ""} aria-label="Abrir biblioteca da Nora" aria-expanded={historyOpen && historyView === "library"} title="Biblioteca"><Library size={18} /></button>
+      <span className="nora-rail-spacer" />
+      <span className="nora-rail-profile" title={profileName} aria-label={`Perfil de ${profileName}`}>{profileInitials}</span>
+    </nav>
     {historyOpen && <button className="nora-history-backdrop" aria-label="Fechar histórico" onClick={() => setHistoryOpen(false)} />}
     <aside className="nora-history" aria-label="Histórico da Nora" aria-hidden={!historyOpen} inert={!historyOpen}>
       <div className="nora-history-brand">
@@ -153,7 +167,8 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
       <div className="nora-history-list">{historyView === "library" && <NoraFileLibrary query={query} onCountChange={setLibraryFileCount} />}{fetching ? <div className="nora-history-empty"><Loader2 size={20} className="animate-spin" /> Carregando conversas...</div> : filtered.length === 0 ? historyView === "library" && libraryFileCount > 0 ? null : <div className="nora-history-empty">{historyView === "library" ? <Library size={24} /> : <MessageSquare size={24} />}<strong>{query ? "Nenhuma conversa encontrada" : historyView === "library" ? "Sua biblioteca está vazia" : "Sua próxima ideia começa aqui"}</strong><p>{query ? "Tente outro título ou arquivo." : historyView === "library" ? "Guarde aqui conversas importantes e arquivos gerados pela Nora." : "Suas conversas com a Nora aparecem aqui, salvas para quando precisar."}</p></div> : <>{historyView === "library" && <p className="nora-library-conversation-label">Conversas salvas</p>}{filtered.map((item, index) => {
         const day = new Date(item.updatedAt).toLocaleDateString("pt-BR");
         const previousDay = index ? new Date(filtered[index - 1].updatedAt).toLocaleDateString("pt-BR") : "";
-        return <div key={item.id}>{day !== previousDay && <p className="nora-history-date">{day === new Date().toLocaleDateString("pt-BR") ? "Hoje" : day}</p>}<div className={`nora-history-item ${active.id === item.id ? "active" : ""}`}><button disabled={busy || switching} onClick={() => void selectConversation(item.id)} title={item.title} aria-current={active.id === item.id ? "page" : undefined}><MessageSquare size={15} /><span><strong>{item.title}</strong><small>{item.preview || "Conversa com a Nora"}</small></span></button><button className={`nora-conversation-action ${item.inLibrary ? "is-saved" : ""}`} aria-label={`${item.inLibrary ? "Remover da" : "Adicionar à"} biblioteca: ${item.title}`} disabled={busy || switching} onClick={() => void toggleLibrary(item)}><Bookmark size={14} fill={item.inLibrary ? "currentColor" : "none"} /></button><button className="nora-conversation-action nora-delete-conversation" aria-label={`Excluir conversa ${item.title}`} disabled={busy || switching} onClick={() => void removeConversation(item)}><Trash2 size={14} /></button></div></div>;
+        const isActive = active.id === item.id;
+        return <div key={item.id}>{day !== previousDay && <p className="nora-history-date">{day === new Date().toLocaleDateString("pt-BR") ? "Hoje" : day}</p>}<div className={`nora-history-item ${isActive ? "active" : ""}`}><button disabled={busy || switching} onClick={() => void selectConversation(item.id)} title={item.title} aria-current={isActive ? "page" : undefined} aria-expanded={isActive}><MessageSquare size={14} /><span><strong>{item.title}</strong>{isActive && <small>{item.preview || "Conversa com a Nora"}</small>}</span></button><button className={`nora-conversation-action ${item.inLibrary ? "is-saved" : ""}`} aria-label={`${item.inLibrary ? "Remover da" : "Adicionar à"} biblioteca: ${item.title}`} disabled={busy || switching} onClick={() => void toggleLibrary(item)}><Bookmark size={13} fill={item.inLibrary ? "currentColor" : "none"} /></button><button className="nora-conversation-action nora-delete-conversation" aria-label={`Excluir conversa ${item.title}`} disabled={busy || switching} onClick={() => void removeConversation(item)}><Trash2 size={13} /></button></div></div>;
       })}</>}</div><div className="nora-history-footer"><Sparkles size={15} /><span>Ideias, respostas e ações.<br /><strong>Conectadas ao seu Norium.</strong></span></div>
     </aside>
     <section className="nora-workspace-main" aria-label="Conversa com a Nora">

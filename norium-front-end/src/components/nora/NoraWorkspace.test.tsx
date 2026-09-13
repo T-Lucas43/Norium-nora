@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRequest } from "../../core/api/client";
 import NoraWorkspace from "./NoraWorkspace";
 
@@ -23,6 +23,8 @@ class FakeSpeechRecognition {
 }
 
 describe("NoraWorkspace", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   beforeEach(() => {
     vi.mocked(apiRequest).mockImplementation(async (path) => {
       if (path === "/api/nora/conversations") return [];
@@ -44,6 +46,9 @@ describe("NoraWorkspace", () => {
   it("uses the current Nora identity and renders the redesigned workspace", async () => {
     render(<NoraWorkspace userId="user-1" profile={{ nome: "Tarcisio" } as never} eventsBySource={{}} onOpenEmail={vi.fn()} />);
 
+    expect(screen.getByRole("navigation", { name: "Navegação da Nora" })).toBeInTheDocument();
+    expect(document.querySelector(".nora-history")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByLabelText("Perfil de Tarcisio")).toHaveTextContent("T");
     expect(await screen.findByText("Nora · Assistente inteligente")).toBeInTheDocument();
     expect(screen.getByText("O que vamos resolver hoje?")).toBeInTheDocument();
     expect(screen.getByText("Converse, crie e acione qualquer área do Norium.")).toBeInTheDocument();
@@ -70,5 +75,104 @@ describe("NoraWorkspace", () => {
     await waitFor(() => expect(recordingButton).toHaveAttribute("data-recording", "true"));
     expect(recordingButton.querySelector(".nora-voice-waveform")).toBeInTheDocument();
     expect(recordingButton.querySelector("svg")).not.toBeInTheDocument();
+  });
+
+  it("keeps history rows compact and opens a selected conversation at its latest message", async () => {
+    const summary = {
+      id: "conversation-123",
+      title: "Planejamento de campanha",
+      preview: "Última resposta da Nora",
+      messageCount: 2,
+      createdAt: "2026-09-13T12:00:00.000Z",
+      updatedAt: "2026-09-13T12:05:00.000Z",
+      revision: 1,
+      inLibrary: false,
+    };
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (path === "/api/nora/conversations") return [summary];
+      if (path === "/api/nora/conversations/conversation-123") return {
+        ...summary,
+        state: {
+          messages: [
+            { role: "user", text: "Monte a campanha" },
+            { role: "ai", text: "Última resposta da Nora" },
+          ],
+        },
+      };
+      if (path === "/api/modelos-ia") return { providers: [] };
+      return {};
+    });
+    const scrollTo = vi.spyOn(HTMLElement.prototype, "scrollTo");
+    const user = userEvent.setup();
+    render(<NoraWorkspace userId="user-1" profile={{ nome: "Tarcisio" } as never} eventsBySource={{}} onOpenEmail={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Abrir histórico de conversas" }));
+    const conversation = await screen.findByRole("button", { name: "Planejamento de campanha", expanded: false });
+    expect(conversation).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Última resposta da Nora")).not.toBeInTheDocument();
+    scrollTo.mockClear();
+
+    await user.click(conversation);
+
+    await waitFor(() => expect(conversation).toHaveAttribute("aria-expanded", "true"));
+    expect(screen.getAllByText("Última resposta da Nora")).toHaveLength(2);
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
+    const copyActions = screen.getAllByRole("button", { name: "Copiar mensagem" });
+    expect(copyActions).toHaveLength(2);
+    expect(copyActions.every((button) => button.classList.contains("nora-message-action"))).toBe(true);
+    expect(copyActions.every((button) => button.textContent === "")).toBe(true);
+    expect(screen.getByRole("button", { name: "Gerar resposta novamente" })).toBeInTheDocument();
+
+    const positiveFeedback = screen.getByRole("button", { name: "Avaliar como boa resposta" });
+    await user.click(positiveFeedback);
+    expect(positiveFeedback).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => {
+      const savedFeedback = vi.mocked(apiRequest).mock.calls.some(([path, options]) => {
+        if (path !== "/api/nora/conversations/conversation-123" || options?.method !== "PUT") return false;
+        return JSON.parse(String(options.body)).state.messages[1]?.feedback === "positive";
+      });
+      expect(savedFeedback).toBe(true);
+    });
+  });
+
+  it("regenerates an answer from the original user message instead of duplicating the thread", async () => {
+    const summary = {
+      id: "conversation-regenerate",
+      title: "Resposta para revisar",
+      preview: "Resposta antiga",
+      messageCount: 2,
+      createdAt: "2026-09-13T12:00:00.000Z",
+      updatedAt: "2026-09-13T12:05:00.000Z",
+      revision: 1,
+      inLibrary: false,
+    };
+    vi.mocked(apiRequest).mockImplementation(async (path) => {
+      if (path === "/api/nora/conversations") return [summary];
+      if (path === "/api/nora/conversations/conversation-regenerate") return {
+        ...summary,
+        state: { messages: [{ role: "user", text: "Explique o resultado" }, { role: "ai", text: "Resposta antiga" }] },
+      };
+      if (path === "/api/modelos-ia") return { providers: [] };
+      return {};
+    });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/nora/natural/stream")) throw new Error("stream indisponível no teste");
+      if (url.includes("/api/nora/natural")) return {
+        ok: true,
+        json: async () => ({ intent: "chat", session_kind: null, session_id: null, status: "chat", response: "Resposta regenerada e melhor." }),
+      } as Response;
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    const user = userEvent.setup();
+    const { container } = render(<NoraWorkspace userId="user-1" profile={{ nome: "Tarcisio" } as never} eventsBySource={{}} onOpenEmail={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Abrir histórico de conversas" }));
+    await user.click(await screen.findByRole("button", { name: "Resposta para revisar", expanded: false }));
+    await user.click(await screen.findByRole("button", { name: "Gerar resposta novamente" }));
+
+    expect(await screen.findByText("Resposta regenerada e melhor.")).toBeInTheDocument();
+    expect(Array.from(container.querySelectorAll(".nora-assistant-content")).some((element) => element.textContent?.includes("Resposta antiga"))).toBe(false);
+    expect(screen.getAllByText("Explique o resultado")).toHaveLength(1);
   });
 });

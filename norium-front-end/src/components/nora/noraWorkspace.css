@@ -28,6 +28,7 @@
 }
 
 .app-panel-nora > .nora-workspace {
+  --nora-rail-width: 54px;
   display: flex;
   position: relative;
   isolation: isolate;
@@ -49,9 +50,100 @@
   z-index: 1;
 }
 
-/* Sidebar inspirada na referência: estreita, plana e funcional. */
+/* Barra primária compacta; o histórico completo abre como painel secundário. */
+.nora-rail {
+  position: relative;
+  z-index: 17;
+  display: flex;
+  width: var(--nora-rail-width);
+  min-height: 0;
+  flex: 0 0 var(--nora-rail-width);
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 7px 10px;
+  border-right: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  background: color-mix(in srgb, var(--surface) 42%, #f4f5f7);
+}
+
+.dark .nora-rail {
+  background: #050607;
+}
+
+.nora-rail-logo {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 7px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #38bdf8 34%, var(--border));
+  border-radius: 10px;
+  background: #020817;
+}
+
+.nora-rail-logo img {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  box-shadow: none;
+}
+
+.nora-rail > button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  transition: color .15s ease, background .15s ease;
+}
+
+.nora-rail > button:hover,
+.nora-rail > button:focus-visible,
+.nora-rail > button.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.nora-rail > button.is-active {
+  color: #38bdf8;
+}
+
+.nora-rail > button:focus-visible {
+  outline: 1px solid color-mix(in srgb, #38bdf8 62%, var(--border));
+  outline-offset: 1px;
+}
+
+.nora-rail > button:disabled {
+  cursor: wait;
+  opacity: .4;
+}
+
+.nora-rail-spacer {
+  flex: 1;
+}
+
+.nora-rail-profile {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(135deg, #2563eb, #06b6d4);
+  font-size: 9px;
+  font-weight: 750;
+}
+
 .nora-history {
-  display: none;
+  position: absolute;
+  z-index: 16;
+  inset: 0 auto 0 var(--nora-rail-width);
+  display: flex;
   width: 264px;
   min-height: 0;
   flex-shrink: 0;
@@ -59,6 +151,12 @@
   padding: 14px 10px 12px;
   border-right: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
   background: color-mix(in srgb, var(--surface) 42%, #f4f5f7);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-12px);
+  transition: opacity .16s ease, transform .16s ease, visibility .16s;
+  box-shadow: 18px 0 36px rgba(0, 0, 0, .14);
 }
 
 .dark .nora-history {
@@ -66,7 +164,10 @@
 }
 
 .history-open .nora-history {
-  display: flex;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
 }
 
 .nora-history-brand {
@@ -145,7 +246,7 @@
 }
 
 .nora-history-close {
-  display: none;
+  display: block;
   padding: 7px;
   border-radius: 8px;
   color: var(--text-secondary);
@@ -248,7 +349,7 @@
 }
 
 .nora-history-date {
-  margin: 12px 8px 5px;
+  margin: 9px 7px 3px;
   color: var(--text-secondary);
   font-size: 8px;
   font-weight: 700;
@@ -260,7 +361,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  margin: 2px 0;
+  margin: 0;
   border: 1px solid transparent;
   border-radius: 8px;
 }
@@ -277,10 +378,11 @@
 .nora-history-item > button:first-child {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
   flex: 1;
-  padding: 9px 7px;
+  min-height: 32px;
+  padding: 6px;
   text-align: left;
 }
 
@@ -312,7 +414,7 @@
 }
 
 .nora-history-item small {
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--text-secondary);
   font-size: 8px;
 }
@@ -323,7 +425,7 @@
 }
 
 .nora-conversation-action {
-  padding: 8px 4px;
+  padding: 7px 3px;
   color: var(--text-secondary);
 }
 
@@ -332,7 +434,7 @@
 }
 
 .nora-delete-conversation {
-  padding-right: 7px;
+  padding-right: 6px;
 }
 
 .nora-delete-conversation:hover svg {
@@ -481,6 +583,10 @@
 .nora-workspace-header > button:first-child,
 .nora-workspace-actions button {
   border-radius: 9px !important;
+}
+
+.nora-workspace-header > button:first-child {
+  display: none;
 }
 
 .nora-workspace-header-avatar {
@@ -654,7 +760,7 @@
 
 .nora-page .nora-quick-suggestions {
   position: absolute;
-  top: calc(50% + 76px);
+  top: calc(50% + 94px);
   left: 50%;
   width: min(720px, calc(100% - 42px));
   margin: 0 !important;
@@ -669,7 +775,8 @@
   display: flex !important;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 6px !important;
+  column-gap: 10px !important;
+  row-gap: 9px !important;
 }
 
 .nora-page .nora-suggestions-grid > .nora-quick-suggestion {
@@ -709,13 +816,68 @@
   font-weight: 550;
 }
 
-.nora-page .nora-user-message {
+.nora-page .nora-user-message-shell {
   width: fit-content;
   max-width: min(76%, 700px) !important;
   margin-left: auto;
+}
+
+.nora-page .nora-user-message {
+  width: 100%;
+  max-width: none !important;
+  margin-left: 0;
   border-radius: 18px 18px 5px 18px !important;
   background: linear-gradient(135deg, #0d55bd, #176fe6) !important;
   box-shadow: none !important;
+}
+
+.nora-page .nora-message-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  margin-top: 4px;
+}
+
+.nora-page .nora-message-actions.is-user {
+  justify-content: flex-end;
+  padding-right: 3px;
+}
+
+.nora-page .nora-message-action {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  background: transparent;
+  opacity: .62;
+  transition: color .15s ease, background .15s ease, opacity .15s ease;
+}
+
+.nora-page .nora-message-action:hover,
+.nora-page .nora-message-action:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  opacity: 1;
+}
+
+.nora-page .nora-message-action.is-active {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, .1);
+  opacity: 1;
+}
+
+.nora-page .nora-message-action:disabled {
+  cursor: wait;
+  opacity: .32;
+}
+
+.nora-page .nora-message-action:focus-visible {
+  outline: 1px solid color-mix(in srgb, #38bdf8 58%, var(--border));
+  outline-offset: 1px;
 }
 
 .nora-page .nora-assistant-message {
@@ -909,22 +1071,36 @@
   display: none;
 }
 
+.history-open .nora-history-backdrop {
+  display: block;
+  position: absolute;
+  z-index: 15;
+  inset: 0 0 0 var(--nora-rail-width);
+  background: transparent;
+}
+
 @media (max-width: 900px) {
+  .app-panel-nora > .nora-workspace {
+    --nora-rail-width: 48px;
+  }
+
+  .nora-rail {
+    padding-inline: 5px;
+  }
+
+  .nora-rail > button {
+    width: 36px;
+    height: 36px;
+  }
+
   .nora-history {
-    position: absolute;
-    z-index: 15;
-    inset: 0 auto 0 0;
-    width: min(284px, 88vw);
+    inset: 0 auto 0 var(--nora-rail-width);
+    width: min(284px, calc(100vw - var(--nora-rail-width)));
     background: color-mix(in srgb, var(--background) 97%, transparent);
   }
 
-  .nora-history-close { display: block; }
-
   .history-open .nora-history-backdrop {
-    display: block;
-    position: absolute;
-    z-index: 14;
-    inset: 0;
+    inset: 0 0 0 var(--nora-rail-width);
     background: rgba(1, 7, 17, .64);
     backdrop-filter: blur(4px);
   }
@@ -971,7 +1147,7 @@
   }
 
   .nora-page .nora-quick-suggestions {
-    top: calc(50% + 72px);
+    top: calc(50% + 90px);
     width: calc(100% - 24px);
   }
 
@@ -991,7 +1167,7 @@
     font-size: 16px !important;
   }
 
-  .nora-page .nora-user-message {
+  .nora-page .nora-user-message-shell {
     max-width: 88% !important;
   }
 
@@ -1013,7 +1189,7 @@
   .nora-composer-model span { display: none; }
   .nora-composer-model { padding: 7px 5px; }
   .nora-page .nora-empty-state p { display: none; }
-  .nora-page .nora-quick-suggestions { top: calc(50% + 70px); }
+  .nora-page .nora-quick-suggestions { top: calc(50% + 88px); }
   .nora-page .nora-quick-suggestion { padding-inline: 7px !important; }
   .nora-page .nora-quick-suggestion:nth-child(n + 4) { display: none !important; }
 }
@@ -1028,6 +1204,6 @@
   }
 
   .nora-page .nora-quick-suggestions {
-    top: calc(46% + 72px);
+    top: calc(46% + 90px);
   }
 }

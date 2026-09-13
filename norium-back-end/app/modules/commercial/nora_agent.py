@@ -100,16 +100,35 @@ def _infer_category(value: str) -> str:
 
 
 def _extract_amount(value: str) -> float:
-    match = re.search(r"(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})|\d+(?:[.,]\d{1,2})?)", value, flags=re.I)
+    normalized = _normalize(value)
+    matches = list(re.finditer(
+        r"(?P<currency>r\$\s*)?"
+        r"(?P<number>\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?|\d+(?:\.\d{1,2})?)"
+        r"\s*(?P<multiplier>milhoes?|milhares?|mil|mi|k)?\b",
+        normalized,
+        flags=re.I,
+    ))
+    match = next(
+        (candidate for candidate in matches if candidate.group("currency") or candidate.group("multiplier")),
+        matches[0] if matches else None,
+    )
     if not match:
         return 0
-    raw = match.group(1)
+    raw = match.group("number")
     if "," in raw:
         raw = raw.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", raw):
+        raw = raw.replace(".", "")
     try:
-        return float(raw)
+        amount = float(raw)
     except ValueError:
         return 0
+    multiplier = match.group("multiplier") or ""
+    if multiplier in {"mil", "milhar", "milhares", "k"}:
+        amount *= 1_000
+    elif multiplier in {"milhao", "milhoes", "mi"}:
+        amount *= 1_000_000
+    return amount
 
 
 def _extract_valid_until(value: str) -> str:

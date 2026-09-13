@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Bot,
   BrainCircuit,
@@ -21,6 +21,9 @@ import {
   SpellCheck,
   Sparkles,
   Square,
+  RefreshCcw,
+  ThumbsDown,
+  ThumbsUp,
   Volume2,
   VolumeX,
   Wallet,
@@ -115,6 +118,7 @@ let serverVoiceUnavailable = false;
 export type Msg = {
   role: "user" | "ai";
   text: string;
+  feedback?: "positive" | "negative";
   agent?: NoraAgentKind;
   status?: string;
   emailMessages?: NoraEmailMessage[];
@@ -755,7 +759,14 @@ function NoraStructuredContent({ agent, text, emailMessages, agendaEvents, respo
   return markdownFallback(text);
 }
 
-function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onOpenEmail?: (messageId: string) => void; onAgendaPrompt?: (prompt: string) => void }) {
+function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onRegenerate, actionsDisabled = false }: {
+  msg: Msg;
+  onOpenEmail?: (messageId: string) => void;
+  onAgendaPrompt?: (prompt: string) => void;
+  onFeedback?: (feedback: "positive" | "negative") => void;
+  onRegenerate?: () => void;
+  actionsDisabled?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
 
   async function copyMessage() {
@@ -785,18 +796,17 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="nora-user-message group ml-auto max-w-[82%] rounded-2xl px-4 py-3 text-sm font-semibold select-text"
+        className="nora-user-message-shell group ml-auto max-w-[82%] select-text"
       >
-        {msg.text && <NoraMarkdown text={msg.text} />}
-        {msg.files?.length ? <NoraFileCards files={msg.files} /> : null}
-        <Button variant="ghost"
-         
-          onClick={copyMessage}
-          className="nora-message-copy mt-2 py-1 text-white/65 hover:bg-white/10 hover:text-white"
-          title="Copiar mensagem"
-         aria-label="Copiar mensagem">
-          <Copy size={12} /> {copied ? "Copiada" : "Copiar"}
-        </Button>
+        <div className="nora-user-message rounded-2xl px-4 py-3 text-sm font-semibold">
+          {msg.text && <NoraMarkdown text={msg.text} />}
+          {msg.files?.length ? <NoraFileCards files={msg.files} /> : null}
+        </div>
+        <span className="nora-message-actions is-user" aria-label="Ações da mensagem">
+          <button type="button" onClick={copyMessage} className="nora-message-action" title={copied ? "Mensagem copiada" : "Copiar mensagem"} aria-label={copied ? "Mensagem copiada" : "Copiar mensagem"}>
+            <Copy size={14} />
+          </button>
+        </span>
       </motion.div>
     );
   }
@@ -837,15 +847,19 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt }: { msg: Msg; onO
           />
           {msg.files?.length ? <NoraFileCards files={msg.files} /> : null}
         </div>
-        <span className="mt-2 flex items-center gap-2">
-          <Button variant="ghost"
-           
-            onClick={copyMessage}
-            className="nora-message-copy h-7 text-[var(--text-secondary)] hover:text-[var(--text)]"
-            title="Copiar mensagem"
-           aria-label="Copiar mensagem">
-            <Copy size={12} /> {copied ? "Copiada" : "Copiar"}
-          </Button>
+        <span className="nora-message-actions" aria-label="Ações da mensagem">
+          <button type="button" onClick={copyMessage} className="nora-message-action" title={copied ? "Mensagem copiada" : "Copiar mensagem"} aria-label={copied ? "Mensagem copiada" : "Copiar mensagem"}>
+            <Copy size={14} />
+          </button>
+          {onFeedback && <button type="button" onClick={() => onFeedback("positive")} disabled={actionsDisabled} className={`nora-message-action ${msg.feedback === "positive" ? "is-active" : ""}`} title="Avaliar como boa resposta" aria-label="Avaliar como boa resposta" aria-pressed={msg.feedback === "positive"}>
+            <ThumbsUp size={14} />
+          </button>}
+          {onFeedback && <button type="button" onClick={() => onFeedback("negative")} disabled={actionsDisabled} className={`nora-message-action ${msg.feedback === "negative" ? "is-active" : ""}`} title="Avaliar como resposta ruim" aria-label="Avaliar como resposta ruim" aria-pressed={msg.feedback === "negative"}>
+            <ThumbsDown size={14} />
+          </button>}
+          {onRegenerate && <button type="button" onClick={onRegenerate} disabled={actionsDisabled} className="nora-message-action" title="Gerar resposta novamente" aria-label="Gerar resposta novamente">
+            <RefreshCcw size={14} />
+          </button>}
         </span>
       </div>
     </motion.div>
@@ -1207,6 +1221,13 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
   const firstAudioReportedRef = useRef(false);
   const pinnedToBottomRef = useRef(true);
 
+  useLayoutEffect(() => {
+    const conversation = scrollRef.current;
+    if (!open || !conversation || !initialState?.messages.length) return;
+    pinnedToBottomRef.current = true;
+    conversation.scrollTo({ top: conversation.scrollHeight, behavior: "auto" });
+  }, [initialState?.messages.length, open]);
+
   useEffect(() => {
     if (!open) return;
     let active = true;
@@ -1477,8 +1498,9 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     return "geral";
   }
 
-  async function sendMessage(text?: string, speakReply = false) {
-    const queuedFiles = pendingFiles;
+  async function sendMessage(text?: string, speakReply = false, options?: { baseMessages: Msg[]; userMessage: Msg }) {
+    const queuedFiles = options ? options.userMessage.files || [] : pendingFiles;
+    const sourceMessages = options?.baseMessages ?? messages;
     const typedText = (text || input).trim();
     const finalText = typedText || (queuedFiles.length === 1 ? `Enviei o arquivo ${queuedFiles[0].name}.` : queuedFiles.length > 1 ? `Enviei ${queuedFiles.length} arquivos.` : "");
     if (!finalText || uploadingFiles) return;
@@ -1495,14 +1517,16 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     firstAudioReportedRef.current = false;
     pinnedToBottomRef.current = true;
     setCycleState(cycleId, "submitting");
-    setInput("");
-    setPendingFiles([]);
+    if (!options) {
+      setInput("");
+      setPendingFiles([]);
+    }
     setFileError("");
     setVoiceError("");
     setShowSuggestions(false);
     setAgentDraft(null);
 
-    const currentMessages: Msg[] = [...messages, { role: "user", text: finalText, files: queuedFiles.length ? queuedFiles : undefined }];
+    const currentMessages: Msg[] = [...sourceMessages, { role: "user", text: finalText, files: queuedFiles.length ? queuedFiles : undefined }];
     setMessages(currentMessages);
 
     try {
@@ -1593,7 +1617,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
         let streamResult: Awaited<ReturnType<typeof askNaturalNoraStream>>;
         try {
           streamResult = await askNaturalNoraStream(
-            messages,
+            sourceMessages,
             finalText,
             effectiveAgendaSessionId,
             effectiveEmailSessionId,
@@ -1686,7 +1710,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             });
           }
           const result = await askNaturalNora(
-            messages,
+            sourceMessages,
             finalText,
             effectiveAgendaSessionId,
             effectiveEmailSessionId,
@@ -1756,6 +1780,24 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     } finally {
       if (requestAbortRef.current === controller) requestAbortRef.current = null;
     }
+  }
+
+  function evaluateMessage(index: number, feedback: "positive" | "negative") {
+    setMessages((current) => current.map((message, messageIndex) => (
+      messageIndex === index
+        ? { ...message, feedback: message.feedback === feedback ? undefined : feedback }
+        : message
+    )));
+  }
+
+  function regenerateMessage(index: number) {
+    if (loading) return;
+    let userIndex = index - 1;
+    while (userIndex >= 0 && messages[userIndex].role !== "user") userIndex -= 1;
+    if (userIndex < 0) return;
+    const userMessage = messages[userIndex];
+    const baseMessages = messages.slice(0, userIndex);
+    void sendMessage(userMessage.text, false, { baseMessages, userMessage });
   }
 
   function clearVoiceTimer() {
@@ -2292,6 +2334,9 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                   msg={msg}
                   onOpenEmail={onOpenEmail}
                   onAgendaPrompt={(prompt) => void sendMessage(prompt)}
+                  onFeedback={msg.role === "ai" ? (feedback) => evaluateMessage(index, feedback) : undefined}
+                  onRegenerate={msg.role === "ai" && messages.slice(0, index).some((item) => item.role === "user") ? () => regenerateMessage(index) : undefined}
+                  actionsDisabled={loading}
                 />
               ))}
 

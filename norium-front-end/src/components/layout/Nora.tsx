@@ -18,11 +18,12 @@ import {
   Paperclip,
   SendHorizontal,
   Settings2,
+  Share,
   SpellCheck,
   Sparkles,
   Square,
+  Ellipsis,
   RefreshCcw,
-  ThumbsDown,
   ThumbsUp,
   Volume2,
   VolumeX,
@@ -768,6 +769,8 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onReg
   actionsDisabled?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [shared, setShared] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   async function copyMessage() {
     try {
@@ -787,6 +790,20 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onReg
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       setCopied(false);
+    }
+  }
+
+  async function shareMessage() {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Resposta da Nora", text: msg.text });
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(msg.text);
+      }
+      setShared(true);
+      window.setTimeout(() => setShared(false), 1500);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) setShared(false);
     }
   }
 
@@ -854,12 +871,20 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onReg
           {onFeedback && <button type="button" onClick={() => onFeedback("positive")} disabled={actionsDisabled} className={`nora-message-action ${msg.feedback === "positive" ? "is-active" : ""}`} title="Avaliar como boa resposta" aria-label="Avaliar como boa resposta" aria-pressed={msg.feedback === "positive"}>
             <ThumbsUp size={14} />
           </button>}
-          {onFeedback && <button type="button" onClick={() => onFeedback("negative")} disabled={actionsDisabled} className={`nora-message-action ${msg.feedback === "negative" ? "is-active" : ""}`} title="Avaliar como resposta ruim" aria-label="Avaliar como resposta ruim" aria-pressed={msg.feedback === "negative"}>
-            <ThumbsDown size={14} />
-          </button>}
+          <button type="button" onClick={shareMessage} className="nora-message-action" title={shared ? "Pronta para compartilhar" : "Compartilhar resposta"} aria-label={shared ? "Pronta para compartilhar" : "Compartilhar resposta"}>
+            <Share size={14} />
+          </button>
           {onRegenerate && <button type="button" onClick={onRegenerate} disabled={actionsDisabled} className="nora-message-action" title="Gerar resposta novamente" aria-label="Gerar resposta novamente">
             <RefreshCcw size={14} />
           </button>}
+          {onFeedback && <span className="nora-message-more">
+            <button type="button" onClick={() => setMoreOpen((current) => !current)} disabled={actionsDisabled} className="nora-message-action" title="Mais opções" aria-label="Mais opções da resposta" aria-expanded={moreOpen}>
+              <Ellipsis size={15} />
+            </button>
+            {moreOpen && <span className="nora-message-more-menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => { onFeedback("negative"); setMoreOpen(false); }}>{msg.feedback === "negative" ? "Remover avaliação negativa" : "Resposta precisa melhorar"}</button>
+            </span>}
+          </span>}
         </span>
       </div>
     </motion.div>

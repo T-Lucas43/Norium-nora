@@ -875,6 +875,42 @@
   opacity: .32;
 }
 
+.nora-page .nora-message-more {
+  position: relative;
+  display: inline-flex;
+}
+
+.nora-page .nora-message-more-menu {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  bottom: calc(100% + 5px);
+  width: max-content;
+  max-width: 220px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, .28);
+}
+
+.nora-page .nora-message-more-menu button {
+  min-height: 31px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text);
+  background: transparent;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.nora-page .nora-message-more-menu button:hover,
+.nora-page .nora-message-more-menu button:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+
 .nora-page .nora-message-action:focus-visible {
   outline: 1px solid color-mix(in srgb, #38bdf8 58%, var(--border));
   outline-offset: 1px;

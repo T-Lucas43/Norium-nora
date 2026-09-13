@@ -122,6 +122,8 @@ describe("NoraWorkspace", () => {
     expect(copyActions.every((button) => button.classList.contains("nora-message-action"))).toBe(true);
     expect(copyActions.every((button) => button.textContent === "")).toBe(true);
     expect(screen.getByRole("button", { name: "Gerar resposta novamente" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Compartilhar resposta" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mais opções da resposta" })).toBeInTheDocument();
 
     const positiveFeedback = screen.getByRole("button", { name: "Avaliar como boa resposta" });
     await user.click(positiveFeedback);
@@ -133,6 +135,9 @@ describe("NoraWorkspace", () => {
       });
       expect(savedFeedback).toBe(true);
     });
+
+    await user.click(screen.getByRole("button", { name: "Mais opções da resposta" }));
+    expect(screen.getByRole("menuitem", { name: "Resposta precisa melhorar" })).toBeInTheDocument();
   });
 
   it("regenerates an answer from the original user message instead of duplicating the thread", async () => {

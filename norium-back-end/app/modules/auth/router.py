@@ -1111,6 +1111,11 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
         if not target:
             raise HTTPException(status_code=404, detail="Usuario nao encontrado.")
         assert_can_touch_user(user, target)
+        if payload.password is not None and target.get("id") == user.get("id"):
+            raise HTTPException(
+                status_code=403,
+                detail="Use a troca de senha com a senha atual para alterar a propria senha.",
+            )
         target = copy.deepcopy(target)
 
         if payload.nome is not None:

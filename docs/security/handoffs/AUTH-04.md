@@ -6,6 +6,7 @@
 - **Branch:** `codex/auth-04-reautenticacao-senha`.
 - **Commit-base:** `9f94db86bc6f105dc46daabe0a290f0fb4ceb96c` (`origin/main` atualizado no início da etapa).
 - **Commit funcional:** `2eb5ab526a673d73fd05d0449b179a93ab096b9d` (`fix(auth): require reauthentication for own password changes`).
+- **Commit de robustez dos testes:** `3403ac858288328036e92c40735c1269c208163f` (`test(auth): verify password changes survive reload`).
 - **Worktree isolado:** `C:\NOrium\deploy-worktrees\auth-04-reautenticacao-senha`.
 
 ## Causa e correção
@@ -20,7 +21,7 @@ Não há migração nem mudança de esquema ou OpenAPI. O efeito de compatibilid
 
 - `norium-back-end/app/modules/auth/router.py`: bloqueia senha própria na rota administrativa antes de qualquer mutação.
 - `norium-back-end/tests/unit/test_auth_password_reauthentication.py`: executa cada cenário AUTH-04 em subprocesso com ambiente estabelecido antes da importação do módulo.
-- `norium-back-end/tests/unit/auth_password_reauthentication_cases.py`: regressões HTTP com contas, hashes, assinatura e armazenamento sintéticos, além de bloqueio de rede externa.
+- `norium-back-end/tests/unit/auth_password_reauthentication_cases.py`: regressões HTTP com contas, hashes, assinatura e armazenamento sintéticos; cada leitura recebe uma cópia do último estado persistido, e conexões de rede externa são bloqueadas.
 - `docs/security/reviews/2026-09-13-auth-sessions.md`: registra aplicabilidade, correção e evidência de AUTH-04 sem alterar o histórico dos demais achados.
 - `docs/security/handoffs/AUTH-04.md`: este handoff.
 - `output/security-fix-auth-04/`: logs e dados temporários locais ignorados pelo Git.

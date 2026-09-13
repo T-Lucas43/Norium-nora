@@ -1327,7 +1327,7 @@ export function CreateProposalDialog({
 
   function submit() {
     if (!draft || !clientId) return;
-    const templateHtml = selectedTemplate?.contentHtml || "";
+    const templateHtml = selectedTemplate?.generationContentHtml || selectedTemplate?.contentHtml || "";
     const contentHtml = templateHtml
       ? templateHtml.includes("{{NORA_CONTENT}}")
         ? templateHtml.replace("{{NORA_CONTENT}}", draft.contentHtml)
@@ -1729,6 +1729,48 @@ function templateTypeLabel(value: TemplateDocumentType) {
   return labels[value];
 }
 
+function escapeTemplateText(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+function fictionalTemplateSectionText(template: CommercialTemplate, section: string, index: number) {
+  const normalized = section.toLocaleLowerCase("pt-BR");
+  if (template.documentType === "resume") {
+    return [
+      "Marina Costa · marina.costa@exemplo.com · São Paulo, SP · (11) 98888-1212.",
+      "Profissional fictícia de produto digital, com seis anos de experiência em atendimento e dados.",
+      "Aurora Labs (empresa fictícia) — Product Manager, 2021–2025: aumentou a ativação em 28% no cenário demonstrativo.",
+    ][index % 3];
+  }
+  if (["valor", "investimento", "preço", "pagamento", "financeir"].some((word) => normalized.includes(word))) {
+    return "Exemplo fictício: investimento de R$ 12.800,00 em duas parcelas, com validade demonstrativa de 15 dias.";
+  }
+  if (["prazo", "cronograma", "agenda", "etapa", "vigência", "período"].some((word) => normalized.includes(word))) {
+    return "Exemplo fictício: início em 10/10/2026, entrega principal em 30 dias e uma revisão de acompanhamento.";
+  }
+  if (["partes", "cliente", "contato", "identificação", "participantes"].some((word) => normalized.includes(word))) {
+    return "Exemplo fictício: Aurora Café & Co. e Estúdio Horizonte Ltda., com Marina Costa como ponto focal.";
+  }
+  if (["resultado", "métrica", "indicador", "benefício"].some((word) => normalized.includes(word))) {
+    return "Exemplo fictício: alcançar 20% mais solicitações qualificadas e acompanhar qualidade e satisfação mensalmente.";
+  }
+  if (["contract", "term", "policy"].includes(template.documentType)) {
+    return "Exemplo fictício: substitua esta orientação pelos dados, limites e obrigações do caso concreto.";
+  }
+  return `Exemplo fictício: a equipe da Aurora Labs organiza “${section}” com responsáveis, evidências e próximos passos.`;
+}
+
+function templateDemoHtml(template: CommercialTemplate) {
+  if (!template.demoContent) return template.contentHtml;
+  const sections = (template.sections?.length ? template.sections : ["Contexto", "Conteúdo principal", "Próximos passos"]).slice(0, 3);
+  const image = template.documentType === "resume" ? "/template-demo-portrait.svg" : "/template-demo-document.svg";
+  const legal = template.legalReview || ["contract", "term", "policy"].includes(template.documentType)
+    ? "<blockquote><strong>Revisão recomendada:</strong> adapte esta minuta ao caso concreto e consulte um profissional habilitado antes de assinar ou publicar.</blockquote>"
+    : "";
+  const body = sections.map((section, index) => `<h2>${escapeTemplateText(section)}</h2><p>${escapeTemplateText(fictionalTemplateSectionText(template, section, index))}</p>`).join("");
+  return `<h1>${escapeTemplateText(template.name)}</h1><p><strong>Base de exemplo · ${escapeTemplateText(templateTypeLabel(template.documentType))}</strong></p><blockquote><strong>Minuta demonstrativa:</strong> nomes, contatos, valores, datas e resultados são fictícios. Edite tudo antes de usar.</blockquote>${legal}<p><img src="${image}" alt="Imagem demonstrativa fictícia" /></p>${body}${template.contentHtml}`;
+}
+
 function DocumentCover({ label, primaryColor = "#1266f1" }: { label: string; primaryColor?: string }) {
   return (
     <span className="relative grid aspect-[210/297] h-20 shrink-0 place-items-center overflow-hidden rounded border border-slate-300/25 bg-slate-100 text-center text-[5px] font-black uppercase leading-tight text-slate-700 shadow-lg">
@@ -1792,7 +1834,7 @@ function TemplatePreviewDialog({ template, busy, onClose, onUse, onRename, onDup
   return (
     <Dialog
       title={template.name}
-      subtitle="Prévia do modelo com capa automática e conteúdo dividido em folhas A4."
+      subtitle="Prévia A4 com texto, imagem e dados fictícios editáveis. Substitua tudo antes de enviar ou publicar."
       onClose={onClose}
       wide
     >
@@ -1804,12 +1846,12 @@ function TemplatePreviewDialog({ template, busy, onClose, onUse, onRename, onDup
 
 function TemplateA4Preview({ template, compact = false }: { template: CommercialTemplate; compact?: boolean }) {
   const content = sanitizeTemplateHtml(
-    template.contentHtml.replace(
+    templateDemoHtml(template).replace(
       "{{NORA_CONTENT}}",
       "<h2>Conteúdo detalhado pela Nora</h2><p>O briefing aprovado será desenvolvido nesta seção, mantendo escopo, entregáveis, responsabilidades, prazos e condições comerciais.</p>",
     ),
   );
-  const kind = template.documentType === "contract" ? "Contrato comercial" : "Proposta comercial";
+  const kind = templateTypeLabel(template.documentType);
   const previewBranding = {
     ...defaultBranding,
     headerHtml: `<strong>${kind}</strong> · ${template.name}`,

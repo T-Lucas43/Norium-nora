@@ -193,6 +193,13 @@ class BlockParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs) -> None:
         tag = tag.lower()
+        if tag == "img":
+            self.flush()
+            source = next((str(value or "") for name, value in attrs if str(name).lower() == "src"), "")
+            if source.startswith("data:image/"):
+                self.blocks.append(("img", source))
+            self.current_tag = "p"
+            return
         if tag in {"h1", "h2", "h3", "p", "li", "blockquote", "tr"}:
             self.flush()
             self.current_tag = tag
@@ -240,6 +247,12 @@ def html_story(value: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
     index = 0
     while index < len(blocks):
         tag, text = blocks[index]
+        if tag == "img":
+            image = content_image_flowable(text)
+            if image:
+                flowables.extend([image, Spacer(1, 4 * mm)])
+            index += 1
+            continue
         style_name = {"h1": "Heading1", "h2": "Heading2", "h3": "Heading3", "blockquote": "Quote", "li": "Bullet"}.get(tag, "Body")
         paragraph = Paragraph(("&#8226; " if tag == "li" else "") + text, styles[style_name])
         # Mantem o titulo com o primeiro paragrafo da secao, evitando quebras sem sentido.
@@ -253,6 +266,22 @@ def html_story(value: str, styles: dict[str, ParagraphStyle]) -> list[Any]:
         flowables.extend([paragraph, Spacer(1, 2.5 * mm)])
         index += 1
     return flowables
+
+
+def content_image_flowable(value: str) -> Image | None:
+    """Converte imagens embutidas do editor em imagens proporcionais no PDF."""
+    match = re.match(r"^data:image/[^;]+;base64,(.+)$", value, flags=re.DOTALL | re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        image = Image(io.BytesIO(base64.b64decode(match.group(1), validate=True)))
+        ratio = min(160 * mm / max(image.imageWidth, 1), 70 * mm / max(image.imageHeight, 1), 1)
+        image.drawWidth = image.imageWidth * ratio
+        image.drawHeight = image.imageHeight * ratio
+        image.hAlign = "CENTER"
+        return image
+    except Exception:
+        return None
 
 
 def document_styles(primary, secondary, text_color) -> dict[str, ParagraphStyle]:

@@ -239,6 +239,8 @@ export type CommercialTemplate = {
   legalReview?: boolean;
   keywords?: string[];
   generationGuide?: string;
+  generationContentHtml?: string;
+  demoContent?: boolean;
   sections?: string[];
   layout?: string;
 };

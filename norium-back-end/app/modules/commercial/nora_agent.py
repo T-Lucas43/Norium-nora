@@ -362,7 +362,11 @@ async def _persist_proposal(user: dict[str, Any], session_id: str, state: dict[s
         None,
     )
     draft_html = str(draft.get("contentHtml") or "<p></p>")
-    template_html = str((template or {}).get("contentHtml") or "{{NORA_CONTENT}}")
+    template_html = str(
+        (template or {}).get("generationContentHtml")
+        or (template or {}).get("contentHtml")
+        or "{{NORA_CONTENT}}"
+    )
     content_html = (
         template_html.replace("{{NORA_CONTENT}}", draft_html)
         if "{{NORA_CONTENT}}" in template_html

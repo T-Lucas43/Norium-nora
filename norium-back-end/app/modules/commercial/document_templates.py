@@ -7,7 +7,10 @@ aconselhamento juridico, contabil ou trabalhista.
 
 from __future__ import annotations
 
+import base64
 import html
+import struct
+import zlib
 from typing import Any
 
 
@@ -34,6 +37,123 @@ DOCUMENT_TYPE_LABELS: dict[str, str] = {
 }
 
 
+# Ilustrações autorais e compactas. O PNG embutido funciona offline, aparece
+# no editor e também pode ser renderizado pelo exportador de PDF. O retrato é
+# uma pessoa desenhada e inteiramente fictícia, nunca uma fotografia real.
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+
+
+def _demo_png_data_url(*, portrait: bool = False) -> str:
+    width, height = ((240, 240) if portrait else (480, 180))
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)
+        for x in range(width):
+            if portrait:
+                red, green, blue = (226, 239, 247)
+                head = (x - 120) ** 2 + (y - 87) ** 2 <= 48 ** 2
+                hair = (x - 120) ** 2 + (y - 72) ** 2 <= 51 ** 2 and y < 75
+                shoulders = ((x - 120) / 95) ** 2 + ((y - 235) / 85) ** 2 <= 1
+                collar = y > 157 and abs(x - 120) < max(0, 42 - (y - 157) // 2)
+                if shoulders:
+                    red, green, blue = (23, 37, 84)
+                if collar:
+                    red, green, blue = (14, 116, 144)
+                if head:
+                    red, green, blue = (226, 171, 135)
+                if hair:
+                    red, green, blue = (49, 35, 34)
+                if 102 <= x <= 109 and 85 <= y <= 91 or 132 <= x <= 139 and 85 <= y <= 91:
+                    red, green, blue = (30, 41, 59)
+                if 106 <= x <= 134 and 113 <= y <= 118 and abs(x - 120) < 15:
+                    red, green, blue = (164, 79, 78)
+            else:
+                progress = x / max(width - 1, 1)
+                red = int(23 + (14 - 23) * progress)
+                green = int(37 + (116 - 37) * progress)
+                blue = int(84 + (144 - 84) * progress)
+                if 34 <= x <= 116 and 35 <= y <= 117:
+                    red, green, blue = (224, 242, 254)
+                if 54 <= x <= 96 and 55 <= y <= 97:
+                    red, green, blue = (2, 132, 199)
+                if 145 <= x <= 405 and y in range(56, 65):
+                    red, green, blue = (255, 255, 255)
+                if 145 <= x <= 365 and y in range(83, 90):
+                    red, green, blue = (186, 230, 253)
+                if 145 <= x <= 415 and y in range(117, 123):
+                    red, green, blue = (186, 230, 253)
+                if 145 <= x <= 335 and y in range(139, 145):
+                    red, green, blue = (125, 211, 252)
+            rows.extend((red, green, blue))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    png = b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", header) + _png_chunk(b"IDAT", zlib.compress(bytes(rows), 9)) + _png_chunk(b"IEND", b"")
+    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+
+
+DEMO_IMAGE_DATA_URL = _demo_png_data_url()
+DEMO_PORTRAIT_DATA_URL = _demo_png_data_url(portrait=True)
+
+
+def _demo_section_text(document_type: str, section: str, name: str, index: int) -> str:
+    """Texto curto e concreto para a prévia, sempre explicitamente fictício."""
+    normalized = section.casefold()
+    if document_type == "resume":
+        values = (
+            "Marina Costa · marina.costa@exemplo.com · São Paulo, SP · (11) 98888-1212.",
+            "Profissional fictícia de produto digital, com 6 anos de experiência em projetos de atendimento e dados.",
+            "Aurora Labs (fictícia) — Product Manager, 2021–2025: aumentou a ativação em 28% no cenário demonstrativo.",
+            "Tecnologia em Gestão de Produtos, Instituto Horizonte (fictício), 2018–2020.",
+            "Discovery, priorização, facilitação, análise de métricas e comunicação executiva.",
+            "Português nativo · Inglês avançado · Certificação de exemplo em Product Discovery.",
+        )
+        return values[index % len(values)]
+    if any(word in normalized for word in ("valor", "investimento", "preço", "preco", "pagamento", "financeir")):
+        return "Exemplo fictício: investimento de R$ 12.800,00, em duas parcelas de R$ 6.400,00, com validade demonstrativa de 15 dias."
+    if any(word in normalized for word in ("prazo", "cronograma", "agenda", "etapa", "vigência", "vigencia", "período", "periodo")):
+        return "Exemplo fictício: início em 10/10/2026, entrega principal em 30 dias corridos e revisão de acompanhamento na semana seguinte."
+    if any(word in normalized for word in ("partes", "cliente", "contato", "identificação", "identificacao", "participantes")):
+        return "Exemplo fictício: Aurora Café & Co. (cliente) e Estúdio Horizonte Ltda. (fornecedor), com Marina Costa como ponto focal."
+    if any(word in normalized for word in ("resultado", "métrica", "metrica", "indicador", "benefício", "beneficio")):
+        return "Exemplo fictício: alcançar 20% mais solicitações qualificadas e acompanhar prazo, qualidade e satisfação em um painel mensal."
+    if document_type in {"contract", "term", "policy"}:
+        return "Exemplo fictício: as partes devem substituir esta orientação pelos dados, limites e obrigações aplicáveis ao caso concreto."
+    if document_type in {"proposal", "budget", "invoice", "receipt"}:
+        return "Exemplo fictício: a Aurora Labs apresenta uma solução modular para organizar o atendimento da empresa Horizonte, com escopo e aceite editáveis."
+    return f"Exemplo fictício: a equipe da Aurora Labs organiza “{section}” com responsáveis, evidências e próximos passos. Substitua pelo seu contexto."
+
+
+def demo_template_html(
+    name: str,
+    document_type: str,
+    sections: list[str] | tuple[str, ...],
+    *,
+    legal_review: bool = False,
+    existing_html: str = "",
+) -> str:
+    """Cria a prévia de demonstração que acompanha todos os modelos."""
+    safe_name = html.escape(name)
+    label = html.escape(document_type_label(document_type))
+    notice = (
+        "<blockquote><strong>Minuta demonstrativa:</strong> todos os nomes, contatos, valores, datas e resultados abaixo são fictícios. "
+        "Edite o conteúdo antes de usar.</blockquote>"
+    )
+    legal = (
+        "<blockquote><strong>Revisão recomendada:</strong> adapte esta minuta ao caso concreto e submeta o texto a um profissional habilitado antes de assinar ou publicar.</blockquote>"
+        if legal_review
+        else ""
+    )
+    image_url = DEMO_PORTRAIT_DATA_URL if document_type == "resume" else DEMO_IMAGE_DATA_URL
+    image_alt = "Retrato ilustrado de Marina Costa, pessoa fictícia" if document_type == "resume" else f"Imagem demonstrativa fictícia do modelo {safe_name}"
+    image = f'<p><img src="{image_url}" alt="{image_alt}" /></p>'
+    sample_sections = list(sections)[:8]
+    body = "".join(
+        f"<h2>{html.escape(section)}</h2><p>{html.escape(_demo_section_text(document_type, section, name, index))}</p>"
+        for index, section in enumerate(sample_sections)
+    )
+    return f"<h1>{safe_name}</h1><p><strong>Base de exemplo · {label}</strong></p>{notice}{legal}{image}{body}{existing_html}"
+
+
 def document_type_label(value: str) -> str:
     return DOCUMENT_TYPE_LABELS.get(value, "Documento")
 
@@ -52,22 +172,16 @@ def _spec(
     legal_review: bool = False,
     layout: str = "classic",
 ) -> dict[str, Any]:
-    # A biblioteca viaja no carregamento inicial da tela. Mantemos a previa
-    # deliberadamente compacta; as orientacoes completas ficam nos metadados e
-    # a Nora expande cada secao apenas quando o usuario escolhe o modelo.
-    section_html = "".join(f"<h2>{html.escape(section)}</h2><p>A definir.</p>" for section in sections)
-    warning = (
-        "<blockquote><strong>Revisão recomendada:</strong> adapte esta minuta ao caso concreto e submeta o texto a um profissional habilitado antes de assinar ou publicar.</blockquote>"
-        if legal_review
-        else ""
-    )
     return {
         "id": f"standard_{document_type}_{slug}",
         "name": name,
         "description": description,
         "documentType": document_type,
         "category": category,
-        "contentHtml": f"<h1>{html.escape(name)}</h1>{warning}{section_html}",
+        "contentHtml": demo_template_html(name, document_type, sections, legal_review=legal_review),
+        # A prévia ensina pelo exemplo; ao gerar com a Nora, entra apenas o
+        # conteúdo produzido a partir dos dados reais informados pelo usuário.
+        "generationContentHtml": "{{NORA_CONTENT}}",
         "shared": True,
         "createdBy": "system",
         "createdAt": "2026-01-01T00:00:00+00:00",

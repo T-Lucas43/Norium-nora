@@ -22,7 +22,13 @@ from app.core.security import auth_secret
 from app.modules.clients.repository import list_clients
 from app.modules.commercial.repository import STORE_LOCK, read_store, write_store
 from app.modules.commercial.pdf_export import build_commercial_pdf
-from app.modules.commercial.document_templates import extended_document_templates, document_type_label
+from app.modules.commercial.document_templates import (
+    DEMO_IMAGE_DATA_URL,
+    DEMO_PORTRAIT_DATA_URL,
+    demo_template_html,
+    document_type_label,
+    extended_document_templates,
+)
 from app.modules.commercial.schemas import (
     Branding,
     BrandProfileCreate,
@@ -473,6 +479,23 @@ def standard_templates() -> list[dict[str, Any]]:
             }
         )
     templates.extend(extended_document_templates())
+    # Os seis modelos comerciais legados também recebem a mesma prévia
+    # demonstrativa dos modelos ampliados, para que nenhum cartão abra vazio.
+    for item in templates:
+        if "data:image/" in str(item.get("contentHtml") or ""):
+            continue
+        generation_html = str(item.get("contentHtml") or "")
+        headings = [plain_text(value) for value in re.findall(r"<h[1-3][^>]*>(.*?)</h[1-3]>", generation_html, re.I | re.S)]
+        sections = [value for value in headings if value][:8] or ["Contexto", "Escopo e entregas", "Cronograma", "Condições"]
+        item["sections"] = sections
+        item["generationContentHtml"] = generation_html
+        item["contentHtml"] = demo_template_html(
+            str(item.get("name") or "Modelo"),
+            str(item.get("documentType") or "custom"),
+            sections,
+            legal_review=str(item.get("documentType") or "") == "contract",
+            existing_html=generation_html,
+        )
     return templates
 
 
@@ -572,14 +595,19 @@ async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
     ]:
         response_item = {"active": True, "isDefault": False, "variables": [], **item}
         if str(response_item.get("id") or "").startswith("standard_"):
-            # A tela recebe o indice completo, nao todas as minutas repetidas.
-            # O servidor recupera o modelo integral no momento da geracao.
-            headings = "".join(
-                f"<h2>{html.escape(str(section))}</h2>"
-                for section in list(response_item.get("sections") or [])[:8]
-            )
-            response_item["contentHtml"] = f"<h1>{html.escape(str(response_item.get('name') or 'Modelo'))}</h1>{headings}"
-            response_item["generationGuide"] = ""
+            # A galeria monta a prévia demonstrativa com estes metadados e os
+            # dois assets compartilhados. A minuta integral fica no servidor,
+            # onde também é usada na duplicação e na geração do PDF.
+            response_item["contentHtml"] = ""
+            response_item["demoContent"] = True
+            response_item.pop("generationContentHtml", None)
+            response_item.pop("generationGuide", None)
+        elif not re.search(r"<img\b", str(response_item.get("contentHtml") or ""), re.I):
+            response_item["demoContent"] = True
+        response_item["contentHtml"] = str(response_item.get("contentHtml") or "").replace(
+            DEMO_PORTRAIT_DATA_URL,
+            "/template-demo-portrait.svg",
+        ).replace(DEMO_IMAGE_DATA_URL, "/template-demo-document.svg")
         templates.append(response_item)
     return {
         "proposals": [commercial_document_summary(item, "proposal") for item in proposals],
@@ -2261,7 +2289,11 @@ async def create_contract(
         now = now_iso()
         template = _template_for_contract(store, proposal, template_id)
         proposal_content = str(proposal.get("contentHtml") or "<p></p>")
-        template_content = str((template or {}).get("contentHtml") or "{{NORA_CONTENT}}")
+        template_content = str(
+            (template or {}).get("generationContentHtml")
+            or (template or {}).get("contentHtml")
+            or "{{NORA_CONTENT}}"
+        )
         contract_content = (
             template_content.replace("{{NORA_CONTENT}}", proposal_content)
             if "{{NORA_CONTENT}}" in template_content
@@ -2794,6 +2826,21 @@ async def create_template(user: dict[str, Any], payload: TemplateCreate) -> dict
         store = await asyncio.to_thread(read_store, tenant_id)
         now = now_iso()
         sanitized = sanitize_document_html(payload.contentHtml)
+        if not re.search(r"<img\b", sanitized, re.I):
+            headings = [
+                plain_text(value)
+                for value in re.findall(r"<h[1-3][^>]*>(.*?)</h[1-3]>", sanitized, re.I | re.S)
+                if plain_text(value)
+            ]
+            sanitized = sanitize_document_html(
+                demo_template_html(
+                    payload.name,
+                    payload.documentType,
+                    headings[:8] or ["Contexto", "Conteúdo principal", "Próximos passos"],
+                    legal_review=payload.documentType in {"contract", "term", "policy"},
+                    existing_html=sanitized,
+                )
+            )
         item = {
             "id": f"template_{uuid.uuid4().hex}",
             **payload.model_dump(),

@@ -4,6 +4,7 @@ import os
 import base64
 import io
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -42,6 +43,7 @@ from app.modules.commercial.schemas import ImportedDocumentUpdate  # noqa: E402
 from pypdf import PdfReader, PdfWriter  # noqa: E402
 from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
 from app.modules.commercial.nora_agent import handle_commercial_agent  # noqa: E402
+from app.modules.commercial.pdf_export import build_commercial_pdf  # noqa: E402
 from app.modules.commercial.repository import read_store, write_store  # noqa: E402
 from app.modules.commercial.service import (  # noqa: E402
     _briefing_sentence_count,
@@ -548,6 +550,28 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(segmented), 45)
         self.assertTrue({"proposal", "contract", "resume", "hr", "report", "policy", "academic", "personal"}.issubset(types))
         self.assertTrue(any(item["id"] == "standard_resume_foto_clean" and item.get("layout") == "resume-photo" for item in templates))
+        for template in templates:
+            content = str(template.get("contentHtml") or "")
+            self.assertIn("data:image/png;base64,", content, template["id"])
+            self.assertIn("fict", content.casefold(), template["id"])
+            self.assertIn("{{NORA_CONTENT}}", str(template.get("generationContentHtml") or ""), template["id"])
+
+        resume = next(item for item in templates if item["id"] == "standard_resume_foto_clean")
+        proposal = next(item for item in templates if item["id"] == "standard_proposal_consultoria")
+        self.assertNotEqual(
+            re.search(r'data:image/png;base64,([^\"]+)', resume["contentHtml"]).group(1),
+            re.search(r'data:image/png;base64,([^\"]+)', proposal["contentHtml"]).group(1),
+        )
+        pdf_bytes, _ = build_commercial_pdf(
+            {
+                "title": resume["name"],
+                "contentHtml": resume["contentHtml"],
+                "metadata": {"documentType": "resume"},
+                "branding": {},
+            },
+            "proposal",
+        )
+        self.assertIn(b"/Subtype /Image", pdf_bytes)
 
     async def test_smart_document_uses_minimal_brief_and_returns_editable_chat_pdf(self) -> None:
         payload = SmartDocumentRequest(
@@ -855,6 +879,8 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
                 variables=["CLIENT_NAME", "DATE"],
             ),
         )
+        self.assertIn("data:image/png;base64,", template["contentHtml"])
+        self.assertIn("fict", template["contentHtml"].casefold())
         updated = await update_template(
             self.user,
             template["id"],

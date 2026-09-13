@@ -183,6 +183,38 @@ describe("CommercialDashboard leve", () => {
     expect(await screen.findByText("Editar PDF")).toBeInTheDocument();
   });
 
+  it("mostra texto e retrato ficticios na previa de curriculo", async () => {
+    commercialApi.loadCommercialData.mockResolvedValue({
+      ...commercialData,
+      templates: [{
+        id: "standard_resume_foto_clean",
+        name: "Currículo clean com foto",
+        description: "Currículo demonstrativo",
+        contentHtml: "",
+        shared: true,
+        category: "Carreira",
+        documentType: "resume",
+        active: true,
+        isDefault: false,
+        variables: [],
+        createdBy: "system",
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+        demoContent: true,
+        sections: ["Contato e objetivo", "Resumo profissional", "Experiência"],
+        layout: "resume-photo",
+      }],
+    });
+    render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: /Modelos/i }));
+    await userEvent.setup().click(await screen.findByRole("button", { name: /Visualizar em A4/i }));
+
+    expect(await screen.findByText(/Marina Costa/)).toBeInTheDocument();
+    expect(screen.getByAltText("Imagem demonstrativa fictícia")).toHaveAttribute("src", "/template-demo-portrait.svg");
+    expect(screen.getByText(/nomes, contatos, valores, datas e resultados são fictícios/i)).toBeInTheDocument();
+  });
+
   it("offers proposal upload directly and counts signed proposals in the signed filter", async () => {
     commercialApi.loadCommercialData.mockResolvedValue({ ...commercialData, proposals: [
       { ...commercialData.proposals[0], id: "signed-proposal", title: "Proposta assinada", status: "signed" },

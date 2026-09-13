@@ -733,6 +733,11 @@ def assert_can_touch_user(current: dict[str, Any], target: dict[str, Any]) -> No
         raise HTTPException(status_code=403, detail="O administrador auxiliar nao pode alterar o proprietario do sistema.")
     if can_manage_system(current):
         return
+    if is_system_admin(target):
+        raise HTTPException(
+            status_code=403,
+            detail="Somente administradores do sistema podem gerenciar contas administrativas.",
+        )
     if target.get("teamOwnerId") == current.get("id"):
         return
     if target.get("id") == current.get("id"):

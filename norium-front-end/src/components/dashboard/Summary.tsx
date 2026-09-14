@@ -1,5 +1,8 @@
-import { CalendarDays, CheckCircle2, Mail, MessageSquare } from "lucide-react";
 import type { DashboardMetrics } from "./Dashboard";
+import noriumMailIcon from "../../assets/generated/norium-mail.png";
+import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
+import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
+import noriumTasksIcon from "../../assets/generated/norium-tasks.png";
 
 type SummaryProps = {
   metrics: DashboardMetrics;
@@ -12,7 +15,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       title: "E-mails",
       value: metrics.emails,
       subtitle: "Abrir Norium Mail",
-      icon: Mail,
+      icon: noriumMailIcon,
       color: "bg-red-500/10 text-red-500",
       tone: "rose",
       tab: "E-mails",
@@ -21,7 +24,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       title: "WhatsApp",
       value: metrics.whatsapp,
       subtitle: "Abrir conversas",
-      icon: MessageSquare,
+      icon: whatsappIcon,
       color: "bg-emerald-500/10 text-emerald-500",
       tone: "emerald",
       tab: "Chat",
@@ -30,7 +33,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       title: "Agenda",
       value: metrics.calendar,
       subtitle: "Ver compromissos",
-      icon: CalendarDays,
+      icon: noriumAgendaIcon,
       color: "bg-blue-500/10 text-blue-500",
       tone: "blue",
       tab: "Agenda",
@@ -39,7 +42,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       title: "Tarefas",
       value: metrics.tasks,
       subtitle: "Abrir Kanban",
-      icon: CheckCircle2,
+      icon: noriumTasksIcon,
       color: "bg-cyan-500/10 text-cyan-500",
       tone: "cyan",
       tab: "Tarefas",
@@ -49,8 +52,6 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
   return (
     <section className="norium-dashboard-summary grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       {stats.map((item) => {
-        const Icon = item.icon;
-
         return (
           <button
             key={item.title}
@@ -66,7 +67,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
               </div>
 
               <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${item.color}`}>
-                <Icon className="metric-icon" size={24} />
+                <img src={item.icon} className="metric-icon norium-suite-icon h-8 w-8 object-contain" alt="" />
               </div>
             </div>
           </button>

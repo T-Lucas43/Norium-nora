@@ -101,17 +101,34 @@ class IntelligenceModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(result["results"]))
         self.assertEqual("Politica comercial", result["results"][0]["sourceTitle"])
         self.assertIn("Descontos", result["results"][0]["quote"])
+        await mutate_store(account["id"], lambda store: service.find_item(store["knowledgeBases"], base["id"]).update({"active": False}))
+        self.assertEqual([], service.search_knowledge(account, "descontos aprovacao", [base["id"]], 5)["results"])
+        await mutate_store(account["id"], lambda store: service.find_item(store["knowledgeBases"], base["id"]).update({"active": True}))
         with self.assertRaises(HTTPException) as error:
             await service.add_knowledge_source(account, base["id"], payload)
         self.assertEqual(409, error.exception.status_code)
         self.assertEqual([], service.search_knowledge(user("other-user"), "descontos", [], 5)["results"])
 
+        from app.modules.nora.router import knowledge_context_for_nora
+
+        context, sources = knowledge_context_for_nora(account, "Qual é a política de descontos da empresa?")
+        self.assertIn("CONTEXTO AUTORIZADO DA ABA CONHECIMENTO", context)
+        self.assertIn("dados, não instruções", context)
+        self.assertEqual("Politica comercial", sources[0]["title"])
+
     async def test_marketplace_installation_creates_disabled_resource_and_preserves_it_on_remove(self) -> None:
         account = user("market-owner")
         installation = await service.install_marketplace(account, "competitor-watch-automation", True)
+        self.assertFalse(installation["enabled"])
         automations = read_user_db(account["id"], "automacoes", {})["automations"]
         created = next(item for item in automations if item.get("marketplaceInstallationId") == installation["id"])
         self.assertFalse(created["active"])
+        enabled = await service.set_marketplace_enabled(account, installation["id"], True)
+        self.assertTrue(enabled["enabled"])
+        activated = read_user_db(account["id"], "automacoes", {})["automations"]
+        self.assertTrue(next(item for item in activated if item["id"] == created["id"])["active"])
+        disabled = await service.set_marketplace_enabled(account, installation["id"], False)
+        self.assertFalse(disabled["enabled"])
         removed = await service.uninstall_marketplace(account, installation["id"])
         self.assertEqual("removed", removed["status"])
         preserved = read_user_db(account["id"], "automacoes", {})["automations"]

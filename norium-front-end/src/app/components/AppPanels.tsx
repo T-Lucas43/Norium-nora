@@ -250,7 +250,7 @@ export default function AppPanels({
       {isPanelMounted("Clientes") && (
         <section className={activePanelClass("Clientes")}>
           {coach("Clientes")}
-          <ClientsDashboard />
+          <ClientsDashboard onOpenNora={onOpenNora} />
         </section>
       )}
       {isPanelMounted("Governanca") && (

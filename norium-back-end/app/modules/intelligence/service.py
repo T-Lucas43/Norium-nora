@@ -542,7 +542,11 @@ def search_knowledge(user: dict[str, Any], query: str, base_ids: list[str] | Non
     wanted = set(base_ids or [])
     terms = list(dict.fromkeys(tokens(query)))
     scored: list[dict[str, Any]] = []
-    bases = {item["id"]: item for item in store["knowledgeBases"] if not wanted or item["id"] in wanted}
+    bases = {
+        item["id"]: item
+        for item in store["knowledgeBases"]
+        if item.get("active", True) is not False and (not wanted or item["id"] in wanted)
+    }
     for source in store["knowledgeSources"]:
         base = bases.get(source.get("baseId"))
         if not base or source.get("status") != "indexed":
@@ -566,28 +570,70 @@ def search_knowledge(user: dict[str, Any], query: str, base_ids: list[str] | Non
 
 MARKETPLACE_CATALOG = [
     {
-        "id": "browser-research-agent", "type": "agent", "name": "Pesquisa web segura", "description": "Cria um perfil restrito para pesquisas publicas e rastreaveis.",
-        "version": "1.0.0", "author": "Norium", "verified": True, "permissions": ["Leitura de paginas publicas"], "dependencies": ["Agente Navegador"], "category": "Pesquisa",
+        "id": "document-models-pack", "type": "connector", "name": "Modelos de documentos", "description": "Libera a biblioteca ampliada de currículos, contratos, propostas, relatórios e documentos empresariais.",
+        "details": "O pacote adiciona modelos preenchidos e editáveis somente enquanto a instalação estiver ativa. Ao desativar, documentos já criados permanecem intactos.",
+        "features": ["139 modelos profissionais", "Currículos com layouts e paletas próprias", "Exemplos preenchidos e personalizáveis"],
+        "version": "2.0.0", "author": "Norium Studio", "verified": True, "permissions": ["Exibir modelos na central de Documentos"], "dependencies": ["Documentos"], "category": "Documentos", "icon": "document-models", "destination": "Documentos",
     },
     {
-        "id": "competitor-watch-automation", "type": "automation", "name": "Monitor de pagina", "description": "Instala uma automacao desativada para leitura controlada de uma URL.",
-        "version": "1.0.0", "author": "Norium", "verified": True, "permissions": ["Criar automacao", "Leitura de URL autorizada"], "dependencies": ["Agente Navegador", "Automacoes"], "category": "Automacao",
+        "id": "norium-mail-connector", "type": "integration", "name": "Norium Mail", "description": "Habilita o conector de e-mail e a Nora para resumir, priorizar e preparar respostas.",
+        "details": "A instalação libera o conector; a leitura real depende da conexão OAuth feita pelo usuário na tela de E-mails.",
+        "features": ["Resumo executivo da caixa", "Rascunhos assistidos", "Ações com confirmação"],
+        "version": "1.2.0", "author": "Norium", "verified": True, "permissions": ["Acessar o módulo de e-mails quando conectado"], "dependencies": ["Conta Google conectada pelo usuário"], "category": "Comunicação", "icon": "norium-mail", "destination": "E-mails",
     },
     {
-        "id": "sales-knowledge-template", "type": "template", "name": "Base comercial", "description": "Estrutura uma base privada para politicas, propostas e materiais comerciais.",
-        "version": "1.1.0", "author": "Norium", "verified": True, "permissions": ["Criar base de conhecimento"], "dependencies": ["Conhecimento"], "category": "Conhecimento",
+        "id": "whatsapp-connector", "type": "integration", "name": "WhatsApp", "description": "Disponibiliza ações de conversa e automação para uma instância vinculada pelo responsável.",
+        "details": "Mensagens externas continuam exigindo destinatário real e confirmação explícita antes do envio.",
+        "features": ["Atalhos de conversa", "Ações em automações", "Envio protegido por aprovação"],
+        "version": "1.3.0", "author": "Norium", "verified": True, "permissions": ["Usar a instância vinculada pelo responsável"], "dependencies": ["Instância W-API configurada"], "category": "Comunicação", "icon": "whatsapp", "destination": "Chat",
     },
     {
-        "id": "cost-aware-model-policy", "type": "package", "name": "Roteamento custo consciente", "description": "Instala uma politica desativada que prioriza modelos configurados de menor custo.",
-        "version": "1.0.0", "author": "Norium", "verified": True, "permissions": ["Criar politica de modelos"], "dependencies": ["IA e Modelos"], "category": "IA",
+        "id": "calendar-connector", "type": "integration", "name": "Google Agenda", "description": "Habilita eventos e disponibilidade da agenda nas ações da Nora e das automações.",
+        "details": "O conector só acessa calendários depois da autorização OAuth e respeita as permissões do workspace.",
+        "features": ["Criar e consultar eventos", "Disponibilidade", "Gatilhos de agenda"],
+        "version": "1.1.0", "author": "Norium", "verified": True, "permissions": ["Acessar calendários autorizados"], "dependencies": ["Google Agenda conectado"], "category": "Produtividade", "icon": "calendar", "destination": "Agenda",
     },
     {
-        "id": "nora-runtime-model", "type": "model", "name": "Modelo padrão da Nora", "description": "Cria uma política desativada apontando para o modelo gerenciado pelo runtime da Nora.",
-        "version": "1.0.0", "author": "Norium", "verified": True, "permissions": ["Criar política de modelo"], "dependencies": ["NORA_MODEL e GROQ_API_KEY no ambiente"], "category": "Modelos",
+        "id": "browser-research-agent", "type": "agent", "name": "Pesquisa web segura", "description": "Cria um perfil restrito para pesquisas públicas e rastreáveis.",
+        "details": "O agente planeja, pede aprovação quando necessário e mantém evidências das páginas lidas.",
+        "features": ["Domínios permitidos", "Relatório com fontes", "Sessão assistida"],
+        "version": "1.1.0", "author": "Norium Labs", "verified": True, "permissions": ["Leitura de páginas públicas"], "dependencies": ["Agente Navegador"], "category": "Pesquisa", "icon": "browser", "destination": "Agente Navegador",
     },
     {
-        "id": "web-source-connector", "type": "integration", "name": "Conector de fontes web", "description": "Cria uma base desativada para receber páginas públicas pelo conector seguro de URL.",
-        "version": "1.0.0", "author": "Norium", "verified": True, "permissions": ["Criar base", "Ler páginas públicas autorizadas"], "dependencies": ["Conhecimento", "Saída HTTPS"], "category": "Integrações",
+        "id": "web-source-connector", "type": "integration", "name": "Fontes web para Conhecimento", "description": "Cria uma base controlada para páginas públicas consultadas pela Nora.",
+        "details": "URLs passam por bloqueio de redes privadas, indexação e rastreio de atualização.",
+        "features": ["Indexação de URL", "Trechos citáveis", "Aviso de fonte desatualizada"],
+        "version": "1.2.0", "author": "Norium", "verified": True, "permissions": ["Criar base", "Ler páginas públicas autorizadas"], "dependencies": ["Conhecimento", "Saída HTTPS"], "category": "Conhecimento", "icon": "knowledge-web", "destination": "Conhecimento",
+    },
+    {
+        "id": "sales-knowledge-template", "type": "template", "name": "Base comercial", "description": "Estrutura uma base privada para políticas, propostas e materiais comerciais.",
+        "details": "A base nasce pronta para receber conteúdo e ser consultada pela Nora em perguntas sobre a empresa.",
+        "features": ["Escopo privado", "Organização por tags", "Busca com origem"],
+        "version": "1.2.0", "author": "Norium", "verified": True, "permissions": ["Criar base de conhecimento"], "dependencies": ["Conhecimento"], "category": "Conhecimento", "icon": "knowledge", "destination": "Conhecimento",
+    },
+    {
+        "id": "competitor-watch-automation", "type": "automation", "name": "Monitor de página", "description": "Instala uma automação desativada para leitura controlada de uma URL.",
+        "details": "Defina a URL e revise o fluxo antes de ativar. Execuções são registradas no histórico.",
+        "features": ["Execução manual", "Evidências", "Política de tentativa"],
+        "version": "1.1.0", "author": "Norium Labs", "verified": True, "permissions": ["Criar automação", "Leitura de URL autorizada"], "dependencies": ["Agente Navegador", "Automações"], "category": "Automação", "icon": "automation", "destination": "Automações",
+    },
+    {
+        "id": "client-nora-assistant", "type": "connector", "name": "Nora para Clientes", "description": "Adiciona atalhos contextuais da Nora à ficha de cada cliente.",
+        "details": "A Nora recebe apenas o contexto visível da ficha selecionada para sugerir análise, próximos passos e documentos.",
+        "features": ["Resumo 360°", "Próximos passos", "Criação contextual de documentos"],
+        "version": "1.0.0", "author": "Norium", "verified": True, "permissions": ["Usar dados visíveis da ficha selecionada"], "dependencies": ["Clientes", "Nora"], "category": "CRM", "icon": "clients", "destination": "Clientes",
+    },
+    {
+        "id": "cost-aware-model-policy", "type": "package", "name": "Roteamento custo consciente", "description": "Instala uma política que prioriza modelos configurados de menor custo.",
+        "details": "A política pode ser ligada ou desligada e nunca troca de provedor depois de uma ação externa confirmada.",
+        "features": ["Limite de custo", "Fallback controlado", "Privacidade configurável"],
+        "version": "1.1.0", "author": "Norium", "verified": True, "permissions": ["Criar política de modelos"], "dependencies": ["IA e Modelos"], "category": "IA", "icon": "models", "destination": "IA e Modelos",
+    },
+    {
+        "id": "nora-runtime-model", "type": "model", "name": "Modelo padrão da Nora", "description": "Cria uma política apontando para o modelo gerenciado pelo runtime da Nora.",
+        "details": "O modelo só fica disponível quando a chave do provedor está configurada no ambiente.",
+        "features": ["Texto", "Ferramentas", "Saída estruturada"],
+        "version": "1.1.0", "author": "Norium", "verified": True, "permissions": ["Criar política de modelo"], "dependencies": ["NORA_MODEL e GROQ_API_KEY no ambiente"], "category": "Modelos", "icon": "nora-model", "destination": "IA e Modelos",
     },
 ]
 
@@ -606,7 +652,7 @@ def _install_resource(user_id: str, item: dict[str, Any], installation_id: str) 
     if item["id"] in {"sales-knowledge-template", "web-source-connector"}:
         store = read_store(user_id)
         is_connector = item["id"] == "web-source-connector"
-        resource = {"id": entity_id("kb"), "name": "Fontes web" if is_connector else "Base comercial", "description": "Paginas publicas autorizadas." if is_connector else "Politicas, propostas e materiais comerciais.", "visibility": "private", "tags": ["web"] if is_connector else ["comercial"], "sourceCount": 0, "chunkCount": 0, "status": "ready", "active": False if is_connector else True, "marketplaceInstallationId": installation_id, "createdAt": now_iso(), "updatedAt": now_iso()}
+        resource = {"id": entity_id("kb"), "name": "Fontes web" if is_connector else "Base comercial", "description": "Paginas publicas autorizadas." if is_connector else "Politicas, propostas e materiais comerciais.", "visibility": "private", "tags": ["web"] if is_connector else ["comercial"], "sourceCount": 0, "chunkCount": 0, "status": "ready", "active": False, "marketplaceInstallationId": installation_id, "createdAt": now_iso(), "updatedAt": now_iso()}
         store["knowledgeBases"].insert(0, resource)
         write_store(user_id, store)
         return {"type": "knowledgeBase", "id": resource["id"]}
@@ -617,6 +663,11 @@ def _install_resource(user_id: str, item: dict[str, Any], installation_id: str) 
         store["modelPolicies"].insert(0, resource)
         write_store(user_id, store)
         return {"type": "modelPolicy", "id": resource["id"]}
+    if item["id"] in {
+        "document-models-pack", "norium-mail-connector", "whatsapp-connector",
+        "calendar-connector", "client-nora-assistant",
+    }:
+        return {"type": "feature", "id": item["id"]}
     auto_store = read_user_db(user_id, "automacoes", {"automations": [], "history": []})
     if not isinstance(auto_store, dict):
         auto_store = {"automations": [], "history": []}
@@ -654,6 +705,48 @@ async def install_marketplace(user: dict[str, Any], item_id: str, confirm: bool,
     resource = _install_resource(user_id, item, installation_id)
     installation = {"id": installation_id, "catalogId": item_id, "name": item["name"], "version": version or item["version"], "status": "installed", "enabled": False, "resource": resource, "installedAt": now_iso(), "updatedAt": now_iso()}
     await mutate_store(user_id, lambda current: current["installations"].insert(0, installation))
+    return installation
+
+
+def marketplace_item_enabled(user: dict[str, Any], catalog_id: str) -> bool:
+    return any(
+        item.get("catalogId") == catalog_id
+        and item.get("status") == "installed"
+        and item.get("enabled") is True
+        for item in read_store(tenant_id(user))["installations"]
+    )
+
+
+async def set_marketplace_enabled(user: dict[str, Any], installation_id: str, enabled: bool) -> dict[str, Any]:
+    user_id = tenant_id(user)
+
+    def mutation(store: dict[str, Any]) -> dict[str, Any]:
+        installation = find_item(store["installations"], installation_id)
+        if not installation or installation.get("status") != "installed":
+            raise HTTPException(status_code=404, detail="Instalacao nao encontrada.")
+        installation.update({"enabled": enabled, "updatedAt": now_iso()})
+        for collection in ("browserProfiles", "knowledgeBases", "modelPolicies"):
+            for resource in store[collection]:
+                if resource.get("marketplaceInstallationId") != installation_id:
+                    continue
+                resource["active"] = enabled
+                if "enabled" in resource or collection == "modelPolicies":
+                    resource["enabled"] = enabled
+                resource["updatedAt"] = now_iso()
+        return installation
+
+    installation = await mutate_store(user_id, mutation)
+    auto_store = read_user_db(user_id, "automacoes", {"automations": []})
+    if isinstance(auto_store, dict):
+        changed = False
+        for automation in auto_store.get("automations", []):
+            if automation.get("marketplaceInstallationId") == installation_id:
+                automation["active"] = enabled
+                automation["status"] = "ativa" if enabled else "desativada"
+                automation["updatedAt"] = now_iso()
+                changed = True
+        if changed:
+            write_user_db(user_id, "automacoes", auto_store)
     return installation
 
 

@@ -701,6 +701,9 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_template_detail_loads_full_example_without_bloating_catalog(self) -> None:
         from app.modules.commercial.service import get_template, list_commercial_data
+        from app.modules.intelligence import service as intelligence_service
+        installation = await intelligence_service.install_marketplace(self.user, "document-models-pack", True)
+        await intelligence_service.set_marketplace_enabled(self.user, installation["id"], True)
         data = await list_commercial_data(self.user)
         summary = next(item for item in data["templates"] if item["id"] == "standard_resume_foto_clean")
         self.assertEqual(summary["contentHtml"], "")
@@ -712,6 +715,24 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as caught:
             await get_template(self.user, "template_from_another_workspace")
         self.assertEqual(caught.exception.status_code, 404)
+
+    async def test_marketplace_document_models_only_appear_while_enabled(self) -> None:
+        from app.modules.intelligence import service as intelligence_service
+
+        hidden = await list_commercial_data(self.user)
+        self.assertFalse(any(item["id"] == "standard_resume_foto_clean" for item in hidden["templates"]))
+
+        installation = await intelligence_service.install_marketplace(self.user, "document-models-pack", True)
+        installed_but_disabled = await list_commercial_data(self.user)
+        self.assertFalse(any(item["id"] == "standard_resume_foto_clean" for item in installed_but_disabled["templates"]))
+
+        await intelligence_service.set_marketplace_enabled(self.user, installation["id"], True)
+        enabled = await list_commercial_data(self.user)
+        self.assertTrue(any(item["id"] == "standard_resume_foto_clean" for item in enabled["templates"]))
+
+        await intelligence_service.set_marketplace_enabled(self.user, installation["id"], False)
+        disabled_again = await list_commercial_data(self.user)
+        self.assertFalse(any(item["id"] == "standard_resume_foto_clean" for item in disabled_again["templates"]))
 
     async def test_smart_document_uses_minimal_brief_and_returns_editable_chat_pdf(self) -> None:
         payload = SmartDocumentRequest(

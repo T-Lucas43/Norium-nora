@@ -189,3 +189,7 @@ class ModelTestPayload(StrictModel):
 
 class MarketplaceUpdatePayload(StrictModel):
     confirm: bool
+
+
+class MarketplaceStatePayload(StrictModel):
+    enabled: bool

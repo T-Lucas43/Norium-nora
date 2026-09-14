@@ -481,7 +481,10 @@ def standard_templates() -> list[dict[str, Any]]:
             }
         )
     legacy_template_count = len(templates)
-    templates.extend(extended_document_templates())
+    marketplace_templates = extended_document_templates()
+    for item in marketplace_templates:
+        item["marketplaceCatalogId"] = "document-models-pack"
+    templates.extend(marketplace_templates)
     # Os doze modelos comerciais legados também recebem a mesma prévia
     # demonstrativa dos modelos ampliados, para que nenhum cartão abra vazio.
     for index, item in enumerate(templates):
@@ -598,15 +601,19 @@ def commercial_document_summary(document: dict[str, Any], document_type: str) ->
 
 async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
     from app.modules.commercial.document_files import document_file_summary, processing_job_summary
+    from app.modules.intelligence.service import marketplace_item_enabled
 
     store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     proposals = sorted(store["proposals"], key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
     contracts = sorted(store["contracts"], key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
     custom_template_ids = {str(item.get("id")) for item in store["templates"]}
     templates = []
+    system_templates = standard_templates()
+    if not marketplace_item_enabled(user, "document-models-pack"):
+        system_templates = [item for item in system_templates if not item.get("marketplaceCatalogId")]
     for item in [
         *store["templates"],
-        *(item for item in standard_templates() if item["id"] not in custom_template_ids),
+        *(item for item in system_templates if item["id"] not in custom_template_ids),
     ]:
         response_item = {"active": True, "isDefault": False, "variables": [], **item}
         if str(response_item.get("id") or "").startswith("standard_"):

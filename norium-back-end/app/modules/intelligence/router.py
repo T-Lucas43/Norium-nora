@@ -18,13 +18,13 @@ from app.modules.intelligence.browser_runtime import (
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 from app.modules.intelligence.schemas import (
     BrowserApprovalPayload, BrowserCredentialPayload, BrowserPlanActionsPayload, BrowserPlanPayload, BrowserProfilePayload, BrowserUploadPayload, BrowserReportPayload, BrowserReportRewritePayload, KnowledgeBasePayload,
-    KnowledgeSearchPayload, KnowledgeSourcePayload, MarketplaceInstallPayload, MarketplaceUpdatePayload,
+    KnowledgeSearchPayload, KnowledgeSourcePayload, MarketplaceInstallPayload, MarketplaceStatePayload, MarketplaceUpdatePayload,
     ModelPolicyPayload, ModelProviderPayload, ModelRoutePayload, ModelTestPayload,
 )
 from app.modules.intelligence.service import (
     MARKETPLACE_CATALOG, all_providers, catalog_item, create_browser_credential, create_browser_plan, create_browser_profile,
     create_knowledge_base, find_item, install_marketplace, replace_browser_plan_actions, route_model,
-    sanitize_provider, save_model_policy, save_provider, search_knowledge, tenant_id, test_provider,
+    sanitize_provider, save_model_policy, save_provider, search_knowledge, set_marketplace_enabled, tenant_id, test_provider,
     uninstall_marketplace, usage_summary, add_knowledge_source, reindex_knowledge_source,
 )
 from app.modules.platform.service import delete_collection_item, list_collection, sanitize_vault_item
@@ -364,6 +364,15 @@ async def update_marketplace_installation(installation_id: str, payload: Marketp
         item["updatedAt"] = now_iso()
         return item
     return {"item": await mutate_store(tenant_id(user), mutation)}
+
+
+@marketplace_router.patch("/installations/{installation_id}")
+async def patch_marketplace_installation(
+    installation_id: str,
+    payload: MarketplaceStatePayload,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    return {"item": await set_marketplace_enabled(user, installation_id, payload.enabled)}
 
 
 @marketplace_router.delete("/installations/{installation_id}")

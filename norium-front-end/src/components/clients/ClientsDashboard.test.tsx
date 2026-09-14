@@ -117,6 +117,16 @@ describe("Client workspace", () => {
     await user.click(screen.getByRole("button", { name: "Inativos" }));
     expect(screen.getByText("Nenhum resultado")).toBeInTheDocument();
   });
+  it("abre a Nora com o contexto visível do cliente selecionado", async () => {
+    const onOpenNora = vi.fn();
+    const user = userEvent.setup();
+    render(<ClientsDashboard onOpenNora={onOpenNora} />);
+    await user.click(await screen.findByRole("button", { name: /Marina Costa/ }));
+    await user.click(screen.getByRole("button", { name: "Resumo 360°" }));
+    expect(onOpenNora).toHaveBeenCalledWith(expect.stringContaining("Marina Costa"));
+    expect(onOpenNora).toHaveBeenCalledWith(expect.stringContaining("Estúdio Aurora"));
+    expect(onOpenNora).toHaveBeenCalledWith(expect.stringContaining("Não invente histórico"));
+  });
   it("links an existing contract and opens the exact document", async () => {
     const user = userEvent.setup();
     render(<ClientsDashboard />);

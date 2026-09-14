@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowUpRight,
   Building2,
+  Bot,
   CalendarClock,
   Camera,
   CheckCheck,
@@ -17,6 +18,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
   Tag,
   Trash2,
   UserRound,
@@ -46,7 +48,7 @@ import {
 import "./clients.css";
 
 type DetailTab = "overview" | "contracts" | "documents" | "history";
-export default function ClientsDashboard() {
+export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?: string) => void }) {
   const [clients, setClients] = useState<Client[]>([]),
     [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState(""),
@@ -145,6 +147,22 @@ export default function ClientsDashboard() {
     setSelectedId(id);
     setTab("overview");
     setError("");
+  }
+  function askNoraAboutClient(instruction = "Faça um resumo 360° e recomende os próximos passos") {
+    if (!selected || !onOpenNora) return;
+    onOpenNora([
+      `${instruction} para este cliente usando apenas os dados registrados abaixo.`,
+      `Cliente: ${selected.name}`,
+      `Empresa: ${selected.company || "cliente individual"}`,
+      `Status: ${statusLabels[selected.status]}`,
+      `Etapa: ${stageLabels[selected.stage]}`,
+      `Segmento: ${selected.segment || "não informado"}`,
+      `Responsável: ${selected.ownerName || "não informado"}`,
+      `Próximo contato: ${selected.nextActionAt || "não agendado"}`,
+      `Marcadores: ${selected.tags.join(", ") || "nenhum"}`,
+      `Observações: ${selected.notes || "nenhuma"}`,
+      "Não invente histórico, valores, decisões ou conversas que não estejam nesses dados.",
+    ].join("\n"));
   }
   function updateClient(client: Client) {
     setClients((current) =>
@@ -278,6 +296,12 @@ export default function ClientsDashboard() {
         description="Pessoas, conversas e documentos. Tudo no mesmo lugar."
         icon={UsersRound}
       >
+        {onOpenNora && (
+          <Button size="sm" onClick={() => onOpenNora("Ajude-me a analisar minha carteira de clientes e definir prioridades.")}>
+            <Sparkles size={15} />
+            Perguntar à Nora
+          </Button>
+        )}
         <Button
           size="sm"
           iconOnly
@@ -591,6 +615,21 @@ export default function ClientsDashboard() {
               >
                 {tab === "overview" && (
                   <div className="client-overview">
+                    {onOpenNora && (
+                      <section className="client-nora-card">
+                        <span><Bot size={22} /></span>
+                        <div>
+                          <p>Nora para este cliente</p>
+                          <h3>Transforme a ficha em próximos passos</h3>
+                          <small>Resumo, riscos e documentos usando somente o contexto registrado.</small>
+                          <div>
+                            <button type="button" onClick={() => askNoraAboutClient()}>Resumo 360°</button>
+                            <button type="button" onClick={() => askNoraAboutClient("Identifique riscos, pendências e o próximo contato mais útil")}>Próxima ação</button>
+                            <button type="button" onClick={() => askNoraAboutClient("Sugira o documento mais adequado para este momento do relacionamento")}>Sugerir documento</button>
+                          </div>
+                        </div>
+                      </section>
+                    )}
                     <dl className="client-details-grid">
                       <Info label="Responsável" value={selected.ownerName} />
                       <Info label="CPF / CNPJ" value={selected.document} />

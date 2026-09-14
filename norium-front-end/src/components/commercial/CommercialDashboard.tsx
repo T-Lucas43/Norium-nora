@@ -21,6 +21,8 @@ import {
   LayoutTemplate,
   List,
   ImagePlus,
+  Mic,
+  Square,
   Palette,
   Pencil,
   Plus,
@@ -36,6 +38,29 @@ import {
   X,
 } from "lucide-react";
 import { apiRequest, ApiError } from "../../core/api/client";
+
+type DocumentSpeechRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onresult: ((event: { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+type DocumentSpeechRecognitionConstructor = new () => DocumentSpeechRecognition;
+
+function documentSpeechRecognition() {
+  const speechWindow = window as typeof window & {
+    SpeechRecognition?: DocumentSpeechRecognitionConstructor;
+    webkitSpeechRecognition?: DocumentSpeechRecognitionConstructor;
+  };
+  return speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+}
 import {
   analyzeProposal,
   cancelContract,
@@ -1067,6 +1092,10 @@ function CreateSmartDocumentDialog({
   const [generating, setGenerating] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [dictating, setDictating] = useState(false);
+  const [dictationError, setDictationError] = useState("");
+  const recognitionRef = useRef<DocumentSpeechRecognition | null>(null);
+  const dictationPrefixRef = useRef("");
   const selectedTemplate = availableTemplates.find((item) => item.id === templateId);
   const selectedBrand = brands.find((item) => item.id === brandId);
   const client = clients.find((item) => item.id === clientId);
@@ -1079,6 +1108,56 @@ function CreateSmartDocumentDialog({
     });
     return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, "pt-BR"));
   }, [availableTemplates]);
+
+  useEffect(() => () => recognitionRef.current?.abort(), []);
+
+  function toggleDictation() {
+    if (dictating) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const Recognition = documentSpeechRecognition();
+    if (!Recognition) {
+      setDictationError("Este navegador não oferece ditado por voz. Use Chrome ou Edge atualizado.");
+      return;
+    }
+    setDictationError("");
+    dictationPrefixRef.current = brief.trim();
+    const recognition = new Recognition();
+    recognition.lang = "pt-BR";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.onstart = () => setDictating(true);
+    recognition.onend = () => {
+      setDictating(false);
+      recognitionRef.current = null;
+    };
+    recognition.onerror = (event) => {
+      setDictating(false);
+      recognitionRef.current = null;
+      setDictationError(
+        event.error === "not-allowed" || event.error === "service-not-allowed"
+          ? "Permita o uso do microfone para ditar o conteúdo."
+          : "Não consegui reconhecer a fala. Tente novamente.",
+      );
+    };
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let index = 0; index < event.results.length; index += 1) {
+        transcript += `${event.results[index][0].transcript} `;
+      }
+      const spoken = transcript.trim();
+      if (spoken) setBrief([dictationPrefixRef.current, spoken].filter(Boolean).join(" "));
+    };
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setDictating(false);
+      setDictationError("O microfone já estava em uso. Aguarde e tente novamente.");
+    }
+  }
 
   useEffect(() => {
     const pendingBrainstormId = window.localStorage.getItem("norium:commercial-brainstorm-id") || "";
@@ -1231,7 +1310,22 @@ function CreateSmartDocumentDialog({
               </select>
             </FormField>
             <FormField label="Conte o essencial">
-              <textarea value={brief} onChange={(event) => setBrief(event.target.value)} className="commercial-field min-h-32 resize-y" placeholder={isResume ? "Ex.: João Silva, desenvolvedor front-end, 4 anos com React, trabalhou na Empresa X, formado em ADS. Quero um currículo azul." : "Ex.: Proposta de site para a Clínica Aurora, com agenda online, entrega em 45 dias e valor de R$ 12 mil."} />
+              <div className="relative">
+                <textarea aria-label="Conte o essencial" value={brief} onChange={(event) => setBrief(event.target.value)} className="commercial-field min-h-32 resize-y pr-36" placeholder={isResume ? "Ex.: João Silva, desenvolvedor front-end, 4 anos com React, trabalhou na Empresa X, formado em ADS. Quero um currículo azul." : "Ex.: Proposta de site para a Clínica Aurora, com agenda online, entrega em 45 dias e valor de R$ 12 mil."} />
+                <button
+                  type="button"
+                  onClick={toggleDictation}
+                  aria-pressed={dictating}
+                  aria-label={dictating ? "Parar ditado" : "Ditar conteúdo essencial"}
+                  className={`absolute right-3 top-3 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-black transition ${dictating ? "border-rose-300/50 bg-rose-400/15 text-rose-100" : "border-cyan-300/35 bg-[var(--surface)] text-cyan-200 hover:bg-cyan-400/10"}`}
+                >
+                  {dictating ? <Square size={13} fill="currentColor" /> : <Mic size={15} />}
+                  {dictating ? "Parar" : "Falar"}
+                </button>
+              </div>
+              <p className={`mt-2 text-xs font-semibold ${dictationError ? "text-rose-300" : dictating ? "text-cyan-200" : "text-[var(--text-secondary)]"}`} role={dictationError ? "alert" : "status"}>
+                {dictationError || (dictating ? "Ouvindo… descreva livremente; você poderá revisar o texto." : "Use o microfone ou escreva. A Nora organiza o restante sem repetir informações.")}
+              </p>
             </FormField>
             <div className="grid gap-4 md:grid-cols-2">
               <FormField label="Título (opcional)"><input value={title} onChange={(event) => setTitle(event.target.value)} className="commercial-field" placeholder="A Nora pode sugerir" /></FormField>

@@ -26,6 +26,8 @@ import { apiRequest } from "../../core/api/client";
 import Button from "../shared/Button";
 import { showConfirm } from "../shared/AppDialogProvider";
 import BrowserAgentDashboard from "./BrowserAgentDashboard";
+import MarketplaceDashboardV2 from "./MarketplaceDashboardV2";
+import ModelsDashboardV2 from "./ModelsDashboardV2";
 
 type Mode = "browser" | "knowledge" | "marketplace" | "models";
 type GenericItem = Record<string, unknown> & { id: string; name?: string; title?: string; status?: string };
@@ -181,7 +183,7 @@ function KnowledgeDashboard({ onOpenNora }: { onOpenNora: (prompt?: string) => v
   </main>;
 }
 
-function MarketplaceDashboard() {
+export function MarketplaceDashboardLegacy() {
   const [data, setData] = useState<MarketplaceOverview>({ catalog: [], installations: [] });
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -205,7 +207,7 @@ function MarketplaceDashboard() {
   </main>;
 }
 
-function ModelsDashboard() {
+export function ModelsDashboardLegacy() {
   const [data, setData] = useState<ModelsOverview>({ providers: [], policies: [], usage: { requests: 0, inputTokens: 0, outputTokens: 0, estimatedCost: 0 } });
   const [providerForm, setProviderForm] = useState({ name: "", provider: "openai-compatible", model: "", baseUrl: "", secret: "", enabled: false, capabilities: ["text"], contextWindow: 8192, inputCostPerMillion: 0, outputCostPerMillion: 0, dataPolicy: "external" });
   const [policyForm, setPolicyForm] = useState({ name: "Roteamento principal", mode: "automatic", preferredProviderId: "", maxInputCostPerMillion: "", privacy: "any" });
@@ -233,6 +235,6 @@ function ModelsDashboard() {
 export default function IntelligenceHubDashboard({ mode, onOpenNora }: { mode: Mode; onOpenNora: (prompt?: string) => void }) {
   if (mode === "browser") return <BrowserDashboard onOpenNora={onOpenNora} />;
   if (mode === "knowledge") return <KnowledgeDashboard onOpenNora={onOpenNora} />;
-  if (mode === "marketplace") return <MarketplaceDashboard />;
-  return <ModelsDashboard />;
+  if (mode === "marketplace") return <MarketplaceDashboardV2 />;
+  return <ModelsDashboardV2 />;
 }

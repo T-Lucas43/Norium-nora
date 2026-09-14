@@ -67,6 +67,7 @@ describe("NoraMailDrawer", () => {
     setup({ messages: [{ role: "user", text: "resumir" }, { role: "ai", text: "voce tem 3 nao lidos" }] });
     expect(screen.getByText("resumir")).toBeInTheDocument();
     expect(screen.getByText("voce tem 3 nao lidos")).toBeInTheDocument();
+    expect(screen.getByText("voce tem 3 nao lidos").closest(".nora-mail-answer")).not.toBeNull();
   });
 
   it("mostra o aviso de carregamento enquanto a Nora responde", () => {
@@ -76,20 +77,26 @@ describe("NoraMailDrawer", () => {
 
   it("envia com Enter e pelo botao", () => {
     const h = setup({ input: "oi" });
-    fireEvent.keyDown(screen.getByPlaceholderText(/peca algo ao agente/i), { key: "Enter" });
+    fireEvent.keyDown(screen.getByPlaceholderText(/resumo executivo/i), { key: "Enter" });
     fireEvent.click(screen.getByRole("button", { name: /enviar para a nora/i }));
     expect(h.onSend).toHaveBeenCalledTimes(2);
   });
 
   it("nao envia em outras teclas", () => {
     const h = setup({ input: "oi" });
-    fireEvent.keyDown(screen.getByPlaceholderText(/peca algo ao agente/i), { key: "a" });
+    fireEvent.keyDown(screen.getByPlaceholderText(/resumo executivo/i), { key: "a" });
+    expect(h.onSend).not.toHaveBeenCalled();
+  });
+
+  it("mantem quebra de linha com Shift+Enter", () => {
+    const h = setup({ input: "oi" });
+    fireEvent.keyDown(screen.getByPlaceholderText(/resumo executivo/i), { key: "Enter", shiftKey: true });
     expect(h.onSend).not.toHaveBeenCalled();
   });
 
   it("propaga a digitacao e fecha pelo X", () => {
     const h = setup();
-    fireEvent.change(screen.getByPlaceholderText(/peca algo ao agente/i), { target: { value: "resumir" } });
+    fireEvent.change(screen.getByPlaceholderText(/resumo executivo/i), { target: { value: "resumir" } });
     fireEvent.click(screen.getByRole("button", { name: /fechar/i }));
     expect(h.onInputChange).toHaveBeenCalledWith("resumir");
     expect(h.onClose).toHaveBeenCalled();

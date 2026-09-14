@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -150,6 +150,34 @@ describe("CommercialDashboard leve", () => {
     await waitFor(() => expect(clientApi.apiRequest).toHaveBeenCalledWith("/api/clientes"));
     await waitFor(() => expect(clientApi.apiRequest).toHaveBeenCalledWith("/api/brainstorm/sessions"));
     expect(await screen.findByText("Criar documento com a Nora")).toBeInTheDocument();
+  });
+
+  it("preenche Conte o essencial por ditado de voz", async () => {
+    const recognition: {
+      onstart: (() => void) | null;
+      onresult: ((event: { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null;
+    } = { onstart: null, onresult: null };
+    class SpeechRecognitionMock {
+      lang = "";
+      continuous = false;
+      interimResults = false;
+      get onstart() { return recognition.onstart; }
+      set onstart(value: (() => void) | null) { recognition.onstart = value; }
+      onend: (() => void) | null = null;
+      onerror: ((event: { error?: string }) => void) | null = null;
+      get onresult() { return recognition.onresult; }
+      set onresult(value: ((event: { results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null) { recognition.onresult = value; }
+      start() { recognition.onstart?.(); }
+      stop() { this.onend?.(); }
+      abort() {}
+    }
+    vi.stubGlobal("SpeechRecognition", SpeechRecognitionMock);
+    render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Novo documento" }));
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Ditar conteúdo essencial" }));
+    act(() => recognition.onresult?.({ results: [{ 0: { transcript: "currículo de Ana com experiência em dados" }, isFinal: true }] }));
+    expect(screen.getByRole("textbox", { name: "Conte o essencial" })).toHaveValue("currículo de Ana com experiência em dados");
+    vi.unstubAllGlobals();
   });
 
   it("busca o documento completo apenas quando o usuario o abre", async () => {

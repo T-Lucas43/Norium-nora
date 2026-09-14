@@ -167,16 +167,82 @@ class EmailAgent:
             return {"session_id": None, "status": "resumo", "response": "Nao encontrei e-mails para resumir nesse filtro."}
 
         facts = "\n".join(
-            f"- De: {msg.get('fromName')} <{msg.get('fromEmail')}> | Assunto: {msg.get('subject')} | Trecho: {msg.get('snippet')}"
+            (
+                f"- De: {msg.get('fromName')} <{msg.get('fromEmail')}>; "
+                f"assunto: {msg.get('subject') or '(sem assunto)'}; data: {msg.get('dateLabel') or 'nao informada'}; "
+                f"marcadores: {', '.join(str(label) for label in msg.get('labels', [])) or 'nenhum'}; "
+                f"trecho: {str(msg.get('snippet') or '')[:360]}"
+            )
             for msg in messages[:10]
         )
         prompt = (
-            "Resuma esta caixa de e-mails em portugues, com prioridades e proximas acoes. "
-            "Use somente os dados abaixo, sem inventar detalhes.\n\n"
-            f"{facts}"
+            "Produza um resumo executivo REAL da caixa de e-mails em português do Brasil. "
+            "Não replique a caixa de entrada, não crie tabela e não enumere todos os e-mails. "
+            "Sintetize padrões, urgências e decisões. Use no máximo 180 palavras e esta estrutura: "
+            "'## Visão geral' com 2 ou 3 frases; '## O que merece atenção' com até 4 tópicos; "
+            "'## Próximo passo' com uma recomendação curta. Cite remetente ou assunto somente quando isso ajudar uma ação. "
+            "Use exclusivamente os fatos abaixo; se prazo, valor ou pedido não estiver explícito, não invente.\n\n"
+            f"E-MAILS ANALISADOS ({len(messages)}):\n{facts}"
         )
         summary = await self.nora.perguntar_nora([{"role": "user", "content": prompt}])
-        return {"session_id": None, "status": "resumo", "response": summary, "messages": messages, "folder": folder, "query": query}
+        if self._invalid_inbox_summary(summary):
+            summary = self._deterministic_inbox_summary(messages, folder)
+        return {
+            "session_id": None,
+            "status": "resumo",
+            "response": summary,
+            "summaryCount": len(messages),
+            "folder": folder,
+            "query": query,
+        }
+
+    def _invalid_inbox_summary(self, value: str) -> bool:
+        cleaned = str(value or "").strip()
+        normalized = self._normalize(cleaned)
+        return (
+            not cleaned
+            or len(cleaned) > 2400
+            or len(cleaned.splitlines()) > 28
+            or "|---" in cleaned
+            or "| ---" in cleaned
+            or "groq_api_key" in normalized
+            or normalized.startswith("ih, deu ruim")
+        )
+
+    def _deterministic_inbox_summary(self, messages: list[dict[str, Any]], folder: str) -> str:
+        unread = sum("UNREAD" in {str(label).upper() for label in item.get("labels", [])} for item in messages)
+        important = sum("IMPORTANT" in {str(label).upper() for label in item.get("labels", [])} for item in messages)
+        priority_terms = (
+            "urgente", "prazo", "vence", "vencimento", "pagamento", "boleto", "cliente",
+            "proposta", "contrato", "reuniao", "reunião", "entrevista", "confirmar", "aprovar",
+        )
+        low_priority_terms = ("newsletter", "promocao", "promoção", "oferta", "linkedin", "alerta de vaga")
+
+        def priority(item: dict[str, Any]) -> tuple[int, int]:
+            labels = {str(label).upper() for label in item.get("labels", [])}
+            text = self._normalize(f"{item.get('subject', '')} {item.get('snippet', '')}")
+            score = (3 if "IMPORTANT" in labels else 0) + (2 if "UNREAD" in labels else 0)
+            score += sum(2 for term in priority_terms if self._normalize(term) in text)
+            score -= sum(2 for term in low_priority_terms if self._normalize(term) in text)
+            return score, 1 if "UNREAD" in labels else 0
+
+        ranked = sorted(messages, key=priority, reverse=True)
+        attention = [item for item in ranked if priority(item)[0] > 0][:4] or ranked[:3]
+        overview = f"Analisei {len(messages)} e-mails recentes da {self._folder_label(folder)}."
+        signals = []
+        if unread:
+            signals.append(f"{unread} não lido{'s' if unread != 1 else ''}")
+        if important:
+            signals.append(f"{important} marcado{'s' if important != 1 else ''} como importante")
+        if signals:
+            overview += f" Há {', '.join(signals)} entre eles."
+        lines = ["## Visão geral", overview, "", "## O que merece atenção"]
+        for item in attention:
+            sender = str(item.get("fromName") or item.get("fromEmail") or "Remetente")
+            subject = str(item.get("subject") or "Sem assunto")
+            lines.append(f"- **{subject[:100]}** — {sender[:70]}. Revise o pedido e defina a resposta.")
+        lines.extend(["", "## Próximo passo", "Comece pelos itens não lidos ou marcados como importantes e arquive notificações sem ação."])
+        return "\n".join(lines)
 
     def _list_messages(self, service: GmailService, normalized: str) -> dict[str, Any]:
         folder = self._folder_from_text(normalized)

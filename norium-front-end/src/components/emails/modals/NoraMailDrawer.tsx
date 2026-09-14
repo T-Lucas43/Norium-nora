@@ -42,13 +42,13 @@ export default function NoraMailDrawer({
   onClose,
 }: NoraMailDrawerProps) {
   return (
-    <aside className="mail-modal fixed right-6 top-24 z-50 flex h-[640px] w-[390px] max-w-[calc(100vw-48px)] flex-col overflow-hidden rounded-lg border border-white/12 bg-[#18181B] shadow-2xl">
-      <div className="flex h-14 items-center justify-between border-b border-white/10 px-4">
+    <aside className="mail-modal nora-mail-drawer fixed bottom-4 right-4 top-20 z-50 flex w-[min(700px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-white/12 bg-[#18181B] shadow-2xl sm:bottom-6 sm:right-6 sm:top-24" aria-label="Nora para E-mails">
+      <div className="flex min-h-16 items-center justify-between border-b border-white/10 px-4 py-3 sm:px-5">
         <div className="flex items-center gap-3">
-          <NoraAvatar className="h-9 w-9" />
+          <NoraAvatar className="h-10 w-10" />
           <div>
-            <h3 className="text-sm font-bold">Nora para E-mails</h3>
-            <p className="max-w-[240px] truncate text-xs font-semibold text-white/45">
+            <h3 className="text-base font-black">Nora para E-mails</h3>
+            <p className="max-w-[480px] truncate text-xs font-semibold text-white/55">
               {selectedMessage ? `Contexto: ${selectedMessage.subject}` : "Caixa de entrada e novos envios"}
             </p>
           </div>
@@ -58,7 +58,7 @@ export default function NoraMailDrawer({
         </Button>
       </div>
 
-      <div className="flex gap-2 border-b border-white/10 p-3">
+      <div className="nora-native-scroll flex gap-2 overflow-x-auto border-b border-white/10 p-3 sm:px-5">
         {selectedMessage ? (
           <>
             <Button onClick={onSummarize} className="mail-hover rounded-full border-white/12 py-1.5 hover:bg-white/7">Resumir aberto</Button>
@@ -74,35 +74,39 @@ export default function NoraMailDrawer({
         )}
       </div>
 
-      <div ref={scrollRef} className="nora-native-scroll min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+      <div ref={scrollRef} className="nora-native-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
         {messages.map((message, index) => (
           <div
             key={`${message.role}-${index}`}
             className={cn(
-              "whitespace-pre-wrap rounded-lg border p-3 text-sm font-semibold leading-5",
+              "min-w-0 whitespace-pre-wrap rounded-2xl border px-4 py-3 text-sm font-semibold leading-6 sm:px-5 sm:py-4",
               message.role === "user"
-                ? "mail-primary ml-auto max-w-[84%] border-transparent bg-[#0EA5E9] text-white"
-                : "mail-card max-w-[90%] border-white/10 bg-[#121217] text-white",
+                ? "mail-primary ml-auto max-w-[88%] border-transparent bg-gradient-to-r from-blue-600 to-cyan-500 text-white"
+                : "mail-card w-full border-white/10 bg-[#121217] text-white",
             )}
           >
-            {message.role === "ai" ? <NoraMarkdown text={message.text} /> : message.text}
+            {message.role === "ai" ? <div className="nora-mail-answer min-w-0"><NoraMarkdown text={message.text} /></div> : message.text}
           </div>
         ))}
         {loading && <div className="text-sm font-bold text-white/50">Nora lendo seus e-mails...</div>}
       </div>
 
-      <div className="border-t border-white/10 p-3">
-        <div className="mail-input flex items-center gap-2 rounded-lg border border-white/12 bg-[#121217] p-2">
-          <input
+      <div className="border-t border-white/10 p-3 sm:p-4">
+        <div className="mail-input flex items-end gap-2 rounded-2xl border border-white/12 bg-[#121217] p-2.5">
+          <textarea
+            rows={2}
             value={input}
             onChange={(event) => onInputChange(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") onSend();
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                onSend();
+              }
             }}
-            placeholder="Peca algo ao agente..."
-            className="min-w-0 flex-1 bg-transparent px-2 text-sm font-semibold outline-none placeholder:text-white/35"
+            placeholder="Peça um resumo executivo, uma prioridade ou uma resposta…"
+            className="max-h-32 min-w-0 flex-1 resize-none bg-transparent px-2 py-1 text-sm font-semibold leading-5 outline-none placeholder:text-white/35"
           />
-          <Button variant="ghost" size="sm" iconOnly onClick={onSend} className="mail-primary bg-[#0EA5E9]" aria-label="Enviar para a Nora">
+          <Button variant="ghost" size="sm" iconOnly onClick={onSend} disabled={loading || !input.trim()} className="mail-primary bg-[#0EA5E9]" aria-label="Enviar para a Nora">
             <Send size={16} />
           </Button>
         </div>

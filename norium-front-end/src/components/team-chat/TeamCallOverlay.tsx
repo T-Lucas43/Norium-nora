@@ -158,7 +158,8 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   }
 
   if (snapshot.prejoin) {
-    return createPortal(<CallPrejoin snapshot={snapshot} commands={commands} />, document.body);
+    const displayName = members.find((member) => member.id === currentUserId)?.nome || "Você";
+    return createPortal(<CallPrejoin snapshot={snapshot} commands={commands} displayName={displayName} />, document.body);
   }
 
   if (!call.active && !call.incoming && snapshot.reconnectionNotice) {
@@ -317,7 +318,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   );
 }
 
-function CallPrejoin({ snapshot, commands }: { snapshot: CallSessionSnapshot; commands: CallSessionCommands }) {
+function CallPrejoin({ snapshot, commands, displayName }: { snapshot: CallSessionSnapshot; commands: CallSessionCommands; displayName: string }) {
   const entry = snapshot.prejoin!;
   const dialogRef = useRef<HTMLElement>(null);
   useEffect(() => { dialogRef.current?.focus(); }, []);
@@ -342,30 +343,54 @@ function CallPrejoin({ snapshot, commands }: { snapshot: CallSessionSnapshot; co
       ? "Câmera indisponível. Você ainda pode entrar somente por áudio."
       : "";
 
-  return <div className="team-call-incoming-backdrop fixed inset-0 z-[182] grid place-items-center p-4">
-    <section ref={dialogRef} tabIndex={-1} onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Preparar entrada" className="team-call-incoming-card w-full max-w-2xl rounded-2xl border p-6 shadow-2xl">
-      <header><p className="team-call-accent-text text-xs font-bold uppercase tracking-[.18em]">Antes de entrar</p><h2 className="mt-2 text-2xl font-black">{entry.title}</h2><p className="mt-1 text-sm text-[var(--text-secondary)]">Escolha como você quer participar. Nenhuma câmera é solicitada enquanto ela permanecer desligada.</p></header>
-      <div className="mt-5 grid gap-5 md:grid-cols-2">
-        <div className="space-y-4">
-          <fieldset className="space-y-2"><legend className="text-sm font-black">Microfone</legend>
-            {(["on", "muted", "listen-only"] as const).map((mode) => <label key={mode} className="flex cursor-pointer items-center gap-3 rounded-xl border border-[var(--border)] p-3 text-sm"><input type="radio" name="call-entry-microphone" checked={entry.microphoneMode === mode} onChange={() => commands.setEntryMicrophoneMode(mode)} aria-label={mode === "on" ? "Entrar com microfone ligado" : mode === "muted" ? "Entrar com microfone desligado" : "Entrar somente para escutar"} /><span>{mode === "on" ? "Microfone ligado" : mode === "muted" ? "Microfone desligado" : "Somente escuta · sem solicitar microfone"}</span></label>)}
+  return <div className="team-call-incoming-backdrop team-call-prejoin-backdrop fixed inset-0 z-[182] grid place-items-center p-4">
+    <section ref={dialogRef} tabIndex={-1} onKeyDown={onKeyDown} role="dialog" aria-modal="true" aria-label="Preparar entrada" className="team-call-incoming-card team-call-prejoin w-full rounded-3xl border shadow-2xl">
+      <header className="team-call-prejoin-header">
+        <span className="team-call-prejoin-brand" aria-hidden="true">N</span>
+        <div><p className="team-call-accent-text">Sala de espera Norium</p><h2>{entry.title}</h2><p>Confira câmera e áudio antes de entrar.</p></div>
+        <button type="button" onClick={commands.cancelEntry} aria-label="Fechar preparação da chamada"><X size={19} /></button>
+      </header>
+
+      <div className="team-call-prejoin-grid">
+        <section className="team-call-prejoin-video-column" aria-label="Prévia de vídeo">
+          <div className="team-call-prejoin-video">
+            {entry.previewEnabled && snapshot.previewStream
+              ? <StreamVideo stream={snapshot.previewStream} muted label="Prévia da câmera" />
+              : <div className="team-call-prejoin-placeholder"><span>{initials(displayName)}</span><strong>{entry.cameraEnabled ? "Câmera pronta para a prévia" : "Câmera desligada"}</strong><small>{entry.cameraEnabled ? "Mostre a prévia para conferir o enquadramento." : "Você poderá ativá-la antes ou durante a chamada."}</small></div>}
+          </div>
+          <div className="team-call-prejoin-video-controls">
+            <label className={`team-call-prejoin-icon-control ${entry.cameraEnabled ? "is-active" : ""}`}>
+              <input type="checkbox" checked={entry.cameraEnabled} disabled={entry.microphoneMode === "listen-only"} onChange={(event) => commands.setEntryCameraEnabled(event.target.checked)} aria-label="Entrar com câmera ligada" />
+              {entry.cameraEnabled ? <Camera size={19} /> : <CameraOff size={19} />}<span>{entry.cameraEnabled ? "Câmera ligada" : "Câmera desligada"}</span>
+            </label>
+            <button type="button" disabled={!entry.cameraEnabled || entry.microphoneMode === "listen-only"} onClick={() => void commands.setEntryPreviewEnabled(!entry.previewEnabled)} className="team-call-prejoin-preview-button">{entry.previewEnabled ? <><VideoOffMark /> Ocultar prévia</> : <><Video size={18} /> Mostrar prévia</>}</button>
+            <label className="team-call-prejoin-device compact"><span>Câmera</span><select aria-label="Câmera para a chamada" value={snapshot.selectedCameraId} disabled={!entry.cameraEnabled || entry.microphoneMode === "listen-only"} onChange={(event) => void commands.selectCamera(event.target.value)}><option value="">Padrão do sistema</option>{snapshot.devices.cameras.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Câmera", index)}</option>)}</select></label>
+          </div>
+          {cameraProblem && <p role="alert" className="team-call-prejoin-alert is-warning">{cameraProblem}</p>}
+        </section>
+
+        <section className="team-call-prejoin-options" aria-label="Opções de entrada">
+          <label className="team-call-prejoin-name"><span>Você entrará como</span><input aria-label="Nome de exibição" value={displayName} readOnly /></label>
+          <fieldset className="team-call-prejoin-audio"><legend>Como deseja ouvir e falar?</legend>
+            {(["on", "muted", "listen-only"] as const).map((mode) => <label key={mode} className={entry.microphoneMode === mode ? "is-selected" : ""}><input type="radio" name="call-entry-microphone" checked={entry.microphoneMode === mode} onChange={() => commands.setEntryMicrophoneMode(mode)} aria-label={mode === "on" ? "Entrar com microfone ligado" : mode === "muted" ? "Entrar com microfone desligado" : "Entrar somente para escutar"} /><span className="team-call-prejoin-radio" /><span className="team-call-prejoin-option-icon">{mode === "on" ? <Mic size={18} /> : mode === "muted" ? <MicOff size={18} /> : <VolumeX size={18} />}</span><span><strong>{mode === "on" ? "Áudio do computador" : mode === "muted" ? "Entrar com microfone desligado" : "Não usar microfone"}</strong><small>{mode === "on" ? "Você entra pronto para falar" : mode === "muted" ? "Ouça normalmente e ative quando quiser" : "Somente escuta, sem solicitar o microfone"}</small></span></label>)}
           </fieldset>
-          <label className="grid gap-1.5 text-xs font-bold"><span>Microfone</span><select aria-label="Microfone para a chamada" value={snapshot.selectedMicrophoneId} disabled={entry.microphoneMode === "listen-only"} onChange={(event) => void commands.selectMicrophone(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"><option value="">Padrão do sistema</option>{snapshot.devices.microphones.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Microfone", index)}</option>)}</select></label>
-          {microphoneProblem && <p role="alert" className="rounded-xl bg-rose-500/15 p-3 text-xs font-bold text-rose-200">{microphoneProblem}</p>}
-        </div>
-        <div className="space-y-4">
-          <label className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] p-3 text-sm font-bold"><span>Entrar com câmera ligada</span><input type="checkbox" checked={entry.cameraEnabled} disabled={entry.microphoneMode === "listen-only"} onChange={(event) => commands.setEntryCameraEnabled(event.target.checked)} /></label>
-          <label className="grid gap-1.5 text-xs font-bold"><span>Câmera</span><select aria-label="Câmera para a chamada" value={snapshot.selectedCameraId} disabled={!entry.cameraEnabled || entry.microphoneMode === "listen-only"} onChange={(event) => void commands.selectCamera(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm"><option value="">Padrão do sistema</option>{snapshot.devices.cameras.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Câmera", index)}</option>)}</select></label>
-          <button type="button" disabled={!entry.cameraEnabled || entry.microphoneMode === "listen-only"} onClick={() => void commands.setEntryPreviewEnabled(!entry.previewEnabled)} className="team-call-primary-button w-full rounded-xl px-4 py-2 text-sm font-black text-white">{entry.previewEnabled ? "Ocultar prévia" : "Mostrar prévia"}</button>
-          {entry.previewEnabled && snapshot.previewStream ? <div className="aspect-video overflow-hidden rounded-xl bg-black"><StreamVideo stream={snapshot.previewStream} muted label="Prévia da câmera" /></div> : <div className="grid aspect-video place-items-center rounded-xl border border-dashed border-[var(--border)] text-center text-xs text-[var(--text-secondary)]">A prévia é opcional e só solicita a câmera quando você escolher mostrá-la.</div>}
-          {cameraProblem && <p role="alert" className="rounded-xl bg-amber-500/15 p-3 text-xs font-bold text-amber-100">{cameraProblem}</p>}
-        </div>
+          <div className="team-call-prejoin-devices">
+            <label className="team-call-prejoin-device"><span><Mic size={15} /> Microfone</span><select aria-label="Microfone para a chamada" value={snapshot.selectedMicrophoneId} disabled={entry.microphoneMode === "listen-only"} onChange={(event) => void commands.selectMicrophone(event.target.value)}><option value="">Padrão do sistema</option>{snapshot.devices.microphones.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Microfone", index)}</option>)}</select></label>
+            <label className="team-call-prejoin-device"><span><Volume2 size={15} /> Saída de áudio</span><select aria-label="Saída de áudio para a chamada" value={snapshot.selectedSpeakerId || ""} disabled={!snapshot.supportsSpeakerSelection} onChange={(event) => commands.selectSpeaker(event.target.value)}><option value="">Padrão do sistema</option>{snapshot.devices.speakers.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Saída", index)}</option>)}</select>{!snapshot.supportsSpeakerSelection && <small>A saída é controlada pelo sistema neste navegador.</small>}</label>
+          </div>
+          {microphoneProblem && <p role="alert" className="team-call-prejoin-alert is-error">{microphoneProblem}</p>}
+        </section>
       </div>
-      <div aria-live="polite" className="mt-4 text-sm text-[var(--text-secondary)]">Microfone: {entry.microphoneMode === "on" ? "ligado" : entry.microphoneMode === "muted" ? "desligado ao entrar" : "não solicitado"} · Câmera: {entry.cameraEnabled ? "ligada ao entrar" : "não solicitada"}</div>
-      {snapshot.iceService && ["degraded", "unavailable"].includes(snapshot.iceService.status) && <p role="alert" className="mt-4 rounded-xl bg-amber-500/15 p-3 text-sm font-bold text-amber-100">{snapshot.iceService.detail}</p>}
-      <footer className="mt-6 flex justify-end gap-3"><button type="button" onClick={commands.cancelEntry} className="rounded-xl px-4 py-2 text-sm font-bold hover:bg-white/10">Cancelar</button><button type="button" onClick={() => void commands.enter()} className="team-call-primary-button rounded-xl px-5 py-2.5 text-sm font-black text-white">Entrar na chamada</button></footer>
+
+      <div className="team-call-prejoin-status" aria-live="polite"><span className={entry.microphoneMode === "on" ? "is-ready" : ""}>{entry.microphoneMode === "on" ? <Mic size={15} /> : <MicOff size={15} />} Microfone {entry.microphoneMode === "on" ? "ligado" : entry.microphoneMode === "muted" ? "desligado" : "não solicitado"}</span><span className={entry.cameraEnabled ? "is-ready" : ""}>{entry.cameraEnabled ? <Camera size={15} /> : <CameraOff size={15} />} Câmera {entry.cameraEnabled ? "ligada" : "desligada"}</span></div>
+      {snapshot.iceService && ["degraded", "unavailable"].includes(snapshot.iceService.status) && <p role="alert" className="team-call-prejoin-alert is-warning mx-6 mb-4">{snapshot.iceService.detail}</p>}
+      <footer className="team-call-prejoin-footer"><p>As configurações podem ser alteradas durante a reunião.</p><div><button type="button" onClick={commands.cancelEntry} className="team-call-prejoin-cancel">Cancelar</button><button type="button" onClick={() => void commands.enter()} className="team-call-primary-button team-call-prejoin-enter">Entrar agora</button></div></footer>
     </section>
   </div>;
+}
+
+function VideoOffMark() {
+  return <CameraOff size={18} aria-hidden="true" />;
 }
 
 function ScreenShareQualitySelector({ call, onClose }: { call: ReturnTypeOfTeamCall; onClose: () => void }) {

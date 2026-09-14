@@ -36,7 +36,6 @@
 .norium-modern-shell .clean-workspace .workspace-header {background:transparent!important;}
 .workspace-heading {display:flex;align-items:center;gap:14px;min-width:0;}
 .clean-workspace .workspace-icon {display:grid;place-items:center;flex-shrink:0;width:44px;height:44px;border:1px solid var(--border);border-radius:12px;background:var(--surface-hover)!important;color:var(--text-secondary)!important;}
-.clean-workspace .workspace-icon-image {display:block;width:31px;height:31px;object-fit:contain;}
 .clean-workspace .workspace-heading h1 {margin:0;font-size:25px;line-height:1.3;letter-spacing:-.7px;font-weight:650;}
 .clean-workspace .workspace-heading p {margin:5px 0 0;font-size:13px;line-height:1.6;color:var(--text-secondary);}
 .workspace-actions {display:flex;align-items:center;flex-wrap:wrap;gap:8px;}
@@ -132,7 +131,6 @@
   .clean-workspace .workspace-heading h1 {font-size:23px;}
   .clean-workspace .workspace-heading p {font-size:12px;}
   .clean-workspace .workspace-icon {width:40px;height:40px;}
-  .clean-workspace .workspace-icon-image {width:28px;height:28px;}
   .workspace-actions {width:100%;}
   .clean-workspace .workspace-metric {padding:15px;min-height:100px;}
   .clean-workspace .workspace-metric :is(strong,.text-2xl,.text-3xl) {font-size:23px;}

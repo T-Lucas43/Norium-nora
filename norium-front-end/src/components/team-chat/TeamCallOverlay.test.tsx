@@ -117,6 +117,8 @@ describe("tela da reuniao do Modo Equipe", () => {
       },
       selectedMicrophoneId: "",
       selectedCameraId: "",
+      selectedSpeakerId: "",
+      supportsSpeakerSelection: true,
       iceService: {
         status: "unavailable",
         expiresAt: "",
@@ -130,6 +132,7 @@ describe("tela da reuniao do Modo Equipe", () => {
       setEntryPreviewEnabled: vi.fn(),
       selectMicrophone: vi.fn(),
       selectCamera: vi.fn(),
+      selectSpeaker: vi.fn(),
     } as unknown as ReturnTypeOfTeamCall;
 
     render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "member", nome: "Member" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
@@ -139,15 +142,17 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByRole("radio", { name: "Entrar com microfone ligado" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Entrar com microfone desligado" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Entrar somente para escutar" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Nome de exibição")).toHaveValue("Você");
     expect(screen.getByLabelText("Microfone para a chamada")).toHaveTextContent("Headset");
     expect(screen.getByLabelText("Câmera para a chamada")).toHaveTextContent("Webcam");
+    expect(screen.getByLabelText("Saída de áudio para a chamada")).toHaveTextContent("Padrão do sistema");
     expect(screen.getAllByRole("alert").map((alert) => alert.textContent).join(" ")).toContain("microfone");
     expect(screen.getByText(/Câmera indisponível/)).toBeInTheDocument();
     expect(screen.getByText(/TURN indisponível/)).toHaveAttribute("role", "alert");
 
     fireEvent.click(screen.getByRole("radio", { name: "Entrar somente para escutar" }));
     expect(call.setEntryMicrophoneMode).toHaveBeenCalledWith("listen-only");
-    fireEvent.click(screen.getByRole("button", { name: "Entrar na chamada" }));
+    fireEvent.click(screen.getByRole("button", { name: "Entrar agora" }));
     expect(call.enterCall).toHaveBeenCalledOnce();
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(call.cancelEntry).toHaveBeenCalledOnce();

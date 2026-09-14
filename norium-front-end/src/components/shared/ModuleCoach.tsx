@@ -1,5 +1,4 @@
 import Button from "../shared/Button";
-import { getModuleIconAsset } from "./moduleIconAssets";
 import {
   BarChart3,
   Bell,
@@ -275,7 +274,6 @@ export default function ModuleCoach({
 }) {
   const guide = guides[module];
   const GuideIcon = moduleIcons[module];
-  const iconAsset = getModuleIconAsset(module);
 
   if (compact) {
     return (
@@ -291,9 +289,7 @@ export default function ModuleCoach({
     <aside className="norium-module-coach" aria-label={`Orientacao da tela ${guide.title}`}>
       <div className="norium-module-coach__intro">
         <span className="norium-module-coach__icon">
-          {iconAsset
-            ? <img src={iconAsset} className="norium-module-coach__icon-image norium-suite-icon" alt="" />
-            : <GuideIcon size={18} />}
+          <GuideIcon size={18} />
         </span>
         <span className="min-w-0">
           <strong>{guide.title}</strong>

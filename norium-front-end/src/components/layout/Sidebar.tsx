@@ -4,6 +4,7 @@ import {
   BrainCircuit,
   CalendarDays,
   CheckSquare,
+  CircleHelp,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -20,6 +21,7 @@ import {
   LibraryBig,
   Store,
   Network,
+  Settings,
   ShieldCheck,
   UsersRound,
   UserRoundCheck,
@@ -30,7 +32,9 @@ import type { PerfilOperador } from "../../types/omnichannel";
 import BrandLogo from "./BrandLogo";
 import NoraAvatar from "./NoraAvatar";
 import { preloadPanel } from "../../app/navigation/panelModules";
-import { getModuleIconAsset } from "../shared/moduleIconAssets";
+import noriumMailIcon from "../../assets/generated/norium-mail.png";
+import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
+import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
 
 type NavigationItem = {
   title: string;
@@ -73,6 +77,12 @@ const navigation: NavigationItem[] = [
   { title: "Estúdio", icon: BrainCircuit },
   { title: "Mais", icon: Ellipsis },
 ];
+
+const navigationImageAssets: Partial<Record<string, string>> = {
+  "E-mails": noriumMailIcon,
+  Agenda: noriumAgendaIcon,
+  Chat: whatsappIcon,
+};
 
 function initials(name: string) {
   return name
@@ -145,7 +155,7 @@ export default function Sidebar({
         <nav className="norium-sidebar-navigation">
           {items.map((item) => {
             const Icon = item.icon;
-            const iconAsset = getModuleIconAsset(item.title);
+            const iconAsset = navigationImageAssets[item.title];
             const active =
               activeTab === item.title ||
               (activeTab === "Inbox" && item.title === "Central") ||
@@ -182,11 +192,7 @@ export default function Sidebar({
             title={compact ? "Configurações" : undefined}
            aria-label={compact ? "Configurações" : undefined}>
             <span className="norium-sidebar-item-icon">
-              <img
-                src={getModuleIconAsset("Configurações")}
-                className="norium-sidebar-channel-icon norium-suite-icon"
-                alt=""
-              />
+              <Settings size={18} />
             </span>
             {!compact && <span className="norium-sidebar-item-label">Configurações</span>}
           </button>
@@ -198,11 +204,7 @@ export default function Sidebar({
             aria-current={activeTab === "Ajuda" ? "page" : undefined}
            aria-label={compact ? "Ajuda" : undefined}>
             <span className="norium-sidebar-item-icon">
-              <img
-                src={getModuleIconAsset("Ajuda")}
-                className="norium-sidebar-channel-icon norium-suite-icon"
-                alt=""
-              />
+              <CircleHelp size={18} />
             </span>
             {!compact && <span className="norium-sidebar-item-label">Ajuda</span>}
           </button>

@@ -42,6 +42,8 @@ describe("IntelligenceHubDashboard", () => {
           description: "Biblioteca editorial", details: "Modelos preenchidos e editáveis", version: "1.0.0",
           author: "Norium", verified: true, permissions: ["Documentos"], dependencies: [],
           category: "Documentos", features: ["Currículos completos"], icon: "document-models", destination: "Documentos",
+          dataAccess: ["Dados inseridos no documento"], setupSteps: ["Instale", "Ative"],
+          limitations: ["Não envia documentos"], activationBehavior: "Exibe os modelos extras em Documentos.",
         }, {
           id: "browser-research-agent", type: "agent", name: "Pesquisa web segura",
           description: "Pesquisa rastreável", version: "1.0.0", author: "Norium", verified: true,
@@ -53,12 +55,20 @@ describe("IntelligenceHubDashboard", () => {
       return Promise.resolve({});
     });
 
+    const user = userEvent.setup();
     render(<IntelligenceHubDashboard mode="marketplace" onOpenNora={vi.fn()} />);
     expect(await screen.findByText("Instalado e desativado")).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Instalados" }));
+    await user.click(screen.getByRole("button", { name: "Instalados" }));
     expect(screen.getByRole("heading", { name: "Modelos de documentos" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Pesquisa web segura" })).not.toBeInTheDocument();
-    await userEvent.setup().click(await screen.findByRole("switch", { name: "Ativar Modelos de documentos" }));
+    await user.click(screen.getByRole("button", { name: "Ver ficha completa" }));
+    expect(await screen.findByRole("dialog", { name: "Detalhes de Modelos de documentos" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Dados que pode acessar" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Como configurar" })).toBeInTheDocument();
+    expect(screen.getByText("Não envia documentos")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Instalar" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Fechar" }));
+    await user.click(await screen.findByRole("switch", { name: "Ativar Modelos de documentos" }));
 
     expect(client.apiRequest).toHaveBeenCalledWith(
       "/api/marketplace/installations/installation-1",

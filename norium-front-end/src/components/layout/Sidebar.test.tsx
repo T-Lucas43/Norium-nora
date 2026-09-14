@@ -2,13 +2,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import Sidebar from "./Sidebar";
 
-const iconTabs = [
+const vectorTabs = [
   "Dashboard",
   "Controle",
   "Central",
-  "E-mails",
-  "Agenda",
-  "Chat",
   "Tarefas",
   "Financeiro",
   "Automações",
@@ -29,7 +26,7 @@ const iconTabs = [
 ];
 
 describe("Sidebar", () => {
-  it("uses the Norium image icon set across every module while preserving navigation", () => {
+  it("keeps images only for communication and agenda while other modules use compact vectors", () => {
     const onNavigate = vi.fn();
 
     render(
@@ -44,9 +41,15 @@ describe("Sidebar", () => {
       />,
     );
 
-    for (const tab of iconTabs) {
+    for (const tab of ["E-mails", "Agenda", "Chat"]) {
       const button = screen.getByRole("button", { name: tab });
       expect(button.querySelector("img.norium-sidebar-channel-icon.norium-suite-icon")).not.toBeNull();
+    }
+
+    for (const tab of vectorTabs) {
+      const button = screen.getByRole("button", { name: tab });
+      expect(button.querySelector("img.norium-sidebar-channel-icon")).toBeNull();
+      expect(button.querySelector(".norium-sidebar-item-icon svg")).not.toBeNull();
     }
 
     fireEvent.click(screen.getByRole("button", { name: "Conhecimento" }));

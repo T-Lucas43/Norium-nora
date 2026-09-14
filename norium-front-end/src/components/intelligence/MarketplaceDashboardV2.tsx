@@ -1,23 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
   Boxes,
   CheckCircle2,
+  Database,
   ExternalLink,
+  FileStack,
+  Globe2,
+  Info,
+  LibraryBig,
+  MapPin,
+  Network,
   Loader2,
   Plus,
   Search,
   ShieldCheck,
   Sparkles,
   Trash2,
+  UserRoundCheck,
+  Workflow,
   X,
 } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
-import documentModelsIcon from "../../assets/generated/document-models.png";
+import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
 import noriumMailIcon from "../../assets/generated/norium-mail.png";
 import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
 import Button from "../shared/Button";
 import { showConfirm } from "../shared/AppDialogProvider";
-import { getModuleIconAsset } from "../shared/moduleIconAssets";
 
 type CatalogItem = {
   id: string;
@@ -34,6 +43,10 @@ type CatalogItem = {
   category: string;
   icon?: string;
   destination?: string;
+  dataAccess?: string[];
+  setupSteps?: string[];
+  limitations?: string[];
+  activationBehavior?: string;
 };
 
 type Installation = {
@@ -47,25 +60,35 @@ type Installation = {
 type MarketplaceOverview = { catalog: CatalogItem[]; installations: Installation[] };
 
 function ProductIcon({ item }: { item: CatalogItem }) {
-  const image = item.icon === "document-models"
-    ? documentModelsIcon
-    : item.icon === "norium-mail"
+  const image = item.icon === "norium-mail"
       ? noriumMailIcon
       : item.icon === "whatsapp"
         ? whatsappIcon
-        : getModuleIconAsset({
-            calendar: "Agenda",
-            browser: "Agente Navegador",
-            "knowledge-web": "Conhecimento",
-            knowledge: "Conhecimento",
-            automation: "Automações",
-            models: "IA e Modelos",
-            "nora-model": "IA e Modelos",
-            clients: "Clientes",
-          }[item.icon || ""] || item.name);
+        : item.icon === "calendar"
+          ? noriumAgendaIcon
+          : null;
   if (image) return <img src={image} alt="" className="h-12 w-12 object-contain" />;
-  return <Boxes size={25} />;
+  const Icon = item.icon === "document-models" ? FileStack
+    : item.icon === "browser" ? Globe2
+      : item.icon === "knowledge-web" || item.icon === "knowledge" ? LibraryBig
+        : item.icon === "automation" ? Workflow
+          : item.icon === "models" || item.icon === "nora-model" ? Network
+            : item.icon === "clients" ? UserRoundCheck
+              : Boxes;
+  return <Icon size={29} strokeWidth={1.65} />;
 }
+
+const itemTypeLabels: Record<string, string> = {
+  agent: "Agente",
+  automation: "Automação",
+  connector: "Pacote",
+  extension: "Extensão",
+  integration: "Integração",
+  model: "Modelo de IA",
+  package: "Política",
+  template: "Modelo",
+  "template-pack": "Pacote de modelos",
+};
 
 function Switch({ checked, disabled, label, onChange }: { checked: boolean; disabled: boolean; label: string; onChange: () => void }) {
   return (
@@ -114,12 +137,14 @@ export default function MarketplaceDashboardV2() {
     return data.catalog.filter((item) => {
       const categoryMatches = category === "Todos"
         || (category === "Instalados" ? installedIds.has(item.id) : item.category === category);
-      const textMatches = !normalized || `${item.name} ${item.description} ${item.details || ""} ${item.category}`.toLocaleLowerCase("pt-BR").includes(normalized);
+      const searchable = [item.name, item.description, item.details, item.category, item.destination, ...(item.features || []), ...(item.dataAccess || []), ...(item.limitations || [])].filter(Boolean).join(" ");
+      const textMatches = !normalized || searchable.toLocaleLowerCase("pt-BR").includes(normalized);
       return categoryMatches && textMatches;
     });
   }, [category, data.catalog, installedIds, query]);
 
   const installationFor = (catalogId: string) => data.installations.find((item) => item.catalogId === catalogId && item.status === "installed");
+  const selectedInstallation = selected ? installationFor(selected.id) : undefined;
 
   async function install(item: CatalogItem) {
     setBusyId(item.id); setError("");
@@ -211,8 +236,15 @@ export default function MarketplaceDashboardV2() {
               <h2>{item.name}</h2>
               <p className="marketplace-product-description">{item.description}</p>
               <div className="marketplace-feature-preview">
-                {(item.features || []).slice(0, 2).map((feature) => <span key={feature}><CheckCircle2 size={13} /> {feature}</span>)}
+                {(item.features || []).slice(0, 3).map((feature) => <span key={feature}><CheckCircle2 size={13} /> {feature}</span>)}
               </div>
+              <dl className="marketplace-product-specs">
+                <div><dt>Tipo</dt><dd>{itemTypeLabels[item.type] || item.type}</dd></div>
+                <div><dt>Onde aparece</dt><dd>{item.destination || "Workspace Norium"}</dd></div>
+              </dl>
+              <button type="button" className="marketplace-details-link" onClick={() => { setSelected(item); setConfirmed(false); }}>
+                <Info size={14} /> Ver ficha completa
+              </button>
               <div className="marketplace-product-footer">
                 {installation ? (
                   <>
@@ -229,21 +261,35 @@ export default function MarketplaceDashboardV2() {
       {!visible.length && <div className="marketplace-empty"><Boxes size={30} /><strong>Nenhum recurso encontrado</strong><span>Tente outro termo ou categoria.</span></div>}
 
       {selected && (
-        <div className="marketplace-dialog-backdrop" role="dialog" aria-modal="true" aria-label={`Instalar ${selected.name}`}>
+        <div className="marketplace-dialog-backdrop" role="dialog" aria-modal="true" aria-label={`Detalhes de ${selected.name}`}>
           <section className="marketplace-dialog">
             <div className="marketplace-dialog-header">
               <span className="marketplace-product-icon is-large"><ProductIcon item={selected} /></span>
-              <div><p>{selected.category} · por {selected.author}</p><h2>{selected.name}</h2><span><ShieldCheck size={13} /> Componente verificado</span></div>
-              <button type="button" onClick={() => setSelected(null)} aria-label="Fechar"><X size={19} /></button>
+              <div><p>{itemTypeLabels[selected.type] || selected.type} · {selected.category} · v{selected.version} · por {selected.author}</p><h2>{selected.name}</h2><span><ShieldCheck size={13} /> {selectedInstallation ? `Instalado e ${selectedInstallation.enabled ? "ativo" : "desativado"}` : "Componente verificado"}</span></div>
+              <button type="button" onClick={() => setSelected(null)} aria-label="Fechar ficha"><X size={19} /></button>
             </div>
             <p className="marketplace-dialog-description">{selected.details || selected.description}</p>
             <div className="marketplace-dialog-columns">
               <section><h3>O que será adicionado</h3>{(selected.features || []).map((feature) => <p key={feature}><CheckCircle2 size={15} /> {feature}</p>)}</section>
-              <section><h3>Permissões e dependências</h3>{selected.permissions.map((permission) => <p key={permission}><ShieldCheck size={15} /> {permission}</p>)}{selected.dependencies.map((dependency) => <p key={dependency}><ExternalLink size={15} /> {dependency}</p>)}</section>
+              <section><h3>Onde atua</h3><p><MapPin size={15} /> {selected.destination || "Workspace Norium"}</p>{selected.activationBehavior && <p><CheckCircle2 size={15} /> {selected.activationBehavior}</p>}</section>
+              <section><h3>Dados que pode acessar</h3>{(selected.dataAccess || ["Somente os dados autorizados nas permissões abaixo."]).map((entry) => <p key={entry}><Database size={15} /> {entry}</p>)}</section>
+              <section><h3>Permissões exigidas</h3>{selected.permissions.map((permission) => <p key={permission}><ShieldCheck size={15} /> {permission}</p>)}</section>
+              <section><h3>Pré-requisitos</h3>{selected.dependencies.length ? selected.dependencies.map((dependency) => <p key={dependency}><ExternalLink size={15} /> {dependency}</p>) : <p><CheckCircle2 size={15} /> Nenhum pré-requisito adicional</p>}</section>
+              <section><h3>Como configurar</h3><ol>{(selected.setupSteps || ["Instale o recurso.", "Revise as permissões e ative quando estiver pronto."]).map((step) => <li key={step}>{step}</li>)}</ol></section>
+              <section><h3>Limites e proteções</h3>{(selected.limitations || ["Ações externas continuam protegidas pelas confirmações do Norium."]).map((entry) => <p key={entry}><AlertCircle size={15} /> {entry}</p>)}</section>
             </div>
-            <div className="marketplace-safety-note"><ShieldCheck size={18} /><span><strong>Você mantém o controle.</strong> O recurso será instalado desativado e só aparecerá em {selected.destination || "seu destino"} depois que você o ativar.</span></div>
-            <label className="marketplace-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>Revisei as permissões e quero instalar esta versão.</span></label>
-            <div className="marketplace-dialog-actions"><Button onClick={() => setSelected(null)}>Cancelar</Button><Button variant="primary" disabled={!confirmed || busyId === selected.id} onClick={() => void install(selected)}>{busyId === selected.id ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Instalar</Button></div>
+            <div className="marketplace-safety-note"><ShieldCheck size={18} /><span><strong>Você mantém o controle.</strong> {selectedInstallation ? "Este recurso já está instalado. Você pode ativá-lo ou desativá-lo sem perder os dados que ele criou." : `O recurso será instalado desativado e só aparecerá em ${selected.destination || "seu destino"} depois que você o ativar.`}</span></div>
+            {selectedInstallation ? (
+              <div className="marketplace-dialog-actions is-installed">
+                <div className="marketplace-dialog-installed-actions"><span><strong>{selectedInstallation.enabled ? "Ativo" : "Desativado"}</strong><small>{selectedInstallation.enabled ? `Disponível em ${selected.destination || "Norium"}` : "O recurso está instalado, mas não aparece no destino"}</small></span><Switch checked={selectedInstallation.enabled} disabled={busyId === selected.id} label={`${selectedInstallation.enabled ? "Desativar" : "Ativar"} ${selected.name}`} onChange={() => void toggle(selectedInstallation, selected)} /></div>
+                <Button onClick={() => setSelected(null)}>Fechar</Button>
+              </div>
+            ) : (
+              <>
+                <label className="marketplace-confirm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span>Revisei os dados acessados, permissões, pré-requisitos e limites desta versão.</span></label>
+                <div className="marketplace-dialog-actions"><Button onClick={() => setSelected(null)}>Cancelar</Button><Button variant="primary" disabled={!confirmed || busyId === selected.id} onClick={() => void install(selected)}>{busyId === selected.id ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Instalar</Button></div>
+              </>
+            )}
           </section>
         </div>
       )}

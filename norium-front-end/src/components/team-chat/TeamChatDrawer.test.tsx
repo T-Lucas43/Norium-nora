@@ -87,6 +87,18 @@ describe("conversas da equipe", () => {
     await waitFor(() => expect(posted[0]).toMatchObject({ text: "@Ana Carolina ", mentionedUserIds: ["ana"], scope: "team" }));
   });
 
+  it("gives Nora responses the wider reading layout without changing other messages", async () => {
+    delayTeam = Promise.resolve(response({ messages: [
+      { ...message("nora-wide", "team", "Resumo executivo da conversa"), senderId: "nora", senderName: "Nora" },
+      message("person-standard", "team", "Mensagem comum"),
+    ] }));
+    await setup();
+    fireEvent.click(screen.getByRole("button", { name: "Abrir conversa Time todo" }));
+
+    expect((await screen.findByText("Resumo executivo da conversa")).closest(".team-chat-message")).toHaveClass("team-chat-message-nora");
+    expect(screen.getByText("Mensagem comum").closest(".team-chat-message")).not.toHaveClass("team-chat-message-nora");
+  });
+
   it("ignores a delayed message response after switching to another conversation", async () => {
     let resolveTeam!: (value: ReturnType<typeof response>) => void;
     delayTeam = new Promise((resolve) => { resolveTeam = resolve; });

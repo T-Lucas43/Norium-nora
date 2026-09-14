@@ -1,8 +1,8 @@
 import type { DashboardMetrics } from "./Dashboard";
+import { CheckSquare } from "lucide-react";
 import noriumMailIcon from "../../assets/generated/norium-mail.png";
 import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
 import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
-import noriumTasksIcon from "../../assets/generated/norium-tasks.png";
 
 type SummaryProps = {
   metrics: DashboardMetrics;
@@ -42,7 +42,7 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       title: "Tarefas",
       value: metrics.tasks,
       subtitle: "Abrir Kanban",
-      icon: noriumTasksIcon,
+      Icon: CheckSquare,
       color: "bg-cyan-500/10 text-cyan-500",
       tone: "cyan",
       tab: "Tarefas",
@@ -67,7 +67,9 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
               </div>
 
               <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${item.color}`}>
-                <img src={item.icon} className="metric-icon norium-suite-icon h-8 w-8 object-contain" alt="" />
+                {"icon" in item
+                  ? <img src={item.icon} className="metric-icon norium-suite-icon h-8 w-8 object-contain" alt="" />
+                  : <item.Icon aria-hidden="true" className="metric-icon h-8 w-8" strokeWidth={1.8} />}
               </div>
             </div>
           </button>

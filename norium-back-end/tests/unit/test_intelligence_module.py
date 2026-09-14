@@ -143,6 +143,14 @@ class IntelligenceModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("tela de E-mails que já existe", mail["description"])
         self.assertIn("tela de Agenda que já existe", calendar["description"])
 
+    def test_marketplace_catalog_explains_access_setup_activation_and_limits(self) -> None:
+        for item in service.MARKETPLACE_CATALOG:
+            with self.subTest(item=item["id"]):
+                self.assertTrue(item["dataAccess"])
+                self.assertTrue(item["setupSteps"])
+                self.assertTrue(item["limitations"])
+                self.assertTrue(item["activationBehavior"])
+
     async def test_model_router_filters_capability_privacy_and_cost(self) -> None:
         account = user("models-owner")
         cheap = await service.save_provider(account, {

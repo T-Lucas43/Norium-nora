@@ -14,6 +14,22 @@ spec.loader.exec_module(harness)
 
 
 class BrowserHarnessTests(unittest.IsolatedAsyncioTestCase):
+    def test_three_repetitions_require_a_strict_majority_per_scenario(self):
+        results = [
+            {'scenario': 'page_reload', 'repetition': 1, 'status': 'failed'},
+            {'scenario': 'page_reload', 'repetition': 2, 'status': 'passed'},
+            {'scenario': 'page_reload', 'repetition': 3, 'status': 'passed'},
+            {'scenario': 'group_media', 'repetition': 1, 'status': 'passed'},
+            {'scenario': 'group_media', 'repetition': 2, 'status': 'failed'},
+            {'scenario': 'group_media', 'repetition': 3, 'status': 'failed'},
+        ]
+        self.assertEqual([], harness.blocking_results(results[:3], 3))
+        self.assertEqual(results[4:], harness.blocking_results(results[3:], 3))
+
+    def test_harness_failures_always_block(self):
+        failure = {'scenario': '__services__', 'repetition': 0, 'status': 'failed'}
+        self.assertEqual([failure], harness.blocking_results([failure], 3))
+
     async def test_renderer_crash_can_arrive_after_navigation_rejects(self):
         # Ubuntu's crash handler can delay the real crash event beyond five
         # seconds. The complete participant-removal deadline remains 18s.

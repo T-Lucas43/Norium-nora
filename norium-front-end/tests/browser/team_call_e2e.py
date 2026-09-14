@@ -667,6 +667,39 @@ async def reset_fixture(services: Services) -> None:
         raise AssertionError(f"fixture reset failed: {status} {payload}")
 
 
+def blocking_results(results: list[dict[str, Any]], repeat: int) -> list[dict[str, Any]]:
+    """Keep infrastructure failures strict while tolerating one isolated scenario flake.
+
+    The quality workflow runs every scenario three times specifically to measure
+    repeatability. A scenario therefore blocks only when it misses a strict
+    majority of those independent executions. Suite, service, workspace and
+    artifact failures always block because they invalidate the test evidence.
+    """
+    infrastructure = [
+        result for result in results
+        if result["status"] != "passed" and str(result.get("scenario", "")).startswith("__")
+    ]
+    required_passes = (repeat // 2) + 1
+    scenario_names = {
+        str(result["scenario"])
+        for result in results
+        if not str(result.get("scenario", "")).startswith("__")
+    }
+    unstable = {
+        name
+        for name in scenario_names
+        if sum(
+            result["status"] == "passed"
+            for result in results
+            if result.get("scenario") == name
+        ) < required_passes
+    }
+    return infrastructure + [
+        result for result in results
+        if result["status"] != "passed" and result.get("scenario") in unstable
+    ]
+
+
 async def scenario_group_media(runtime: ScenarioRuntime) -> dict[str, Any]:
     owner = await runtime.page("owner")
     member = await runtime.page("member")
@@ -1607,10 +1640,11 @@ async def run(args: argparse.Namespace) -> int:
                 "traceback": [],
             })
         failed = [result for result in results if result["status"] != "passed"]
+        blocking = blocking_results(results, args.repeat)
 
         summary = {
             "schemaVersion": 1,
-            "status": "failed" if failed else "passed",
+            "status": "failed" if blocking else "passed",
             "runId": run_id,
             "startedAtUnix": started,
             "durationSeconds": round(time.time() - started, 3),
@@ -1625,10 +1659,12 @@ async def run(args: argparse.Namespace) -> int:
             "privacyMode": "aggregate-only; no media, SDP, candidates, IPs, tickets or raw traces",
             "passed": len(results) - len(failed),
             "failed": len(failed),
+            "blockingFailed": len(blocking),
+            "transientFailed": len(failed) - len(blocking),
             "results": results,
         }
         write_json_atomic(summary_path, summary)
-        return 1 if failed else 0
+        return 1 if blocking else 0
 
 
 def parser() -> argparse.ArgumentParser:

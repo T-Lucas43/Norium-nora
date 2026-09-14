@@ -820,7 +820,7 @@ async def scenario_permission_denied(runtime: ScenarioRuntime) -> dict[str, Any]
     await deny_capture_permissions(owner, runtime.services.frontend_url)
     await owner.page.get_by_test_id("start-group").click()
     await configure_entry(owner.page, "on")
-    await owner.page.get_by_role("button", name="Entrar na chamada", exact=True).click()
+    await owner.page.get_by_role("button", name="Entrar agora", exact=True).click()
     await wait_diagnostic(
         owner.page,
         "value.phase === 'failed' && value.microphonePermission === 'denied'",

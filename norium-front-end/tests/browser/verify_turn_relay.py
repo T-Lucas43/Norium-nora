@@ -113,9 +113,9 @@ async def verify() -> dict[str, object]:
 
         owner, member = pages
         await owner.get_by_role("button", name="Iniciar reunião", exact=True).click()
-        await owner.get_by_role("button", name="Entrar na chamada", exact=True).click()
+        await owner.get_by_role("button", name="Entrar agora", exact=True).click()
         await member.get_by_role("button", name="Entrar na reunião", exact=True).click()
-        await member.get_by_role("button", name="Entrar na chamada", exact=True).click()
+        await member.get_by_role("button", name="Entrar agora", exact=True).click()
         await expect(owner.get_by_role("slider", name="Volume de Member")).to_be_visible(timeout=30_000)
         await expect(member.get_by_role("slider", name="Volume de Owner")).to_be_visible(timeout=30_000)
 

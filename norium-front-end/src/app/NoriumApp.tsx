@@ -399,7 +399,7 @@ export default function NoriumApp() {
 
         <main
           id="norium-main"
-          className={`app-main min-h-0 w-full flex-1 ${activeTab === "E-mail" || activeTab === "E-mails" ? "app-main-mail overflow-hidden" : "overflow-y-auto"}`}
+          className={`app-main min-h-0 w-full flex-1 ${activeTab === "E-mail" || activeTab === "E-mails" ? "app-main-mail overflow-hidden" : activeTab === "Chat da Equipe" ? "app-main-team-chat overflow-hidden" : "overflow-y-auto"}`}
         >
           <AppPanels
             key={`panels-${authSession.user.id}`}

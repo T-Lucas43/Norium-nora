@@ -609,7 +609,7 @@ async def configure_entry(page: Page, mode: str = "muted", camera: bool = False)
         "muted": "Entrar com microfone desligado",
         "listen-only": "Entrar somente para escutar",
     }
-    await expect(page.get_by_role("button", name="Entrar na chamada", exact=True)).to_be_visible()
+    await expect(page.get_by_role("button", name="Entrar agora", exact=True)).to_be_visible()
     await page.get_by_role("radio", name=labels[mode], exact=True).check()
     checkbox = page.get_by_role("checkbox", name="Entrar com câmera ligada", exact=True)
     if camera:
@@ -626,7 +626,7 @@ async def enter_prejoin(
     waiting_for_peer_is_settled: bool = False,
 ) -> None:
     await configure_entry(page, mode, camera)
-    await page.get_by_role("button", name="Entrar na chamada", exact=True).click()
+    await page.get_by_role("button", name="Entrar agora", exact=True).click()
     expression = (
         "value.callId && ['connected', 'reconnecting'].includes(value.phase)"
         if waiting_for_peer_is_settled

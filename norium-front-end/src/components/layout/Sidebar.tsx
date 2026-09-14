@@ -6,7 +6,6 @@ import {
   CheckSquare,
   ChevronLeft,
   ChevronRight,
-  CircleHelp,
   ClipboardCheck,
   CreditCard,
   Ellipsis,
@@ -21,7 +20,6 @@ import {
   LibraryBig,
   Store,
   Network,
-  Settings,
   ShieldCheck,
   UsersRound,
   UserRoundCheck,
@@ -32,14 +30,7 @@ import type { PerfilOperador } from "../../types/omnichannel";
 import BrandLogo from "./BrandLogo";
 import NoraAvatar from "./NoraAvatar";
 import { preloadPanel } from "../../app/navigation/panelModules";
-import noriumMailIcon from "../../assets/generated/norium-mail.png";
-import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
-import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
-import noriumTasksIcon from "../../assets/generated/norium-tasks.png";
-import noriumFinanceIcon from "../../assets/generated/norium-finance.png";
-import noriumAutomationsIcon from "../../assets/generated/norium-automations.png";
-import noriumStudioIcon from "../../assets/generated/norium-studio.png";
-import noriumTeamChatIcon from "../../assets/generated/norium-team-chat.png";
+import { getModuleIconAsset } from "../shared/moduleIconAssets";
 
 type NavigationItem = {
   title: string;
@@ -82,17 +73,6 @@ const navigation: NavigationItem[] = [
   { title: "Estúdio", icon: BrainCircuit },
   { title: "Mais", icon: Ellipsis },
 ];
-
-const navigationIconAssets: Record<string, string> = {
-  "E-mails": noriumMailIcon,
-  Chat: whatsappIcon,
-  Agenda: noriumAgendaIcon,
-  Tarefas: noriumTasksIcon,
-  Financeiro: noriumFinanceIcon,
-  "Automações": noriumAutomationsIcon,
-  Estúdio: noriumStudioIcon,
-  "Chat da Equipe": noriumTeamChatIcon,
-};
 
 function initials(name: string) {
   return name
@@ -165,7 +145,7 @@ export default function Sidebar({
         <nav className="norium-sidebar-navigation">
           {items.map((item) => {
             const Icon = item.icon;
-            const iconAsset = navigationIconAssets[item.title];
+            const iconAsset = getModuleIconAsset(item.title);
             const active =
               activeTab === item.title ||
               (activeTab === "Inbox" && item.title === "Central") ||
@@ -202,7 +182,11 @@ export default function Sidebar({
             title={compact ? "Configurações" : undefined}
            aria-label={compact ? "Configurações" : undefined}>
             <span className="norium-sidebar-item-icon">
-              <Settings size={18} />
+              <img
+                src={getModuleIconAsset("Configurações")}
+                className="norium-sidebar-channel-icon norium-suite-icon"
+                alt=""
+              />
             </span>
             {!compact && <span className="norium-sidebar-item-label">Configurações</span>}
           </button>
@@ -214,7 +198,11 @@ export default function Sidebar({
             aria-current={activeTab === "Ajuda" ? "page" : undefined}
            aria-label={compact ? "Ajuda" : undefined}>
             <span className="norium-sidebar-item-icon">
-              <CircleHelp size={18} />
+              <img
+                src={getModuleIconAsset("Ajuda")}
+                className="norium-sidebar-channel-icon norium-suite-icon"
+                alt=""
+              />
             </span>
             {!compact && <span className="norium-sidebar-item-label">Ajuda</span>}
           </button>

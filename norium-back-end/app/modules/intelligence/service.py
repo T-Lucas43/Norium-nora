@@ -576,10 +576,10 @@ MARKETPLACE_CATALOG = [
         "version": "2.0.0", "author": "Norium Studio", "verified": True, "permissions": ["Exibir modelos na central de Documentos"], "dependencies": ["Documentos"], "category": "Documentos", "icon": "document-models", "destination": "Documentos",
     },
     {
-        "id": "norium-mail-connector", "type": "integration", "name": "Norium Mail", "description": "Habilita o conector de e-mail e a Nora para resumir, priorizar e preparar respostas.",
-        "details": "A instalação libera o conector; a leitura real depende da conexão OAuth feita pelo usuário na tela de E-mails.",
-        "features": ["Resumo executivo da caixa", "Rascunhos assistidos", "Ações com confirmação"],
-        "version": "1.2.0", "author": "Norium", "verified": True, "permissions": ["Acessar o módulo de e-mails quando conectado"], "dependencies": ["Conta Google conectada pelo usuário"], "category": "Comunicação", "icon": "norium-mail", "destination": "E-mails",
+        "id": "norium-mail-connector", "type": "extension", "name": "Triagem inteligente de e-mails", "description": "Acrescenta prioridade, resumo executivo e rascunhos assistidos à tela de E-mails que já existe no Norium.",
+        "details": "Esta extensão não cria outra tela. Ela adiciona recursos da Nora à caixa existente e só lê mensagens depois da conexão OAuth feita pelo usuário.",
+        "features": ["Resumo executivo sem repetir a caixa", "Prioridades justificadas", "Rascunhos com confirmação"],
+        "version": "1.3.0", "author": "Norium", "verified": True, "permissions": ["Ler mensagens da conta já autorizada"], "dependencies": ["Tela E-mails", "Conta Google conectada pelo usuário"], "category": "Extensões", "icon": "norium-mail", "destination": "E-mails",
     },
     {
         "id": "whatsapp-connector", "type": "integration", "name": "WhatsApp", "description": "Disponibiliza ações de conversa e automação para uma instância vinculada pelo responsável.",
@@ -588,10 +588,10 @@ MARKETPLACE_CATALOG = [
         "version": "1.3.0", "author": "Norium", "verified": True, "permissions": ["Usar a instância vinculada pelo responsável"], "dependencies": ["Instância W-API configurada"], "category": "Comunicação", "icon": "whatsapp", "destination": "Chat",
     },
     {
-        "id": "calendar-connector", "type": "integration", "name": "Google Agenda", "description": "Habilita eventos e disponibilidade da agenda nas ações da Nora e das automações.",
-        "details": "O conector só acessa calendários depois da autorização OAuth e respeita as permissões do workspace.",
-        "features": ["Criar e consultar eventos", "Disponibilidade", "Gatilhos de agenda"],
-        "version": "1.1.0", "author": "Norium", "verified": True, "permissions": ["Acessar calendários autorizados"], "dependencies": ["Google Agenda conectado"], "category": "Produtividade", "icon": "calendar", "destination": "Agenda",
+        "id": "calendar-connector", "type": "extension", "name": "Briefing inteligente de agenda", "description": "Acrescenta preparação de compromissos, conflitos e gatilhos à tela de Agenda que já existe no Norium.",
+        "details": "Esta extensão não instala outra agenda. Ela enriquece a tela existente e só acessa calendários externos depois da autorização OAuth.",
+        "features": ["Briefing antes de compromissos", "Avisos de conflito", "Gatilhos para automações"],
+        "version": "1.2.0", "author": "Norium", "verified": True, "permissions": ["Acessar calendários autorizados"], "dependencies": ["Tela Agenda", "Google Agenda conectado"], "category": "Extensões", "icon": "calendar", "destination": "Agenda",
     },
     {
         "id": "browser-research-agent", "type": "agent", "name": "Pesquisa web segura", "description": "Cria um perfil restrito para pesquisas públicas e rastreáveis.",

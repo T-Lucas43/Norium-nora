@@ -134,6 +134,15 @@ class IntelligenceModuleTests(unittest.IsolatedAsyncioTestCase):
         preserved = read_user_db(account["id"], "automacoes", {})["automations"]
         self.assertTrue(any(item["id"] == created["id"] and not item["active"] for item in preserved))
 
+    def test_native_screens_are_described_as_optional_marketplace_extensions(self) -> None:
+        mail = service.catalog_item("norium-mail-connector")
+        calendar = service.catalog_item("calendar-connector")
+
+        self.assertEqual("extension", mail["type"])
+        self.assertEqual("extension", calendar["type"])
+        self.assertIn("tela de E-mails que já existe", mail["description"])
+        self.assertIn("tela de Agenda que já existe", calendar["description"])
+
     async def test_model_router_filters_capability_privacy_and_cost(self) -> None:
         account = user("models-owner")
         cheap = await service.save_provider(account, {

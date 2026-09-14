@@ -4,9 +4,10 @@ import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
 import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
 import noriumTasksIcon from "../../assets/generated/norium-tasks.png";
 import noriumFinanceIcon from "../../assets/generated/norium-finance.png";
-import noriumAutomationsIcon from "../../assets/generated/norium-automations.png";
+import noriumAutomationsIcon from "../../assets/generated/norium-automations.svg";
 import noriumStudioIcon from "../../assets/generated/norium-studio.png";
 import noriumTeamChatIcon from "../../assets/generated/norium-team-chat.png";
+import { getModuleIconAsset } from "./moduleIconAssets";
 
 /** Vector marks stay sharp in compact cards, the library and the flow canvas. */
 export default function IntegrationLogo({ name, size = 24, className = "" }: { name: string; size?: number; className?: string }) {
@@ -20,7 +21,7 @@ export default function IntegrationLogo({ name, size = 24, className = "" }: { n
             : /automa|workflow/.test(key) ? noriumAutomationsIcon
               : /estúdio|estudio|brainstorm/.test(key) ? noriumStudioIcon
                 : /chat da equipe|team chat|messages-square/.test(key) ? noriumTeamChatIcon
-                  : null;
+                  : getModuleIconAsset(name);
   if (image) return <img aria-hidden="true" src={image} width={size} height={size} className={`norium-suite-icon object-contain ${className}`} alt="" />;
   const [Icon, color] = /equipe|chat|users/.test(key) ? [Users, "#8b7cf8"] as const
     : /agenda|calendar/.test(key) ? [CalendarDays, "#60a5fa"] as const

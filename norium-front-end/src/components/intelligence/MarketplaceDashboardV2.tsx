@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Bot,
   Boxes,
-  CalendarDays,
   CheckCircle2,
   ExternalLink,
-  Globe2,
-  LibraryBig,
   Loader2,
-  Network,
   Plus,
   Search,
   ShieldCheck,
   Sparkles,
   Trash2,
-  Workflow,
   X,
 } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
@@ -23,6 +17,7 @@ import noriumMailIcon from "../../assets/generated/norium-mail.png";
 import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
 import Button from "../shared/Button";
 import { showConfirm } from "../shared/AppDialogProvider";
+import { getModuleIconAsset } from "../shared/moduleIconAssets";
 
 type CatalogItem = {
   id: string;
@@ -58,16 +53,18 @@ function ProductIcon({ item }: { item: CatalogItem }) {
       ? noriumMailIcon
       : item.icon === "whatsapp"
         ? whatsappIcon
-        : null;
+        : getModuleIconAsset({
+            calendar: "Agenda",
+            browser: "Agente Navegador",
+            "knowledge-web": "Conhecimento",
+            knowledge: "Conhecimento",
+            automation: "Automações",
+            models: "IA e Modelos",
+            "nora-model": "IA e Modelos",
+            clients: "Clientes",
+          }[item.icon || ""] || item.name);
   if (image) return <img src={image} alt="" className="h-12 w-12 object-contain" />;
-  const Icon = item.icon === "calendar" ? CalendarDays
-    : item.icon === "browser" ? Globe2
-      : item.icon?.includes("knowledge") ? LibraryBig
-        : item.icon === "automation" ? Workflow
-          : item.icon?.includes("model") || item.icon === "models" ? Network
-            : item.icon === "clients" ? Bot
-              : Boxes;
-  return <Icon size={25} />;
+  return <Boxes size={25} />;
 }
 
 function Switch({ checked, disabled, label, onChange }: { checked: boolean; disabled: boolean; label: string; onChange: () => void }) {
@@ -106,15 +103,21 @@ export default function MarketplaceDashboardV2() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const categories = useMemo(() => ["Todos", ...Array.from(new Set(data.catalog.map((item) => item.category)))], [data.catalog]);
+  const installedIds = useMemo(() => new Set(
+    data.installations
+      .filter((item) => item.status === "installed")
+      .map((item) => item.catalogId),
+  ), [data.installations]);
+  const categories = useMemo(() => ["Todos", "Instalados", ...Array.from(new Set(data.catalog.map((item) => item.category)))], [data.catalog]);
   const visible = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("pt-BR");
     return data.catalog.filter((item) => {
-      const categoryMatches = category === "Todos" || item.category === category;
+      const categoryMatches = category === "Todos"
+        || (category === "Instalados" ? installedIds.has(item.id) : item.category === category);
       const textMatches = !normalized || `${item.name} ${item.description} ${item.details || ""} ${item.category}`.toLocaleLowerCase("pt-BR").includes(normalized);
       return categoryMatches && textMatches;
     });
-  }, [category, data.catalog, query]);
+  }, [category, data.catalog, installedIds, query]);
 
   const installationFor = (catalogId: string) => data.installations.find((item) => item.catalogId === catalogId && item.status === "installed");
 
@@ -196,10 +199,13 @@ export default function MarketplaceDashboardV2() {
         {visible.map((item) => {
           const installation = installationFor(item.id);
           return (
-            <article key={item.id} className={`marketplace-product ${installation?.enabled ? "is-enabled" : ""}`}>
+            <article key={item.id} className={`marketplace-product ${installation ? "is-installed" : ""} ${installation?.enabled ? "is-enabled" : ""}`}>
               <div className="marketplace-product-top">
                 <span className="marketplace-product-icon"><ProductIcon item={item} /></span>
-                {item.verified && <span className="marketplace-verified"><ShieldCheck size={13} /> Verificado</span>}
+                <div className="marketplace-product-badges">
+                  {installation && <span className="marketplace-installed"><CheckCircle2 size={13} /> Instalado</span>}
+                  {item.verified && <span className="marketplace-verified"><ShieldCheck size={13} /> Verificado</span>}
+                </div>
               </div>
               <p className="marketplace-product-meta">{item.category} · v{item.version}</p>
               <h2>{item.name}</h2>
@@ -210,7 +216,7 @@ export default function MarketplaceDashboardV2() {
               <div className="marketplace-product-footer">
                 {installation ? (
                   <>
-                    <div><strong>{installation.enabled ? "Ativo" : "Desativado"}</strong><small>{installation.enabled ? `Disponível em ${item.destination || "Norium"}` : "Instalado, mas não aparece nos módulos"}</small></div>
+                    <div><strong>{installation.enabled ? "Instalado e ativo" : "Instalado e desativado"}</strong><small>{installation.enabled ? `Disponível em ${item.destination || "Norium"}` : "Não aparece nos módulos até ser ativado"}</small></div>
                     <Switch checked={installation.enabled} disabled={busyId === item.id} label={`${installation.enabled ? "Desativar" : "Ativar"} ${item.name}`} onChange={() => void toggle(installation, item)} />
                     <Button iconOnly variant="danger" size="sm" disabled={busyId === item.id} onClick={() => void uninstall(installation, item)} aria-label={`Desinstalar ${item.name}`}><Trash2 size={15} /></Button>
                   </>

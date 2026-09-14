@@ -42,6 +42,10 @@ describe("IntelligenceHubDashboard", () => {
           description: "Biblioteca editorial", details: "Modelos preenchidos e editáveis", version: "1.0.0",
           author: "Norium", verified: true, permissions: ["Documentos"], dependencies: [],
           category: "Documentos", features: ["Currículos completos"], icon: "document-models", destination: "Documentos",
+        }, {
+          id: "browser-research-agent", type: "agent", name: "Pesquisa web segura",
+          description: "Pesquisa rastreável", version: "1.0.0", author: "Norium", verified: true,
+          permissions: [], dependencies: [], category: "Pesquisa", features: [], icon: "browser",
         }],
         installations: [{ id: "installation-1", catalogId: "document-models-pack", version: "1.0.0", status: "installed", enabled: false }],
       });
@@ -50,6 +54,10 @@ describe("IntelligenceHubDashboard", () => {
     });
 
     render(<IntelligenceHubDashboard mode="marketplace" onOpenNora={vi.fn()} />);
+    expect(await screen.findByText("Instalado e desativado")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Instalados" }));
+    expect(screen.getByRole("heading", { name: "Modelos de documentos" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Pesquisa web segura" })).not.toBeInTheDocument();
     await userEvent.setup().click(await screen.findByRole("switch", { name: "Ativar Modelos de documentos" }));
 
     expect(client.apiRequest).toHaveBeenCalledWith(

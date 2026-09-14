@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="workflow" x1="44" y1="42" x2="211" y2="215" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="0.52" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <circle cx="64" cy="61" r="22" fill="#22D3EE"/>
+  <circle cx="64" cy="61" r="8" fill="white" fill-opacity=".94"/>
+  <path d="M82 75C96 83 105 91 111 102" stroke="#22D3EE" stroke-width="13" stroke-linecap="round"/>
+  <path d="M106 91L115 108L98 104" fill="#2563EB"/>
+  <path d="M128 85L137 99L153 96L160 112L151 126L160 140L153 156L137 153L128 167L119 153L103 156L96 140L105 126L96 112L103 96L119 99L128 85Z" fill="url(#workflow)"/>
+  <circle cx="128" cy="126" r="18" fill="#F8FAFC"/>
+  <circle cx="128" cy="126" r="8" fill="#2563EB"/>
+  <path d="M149 151C159 160 166 169 171 180" stroke="#5B4CF0" stroke-width="13" stroke-linecap="round"/>
+  <path d="M163 174L176 187L177 169" fill="#7C3AED"/>
+  <circle cx="190" cy="194" r="29" fill="#7C3AED"/>
+  <path d="M176 194L186 204L205 183" stroke="white" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

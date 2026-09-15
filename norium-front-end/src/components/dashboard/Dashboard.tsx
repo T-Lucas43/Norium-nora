@@ -8,6 +8,7 @@ import RecentActivity from "./RecentActivity";
 import ActiveAutomations from "./ActiveAutomations";
 import DashboardRail from "./DashboardRail";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
+import { apiBaseUrl } from "../../utils/api";
 
 type EventsBySource = Record<EventSource, OmnichannelEvent[]>;
 
@@ -33,9 +34,12 @@ type DashboardProps = {
   eventsBySource: EventsBySource;
   connected: boolean;
   profile: PerfilOperador | null;
+  userId: string;
   onNavigate: (tab: string) => void;
   onOpenNora: () => void;
 };
+
+type FinanceSnapshot = { resumo?: { saldo?: number } };
 
 function describeWeather(code: number) {
   if (code === 0) return "Ceu limpo";
@@ -118,7 +122,8 @@ function useWeatherFromCep(cep?: string) {
   return weather;
 }
 
-export default function Dashboard({ eventsBySource, connected, profile, onNavigate, onOpenNora }: DashboardProps) {
+export default function Dashboard({ eventsBySource, connected, profile, userId, onNavigate, onOpenNora }: DashboardProps) {
+  const [financeBalance, setFinanceBalance] = useState<number | null>(null);
   const metrics = useMemo<DashboardMetrics>(() => {
     const emails = eventsBySource.gmail.length;
     const whatsapp = eventsBySource.whatsapp.length;
@@ -144,6 +149,23 @@ export default function Dashboard({ eventsBySource, connected, profile, onNaviga
 
   const weather = useWeatherFromCep(profile?.cep);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBaseUrl()}/api/financeiro?user_id=${encodeURIComponent(userId)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Financeiro indisponível");
+        return response.json() as Promise<FinanceSnapshot>;
+      })
+      .then((payload) => {
+        const balance = Number(payload.resumo?.saldo);
+        if (!cancelled) setFinanceBalance(Number.isFinite(balance) ? balance : null);
+      })
+      .catch(() => {
+        if (!cancelled) setFinanceBalance(null);
+      });
+    return () => { cancelled = true; };
+  }, [userId]);
+
   return (
     <main className="norium-dashboard">
       <div className="norium-dashboard-main">
@@ -155,7 +177,7 @@ export default function Dashboard({ eventsBySource, connected, profile, onNaviga
           onNavigate={onNavigate}
         />
 
-        <Summary metrics={metrics} onNavigate={onNavigate} />
+        <Summary metrics={metrics} financeBalance={financeBalance} onNavigate={onNavigate} />
 
         <section className="norium-dashboard-detail-grid">
           <RecentActivity events={recentEvents} onNavigate={onNavigate} />

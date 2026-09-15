@@ -2400,9 +2400,9 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                           onClick={() => handleSuggestion(suggestion.action, suggestion.title)}
                           className="nora-quick-suggestion min-h-11 w-auto flex-row items-center justify-start gap-2 px-3 py-2 text-left"
                         >
-                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-r from-blue-800 to-cyan-500 text-white">
+                          <span className="nora-quick-suggestion-icon" aria-hidden="true">
                             <Icon size={14} />
-                          </div>
+                          </span>
                           <span className="text-xs leading-4">{suggestion.title}</span>
                         </Button>
                       );

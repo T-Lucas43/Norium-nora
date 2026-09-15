@@ -6,6 +6,7 @@
 - **Branch:** `codex/auth-02-bootstrap-administrativo`.
 - **Commit-base:** `fce1724b27694df3c698a35d332173853dfad62b` (`origin/main` atualizado no início da etapa; merge do AUTH-04).
 - **Commit funcional:** `f3877cd` (`fix(auth): isolate administrative bootstrap`).
+- **Sincronização da base:** `e73292a`, integrando `origin/main` em `f039e55` sem conflitos nem sobreposição com o AUTH-02.
 - **Worktree isolado:** `C:\NOrium\deploy-worktrees\auth-02-bootstrap-administrativo`.
 
 ## Causa e correção
@@ -55,8 +56,8 @@ O procedimento Azure de recuperação continua alterando papéis somente depois 
 - Dependências instaladas: `pip check`, exit `0`. Log: [`backend-pip-check.log`](../../../output/security-fix-auth-02/backend-pip-check.log).
 - Análise estática: Bandit com severidade média/alta, exit `0`, sem achados. Log: [`backend-bandit.log`](../../../output/security-fix-auth-02/backend-bandit.log).
 - Auditoria do backend: nenhum pacote vulnerável conhecido, exit `0`. Log: [`backend-pip-audit.log`](../../../output/security-fix-auth-02/backend-pip-audit.log).
-- Frontend: lint exit `0` com 18 avisos preexistentes e nenhum erro; **652/652 testes**; build de produção concluído; auditoria das dependências de produção sem vulnerabilidades. Logs: [`frontend-lint.log`](../../../output/security-fix-auth-02/frontend-lint.log), [`frontend-tests.log`](../../../output/security-fix-auth-02/frontend-tests.log), [`frontend-build.log`](../../../output/security-fix-auth-02/frontend-build.log) e [`frontend-audit-production-high.log`](../../../output/security-fix-auth-02/frontend-audit-production-high.log).
-- Scanner do frontend de chamadas: 196 arquivos examinados, nenhum segredo permanente nem harness de teste no build. Log: [`frontend-call-security.log`](../../../output/security-fix-auth-02/frontend-call-security.log).
+- Frontend após sincronizar a `main`: lint exit `0` com 18 avisos preexistentes e nenhum erro; **653/653 testes**; build de produção concluído; auditoria das dependências de produção sem vulnerabilidades. Logs: [`frontend-lint-after-main-merge.log`](../../../output/security-fix-auth-02/frontend-lint-after-main-merge.log), [`frontend-tests-after-main-merge.log`](../../../output/security-fix-auth-02/frontend-tests-after-main-merge.log), [`frontend-build-after-main-merge.log`](../../../output/security-fix-auth-02/frontend-build-after-main-merge.log) e [`frontend-audit-production-high.log`](../../../output/security-fix-auth-02/frontend-audit-production-high.log).
+- Scanner do frontend de chamadas após a sincronização: 186 arquivos examinados, nenhum segredo permanente nem harness de teste no build. Log: [`frontend-call-security-after-main-merge.log`](../../../output/security-fix-auth-02/frontend-call-security-after-main-merge.log).
 - Revisão independente final: nenhum achado P0–P3 remanescente no código, nos testes ou no procedimento de recuperação.
 
 ## Trabalho preexistente preservado

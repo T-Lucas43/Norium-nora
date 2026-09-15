@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ResourceGroup = "rg-norium-dev",
-    [string]$Repository = "T-Lucas43/Norium-nora",
+    [string]$Repository = "noriumnoraai-ui/Norium-nora",
     [string]$Branch = "main"
 )
 

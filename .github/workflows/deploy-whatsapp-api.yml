@@ -19,7 +19,7 @@ jobs:
       DEPLOYMENT_APP: norium-whatsapp-app
       WHATSAPP_APP_NAME: norium-whatsapp-api
       REGISTRY: ghcr.io
-      IMAGE_NAME: t-lucas43/norium-nora
+      IMAGE_NAME: noriumnoraai-ui/norium-nora
     steps:
       - name: Checkout WhatsApp API repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

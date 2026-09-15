@@ -19,7 +19,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: t-lucas43/norium-nora
+  IMAGE_NAME: noriumnoraai-ui/norium-nora
 
 jobs:
   validate:

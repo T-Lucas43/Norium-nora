@@ -5,10 +5,10 @@ param location string = 'eastus2'
 param appName string = 'norium-${uniqueString(subscription().subscriptionId, resourceGroup().id)}'
 
 @description('Imagem privada criada pelo GitHub Actions e armazenada no GHCR.')
-param containerImage string = 'ghcr.io/t-lucas43/norium-nora:latest'
+param containerImage string = 'ghcr.io/noriumnoraai-ui/norium-nora:latest'
 
 @description('Usuario que possui o pacote no GitHub Container Registry.')
-param registryUsername string = 'T-Lucas43'
+param registryUsername string = 'noriumnoraai-ui'
 
 @secure()
 @description('Token GitHub com permissao read:packages, usado apenas pelo Container Apps para baixar a imagem privada.')

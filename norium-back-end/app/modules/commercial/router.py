@@ -20,6 +20,7 @@ from app.modules.commercial.schemas import (
     ContractUpdate,
     DocumentDuplicateRequest,
     DocumentImportRequest,
+    DocumentAccessUpdate,
     DocumentShareRequest,
     ImportedDocumentUpdate,
     InstantiateObligationsRequest,
@@ -75,11 +76,13 @@ from app.modules.commercial.service import (
     document_for_response,
     generate_proposal_draft,
     generate_smart_document_draft,
+    find_accessible_document,
     create_smart_document,
     duplicate_proposal,
     duplicate_template,
     instantiate_obligations,
     list_commercial_data,
+    require_document_access,
     proposal_or_404,
     public_signature_data,
     send_for_signature,
@@ -88,6 +91,7 @@ from app.modules.commercial.service import (
     signature_links,
     submit_proposal,
     update_contract,
+    update_document_access,
     update_proposal,
     update_template,
     write_document_with_nora,
@@ -180,6 +184,7 @@ async def share_document(
         _, document = proposal_or_404(store, document_id)
     else:
         _, document = contract_or_404(store, document_id)
+    require_document_access(document, user, "owner")
 
     title = str(document.get("title") or "Documento comercial")
     client = document.get("client") if isinstance(document.get("client"), dict) else {}
@@ -441,21 +446,14 @@ async def post_generate_document(
 
 @router.get("/proposals/{proposal_id}")
 async def get_proposal(proposal_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
-    _, proposal = next(
-        ((index, item) for index, item in enumerate(store["proposals"]) if str(item.get("id")) == proposal_id),
-        (None, None),
-    )
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="Proposta nao encontrada.")
+    _, _, _, proposal = await find_accessible_document(user, "proposal", proposal_id, "view")
     return {"proposal": document_for_response(proposal)}
 
 
 @router.get("/proposals/{proposal_id}/pdf")
 async def export_proposal_pdf(proposal_id: str, user: dict[str, Any] = Depends(current_user), include_edits: bool = True) -> StreamingResponse:
-    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
-    _, proposal = proposal_or_404(store, proposal_id)
-    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, proposal, "proposal", include_edits, collaboration_tenant_id(user))
+    store_id, _, _, proposal = await find_accessible_document(user, "proposal", proposal_id, "view")
+    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, proposal, "proposal", include_edits, store_id)
     await audit(user, "proposal_pdf_exported", f'PDF da proposta "{proposal["title"]}" gerado.', "proposal", proposal_id, "success")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
@@ -602,16 +600,14 @@ async def post_contract(
 
 @router.get("/contracts/{contract_id}")
 async def get_contract(contract_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
-    _, contract = contract_or_404(store, contract_id)
+    _, _, _, contract = await find_accessible_document(user, "contract", contract_id, "view")
     return {"contract": document_for_response(contract)}
 
 
 @router.get("/contracts/{contract_id}/pdf")
 async def export_contract_pdf(contract_id: str, user: dict[str, Any] = Depends(current_user), include_edits: bool = True) -> StreamingResponse:
-    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
-    _, contract = contract_or_404(store, contract_id)
-    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, contract, "contract", include_edits)
+    store_id, _, _, contract = await find_accessible_document(user, "contract", contract_id, "view")
+    pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, contract, "contract", include_edits, tenant_id=store_id)
     await audit(user, "contract_pdf_exported", f'PDF do contrato "{contract["title"]}" gerado.', "contract", contract_id, "success")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
@@ -696,6 +692,17 @@ async def post_share_proposal(
     )
 
 
+@router.put("/proposals/{proposal_id}/access")
+async def put_proposal_access(
+    proposal_id: str,
+    payload: DocumentAccessUpdate,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    proposal = await update_document_access(user, "proposal", proposal_id, payload)
+    await audit(user, "document_access_updated", f'Permissões de "{proposal["title"]}" atualizadas.', "proposal", proposal_id, "success")
+    return {"proposal": document_for_response(proposal)}
+
+
 @router.post("/contracts/{contract_id}/share")
 async def post_share_contract(
     contract_id: str,
@@ -710,6 +717,17 @@ async def post_share_contract(
         payload=payload,
         request=request,
     )
+
+
+@router.put("/contracts/{contract_id}/access")
+async def put_contract_access(
+    contract_id: str,
+    payload: DocumentAccessUpdate,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    contract = await update_document_access(user, "contract", contract_id, payload)
+    await audit(user, "document_access_updated", f'Permissões de "{contract["title"]}" atualizadas.', "contract", contract_id, "success")
+    return {"contract": document_for_response(contract)}
 
 
 @router.post("/contracts/{contract_id}/send-for-signature")

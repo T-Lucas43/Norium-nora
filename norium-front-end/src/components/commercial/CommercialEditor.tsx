@@ -46,9 +46,11 @@ import Button from "../shared/Button";
 import { showAlert, showConfirm, showPrompt } from "../shared/AppDialogProvider";
 import A4ContentPages from "./A4ContentPages";
 import CommercialInspector from "./CommercialInspector";
+import DocumentAccessDialog from "./DocumentAccessDialog";
 import NoraReviewPanel from "./NoraReviewPanel";
 import RichTextToolbar from "./RichTextToolbar";
 import { changedDocumentInput, documentDraft, draftSnapshot, type DocumentDraft } from "./commercialSave";
+import { resumePhotoMarkup } from "./resumePhotoMarkup";
 
 type Focus = "scope" | "risk" | "tone" | "commercial" | "legal" | "grammar";
 type SaveState = "saved" | "dirty" | "saving" | "error";
@@ -129,13 +131,19 @@ export default function CommercialEditor({
   const [writingWithNora, setWritingWithNora] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  const [accessOpen, setAccessOpen] = useState(false);
   const [shareMenuPosition, setShareMenuPosition] = useState({ left: 12, top: 72 });
   const [noraUndoStack, setNoraUndoStack] = useState<string[]>([]);
   const [toolbarDock, setToolbarDock] = useState<"top" | "right">(() => (
     window.localStorage.getItem("norium-commercial-toolbar") === "right" ? "right" : "top"
   ));
 
-  const readOnly = !isProposal(sourceDocument) && ["signed", "active", "completed", "cancelled"].includes(sourceDocument.status);
+  const accessRole = sourceDocument.createdBy === session.user.id
+    ? "owner"
+    : sourceDocument.access?.people.find((item) => item.userId === session.user.id)?.permission || sourceDocument.access?.teamPermission || "none";
+  const isOwner = accessRole === "owner";
+  const accessReadOnly = accessRole === "view";
+  const readOnly = accessReadOnly || (!isProposal(sourceDocument) && ["signed", "active", "completed", "cancelled"].includes(sourceDocument.status));
   const advancedPlan = ["equipe", "enterprise"].includes(session.user.plan);
   const proposal = isProposal(sourceDocument) ? sourceDocument : null;
   const contract = isProposal(sourceDocument) ? null : sourceDocument;
@@ -146,7 +154,7 @@ export default function CommercialEditor({
   const usesCommercialCover = Boolean(contract || isCommercialProposal);
   const showsFinancialFields = Boolean(contract || ["proposal", "budget", "invoice", "receipt"].includes(templateDocumentType));
   const displayContentHtml = templateDocumentType === "resume" && branding.logoUrl.startsWith("data:image/")
-    ? `<div data-document-decoration contenteditable="false" style="display:flex;justify-content:flex-end;margin-bottom:20px"><img src="${branding.logoUrl.replaceAll('"', "&quot;")}" alt="Foto do currículo" style="width:112px;height:112px;border-radius:999px;object-fit:cover;border:5px solid ${branding.secondaryColor}" /></div>${contentHtml}`
+    ? `${resumePhotoMarkup(branding)}${contentHtml}`
     : contentHtml;
 
   const currentDraft = useMemo<DocumentDraft>(
@@ -684,7 +692,7 @@ export default function CommercialEditor({
           {isCommercialProposal && proposal && onUploadProposal && <Button size="sm" variant="secondary" disabled={saveState === "saving" || Boolean(proposal.contractId)} loading={openingPdf} onClick={() => void uploadNewProposalVersion()} icon={<Upload size={14}/>}>Enviar nova versão</Button>}
           {!readOnly && <Button size="sm" variant="secondary" loading={openingPdf} disabled={saveState === "saving"} onClick={() => void openVisualPdfEditor()} icon={<FileSignature size={14}/>}>Editar / assinar PDF</Button>}
           <Button size="sm" variant="secondary" onClick={() => void exportPdf()} icon={<Download size={14} />}>Exportar PDF</Button>
-          <div ref={shareButtonRef}>
+          {isOwner && <div ref={shareButtonRef}>
             <Button
               size="sm"
               variant="secondary"
@@ -694,13 +702,13 @@ export default function CommercialEditor({
             >
               Compartilhar
             </Button>
-          </div>
-          {proposal && !proposal.contractId && <Button variant="danger" size="sm" iconOnly onClick={() => void onDeleteProposal(proposal)} className="border-rose-500/25 text-rose-400 hover:bg-rose-500/10" aria-label="Excluir documento"><Trash2 size={15} /></Button>}
+          </div>}
+          {isOwner && proposal && !proposal.contractId && <Button variant="danger" size="sm" iconOnly onClick={() => void onDeleteProposal(proposal)} className="border-rose-500/25 text-rose-400 hover:bg-rose-500/10" aria-label="Excluir documento"><Trash2 size={15} /></Button>}
           <Button size="sm" iconOnly onClick={() => setFullScreen((current) => !current)} aria-label={fullScreen ? "Sair da tela cheia" : "Abrir em tela cheia"}>{fullScreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</Button>
         </div>
       </header>
 
-      <WorkflowBar
+      {!accessReadOnly && <WorkflowBar
         document={sourceDocument}
         commercialProposal={isCommercialProposal}
         busy={busy || saveState === "saving"}
@@ -711,7 +719,8 @@ export default function CommercialEditor({
         onSend={() => contract && void onSendForSignature(contract)}
         onSign={() => contract && void onSign(contract)}
         onInstantiate={() => contract && void onInstantiate(contract)}
-      />
+      />}
+      {accessReadOnly && <div className="border-b border-blue-400/20 bg-blue-500/5 px-4 py-2 text-center text-xs font-bold text-blue-300"><Eye size={13} className="mr-1.5 inline" />Compartilhado com você somente para visualização.</div>}
 
       <div
         className="commercial-editor-grid grid min-h-0 flex-1"
@@ -845,12 +854,14 @@ export default function CommercialEditor({
             className="norium-modern-shell fixed z-[200] w-56 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--text)] shadow-2xl"
             style={shareMenuPosition}
           >
+            <button type="button" role="menuitem" onClick={() => { setShareMenuOpen(false); setAccessOpen(true); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-bold hover:bg-[var(--surface-hover)]"><UsersRound size={14} className="text-blue-400" /> Gerenciar acesso</button>
             <button type="button" role="menuitem" onClick={() => void shareByEmail()} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-bold hover:bg-[var(--surface-hover)]"><Send size={14} className="text-blue-400" /> Enviar por e-mail</button>
             <button type="button" role="menuitem" onClick={() => void shareWithTeam()} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-bold hover:bg-[var(--surface-hover)]"><UsersRound size={14} className="text-cyan-400" /> Avisar equipe</button>
           </div>
         </>,
         document.body,
       )}
+      {accessOpen && <DocumentAccessDialog document={sourceDocument} onClose={() => setAccessOpen(false)} onSaved={onDocumentChange} />}
     </main>
   );
 }

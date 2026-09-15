@@ -36,6 +36,7 @@ from app.modules.commercial.schemas import (
     Branding,
     BrandProfileCreate,
     ContractUpdate,
+    DocumentAccessUpdate,
     DocumentDuplicateRequest,
     InstantiateObligationsRequest,
     NoraAnalysisRequest,
@@ -528,6 +529,66 @@ def standalone_files(store: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in store.get("uploadedDocuments", []) if item.get("id") not in linked]
 
 
+def document_access_role(document: dict[str, Any], user: dict[str, Any]) -> str | None:
+    """Resolve acesso sem herdar a visibilidade do armazenamento da equipe."""
+    user_id = str(user.get("id") or "")
+    if user_id and str(document.get("createdBy") or "") == user_id:
+        return "owner"
+    access = document.get("access") if isinstance(document.get("access"), dict) else {}
+    team_permission = str(access.get("teamPermission") or "none")
+    person_permission = next(
+        (
+            str(item.get("permission") or "")
+            for item in access.get("people", [])
+            if isinstance(item, dict) and str(item.get("userId") or "") == user_id
+        ),
+        "",
+    )
+    if person_permission == "edit" or team_permission == "edit":
+        return "edit"
+    if person_permission == "view" or team_permission == "view":
+        return "view"
+    return None
+
+
+def require_document_access(document: dict[str, Any], user: dict[str, Any], minimum: str = "view") -> str:
+    role = document_access_role(document, user)
+    allowed = {"view": {"owner", "edit", "view"}, "edit": {"owner", "edit"}, "owner": {"owner"}}
+    if role not in allowed[minimum]:
+        detail = "Somente o proprietário pode alterar o compartilhamento." if minimum == "owner" else "Você não tem permissão para editar este documento." if minimum == "edit" else "Documento não encontrado."
+        raise HTTPException(status_code=403 if minimum != "view" else 404, detail=detail)
+    return role
+
+
+async def document_store_ids_for_user(user: dict[str, Any]) -> list[str]:
+    """Retorna apenas os armazenamentos pessoais dos membros da mesma equipe."""
+    from app.modules.team.router import visible_team_members
+
+    current_id = str(user.get("id") or "")
+    try:
+        member_ids = [str(item.get("id") or "") for item in await visible_team_members(user)]
+    except Exception:
+        member_ids = []
+    return list(dict.fromkeys(item for item in [current_id, *member_ids] if item))
+
+
+async def find_accessible_document(
+    user: dict[str, Any],
+    document_type: str,
+    document_id: str,
+    minimum: str = "view",
+) -> tuple[str, dict[str, Any], int, dict[str, Any]]:
+    for store_id in await document_store_ids_for_user(user):
+        store = await asyncio.to_thread(read_store, store_id)
+        collection = "proposals" if document_type == "proposal" else "contracts"
+        for index, document in enumerate(store[collection]):
+            if str(document.get("id") or "") != document_id:
+                continue
+            require_document_access(document, user, minimum)
+            return store_id, store, index, document
+    raise HTTPException(status_code=404, detail="Documento não encontrado.")
+
+
 def summary(store: dict[str, list[dict[str, Any]]], user: dict[str, Any]) -> dict[str, Any]:
     proposals = store["proposals"]
     contracts = store["contracts"]
@@ -564,7 +625,7 @@ def summary(store: dict[str, list[dict[str, Any]]], user: dict[str, Any]) -> dic
     }
 
 
-def commercial_document_summary(document: dict[str, Any], document_type: str) -> dict[str, Any]:
+def commercial_document_summary(document: dict[str, Any], document_type: str, user: dict[str, Any] | None = None) -> dict[str, Any]:
     client = document.get("client") if isinstance(document.get("client"), dict) else {}
     branding = document.get("branding") if isinstance(document.get("branding"), dict) else {}
     metadata = document.get("metadata") if isinstance(document.get("metadata"), dict) else {}
@@ -595,6 +656,10 @@ def commercial_document_summary(document: dict[str, Any], document_type: str) ->
         "validUntil": document.get("validUntil"),
         "updatedAt": str(document.get("updatedAt") or ""),
         "primaryColor": str(branding.get("primaryColor") or "#1E293B"),
+        "createdBy": str(document.get("createdBy") or ""),
+        "createdByName": str(document.get("createdByName") or ""),
+        "accessRole": document_access_role(document, user) if user else None,
+        "access": document.get("access") if isinstance(document.get("access"), dict) else {"teamPermission": "none", "people": []},
     }
     if document_type == "proposal":
         item["contractId"] = document.get("contractId")
@@ -607,9 +672,19 @@ async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
     from app.modules.commercial.document_files import document_file_summary, processing_job_summary
     from app.modules.intelligence.service import marketplace_item_enabled
 
-    store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
-    proposals = sorted(store["proposals"], key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
-    contracts = sorted(store["contracts"], key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
+    own_store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
+    team_stores = await asyncio.gather(*(asyncio.to_thread(read_store, store_id) for store_id in await document_store_ids_for_user(user)))
+    proposals = sorted(
+        (item for team_store in team_stores for item in team_store["proposals"] if document_access_role(item, user)),
+        key=lambda item: str(item.get("updatedAt") or ""),
+        reverse=True,
+    )
+    contracts = sorted(
+        (item for team_store in team_stores for item in team_store["contracts"] if document_access_role(item, user)),
+        key=lambda item: str(item.get("updatedAt") or ""),
+        reverse=True,
+    )
+    store = own_store
     custom_template_ids = {str(item.get("id")) for item in store["templates"]}
     templates = []
     system_templates = standard_templates()
@@ -636,13 +711,13 @@ async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
         ).replace(DEMO_IMAGE_DATA_URL, "/template-demo-document.svg")
         templates.append(response_item)
     return {
-        "proposals": [commercial_document_summary(item, "proposal") for item in proposals],
-        "contracts": [commercial_document_summary(item, "contract") for item in contracts],
+        "proposals": [commercial_document_summary(item, "proposal", user) for item in proposals],
+        "contracts": [commercial_document_summary(item, "contract", user) for item in contracts],
         "brandProfiles": store["brandProfiles"],
         "templates": templates,
         "uploadedDocuments": [document_file_summary(item) for item in sorted(standalone_files(store), key=lambda value: str(value.get("updatedAt") or ""), reverse=True)],
         "processingJobs": [processing_job_summary(item) for item in sorted(store.get("processingJobs", []), key=lambda value: str(value.get("updatedAt") or ""), reverse=True)[:50]],
-        "summary": summary(store, user),
+        "summary": summary({**store, "proposals": proposals, "contracts": contracts}, user),
     }
 
 
@@ -683,6 +758,7 @@ async def create_proposal(user: dict[str, Any], payload: ProposalCreate) -> dict
         "version": 1,
         "revisions": [],
         "events": [],
+        "access": {"teamPermission": "none", "people": []},
         "createdBy": str(user.get("id") or ""),
         "createdByName": str(user.get("nome") or user.get("email") or "Operador"),
         "createdAt": now,
@@ -1736,6 +1812,7 @@ async def delete_proposal(user: dict[str, Any], proposal_id: str) -> dict[str, A
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, proposal = proposal_or_404(store, proposal_id)
+        require_document_access(proposal, user, "owner")
         if proposal.get("contractId") or any(item.get("proposalId") == proposal_id for item in store["contracts"]):
             raise HTTPException(status_code=409, detail="Esta proposta possui contrato vinculado e deve ser preservada no historico.")
         removed = store["proposals"].pop(index)
@@ -1790,11 +1867,68 @@ def document_for_response(document: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def update_proposal(user: dict[str, Any], proposal_id: str, payload: ProposalUpdate) -> dict[str, Any]:
+async def update_document_access(
+    user: dict[str, Any],
+    document_type: str,
+    document_id: str,
+    payload: DocumentAccessUpdate,
+) -> dict[str, Any]:
+    from app.modules.team.router import visible_team_members
+
     tenant_id = collaboration_tenant_id(user)
+    active_members = {
+        str(item.get("id") or ""): item
+        for item in await visible_team_members(user)
+        if item.get("status") == "ativo" and item.get("id")
+    }
+    owner_id = str(user.get("id") or "")
+    requested_ids = [item.userId for item in payload.people if item.userId != owner_id]
+    invalid_ids = sorted(set(requested_ids) - set(active_members))
+    if invalid_ids:
+        raise HTTPException(status_code=422, detail="Selecione somente membros ativos da sua equipe.")
+    people = []
+    seen: set[str] = set()
+    for entry in payload.people:
+        if entry.userId == owner_id or entry.userId in seen:
+            continue
+        seen.add(entry.userId)
+        member = active_members[entry.userId]
+        people.append({
+            "userId": entry.userId,
+            "name": str(member.get("nome") or member.get("name") or member.get("email") or entry.userId),
+            "email": str(member.get("email") or ""),
+            "permission": entry.permission,
+        })
+
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
-        index, current = proposal_or_404(store, proposal_id)
+        collection = "proposals" if document_type == "proposal" else "contracts"
+        index, current = proposal_or_404(store, document_id) if document_type == "proposal" else contract_or_404(store, document_id)
+        require_document_access(current, user, "owner")
+        updated = {
+            **current,
+            "access": {"teamPermission": payload.teamPermission, "people": people},
+            "version": int(current.get("version") or 1) + 1,
+            "updatedAt": now_iso(),
+            "updatedBy": owner_id,
+        }
+        updated["events"] = prepend_event(
+            current,
+            document_event(
+                "document_access_updated",
+                "Permissões de acesso atualizadas",
+                user,
+                metadata={"teamPermission": payload.teamPermission, "peopleCount": len(people)},
+            ),
+        )
+        store[collection][index] = updated
+        await write_store(tenant_id, store)
+    return updated
+
+
+async def update_proposal(user: dict[str, Any], proposal_id: str, payload: ProposalUpdate) -> dict[str, Any]:
+    async with _store_lock:
+        tenant_id, store, index, current = await find_accessible_document(user, "proposal", proposal_id, "edit")
         if payload.expectedVersion and int(current.get("version") or 1) != payload.expectedVersion:
             raise HTTPException(status_code=409, detail="O documento foi alterado por outra pessoa. Recarregue para conciliar as versoes.")
         updates = payload.model_dump(exclude_unset=True, exclude={"expectedVersion", "signers"})
@@ -1858,6 +1992,7 @@ async def submit_proposal(user: dict[str, Any], proposal_id: str, note: str) -> 
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
+        require_document_access(current, user, "edit")
         if current.get("status") not in {"draft", "changes_requested", "rejected"}:
             raise HTTPException(status_code=409, detail="Esta proposta nao pode ser submetida no status atual.")
         status = "in_review" if is_team_plan(user) else "approved"
@@ -1902,6 +2037,7 @@ async def decide_proposal(
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
+        require_document_access(current, user, "edit")
         if current.get("status") != "in_review":
             raise HTTPException(status_code=409, detail="A proposta nao esta aguardando aprovacao.")
         updated = {
@@ -2008,6 +2144,7 @@ async def duplicate_proposal(
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         _, current = proposal_or_404(store, proposal_id)
+        require_document_access(current, user, "view")
         timestamp = now_iso()
         duplicate = {
             **current,
@@ -2034,6 +2171,7 @@ async def duplicate_proposal(
                 if isinstance(signer, dict)
             ],
             "events": [],
+            "access": {"teamPermission": "none", "people": []},
             "createdBy": str(user.get("id") or ""),
             "createdByName": str(user.get("nome") or user.get("email") or "Operador"),
             "createdAt": timestamp,
@@ -2185,6 +2323,7 @@ async def analyze_with_nora(
     tenant_id = collaboration_tenant_id(user)
     store = await asyncio.to_thread(read_store, tenant_id)
     _, proposal = proposal_or_404(store, proposal_id)
+    require_document_access(proposal, user, "view")
     document_text = plain_text(str(proposal.get("contentHtml") or ""))[:24_000]
     focus_instructions = {
         "scope": "escopo, entregaveis, limites e criterios de aceite",
@@ -2251,6 +2390,7 @@ async def write_document_with_nora(
         _, document = contract_or_404(store, document_id)
     else:
         raise HTTPException(status_code=400, detail="Tipo de documento invalido.")
+    require_document_access(document, user, "edit")
 
     document_text = plain_text(str(document.get("contentHtml") or ""))[:20_000]
     selected_text = payload.selectedText.strip()
@@ -2298,6 +2438,8 @@ async def decide_suggestion(
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
+        require_document_access(current, user, "edit")
+        require_document_access(current, user, "edit")
         suggestion = next(
             (item for item in current.get("suggestions", []) if str(item.get("id")) == suggestion_id),
             None,
@@ -2392,6 +2534,7 @@ async def create_contract(
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         proposal_index, proposal = proposal_or_404(store, proposal_id)
+        require_document_access(proposal, user, "edit")
         if proposal.get("status") not in {"approved", "sent", "accepted", "signed"}:
             raise HTTPException(status_code=409, detail="O contrato so pode ser gerado a partir de uma proposta aprovada.")
         existing = next((item for item in store["contracts"] if item.get("proposalId") == proposal_id), None)
@@ -2430,13 +2573,15 @@ async def create_contract(
             "auditTrail": [],
             "tasksCreated": [],
             "calendarEventsCreated": [],
+            "access": proposal.get("access") if isinstance(proposal.get("access"), dict) else {"teamPermission": "none", "people": []},
             "metadata": {
                 "sourceProposalId": proposal_id,
                 "sourceProposalStatus": proposal.get("status"),
                 "templateId": (template or {}).get("id"),
                 "templateCategory": (template or {}).get("category"),
             },
-            "createdBy": str(user.get("id") or ""),
+            "createdBy": str(proposal.get("createdBy") or user.get("id") or ""),
+            "createdByName": str(proposal.get("createdByName") or user.get("nome") or user.get("email") or "Operador"),
             "createdAt": now,
             "updatedAt": now,
         }
@@ -2448,10 +2593,8 @@ async def create_contract(
 
 
 async def update_contract(user: dict[str, Any], contract_id: str, payload: ContractUpdate) -> dict[str, Any]:
-    tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = await asyncio.to_thread(read_store, tenant_id)
-        index, current = contract_or_404(store, contract_id)
+        tenant_id, store, index, current = await find_accessible_document(user, "contract", contract_id, "edit")
         if current.get("status") in {"signed", "active", "completed", "cancelled"}:
             raise HTTPException(status_code=409, detail="Contratos finalizados nao podem ter o conteudo alterado.")
         if payload.expectedVersion and int(current.get("version") or 1) != payload.expectedVersion:
@@ -2528,6 +2671,7 @@ async def delete_contract(user: dict[str, Any], contract_id: str) -> tuple[dict[
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, contract = contract_or_404(store, contract_id)
+        require_document_access(contract, user, "owner")
         if contract.get("status") != "draft":
             raise HTTPException(
                 status_code=409,
@@ -2562,6 +2706,8 @@ async def send_for_signature(user: dict[str, Any], contract_id: str) -> dict[str
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, current = contract_or_404(store, contract_id)
+        require_document_access(current, user, "edit")
+        require_document_access(current, user, "edit")
         signers = current.get("signers") if isinstance(current.get("signers"), list) else []
         if not signers:
             raise HTTPException(status_code=409, detail="Adicione ao menos um assinante antes de enviar.")
@@ -2796,6 +2942,7 @@ async def instantiate_obligations(
     tenant_id = collaboration_tenant_id(user)
     store = await asyncio.to_thread(read_store, tenant_id)
     index, contract = contract_or_404(store, contract_id)
+    require_document_access(contract, user, "edit")
     if contract.get("status") not in {"signed", "active"}:
         raise HTTPException(status_code=409, detail="As obrigacoes so podem ser desdobradas depois de todas as assinaturas.")
     if contract.get("tasksCreated"):

@@ -159,7 +159,7 @@ export default function CommercialInspector({
             {branding.logoUrl && !readOnly && (
               <Button size="sm" variant="ghost" onClick={() => onBrandingChange({ ...branding, logoUrl: "" })} icon={<Trash2 size={13} />}>Remover {imageLabel.toLocaleLowerCase("pt-BR")}</Button>
             )}
-            <Field label={`Alinhamento da ${imageLabel.toLocaleLowerCase("pt-BR")}`}>
+            <Field label={`Posição horizontal da ${imageLabel.toLocaleLowerCase("pt-BR")}`}>
               <select value={branding.logoAlignment} disabled={readOnly} onChange={(event) => onBrandingChange({ ...branding, logoAlignment: event.target.value as Branding["logoAlignment"] })} className="commercial-field">
                 <option value="left">Esquerda</option>
                 <option value="center">Centro</option>
@@ -167,7 +167,10 @@ export default function CommercialInspector({
               </select>
             </Field>
             <Field label={`Escala da ${imageLabel.toLocaleLowerCase("pt-BR")} (${branding.logoScale}%)`}>
-              <input type="range" min="30" max="180" value={branding.logoScale} disabled={readOnly} onChange={(event) => onBrandingChange({ ...branding, logoScale: Number(event.target.value) })} className="w-full accent-blue-500" />
+              <div className="flex items-center gap-3">
+                <input aria-label={`Tamanho da ${imageLabel.toLocaleLowerCase("pt-BR")}`} type="range" min="30" max="180" value={branding.logoScale} disabled={readOnly} onChange={(event) => onBrandingChange({ ...branding, logoScale: Number(event.target.value) })} className="min-w-0 flex-1 accent-blue-500" />
+                <input aria-label={`Percentual da ${imageLabel.toLocaleLowerCase("pt-BR")}`} type="number" min="30" max="180" value={branding.logoScale} disabled={readOnly} onChange={(event) => onBrandingChange({ ...branding, logoScale: Math.max(30, Math.min(180, Number(event.target.value) || 30)) })} className="commercial-field w-20" />
+              </div>
             </Field>
             <div className="grid grid-cols-3 gap-2">
               <ColorField label="Primaria" value={branding.primaryColor} disabled={readOnly} onChange={(primaryColor) => onBrandingChange({ ...branding, primaryColor })} />

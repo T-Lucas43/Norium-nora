@@ -74,7 +74,12 @@ def build_commercial_pdf(document: dict[str, Any], document_type: str, include_e
     styles = document_styles(primary, secondary, text_color, compact=is_resume)
     story: list[Any] = []
 
-    logo = logo_flowable(branding.get("logoUrl"), branding.get("logoAlignment"), branding.get("logoScale"))
+    logo = logo_flowable(
+        branding.get("logoUrl"),
+        branding.get("logoAlignment"),
+        branding.get("logoScale"),
+        portrait=is_resume and bool(metadata.get("photoAsPortrait")),
+    )
     uses_commercial_cover = document_type == "contract" or template_document_type == "proposal"
     if uses_commercial_cover:
         if logo:
@@ -405,7 +410,7 @@ def document_styles(primary, secondary, text_color, *, compact: bool = False) ->
     }
 
 
-def logo_flowable(value: Any, alignment: Any, scale: Any) -> Image | None:
+def logo_flowable(value: Any, alignment: Any, scale: Any, *, portrait: bool = False) -> Image | None:
     text = str(value or "")
     match = re.match(r"^data:image/[^;]+;base64,(.+)$", text, flags=re.DOTALL | re.IGNORECASE)
     if not match:
@@ -414,8 +419,14 @@ def logo_flowable(value: Any, alignment: Any, scale: Any) -> Image | None:
         image = Image(io.BytesIO(base64.b64decode(match.group(1), validate=True)))
     except Exception:
         return None
-    max_width = 55 * mm * max(0.3, min(1.8, float(scale or 100) / 100))
-    ratio = min(max_width / max(image.imageWidth, 1), 22 * mm / max(image.imageHeight, 1))
+    normalized_scale = max(0.3, min(1.8, float(scale or 100) / 100))
+    if portrait:
+        target_size = 28 * mm * normalized_scale
+        ratio = min(target_size / max(image.imageWidth, 1), target_size / max(image.imageHeight, 1))
+    else:
+        max_width = 55 * mm * normalized_scale
+        max_height = 22 * mm * normalized_scale
+        ratio = min(max_width / max(image.imageWidth, 1), max_height / max(image.imageHeight, 1))
     image.drawWidth = image.imageWidth * ratio
     image.drawHeight = image.imageHeight * ratio
     image.hAlign = {"center": "CENTER", "right": "RIGHT"}.get(str(alignment), "LEFT")

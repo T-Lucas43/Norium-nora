@@ -148,7 +148,7 @@ function brandingForTemplate(template?: CommercialTemplate | null) {
   };
 }
 
-type View = "all" | "documents" | "proposals" | "contracts" | "files" | "templates" | "brands";
+type View = "all" | "mine" | "shared" | "documents" | "proposals" | "contracts" | "files" | "templates" | "brands";
 type DisplayMode = "list" | "grid";
 type SortMode = "updated_desc" | "updated_asc" | "title";
 
@@ -343,13 +343,18 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
 
   const currentItems = useMemo<CommercialDocumentSummary[]>(() => {
     if (!data) return [];
-    const source: CommercialDocumentSummary[] = view === "contracts"
+    const allDocuments = [...data.proposals, ...data.contracts];
+    const source: CommercialDocumentSummary[] = view === "mine"
+      ? allDocuments.filter((item) => item.accessRole === "owner" || item.createdBy === session.user.id)
+      : view === "shared"
+        ? allDocuments.filter((item) => item.accessRole !== "owner" && item.createdBy !== session.user.id)
+      : view === "contracts"
       ? data.contracts
       : view === "proposals"
         ? data.proposals.filter((item) => (item.templateDocumentType || "proposal") === "proposal")
         : view === "documents"
           ? data.proposals.filter((item) => (item.templateDocumentType || "proposal") !== "proposal")
-        : [...data.proposals, ...data.contracts];
+        : allDocuments;
     const needle = query.trim().toLocaleLowerCase("pt-BR");
     return source.filter((item) => {
       const matchesStatus = statusFilter === "all" || item.status === statusFilter || (statusFilter === "signed" && ["active", "completed"].includes(item.status));
@@ -360,7 +365,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       : sortMode === "updated_asc"
         ? left.updatedAt.localeCompare(right.updatedAt)
         : right.updatedAt.localeCompare(left.updatedAt));
-  }, [data, favoritesOnly, query, sortMode, statusFilter, view]);
+  }, [data, favoritesOnly, query, session.user.id, sortMode, statusFilter, view]);
 
   const currentFiles = useMemo(() => {
     if (!data) return [];
@@ -895,6 +900,8 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
               <div className="documents-toolbar flex gap-3 border-b border-[var(--border)] p-4">
                 <div className="workspace-tabs" aria-label="Tipos de documento">
                   <ViewTab active={view === "all"} label="Todos" count={liveSummary?.documentCount || 0} onClick={() => { setView("all"); setStatusFilter("all"); }} />
+                  <ViewTab active={view === "mine"} label="Meus documentos" count={[...data.proposals, ...data.contracts].filter((item) => item.accessRole === "owner" || item.createdBy === session.user.id).length} onClick={() => { setView("mine"); setStatusFilter("all"); }} />
+                  <ViewTab active={view === "shared"} label="Compartilhados" count={[...data.proposals, ...data.contracts].filter((item) => item.accessRole !== "owner" && item.createdBy !== session.user.id).length} onClick={() => { setView("shared"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "documents"} label="Editáveis" count={data.proposals.filter((item) => (item.templateDocumentType || "proposal") !== "proposal").length} onClick={() => { setView("documents"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "proposals"} label="Propostas" count={data.proposals.filter((item) => (item.templateDocumentType || "proposal") === "proposal").length} onClick={() => { setView("proposals"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "contracts"} label="Contratos" count={data.contracts.length} onClick={() => { setView("contracts"); setStatusFilter("all"); }} />
@@ -904,7 +911,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                   <label className="flex h-10 min-w-64 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Search size={15} className="text-[var(--text-secondary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Buscar documentos" placeholder="Buscar por documento ou cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
-                  {(view === "all" || view === "documents" || view === "proposals" || view === "contracts" || view === "files") && (
+                  {(view === "all" || view === "mine" || view === "shared" || view === "documents" || view === "proposals" || view === "contracts" || view === "files") && (
                     <>
                       <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Filter size={14} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="commercial-status-select min-w-[150px] bg-transparent text-xs font-bold outline-none"><option value="all">Todos os status</option>{view === "files" ? <><option value="pdf">PDFs</option><option value="sent">Enviados</option><option value="received">Recebidos</option><option value="archived">Arquivados</option></> : Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
                       <select aria-label="Ordenar documentos" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="commercial-field h-10 w-auto min-w-[150px] text-xs font-bold"><option value="updated_desc">Mais recentes</option><option value="updated_asc">Mais antigos</option><option value="title">Titulo A-Z</option></select>
@@ -916,14 +923,14 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                 </div>
               </div>
 
-              {(view === "all" || view === "documents" || view === "proposals" || view === "contracts") && (
+              {(view === "all" || view === "mine" || view === "shared" || view === "documents" || view === "proposals" || view === "contracts") && (
                 <div className={`min-h-0 ${displayMode === "grid" ? "grid gap-3 p-4 sm:grid-cols-2 2xl:grid-cols-3" : ""}`}>
                   {currentItems.map((item) => (
                     <article key={item.id} className={displayMode === "grid" ? "flex min-h-72 flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 transition hover:border-blue-400/30" : "grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_148px] xl:items-center"}>
                       <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{item.documentType === "contract" ? <FileCheck2 size={19} /> : (item.templateDocumentType || "proposal") === "proposal" ? <FileSignature size={19} /> : <FileText size={19} />}</span>
                       <button type="button" disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} className="min-w-0 text-left disabled:cursor-wait disabled:opacity-70">
                         <strong className="block truncate text-sm">{item.title}</strong>
-                        <small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.documentTypeLabel || (item.documentType === "contract" ? "Contrato" : "Proposta")}{item.client?.name ? ` · ${item.client.name}` : ""} {item.brainstormId ? "· vinculado ao Estúdio" : ""}</small>
+                        <small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.documentTypeLabel || (item.documentType === "contract" ? "Contrato" : "Proposta")}{item.client?.name ? ` · ${item.client.name}` : ""} {item.brainstormId ? "· vinculado ao Estúdio" : ""}{item.accessRole && item.accessRole !== "owner" ? ` · Compartilhado por ${item.createdByName || "membro da equipe"}` : ""}</small>
                       </button>
                       <span className="col-start-2 text-xs font-bold xl:col-auto">{(item.templateDocumentType || "proposal") === "proposal" || item.templateDocumentType === "budget" || item.documentType === "contract" ? formatMoney(item.amount, item.currency) : item.documentTypeLabel || "Documento"}</span>
                       <span className="col-start-2 xl:col-auto"><StatusChip status={item.status} /></span>
@@ -936,22 +943,22 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                         className="col-span-2 xl:col-auto"
                       />
                       <div className="col-span-2 flex min-h-10 flex-wrap items-center gap-2 xl:col-auto xl:justify-end">
-                        {item.documentType === "proposal" && (item.templateDocumentType || "proposal") === "proposal" && (
+                        {item.accessRole !== "view" && item.documentType === "proposal" && (item.templateDocumentType || "proposal") === "proposal" && (
                           <>
                             <select aria-label={`Alterar status de ${item.title}`} value="" disabled={busy} onChange={(event) => event.target.value && void handleProposalStatus(item, event.target.value as CommercialProposal["status"])} className="commercial-status-select h-9 max-w-[150px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="">Alterar status</option>{(proposalTransitions[item.status] || []).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>
                             <Button variant="secondary" iconOnly onClick={() => void handleDuplicateProposal(item)} aria-label={`Duplicar proposta ${item.title}`} title="Duplicar proposta"><Copy size={15} /></Button>
                           </>
                         )}
-                        {item.documentType === "contract" && !["signed", "active", "completed", "cancelled"].includes(item.status) && (
+                        {item.accessRole !== "view" && item.documentType === "contract" && !["signed", "active", "completed", "cancelled"].includes(item.status) && (
                           <Button variant="secondary" iconOnly loading={openingDocumentId === item.id} disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} aria-label={`Editar contrato ${item.title}`} title="Editar contrato"><Pencil size={16} /></Button>
                         )}
-                        {item.documentType === "proposal" && !item.contractId && (
+                        {(item.accessRole === "owner" || item.createdBy === session.user.id) && item.documentType === "proposal" && !item.contractId && (
                           <Button variant="danger" iconOnly onClick={() => void handleDeleteProposal(item)} className="border-red-400/20 text-red-400 hover:bg-red-500/10" aria-label={`Excluir documento ${item.title}`} title="Excluir documento"><Trash2 size={16} /></Button>
                         )}
-                        {item.documentType === "contract" && item.status !== "cancelled" && item.status !== "completed" && (
+                        {item.accessRole !== "view" && item.documentType === "contract" && item.status !== "cancelled" && item.status !== "completed" && (
                           <Button variant="danger" iconOnly onClick={() => void handleCancelContract(item)} className="border-amber-400/20 text-amber-300 hover:bg-amber-500/10" aria-label={`Cancelar contrato ${item.title}`} title="Cancelar contrato"><Ban size={16} /></Button>
                         )}
-                        {item.documentType === "contract" && item.status === "draft" && (
+                        {(item.accessRole === "owner" || item.createdBy === session.user.id) && item.documentType === "contract" && item.status === "draft" && (
                           <Button variant="danger" iconOnly onClick={() => void handleDeleteContract(item)} className="border-red-400/20 text-red-400 hover:bg-red-500/10" aria-label={`Excluir minuta ${item.title}`} title="Excluir minuta"><Trash2 size={16} /></Button>
                         )}
                       </div>
@@ -1107,6 +1114,7 @@ function CreateSmartDocumentDialog({
   const [dictationMicrophones, setDictationMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [dictationMicrophoneId, setDictationMicrophoneId] = useState("");
   const recognitionRef = useRef<DocumentSpeechRecognition | null>(null);
+  const nativeDictationFailedRef = useRef(false);
   const dictationRecorderRef = useRef<MediaRecorder | null>(null);
   const dictationStreamRef = useRef<MediaStream | null>(null);
   const dictationChunksRef = useRef<Blob[]>([]);
@@ -1217,48 +1225,53 @@ function CreateSmartDocumentDialog({
       return;
     }
     if (transcribingDictation) return;
-    if (await startRecordedDictation()) return;
+    if ((dictationMicrophoneId || nativeDictationFailedRef.current) && await startRecordedDictation()) return;
     const Recognition = documentSpeechRecognition();
-    if (!Recognition) {
-      setDictationError("Este navegador não oferece ditado por voz. Use Chrome ou Edge atualizado.");
-      return;
-    }
-    setDictationError("");
-    dictationPrefixRef.current = brief.trim();
-    const recognition = new Recognition();
-    recognition.lang = "pt-BR";
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.onstart = () => setDictating(true);
-    recognition.onend = () => {
-      setDictating(false);
-      recognitionRef.current = null;
-    };
-    recognition.onerror = (event) => {
-      setDictating(false);
-      recognitionRef.current = null;
-      setDictationError(
-        event.error === "not-allowed" || event.error === "service-not-allowed"
-          ? "Permita o uso do microfone para ditar o conteúdo."
-          : "Não consegui reconhecer a fala. Tente novamente.",
-      );
-    };
-    recognition.onresult = (event) => {
-      let transcript = "";
-      for (let index = 0; index < event.results.length; index += 1) {
-        transcript += `${event.results[index][0].transcript} `;
+    if (Recognition) {
+      setDictationError("");
+      dictationPrefixRef.current = brief.trim();
+      const recognition = new Recognition();
+      recognition.lang = "pt-BR";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.onstart = () => setDictating(true);
+      recognition.onend = () => {
+        setDictating(false);
+        recognitionRef.current = null;
+      };
+      recognition.onerror = (event) => {
+        setDictating(false);
+        recognitionRef.current = null;
+        nativeDictationFailedRef.current = event.error !== "not-allowed" && event.error !== "service-not-allowed";
+        setDictationError(
+          event.error === "not-allowed" || event.error === "service-not-allowed"
+            ? "Permita o uso do microfone para ditar o conteúdo."
+            : "O reconhecimento direto do navegador foi interrompido. Pressione Falar novamente para usar a transcrição segura.",
+        );
+      };
+      recognition.onresult = (event) => {
+        let transcript = "";
+        for (let index = 0; index < event.results.length; index += 1) {
+          transcript += `${event.results[index][0].transcript} `;
+        }
+        const spoken = transcript.trim();
+        if (spoken) {
+          nativeDictationFailedRef.current = false;
+          setBrief([dictationPrefixRef.current, spoken].filter(Boolean).join(" "));
+        }
+      };
+      recognitionRef.current = recognition;
+      try {
+        recognition.start();
+        return;
+      } catch {
+        recognitionRef.current = null;
+        setDictating(false);
+        nativeDictationFailedRef.current = true;
       }
-      const spoken = transcript.trim();
-      if (spoken) setBrief([dictationPrefixRef.current, spoken].filter(Boolean).join(" "));
-    };
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-    } catch {
-      recognitionRef.current = null;
-      setDictating(false);
-      setDictationError("O microfone já estava em uso. Aguarde e tente novamente.");
     }
+    if (await startRecordedDictation()) return;
+    setDictationError("Nenhum mecanismo de voz está disponível neste navegador. Atualize o Chrome ou Edge e tente novamente.");
   }
 
   useEffect(() => {

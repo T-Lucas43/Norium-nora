@@ -5,9 +5,11 @@ import type {
   BrandProfile,
   CommercialContract,
   CommercialData,
+  CommercialDocument,
   CommercialProposal,
   CommercialTemplate,
   Deliverable,
+  DocumentAccess,
   PdfCapabilities,
   PdfOperation,
   PdfProcessingJob,
@@ -205,6 +207,19 @@ export function shareCommercialDocument(
       timeoutMs: 60_000,
     },
   );
+}
+
+export async function updateCommercialDocumentAccess(
+  documentType: "proposal" | "contract",
+  id: string,
+  access: DocumentAccess,
+) {
+  const collection = documentType === "proposal" ? "proposals" : "contracts";
+  const response = await apiRequest<{ proposal?: CommercialProposal; contract?: CommercialContract }>(
+    `/api/comercial/${collection}/${id}/access`,
+    { method: "PUT", body: JSON.stringify(access) },
+  );
+  return (response.proposal || response.contract) as CommercialDocument;
 }
 
 export function cancelContract(id: string) {

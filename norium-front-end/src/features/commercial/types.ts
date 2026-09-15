@@ -32,6 +32,11 @@ export type PdfOperation =
   | "images_to_pdf" | "watermark" | "edit_pdf" | "page_numbers" | "add_password" | "remove_password"
   | "ocr" | "extract_text" | "remove_metadata" | "sanitize" | "compare";
 export type ProposalTone = "consultive" | "executive" | "technical" | "friendly";
+export type DocumentAccessPermission = "view" | "edit";
+export type DocumentAccess = {
+  teamPermission: "none" | DocumentAccessPermission;
+  people: Array<{ userId: string; name?: string; email?: string; permission: DocumentAccessPermission }>;
+};
 
 export type ClientSnapshot = {
   id: string;
@@ -163,6 +168,7 @@ export type CommercialProposal = {
   version: number;
   revisions: DocumentRevision[];
   events?: DocumentEvent[];
+  access?: DocumentAccess;
   createdBy: string;
   createdByName: string;
   createdAt: string;
@@ -201,9 +207,11 @@ export type CommercialContract = {
   revisions: DocumentRevision[];
   auditTrail: AuditTrailEntry[];
   events?: DocumentEvent[];
+  access?: DocumentAccess;
   tasksCreated: Array<{ id: string; title: string; dueDate: string | null }>;
   calendarEventsCreated: Array<{ id: string; title: string; start?: string; error?: string }>;
-  createdBy: string;
+  createdBy?: string;
+  createdByName?: string;
   createdAt: string;
   updatedAt: string;
   signedAt?: string;
@@ -275,6 +283,10 @@ export type CommercialProposalSummary = Pick<
   documentTypeLabel?: string;
   primaryColor: string;
   favorite: boolean;
+  createdBy?: string;
+  createdByName?: string;
+  accessRole?: "owner" | "edit" | "view" | null;
+  access?: DocumentAccess;
   category: "proposals" | "documents";
   validUntil?: string | null;
 };
@@ -288,6 +300,10 @@ export type CommercialContractSummary = Pick<
   documentTypeLabel?: string;
   primaryColor: string;
   favorite: boolean;
+  createdBy?: string;
+  createdByName?: string;
+  accessRole?: "owner" | "edit" | "view" | null;
+  access?: DocumentAccess;
   category: "contracts";
 };
 
@@ -477,6 +493,10 @@ export function commercialDocumentSummary(document: CommercialDocument): Commerc
     updatedAt: document.updatedAt,
     primaryColor: document.branding?.primaryColor || defaultBranding.primaryColor,
     favorite: Boolean(document.metadata?.favorite),
+    createdBy: document.createdBy,
+    createdByName: document.createdByName,
+    access: document.access,
+    accessRole: "owner" as const,
   };
   const templateDocumentType = String(document.metadata?.documentType || (isProposal(document) ? "proposal" : "contract")) as TemplateDocumentType;
   const labels: Partial<Record<TemplateDocumentType, string>> = { proposal: "Proposta", contract: "Contrato", resume: "Currículo e carreira", report: "Relatório", letter: "Carta e comunicado", budget: "Orçamento", meeting: "Reunião", plan: "Plano", hr: "Pessoas e RH", policy: "Política e norma", term: "Termo e declaração", invoice: "Fatura", receipt: "Recibo", certificate: "Certificado", project: "Projeto", marketing: "Marketing", academic: "Educação e pesquisa", personal: "Pessoal", custom: "Documento" };

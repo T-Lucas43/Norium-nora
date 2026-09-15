@@ -1642,30 +1642,43 @@ async def transcrever_voz_nora(
     if not audio_bytes or len(audio_bytes) > 15_000_000:
         raise HTTPException(status_code=413, detail="O audio deve ter no maximo 15 MB.")
 
-    extension = "ogg" if "ogg" in payload.mime_type else "mp4" if "mp4" in payload.mime_type else "webm"
-    try:
-        async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.post(
-                "https://api.groq.com/openai/v1/audio/transcriptions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                files={"file": (f"nora-voice.{extension}", audio_bytes, payload.mime_type)},
-                data={
-                    "model": os.getenv("NORA_STT_MODEL", "whisper-large-v3-turbo"),
-                    "language": "pt",
-                    "response_format": "json",
-                    "temperature": "0",
-                },
-            )
-        if response.status_code >= 400:
-            raise HTTPException(status_code=502, detail="O provedor de transcricao nao respondeu corretamente.")
-        transcript = str(response.json().get("text") or "").strip()
-        if not transcript:
-            raise HTTPException(status_code=422, detail="Nao foi possivel identificar fala no audio.")
-        return {"text": transcript, "language": "pt-BR", "provider": "groq"}
-    except HTTPException:
-        raise
-    except (httpx.HTTPError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail="Falha temporaria ao transcrever a voz.") from exc
+    normalized_mime = payload.mime_type.split(";", 1)[0].strip().lower() or "audio/webm"
+    extension = "ogg" if "ogg" in normalized_mime else "mp4" if "mp4" in normalized_mime else "webm"
+    retryable_statuses = {429, 500, 502, 503, 504}
+    last_error: Exception | None = None
+    async with httpx.AsyncClient(timeout=httpx.Timeout(25, connect=8)) as client:
+        for attempt in range(2):
+            try:
+                response = await client.post(
+                    "https://api.groq.com/openai/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    files={"file": (f"nora-voice.{extension}", audio_bytes, normalized_mime)},
+                    data={
+                        "model": os.getenv("NORA_STT_MODEL", "whisper-large-v3-turbo"),
+                        "language": "pt",
+                        "response_format": "json",
+                        "temperature": "0",
+                    },
+                )
+                if response.status_code == 200:
+                    transcript = str(response.json().get("text") or "").strip()
+                    if not transcript:
+                        raise HTTPException(status_code=422, detail="Nao foi possivel identificar fala no audio.")
+                    return {"text": transcript, "language": "pt-BR", "provider": "groq"}
+                logger.warning("Transcrição de voz recusada pelo provedor (status=%s, tentativa=%s)", response.status_code, attempt + 1)
+                if response.status_code not in retryable_statuses:
+                    detail = "O formato de audio nao foi aceito. Grave novamente por alguns segundos."
+                    if response.status_code in {401, 403}:
+                        detail = "O serviço de transcrição precisa ser reconectado pelo administrador."
+                    raise HTTPException(status_code=502, detail=detail)
+            except HTTPException:
+                raise
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = exc
+                logger.warning("Falha transitória na transcrição de voz (tentativa=%s)", attempt + 1)
+            if attempt == 0:
+                await asyncio.sleep(0.5)
+    raise HTTPException(status_code=502, detail="A transcrição não respondeu após duas tentativas. O texto digitado foi preservado; tente novamente.") from last_error
 
 
 @router.post("/chat-whatsapp")

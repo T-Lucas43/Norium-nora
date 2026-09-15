@@ -19,6 +19,8 @@ from app.modules.clients.router import ClientCreate, create_client  # noqa: E402
 from app.modules.commercial.schemas import (  # noqa: E402
     ContractUpdate,
     DocumentDuplicateRequest,
+    DocumentAccessUpdate,
+    DocumentAccessPerson,
     DocumentImportRequest,
     InstantiateObligationsRequest,
     ProposalBriefRequest,
@@ -43,7 +45,7 @@ from app.modules.commercial.document_files import (  # noqa: E402
 from app.modules.commercial.schemas import ImportedDocumentUpdate  # noqa: E402
 from pypdf import PdfReader, PdfWriter  # noqa: E402
 from app.modules.commercial.nora_agent import _extract_amount, handle_commercial_agent, is_document_creation_request  # noqa: E402
-from app.modules.commercial.pdf_export import build_commercial_pdf  # noqa: E402
+from app.modules.commercial.pdf_export import build_commercial_pdf, logo_flowable  # noqa: E402
 from app.services.nora_files import list_library_files  # noqa: E402
 from app.modules.commercial.repository import read_store, write_store  # noqa: E402
 from app.modules.commercial.service import (  # noqa: E402
@@ -76,6 +78,7 @@ from app.modules.commercial.service import (  # noqa: E402
     submit_proposal,
     update_template,
     update_contract,
+    update_document_access,
     update_proposal,
     upload_proposal_pdf,
     standard_templates,
@@ -136,6 +139,50 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPException) as foreign_access:
             await update_proposal(self.user, member_document["id"], ProposalUpdate(title="Tentativa", expectedVersion=1))
         self.assertEqual(404, foreign_access.exception.status_code)
+
+    async def test_owner_shares_document_with_view_or_edit_permission(self) -> None:
+        self.user["plan"] = "equipe"
+        member = {
+            "id": f"member-{self._testMethodName}",
+            "nome": "Ana Revisora",
+            "email": "ana@norium.local",
+            "plan": "equipe",
+            "role": "member",
+            "status": "ativo",
+            "teamOwnerId": self.user["id"],
+        }
+        proposal = await create_proposal(self.user, ProposalCreate(clientId=self.client_id, title="Documento com acesso controlado"))
+        visible_members = [
+            {**self.user, "status": "ativo"},
+            member,
+        ]
+        with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible_members)):
+            proposal = await update_document_access(
+                self.user,
+                "proposal",
+                proposal["id"],
+                DocumentAccessUpdate(people=[DocumentAccessPerson(userId=member["id"], permission="view")]),
+            )
+
+        with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible_members)):
+            member_items = (await list_commercial_data(member))["proposals"]
+        self.assertEqual([proposal["id"]], [item["id"] for item in member_items])
+        self.assertEqual("view", member_items[0]["accessRole"])
+        with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible_members)):
+            with self.assertRaises(HTTPException) as read_only:
+                await update_proposal(member, proposal["id"], ProposalUpdate(title="Alteração indevida", expectedVersion=proposal["version"]))
+        self.assertEqual(403, read_only.exception.status_code)
+
+        with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible_members)):
+            proposal = await update_document_access(
+                self.user,
+                "proposal",
+                proposal["id"],
+                DocumentAccessUpdate(people=[DocumentAccessPerson(userId=member["id"], permission="edit")]),
+            )
+        with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible_members)):
+            updated = await update_proposal(member, proposal["id"], ProposalUpdate(title="Alteração permitida", expectedVersion=proposal["version"]))
+        self.assertEqual("Alteração permitida", updated["title"])
 
     async def test_imported_proposal_edits_and_signed_upload_update_counts(self):
         from app.modules.commercial.pdf_export import build_commercial_pdf
@@ -809,6 +856,20 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(document["metadata"]["photoAsPortrait"])
         pdf_bytes, _ = build_commercial_pdf(document, "proposal")
         self.assertIn(b"/Subtype /Image", pdf_bytes)
+        small = logo_flowable(photo, "left", 50, portrait=True)
+        large = logo_flowable(photo, "right", 180, portrait=True)
+        self.assertIsNotNone(small)
+        self.assertIsNotNone(large)
+        self.assertGreater(large.drawWidth, small.drawWidth)
+        self.assertEqual("RIGHT", large.hAlign)
+
+    async def test_internal_document_can_be_created_without_client_link(self) -> None:
+        document = await create_proposal(
+            self.user,
+            ProposalCreate(clientId="", title="Currículo interno", metadata={"documentType": "resume"}),
+        )
+        self.assertEqual("", document["clientId"])
+        self.assertEqual("resume", document["metadata"]["documentType"])
 
     async def test_smart_document_fallback_classifies_spoken_facts_into_template_sections(self) -> None:
         payload = SmartDocumentRequest(

@@ -177,6 +177,7 @@ describe("CommercialDashboard leve", () => {
     await userEvent.setup().click(await screen.findByRole("button", { name: "Ditar conteúdo essencial" }));
     act(() => recognition.onresult?.({ results: [{ 0: { transcript: "currículo de Ana com experiência em dados" }, isFinal: true }] }));
     expect(screen.getByRole("textbox", { name: "Conte o essencial" })).toHaveValue("currículo de Ana com experiência em dados");
+    expect(clientApi.apiRequest).not.toHaveBeenCalledWith("/api/nora/transcrever", expect.anything());
     vi.unstubAllGlobals();
   });
 
@@ -205,6 +206,7 @@ describe("CommercialDashboard leve", () => {
       }
     }
     vi.stubGlobal("MediaRecorder", MediaRecorderMock);
+    vi.stubGlobal("SpeechRecognition", class { constructor() { throw new Error("o microfone selecionado deve usar a gravação"); } });
     clientApi.apiRequest.mockImplementation((path: string) => {
       if (path === "/api/clientes") return Promise.resolve({ items: [] });
       if (path === "/api/brainstorm/sessions") return Promise.resolve([]);
@@ -370,6 +372,7 @@ describe("CommercialDashboard leve", () => {
       branding: expect.objectContaining({ logoUrl: expect.stringMatching(/^data:image\/png;base64,/) }),
       metadata: expect.objectContaining({ photoAsPortrait: true }),
     })));
+    expect(await screen.findByText("Editor aberto: Currículo de Ana")).toBeInTheDocument();
   });
 
   it("offers proposal upload directly and counts signed proposals in the signed filter", async () => {

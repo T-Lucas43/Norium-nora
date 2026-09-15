@@ -266,7 +266,8 @@ jobs:
 
   deploy:
     needs: publish-image
-    if: ${{ vars.AZURE_CONTAINER_APP_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' }}
+    # Permite publicar e validar uma imagem sem promovê-la antes da autorização.
+    if: ${{ vars.DEPLOY_AZURE_ENABLED != 'false' && vars.AZURE_CONTAINER_APP_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  ArrowUpRight,
   BarChart3,
   Bell,
   BrainCircuit,
@@ -19,18 +20,21 @@ import {
   MessageSquare,
   Moon,
   Search,
+  SendHorizontal,
   Settings,
   ShieldCheck,
   Sparkles,
   UserCircle2,
   UserRoundCheck,
   UsersRound,
+  X,
 } from "lucide-react";
 import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
 import NoraAvatar from "./NoraAvatar";
 import ThemeToggle from "./ThemeToggle";
 import { apiBaseUrl, authToken } from "../../utils/api";
+import { apiRequest } from "../../core/api/client";
 
 interface HeaderProps {
   activeTab: string;
@@ -69,6 +73,17 @@ type SearchResult = {
   tab: string;
 };
 
+type NoraQuickMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+};
+
+type NoraQuickResponse = {
+  response?: string;
+  status?: string;
+};
+
 function initials(name: string) {
   return name
     .trim()
@@ -103,8 +118,15 @@ export default function Header({
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [noraQuickOpen, setNoraQuickOpen] = useState(false);
+  const [noraQuickInput, setNoraQuickInput] = useState("");
+  const [noraQuickMessages, setNoraQuickMessages] = useState<NoraQuickMessage[]>([]);
+  const [noraQuickLoading, setNoraQuickLoading] = useState(false);
+  const [noraQuickError, setNoraQuickError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
+  const noraQuickMenuRef = useRef<HTMLDivElement>(null);
+  const noraQuickInputRef = useRef<HTMLInputElement>(null);
   const profileName = currentUser?.nome || profile?.nome || "Perfil";
 
   const commands = useMemo<SearchCommand[]>(
@@ -188,6 +210,7 @@ export default function Header({
       if (event.key === "Escape") {
         setSearchOpen(false);
         setProfileMenuOpen(false);
+        setNoraQuickOpen(false);
       }
     }
 
@@ -198,11 +221,60 @@ export default function Header({
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       if (!profileMenuRef.current?.contains(event.target as Node)) setProfileMenuOpen(false);
+      if (!noraQuickMenuRef.current?.contains(event.target as Node)) setNoraQuickOpen(false);
     }
 
     window.addEventListener("pointerdown", handlePointerDown);
     return () => window.removeEventListener("pointerdown", handlePointerDown);
   }, []);
+
+  useEffect(() => {
+    if (!noraQuickOpen) return;
+    window.setTimeout(() => noraQuickInputRef.current?.focus(), 0);
+  }, [noraQuickOpen]);
+
+  async function sendQuickNora(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const question = noraQuickInput.trim();
+    if (!question || noraQuickLoading) return;
+
+    const userMessage: NoraQuickMessage = { id: crypto.randomUUID(), role: "user", text: question };
+    const contextMessages = [...noraQuickMessages, userMessage];
+    setNoraQuickMessages(contextMessages);
+    setNoraQuickInput("");
+    setNoraQuickError("");
+    setNoraQuickLoading(true);
+
+    try {
+      const payload = await apiRequest<NoraQuickResponse>("/api/nora/natural", {
+        method: "POST",
+        timeoutMs: 60_000,
+        body: JSON.stringify({
+          user_id: currentUser?.id || "primary",
+          message: question,
+          messages: noraQuickMessages.slice(-6).map((message) => ({ role: message.role, content: message.text })),
+          agenda_session_id: null,
+          email_session_id: null,
+          commercial_session_id: null,
+          screen_context: `O usuário está na tela ${activeTab} do Norium e abriu o atalho da Nora no cabeçalho.`,
+          routing_mode: "automatic",
+          attachment_ids: [],
+        }),
+      });
+      setNoraQuickMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          text: payload.response?.trim() || "Concluí a consulta. Abra a conversa completa para ver mais detalhes.",
+        },
+      ]);
+    } catch (reason) {
+      setNoraQuickError(reason instanceof Error ? reason.message : "Não foi possível falar com a Nora agora.");
+    } finally {
+      setNoraQuickLoading(false);
+    }
+  }
 
   function runCommand(command: SearchCommand) {
     if (command.tab) setActiveTab(command.tab);
@@ -340,17 +412,81 @@ export default function Header({
         )}
 
         {canUseNora && (
-          <button type="button" className="norium-topbar-nora" onClick={() => onOpenNora()} title="Conversar com a Nora" aria-label="Conversar com a Nora">
-            <NoraAvatar className="h-8 w-8" />
-            <span>Nora</span>
-          </button>
+          <div ref={noraQuickMenuRef} className="norium-nora-quick-menu">
+            <button
+              type="button"
+              className={`norium-topbar-nora ${noraQuickOpen ? "is-open" : ""}`}
+              onClick={() => {
+                setProfileMenuOpen(false);
+                setNoraQuickOpen((current) => !current);
+              }}
+              title="Abrir atalho da Nora"
+              aria-label="Conversar com a Nora"
+              aria-haspopup="dialog"
+              aria-expanded={noraQuickOpen}
+            >
+              <NoraAvatar className="h-8 w-8" />
+              <span>Nora</span>
+            </button>
+
+            {noraQuickOpen && (
+              <section className="norium-nora-quick-popover" role="dialog" aria-label="Atalho da Nora">
+                <header>
+                  <NoraAvatar className="h-9 w-9" />
+                  <span><strong>Nora</strong><small>Atalho inteligente · {activeTab}</small></span>
+                  <button type="button" onClick={() => setNoraQuickOpen(false)} aria-label="Fechar atalho da Nora"><X size={17} /></button>
+                </header>
+
+                <div className="norium-nora-quick-conversation" aria-live="polite">
+                  {!noraQuickMessages.length && (
+                    <div className="norium-nora-quick-welcome">
+                      <strong>Como posso ajudar agora?</strong>
+                      <span>Consulte seus dados ou peça uma ação sem sair do dashboard.</span>
+                      <div>
+                        {["Resuma meu dia", "Quais são minhas prioridades?", "Organize minha agenda"].map((suggestion) => (
+                          <button key={suggestion} type="button" onClick={() => setNoraQuickInput(suggestion)}>{suggestion}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {noraQuickMessages.map((message) => (
+                    <p key={message.id} className={message.role === "user" ? "is-user" : "is-nora"}>{message.text}</p>
+                  ))}
+                  {noraQuickLoading && <p className="is-nora is-loading"><LoaderCircle size={15} className="animate-spin" /> Nora está consultando...</p>}
+                </div>
+
+                {noraQuickError && <p className="norium-nora-quick-error" role="alert">{noraQuickError}</p>}
+
+                <form onSubmit={sendQuickNora}>
+                  <input
+                    ref={noraQuickInputRef}
+                    value={noraQuickInput}
+                    onChange={(event) => setNoraQuickInput(event.target.value)}
+                    placeholder="Pergunte à Nora..."
+                    aria-label="Perguntar à Nora"
+                    disabled={noraQuickLoading}
+                  />
+                  <button type="submit" aria-label="Enviar pergunta" disabled={!noraQuickInput.trim() || noraQuickLoading}>
+                    {noraQuickLoading ? <LoaderCircle size={17} className="animate-spin" /> : <SendHorizontal size={17} />}
+                  </button>
+                </form>
+
+                <button type="button" className="norium-nora-quick-full" onClick={() => { setNoraQuickOpen(false); onOpenNora(); }}>
+                  Abrir conversa completa <ArrowUpRight size={14} />
+                </button>
+              </section>
+            )}
+          </div>
         )}
 
         <div ref={profileMenuRef} className="norium-profile-menu">
           <button
             type="button"
             className={`norium-topbar-profile ${profileMenuOpen ? "is-open" : ""}`}
-            onClick={() => setProfileMenuOpen((current) => !current)}
+            onClick={() => {
+              setNoraQuickOpen(false);
+              setProfileMenuOpen((current) => !current);
+            }}
             aria-haspopup="menu"
             aria-expanded={profileMenuOpen}
           >

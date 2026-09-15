@@ -29,7 +29,7 @@ export default function IntegrationLogo({ name, size = 24, className = "" }: { n
     : /conhecimento/.test(key) ? [LibraryBig, "#a78bfa"] as const
     : /marketplace/.test(key) ? [Store, "#2dd4bf"] as const
     : /ia e modelos|modelos/.test(key) ? [Network, "#818cf8"] as const
-    : /agente navegador|navegador/.test(key) ? [Globe2, "#22d3ee"] as const
+    : /agente navegador|navegador|fontes web/.test(key) ? [Globe2, "#22d3ee"] as const
     : /governan/.test(key) ? [ShieldCheck, "#2dd4bf"] as const
     : /ajuda/.test(key) ? [CircleHelp, "#94a3b8"] as const
     : /mais/.test(key) ? [Ellipsis, "#94a3b8"] as const

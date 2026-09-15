@@ -233,6 +233,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   const [notice, setNotice] = useState("");
   const [view, setView] = useState<"board" | "list">("board");
   const [projectQuery, setProjectQuery] = useState("");
+  const [projectCategory, setProjectCategory] = useState<"todas" | ProjectCategory>("todas");
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [filters, setFilters] = useState({
@@ -246,7 +247,12 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   const taskRequestVersion = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeWorkspaces = useMemo(() => workspaces.filter((workspace) => !workspace.archived), [workspaces]);
-  const visibleProjects = activeWorkspaces.filter(workspace => [workspace.name, workspace.description, workspace.responsibleName].join(" ").toLocaleLowerCase("pt-BR").includes(projectQuery.toLocaleLowerCase("pt-BR")));
+  const visibleProjects = activeWorkspaces.filter(workspace => (
+    (projectCategory === "todas" || workspace.category === projectCategory)
+    && [workspace.name, workspace.description, workspace.responsibleName].join(" ").toLocaleLowerCase("pt-BR").includes(projectQuery.toLocaleLowerCase("pt-BR"))
+  ));
+  const personalProjects = visibleProjects.filter((workspace) => !workspace.ownerUserId || workspace.ownerUserId === userId);
+  const teamProjects = visibleProjects.filter((workspace) => Boolean(workspace.ownerUserId && workspace.ownerUserId !== userId));
   const archivedWorkspaces = useMemo(() => workspaces.filter((workspace) => workspace.archived), [workspaces]);
 
   function switchProject(workspace: TaskWorkspace | null) {
@@ -775,6 +781,24 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
     </>
   );
 
+  const renderProjectCard = (workspace: TaskWorkspace) => {
+    const ProjectIcon = taskCategoryVisual[workspace.category]?.icon || Layers3;
+    return <article key={workspace.id} className="tasks-project-card" style={{ "--project-color": workspace.color } as React.CSSProperties}>
+      <div className="tasks-project-top"><span className="tasks-project-icon"><ProjectIcon size={22} strokeWidth={1.7} /></span>
+        <details className="tasks-project-menu"><summary aria-label={"Ações de " + workspace.name}><MoreHorizontal size={20} /></summary><div>
+          <button disabled={!canManageProject(workspace)} onClick={() => openProjectSettings(workspace)}><Settings size={15} />Configurações</button>
+          <button disabled={!canManageProject(workspace)} onClick={() => setPendingProjectAction({ type: "archive", workspace })}><Archive size={15} />Arquivar</button>
+          <button className="is-danger" disabled={!canManageProject(workspace)} onClick={() => setPendingProjectAction({ type: "delete", workspace })}><Trash2 size={15} />Excluir projeto</button>
+        </div></details>
+      </div>
+      <span className="tasks-eyebrow">{projectCategoryLabels[workspace.category]}</span>
+      <button className="tasks-project-title" onClick={() => setActiveWorkspace(workspace)}><h3>{workspace.name}</h3><ArrowUpRight size={19} /></button>
+      <p className="tasks-project-description">{workspace.description || "Organize as próximas entregas deste projeto."}</p>
+      <div className="tasks-project-meta"><span><UserRound size={14} />{workspace.responsibleName || workspace.owner}</span><span className={projectDeadlineTone(workspace)}><CalendarClock size={14} />{projectDateRange(workspace)}</span></div>
+      <footer><span className={"tasks-project-status status-" + workspace.status}><span />{projectStatusLabels[workspace.status]}</span><button onClick={() => setActiveWorkspace(workspace)}>Abrir projeto <ArrowUpRight size={14} /></button></footer>
+    </article>;
+  };
+
   if (!activeWorkspace) {
     return (
       <div className="tasks-home flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
@@ -816,31 +840,24 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           {error && <p role="alert" className="tasks-feedback is-error">{error}</p>}
           {notice && <p role="status" className="tasks-feedback">{notice}</p>}
           <div className="tasks-project-toolbar">
-            <div><h2>Seus projetos <span>{activeWorkspaces.length}</span></h2><p>Um espaço para cada frente de trabalho.</p></div>
+            <div><h2>Meus projetos <span>{personalProjects.length}</span></h2><p>Projetos particulares e criados por você.</p></div>
             <label className="tasks-search"><Search size={17} /><input value={projectQuery} onChange={event => setProjectQuery(event.target.value)} placeholder="Buscar projetos" aria-label="Buscar projetos" />{projectQuery && <button onClick={() => setProjectQuery("")} aria-label="Limpar busca de projetos"><X size={14} /></button>}</label>
           </div>
+          <nav className="tasks-category-tabs" aria-label="Categorias de projetos">
+            <button type="button" aria-pressed={projectCategory === "todas"} onClick={() => setProjectCategory("todas")}>Todas</button>
+            {(Object.keys(projectCategoryLabels) as ProjectCategory[]).map((category) => <button key={category} type="button" aria-pressed={projectCategory === category} onClick={() => setProjectCategory(category)}>{projectCategoryLabels[category]}</button>)}
+          </nav>
           <section className={`grid gap-5 ${showWorkspaceCreate ? "xl:grid-cols-[minmax(0,1fr)_360px]" : ""}`}>
             <div className="space-y-6">
               {projectsLoading ? <div className="tasks-empty"><LoaderCircle className="animate-spin" size={24} /><p>Carregando projetos…</p></div> : <div className="tasks-project-grid">
-                {visibleProjects.map(workspace => {
-                  const ProjectIcon = taskCategoryVisual[workspace.category]?.icon || Layers3;
-                  return <article key={workspace.id} className="tasks-project-card" style={{ "--project-color": workspace.color } as React.CSSProperties}>
-                    <div className="tasks-project-top"><span className="tasks-project-icon"><ProjectIcon size={22} strokeWidth={1.7} /></span>
-                      <details className="tasks-project-menu"><summary aria-label={"Ações de " + workspace.name}><MoreHorizontal size={20} /></summary><div>
-                        <button disabled={!canManageProject(workspace)} onClick={() => openProjectSettings(workspace)}><Settings size={15} />Configurações</button>
-                        <button disabled={!canManageProject(workspace)} onClick={() => setPendingProjectAction({ type: "archive", workspace })}><Archive size={15} />Arquivar</button>
-                        <button className="is-danger" disabled={!canManageProject(workspace)} onClick={() => setPendingProjectAction({ type: "delete", workspace })}><Trash2 size={15} />Excluir projeto</button>
-                      </div></details>
-                    </div>
-                    <span className="tasks-eyebrow">{projectCategoryLabels[workspace.category]}</span>
-                    <button className="tasks-project-title" onClick={() => setActiveWorkspace(workspace)}><h3>{workspace.name}</h3><ArrowUpRight size={19} /></button>
-                    <p className="tasks-project-description">{workspace.description || "Organize as próximas entregas deste projeto."}</p>
-                    <div className="tasks-project-meta"><span><UserRound size={14} />{workspace.responsibleName || workspace.owner}</span><span className={projectDeadlineTone(workspace)}><CalendarClock size={14} />{projectDateRange(workspace)}</span></div>
-                    <footer><span className={"tasks-project-status status-" + workspace.status}><span />{projectStatusLabels[workspace.status]}</span><button onClick={() => setActiveWorkspace(workspace)}>Abrir projeto <ArrowUpRight size={14} /></button></footer>
-                  </article>;
-                })}
+                {personalProjects.map(renderProjectCard)}
               </div>}
               {!projectsLoading && visibleProjects.length === 0 && <div className="tasks-empty"><Layers3 size={32} /><h3>{projectQuery ? "Nenhum projeto encontrado" : "Seu próximo projeto começa aqui"}</h3><p>{projectQuery ? "Tente outro nome ou responsável." : "Crie um projeto e organize as primeiras tarefas da equipe."}</p><Button onClick={() => projectQuery ? setProjectQuery("") : setShowWorkspaceCreate(true)}>{projectQuery ? "Limpar busca" : "Criar primeiro projeto"}</Button></div>}
+
+              {!projectsLoading && visibleProjects.length > 0 && <section className="tasks-team-projects" aria-labelledby="team-projects-title">
+                <div className="tasks-project-toolbar"><div><h2 id="team-projects-title">Projetos da equipe <span>{teamProjects.length}</span></h2><p>Compartilhados com você por integrantes da sua equipe.</p></div></div>
+                {teamProjects.length > 0 ? <div className="tasks-project-grid">{teamProjects.map(renderProjectCard)}</div> : <div className="tasks-team-empty"><Users size={18} /><span>Nenhum projeto desta categoria foi compartilhado com você.</span></div>}
+              </section>}
 
               {showArchivedProjects && archivedWorkspaces.length > 0 && (
                 <section className="space-y-3">

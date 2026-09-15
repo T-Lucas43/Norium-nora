@@ -159,6 +159,51 @@ def same_team(current: dict[str, Any], candidate: dict[str, Any]) -> bool:
     return bool(team_id and candidate_team == team_id)
 
 
+async def team_directory_ids(user: dict[str, Any]) -> set[str]:
+    store = await read_user_store()
+    return {
+        str(item.get("id") or "")
+        for item in store.get("users", [])
+        if isinstance(item, dict) and (str(item.get("id") or "") == str(user.get("id") or "") or same_team(user, item))
+    } - {""}
+
+
+async def accessible_team_projects(user: dict[str, Any]) -> list[dict[str, Any]]:
+    user_id = tenant_id(user)
+    team_ids = await team_directory_ids(user)
+    return [
+        project
+        for project in list_projects(user_id).get("projects", [])
+        if str(project.get("ownerUserId") or user_id) == user_id
+        or str(project.get("ownerUserId") or "") in team_ids
+    ]
+
+
+async def require_task_access(user: dict[str, Any], task_id: str) -> dict[str, Any]:
+    allowed_project_ids = {str(item.get("id") or "") for item in await accessible_team_projects(user)}
+    task = find_task_snapshot(tenant_id(user), task_id)
+    if not task or str(task.get("projectId") or "default") not in allowed_project_ids:
+        raise HTTPException(status_code=404, detail="Tarefa nao encontrada.")
+    return task
+
+
+async def safe_project_payload(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    user_id = tenant_id(user)
+    team_ids = await team_directory_ids(user)
+    cleaned = dict(payload)
+    if "sharedUserIds" in cleaned:
+        cleaned["sharedUserIds"] = sorted({
+            str(item)
+            for item in cleaned.get("sharedUserIds", [])
+            if str(item) in team_ids and str(item) != user_id
+        })
+    responsible = str(cleaned.get("responsibleUserId") or "")
+    if responsible and responsible not in team_ids:
+        cleaned["responsibleUserId"] = user_id
+        cleaned["responsibleName"] = str(user.get("nome") or user.get("email") or "Operador")
+    return cleaned
+
+
 def member_matches_task(member: dict[str, Any], task: dict[str, Any]) -> bool:
     member_id = str(member.get("id") or "")
     if member_id and member_id in {str(task.get("assigneeId") or ""), str(task.get("createdBy") or "")}:
@@ -430,6 +475,8 @@ async def obter_tarefas(
     user: dict[str, Any] = Depends(current_user),
 ):
     resolved_user_id = tenant_id(user)
+    if project_id and project_id not in {str(item.get("id") or "") for item in await accessible_team_projects(user)}:
+        raise HTTPException(status_code=404, detail="Projeto nao encontrado.")
     return list_tasks(
         resolved_user_id,
         project_id=project_id,
@@ -444,7 +491,7 @@ async def obter_tarefas(
 
 @router.get("/projetos")
 async def listar_projetos(user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
-    return list_projects(tenant_id(user))
+    return {"projects": await accessible_team_projects(user), "updatedAt": now_iso()}
 
 
 @router.get("/relatorio-equipe")
@@ -494,7 +541,7 @@ async def relatorio_equipe(user: dict[str, Any] = Depends(current_user)):
 @router.post("/projetos")
 async def criar_projeto(payload: ProjetoPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
-    project = create_project(resolved_user_id, payload.model_dump(exclude={"user_id"}))
+    project = create_project(resolved_user_id, await safe_project_payload(user, payload.model_dump(exclude={"user_id"})))
     await record_event(
         source="kanban",
         title=f"Projeto criado: {project.get('name')}",
@@ -511,7 +558,7 @@ async def criar_projeto(payload: ProjetoPayload, user: dict[str, Any] = Depends(
 @router.patch("/projetos/{project_id}")
 async def atualizar_projeto(project_id: str, payload: AtualizarProjetoPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
-    updates = {key: getattr(payload, key) for key in payload.model_fields_set if key != "user_id"}
+    updates = await safe_project_payload(user, {key: getattr(payload, key) for key in payload.model_fields_set if key != "user_id"})
     project = update_project(resolved_user_id, project_id, updates)
     if not project:
         raise HTTPException(status_code=404, detail="Projeto nao encontrado ou sem permissao para editar.")
@@ -598,6 +645,8 @@ Retorne somente JSON válido no formato:
 @router.post("")
 async def criar_tarefa(payload: CriarTarefaPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
+    if payload.projectId not in {str(item.get("id") or "") for item in await accessible_team_projects(user)}:
+        raise HTTPException(status_code=404, detail="Projeto nao encontrado.")
     task = create_task(resolved_user_id, payload.model_dump(exclude={"user_id", "projectName"}))
     await record_task_created(task, payload.projectName, resolved_user_id)
     await record_receipt(
@@ -629,7 +678,7 @@ async def atualizar_tarefa(task_id: str, payload: AtualizarTarefaPayload, user: 
         for key in payload.model_fields_set
         if key not in {"user_id", "projectName"}
     }
-    previous = find_task_snapshot(resolved_user_id, task_id)
+    previous = await require_task_access(user, task_id)
     task = update_task(resolved_user_id, task_id, updates)
     if not task:
         raise HTTPException(status_code=404, detail="Tarefa nao encontrada.")
@@ -663,7 +712,7 @@ async def apagar_tarefa(
     user: dict[str, Any] = Depends(current_user),
 ):
     resolved_user_id = tenant_id(user)
-    previous = find_task_snapshot(resolved_user_id, task_id)
+    previous = await require_task_access(user, task_id)
     if delete_task(resolved_user_id, task_id):
         await record_task_deleted(previous, task_id, project_id, project_name, resolved_user_id)
         await record_receipt(
@@ -685,6 +734,7 @@ async def apagar_tarefa(
 @router.post("/{task_id}/comentarios")
 async def comentar_tarefa(task_id: str, payload: ComentarioPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
+    await require_task_access(user, task_id)
     authenticated_author = str(user.get("nome") or user.get("email") or "Operador").strip()
     comment = add_comment(resolved_user_id, task_id, authenticated_author, payload.text)
     if not comment:
@@ -712,6 +762,7 @@ async def comentar_tarefa(task_id: str, payload: ComentarioPayload, user: dict[s
 @router.post("/{task_id}/anexos")
 async def anexar_arquivo(task_id: str, payload: AnexoPayload, user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
+    await require_task_access(user, task_id)
     try:
         attachment = add_attachment(
             resolved_user_id,

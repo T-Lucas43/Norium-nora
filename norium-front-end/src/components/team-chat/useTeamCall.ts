@@ -156,7 +156,7 @@ type CallDevices = {
 
 export type CallMicrophoneMode = "on" | "muted" | "listen-only";
 const RELOAD_SESSION_KEY = "norium.team-call.reload";
-const RELOAD_SESSION_TTL_MS = 60_000;
+const RELOAD_SESSION_TTL_MS = 5 * 60_000;
 type ReloadSession = {
   userId: string;
   callId: string;
@@ -164,6 +164,7 @@ type ReloadSession = {
   savedAt: number;
   microphoneMode: CallMicrophoneMode;
   cameraEnabled: boolean;
+  screenSharing?: boolean;
 };
 
 function readReloadSession(userId: string): ReloadSession | null {
@@ -182,6 +183,11 @@ function readReloadSession(userId: string): ReloadSession | null {
 
 function clearReloadSession() {
   try { sessionStorage.removeItem(RELOAD_SESSION_KEY); } catch { /* Storage can be disabled. */ }
+}
+
+function writeReloadSession(value: ReloadSession) {
+  try { sessionStorage.setItem(RELOAD_SESSION_KEY, JSON.stringify(value)); }
+  catch { /* Storage can be disabled without ending the call. */ }
 }
 
 export type CallEntryOptions = {
@@ -212,6 +218,36 @@ function screenShareConstraints(quality: ScreenShareQuality, fps: ScreenShareFps
     width: { ideal: profile.width, max: profile.width },
     height: { ideal: profile.height, max: profile.height },
     frameRate: { ideal: fps, max: fps },
+  };
+}
+
+type NoriumDisplayAudioConstraints = MediaTrackConstraints & {
+  restrictOwnAudio?: boolean;
+  suppressLocalAudioPlayback?: boolean;
+};
+
+type NoriumDisplayMediaOptions = DisplayMediaStreamOptions & {
+  selfBrowserSurface?: "include" | "exclude";
+  surfaceSwitching?: "include" | "exclude";
+  systemAudio?: "include" | "exclude";
+  windowAudio?: "system" | "window" | "exclude";
+};
+
+const screenShareAudioConstraints: NoriumDisplayAudioConstraints = {
+  // Remove do compartilhamento o áudio produzido pelo próprio Norium. Isso
+  // impede que a voz recebida dos participantes volte para a reunião.
+  restrictOwnAudio: true,
+  suppressLocalAudioPlayback: false,
+};
+
+function screenShareCaptureOptions(quality: ScreenShareQuality, fps: ScreenShareFps): NoriumDisplayMediaOptions {
+  return {
+    audio: screenShareAudioConstraints,
+    video: screenShareConstraints(quality, fps),
+    selfBrowserSurface: "exclude",
+    surfaceSwitching: "include",
+    systemAudio: "include",
+    windowAudio: "window",
   };
 }
 
@@ -861,6 +897,14 @@ export function useTeamCallRuntime({
     activeRef.current = admittedCall;
     setActive(admittedCall);
     confirmedCallIdRef.current = admittedCall.callId;
+    writeReloadSession({
+      userId: session.user.id,
+      callId: admittedCall.callId,
+      clientId: clientIdRef.current,
+      savedAt: Date.now(),
+      ...reloadOptionsRef.current,
+      screenSharing: !!screenStreamRef.current,
+    });
 
     try {
       await ensureMediaTransport(admittedCall);
@@ -896,18 +940,29 @@ export function useTeamCallRuntime({
     ensureMediaTransport,
     finishCall,
     stopConnectingSound,
+    session.user.id,
   ]);
+
+  useEffect(() => {
+    if (!active || confirmedCallIdRef.current !== active.callId) return;
+    writeReloadSession({
+      userId: session.user.id,
+      callId: active.callId,
+      clientId: clientIdRef.current,
+      savedAt: Date.now(),
+      ...reloadOptionsRef.current,
+      screenSharing: sharingScreen,
+    });
+  }, [active, cameraOff, listenOnly, muted, sharingScreen, session.user.id]);
 
   useEffect(() => {
     const preserveOnReload = () => {
       const call = activeRef.current;
       if (call && confirmedCallIdRef.current === call.callId) {
-        try {
-          sessionStorage.setItem(RELOAD_SESSION_KEY, JSON.stringify({
-            userId: session.user.id, callId: call.callId, clientId: clientIdRef.current,
-            savedAt: Date.now(), ...reloadOptionsRef.current,
-          } satisfies ReloadSession));
-        } catch { /* Continue releasing media even when storage is unavailable. */ }
+        writeReloadSession({
+          userId: session.user.id, callId: call.callId, clientId: clientIdRef.current,
+          savedAt: Date.now(), ...reloadOptionsRef.current, screenSharing: !!screenStreamRef.current,
+        });
       }
       leaveOnClose();
     };
@@ -1594,6 +1649,7 @@ export function useTeamCallRuntime({
         const resumable = event.calls?.find((call) => call.callId === saved.callId);
         if (resumable && saved.userId === session.user.id && Date.now() - saved.savedAt < RELOAD_SESSION_TTL_MS) {
           await joinActiveCall(resumable, { microphoneMode: saved.microphoneMode, cameraEnabled: saved.cameraEnabled });
+          if (saved.screenSharing) setStatus("Ligação retomada. Por segurança do navegador, escolha novamente a tela para continuar a transmissão.");
         }
       }
       const current = event.calls?.find((call) => call.callId === activeRef.current?.callId);
@@ -1934,13 +1990,20 @@ export function useTeamCallRuntime({
     setScreenChangePending(true);
     let next: MediaStream | null = null;
     try {
-      next = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: screenShareConstraints(screenShareQualityRef.current, screenShareFpsRef.current) });
+      next = await navigator.mediaDevices.getDisplayMedia(screenShareCaptureOptions(screenShareQualityRef.current, screenShareFpsRef.current));
       if (epoch !== mediaEpochRef.current) { next.getTracks().forEach((track) => track.stop()); return; }
       // If sharing stopped while the picker was open, do not resurrect it.
       if (previous && screenStreamRef.current !== previous) { next.getTracks().forEach((track) => track.stop()); return; }
       const screenTrack = next.getVideoTracks()[0];
       if (!screenTrack || screenTrack.readyState === "ended") throw new Error("A tela selecionada não forneceu vídeo.");
       screenTrack.contentHint = "detail";
+      const screenAudioTrack = next.getAudioTracks()[0];
+      if (screenAudioTrack) {
+        screenAudioTrack.contentHint = "music";
+        if (typeof screenAudioTrack.applyConstraints === "function") {
+          await screenAudioTrack.applyConstraints(screenShareAudioConstraints).catch(() => undefined);
+        }
+      }
       screenStreamRef.current = next;
       await attachVideoTrack(screenTrack, next);
       if (epoch !== mediaEpochRef.current) { next.getTracks().forEach((track) => track.stop()); return; }

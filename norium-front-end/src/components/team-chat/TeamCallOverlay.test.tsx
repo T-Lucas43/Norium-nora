@@ -221,7 +221,7 @@ describe("tela da reuniao do Modo Equipe", () => {
       selectScreenShareFps: vi.fn(),
     } as unknown as ReturnTypeOfTeamCall;
 
-    render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "owner", nome: "Owner" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+    const view = render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "owner", nome: "Owner" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "Parar gravação" })).toBeInTheDocument();
     expect(screen.getByText("Todos foram avisados")).toBeInTheDocument();
@@ -255,6 +255,9 @@ describe("tela da reuniao do Modo Equipe", () => {
     fireEvent.click(screen.getByRole("button", { name: "Minimizar chamada" }));
     expect(screen.getByLabelText("Chamada minimizada")).toBeVisible();
     expect(call.endCall).not.toHaveBeenCalled();
+    view.unmount();
+    render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "owner", nome: "Owner" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+    expect(screen.getByLabelText("Chamada minimizada")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Restaurar chamada" }));
     expect(screen.queryByLabelText("Chamada minimizada")).toBeNull();
 
@@ -371,6 +374,8 @@ describe("tela da reuniao do Modo Equipe", () => {
 
     expect(screen.getByLabelText("Prévia da sua tela compartilhada")).toBeInTheDocument();
     expect(screen.getByLabelText("Mini visualização da sua tela compartilhada")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Mover prévia da sua transmissão" }), { key: "ArrowLeft" });
+    expect(screen.getByLabelText("Prévia da sua tela compartilhada")).toHaveStyle({ transform: "translate3d(-12px,0px,0)" });
     fireEvent.click(screen.getByRole("button", { name: "Abrir chat da reunião" }));
     expect(screen.getByText("Texto com contraste")).toHaveClass("team-call-chat-message-mine");
   });
@@ -429,15 +434,21 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(requestFullscreen).toHaveBeenCalledOnce();
     fireEvent.change(screen.getByRole("slider", { name: "Volume de Fernando" }), { target: { value: "175" } });
     expect(screen.getByText("175%")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Silenciar Fernando para mim" }));
-    expect(screen.getByLabelText("Áudio de Fernando")).toHaveProperty("muted", true);
-    const audioElement = screen.getByLabelText("Áudio de Fernando");
+    fireEvent.click(screen.getByRole("button", { name: "Mutar fones" }));
+    expect(screen.getByLabelText("Microfone de Fernando")).toHaveProperty("muted", true);
+    fireEvent.click(screen.getByRole("button", { name: "Ativar fones" }));
+    expect(screen.getByLabelText("Microfone de Fernando")).toHaveProperty("muted", false);
+    fireEvent.click(screen.getByRole("button", { name: "Silenciar microfone de Fernando para mim" }));
+    expect(screen.getByLabelText("Microfone de Fernando")).toHaveProperty("muted", true);
+    fireEvent.click(screen.getByRole("button", { name: "Silenciar áudio da transmissão de Fernando para mim" }));
+    expect(screen.getByLabelText("Áudio da transmissão de Fernando")).toHaveProperty("muted", true);
+    const audioElement = screen.getByLabelText("Microfone de Fernando");
     fireEvent.click(screen.getByRole("button", { name: "Minimizar chamada" }));
-    expect(document.querySelector('audio[aria-label="Áudio de Fernando"]')).toBe(audioElement);
+    expect(document.querySelector('audio[aria-label="Microfone de Fernando"]')).toBe(audioElement);
     fireEvent.click(screen.getByRole("button", { name: "Restaurar chamada" }));
     expect(screen.getByText("175%")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Fixar transmissão de Fernando" }));
-    expect(document.querySelector('[data-participant="member"]')).toHaveAttribute("data-pinned", "true");
+    expect(document.querySelector('[data-tile="screen"]')).toHaveAttribute("data-pinned", "true");
     const oldVideo = screen.getByLabelText("Tela compartilhada por Fernando");
     const cameraOffCall = { ...call, remoteScreenSharingIds: [], remoteCameraEnabled: { member: false } } as unknown as ReturnTypeOfTeamCall;
     rerender(<TeamCallOverlay {...sessionProps(cameraOffCall)} {...props} />);
@@ -446,10 +457,10 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByText("Fernando está sem câmera")).toBeInTheDocument();
     expect(document.querySelector('[data-participant="member"]')).not.toHaveAttribute("data-pinned");
     expect(screen.getByText("175%")).toBeInTheDocument();
-    expect(screen.getByLabelText("Áudio de Fernando")).toHaveProperty("muted", true);
-    fireEvent.click(screen.getByRole("button", { name: "Ouvir Fernando para mim" }));
+    expect(screen.getByLabelText("Microfone de Fernando")).toHaveProperty("muted", true);
+    fireEvent.click(screen.getByRole("button", { name: "Ouvir microfone de Fernando para mim" }));
     fireEvent.click(screen.getByRole("button", { name: "Fixar Fernando" }));
-    expect(document.querySelector('[data-participant="member"]')).toHaveAttribute("data-pinned", "true");
+    expect(document.querySelector('[data-tile="member"]')).toHaveAttribute("data-pinned", "true");
     const participantLeftCall = { ...call, remoteStreams: [] } as unknown as ReturnTypeOfTeamCall;
     rerender(<TeamCallOverlay {...sessionProps(participantLeftCall)} {...props} />);
     expect(document.querySelector('[data-pinned]')).toBeNull();

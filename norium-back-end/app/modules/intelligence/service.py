@@ -696,14 +696,14 @@ def _install_resource(user_id: str, item: dict[str, Any], installation_id: str) 
     if item["id"] in {"sales-knowledge-template", "web-source-connector"}:
         store = read_store(user_id)
         is_connector = item["id"] == "web-source-connector"
-        resource = {"id": entity_id("kb"), "name": "Fontes web" if is_connector else "Base comercial", "description": "Paginas publicas autorizadas." if is_connector else "Politicas, propostas e materiais comerciais.", "visibility": "private", "tags": ["web"] if is_connector else ["comercial"], "sourceCount": 0, "chunkCount": 0, "status": "ready", "active": False, "marketplaceInstallationId": installation_id, "createdAt": now_iso(), "updatedAt": now_iso()}
+        resource = {"id": entity_id("kb"), "name": "Fontes web" if is_connector else "Base comercial", "description": "Paginas publicas autorizadas." if is_connector else "Politicas, propostas e materiais comerciais.", "visibility": "private", "tags": ["web"] if is_connector else ["comercial"], "sourceCount": 0, "chunkCount": 0, "status": "ready", "active": True, "marketplaceInstallationId": installation_id, "createdAt": now_iso(), "updatedAt": now_iso()}
         store["knowledgeBases"].insert(0, resource)
         write_store(user_id, store)
         return {"type": "knowledgeBase", "id": resource["id"]}
     if item["id"] in {"cost-aware-model-policy", "nora-runtime-model"}:
         store = read_store(user_id)
         runtime_model = item["id"] == "nora-runtime-model"
-        resource = {"id": entity_id("policy"), "name": "Modelo padrão da Nora" if runtime_model else "Custo consciente", "mode": "manual" if runtime_model else "automatic", "preferredProviderId": "nora-runtime" if runtime_model else None, "fallbackProviderIds": [], "requireCapabilities": ["text"], "maxInputCostPerMillion": None if runtime_model else 2, "privacy": "any", "monthlyBudget": None, "enabled": False, "marketplaceInstallationId": installation_id, "createdAt": now_iso(), "updatedAt": now_iso()}
+        resource = {"id": entity_id("policy"), "name": "Modelo padrão da Nora" if runtime_model else "Custo consciente", "mode": "manual" if runtime_model else "automatic", "preferredProviderId": "nora-runtime" if runtime_model else None, "fallbackProviderIds": [], "requireCapabilities": ["text"], "maxInputCostPerMillion": None if runtime_model else 2, "privacy": "any", "monthlyBudget": None, "enabled": True, "marketplaceInstallationId": installation_id, "createdAt": now_iso(), "updatedAt": now_iso()}
         store["modelPolicies"].insert(0, resource)
         write_store(user_id, store)
         return {"type": "modelPolicy", "id": resource["id"]}
@@ -719,7 +719,7 @@ def _install_resource(user_id: str, item: dict[str, Any], installation_id: str) 
     resource = {
         "id": entity_id("auto"), "name": "Monitor de pagina", "description": "Le uma pagina autorizada e registra evidencias.",
         "icon": "globe", "category": "Navegador", "trigger": "Manual", "actions": ["Executar tarefa no navegador"],
-        "status": "desativada", "active": False, "aiEnabled": False, "favorite": False, "savedMinutesPerRun": 10,
+        "status": "ativa", "active": True, "aiEnabled": False, "favorite": False, "savedMinutesPerRun": 10,
         "savedMinutes": 0, "executions": 0, "lastRunAt": None, "createdAt": created, "updatedAt": created,
         "version": 1, "environment": "rascunho", "versions": [], "variables": {"targetUrl": "", "browserObjective": "Ler e resumir a pagina"},
         "schedule": "", "retryPolicy": {"enabled": True, "maxAttempts": 1, "delaySeconds": 30}, "failureAction": "notificar_operador", "requiresApproval": False,
@@ -747,7 +747,7 @@ async def install_marketplace(user: dict[str, Any], item_id: str, confirm: bool,
         raise HTTPException(status_code=409, detail="Este item ja esta instalado.")
     installation_id = entity_id("installation")
     resource = _install_resource(user_id, item, installation_id)
-    installation = {"id": installation_id, "catalogId": item_id, "name": item["name"], "version": version or item["version"], "status": "installed", "enabled": False, "resource": resource, "installedAt": now_iso(), "updatedAt": now_iso()}
+    installation = {"id": installation_id, "catalogId": item_id, "name": item["name"], "version": version or item["version"], "status": "installed", "enabled": True, "resource": resource, "installedAt": now_iso(), "updatedAt": now_iso()}
     await mutate_store(user_id, lambda current: current["installations"].insert(0, installation))
     return installation
 

@@ -148,6 +148,7 @@ export default function NoriumApp() {
   const navigateTab = useCallback((tab: string, options: { replace?: boolean } = {}) => {
     const nextTab = canonicalTab(tab);
     preloadPanel(nextTab);
+    if (nextTab !== "Chat da Equipe") setTeamChatOpen(false);
     setActiveTab(nextTab);
     navigateNoriumTab(nextTab, options);
   }, []);

@@ -63,6 +63,17 @@ interface AdminAuditItem {
   createdAt: string;
 }
 
+interface SystemLogItem {
+  id: string;
+  event: string;
+  level: "info" | "warning" | "error";
+  message: string;
+  userId: string;
+  workspaceId: string;
+  metadata?: { durationMs?: number; requestId?: string };
+  createdAt: string;
+}
+
 interface AdminMonitoring {
   status: string;
   checkedAt: string;
@@ -135,6 +146,7 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
   const [teams, setTeams] = useState<NoriumTeam[]>([]);
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [audit, setAudit] = useState<AdminAuditItem[]>([]);
+  const [systemLogs, setSystemLogs] = useState<SystemLogItem[]>([]);
   const [monitoring, setMonitoring] = useState<AdminMonitoring | null>(null);
   const [selectedUserId, setSelectedUserId] = useState(session.user.id);
   const [createOpen, setCreateOpen] = useState(false);
@@ -166,13 +178,15 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
         authJson<{ teams: NoriumTeam[] }>("/api/auth/teams", session.token),
         authJson<{ items: AdminAuditItem[] }>("/api/auth/admin/audit", session.token),
         authJson<AdminMonitoring>("/api/auth/admin/monitoring", session.token),
+        authJson<{ items: SystemLogItem[] }>("/api/auth/admin/system-logs?limit=300", session.token),
       ]);
-      const [overviewResult, usersResult, plansResult, teamsResult, auditResult, monitoringResult] = results;
+      const [overviewResult, usersResult, plansResult, teamsResult, auditResult, monitoringResult, systemLogsResult] = results;
       if (overviewResult.status === "fulfilled") setOverview(overviewResult.value);
       if (plansResult.status === "fulfilled") setPlans(plansResult.value.plans);
       if (teamsResult.status === "fulfilled") setTeams(teamsResult.value.teams);
       if (auditResult.status === "fulfilled") setAudit(auditResult.value.items);
       if (monitoringResult.status === "fulfilled") setMonitoring(monitoringResult.value);
+      if (systemLogsResult.status === "fulfilled") setSystemLogs(systemLogsResult.value.items);
       if (usersResult.status === "fulfilled") {
         const loadedUsers = [...usersResult.value.users].sort((left, right) => (Date.parse(right.createdAt || "") || 0) - (Date.parse(left.createdAt || "") || 0));
         setUsers(loadedUsers);
@@ -364,7 +378,8 @@ export default function AdminDashboard({ session, onUseSystem, onSessionUpdate }
             {activeSection === "permissions" && <AdminSectionFrame eyebrow="Gerenciar" title="Permissões" description="Controle granular das telas, IA, equipe e integrações por usuário." icon={ShieldCheck}><UserSelector users={users} value={selectedUser.id} onChange={setSelectedUserId} />{selectedIsProtectedOwner && <ProtectedOwnerNotice />}<PermissionEditor permissions={selectedPermissions} onToggle={(key) => toggleUserPermission(selectedUser, key)} onToggleAll={toggleAllUserPermissions} disabled={!canEditSelected || selectedUser.systemAdmin || saving === selectedUser.id} /></AdminSectionFrame>}
             {activeSection === "integrations" && <AdminSectionFrame eyebrow="Gerenciar" title="Integrações" description="Libere os conectores externos que cada usuário pode utilizar." icon={Link2}><UserSelector users={users} value={selectedUser.id} onChange={setSelectedUserId} />{selectedIsProtectedOwner && <ProtectedOwnerNotice />}<PermissionEditor keys={integrationKeys} permissions={selectedPermissions} onToggle={(key) => toggleUserPermission(selectedUser, key)} onToggleAll={toggleAllUserPermissions} disabled={!canEditSelected || selectedUser.systemAdmin || saving === selectedUser.id} /></AdminSectionFrame>}
             {activeSection === "settings" && <AdminSectionFrame eyebrow="Sistema" title="Configurações administrativas" description="Identidade visual, atualização de dados e acesso rápido ao sistema operacional." icon={Settings2}><div className="grid gap-3 md:grid-cols-2"><section className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4"><ShieldCheck size={19} className="text-[var(--primary)]" /><h3 className="mt-3 text-sm font-black">Hierarquia protegida</h3><p className="mt-2 text-xs font-semibold leading-6 text-[var(--text-secondary)]">O proprietário pode definir administradores auxiliares. Eles recebem acesso global, mas a API impede qualquer alteração na conta do proprietário.</p></section><section className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4"><Settings2 size={19} className="text-[var(--primary)]" /><h3 className="mt-3 text-sm font-black">Ações do painel</h3><div className="mt-4 flex flex-wrap gap-2"><LocalThemeToggle storageKey="norium-admin-theme" label="tema do admin" /><Button size="sm" onClick={() => void refresh()}><RefreshCw size={14} /> Atualizar</Button><Button size="sm" variant="primary" onClick={onUseSystem}><LayoutDashboard size={14} /> Usar sistema</Button></div></section></div></AdminSectionFrame>}
-            {(activeSection === "logs" || activeSection === "audit") && <AdminSectionFrame eyebrow="Sistema" title={activeSection === "logs" ? "Logs do sistema" : "Auditoria administrativa"} description="Registro das criações, alterações de plano, permissões, status e administradores auxiliares." icon={activeSection === "logs" ? FileClock : ListChecks}><AuditTimeline items={audit} /></AdminSectionFrame>}
+            {activeSection === "logs" && <AdminSectionFrame eyebrow="Sistema" title="Logs do sistema" description="Requisições, falhas e tempos de resposta armazenados sem corpos, senhas, cookies ou tokens." icon={FileClock}><SystemLogTimeline items={systemLogs} /></AdminSectionFrame>}
+            {activeSection === "audit" && <AdminSectionFrame eyebrow="Sistema" title="Auditoria administrativa" description="Registro das criações, alterações de plano, permissões, status e administradores auxiliares." icon={ListChecks}><AuditTimeline items={audit} /></AdminSectionFrame>}
             {activeSection === "monitoring" && <AdminSectionFrame eyebrow="Sistema" title="Monitoramento" description="Estado atual do cadastro central, contas administrativas e OAuth Google." icon={MonitorCheck}><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><MonitorCard label="Sistema" value={monitoring?.status === "operational" ? "Operacional" : monitoring?.status || "Carregando"} healthy={monitoring?.status === "operational"} /><MonitorCard label="Banco de usuários" value={monitoring?.userStore === "online" ? "Online" : monitoring?.userStore || "Carregando"} healthy={monitoring?.userStore === "online"} /><MonitorCard label="Usuários ativos" value={String(monitoring?.activeUsers ?? overview?.activeUsers ?? 0)} healthy /><MonitorCard label="Admins" value={String(monitoring?.adminUsers ?? overview?.adminUsers ?? 0)} healthy /><MonitorCard label="OAuth Gmail" value={monitoring?.gmailConfigured ? "Configurado" : "Não configurado"} healthy={Boolean(monitoring?.gmailConfigured)} /><MonitorCard label="OAuth Google Agenda" value={monitoring?.googleCalendarConfigured ? "Configurado" : "Não configurado"} healthy={Boolean(monitoring?.googleCalendarConfigured)} /></div>{monitoring && <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-[10px] font-semibold text-[var(--text-secondary)]"><p>Callback Gmail: <code className="text-[var(--text)]">{monitoring.gmailRedirectUri || "não definido"}</code></p><p className="mt-1">Callback Google Agenda: <code className="text-[var(--text)]">{monitoring.googleRedirectUri || "não definido"}</code></p></div>}<p className="mt-4 text-[10px] font-semibold text-[var(--text-secondary)]">Última verificação: {formatDate(monitoring?.checkedAt)}</p></AdminSectionFrame>}
             {activeSection === "backup" && <AdminSectionFrame eyebrow="Sistema" title="Backup administrativo" description="Exporte usuários, equipes, planos e auditoria. Senhas e segredos nunca entram no arquivo." icon={Archive}><section className="flex flex-col gap-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-5 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-sm font-black">Snapshot seguro do painel</h3><p className="mt-2 max-w-2xl text-xs font-semibold leading-6 text-[var(--text-secondary)]">O arquivo JSON é gerado sob demanda e contém somente dados administrativos sanitizados.</p></div><Button variant="primary" onClick={() => void downloadBackup()} disabled={saving === "backup"}><Archive size={15} /> {saving === "backup" ? "Gerando..." : "Gerar backup"}</Button></section></AdminSectionFrame>}
           </div></div>
@@ -410,6 +425,11 @@ function PermissionEditor({ permissions, onToggle, onToggleAll, disabled = false
 function AuditTimeline({ items }: { items: AdminAuditItem[] }) {
   if (!items.length) return <EmptyState title="Nenhuma ação administrativa registrada" description="As próximas alterações de usuários aparecerão aqui." />;
   return <div className="space-y-2">{items.map((item) => <article key={item.id} className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--primary)]/12 text-[var(--primary)]"><FileClock size={14} /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-[10px]">{item.actorName} · {item.action.replaceAll("_", " ")}</strong><time className="text-[9px] font-semibold text-[var(--text-secondary)]">{formatDate(item.createdAt)}</time></div><p className="mt-1 text-[10px] font-semibold text-[var(--text-secondary)]">{item.detail}{item.targetName ? ` Alvo: ${item.targetName}.` : ""}</p></div></article>)}</div>;
+}
+
+function SystemLogTimeline({ items }: { items: SystemLogItem[] }) {
+  if (!items.length) return <EmptyState title="Nenhum log registrado" description="As próximas requisições e falhas aparecerão aqui." />;
+  return <div className="space-y-2">{items.map((item) => <article key={item.id} className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><span className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ${item.level === "error" ? "bg-rose-400" : item.level === "warning" ? "bg-amber-400" : "bg-emerald-400"}`} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-[10px]">{item.message || item.event}</strong><time className="text-[9px] font-semibold text-[var(--text-secondary)]">{formatDate(item.createdAt)}</time></div><p className="mt-1 break-all text-[9px] font-semibold text-[var(--text-secondary)]">Usuário: {item.userId} · Workspace: {item.workspaceId}{item.metadata?.durationMs != null ? ` · ${Math.round(item.metadata.durationMs)} ms` : ""}{item.metadata?.requestId ? ` · ${item.metadata.requestId}` : ""}</p></div></article>)}</div>;
 }
 
 function MonitorCard({ label, value, healthy }: { label: string; value: string; healthy: boolean }) {

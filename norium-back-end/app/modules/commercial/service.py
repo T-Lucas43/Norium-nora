@@ -135,7 +135,10 @@ def prepend_event(
 
 
 def collaboration_tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("teamOwnerId") or user.get("id") or "lucas123")
+    # Documentos comerciais são privados por autor. Reutilizar o proprietário
+    # da equipe aqui fazia propostas, currículos e arquivos aparecerem para
+    # todos os membros vinculados à mesma conta principal.
+    return str(user.get("id") or "lucas123")
 
 
 def is_team_plan(user: dict[str, Any]) -> bool:

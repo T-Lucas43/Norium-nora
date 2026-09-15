@@ -115,6 +115,28 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         page.save()
         return ProposalPdfUpload(fileName="proposta-assinada.pdf" if signed else "proposta.pdf", dataBase64=base64.b64encode(output.getvalue()).decode(), title="Proposta importada", clientId=self.client_id, signed=signed, expectedVersion=expected_version), output.getvalue()
 
+    async def test_team_members_keep_generated_documents_private(self) -> None:
+        team_owner_id = self.user["id"]
+        member = {
+            "id": f"member-{self._testMethodName}",
+            "nome": "Membro da equipe",
+            "email": "membro@norium.local",
+            "plan": "equipe",
+            "role": "member",
+            "teamOwnerId": team_owner_id,
+        }
+        member_client = await create_client(ClientCreate(name="Cliente do membro"), member)
+        owner_document = await create_proposal(self.user, ProposalCreate(clientId=self.client_id, title="Documento do proprietário"))
+        member_document = await create_proposal(member, ProposalCreate(clientId=member_client["item"]["id"], title="Documento privado do membro"))
+
+        owner_items = (await list_commercial_data(self.user))["proposals"]
+        member_items = (await list_commercial_data(member))["proposals"]
+        self.assertEqual([owner_document["id"]], [item["id"] for item in owner_items])
+        self.assertEqual([member_document["id"]], [item["id"] for item in member_items])
+        with self.assertRaises(HTTPException) as foreign_access:
+            await update_proposal(self.user, member_document["id"], ProposalUpdate(title="Tentativa", expectedVersion=1))
+        self.assertEqual(404, foreign_access.exception.status_code)
+
     async def test_imported_proposal_edits_and_signed_upload_update_counts(self):
         from app.modules.commercial.pdf_export import build_commercial_pdf
         from app.modules.commercial.document_files import delete_imported_document, document_path
@@ -723,8 +745,8 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(item["id"] == "standard_resume_foto_clean" for item in hidden["templates"]))
 
         installation = await intelligence_service.install_marketplace(self.user, "document-models-pack", True)
-        installed_but_disabled = await list_commercial_data(self.user)
-        self.assertFalse(any(item["id"] == "standard_resume_foto_clean" for item in installed_but_disabled["templates"]))
+        installed_and_enabled = await list_commercial_data(self.user)
+        self.assertTrue(any(item["id"] == "standard_resume_foto_clean" for item in installed_and_enabled["templates"]))
 
         await intelligence_service.set_marketplace_enabled(self.user, installation["id"], True)
         enabled = await list_commercial_data(self.user)

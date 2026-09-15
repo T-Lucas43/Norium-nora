@@ -153,7 +153,7 @@ export default function MarketplaceDashboardV2() {
         method: "POST",
         body: JSON.stringify({ confirm: confirmed, version: item.version }),
       });
-      setMessage(`${item.name} foi instalado. Ative quando quiser disponibilizá-lo no Norium.`);
+      setMessage(`${item.name} foi instalado e ativado. Você já pode usar.`);
       setSelected(null); setConfirmed(false); await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "A instalação falhou.");
@@ -278,7 +278,7 @@ export default function MarketplaceDashboardV2() {
               <section><h3>Como configurar</h3><ol>{(selected.setupSteps || ["Instale o recurso.", "Revise as permissões e ative quando estiver pronto."]).map((step) => <li key={step}>{step}</li>)}</ol></section>
               <section><h3>Limites e proteções</h3>{(selected.limitations || ["Ações externas continuam protegidas pelas confirmações do Norium."]).map((entry) => <p key={entry}><AlertCircle size={15} /> {entry}</p>)}</section>
             </div>
-            <div className="marketplace-safety-note"><ShieldCheck size={18} /><span><strong>Você mantém o controle.</strong> {selectedInstallation ? "Este recurso já está instalado. Você pode ativá-lo ou desativá-lo sem perder os dados que ele criou." : `O recurso será instalado desativado e só aparecerá em ${selected.destination || "seu destino"} depois que você o ativar.`}</span></div>
+            <div className="marketplace-safety-note"><ShieldCheck size={18} /><span><strong>Você mantém o controle.</strong> {selectedInstallation ? "Este recurso já está instalado. Você pode ativá-lo ou desativá-lo sem perder os dados que ele criou." : `O recurso será instalado já ativo e ficará disponível em ${selected.destination || "seu destino"}. Você poderá desativá-lo quando quiser.`}</span></div>
             {selectedInstallation ? (
               <div className="marketplace-dialog-actions is-installed">
                 <div className="marketplace-dialog-installed-actions"><span><strong>{selectedInstallation.enabled ? "Ativo" : "Desativado"}</strong><small>{selectedInstallation.enabled ? `Disponível em ${selected.destination || "Norium"}` : "O recurso está instalado, mas não aparece no destino"}</small></span><Switch checked={selectedInstallation.enabled} disabled={busyId === selected.id} label={`${selectedInstallation.enabled ? "Desativar" : "Ativar"} ${selected.name}`} onChange={() => void toggle(selectedInstallation, selected)} /></div>

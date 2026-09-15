@@ -42,6 +42,7 @@ from app.services.conversation_store import (
 from app.services.email_agent import EmailAgent
 from app.services.nora import NoraIAService
 from app.services.nora_module_help import answer_module_help
+from app.services.nora_team_meetings import is_team_meeting_intent, team_meeting_agent
 from app.services.nora_skills import (
     SkillResolution,
     resolve_skill,
@@ -1100,6 +1101,7 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
 
         if interrompe_sessao_ativa(texto):
             agenda_agent.cancel_session(payload.agenda_session_id)
+            team_meeting_agent.cancel_session(payload.agenda_session_id)
             email_agent.cancel_session(payload.email_session_id)
             cancel_commercial_session(payload.commercial_session_id)
             payload.agenda_session_id = None
@@ -1267,7 +1269,10 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             )
             if approval_response is not None:
                 return approval_response
-            result = agenda_agent.handle(message=texto, session_id=payload.agenda_session_id, user_id=resolved_user_id)
+            if team_meeting_agent.has_session(payload.agenda_session_id, user):
+                result = await team_meeting_agent.handle(message=texto, session_id=payload.agenda_session_id, user=user)
+            else:
+                result = agenda_agent.handle(message=texto, session_id=payload.agenda_session_id, user_id=resolved_user_id)
             return resposta_agente("agenda", result, "agenda")
 
         if payload.commercial_session_id and resolution.skill_id in {"comercial", "chat"}:
@@ -1287,6 +1292,11 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             )
             if semantic_confidence >= 0.55:
                 intent = semantic_intent
+
+        # Uma reunião interna é uma ação de Agenda, ainda que a palavra
+        # "equipe" também seja um sinal forte do agente de mensagens.
+        if is_team_meeting_intent(texto):
+            intent = "agenda"
 
         # O canal explicito tem precedencia sobre o assunto da mensagem. Sem
         # "WhatsApp/zap/wpp", a forma curta "mande uma mensagem para Ana" so
@@ -1334,7 +1344,10 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             return resposta_agente("email", result, "email", resolution)
 
         if intent == "agenda":
-            result = agenda_agent.handle(message=texto, session_id=None, user_id=resolved_user_id)
+            if is_team_meeting_intent(texto):
+                result = await team_meeting_agent.handle(message=texto, session_id=None, user=user)
+            else:
+                result = agenda_agent.handle(message=texto, session_id=None, user_id=resolved_user_id)
             return resposta_agente("agenda", result, "agenda", resolution)
 
         if intent == "equipe":

@@ -30,6 +30,7 @@ from app.infrastructure.reliability.idempotency import (
     complete_request,
 )
 from app.services.wapi_connect import validate_wapi_test_configuration
+from app.services.system_logs import record_system_log
 from app.services.wapi_credentials import (
     validate_wapi_credential_encryption_configuration,
 )
@@ -358,7 +359,42 @@ def create_app() -> FastAPI:
             if is_shared_environment():
                 response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             record_request(request.url.path, method, response.status_code, duration_ms, request_id)
+            if request.url.path.startswith("/api/") and request.url.path != "/api/auth/admin/system-logs":
+                await asyncio.to_thread(
+                    record_system_log,
+                    "http_request",
+                    level="error" if response.status_code >= 500 else "warning" if response.status_code >= 400 else "info",
+                    message=f"{method} {request.url.path} · HTTP {response.status_code}",
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    metadata={
+                        "method": method,
+                        "path": request.url.path,
+                        "statusCode": response.status_code,
+                        "durationMs": round(duration_ms, 2),
+                        "requestId": request_id,
+                    },
+                )
             return response
+        except Exception as exc:
+            duration_ms = (time.perf_counter() - started) * 1000
+            if request.url.path.startswith("/api/"):
+                await asyncio.to_thread(
+                    record_system_log,
+                    "http_request_failed",
+                    level="error",
+                    message=f"{method} {request.url.path} · falha interna",
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    metadata={
+                        "method": method,
+                        "path": request.url.path,
+                        "durationMs": round(duration_ms, 2),
+                        "requestId": request_id,
+                        "errorType": type(exc).__name__,
+                    },
+                )
+            raise
         finally:
             reset_request_context(context_tokens)
 

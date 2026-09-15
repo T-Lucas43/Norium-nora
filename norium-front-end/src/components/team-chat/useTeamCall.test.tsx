@@ -110,6 +110,7 @@ describe("chamadas do Modo Equipe", () => {
     await act(async () => first.result.current.handleSocketEvent({
       type: "CALL_ACK", callId, event: "CALL_INVITE", mediaTransport: "mesh",
     }));
+    expect(JSON.parse(sessionStorage.getItem("norium.team-call.reload") || "null")).toEqual(expect.objectContaining({ callId, clientId }));
     act(() => window.dispatchEvent(new Event("pagehide")));
     first.unmount();
     sendSocketEvent.mockClear();
@@ -129,7 +130,7 @@ describe("chamadas do Modo Equipe", () => {
   it.each(["ended", "other-user", "expired", "invalid"])("não retoma uma sessão %s", async (kind) => {
     sessionStorage.setItem("norium.team-call.reload", kind === "invalid" ? "invalid-json" : JSON.stringify({
       userId: kind === "other-user" ? "someone-else" : "owner", callId: "old-call", clientId: "old-client",
-      savedAt: Date.now() - (kind === "expired" ? 61_000 : 0), microphoneMode: "on", cameraEnabled: true,
+      savedAt: Date.now() - (kind === "expired" ? 301_000 : 0), microphoneMode: "on", cameraEnabled: true,
     }));
     const sendSocketEvent = vi.fn().mockReturnValue(true);
     const getUserMedia = vi.fn();
@@ -721,7 +722,8 @@ describe("chamadas do Modo Equipe", () => {
     const audioStream = new FakeMediaStream([audioTrack]) as unknown as MediaStream;
     const cameraStream = new FakeMediaStream([cameraTrack]) as unknown as MediaStream;
     const displayStream = new FakeMediaStream([screenTrack]) as unknown as MediaStream;
-    const screenAudioTrack = { id: "screen-audio", kind: "audio", enabled: true, readyState: "live", stop: vi.fn() } as unknown as MediaStreamTrack;
+    const screenAudioConstraints = vi.fn().mockResolvedValue(undefined);
+    const screenAudioTrack = { id: "screen-audio", kind: "audio", enabled: true, readyState: "live", stop: vi.fn(), contentHint: "", applyConstraints: screenAudioConstraints } as unknown as MediaStreamTrack;
     (displayStream as unknown as FakeMediaStream).tracks.push(screenAudioTrack);
     const replaceTrack = vi.fn().mockResolvedValue(undefined);
     const videoSender = { track: null, replaceTrack } as unknown as RTCRtpSender;
@@ -788,16 +790,22 @@ describe("chamadas do Modo Equipe", () => {
 
     await act(async () => result.current.toggleScreenShare());
     expect(getDisplayMedia).toHaveBeenCalledWith({
-      audio: true,
+      audio: { restrictOwnAudio: true, suppressLocalAudioPlayback: false },
       video: {
         width: { ideal: 1920, max: 1920 },
         height: { ideal: 1080, max: 1080 },
         frameRate: { ideal: 30, max: 30 },
       },
+      selfBrowserSurface: "exclude",
+      surfaceSwitching: "include",
+      systemAudio: "include",
+      windowAudio: "window",
     });
     expect(replaceTrack).toHaveBeenLastCalledWith(screenTrack);
     expect(result.current.screenStream).toBe(displayStream);
     expect(screenAudioSender.replaceTrack).toHaveBeenLastCalledWith(screenAudioTrack);
+    expect(screenAudioTrack.contentHint).toBe("music");
+    expect(screenAudioConstraints).toHaveBeenCalledWith({ restrictOwnAudio: true, suppressLocalAudioPlayback: false });
     await act(async () => { await result.current.toggleMute(); });
     expect(audioTrack.enabled).toBe(false);
     expect(screenAudioTrack.enabled).toBe(true);

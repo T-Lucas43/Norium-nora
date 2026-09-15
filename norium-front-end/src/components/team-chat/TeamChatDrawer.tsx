@@ -1130,6 +1130,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             commands={callCommands}
             members={members}
             currentUserId={session.user.id}
+            attachmentToken={session.token}
             onDownloadAttachment={(attachment) => { void downloadWithAuth(attachment.url, attachment.name, session.token); }}
           />
     </AnimatePresence>

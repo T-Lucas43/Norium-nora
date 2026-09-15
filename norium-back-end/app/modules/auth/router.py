@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import Field, field_validator
 
@@ -1217,6 +1217,21 @@ async def admin_audit(user: dict[str, Any] = Depends(current_user)) -> dict[str,
     store = await read_user_store()
     entries = store.get("adminAudit", [])
     return {"items": entries[:200] if isinstance(entries, list) else []}
+
+
+@router.get("/admin/system-logs")
+async def admin_system_logs(
+    limit: int = Query(default=300, ge=1, le=1000),
+    level: str = Query(default="", max_length=20),
+    search: str = Query(default="", max_length=120),
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    if not can_manage_system(user):
+        raise HTTPException(status_code=403, detail="Acesso admin restrito.")
+    from app.services.system_logs import list_system_logs
+
+    items = await asyncio.to_thread(list_system_logs, limit=limit, level=level, search=search)
+    return {"items": items, "total": len(items)}
 
 
 @router.get("/admin/monitoring")

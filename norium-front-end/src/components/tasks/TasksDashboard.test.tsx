@@ -25,6 +25,22 @@ it("searches projects without removing them and opens the selected project", asy
   fireEvent.click(screen.getByRole("button", { name: "Portal do cliente" }));
   expect(await screen.findByRole("button", { name: /Revisar cadastro/ })).toBeInTheDocument();
 });
+it("separates personal and shared team projects and filters them by category", async () => {
+  const sharedProject = { ...project, id: "p-team", name: "Operação da equipe", ownerUserId: "u2", category: "operacao", sharedUserIds: ["u1"] };
+  request.mockImplementation(async (path = "") => path.startsWith("/projetos") ? { projects: [project, sharedProject] } : payload);
+  render(<TasksDashboard session={session} />);
+
+  expect(await screen.findByRole("heading", { name: /Meus projetos/ })).toHaveTextContent("1");
+  expect(screen.getByRole("heading", { name: /Projetos da equipe/ })).toHaveTextContent("1");
+  expect(screen.getByRole("button", { name: "Portal do cliente" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Operação da equipe" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Produto" }));
+  expect(screen.queryByRole("button", { name: "Operação da equipe" })).not.toBeInTheDocument();
+  expect(screen.getByText("Nenhum projeto desta categoria foi compartilhado com você.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Todas" }));
+  expect(screen.getByRole("button", { name: "Operação da equipe" })).toBeInTheDocument();
+});
 it("opens task details from list view and closes them with Escape", async () => {
   await openProject();
   fireEvent.click(screen.getByRole("button", { name: "Lista" }));
@@ -97,5 +113,5 @@ it("switches projects from the header and returns to the project selection", asy
   expect(screen.getByRole("heading", { name: "Operação" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Voltar aos projetos" }));
   expect(screen.getByRole("button", { name: "Portal do cliente" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Operação" })).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Operação" }).length).toBeGreaterThanOrEqual(1);
 });

@@ -1,7 +1,7 @@
 import "./teamCall.css";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { LayoutGrid, Camera, CameraOff, Circle, Clock3, Download, Hand, Maximize2, Minimize2, MessageSquareText, Mic, MicOff, MonitorUp, Paperclip, PhoneOff, Pin, PinOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
+import { LayoutGrid, Camera, CameraOff, Circle, Clock3, Download, Hand, Headphones, Maximize2, Minimize2, MessageSquareText, Mic, MicOff, MonitorUp, Move, Paperclip, PhoneOff, Pin, PinOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
 import TeamCallStudio from "./TeamCallStudio";
 import ParticipantAudio from "./ParticipantAudio";
 import type { CallSessionCommands, CallSessionSnapshot } from "./CallSession";
@@ -16,8 +16,16 @@ type TeamCallOverlayProps = {
   commands: CallSessionCommands;
   members: MeetingMember[];
   currentUserId: string;
+  attachmentToken?: string;
   onDownloadAttachment: (attachment: MeetingAttachment) => void;
 };
+
+const MINIMIZED_CALL_KEY = "norium.team-call.minimized";
+
+function storedMinimizedCall() {
+  try { return sessionStorage.getItem(MINIMIZED_CALL_KEY) || ""; }
+  catch { return ""; }
+}
 
 function StreamVideo({ stream, muted = false, label, sinkId = "", fit = "cover" }: { stream: MediaStream; muted?: boolean; label: string; sinkId?: string; fit?: "cover" | "contain" }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -33,6 +41,46 @@ function StreamVideo({ stream, muted = false, label, sinkId = "", fit = "cover" 
     if (!muted && sinkId && element?.setSinkId) void element.setSinkId(sinkId).catch(() => undefined);
   }, [muted, sinkId]);
   return <video ref={ref} autoPlay playsInline muted={muted} aria-label={label} className={`h-full w-full bg-black ${fit === "contain" ? "object-contain" : "object-cover"}`} />;
+}
+
+function DraggableScreenPreview({ stream }: { stream: MediaStream }) {
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number } | null>(null);
+  const moveTo = (x: number, y: number) => setPosition({
+    x: Math.max(-Math.max(0, window.innerWidth - 210), Math.min(28, x)),
+    y: Math.max(-Math.max(0, window.innerHeight - 170), Math.min(100, y)),
+  });
+  return <section className="team-call-local-preview pointer-events-auto overflow-hidden rounded-xl border shadow-2xl" style={{ transform: `translate3d(${position.x}px,${position.y}px,0)` }} aria-label="Prévia da sua tela compartilhada">
+    <header
+      role="button"
+      tabIndex={0}
+      className="team-call-preview-drag-handle flex cursor-move touch-none items-center justify-between gap-3 px-3 py-2 text-xs font-black"
+      aria-label="Mover prévia da sua transmissão"
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 40 : 12;
+        if (event.key === "ArrowLeft") moveTo(position.x - step, position.y);
+        else if (event.key === "ArrowRight") moveTo(position.x + step, position.y);
+        else if (event.key === "ArrowUp") moveTo(position.x, position.y - step);
+        else if (event.key === "ArrowDown") moveTo(position.x, position.y + step);
+        else return;
+        event.preventDefault();
+      }}
+      onPointerDown={(event) => {
+        dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, originX: position.x, originY: position.y };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const drag = dragRef.current;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        moveTo(drag.originX + event.clientX - drag.x, drag.originY + event.clientY - drag.y);
+      }}
+      onPointerUp={(event) => {
+        if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      }}
+    ><span className="flex items-center gap-2"><Move size={13} /><MonitorUp size={14} /> Você está compartilhando</span><span className="text-emerald-400">AO VIVO</span></header>
+    <div className="aspect-video bg-black"><StreamVideo stream={stream} muted fit="contain" label="Mini visualização da sua tela compartilhada" /></div>
+  </section>;
 }
 
 function RemoteParticipantMedia({ stream, participantName, sharing, videoEnabled }: { stream: MediaStream; participantName: string; sharing: boolean; videoEnabled: boolean }) {
@@ -92,7 +140,7 @@ function timeLabel(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function TeamCallOverlay({ snapshot, commands, members, currentUserId, onDownloadAttachment }: TeamCallOverlayProps) {
+export default function TeamCallOverlay({ snapshot, commands, members, currentUserId, attachmentToken = "", onDownloadAttachment }: TeamCallOverlayProps) {
   const call = callSessionView(snapshot, commands);
   const beforeStudioEndRef = useRef<(() => Promise<boolean>) | null>(null);
   const endingRef = useRef(false);
@@ -100,8 +148,9 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
     if (endingRef.current) return;
     endingRef.current = true;
     try {
+      updateMinimized(false);
       if (call.isHost && beforeStudioEndRef.current) {
-        setMinimized(false);
+        updateMinimized(false);
         if (!(await beforeStudioEndRef.current())) return;
       }
       await (call.isHost ? call.endCall() : call.leaveCall());
@@ -109,7 +158,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   };
   const messages = snapshot.conversation?.messages || [];
   const raisedHands = call.raisedHands || {};
-  const [minimized, setMinimized] = useState(false);
+  const [minimized, setMinimized] = useState(() => storedMinimizedCall() === snapshot.active?.callId);
   const [messageError, setMessageError] = useState("");
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
@@ -120,13 +169,21 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   const [messageText, setMessageText] = useState("");
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
-  const [audioSettings, setAudioSettings] = useState<Record<string, { volume: number; muted: boolean }>>({});
+  const [audioSettings, setAudioSettings] = useState<Record<string, { volume: number; microphoneMuted: boolean; screenMuted: boolean }>>({});
+  const [outputMuted, setOutputMuted] = useState(false);
   const [pinned, setPinned] = useState<{ userId: string; type: "member" | "screen" } | null>(null);
   const incomingDialogRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    setAudioSettings({}); setPinned(null); setMinimized(false); setMessageText(""); setMessageFiles([]); setMessageError("");
+    setAudioSettings({}); setPinned(null); setMinimized(storedMinimizedCall() === call.active?.callId); setOutputMuted(false); setMessageText(""); setMessageFiles([]); setMessageError("");
     setStudioOpen(false); setChatOpen(false); setPeopleOpen(false); setQualityOpen(false); setDevicesOpen(false); setReactionsOpen(false);
   }, [call.active?.callId]);
+  function updateMinimized(value: boolean) {
+    setMinimized(value);
+    try {
+      if (value && call.active?.callId) sessionStorage.setItem(MINIMIZED_CALL_KEY, call.active.callId);
+      else sessionStorage.removeItem(MINIMIZED_CALL_KEY);
+    } catch { /* O armazenamento pode estar bloqueado sem interromper a chamada. */ }
+  }
   useEffect(() => {
     if (pinned && (!call.remoteStreams.some((item) => item.userId === pinned.userId) ||
       (pinned.type === "screen" && !call.remoteScreenSharingIds.includes(pinned.userId)))) setPinned(null);
@@ -199,14 +256,15 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   if (!call.active) return null;
 
   const streams = call.remoteStreams;
-  const updateAudio = (userId: string, patch: Partial<{ volume: number; muted: boolean }>) =>
-    setAudioSettings((current) => ({ ...current, [userId]: { ...(current[userId] || { volume: 100, muted: false }), ...patch } }));
+  const updateAudio = (userId: string, patch: Partial<{ volume: number; microphoneMuted: boolean; screenMuted: boolean }>) =>
+    setAudioSettings((current) => ({ ...current, [userId]: { ...(current[userId] || { volume: 100, microphoneMuted: false, screenMuted: false }), ...patch } }));
   const togglePin = (userId: string, type: "member" | "screen") =>
     setPinned((current) => current?.userId === userId && current.type === type ? null : { userId, type });
   const participantIds = Array.from(new Set([
     ...(snapshot.conversation?.participantIds || [currentUserId]),
     ...streams.map((item) => item.userId),
   ]));
+  const tileCount = streams.reduce((total, item) => total + (call.remoteScreenSharingIds.includes(item.userId) ? 2 : 1), 0);
   const togglePanel = (panel: "chat" | "people" | "devices") => {
     setChatOpen(panel === "chat" ? !chatOpen : false);
     setPeopleOpen(panel === "people" ? !peopleOpen : false);
@@ -221,7 +279,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
     <>
     {minimized && <section className="team-call-minimized fixed bottom-4 right-4 z-[181] flex max-w-[calc(100vw-2rem)] flex-wrap items-center gap-2 rounded-2xl border p-3 shadow-2xl" aria-label="Chamada minimizada">
       <div className="min-w-0 flex-1 px-2"><strong className="block truncate text-sm">{call.active.title}</strong><small>{durationLabel(call.callElapsedSeconds)}{call.sharingScreen ? " · Transmitindo" : ""}{call.recording ? " · Gravando" : ""}</small></div>
-      <button type="button" onClick={() => setMinimized(false)} className="team-call-top-control" aria-label="Restaurar chamada"><Maximize2 size={18} /><span>Restaurar</span></button>
+      <button type="button" onClick={() => updateMinimized(false)} className="team-call-top-control" aria-label="Restaurar chamada"><Maximize2 size={18} /><span>Restaurar</span></button>
       <button type="button" onClick={call.toggleMute} className="team-call-top-control" aria-label={call.muted ? "Ativar microfone" : "Silenciar microfone"}>{call.muted ? <MicOff size={18} /> : <Mic size={18} />}</button>
       {call.sharingScreen && <button type="button" onClick={() => void call.toggleScreenShare()} className="team-call-top-control" aria-label="Parar transmissão de tela"><MonitorUp size={18} /></button>}
       <button type="button" onClick={() => void finishCall()} className="team-call-top-control team-call-danger" aria-label={call.isHost ? "Encerrar reunião" : "Sair da reunião"}><PhoneOff size={18} /></button>
@@ -260,27 +318,33 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
       {Object.keys(raisedHands).length > 0 && <div className="team-call-hands flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs" role="status" aria-label="Mãos levantadas"><Hand size={16} />{Object.entries(raisedHands).sort((a, b) => a[1].localeCompare(b[1])).map(([id], index) => <span key={id}>{index + 1}. {id === currentUserId ? "Você" : memberById.get(id)?.nome || "Participante"}</span>)}</div>}
       <div className={`team-call-content flex min-h-0 flex-1 ${studioOpen ? "team-call-content-studio" : ""}`}>
         {snapshot.clientId && <TeamCallStudio beforeEndRef={beforeStudioEndRef} key={call.active.callId} callId={call.active.callId!} clientId={snapshot.clientId} currentUserId={currentUserId} isHost={call.isHost} visible={studioOpen} onOpen={() => { setStudioOpen(true); setChatOpen(false); setPeopleOpen(false); }} onClose={() => setStudioOpen(false)} />}
-        <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 overflow-auto p-3 ${pinned && streams.length > 1 ? "team-call-stage-pinned" : streams.length > 1 ? "md:grid-cols-2" : ""}`}>
+        <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 overflow-auto p-3 ${pinned && tileCount > 1 ? "team-call-stage-pinned" : tileCount > 1 ? "md:grid-cols-2" : ""}`}>
           {call.recording && <div role="status" aria-live="polite" className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /><span>REC {durationLabel(call.recordingElapsedSeconds)}</span><span className="font-semibold text-rose-100">Todos foram avisados</span>{call.isHost && call.recordingUploadState !== "idle" && <span className="font-semibold text-rose-100">{call.recordingUploadState === "retrying" ? "Tentando envio novamente" : call.recordingUploadState === "finalizing" ? "Finalizando" : `Upload ${call.recordingUploadProgress}% · ${bytesLabel(call.recordingUploadedBytes)} enviados${call.recordingPendingBytes ? ` · ${bytesLabel(call.recordingPendingBytes)} pendentes` : ""}`}</span>}</div>}
-          {streams.length ? streams.map((item) => {
+          {streams.length ? streams.flatMap((item) => {
             const sharing = call.remoteScreenSharingIds.includes(item.userId);
             const participantName = memberById.get(item.userId)?.nome || "Participante";
-            const settings = audioSettings[item.userId] || { volume: 100, muted: false };
-            const isPinned = pinned?.userId === item.userId;
-            return <section key={item.userId} data-participant={item.userId} data-pinned={isPinned || undefined} style={isPinned && streams.length > 1 ? { gridRow: `1 / span ${streams.length - 1}` } : undefined} className={`team-call-remote-tile relative flex min-h-56 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] ${sharing ? "team-call-remote-screen" : ""} ${isPinned ? "team-call-pinned-tile" : ""}`}>
-              <ParticipantAudio stream={item.stream} name={participantName} volume={settings.volume} muted={settings.muted} sinkId={call.selectedSpeakerId} />
-              <div className="relative min-h-36 flex-1 overflow-hidden"><RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing={sharing} videoEnabled={sharing || call.remoteCameraEnabled?.[item.userId] === true} />{sharing && <span className="team-call-screen-label absolute left-3 top-3 rounded-lg px-3 py-1.5 text-xs font-black"><MonitorUp size={14} /> Tela de {participantName}</span>}</div>
+            const settings = audioSettings[item.userId] || { volume: 100, microphoneMuted: false, screenMuted: false };
+            const memberPinned = pinned?.userId === item.userId && pinned.type === "member";
+            const screenPinned = pinned?.userId === item.userId && pinned.type === "screen";
+            const memberTile = <section key={`${item.userId}:member`} data-participant={item.userId} data-tile="member" data-pinned={memberPinned || undefined} className={`team-call-remote-tile relative flex min-h-56 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] ${memberPinned ? "team-call-pinned-tile" : ""}`}>
+              <ParticipantAudio stream={item.stream} name={participantName} volume={settings.volume} microphoneMuted={settings.microphoneMuted} screenMuted={settings.screenMuted} outputMuted={outputMuted} sinkId={call.selectedSpeakerId} />
+              <div className="relative min-h-36 flex-1 overflow-hidden"><RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing={false} videoEnabled={!sharing && call.remoteCameraEnabled?.[item.userId] === true} /></div>
               <div className="team-call-participant-controls flex flex-wrap items-center gap-2 border-t p-2">
                 <strong className="mr-auto max-w-36 truncate text-xs">{participantName}</strong>
-                <button type="button" aria-label={`${settings.muted ? "Ouvir" : "Silenciar"} ${participantName} para mim`} aria-pressed={settings.muted} onClick={() => updateAudio(item.userId, { muted: !settings.muted })} className="rounded-lg p-2 hover:bg-white/10">{settings.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button>
+                <button type="button" aria-label={`${settings.microphoneMuted ? "Ouvir" : "Silenciar"} microfone de ${participantName} para mim`} aria-pressed={settings.microphoneMuted} onClick={() => updateAudio(item.userId, { microphoneMuted: !settings.microphoneMuted })} className="rounded-lg p-2 hover:bg-white/10">{settings.microphoneMuted ? <MicOff size={17} /> : <Mic size={17} />}</button>
                 <label className="flex items-center gap-2 text-xs"><span className="sr-only">Volume de {participantName}</span><input aria-label={`Volume de ${participantName}`} type="range" min="0" max="200" step="5" value={settings.volume} onChange={(event) => updateAudio(item.userId, { volume: Number(event.target.value) })} className="w-24 accent-blue-500" /><span className="w-9">{settings.volume}%</span></label>
-                <button type="button" onClick={() => togglePin(item.userId, "member")} aria-pressed={isPinned && pinned?.type === "member"} aria-label={`${isPinned && pinned?.type === "member" ? "Desafixar" : "Fixar"} ${participantName}`} className="flex items-center gap-1 rounded-lg p-2 text-xs hover:bg-white/10">{isPinned && pinned?.type === "member" ? <PinOff size={15} /> : <Pin size={15} />} Membro</button>
-                {sharing && <button type="button" onClick={() => togglePin(item.userId, "screen")} aria-pressed={isPinned && pinned?.type === "screen"} aria-label={`${isPinned && pinned?.type === "screen" ? "Desafixar" : "Fixar"} transmissão de ${participantName}`} className="flex items-center gap-1 rounded-lg p-2 text-xs hover:bg-white/10">{isPinned && pinned?.type === "screen" ? <PinOff size={15} /> : <Pin size={15} />} Transmissão</button>}
+                <button type="button" onClick={() => togglePin(item.userId, "member")} aria-pressed={memberPinned} aria-label={`${memberPinned ? "Desafixar" : "Fixar"} ${participantName}`} className="flex items-center gap-1 rounded-lg p-2 text-xs hover:bg-white/10">{memberPinned ? <PinOff size={15} /> : <Pin size={15} />} Membro</button>
               </div>
             </section>;
+            if (!sharing) return [memberTile];
+            const screenTile = <section key={`${item.userId}:screen`} data-participant={item.userId} data-tile="screen" data-pinned={screenPinned || undefined} className={`team-call-remote-tile team-call-remote-screen relative flex min-h-56 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] ${screenPinned ? "team-call-pinned-tile" : ""}`}>
+              <div className="relative min-h-36 flex-1 overflow-hidden"><RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing videoEnabled /><span className="team-call-screen-label absolute left-3 top-3 rounded-lg px-3 py-1.5 text-xs font-black"><MonitorUp size={14} /> Tela de {participantName}</span></div>
+              <div className="team-call-participant-controls flex flex-wrap items-center gap-2 border-t p-2"><strong className="mr-auto max-w-44 truncate text-xs">Transmissão de {participantName}</strong><button type="button" aria-label={`${settings.screenMuted ? "Ouvir" : "Silenciar"} áudio da transmissão de ${participantName} para mim`} aria-pressed={settings.screenMuted} onClick={() => updateAudio(item.userId, { screenMuted: !settings.screenMuted })} className="rounded-lg p-2 hover:bg-white/10">{settings.screenMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button><button type="button" onClick={() => togglePin(item.userId, "screen")} aria-pressed={screenPinned} aria-label={`${screenPinned ? "Desafixar" : "Fixar"} transmissão de ${participantName}`} className="flex items-center gap-1 rounded-lg p-2 text-xs hover:bg-white/10">{screenPinned ? <PinOff size={15} /> : <Pin size={15} />} Transmissão</button></div>
+            </section>;
+            return [memberTile, screenTile];
           }) : <WaitingStage title={call.active.title} />}
           {(call.screenStream || (call.localStream && !call.cameraOff)) && <div className="team-call-local-previews pointer-events-none absolute bottom-28 right-5 z-20 flex flex-col items-end gap-2">
-            {call.screenStream && <section className="team-call-local-preview overflow-hidden rounded-xl border shadow-2xl" aria-label="Prévia da sua tela compartilhada"><header className="flex items-center justify-between gap-3 px-3 py-2 text-xs font-black"><span className="flex items-center gap-2"><MonitorUp size={14} /> Você está compartilhando</span><span className="text-emerald-400">AO VIVO</span></header><div className="aspect-video bg-black"><StreamVideo stream={call.screenStream} muted fit="contain" label="Mini visualização da sua tela compartilhada" /></div></section>}
+            {call.screenStream && <DraggableScreenPreview stream={call.screenStream} />}
             {call.localStream && !call.cameraOff && <section className="team-call-camera-preview h-24 w-36 overflow-hidden rounded-xl border shadow-2xl md:h-28 md:w-44"><StreamVideo stream={call.localStream} muted label="Sua câmera" /></section>}
           </div>}
           <div className="pointer-events-none absolute bottom-8 left-6 z-20 flex items-end gap-3">{call.reactions.map((reaction) => <div key={reaction.id} className="team-call-reaction rounded-full bg-[#11151a] px-3 py-2 text-center shadow-xl"><span className="block text-3xl">{reaction.emoji}</span><small className="block max-w-24 truncate text-[10px] text-[#9ca7b5]">{reaction.userName}</small></div>)}</div>
@@ -290,12 +354,12 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
           <div className="flex h-14 items-center justify-between border-b border-[var(--border)] px-4"><h3 className="font-black">{chatOpen ? "Chat da reunião" : "Pessoas"}</h3><button type="button" onClick={() => { setChatOpen(false); setPeopleOpen(false); }} className="rounded-lg p-2 hover:bg-[var(--surface-hover)]" aria-label="Fechar painel"><X size={18} /></button></div>
           {chatOpen && <p className="border-b border-[var(--border)] px-4 py-2 text-xs text-[#9ca7b5]">Chat temporário: mensagens e anexos serão apagados ao encerrar esta reunião.</p>}
           {chatOpen && messageError && <p role="alert" className="px-4 py-2 text-xs text-rose-300">{messageError}</p>}
-          {chatOpen ? <MeetingChat messages={messages} currentUserId={currentUserId} listRef={chatListRef} messageText={messageText} messageFiles={messageFiles} sending={sending} onMessageText={setMessageText} onMessageFiles={setMessageFiles} onSubmit={submitMessage} onDownloadAttachment={onDownloadAttachment} /> : <PeoplePanel participantIds={participantIds} currentUserId={currentUserId} memberById={memberById} raisedHands={raisedHands} />}
+          {chatOpen ? <MeetingChat messages={messages} currentUserId={currentUserId} attachmentToken={attachmentToken} listRef={chatListRef} messageText={messageText} messageFiles={messageFiles} sending={sending} onMessageText={setMessageText} onMessageFiles={setMessageFiles} onSubmit={submitMessage} onDownloadAttachment={onDownloadAttachment} /> : <PeoplePanel participantIds={participantIds} currentUserId={currentUserId} memberById={memberById} raisedHands={raisedHands} />}
         </aside>}
       </div>
       <footer className="team-call-toolbar">
         <nav className="flex min-w-0 items-center gap-1 overflow-x-auto" aria-label="Controles da reunião">
-          <button type="button" onClick={() => setMinimized(true)} className="team-call-top-control" aria-label="Minimizar chamada"><Minimize2 size={19} /><span>Minimizar</span></button>
+          <button type="button" onClick={() => updateMinimized(true)} className="team-call-top-control" aria-label="Minimizar chamada"><Minimize2 size={19} /><span>Minimizar</span></button>
           {call.isHost && <button type="button" onClick={() => void (call.recording ? call.stopRecording() : call.startRecording())} className={`team-call-top-control ${call.recording ? "team-call-danger" : ""}`} aria-label={call.recording ? "Parar gravação" : "Gravar reunião"}><Circle size={18} fill={call.recording ? "currentColor" : "none"} /><span>{call.recording ? "Parar gravação" : "Gravar"}</span></button>}
           <button type="button" onClick={() => { setStudioOpen((current) => !current); setChatOpen(false); setPeopleOpen(false); }} className={`team-call-top-control ${studioOpen ? "team-call-active" : ""}`} aria-pressed={studioOpen} aria-label="Abrir estúdio da chamada"><LayoutGrid size={19} /><span>Estúdio</span></button>
           <button type="button" onClick={() => togglePanel("chat")} className={`team-call-top-control ${chatOpen ? "team-call-active" : ""}`} aria-label="Abrir chat da reunião"><MessageSquareText size={19} /><span>Chat</span></button>
@@ -308,6 +372,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
           <button type="button" onClick={() => { setQualityOpen((current) => !current); setDevicesOpen(false); setChatOpen(false); setPeopleOpen(false); setReactionsOpen(false); }} className={`team-call-top-control ${qualityOpen ? "team-call-active" : ""}`} aria-label="Configurar qualidade da transmissão"><SlidersHorizontal size={19} /><span>Qualidade</span></button>
           <button type="button" onClick={() => void call.toggleCamera()} className={`team-call-top-control ${call.cameraOff ? "team-call-danger" : ""}`} aria-label={call.cameraOff ? "Ativar câmera" : "Desativar câmera"}>{call.cameraOff ? <CameraOff size={19} /> : <Camera size={19} />}<span>Câmera</span></button>
           <button type="button" onClick={call.toggleMute} className={`team-call-top-control ${call.muted ? "team-call-danger" : ""}`} aria-label={call.muted ? "Ativar microfone" : "Silenciar microfone"}>{call.muted ? <MicOff size={19} /> : <Mic size={19} />}<span>Microfone</span></button>
+          <button type="button" onClick={() => setOutputMuted((current) => !current)} className={`team-call-top-control ${outputMuted ? "team-call-danger" : ""}`} aria-pressed={outputMuted} aria-label={outputMuted ? "Ativar fones" : "Mutar fones"}>{outputMuted ? <VolumeX size={19} /> : <Headphones size={19} />}<span>Fones</span></button>
           <button type="button" onClick={() => togglePanel("devices")} className={`team-call-top-control ${devicesOpen ? "team-call-active" : ""}`} aria-label="Selecionar câmera e dispositivos de áudio"><Settings2 size={19} /><span>Dispositivos</span></button>
           <button type="button" onClick={() => void finishCall()} className="team-call-top-control team-call-danger ml-2" aria-label={call.isHost ? "Encerrar reunião" : "Sair da reunião"}><PhoneOff size={20} /><span>{call.isHost ? "Encerrar" : "Sair"}</span></button>
         </nav>
@@ -431,8 +496,42 @@ function WaitingStage({ title }: { title: string }) {
   return <div className="team-call-waiting grid place-items-center rounded-xl border text-center"><div><span className="team-call-primary-button mx-auto grid h-36 w-36 place-items-center rounded-full text-4xl font-black text-white shadow-2xl">{initials(title)}</span><p className="mt-8 text-2xl font-black">Sua sala está pronta</p><p className="mt-2 text-sm text-[#9ca7b5]">Aguardando os participantes. Você ouvirá um aviso quando alguém entrar.</p></div></div>;
 }
 
-function MeetingChat({ messages, currentUserId, listRef, messageText, messageFiles, sending, onMessageText, onMessageFiles, onSubmit, onDownloadAttachment }: { messages: MeetingMessage[]; currentUserId: string; listRef: RefObject<HTMLDivElement | null>; messageText: string; messageFiles: File[]; sending: boolean; onMessageText: (value: string) => void; onMessageFiles: (files: File[]) => void; onSubmit: (event: FormEvent) => void; onDownloadAttachment: (attachment: MeetingAttachment) => void }) {
-  return <><div ref={listRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">{messages.length ? messages.map((message) => <article key={message.id} className={message.senderId === currentUserId ? "ml-8" : "mr-8"}><div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-[#9ca7b5]"><strong className="truncate text-[#f4f6f8]">{message.senderName}</strong><time>{timeLabel(message.createdAt)}</time></div>{message.text && <p className={`team-call-chat-message rounded-xl px-3 py-2 text-sm leading-relaxed ${message.senderId === currentUserId ? "team-call-chat-message-mine" : "team-call-chat-message-other"}`}>{message.text}</p>}{message.attachments.map((attachment) => <button key={attachment.id} type="button" onClick={() => onDownloadAttachment(attachment)} className="mt-2 flex w-full items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-left hover:bg-[var(--surface-hover)]"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-hover)] text-[#4da3ff]"><Download size={17} /></span><span className="min-w-0 flex-1"><strong className="block truncate text-xs">{attachment.name}</strong>{attachment.expiresAt && <small className="text-[10px] text-amber-500">Disponível por 24 horas</small>}</span></button>)}</article>) : <div className="grid h-full place-items-center text-center text-sm text-[#9ca7b5]"><p>Converse com os participantes desta reunião. Este histórico é temporário.</p></div>}</div><form onSubmit={onSubmit} className="border-t border-[var(--border)] p-4">{messageFiles.length > 0 && <div className="mb-2 flex gap-2 overflow-x-auto">{messageFiles.map((file, index) => <span key={`${file.name}-${file.size}-${index}`} className="flex max-w-48 shrink-0 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-xs"><span className="truncate">{file.name}</span><button type="button" onClick={() => onMessageFiles(messageFiles.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remover ${file.name}`}><X size={13} /></button></span>)}</div>}<div className="team-call-chat-composer flex items-end gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] p-2"><label className="grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-lg text-[#4da3ff] hover:bg-[var(--surface-hover)]" aria-label="Anexar arquivos no chat da reunião"><Paperclip size={19} /><input type="file" multiple className="hidden" onChange={(event) => { onMessageFiles([...messageFiles, ...Array.from(event.target.files || [])]); event.currentTarget.value = ""; }} /></label><textarea value={messageText} onChange={(event) => onMessageText(event.target.value)} rows={2} maxLength={2000} placeholder="Digite uma mensagem" className="min-h-12 flex-1 resize-none bg-transparent px-2 py-1 text-sm text-[#f4f6f8] outline-none placeholder:text-[#9ca7b5]" /><button type="submit" disabled={(!messageText.trim() && !messageFiles.length) || sending} className="grid h-10 w-10 place-items-center rounded-lg text-[#4da3ff] hover:bg-[var(--surface-hover)] disabled:opacity-35" aria-label="Enviar mensagem"><Send size={19} /></button></div></form></>;
+function useAttachmentPreviewUrl(attachment: MeetingAttachment, token: string) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    if (!attachment.mimeType.startsWith("image/")) return;
+    let active = true;
+    let objectUrl = "";
+    void fetch(attachment.url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
+      .then((response) => { if (!response.ok) throw new Error("preview"); return response.blob(); })
+      .then((blob) => { if (!active) return; objectUrl = URL.createObjectURL(blob); setUrl(objectUrl); })
+      .catch(() => undefined);
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [attachment, token]);
+  return url;
+}
+
+function MeetingAttachmentCard({ attachment, token, onDownload }: { attachment: MeetingAttachment; token: string; onDownload: () => void }) {
+  const previewUrl = useAttachmentPreviewUrl(attachment, token);
+  return <button type="button" onClick={onDownload} className="mt-2 block w-full overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] text-left hover:bg-[var(--surface-hover)]">
+    {previewUrl && <img src={previewUrl} alt={attachment.name} className="max-h-56 w-full bg-black object-contain" />}
+    <span className="flex items-center gap-3 p-3"><span className="grid h-9 w-9 place-items-center rounded-lg bg-[var(--surface-hover)] text-[#4da3ff]"><Download size={17} /></span><span className="min-w-0 flex-1"><strong className="block truncate text-xs">{attachment.name}</strong>{attachment.expiresAt && <small className="text-[10px] text-amber-500">Disponível por 24 horas</small>}</span></span>
+  </button>;
+}
+
+function PendingAttachment({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const [preview, setPreview] = useState("");
+  useEffect(() => {
+    if (!file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  return <span className="relative flex max-w-48 shrink-0 items-center gap-2 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--background)] p-1.5 pr-8 text-xs">{preview && <img src={preview} alt="" className="h-10 w-10 rounded object-cover" />}<span className="truncate">{file.name}</span><button type="button" onClick={onRemove} className="absolute right-2 top-2" aria-label={`Remover ${file.name}`}><X size={13} /></button></span>;
+}
+
+function MeetingChat({ messages, currentUserId, attachmentToken, listRef, messageText, messageFiles, sending, onMessageText, onMessageFiles, onSubmit, onDownloadAttachment }: { messages: MeetingMessage[]; currentUserId: string; attachmentToken: string; listRef: RefObject<HTMLDivElement | null>; messageText: string; messageFiles: File[]; sending: boolean; onMessageText: (value: string) => void; onMessageFiles: (files: File[]) => void; onSubmit: (event: FormEvent) => void; onDownloadAttachment: (attachment: MeetingAttachment) => void }) {
+  return <><div ref={listRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">{messages.length ? messages.map((message) => <article key={message.id} className={message.senderId === currentUserId ? "ml-8" : "mr-8"}><div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-[#9ca7b5]"><strong className="truncate text-[#f4f6f8]">{message.senderName}</strong><time>{timeLabel(message.createdAt)}</time></div>{message.text && <p className={`team-call-chat-message rounded-xl px-3 py-2 text-sm leading-relaxed ${message.senderId === currentUserId ? "team-call-chat-message-mine" : "team-call-chat-message-other"}`}>{message.text}</p>}{message.attachments.map((attachment) => <MeetingAttachmentCard key={attachment.id} attachment={attachment} token={attachmentToken} onDownload={() => onDownloadAttachment(attachment)} />)}</article>) : <div className="grid h-full place-items-center text-center text-sm text-[#9ca7b5]"><p>Converse com os participantes desta reunião. Este histórico é temporário.</p></div>}</div><form onSubmit={onSubmit} className="border-t border-[var(--border)] p-4">{messageFiles.length > 0 && <div className="mb-2 flex gap-2 overflow-x-auto">{messageFiles.map((file, index) => <PendingAttachment key={`${file.name}-${file.size}-${index}`} file={file} onRemove={() => onMessageFiles(messageFiles.filter((_, itemIndex) => itemIndex !== index))} />)}</div>}<div className="team-call-chat-composer flex items-end gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] p-2"><label className="grid h-10 w-10 shrink-0 cursor-pointer place-items-center rounded-lg text-[#4da3ff] hover:bg-[var(--surface-hover)]" aria-label="Anexar arquivos no chat da reunião"><Paperclip size={19} /><input type="file" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={(event) => { onMessageFiles([...messageFiles, ...Array.from(event.target.files || [])]); event.currentTarget.value = ""; }} /></label><textarea value={messageText} onChange={(event) => onMessageText(event.target.value)} rows={2} maxLength={2000} placeholder="Digite uma mensagem" className="min-h-12 flex-1 resize-none bg-transparent px-2 py-1 text-sm text-[#f4f6f8] outline-none placeholder:text-[#9ca7b5]" /><button type="submit" disabled={(!messageText.trim() && !messageFiles.length) || sending} className="grid h-10 w-10 place-items-center rounded-lg text-[#4da3ff] hover:bg-[var(--surface-hover)] disabled:opacity-35" aria-label="Enviar mensagem"><Send size={19} /></button></div></form></>;
 }
 
 function PeoplePanel({ participantIds, currentUserId, memberById, raisedHands }: { participantIds: string[]; currentUserId: string; memberById: Map<string, MeetingMember>; raisedHands: Record<string, string> }) {

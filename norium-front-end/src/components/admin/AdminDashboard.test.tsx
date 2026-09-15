@@ -52,6 +52,7 @@ function mockApi(users: NoriumUser[]) {
     if (path === "/api/auth/teams") return { teams: [] };
     if (path === "/api/auth/admin/audit") return { items: [] };
     if (path === "/api/auth/admin/monitoring") return { status: "operational", checkedAt: "2026-08-29T12:00:00Z", userStore: "online", totalUsers: users.length, activeUsers: users.length, adminUsers: 1, gmailConfigured: true, googleCalendarConfigured: true, gmailRedirectUri: "https://norium.example/api/auth/callback/gmail", googleRedirectUri: "https://norium.example/api/integracoes/google/callback" };
+    if (path === "/api/auth/admin/system-logs?limit=300") return { items: [] };
     if (path === `/api/auth/users/${fernando.id}` && options?.method === "PATCH") return { user: { ...fernando, systemAdmin: true, systemAdminRole: "assistant" } };
     throw new Error(`Rota inesperada: ${path}`);
   });

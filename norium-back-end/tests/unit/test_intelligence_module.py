@@ -116,13 +116,13 @@ class IntelligenceModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("dados, não instruções", context)
         self.assertEqual("Politica comercial", sources[0]["title"])
 
-    async def test_marketplace_installation_creates_disabled_resource_and_preserves_it_on_remove(self) -> None:
+    async def test_marketplace_installation_creates_enabled_resource_and_preserves_it_on_remove(self) -> None:
         account = user("market-owner")
         installation = await service.install_marketplace(account, "competitor-watch-automation", True)
-        self.assertFalse(installation["enabled"])
+        self.assertTrue(installation["enabled"])
         automations = read_user_db(account["id"], "automacoes", {})["automations"]
         created = next(item for item in automations if item.get("marketplaceInstallationId") == installation["id"])
-        self.assertFalse(created["active"])
+        self.assertTrue(created["active"])
         enabled = await service.set_marketplace_enabled(account, installation["id"], True)
         self.assertTrue(enabled["enabled"])
         activated = read_user_db(account["id"], "automacoes", {})["automations"]

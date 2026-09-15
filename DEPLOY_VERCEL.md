@@ -32,7 +32,9 @@ GMAIL_CLIENT_SECRET=...
 GMAIL_REDIRECT_URI=https://SEU_DOMINIO/api/auth/callback/gmail
 ```
 
-As variaveis de bootstrap so criam o primeiro administrador em uma instalacao vazia. Depois do primeiro acesso, remova `NORIUM_BOOTSTRAP_ADMIN_PASSWORD` do ambiente; a identidade administrativa permanece persistida no banco.
+As quatro variaveis de bootstrap devem ser configuradas em conjunto. Elas criam o primeiro proprietario somente quando `usuarios_db.json` ainda nao existe; um arquivo existente, mesmo vazio ou invalido, nao reabre o bootstrap. Depois do primeiro acesso, remova `NORIUM_BOOTSTRAP_ADMIN_PASSWORD` do ambiente. A identidade administrativa passa a depender de `systemOwnerId` e das flags persistidas: mudar o e-mail, ID, nome ou senha no ambiente nao promove cadastros comuns nem substitui o proprietario.
+
+O armazenamento `/tmp` do Vercel pode desaparecer e voltar a ficar ausente, portanto esse bootstrap nao transforma a configuracao atual em persistencia de producao. Use-o apenas em uma inicializacao controlada/preview; para usuarios reais, conclua antes a migracao para o armazenamento duravel descrito abaixo. A recuperacao de uma instalacao persistente deve parar todas as instancias, preservar um snapshot verificavel e restaurar backup conhecido ou aplicar manutencao offline revisada. Nao exclua um armazenamento com usuarios para forcar novo bootstrap. Somente uma instalacao comprovadamente nova e sem dados pode colocar um arquivo vazio/invalido em quarentena recuperavel e repetir a inicializacao com os quatro valores. Esta alteracao de codigo nao executa migracao sobre dados reais.
 
 Adicione tambem as credenciais de WhatsApp e boletos presentes em
 `norium-back-end/.env.example` quando essas integracoes forem usadas. Nao defina

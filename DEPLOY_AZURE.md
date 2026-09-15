@@ -24,9 +24,11 @@ O App Service F1 foi descartado porque a assinatura gratuita atual possui cota d
 
 O script importa somente as variaveis permitidas do `.env`, cria os recursos com Bicep, envia os dados locais ao Azure Files e valida frontend, API e WebSocket. Nos deploys seguintes, omita `-UploadLocalData` para nao substituir dados mais novos da nuvem.
 
-O smoke test autenticado usa `NORIUM_SMOKE_EMAIL` e `NORIUM_SMOKE_PASSWORD` apenas no processo local. Se elas nao estiverem definidas, o script reutiliza as credenciais de bootstrap configuradas; nenhum desses valores e exibido ou enviado ao bundle do frontend.
+O smoke test autenticado usa `NORIUM_SMOKE_EMAIL` e `NORIUM_SMOKE_PASSWORD` apenas no processo local. Se elas nao estiverem definidas, o script pode reutilizar as credenciais de bootstrap configuradas durante a primeira inicializacao; nenhum desses valores e exibido ou enviado ao bundle do frontend. Depois de remover a senha de bootstrap, mantenha credenciais de smoke dedicadas no ambiente local que executa a validacao.
 
-Em instalacoes vazias, configure `NORIUM_BOOTSTRAP_ADMIN_EMAIL`, `NORIUM_BOOTSTRAP_ADMIN_USER_ID`, `NORIUM_BOOTSTRAP_ADMIN_NAME` e `NORIUM_BOOTSTRAP_ADMIN_PASSWORD` apenas para criar o primeiro administrador. Remova a senha de bootstrap do ambiente apos validar o primeiro acesso.
+Em uma instalacao realmente nova, configure `NORIUM_BOOTSTRAP_ADMIN_EMAIL`, `NORIUM_BOOTSTRAP_ADMIN_USER_ID`, `NORIUM_BOOTSTRAP_ADMIN_NAME` e `NORIUM_BOOTSTRAP_ADMIN_PASSWORD` com valores nao vazios antes da primeira inicializacao. O proprietario e criado somente quando `usuarios_db.json` nao existe. Se `-UploadLocalData` enviar esse arquivo, ou se o volume ja contiver um arquivo vazio ou invalido, o bootstrap nao roda. Leituras, gravacoes, cadastros publicos e mudancas posteriores dessas variaveis nunca promovem uma conta nem substituem o `systemOwnerId` persistido. Remova a senha de bootstrap do ambiente imediatamente apos validar o primeiro acesso.
+
+Para recuperar uma instalacao existente, nao tente reativar o bootstrap por configuracao e nao remova um arquivo que contenha usuarios. Pare todas as revisoes, crie um snapshot verificavel do Azure Files e restaure um backup conhecido ou aplique uma manutencao offline revisada, preservando `systemOwnerId`, flags administrativas legitimas e a trilha de auditoria. Apenas se a instalacao for nova e a copia inspecionada confirmar ausencia total de dados, mova o `usuarios_db.json` vazio/invalido para uma quarentena recuperavel enquanto o aplicativo estiver parado, configure os quatro valores, inicie uma unica replica, valide a identidade criada e remova a senha. Esta alteracao de codigo nao executa migracao sobre dados reais.
 
 ## CI/CD sem senha
 

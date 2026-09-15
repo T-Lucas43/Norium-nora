@@ -40,8 +40,8 @@ TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
 logger = logging.getLogger(__name__)
 
 OWNER_EMAIL = os.getenv("NORIUM_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
-OWNER_USER_ID = os.getenv("NORIUM_BOOTSTRAP_ADMIN_USER_ID", "norium-admin").strip() or "norium-admin"
-OWNER_NAME = os.getenv("NORIUM_BOOTSTRAP_ADMIN_NAME", "Administrador Norium").strip() or "Administrador Norium"
+OWNER_USER_ID = os.getenv("NORIUM_BOOTSTRAP_ADMIN_USER_ID", "").strip()
+OWNER_NAME = os.getenv("NORIUM_BOOTSTRAP_ADMIN_NAME", "").strip()
 OWNER_BOOTSTRAP_PASSWORD = os.getenv("NORIUM_BOOTSTRAP_ADMIN_PASSWORD", "").strip()
 LEGAL_VERSION = "2026-08-20"
 
@@ -427,11 +427,20 @@ def permissions_for_plan(plan: str, *, is_owner: bool = True) -> dict[str, bool]
     return permissions
 
 
-def default_store() -> dict[str, Any]:
-    created = now_iso()
-    users: list[dict[str, Any]] = []
-    teams: list[dict[str, Any]] = []
-    if OWNER_EMAIL and OWNER_BOOTSTRAP_PASSWORD:
+def empty_user_store() -> dict[str, Any]:
+    return {
+        "users": [],
+        "plans": PLAN_CATALOG,
+        "teams": [],
+        "systemOwnerId": None,
+        "adminAudit": [],
+    }
+
+
+def create_initial_user_store() -> dict[str, Any]:
+    store = empty_user_store()
+    if all((OWNER_EMAIL, OWNER_USER_ID, OWNER_NAME, OWNER_BOOTSTRAP_PASSWORD)):
+        created = now_iso()
         owner = {
             "id": OWNER_USER_ID,
             "nome": OWNER_NAME,
@@ -451,8 +460,8 @@ def default_store() -> dict[str, Any]:
             "permissions": OWNER_PERMISSIONS,
             "requiresPlanSelection": False,
         }
-        users.append(owner)
-        teams.append(
+        store["users"].append(owner)
+        store["teams"].append(
             {
                 "id": OWNER_USER_ID,
                 "ownerUserId": OWNER_USER_ID,
@@ -461,21 +470,17 @@ def default_store() -> dict[str, Any]:
                 "updatedAt": created,
             }
         )
+        store["systemOwnerId"] = OWNER_USER_ID
     else:
         logger.warning(
-            "Bootstrap administrativo desativado. Configure e-mail e senha por ambiente "
-            "somente ao inicializar uma instalacao nova."
+            "Bootstrap administrativo desativado. Configure e-mail, ID, nome e senha por ambiente "
+            "antes de inicializar uma instalacao nova."
         )
-    return {
-        "users": users,
-        "plans": PLAN_CATALOG,
-        "teams": teams,
-        "systemOwnerId": OWNER_USER_ID if users else None,
-        "adminAudit": [],
-    }
+    return store
 
 
 def ensure_admin_roles(store: dict[str, Any]) -> dict[str, Any]:
+    """Migrate and normalize administrative roles using persisted evidence only."""
     users = [item for item in store.get("users", []) if isinstance(item, dict)]
     if not users:
         store["systemOwnerId"] = None
@@ -483,21 +488,20 @@ def ensure_admin_roles(store: dict[str, Any]) -> dict[str, Any]:
 
     users_by_id = {str(item.get("id") or ""): item for item in users if item.get("id")}
     configured_owner = users_by_id.get(str(store.get("systemOwnerId") or ""))
-    environment_owner = next(
-        (
-            item
-            for item in users
-            if (OWNER_USER_ID and str(item.get("id") or "") == OWNER_USER_ID)
-            or (OWNER_EMAIL and stored_email(item) == OWNER_EMAIL)
-        ),
-        None,
-    )
     explicit_owner = next(
         (item for item in users if str(item.get("systemAdminRole") or "").lower() == "owner"),
         None,
     )
-    legacy_owner = next((item for item in users if item.get("systemAdmin")), None)
-    owner = environment_owner or configured_owner or explicit_owner or legacy_owner
+    legacy_owner = next(
+        (
+            item
+            for item in users
+            if item.get("systemAdmin")
+            and str(item.get("systemAdminRole") or "").lower() not in {"owner", "assistant"}
+        ),
+        None,
+    )
+    owner = configured_owner or explicit_owner or legacy_owner
     owner_id = str((owner or {}).get("id") or "")
 
     for item in users:
@@ -566,22 +570,10 @@ def ensure_team_profiles(store: dict[str, Any]) -> dict[str, Any]:
     return store
 
 
-def ensure_seed_user(store: dict[str, Any]) -> dict[str, Any]:
+def normalize_user_store(store: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(store.get("users"), list):
         store["users"] = []
     users = store["users"]
-    if not users:
-        configured = default_store()
-        users.extend(configured["users"])
-        if not store.get("teams"):
-            store["teams"] = configured["teams"]
-    if OWNER_EMAIL and OWNER_BOOTSTRAP_PASSWORD:
-        owner = next((item for item in users if stored_email(item) == OWNER_EMAIL), None)
-        if owner:
-            owner["systemAdmin"] = True
-            owner["systemAdminRole"] = "owner"
-            owner["role"] = "owner"
-            store["systemOwnerId"] = str(owner.get("id") or OWNER_USER_ID)
     ensure_admin_roles(store)
     for item in users:
         item["sessionVersion"] = max(0, int(item.get("sessionVersion") or 0))
@@ -602,17 +594,17 @@ async def read_user_store() -> dict[str, Any]:
             if allow_legacy_import and legacy_users.exists():
                 payload = read_json_file(legacy_users, {})
                 if isinstance(payload, dict):
-                    store = ensure_seed_user(payload)
+                    store = normalize_user_store(payload)
                     write_json_file(USERS_DB_PATH, store)
                     return store
-            store = default_store()
+            store = create_initial_user_store()
             write_json_file(USERS_DB_PATH, store)
             return store
         payload = read_json_file(USERS_DB_PATH, {})
         if not isinstance(payload, dict):
-            payload = default_store()
+            payload = empty_user_store()
         original = copy.deepcopy(payload)
-        store = ensure_seed_user(payload)
+        store = normalize_user_store(payload)
         if store != original:
             write_json_file(USERS_DB_PATH, store)
         return store
@@ -622,7 +614,7 @@ async def read_user_store() -> dict[str, Any]:
 
 async def write_user_store(store: dict[str, Any]) -> None:
     def save() -> None:
-        write_json_file(USERS_DB_PATH, ensure_seed_user(store))
+        write_json_file(USERS_DB_PATH, normalize_user_store(store))
 
     await asyncio.to_thread(save)
 

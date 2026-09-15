@@ -10,6 +10,7 @@
 | Roubo persistente de token | `sessionStorage`, CSP, logout e troca de senha revogam sessoes; WebSockets usam ticket efemero de uso unico | Testes de autenticacao e reutilizacao de ticket |
 | Token W-API exposto no volume/snapshot | Envelope Fernet autenticado com chave em secret manager; migração legada e rotação read-through; backups migrados antes de copiar/restaurar | `test_wapi_binding_credentials` cobre bytes persistidos, adulteração, chave, migração, logs e snapshots |
 | Elevacao de plano/permissao | Plano pago exige operacao administrativa; permissoes da conta sao intersectadas com os direitos do plano em toda API protegida | Testes de acesso direto e autoativacao negada |
+| Promocao administrativa por configuracao de bootstrap | Bootstrap somente ao criar `usuarios_db.json` ausente, com e-mail, ID, nome e senha completos; leituras, gravacoes e cadastros usam apenas `systemOwnerId` e flags administrativas persistidas | 9 cenarios AUTH-02 isolados cobrem configuracao parcial/completa, coincidencia por e-mail/ID, armazenamento existente, reinicio, troca de ambiente e fixtures legadas |
 | Troca arbitraria de workspace | `X-Norium-Workspace` e validado contra workspaces ativos da conta autenticada | Testes com workspace conhecido e workspace de terceiro |
 | Dependencia vulneravel | Dependabot, SCA, SAST, secret scan, SBOM e proveniencia | Workflow do GitHub Actions |
 | Exposicao a IA | Minimizacao local, prompt injection tratado como dado, confirmacao humana | Testes de guardrails |

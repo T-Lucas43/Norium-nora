@@ -17,7 +17,7 @@ jobs:
       RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}

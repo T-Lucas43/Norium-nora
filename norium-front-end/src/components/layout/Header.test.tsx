@@ -62,4 +62,16 @@ describe("Header Nora quick chat", () => {
     fireEvent.click(screen.getByRole("button", { name: /Abrir conversa completa/ }));
     expect(onOpenNora).toHaveBeenCalledTimes(1);
   });
+
+  it("runs a suggested consultation immediately and renders clean text", async () => {
+    request.mockResolvedValue({ response: "**Prioridades**\n- Revisar proposta\n- Preparar reunião" });
+    renderHeader();
+    fireEvent.click(screen.getByRole("button", { name: "Conversar com a Nora" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resuma meu dia" }));
+
+    await waitFor(() => expect(request).toHaveBeenCalledOnce());
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body)).message).toBe("Resuma meu dia");
+    expect(await screen.findByText(/Prioridades/)).toHaveTextContent("Prioridades");
+    expect(screen.queryByText(/\*\*Prioridades\*\*/)).not.toBeInTheDocument();
+  });
 });

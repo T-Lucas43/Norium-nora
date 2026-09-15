@@ -3,6 +3,11 @@ import "webrtc-adapter";
 import type { AuthSession } from "../../types/auth";
 import { apiBaseUrl } from "../../utils/api";
 import { createMeetingRecording } from "./meetingRecording";
+import {
+  createCanvasBackgroundBlur,
+  supportsCanvasBackgroundBlur,
+  type BackgroundBlurPipeline,
+} from "./backgroundBlur";
 import { CallTelemetry } from "./callTelemetry";
 import { prepareChatAttachments } from "./chatAttachments";
 import {
@@ -419,6 +424,7 @@ export function useTeamCallRuntime({
   const noiseSuppressionRef = useRef(true);
   const microphoneSensitivityRef = useRef(100);
   const backgroundBlurRef = useRef(false);
+  const backgroundBlurPipelinesRef = useRef(new Map<MediaStream, BackgroundBlurPipeline>());
   const mediaTransportRef = useRef<MediaTransport | null>(null);
   const mediaTransportCallIdRef = useRef("");
   const mediaTransportOpenRef = useRef<Promise<MediaTransport> | null>(null);
@@ -498,14 +504,79 @@ export function useTeamCallRuntime({
     }
   }, [stopMicrophoneProcessing]);
 
-  const applyBackgroundBlur = useCallback(async (enabled: boolean, streams: Array<MediaStream | null>) => {
-    const supported = navigator.mediaDevices?.getSupportedConstraints?.() as (MediaTrackSupportedConstraints & { backgroundBlur?: boolean }) | undefined;
-    if (!supported?.backgroundBlur) return false;
-    const constraints = { advanced: [{ backgroundBlur: enabled }] } as unknown as MediaTrackConstraints;
-    const tracks = streams.flatMap((stream) => stream?.getVideoTracks() || []);
-    await Promise.all(tracks.map((track) => track.applyConstraints(constraints)));
+  const releaseBackgroundBlur = useCallback((stream: MediaStream | null, restoreSource: boolean, stopSource = false) => {
+    if (!stream) return false;
+    const pipeline = backgroundBlurPipelinesRef.current.get(stream);
+    if (!pipeline) return false;
+    const wasEnabled = pipeline.outputTrack.enabled;
+    backgroundBlurPipelinesRef.current.delete(stream);
+    if (stream.getVideoTracks().includes(pipeline.outputTrack)) stream.removeTrack(pipeline.outputTrack);
+    pipeline.stop(stopSource);
+    if (restoreSource && pipeline.sourceTrack.readyState !== "ended") {
+      pipeline.sourceTrack.enabled = wasEnabled;
+      stream.addTrack(pipeline.sourceTrack);
+    }
     return true;
   }, []);
+
+  const rebindBackgroundBlur = useCallback((from: MediaStream, to: MediaStream) => {
+    const pipeline = backgroundBlurPipelinesRef.current.get(from);
+    if (!pipeline) return;
+    backgroundBlurPipelinesRef.current.delete(from);
+    backgroundBlurPipelinesRef.current.set(to, pipeline);
+  }, []);
+
+  const applyBackgroundBlur = useCallback(async (enabled: boolean, streams: Array<MediaStream | null>) => {
+    const uniqueStreams = [...new Set(streams.filter((stream): stream is MediaStream => Boolean(stream)))];
+    const nativeSupport = navigator.mediaDevices?.getSupportedConstraints?.() as (MediaTrackSupportedConstraints & { backgroundBlur?: boolean }) | undefined;
+    const constraints = { advanced: [{ backgroundBlur: enabled }] } as unknown as MediaTrackConstraints;
+
+    if (!enabled) {
+      const restored = uniqueStreams.reduce((changed, stream) => releaseBackgroundBlur(stream, true) || changed, false);
+      const tracks = uniqueStreams.flatMap((stream) => stream.getVideoTracks());
+      if (nativeSupport?.backgroundBlur && tracks.length) {
+        await Promise.all(tracks.map((track) => track.applyConstraints(constraints)));
+        return true;
+      }
+      return restored;
+    }
+
+    const tracks = uniqueStreams.flatMap((stream) => stream.getVideoTracks());
+    if (!tracks.length) return false;
+    if (nativeSupport?.backgroundBlur) {
+      try {
+        await Promise.all(tracks.map((track) => track.applyConstraints(constraints)));
+        return true;
+      } catch {
+        // Algumas câmeras anunciam a restrição, mas recusam sua aplicação.
+      }
+    }
+    if (!supportsCanvasBackgroundBlur()) return false;
+
+    const created: Array<{ stream: MediaStream; pipeline: BackgroundBlurPipeline }> = [];
+    try {
+      for (const stream of uniqueStreams) {
+        if (backgroundBlurPipelinesRef.current.has(stream)) continue;
+        const sourceTrack = stream.getVideoTracks()[0];
+        if (!sourceTrack) continue;
+        const pipeline = await createCanvasBackgroundBlur(sourceTrack);
+        pipeline.outputTrack.enabled = sourceTrack.enabled;
+        stream.removeTrack(sourceTrack);
+        stream.addTrack(pipeline.outputTrack);
+        backgroundBlurPipelinesRef.current.set(stream, pipeline);
+        created.push({ stream, pipeline });
+      }
+      return created.length > 0 || uniqueStreams.every((stream) => backgroundBlurPipelinesRef.current.has(stream));
+    } catch (error) {
+      created.forEach(({ stream, pipeline }) => {
+        if (stream.getVideoTracks().includes(pipeline.outputTrack)) stream.removeTrack(pipeline.outputTrack);
+        pipeline.stop();
+        if (pipeline.sourceTrack.readyState !== "ended") stream.addTrack(pipeline.sourceTrack);
+        backgroundBlurPipelinesRef.current.delete(stream);
+      });
+      throw error;
+    }
+  }, [releaseBackgroundBlur]);
 
   useEffect(() => {
     mediaTransportRef.current?.updateIce(iceConfigurationRef.current);
@@ -797,18 +868,20 @@ export function useTeamCallRuntime({
 
   const stopMedia = useCallback(() => {
     previewRequestRef.current += 1;
+    releaseBackgroundBlur(previewStreamRef.current, false, true);
     previewStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
     previewStreamRef.current = null;
     setPreviewStream(null);
     screenStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
     screenStreamRef.current = null;
     setScreenStream(null);
+    releaseBackgroundBlur(localStreamRef.current, false, true);
     localStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
     localStreamRef.current = null;
     setLocalStream(null);
     stopMicrophoneProcessing();
     setSharingScreen(false);
-  }, [stopMicrophoneProcessing]);
+  }, [releaseBackgroundBlur, stopMicrophoneProcessing]);
 
   const finishCall = useCallback((notify: boolean, sound: CallSound | null = null, preserveReload = false) => {
     if (!preserveReload) {
@@ -1021,6 +1094,7 @@ export function useTeamCallRuntime({
 
   const prepareCameraPreview = useCallback(async (enabled: boolean, deviceId = selectedCameraId) => {
     const request = ++previewRequestRef.current;
+    releaseBackgroundBlur(previewStreamRef.current, false, true);
     previewStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
     previewStreamRef.current = null;
     setPreviewStream(null);
@@ -1068,7 +1142,7 @@ export function useTeamCallRuntime({
       setStatus(`${mediaAccessError(error, "camera")} A chamada pode continuar somente por áudio.`);
       return false;
     }
-  }, [applyBackgroundBlur, selectedCameraId]);
+  }, [applyBackgroundBlur, releaseBackgroundBlur, selectedCameraId]);
 
   const configureNoiseSuppression = useCallback(async (enabled: boolean) => {
     noiseSuppressionRef.current = enabled;
@@ -1103,9 +1177,14 @@ export function useTeamCallRuntime({
     }
     backgroundBlurRef.current = enabled;
     setBackgroundBlurState(enabled);
+    if (previewStreamRef.current) setPreviewStream(new MediaStream(previewStreamRef.current.getTracks()));
+    if (localStreamRef.current) {
+      setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+      await mediaTransportRef.current?.updateLocalMedia(transportMedia()).catch(() => undefined);
+    }
     setStatus(enabled ? "Desfoque de fundo ativado" : "Desfoque de fundo desativado");
     return true;
-  }, [applyBackgroundBlur]);
+  }, [applyBackgroundBlur, transportMedia]);
 
   useEffect(() => {
     const mediaDevices = navigator.mediaDevices;
@@ -1199,6 +1278,7 @@ export function useTeamCallRuntime({
       ? new MediaStream([...audioStream.getAudioTracks(), ...cameraStream.getVideoTracks()])
       : audioStream || cameraStream;
     if (!stream) throw new Error("Nenhum dispositivo de mídia foi selecionado.");
+    if (cameraStream && stream !== cameraStream) rebindBackgroundBlur(cameraStream, stream);
     if (epoch !== mediaEpochRef.current) {
       stream.getTracks().forEach((track) => track.stop());
       throw new DOMException("Entrada cancelada.", "AbortError");
@@ -1223,7 +1303,7 @@ export function useTeamCallRuntime({
     setCameraOff(!options.cameraEnabled);
     await refreshDevices().catch(() => undefined);
     return stream;
-  }, [applyBackgroundBlur, prepareCameraPreview, processMicrophoneStream, refreshDevices, selectedCameraId, selectedMicrophoneId]);
+  }, [applyBackgroundBlur, prepareCameraPreview, processMicrophoneStream, rebindBackgroundBlur, refreshDevices, selectedCameraId, selectedMicrophoneId]);
 
   const requestCameraPermission = useCallback(async () => {
     if (window.isSecureContext === false || !navigator.mediaDevices?.getUserMedia) {
@@ -1298,11 +1378,13 @@ export function useTeamCallRuntime({
         replacementStream.getTracks().forEach((track) => track.stop());
         return;
       }
+      if (kind === "video") releaseBackgroundBlur(currentStream, false, true);
       currentStream.getTracks().filter((track) => track.kind === kind).forEach((track) => { track.onended = null; track.stop(); });
       const nextStream = new MediaStream([
         ...currentStream.getTracks().filter((track) => track.kind !== kind),
         replacementTrack,
       ]);
+      if (kind === "video") rebindBackgroundBlur(replacementStream, nextStream);
       localStreamRef.current = nextStream;
       setLocalStream(nextStream);
       await mediaTransportRef.current?.updateLocalMedia(transportMedia());
@@ -1316,7 +1398,7 @@ export function useTeamCallRuntime({
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Nao foi possivel trocar o dispositivo.");
     }
-  }, [applyBackgroundBlur, cameraOff, muted, processMicrophoneStream, transportMedia]);
+  }, [applyBackgroundBlur, cameraOff, muted, processMicrophoneStream, rebindBackgroundBlur, releaseBackgroundBlur, transportMedia]);
 
   const createMeetingRecordingStream = useCallback(() => createMeetingRecording(() => {
     const sources = remoteStreamsRef.current.map((item) => ({
@@ -1908,6 +1990,7 @@ export function useTeamCallRuntime({
       return;
     }
     if (currentTrack) {
+      releaseBackgroundBlur(currentStream, false, true);
       currentTrack.stop();
       const withoutEndedTrack = new MediaStream(currentStream.getTracks().filter((track) => track !== currentTrack));
       localStreamRef.current = withoutEndedTrack;
@@ -1936,11 +2019,13 @@ export function useTeamCallRuntime({
         cameraStream.getTracks().forEach((track) => track.stop());
         return;
       }
+      if (backgroundBlurRef.current) await applyBackgroundBlur(true, [cameraStream]);
       const cameraTrack = cameraStream.getVideoTracks()[0];
       if (!cameraTrack) throw new Error("A camera nao forneceu video.");
       cameraTrack.enabled = true;
       const baseStream = localStreamRef.current || currentStream;
       const nextStream = new MediaStream([...baseStream.getAudioTracks(), cameraTrack]);
+      rebindBackgroundBlur(cameraStream, nextStream);
       localStreamRef.current = nextStream;
       setLocalStream(nextStream);
       if (!screenStreamRef.current) await attachVideoTrack(cameraTrack, nextStream);
@@ -1961,7 +2046,7 @@ export function useTeamCallRuntime({
       setCameraOff(true);
       setStatus(`${mediaAccessError(error, "camera")} Abra Dispositivos para escolher outra câmera.`);
     }
-  }, [attachVideoTrack, cameraPermission, publishMediaState, refreshDevices, requestCameraPermission, selectedCameraId]);
+  }, [applyBackgroundBlur, attachVideoTrack, cameraPermission, publishMediaState, rebindBackgroundBlur, refreshDevices, releaseBackgroundBlur, requestCameraPermission, selectedCameraId]);
 
   const stopScreenShare = useCallback(async () => {
     const activeScreen = screenStreamRef.current;
@@ -2150,7 +2235,8 @@ export function useTeamCallRuntime({
     noiseSuppression,
     microphoneSensitivity,
     backgroundBlur,
-    supportsBackgroundBlur: Boolean((navigator.mediaDevices?.getSupportedConstraints?.() as (MediaTrackSupportedConstraints & { backgroundBlur?: boolean }) | undefined)?.backgroundBlur),
+    supportsBackgroundBlur: Boolean((navigator.mediaDevices?.getSupportedConstraints?.() as (MediaTrackSupportedConstraints & { backgroundBlur?: boolean }) | undefined)?.backgroundBlur)
+      || supportsCanvasBackgroundBlur(),
     screenShareQuality,
     screenShareFps,
     supportsSpeakerSelection: typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype,

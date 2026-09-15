@@ -140,7 +140,7 @@ export default function Sidebar({
                aria-label={compact ? item.title : undefined}>
                 <span className="norium-sidebar-item-icon" aria-hidden="true">
                   {item.title === "Nora" ? <NoraAvatar variant="navigation" className="norium-sidebar-nora-avatar" />
-                    : <IntegrationLogo name={item.title} size={18} className="norium-sidebar-channel-icon" monochrome />}
+                    : <IntegrationLogo name={item.title} size={20} className="norium-sidebar-channel-icon" monochrome />}
                 </span>
                 {!compact && <span className="norium-sidebar-item-label">{item.title}</span>}
               </button>
@@ -156,7 +156,7 @@ export default function Sidebar({
             title={compact ? "Configurações" : undefined}
            aria-label={compact ? "Configurações" : undefined}>
             <span className="norium-sidebar-item-icon">
-              <IntegrationLogo name="Configurações" size={18} className="norium-sidebar-channel-icon" monochrome />
+              <IntegrationLogo name="Configurações" size={20} className="norium-sidebar-channel-icon" monochrome />
             </span>
             {!compact && <span className="norium-sidebar-item-label">Configurações</span>}
           </button>
@@ -168,7 +168,7 @@ export default function Sidebar({
             aria-current={activeTab === "Ajuda" ? "page" : undefined}
            aria-label={compact ? "Ajuda" : undefined}>
             <span className="norium-sidebar-item-icon">
-              <IntegrationLogo name="Ajuda" size={18} className="norium-sidebar-channel-icon" monochrome />
+              <IntegrationLogo name="Ajuda" size={20} className="norium-sidebar-channel-icon" monochrome />
             </span>
             {!compact && <span className="norium-sidebar-item-label">Ajuda</span>}
           </button>

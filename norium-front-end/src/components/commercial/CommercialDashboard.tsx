@@ -61,6 +61,15 @@ function documentSpeechRecognition() {
   };
   return speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
 }
+
+function documentAudioDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Não foi possível preparar o áudio para transcrição."));
+    reader.readAsDataURL(blob);
+  });
+}
 import {
   analyzeProposal,
   cancelContract,
@@ -1093,8 +1102,14 @@ function CreateSmartDocumentDialog({
   const [advanced, setAdvanced] = useState(false);
   const [localError, setLocalError] = useState("");
   const [dictating, setDictating] = useState(false);
+  const [transcribingDictation, setTranscribingDictation] = useState(false);
   const [dictationError, setDictationError] = useState("");
+  const [dictationMicrophones, setDictationMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [dictationMicrophoneId, setDictationMicrophoneId] = useState("");
   const recognitionRef = useRef<DocumentSpeechRecognition | null>(null);
+  const dictationRecorderRef = useRef<MediaRecorder | null>(null);
+  const dictationStreamRef = useRef<MediaStream | null>(null);
+  const dictationChunksRef = useRef<Blob[]>([]);
   const dictationPrefixRef = useRef("");
   const selectedTemplate = availableTemplates.find((item) => item.id === templateId);
   const selectedBrand = brands.find((item) => item.id === brandId);
@@ -1109,13 +1124,100 @@ function CreateSmartDocumentDialog({
     return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, "pt-BR"));
   }, [availableTemplates]);
 
-  useEffect(() => () => recognitionRef.current?.abort(), []);
+  const refreshDictationMicrophones = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    setDictationMicrophones(devices.filter((device) => device.kind === "audioinput"));
+  }, []);
 
-  function toggleDictation() {
+  useEffect(() => {
+    void refreshDictationMicrophones().catch(() => undefined);
+    const mediaDevices = navigator.mediaDevices;
+    mediaDevices?.addEventListener?.("devicechange", refreshDictationMicrophones);
+    return () => {
+      recognitionRef.current?.abort();
+      if (dictationRecorderRef.current?.state === "recording") dictationRecorderRef.current.stop();
+      dictationStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaDevices?.removeEventListener?.("devicechange", refreshDictationMicrophones);
+    };
+  }, [refreshDictationMicrophones]);
+
+  async function startRecordedDictation() {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") return false;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: dictationMicrophoneId ? { exact: dictationMicrophoneId } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          channelCount: 1,
+        },
+        video: false,
+      });
+      const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]
+        .find((candidate) => !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(candidate)) || "";
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      dictationPrefixRef.current = brief.trim();
+      dictationChunksRef.current = [];
+      dictationStreamRef.current = stream;
+      dictationRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => { if (event.data.size) dictationChunksRef.current.push(event.data); };
+      recorder.onerror = () => {
+        setDictationError("Não consegui gravar o áudio. Verifique o microfone selecionado e tente novamente.");
+        setDictating(false);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        dictationStreamRef.current = null;
+        dictationRecorderRef.current = null;
+        setDictating(false);
+        const audio = new Blob(dictationChunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
+        dictationChunksRef.current = [];
+        if (audio.size < 400) {
+          setDictationError("O áudio ficou curto demais. Fale por alguns segundos e tente novamente.");
+          return;
+        }
+        setTranscribingDictation(true);
+        try {
+          const result = await apiRequest<{ text: string }>("/api/nora/transcrever", {
+            method: "POST",
+            timeoutMs: 60_000,
+            body: JSON.stringify({ audio_data_url: await documentAudioDataUrl(audio), mime_type: audio.type || "audio/webm" }),
+          });
+          const spoken = String(result.text || "").trim();
+          if (!spoken) throw new Error("Não identifiquei nenhuma fala no áudio.");
+          setBrief([dictationPrefixRef.current, spoken].filter(Boolean).join(" "));
+          setDictationError("");
+        } catch (error) {
+          setDictationError(messageFromError(error, "Não foi possível transcrever o áudio agora."));
+        } finally {
+          setTranscribingDictation(false);
+        }
+      };
+      recorder.start(250);
+      setDictating(true);
+      setDictationError("");
+      await refreshDictationMicrophones().catch(() => undefined);
+      return true;
+    } catch (error) {
+      setDictationError(error instanceof DOMException && error.name === "NotAllowedError"
+        ? "Permita o uso do microfone para ditar o conteúdo."
+        : "Microfone indisponível. Escolha outro dispositivo ou verifique a conexão.");
+      return true;
+    }
+  }
+
+  async function toggleDictation() {
     if (dictating) {
+      if (dictationRecorderRef.current?.state === "recording") {
+        dictationRecorderRef.current.stop();
+        return;
+      }
       recognitionRef.current?.stop();
       return;
     }
+    if (transcribingDictation) return;
+    if (await startRecordedDictation()) return;
     const Recognition = documentSpeechRecognition();
     if (!Recognition) {
       setDictationError("Este navegador não oferece ditado por voz. Use Chrome ou Edge atualizado.");
@@ -1314,18 +1416,23 @@ function CreateSmartDocumentDialog({
                 <textarea aria-label="Conte o essencial" value={brief} onChange={(event) => setBrief(event.target.value)} className="commercial-field min-h-32 resize-y pr-36" placeholder={isResume ? "Ex.: João Silva, desenvolvedor front-end, 4 anos com React, trabalhou na Empresa X, formado em ADS. Quero um currículo azul." : "Ex.: Proposta de site para a Clínica Aurora, com agenda online, entrega em 45 dias e valor de R$ 12 mil."} />
                 <button
                   type="button"
-                  onClick={toggleDictation}
+                  onClick={() => void toggleDictation()}
                   aria-pressed={dictating}
-                  aria-label={dictating ? "Parar ditado" : "Ditar conteúdo essencial"}
+                  aria-label={dictating ? "Parar ditado" : transcribingDictation ? "Transcrevendo ditado" : "Ditar conteúdo essencial"}
+                  disabled={transcribingDictation}
                   className={`absolute right-3 top-3 inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-black transition ${dictating ? "border-rose-300/50 bg-rose-400/15 text-rose-100" : "border-cyan-300/35 bg-[var(--surface)] text-cyan-200 hover:bg-cyan-400/10"}`}
                 >
                   {dictating ? <Square size={13} fill="currentColor" /> : <Mic size={15} />}
-                  {dictating ? "Parar" : "Falar"}
+                  {dictating ? "Parar" : transcribingDictation ? "Transcrevendo" : "Falar"}
                 </button>
               </div>
               <p className={`mt-2 text-xs font-semibold ${dictationError ? "text-rose-300" : dictating ? "text-cyan-200" : "text-[var(--text-secondary)]"}`} role={dictationError ? "alert" : "status"}>
-                {dictationError || (dictating ? "Ouvindo… descreva livremente; você poderá revisar o texto." : "Use o microfone ou escreva. A Nora organiza o restante sem repetir informações.")}
+                {dictationError || (transcribingDictation ? "Transcrevendo com segurança…" : dictating ? "Ouvindo… descreva livremente e pressione Parar ao terminar." : "Use o microfone ou escreva. A Nora classifica cada informação na seção correta.")}
               </p>
+              <div className="mt-2 flex flex-wrap items-end gap-2">
+                <label className="min-w-56 flex-1 text-[11px] font-bold text-[var(--text-secondary)]"><span className="mb-1 block">Microfone do ditado</span><select aria-label="Microfone do ditado" value={dictationMicrophoneId} disabled={dictating || transcribingDictation} onChange={(event) => setDictationMicrophoneId(event.target.value)} className="commercial-field h-10"><option value="">Padrão do sistema</option>{dictationMicrophones.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Microfone ${index + 1}`}</option>)}</select></label>
+                <button type="button" disabled={dictating || transcribingDictation} onClick={() => void refreshDictationMicrophones()} className="h-10 rounded-lg border border-[var(--border)] px-3 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-hover)] disabled:opacity-50">Atualizar microfones</button>
+              </div>
             </FormField>
             <div className="grid gap-4 md:grid-cols-2">
               <FormField label="Título (opcional)"><input value={title} onChange={(event) => setTitle(event.target.value)} className="commercial-field" placeholder="A Nora pode sugerir" /></FormField>

@@ -3,7 +3,7 @@ import type { DashboardMetrics } from "./Dashboard";
 
 type StatisticsProps = {
   metrics: DashboardMetrics;
-  onOpenNora: () => void;
+  onOpenNora: (prompt?: string) => void;
 };
 
 export default function Statistics({ metrics, onOpenNora }: StatisticsProps) {
@@ -42,16 +42,16 @@ export default function Statistics({ metrics, onOpenNora }: StatisticsProps) {
           <div className="flex-1">
             <h3 className="font-bold text-[var(--text)]">Insight da Nora</h3>
             <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-              A Central ja consolidou {metrics.total} eventos recentes. Abra a Nora para transformar isso em plano de acao.
+              A Central já consolidou {metrics.total} eventos recentes. Peça uma leitura objetiva das prioridades e dos próximos passos.
             </p>
           </div>
         </div>
 
         <button
-          onClick={onOpenNora}
+          onClick={() => onOpenNora("Resuma minha operação com os dados reais da Central e mostre minhas prioridades de hoje, os alertas e os próximos passos.")}
           className="mt-6 rounded-xl border border-blue-500 px-5 py-2 text-sm font-bold text-blue-500 transition hover:bg-blue-500 hover:text-white"
         >
-          Ver insights
+          Consultar insights
         </button>
       </div>
 

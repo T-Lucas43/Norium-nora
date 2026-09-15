@@ -9,6 +9,7 @@ import html
 import json
 import re
 import time
+import unicodedata
 import uuid
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
@@ -1458,6 +1459,60 @@ async def _template_for_smart_document(user: dict[str, Any], template_id: str) -
     return template
 
 
+_SMART_SECTION_RULES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("identificacao", "contato", "partes", "emitente", "cliente", "apresentacao"), ("nome", "email", "telefone", "celular", "endereco", "cpf", "cnpj", "linkedin", "portfolio")),
+    (("perfil", "resumo", "sobre", "contexto", "objetivo"), ("perfil", "objetivo", "busco", "procuro", "profissional", "especialista", "analista", "desenvolvedor", "empresa")),
+    (("experiencia", "historico", "trajetoria", "atuacao", "projetos"), ("experiencia", "trabalhei", "trabalhou", "atuei", "atuou", "cargo", "empresa", "projeto", "responsavel", "resultado")),
+    (("formacao", "educacao", "cursos", "certificacoes"), ("formacao", "formado", "formada", "faculdade", "universidade", "curso", "certificacao", "graduacao", "tecnologo", "bacharel")),
+    (("habilidades", "competencias", "ferramentas", "tecnologias", "idiomas"), ("habilidade", "competencia", "dominio", "conhecimento", "ferramenta", "tecnologia", "idioma", "ingles", "espanhol", "python", "react", "sql", "excel")),
+    (("escopo", "entregas", "atividades", "responsabilidades", "objeto"), ("escopo", "entrega", "atividade", "responsabilidade", "inclui", "servico", "produto", "objeto")),
+    (("prazo", "cronograma", "vigencia", "validade", "data"), ("prazo", "dia", "semana", "mes", "ano", "inicio", "termino", "validade", "vigencia", "data")),
+    (("valor", "investimento", "preco", "pagamento", "totais", "orcamento"), ("valor", "preco", "real", "reais", "pagamento", "parcela", "investimento", "orcamento", "custo")),
+    (("publico", "audiencia", "beneficiarios"), ("publico", "audiencia", "cliente", "usuario", "beneficiario", "persona")),
+    (("riscos", "restricoes", "limites", "exclusoes", "cuidados"), ("risco", "restricao", "limite", "nao inclui", "exclusao", "proibido", "cuidado")),
+)
+
+
+def _smart_normalize(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value.casefold())
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", "".join(char for char in decomposed if not unicodedata.combining(char))).split())
+
+
+def _smart_brief_fragments(payload: SmartDocumentRequest) -> list[str]:
+    source = "\n".join(part for part in (payload.brief.strip(), payload.details.strip()) if part)
+    primary = [part.strip(" -\t") for part in re.split(r"(?:[;\n]+|(?<=[.!?])\s+)", source) if part.strip(" -\t")]
+    if len(primary) <= 2 and sum(part.count(",") for part in primary) >= 2:
+        primary = [part.strip(" -\t") for item in primary for part in item.split(",") if part.strip(" -\t")]
+    unique: list[str] = []
+    seen: set[str] = set()
+    for fragment in primary:
+        key = _smart_normalize(fragment)
+        if key and key not in seen:
+            unique.append(fragment)
+            seen.add(key)
+    return unique or [payload.brief.strip()]
+
+
+def _smart_section_values(sections: list[str], payload: SmartDocumentRequest) -> list[str]:
+    """Classifica cada fato uma única vez na seção semanticamente mais específica."""
+
+    normalized_sections = [_smart_normalize(section) for section in sections]
+    buckets: list[list[str]] = [[] for _ in sections]
+    for fragment in _smart_brief_fragments(payload):
+        normalized_fragment = _smart_normalize(fragment)
+        best_index = 0
+        best_score = 0
+        for index, normalized_section in enumerate(normalized_sections):
+            score = len(set(normalized_section.split()).intersection(normalized_fragment.split())) * 2
+            for section_terms, fact_terms in _SMART_SECTION_RULES:
+                if any(term in normalized_section for term in section_terms) and any(term in normalized_fragment for term in fact_terms):
+                    score += 5
+            if score > best_score:
+                best_index, best_score = index, score
+        buckets[best_index].append(fragment)
+    return [". ".join(items).rstrip(".") + "." if items else "" for items in buckets]
+
+
 def _smart_document_fallback(
     template: dict[str, Any],
     payload: SmartDocumentRequest,
@@ -1482,14 +1537,10 @@ def _smart_document_fallback(
         if template.get("legalReview")
         else ""
     )
+    section_values = _smart_section_values(sections, payload)
     body: list[str] = [f"<h1>{html.escape(title)}</h1>", legal_notice, intro]
     for index, section in enumerate(sections):
-        if index == 0:
-            value = payload.brief.strip()
-        elif index == 1 and payload.details.strip():
-            value = payload.details.strip()
-        else:
-            value = f"A definir: inclua os dados reais de {section.casefold()} pertinentes a este documento."
+        value = section_values[index] or f"A definir: inclua os dados reais de {section.casefold()} pertinentes a este documento."
         body.append(f"<h2>{html.escape(section)}</h2><p>{html.escape(value)}</p>")
     return {
         "title": title[:220],
@@ -1556,6 +1607,12 @@ async def generate_smart_document_draft(user: dict[str, Any], payload: SmartDocu
         "strong, em, blockquote, table, thead, tbody, tr, th, td e hr. Não inclua markdown. "
         f"{length_guidance}"
         "Não se limite a títulos vazios e não invente fatos para preencher espaço. "
+        "Antes de redigir, faça internamente um inventário dos fatos e classifique cada fato na seção semanticamente mais específica. "
+        "Cada fato deve aparecer uma única vez: não copie o briefing inteiro para a descrição, o resumo, a apresentação ou a primeira seção. "
+        "Infira a categoria pelo significado mesmo quando o usuário falar de forma corrida. Em currículos, separe claramente identidade e contato, "
+        "perfil, experiências por empresa e cargo, resultados, formação, cursos, competências, ferramentas, idiomas, portfólio e projetos. "
+        "Nos demais documentos, use a estrutura esperada do modelo para separar partes, objeto, escopo, entregas, responsáveis, prazos, valores, "
+        "condições, riscos e próximos passos conforme forem aplicáveis. Não crie uma seção genérica de descrição para fatos que pertencem a outra categoria. "
         f"Tipo: {document_type_label(template_type)}. Modelo: {template.get('name')}. Descrição: {template.get('description')}. "
         f"Estrutura esperada: {json.dumps(template.get('sections') or [], ensure_ascii=False)}. "
         f"Orientação do modelo: {template.get('generationGuide') or 'Siga a estrutura do modelo.'}. "

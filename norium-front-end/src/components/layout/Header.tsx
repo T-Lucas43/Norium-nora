@@ -126,7 +126,7 @@ export default function Header({
   const inputRef = useRef<HTMLInputElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const noraQuickMenuRef = useRef<HTMLDivElement>(null);
-  const noraQuickInputRef = useRef<HTMLInputElement>(null);
+  const noraQuickInputRef = useRef<HTMLTextAreaElement>(null);
   const profileName = currentUser?.nome || profile?.nome || "Perfil";
 
   const commands = useMemo<SearchCommand[]>(
@@ -233,9 +233,8 @@ export default function Header({
     window.setTimeout(() => noraQuickInputRef.current?.focus(), 0);
   }, [noraQuickOpen]);
 
-  async function sendQuickNora(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const question = noraQuickInput.trim();
+  async function askQuickNora(rawQuestion: string) {
+    const question = rawQuestion.trim();
     if (!question || noraQuickLoading) return;
 
     const userMessage: NoraQuickMessage = { id: crypto.randomUUID(), role: "user", text: question };
@@ -266,7 +265,7 @@ export default function Header({
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: payload.response?.trim() || "Concluí a consulta. Abra a conversa completa para ver mais detalhes.",
+          text: (payload.response?.trim() || "Concluí a consulta. Abra a conversa completa para ver mais detalhes.").replace(/\*\*/g, ""),
         },
       ]);
     } catch (reason) {
@@ -274,6 +273,11 @@ export default function Header({
     } finally {
       setNoraQuickLoading(false);
     }
+  }
+
+  function sendQuickNora(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void askQuickNora(noraQuickInput);
   }
 
   function runCommand(command: SearchCommand) {
@@ -444,7 +448,7 @@ export default function Header({
                       <span>Consulte seus dados ou peça uma ação sem sair do dashboard.</span>
                       <div>
                         {["Resuma meu dia", "Quais são minhas prioridades?", "Organize minha agenda"].map((suggestion) => (
-                          <button key={suggestion} type="button" onClick={() => setNoraQuickInput(suggestion)}>{suggestion}</button>
+                          <button key={suggestion} type="button" disabled={noraQuickLoading} onClick={() => void askQuickNora(suggestion)}>{suggestion}</button>
                         ))}
                       </div>
                     </div>
@@ -458,13 +462,21 @@ export default function Header({
                 {noraQuickError && <p className="norium-nora-quick-error" role="alert">{noraQuickError}</p>}
 
                 <form onSubmit={sendQuickNora}>
-                  <input
+                  <textarea
                     ref={noraQuickInputRef}
                     value={noraQuickInput}
                     onChange={(event) => setNoraQuickInput(event.target.value)}
                     placeholder="Pergunte à Nora..."
                     aria-label="Perguntar à Nora"
                     disabled={noraQuickLoading}
+                    rows={2}
+                    maxLength={1800}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        void askQuickNora(noraQuickInput);
+                      }
+                    }}
                   />
                   <button type="submit" aria-label="Enviar pergunta" disabled={!noraQuickInput.trim() || noraQuickLoading}>
                     {noraQuickLoading ? <LoaderCircle size={17} className="animate-spin" /> : <SendHorizontal size={17} />}

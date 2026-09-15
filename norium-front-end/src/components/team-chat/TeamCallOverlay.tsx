@@ -1,7 +1,7 @@
 import "./teamCall.css";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { LayoutGrid, Camera, CameraOff, Circle, Clock3, Download, Hand, Headphones, Maximize2, Minimize2, MessageSquareText, Mic, MicOff, MonitorUp, Move, Paperclip, PhoneOff, Pin, PinOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
+import { LayoutGrid, Camera, CameraOff, Circle, Clock3, Download, FlipHorizontal2, Hand, Headphones, Maximize2, Minimize2, MessageSquareText, Mic, MicOff, MonitorUp, Move, Paperclip, PhoneOff, Pin, PinOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
 import TeamCallStudio from "./TeamCallStudio";
 import ParticipantAudio from "./ParticipantAudio";
 import type { CallSessionCommands, CallSessionSnapshot } from "./CallSession";
@@ -27,7 +27,7 @@ function storedMinimizedCall() {
   catch { return ""; }
 }
 
-function StreamVideo({ stream, muted = false, label, sinkId = "", fit = "cover" }: { stream: MediaStream; muted?: boolean; label: string; sinkId?: string; fit?: "cover" | "contain" }) {
+function StreamVideo({ stream, muted = false, label, sinkId = "", fit = "cover", mirrored = false }: { stream: MediaStream; muted?: boolean; label: string; sinkId?: string; fit?: "cover" | "contain"; mirrored?: boolean }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const element = ref.current;
@@ -40,7 +40,7 @@ function StreamVideo({ stream, muted = false, label, sinkId = "", fit = "cover" 
     const element = ref.current as (HTMLVideoElement & { setSinkId?: (deviceId: string) => Promise<void> }) | null;
     if (!muted && sinkId && element?.setSinkId) void element.setSinkId(sinkId).catch(() => undefined);
   }, [muted, sinkId]);
-  return <video ref={ref} autoPlay playsInline muted={muted} aria-label={label} className={`h-full w-full bg-black ${fit === "contain" ? "object-contain" : "object-cover"}`} />;
+  return <video ref={ref} autoPlay playsInline muted={muted} aria-label={label} data-mirrored={mirrored || undefined} className={`h-full w-full bg-black ${fit === "contain" ? "object-contain" : "object-cover"} ${mirrored ? "team-call-video-mirrored" : ""}`} />;
 }
 
 function DraggableScreenPreview({ stream }: { stream: MediaStream }) {
@@ -171,6 +171,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   const [sending, setSending] = useState(false);
   const [audioSettings, setAudioSettings] = useState<Record<string, { volume: number; microphoneMuted: boolean; screenMuted: boolean }>>({});
   const [outputMuted, setOutputMuted] = useState(false);
+  const [mirrorLocalVideo, setMirrorLocalVideo] = useState(true);
   const [pinned, setPinned] = useState<{ userId: string; type: "member" | "screen" } | null>(null);
   const incomingDialogRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -217,7 +218,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   if (snapshot.prejoin) {
     const currentMember = members.find((member) => member.id === currentUserId);
     const displayName = currentMember?.nome || "Você";
-    return createPortal(<CallPrejoin snapshot={snapshot} commands={commands} displayName={displayName} profilePhoto={currentMember?.fotoUrl} />, document.body);
+    return createPortal(<CallPrejoin snapshot={snapshot} commands={commands} displayName={displayName} profilePhoto={currentMember?.fotoUrl} mirrorLocalVideo={mirrorLocalVideo} onMirrorLocalVideo={setMirrorLocalVideo} />, document.body);
   }
 
   if (!call.active && !call.incoming && snapshot.reconnectionNotice) {
@@ -345,7 +346,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
           }) : <WaitingStage title={call.active.title} />}
           {(call.screenStream || (call.localStream && !call.cameraOff)) && <div className="team-call-local-previews pointer-events-none absolute bottom-28 right-5 z-20 flex flex-col items-end gap-2">
             {call.screenStream && <DraggableScreenPreview stream={call.screenStream} />}
-            {call.localStream && !call.cameraOff && <section className="team-call-camera-preview h-24 w-36 overflow-hidden rounded-xl border shadow-2xl md:h-28 md:w-44"><StreamVideo stream={call.localStream} muted label="Sua câmera" /></section>}
+            {call.localStream && !call.cameraOff && <section className="team-call-camera-preview h-24 w-36 overflow-hidden rounded-xl border shadow-2xl md:h-28 md:w-44"><StreamVideo stream={call.localStream} muted label="Sua câmera" mirrored={mirrorLocalVideo} /></section>}
           </div>}
           <div className="pointer-events-none absolute bottom-8 left-6 z-20 flex items-end gap-3">{call.reactions.map((reaction) => <div key={reaction.id} className="team-call-reaction rounded-full bg-[#11151a] px-3 py-2 text-center shadow-xl"><span className="block text-3xl">{reaction.emoji}</span><small className="block max-w-24 truncate text-[10px] text-[#9ca7b5]">{reaction.userName}</small></div>)}</div>
         </main>
@@ -376,7 +377,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
           <button type="button" onClick={() => togglePanel("devices")} className={`team-call-top-control ${devicesOpen ? "team-call-active" : ""}`} aria-label="Selecionar câmera e dispositivos de áudio"><Settings2 size={19} /><span>Dispositivos</span></button>
           <button type="button" onClick={() => void finishCall()} className="team-call-top-control team-call-danger ml-2" aria-label={call.isHost ? "Encerrar reunião" : "Sair da reunião"}><PhoneOff size={20} /><span>{call.isHost ? "Encerrar" : "Sair"}</span></button>
         </nav>
-        {devicesOpen && <DeviceSelector call={call} onClose={() => setDevicesOpen(false)} />}
+        {devicesOpen && <DeviceSelector call={call} mirrorLocalVideo={mirrorLocalVideo} onMirrorLocalVideo={setMirrorLocalVideo} onClose={() => setDevicesOpen(false)} />}
         {qualityOpen && <ScreenShareQualitySelector call={call} onClose={() => setQualityOpen(false)} />}
         {reactionsOpen && <section className="team-call-popover absolute right-3 top-[calc(100%+10px)] z-20 flex gap-1 rounded-2xl border p-2 shadow-2xl" aria-label="Reações da reunião">{["👍", "👏", "❤️", "😂", "😮", "🎉", "🙌"].map((emoji) => <button key={emoji} type="button" onClick={() => { call.sendReaction(emoji); setReactionsOpen(false); }} className="grid h-11 w-11 place-items-center rounded-xl text-2xl hover:bg-[#1b2128]" aria-label={`Reagir com ${emoji}`}>{emoji}</button>)}</section>}
       </footer>
@@ -384,7 +385,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   );
 }
 
-function CallPrejoin({ snapshot, commands, displayName, profilePhoto }: { snapshot: CallSessionSnapshot; commands: CallSessionCommands; displayName: string; profilePhoto?: string }) {
+function CallPrejoin({ snapshot, commands, displayName, profilePhoto, mirrorLocalVideo, onMirrorLocalVideo }: { snapshot: CallSessionSnapshot; commands: CallSessionCommands; displayName: string; profilePhoto?: string; mirrorLocalVideo: boolean; onMirrorLocalVideo: (enabled: boolean) => void }) {
   const entry = snapshot.prejoin!;
   const dialogRef = useRef<HTMLElement>(null);
   useEffect(() => { dialogRef.current?.focus(); }, []);
@@ -421,7 +422,7 @@ function CallPrejoin({ snapshot, commands, displayName, profilePhoto }: { snapsh
         <section className="team-call-prejoin-video-column" aria-label="Prévia de vídeo">
           <div className="team-call-prejoin-video">
             {entry.previewEnabled && snapshot.previewStream
-              ? <StreamVideo stream={snapshot.previewStream} muted label="Prévia da câmera" />
+              ? <StreamVideo stream={snapshot.previewStream} muted label="Prévia da câmera" mirrored={mirrorLocalVideo} />
               : <div className="team-call-prejoin-placeholder"><span className={profilePhoto ? "has-photo" : ""}>{profilePhoto ? <img src={profilePhoto} alt={`Foto de ${displayName}`} /> : initials(displayName)}</span><strong>{entry.cameraEnabled ? "Abrindo a prévia da câmera" : "Câmera desligada"}</strong><small>{entry.cameraEnabled ? "A prévia aparece automaticamente assim que a câmera responder." : "Sua foto de perfil permanece visível enquanto a câmera estiver desligada."}</small></div>}
           </div>
           <div className="team-call-prejoin-video-controls">
@@ -432,6 +433,10 @@ function CallPrejoin({ snapshot, commands, displayName, profilePhoto }: { snapsh
             <label className={`team-call-prejoin-icon-control ${snapshot.backgroundBlur ? "is-active" : ""}`} title={snapshot.supportsBackgroundBlur ? "Embaçar somente o fundo da câmera" : "O navegador ou a câmera não oferece desfoque de fundo"}>
               <input type="checkbox" checked={snapshot.backgroundBlur} disabled={!entry.cameraEnabled || !snapshot.supportsBackgroundBlur} onChange={(event) => void commands.setBackgroundBlur(event.target.checked)} aria-label="Embaçar fundo" />
               <SlidersHorizontal size={18} /><span>Embaçar fundo</span>
+            </label>
+            <label className={`team-call-prejoin-icon-control ${mirrorLocalVideo ? "is-active" : ""}`} title="Desative para visualizar exatamente como os outros participantes veem seu vídeo">
+              <input type="checkbox" checked={mirrorLocalVideo} disabled={!entry.cameraEnabled} onChange={(event) => onMirrorLocalVideo(event.target.checked)} aria-label="Espelhar minha prévia" />
+              <FlipHorizontal2 size={18} /><span>{mirrorLocalVideo ? "Prévia espelhada" : "Visão dos outros"}</span>
             </label>
             <label className="team-call-prejoin-device compact"><span>Câmera</span><select aria-label="Câmera para a chamada" value={snapshot.selectedCameraId} disabled={!entry.cameraEnabled || entry.microphoneMode === "listen-only"} onChange={(event) => void commands.selectCamera(event.target.value)}><option value="">Padrão do sistema</option>{snapshot.devices.cameras.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Câmera", index)}</option>)}</select></label>
           </div>
@@ -478,7 +483,7 @@ function ScreenShareQualitySelector({ call, onClose }: { call: ReturnTypeOfTeamC
   </section>;
 }
 
-function DeviceSelector({ call, onClose }: { call: ReturnTypeOfTeamCall; onClose: () => void }) {
+function DeviceSelector({ call, mirrorLocalVideo, onMirrorLocalVideo, onClose }: { call: ReturnTypeOfTeamCall; mirrorLocalVideo: boolean; onMirrorLocalVideo: (enabled: boolean) => void; onClose: () => void }) {
   return <section className="team-call-popover absolute right-3 top-[calc(100%+10px)] z-20 grid w-[min(92vw,440px)] gap-3 rounded-2xl border p-4 text-left shadow-2xl" aria-label="Dispositivos da chamada">
     <div className="flex items-center justify-between"><div><p className="text-sm font-black">Dispositivos</p><p className="text-xs text-[var(--text-secondary)]">Troque câmera e áudio durante a chamada.</p></div><button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-[var(--surface-hover)]" aria-label="Fechar dispositivos"><X size={17} /></button></div>
     <label className="grid gap-1.5 text-xs font-bold text-[var(--text-secondary)]"><span className="flex items-center gap-2"><Mic size={14} /> Dispositivo de entrada</span><select value={call.selectedMicrophoneId} onChange={(event) => void call.selectMicrophone(event.target.value)} className="h-10 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 text-sm text-[var(--text)] outline-none"><option value="">Padrão do sistema</option>{call.devices.microphones.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{deviceLabel(device, "Microfone", index)}</option>)}</select></label>
@@ -488,6 +493,7 @@ function DeviceSelector({ call, onClose }: { call: ReturnTypeOfTeamCall; onClose
       <label><span><strong>Supressão de ruído</strong><small>Reduz sons contínuos.</small></span><input type="checkbox" checked={call.noiseSuppression} onChange={(event) => void call.setNoiseSuppression(event.target.checked)} aria-label="Supressão de ruído durante a chamada" /></label>
       <label><span><strong>Sensibilidade</strong><output>{call.microphoneSensitivity}%</output></span><input type="range" min="50" max="150" step="5" value={call.microphoneSensitivity} onChange={(event) => call.setMicrophoneSensitivity(Number(event.target.value))} aria-label="Sensibilidade do microfone durante a chamada" /></label>
       <label title={call.supportsBackgroundBlur ? "Embaçar somente o fundo da câmera" : "Indisponível neste navegador ou câmera"}><span><strong>Embaçar fundo</strong><small>{call.supportsBackgroundBlur ? "Processamento da câmera." : "Não compatível."}</small></span><input type="checkbox" checked={call.backgroundBlur} disabled={!call.supportsBackgroundBlur || call.cameraOff} onChange={(event) => void call.setBackgroundBlur(event.target.checked)} aria-label="Embaçar fundo durante a chamada" /></label>
+      <label title="A transmissão não é alterada; esta opção muda apenas a sua prévia"><span><strong>Espelhar minha prévia</strong><small>{mirrorLocalVideo ? "Modo espelho para você." : "Exatamente como os outros veem."}</small></span><input type="checkbox" checked={mirrorLocalVideo} disabled={call.cameraOff} onChange={(event) => onMirrorLocalVideo(event.target.checked)} aria-label="Espelhar minha prévia durante a chamada" /></label>
     </div>
   </section>;
 }

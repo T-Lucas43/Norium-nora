@@ -180,6 +180,56 @@ describe("CommercialDashboard leve", () => {
     vi.unstubAllGlobals();
   });
 
+  it("grava pelo microfone escolhido e transcreve pela API autenticada", async () => {
+    const stopTrack = vi.fn();
+    const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [{ stop: stopTrack }] });
+    const enumerateDevices = vi.fn().mockResolvedValue([
+      { deviceId: "mic-1", kind: "audioinput", label: "Microfone interno" },
+      { deviceId: "mic-2", kind: "audioinput", label: "Headset USB" },
+    ]);
+    const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia, enumerateDevices, addEventListener: vi.fn(), removeEventListener: vi.fn() } });
+
+    class MediaRecorderMock {
+      static isTypeSupported() { return true; }
+      state = "inactive";
+      mimeType = "audio/webm";
+      ondataavailable: ((event: { data: Blob }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onstop: (() => void) | null = null;
+      start() { this.state = "recording"; }
+      stop() {
+        this.state = "inactive";
+        this.ondataavailable?.({ data: new Blob(["audio gravado para transcrever ".repeat(30)], { type: this.mimeType }) });
+        void this.onstop?.();
+      }
+    }
+    vi.stubGlobal("MediaRecorder", MediaRecorderMock);
+    clientApi.apiRequest.mockImplementation((path: string) => {
+      if (path === "/api/clientes") return Promise.resolve({ items: [] });
+      if (path === "/api/brainstorm/sessions") return Promise.resolve([]);
+      if (path === "/api/nora/transcrever") return Promise.resolve({ text: "experiência em dados e habilidade com SQL" });
+      return Promise.resolve({});
+    });
+
+    try {
+      render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
+      await userEvent.setup().click(await screen.findByRole("button", { name: "Novo documento" }));
+      await waitFor(() => expect(screen.getByRole("combobox", { name: "Microfone do ditado" })).toHaveTextContent("Headset USB"));
+      await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: "Microfone do ditado" }), "mic-2");
+      await userEvent.setup().click(screen.getByRole("button", { name: "Ditar conteúdo essencial" }));
+      expect(getUserMedia).toHaveBeenCalledWith(expect.objectContaining({ audio: expect.objectContaining({ deviceId: { exact: "mic-2" } }) }));
+      await userEvent.setup().click(screen.getByRole("button", { name: "Parar ditado" }));
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Conte o essencial" })).toHaveValue("experiência em dados e habilidade com SQL"));
+      expect(clientApi.apiRequest).toHaveBeenCalledWith("/api/nora/transcrever", expect.objectContaining({ method: "POST" }));
+      expect(stopTrack).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+      if (originalMediaDevices) Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
+      else Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: undefined });
+    }
+  });
+
   it("busca o documento completo apenas quando o usuario o abre", async () => {
     render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
 

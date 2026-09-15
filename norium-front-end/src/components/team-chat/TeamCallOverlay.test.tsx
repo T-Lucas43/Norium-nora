@@ -157,6 +157,7 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByRole("checkbox", { name: "Supressão de ruído" })).toBeChecked();
     expect(screen.getByRole("slider", { name: "Sensibilidade do microfone" })).toHaveValue("100");
     expect(screen.getByRole("checkbox", { name: "Embaçar fundo" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Espelhar minha prévia" })).toBeDisabled();
     expect(screen.getByLabelText("Microfone para a chamada")).toHaveTextContent("Headset");
     expect(screen.getByLabelText("Câmera para a chamada")).toHaveTextContent("Webcam");
     expect(screen.getByLabelText("Saída de áudio para a chamada")).toHaveTextContent("Padrão do sistema");
@@ -170,6 +171,38 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(call.enterCall).toHaveBeenCalledOnce();
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(call.cancelEntry).toHaveBeenCalledOnce();
+  });
+
+  it("permite alternar entre prévia espelhada e a visão recebida pelos outros", () => {
+    Object.defineProperty(HTMLMediaElement.prototype, "play", { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
+    const previewStream = {} as MediaStream;
+    const call = {
+      incoming: null,
+      active: null,
+      prejoin: { kind: "start", title: "Reunião", thread: { scope: "team", title: "Reunião" }, microphoneMode: "muted", cameraEnabled: true, previewEnabled: true },
+      previewStream,
+      microphonePermission: "granted",
+      cameraPermission: "granted",
+      devices: { microphones: [], cameras: [], speakers: [] },
+      selectedMicrophoneId: "",
+      selectedCameraId: "",
+      selectedSpeakerId: "",
+      noiseSuppression: true,
+      microphoneSensitivity: 100,
+      backgroundBlur: false,
+      supportsBackgroundBlur: true,
+      supportsSpeakerSelection: true,
+      enterCall: vi.fn(), cancelEntry: vi.fn(), setEntryMicrophoneMode: vi.fn(), setEntryCameraEnabled: vi.fn(),
+      selectMicrophone: vi.fn(), selectCamera: vi.fn(), selectSpeaker: vi.fn(), setNoiseSuppression: vi.fn(),
+      setMicrophoneSensitivity: vi.fn(), setBackgroundBlur: vi.fn(),
+    } as unknown as ReturnTypeOfTeamCall;
+
+    render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "owner", nome: "Tarcisio" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+    const preview = screen.getByLabelText("Prévia da câmera");
+    expect(preview).toHaveAttribute("data-mirrored", "true");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Espelhar minha prévia" }));
+    expect(preview).not.toHaveAttribute("data-mirrored");
+    expect(screen.getByText("Visão dos outros")).toBeInTheDocument();
   });
 
   it("exibe reuniao unificada, duracao, camera, anexos e compartilhamento", () => {

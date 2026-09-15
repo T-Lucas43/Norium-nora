@@ -792,6 +792,28 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(document["branding"]["secondaryColor"], "#C98F86")
         self.assertEqual(document["metadata"]["templateLayout"], "resume-photo")
 
+    async def test_smart_document_fallback_classifies_spoken_facts_into_template_sections(self) -> None:
+        payload = SmartDocumentRequest(
+            templateId="standard_resume_foto_clean",
+            brief=(
+                "Ana Lima, analista de dados, trabalhou na Empresa Aurora por quatro anos, "
+                "formada em Sistemas de Informação, habilidades em Python e SQL"
+            ),
+        )
+        with patch(
+            "app.modules.commercial.service._nora.perguntar_nora",
+            new=AsyncMock(side_effect=RuntimeError("provider indisponivel no teste")),
+        ):
+            document, _ = await create_smart_document(self.user, payload)
+
+        content = document["contentHtml"]
+        self.assertIn("Experiência", content)
+        self.assertIn("Formação", content)
+        self.assertIn("Competências", content)
+        self.assertEqual(content.count("trabalhou na Empresa Aurora"), 1)
+        self.assertEqual(content.count("formada em Sistemas de Informação"), 1)
+        self.assertEqual(content.count("habilidades em Python e SQL"), 1)
+
     def test_structured_nora_briefing_is_rendered_as_readable_document(self) -> None:
         payload = ProposalBriefRequest(
             clientId=self.client_id,

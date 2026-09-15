@@ -3071,15 +3071,14 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   right:0;
   z-index:190;
   display:flex;
-  width:min(380px, calc(100vw - 24px));
-  max-height:min(540px, calc(100dvh - 88px));
+  width:min(430px, calc(100vw - 24px));
+  max-height:min(650px, calc(100dvh - 88px));
   flex-direction:column;
   overflow:hidden;
   border:1px solid color-mix(in srgb, var(--primary) 38%, var(--border));
   border-radius:12px;
-  background:color-mix(in srgb, var(--surface) 97%, transparent);
-  box-shadow:0 26px 74px rgba(0,0,0,.46);
-  backdrop-filter:blur(24px);
+  background:var(--surface);
+  box-shadow:0 18px 46px rgba(0,0,0,.32);
 }
 
 .norium-nora-quick-popover > header{
@@ -3129,7 +3128,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 
 .norium-nora-quick-conversation{
   display:flex;
-  min-height:176px;
+  min-height:248px;
   flex:1;
   flex-direction:column;
   gap:8px;
@@ -3178,6 +3177,8 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   background:var(--surface-hover);
   color:var(--text);
 }
+
+.norium-nora-quick-welcome button:disabled{cursor:not-allowed;opacity:.5}
 
 .norium-nora-quick-conversation > p{
   width:fit-content;
@@ -3231,15 +3232,18 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   box-shadow:0 0 0 3px rgba(39,130,255,.09);
 }
 
-.norium-nora-quick-popover > form input{
+.norium-nora-quick-popover > form textarea{
   min-width:0;
   flex:1;
   border:0;
   outline:0;
   background:transparent;
-  padding:0 6px;
+  min-height:40px;
+  resize:none;
+  padding:6px;
   color:var(--text);
-  font-size:11px;
+  font-size:12px;
+  line-height:1.45;
 }
 
 .norium-nora-quick-popover > form button{
@@ -3249,7 +3253,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   flex:0 0 34px;
   place-items:center;
   border-radius:7px;
-  background:linear-gradient(135deg, #2563eb, #15b8e6);
+  background:#2782ff;
   color:#fff;
 }
 
@@ -7987,7 +7991,7 @@ html[data-underline-links="true"] a[href] {
 }
 .nora-native-scroll{scrollbar-width:none}
 .nora-native-scroll::-webkit-scrollbar{display:none}
-.norium-sidebar-channel-icon{display:block;width:22px;height:22px;color:#60a5fa;object-fit:contain;filter:none}
+.norium-sidebar-channel-icon{display:block;width:20px;height:20px;color:#2782ff;object-fit:contain;filter:none;shape-rendering:geometricPrecision}
 .norium-suite-icon{filter:drop-shadow(0 1px 1px rgba(15,23,42,.32)) drop-shadow(0 2px 5px rgba(37,99,235,.14))}
 .dark .norium-suite-icon{filter:drop-shadow(0 1px 1px rgba(0,0,0,.58)) drop-shadow(0 0 5px rgba(125,211,252,.16))}
 html:not(.dark) .marketplace-hero-mark{border-color:rgba(14,116,144,.22);background:linear-gradient(145deg,rgba(37,99,235,.13),rgba(124,58,237,.1));color:#0e7490}

@@ -43,6 +43,9 @@ def resolve_read_query(message: str, messages: list[Any]) -> tuple[str, str] | N
         or re.search(r"\b(?:analise|resuma|priorize).*(?:central|operacao|controle|pendencias)\b", text)
         or re.search(r"\bo\s+que\s+(?:exige|precisa|merece).*(?:atencao|prioridade)\b", text)
         or re.search(r"\bcomo (?:anda|esta) (?:a |minha )?operacao\b", text)
+        or re.search(r"\b(?:resuma|resumo d[eo]|organize) (?:o )?meu dia\b", text)
+        or re.search(r"\b(?:quais (?:sao )?)?minhas prioridades(?: de hoje)?\b", text)
+        or re.search(r"\bo que (?:devo|preciso) priorizar(?: hoje)?\b", text)
     ):
         return "operations", text
     if "dashboard" in text or re.search(r"\bmeu painel\b", text):

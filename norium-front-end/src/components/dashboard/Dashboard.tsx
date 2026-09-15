@@ -36,7 +36,7 @@ type DashboardProps = {
   profile: PerfilOperador | null;
   userId: string;
   onNavigate: (tab: string) => void;
-  onOpenNora: () => void;
+  onOpenNora: (prompt?: string) => void;
 };
 
 type FinanceSnapshot = { resumo?: { saldo?: number } };

@@ -1,44 +1,17 @@
-import type { LucideIcon } from "lucide-react";
 import {
-  BarChart3,
-  BrainCircuit,
-  CalendarDays,
-  CheckSquare,
-  CircleHelp,
   ChevronLeft,
   ChevronRight,
-  ClipboardCheck,
-  CreditCard,
-  Ellipsis,
-  GitBranch,
-  Globe2,
-  Inbox,
-  LayoutDashboard,
-  Mail,
-  MessageSquare,
-  MessagesSquare,
-  ScrollText,
-  LibraryBig,
-  Store,
-  Network,
-  Settings,
-  ShieldCheck,
-  UsersRound,
-  UserRoundCheck,
   X,
 } from "lucide-react";
 import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
 import BrandLogo from "./BrandLogo";
+import IntegrationLogo from "../shared/IntegrationLogo";
 import NoraAvatar from "./NoraAvatar";
 import { preloadPanel } from "../../app/navigation/panelModules";
-import noriumMailIcon from "../../assets/generated/norium-mail.png";
-import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
-import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
 
 type NavigationItem = {
   title: string;
-  icon: LucideIcon;
 };
 
 type SidebarProps = {
@@ -54,35 +27,29 @@ type SidebarProps = {
 };
 
 const navigation: NavigationItem[] = [
-  { title: "Nora", icon: BrainCircuit },
-  { title: "Dashboard", icon: LayoutDashboard },
-  { title: "Controle", icon: ClipboardCheck },
-  { title: "Central", icon: Inbox },
-  { title: "E-mails", icon: Mail },
-  { title: "Agenda", icon: CalendarDays },
-  { title: "Chat", icon: MessageSquare },
-  { title: "Tarefas", icon: CheckSquare },
-  { title: "Financeiro", icon: CreditCard },
-  { title: "Automações", icon: GitBranch },
-  { title: "Relatórios", icon: BarChart3 },
-  { title: "Documentos", icon: ScrollText },
-  { title: "Agente Navegador", icon: Globe2 },
-  { title: "Conhecimento", icon: LibraryBig },
-  { title: "Marketplace", icon: Store },
-  { title: "IA e Modelos", icon: Network },
-  { title: "Equipe", icon: UsersRound },
-  { title: "Chat da Equipe", icon: MessagesSquare },
-  { title: "Clientes", icon: UserRoundCheck },
-  { title: "Governanca", icon: ShieldCheck },
-  { title: "Estúdio", icon: BrainCircuit },
-  { title: "Mais", icon: Ellipsis },
+  { title: "Nora" },
+  { title: "Dashboard" },
+  { title: "Controle" },
+  { title: "Central" },
+  { title: "E-mails" },
+  { title: "Agenda" },
+  { title: "Chat" },
+  { title: "Tarefas" },
+  { title: "Financeiro" },
+  { title: "Automações" },
+  { title: "Relatórios" },
+  { title: "Documentos" },
+  { title: "Agente Navegador" },
+  { title: "Conhecimento" },
+  { title: "Marketplace" },
+  { title: "IA e Modelos" },
+  { title: "Equipe" },
+  { title: "Chat da Equipe" },
+  { title: "Clientes" },
+  { title: "Governanca" },
+  { title: "Estúdio" },
+  { title: "Mais" },
 ];
-
-const navigationImageAssets: Partial<Record<string, string>> = {
-  "E-mails": noriumMailIcon,
-  Agenda: noriumAgendaIcon,
-  Chat: whatsappIcon,
-};
 
 function initials(name: string) {
   return name
@@ -154,8 +121,6 @@ export default function Sidebar({
 
         <nav className="norium-sidebar-navigation">
           {items.map((item) => {
-            const Icon = item.icon;
-            const iconAsset = navigationImageAssets[item.title];
             const active =
               activeTab === item.title ||
               (activeTab === "Inbox" && item.title === "Central") ||
@@ -175,8 +140,7 @@ export default function Sidebar({
                aria-label={compact ? item.title : undefined}>
                 <span className="norium-sidebar-item-icon" aria-hidden="true">
                   {item.title === "Nora" ? <NoraAvatar variant="navigation" className="norium-sidebar-nora-avatar" />
-                    : iconAsset ? <img src={iconAsset} className="norium-sidebar-channel-icon norium-suite-icon" alt="" />
-                      : <Icon size={18} />}
+                    : <IntegrationLogo name={item.title} size={18} className="norium-sidebar-channel-icon" />}
                 </span>
                 {!compact && <span className="norium-sidebar-item-label">{item.title}</span>}
               </button>
@@ -192,7 +156,7 @@ export default function Sidebar({
             title={compact ? "Configurações" : undefined}
            aria-label={compact ? "Configurações" : undefined}>
             <span className="norium-sidebar-item-icon">
-              <Settings size={18} />
+              <IntegrationLogo name="Configurações" size={18} />
             </span>
             {!compact && <span className="norium-sidebar-item-label">Configurações</span>}
           </button>
@@ -204,7 +168,7 @@ export default function Sidebar({
             aria-current={activeTab === "Ajuda" ? "page" : undefined}
            aria-label={compact ? "Ajuda" : undefined}>
             <span className="norium-sidebar-item-icon">
-              <CircleHelp size={18} />
+              <IntegrationLogo name="Ajuda" size={18} />
             </span>
             {!compact && <span className="norium-sidebar-item-label">Ajuda</span>}
           </button>

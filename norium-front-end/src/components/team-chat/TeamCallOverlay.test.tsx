@@ -34,6 +34,9 @@ function sessionProps(call: ReturnTypeOfTeamCall) {
       selectMicrophone: call.selectMicrophone,
       selectCamera: call.selectCamera,
       selectSpeaker: call.selectSpeaker,
+      setNoiseSuppression: call.setNoiseSuppression,
+      setMicrophoneSensitivity: call.setMicrophoneSensitivity,
+      setBackgroundBlur: call.setBackgroundBlur,
       selectScreenShareQuality: call.selectScreenShareQuality,
       selectScreenShareFps: call.selectScreenShareFps,
       refreshDevices: call.refreshDevices,
@@ -118,6 +121,10 @@ describe("tela da reuniao do Modo Equipe", () => {
       selectedMicrophoneId: "",
       selectedCameraId: "",
       selectedSpeakerId: "",
+      noiseSuppression: true,
+      microphoneSensitivity: 100,
+      backgroundBlur: false,
+      supportsBackgroundBlur: true,
       supportsSpeakerSelection: true,
       iceService: {
         status: "unavailable",
@@ -133,9 +140,12 @@ describe("tela da reuniao do Modo Equipe", () => {
       selectMicrophone: vi.fn(),
       selectCamera: vi.fn(),
       selectSpeaker: vi.fn(),
+      setNoiseSuppression: vi.fn(),
+      setMicrophoneSensitivity: vi.fn(),
+      setBackgroundBlur: vi.fn(),
     } as unknown as ReturnTypeOfTeamCall;
 
-    render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "member", nome: "Member" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
+    render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "owner", nome: "Você", fotoUrl: "/profile.jpg" }, { id: "member", nome: "Member" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
 
     const dialog = screen.getByRole("dialog", { name: "Preparar entrada" });
     expect(dialog).toHaveFocus();
@@ -143,6 +153,10 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByRole("radio", { name: "Entrar com microfone desligado" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Entrar somente para escutar" })).toBeInTheDocument();
     expect(screen.getByLabelText("Nome de exibição")).toHaveValue("Você");
+    expect(screen.getByRole("img", { name: "Foto de Você" })).toHaveAttribute("src", "/profile.jpg");
+    expect(screen.getByRole("checkbox", { name: "Supressão de ruído" })).toBeChecked();
+    expect(screen.getByRole("slider", { name: "Sensibilidade do microfone" })).toHaveValue("100");
+    expect(screen.getByRole("checkbox", { name: "Embaçar fundo" })).toBeDisabled();
     expect(screen.getByLabelText("Microfone para a chamada")).toHaveTextContent("Headset");
     expect(screen.getByLabelText("Câmera para a chamada")).toHaveTextContent("Webcam");
     expect(screen.getByLabelText("Saída de áudio para a chamada")).toHaveTextContent("Padrão do sistema");

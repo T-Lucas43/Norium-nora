@@ -12,13 +12,11 @@ import {
   ExternalLink,
   Eye,
   FileText,
-  FileSearch,
   FileUp,
   Paperclip,
   Plus,
   Receipt,
   RefreshCw,
-  Search,
   Save,
   Sparkles,
   Trash2,
@@ -42,6 +40,8 @@ type EntryStatus = "pendente" | "pago" | "cancelado";
 type Frequency = "unico" | "semanal" | "mensal" | "anual";
 type FinanceView = "overview" | "entries" | "scheduled" | "boletos";
 type FinanceCreatePanel = "entry" | "scheduled" | null;
+type PeriodPreset = "this-month" | "last-month" | "last-3-months" | "this-year" | "custom";
+type BoletoFilter = "open" | "paid" | "all";
 
 type Attachment = {
   id: string;
@@ -180,6 +180,49 @@ function dateLabel(value?: string | null) {
   return new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function dateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function periodBounds(preset: PeriodPreset, customStart: string, customEnd: string) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  if (preset === "custom") return { start: customStart, end: customEnd };
+  if (preset === "last-month") {
+    return {
+      start: dateKey(new Date(year, month - 1, 1)),
+      end: dateKey(new Date(year, month, 0)),
+    };
+  }
+  if (preset === "last-3-months") {
+    return {
+      start: dateKey(new Date(year, month - 2, 1)),
+      end: dateKey(new Date(year, month + 1, 0)),
+    };
+  }
+  if (preset === "this-year") {
+    return { start: `${year}-01-01`, end: `${year}-12-31` };
+  }
+  return {
+    start: dateKey(new Date(year, month, 1)),
+    end: dateKey(new Date(year, month + 1, 0)),
+  };
+}
+
+function withinPeriod(value: string | null | undefined, start: string, end: string) {
+  if (!value || !start || !end) return false;
+  const key = value.slice(0, 10);
+  return key >= start && key <= end;
+}
+
+function boletoIsPaid(status: string) {
+  return /pago|paid|quitado/i.test(status);
+}
+
 function fileSizeLabel(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -213,13 +256,14 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
   const [lancamentoForm, setLancamentoForm] = useState<LancamentoForm>(emptyLancamento);
   const [editForm, setEditForm] = useState<LancamentoForm>(emptyLancamento);
   const [programadoForm, setProgramadoForm] = useState<ProgramadoForm>(emptyProgramado);
-  const [cpf, setCpf] = useState("");
-  const [senhaBoleto, setSenhaBoleto] = useState("");
+  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>("this-month");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [boletoFilter, setBoletoFilter] = useState<BoletoFilter>("open");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [syncingBoletos, setSyncingBoletos] = useState(false);
   const [uploadingAttachments, setUploadingAttachments] = useState(false);
   const [creatingLancamento, setCreatingLancamento] = useState(false);
   const [creatingProgramado, setCreatingProgramado] = useState(false);
@@ -235,6 +279,39 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
 
   const selected = useMemo(() => data.lancamentos.find((item) => item.id === selectedId) || null, [data.lancamentos, selectedId]);
   const isEditingSelected = Boolean(selected && editingId === selected.id);
+  const period = useMemo(() => periodBounds(periodPreset, customStart, customEnd), [customEnd, customStart, periodPreset]);
+  const filteredLancamentos = useMemo(
+    () => data.lancamentos.filter((item) => withinPeriod(item.paidAt || item.dueDate || item.createdAt, period.start, period.end)),
+    [data.lancamentos, period.end, period.start],
+  );
+  const filteredProgramados = useMemo(
+    () => data.programados.filter((item) => withinPeriod(item.nextDueDate, period.start, period.end)),
+    [data.programados, period.end, period.start],
+  );
+  const filteredBoletos = useMemo(
+    () => data.boletos.filter((item) => {
+      if (!withinPeriod(item.dueDate, period.start, period.end)) return false;
+      if (boletoFilter === "paid") return boletoIsPaid(item.status);
+      if (boletoFilter === "open") return !boletoIsPaid(item.status) && !/cancelado|cancelled/i.test(item.status);
+      return true;
+    }),
+    [boletoFilter, data.boletos, period.end, period.start],
+  );
+  const filteredSummary = useMemo(() => {
+    const paid = filteredLancamentos.filter((item) => item.status === "pago");
+    const pending = filteredLancamentos.filter((item) => item.status === "pendente");
+    const entradas = paid.filter((item) => item.type === "entrada").reduce((total, item) => total + item.amount, 0);
+    const saidas = paid.filter((item) => item.type === "saida").reduce((total, item) => total + item.amount, 0);
+    const today = dateKey(new Date());
+    return {
+      entradas,
+      saidas,
+      saldo: entradas - saidas,
+      pendente: pending.reduce((total, item) => total + item.amount, 0),
+      vencidos: pending.filter((item) => item.dueDate && item.dueDate < today).length,
+      programadosAtivos: filteredProgramados.filter((item) => item.active).length,
+    };
+  }, [filteredLancamentos, filteredProgramados]);
 
   const loadFinance = useCallback(async () => {
     try {
@@ -565,38 +642,13 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
     }
   }
 
-  async function consultarBoletos() {
-    if (cpf.replace(/\D/g, "").length !== 11) {
-      setError("Informe um CPF com 11 digitos.");
-      return;
-    }
-    try {
-      setSyncingBoletos(true);
-      setError("");
-      setNotice("");
-      const response = await fetch(`${BACKEND_URL}/api/financeiro/boletos/consultar`, {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, cpf, senha: senhaBoleto || undefined }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.detail || "Nao consegui consultar boletos.");
-      setNotice(payload.message || "Consulta concluida.");
-      await loadFinance();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao consultar boletos.");
-    } finally {
-      setSyncingBoletos(false);
-    }
-  }
-
   const showEntries = activeView === "overview" || activeView === "entries";
-  const showBoletos = activeView === "overview" || activeView === "boletos";
+  const showBoletos = activeView === "boletos";
   const showScheduled = activeView === "overview" || activeView === "scheduled";
   const showAside = createPanel !== null || activeView === "overview" || activeView === "scheduled";
-  const totalMovimentado = data.resumo.entradas + data.resumo.saidas;
-  const percentualSaidas = totalMovimentado > 0 ? Math.round((data.resumo.saidas / totalMovimentado) * 100) : 0;
-  const financeStatus = data.resumo.vencidos > 0 ? `${data.resumo.vencidos} vencimento(s) pedem atenção` : data.resumo.saldo >= 0 ? "Fluxo financeiro saudável" : "Saldo abaixo do esperado";
+  const totalMovimentado = filteredSummary.entradas + filteredSummary.saidas;
+  const percentualSaidas = totalMovimentado > 0 ? Math.round((filteredSummary.saidas / totalMovimentado) * 100) : 0;
+  const financeStatus = filteredSummary.vencidos > 0 ? `${filteredSummary.vencidos} vencimento(s) pedem atenção` : filteredSummary.saldo >= 0 ? "Fluxo financeiro saudável" : "Saldo abaixo do esperado";
 
   return (
     <div className="clean-workspace finance-workspace norium-finance flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
@@ -608,18 +660,38 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
 </WorkspaceHeader>
 
       <main className="finance-content min-h-0 flex-1 overflow-y-auto">
+        <section className="finance-period-filter" aria-label="Filtro do período financeiro">
+          <div>
+            <strong>Período analisado</strong>
+            <span>{period.start && period.end ? `${dateLabel(period.start)} — ${dateLabel(period.end)}` : "Defina as datas"}</span>
+          </div>
+          <select aria-label="Período financeiro" value={periodPreset} onChange={(event) => setPeriodPreset(event.target.value as PeriodPreset)}>
+            <option value="this-month">Este mês</option>
+            <option value="last-month">Mês anterior</option>
+            <option value="last-3-months">Últimos 3 meses</option>
+            <option value="this-year">Este ano</option>
+            <option value="custom">Período personalizado</option>
+          </select>
+          {periodPreset === "custom" && (
+            <div className="finance-custom-period">
+              <input type="date" aria-label="Início do período" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
+              <span>até</span>
+              <input type="date" aria-label="Fim do período" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
+            </div>
+          )}
+        </section>
             <div className="workspace-metrics grid grid-cols-2 gap-3 xl:grid-cols-4">
-              <Metric icon={TrendingUp} label="Entradas pagas" value={money(data.resumo.entradas)} tone="emerald" />
-              <Metric icon={TrendingDown} label="Saídas pagas" value={money(data.resumo.saidas)} tone="rose" />
-              <Metric icon={Wallet} label="Saldo" value={money(data.resumo.saldo)} tone="blue" />
-              <Metric icon={AlertTriangle} label="Pendente" value={money(data.resumo.pendente)} tone="amber" />
+              <Metric icon={TrendingUp} label="Entradas pagas" value={money(filteredSummary.entradas)} tone="emerald" />
+              <Metric icon={TrendingDown} label="Saídas pagas" value={money(filteredSummary.saidas)} tone="rose" />
+              <Metric icon={Wallet} label="Saldo" value={money(filteredSummary.saldo)} tone="blue" />
+              <Metric icon={AlertTriangle} label="Pendente" value={money(filteredSummary.pendente)} tone="amber" />
             </div>
         <nav className="workspace-tabs finance-tabs" aria-label="Áreas do financeiro">
           {([
-            ["overview", "Visão geral", data.lancamentos.length + data.programados.length],
-            ["entries", "Lançamentos", data.lancamentos.length],
-            ["scheduled", "Programados", data.programados.length],
-            ["boletos", "Boletos", data.boletos.length],
+            ["overview", "Visão geral", filteredLancamentos.length + filteredProgramados.length],
+            ["entries", "Lançamentos", filteredLancamentos.length],
+            ["scheduled", "Programados", filteredProgramados.length],
+            ["boletos", "Boletos", filteredBoletos.length],
           ] as Array<[FinanceView, string, number]>).map(([view, label, count]) => (
             <button
               key={view}
@@ -652,14 +724,14 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div><p className="text-[10px] font-black uppercase tracking-[.16em] text-blue-300">Leitura do período</p><h2 className="mt-1 text-lg font-black">{financeStatus}</h2></div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-black ${data.resumo.vencidos > 0 || data.resumo.saldo < 0 ? "bg-amber-500/12 text-amber-200" : "bg-emerald-500/12 text-emerald-200"}`}>{data.resumo.vencidos > 0 ? "Requer ação" : "Em dia"}</span>
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${filteredSummary.vencidos > 0 || filteredSummary.saldo < 0 ? "bg-amber-500/12 text-amber-200" : "bg-emerald-500/12 text-emerald-200"}`}>{filteredSummary.vencidos > 0 ? "Requer ação" : "Em dia"}</span>
                   </div>
                   <div className="mt-5 h-2 overflow-hidden rounded-full bg-[var(--background)]"><span className="block h-full rounded-full bg-slate-400" style={{ width: `${Math.min(100, percentualSaidas)}%` }} /></div>
                   <div className="mt-2 flex justify-between text-xs font-bold text-[var(--text-secondary)]"><span>Saídas no fluxo movimentado</span><strong className="text-[var(--text)]">{percentualSaidas}%</strong></div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-[var(--background)] p-4"><span className="text-xs font-bold text-[var(--text-secondary)]">Vencidos</span><strong className="mt-2 block text-2xl font-black text-amber-200">{data.resumo.vencidos}</strong></div>
-                  <div className="rounded-xl bg-[var(--background)] p-4"><span className="text-xs font-bold text-[var(--text-secondary)]">Recorrências</span><strong className="mt-2 block text-2xl font-black text-cyan-200">{data.resumo.programadosAtivos}</strong></div>
+                  <div className="rounded-xl bg-[var(--background)] p-4"><span className="text-xs font-bold text-[var(--text-secondary)]">Vencidos</span><strong className="mt-2 block text-2xl font-black text-amber-200">{filteredSummary.vencidos}</strong></div>
+                  <div className="rounded-xl bg-[var(--background)] p-4"><span className="text-xs font-bold text-[var(--text-secondary)]">Recorrências</span><strong className="mt-2 block text-2xl font-black text-cyan-200">{filteredSummary.programadosAtivos}</strong></div>
                 </div>
               </section>
             )}
@@ -672,46 +744,24 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
 
             {showBoletos && (
             <section className="workspace-panel">
-              <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
+              <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
                 <div>
-                  <h2 className="text-base font-black">Boletos no CPF</h2>
-                  <p className="text-xs font-semibold text-[var(--text-secondary)]">Consulte e organize os boletos vinculados ao CPF informado.</p>
+                  <h2 className="text-base font-black">Boletos</h2>
+                  <p className="text-xs font-semibold text-[var(--text-secondary)]">Acompanhe os documentos importados dentro do período selecionado.</p>
                 </div>
-                <Receipt size={20} className="text-blue-300" />
+                <div className="finance-boleto-filter" aria-label="Situação dos boletos">
+                  {([['open', 'Em aberto'], ['paid', 'Pagos'], ['all', 'Todos']] as Array<[BoletoFilter, string]>).map(([value, label]) => (
+                    <button key={value} type="button" aria-pressed={boletoFilter === value} onClick={() => setBoletoFilter(value)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </header>
-              <div className="grid gap-3 p-5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1fr)_220px_auto]">
-                <div className="flex h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3">
-                  <Search size={15} className="text-[var(--text-secondary)]" />
-                  <input
-                    value={cpf}
-                    onChange={(event) => setCpf(event.target.value)}
-                    placeholder="CPF para consulta de boletos"
-                    className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
-                  />
-                </div>
-                <div className="flex h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3">
-                  <input
-                    value={senhaBoleto}
-                    onChange={(event) => setSenhaBoleto(event.target.value)}
-                    placeholder="Senha do boleto"
-                    type="password"
-                    className="min-w-0 flex-1 bg-transparent text-sm font-bold outline-none placeholder:text-[var(--text-secondary)]"
-                  />
-                </div>
-                <Button variant="primary" size="lg"
-                  onClick={() => void consultarBoletos()}
-                  disabled={syncingBoletos}
-                  className="hover:brightness-110disabled:opacity-50 md:col-span-2 2xl:col-span-1"
-                >
-                  <FileSearch size={16} />
-                  {syncingBoletos ? "Consultando..." : "Buscar boletos"}
-                </Button>
-              </div>
               <div className="divide-y divide-[var(--border)]">
-                {data.boletos.length === 0 ? (
-                  <EmptyLine text="Nenhum boleto importado ainda." />
+                {filteredBoletos.length === 0 ? (
+                  <EmptyLine text={boletoFilter === "paid" ? "Nenhum boleto pago neste período." : boletoFilter === "open" ? "Nenhum boleto em aberto neste período." : "Nenhum boleto neste período."} />
                 ) : (
-                  data.boletos.map((boleto) => (
+                  filteredBoletos.map((boleto) => (
                     <div key={boleto.id} className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_auto]">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-bold">{boleto.title}</p>
@@ -725,6 +775,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
                         )}
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2">
+                        <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${boletoIsPaid(boleto.status) ? "bg-emerald-500/10 text-emerald-300" : "bg-amber-500/10 text-amber-300"}`}>{boletoIsPaid(boleto.status) ? "Pago" : "Em aberto"}</span>
                         <span className="text-sm font-bold text-blue-200">{money(boleto.amount)}</span>
                         {boleto.url && (
                           <a
@@ -754,10 +805,10 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
               <div className="divide-y divide-[var(--border)]">
                 {loading ? (
                   <LoadingState label="Carregando financeiro..." />
-                ) : data.lancamentos.length === 0 ? (
-                  <EmptyLine text="Nenhum lancamento criado." />
+                ) : filteredLancamentos.length === 0 ? (
+                  <EmptyLine text="Nenhum lançamento no período selecionado." />
                 ) : (
-                  data.lancamentos.map((item) => (
+                  filteredLancamentos.map((item) => (
                     <div key={item.id}>
                     <button
                       onClick={() => {
@@ -836,7 +887,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
             </section>
             )}
 
-            {activeView === "scheduled" && data.programados.length > 0 && (
+            {activeView === "scheduled" && filteredProgramados.length > 0 && (
               <section className="workspace-panel">
                 <header className="border-b border-[var(--border)] px-5 py-4">
                   <h2 className="text-base font-black">Agenda de pagamentos</h2>
@@ -845,7 +896,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
                   </p>
                 </header>
                 <div className="grid gap-3 p-4 md:grid-cols-2">
-                  {data.programados.map((item) => (
+                  {filteredProgramados.map((item) => (
                     <article key={item.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">

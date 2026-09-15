@@ -367,6 +367,9 @@ export function useTeamCallRuntime({
   const [selectedMicrophoneId, setSelectedMicrophoneId] = useState("");
   const [selectedCameraId, setSelectedCameraId] = useState("");
   const [selectedSpeakerId, setSelectedSpeakerId] = useState("");
+  const [noiseSuppression, setNoiseSuppressionState] = useState(true);
+  const [microphoneSensitivity, setMicrophoneSensitivityState] = useState(100);
+  const [backgroundBlur, setBackgroundBlurState] = useState(false);
   const [screenShareQuality, setScreenShareQuality] = useState<ScreenShareQuality>("1080p");
   const [screenShareFps, setScreenShareFps] = useState<ScreenShareFps>(30);
   const activeRef = useRef<ActiveCall | null>(null);
@@ -374,6 +377,12 @@ export function useTeamCallRuntime({
   const pendingAdmissionRef = useRef<PendingAdmission | null>(null);
   const handleSocketEventRef = useRef<(event: TeamCallSocketEvent) => Promise<void>>(async () => undefined);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const microphoneSourceStreamRef = useRef<MediaStream | null>(null);
+  const microphoneAudioContextRef = useRef<AudioContext | null>(null);
+  const microphoneGainRef = useRef<GainNode | null>(null);
+  const noiseSuppressionRef = useRef(true);
+  const microphoneSensitivityRef = useRef(100);
+  const backgroundBlurRef = useRef(false);
   const mediaTransportRef = useRef<MediaTransport | null>(null);
   const mediaTransportCallIdRef = useRef("");
   const mediaTransportOpenRef = useRef<Promise<MediaTransport> | null>(null);
@@ -417,6 +426,50 @@ export function useTeamCallRuntime({
   const resolveRecordingStopRef = useRef<(() => void) | null>(null);
   const reactionTimersRef = useRef<number[]>([]);
   const finishCallRef = useRef<(notify: boolean, sound?: CallSound | null, preserveReload?: boolean) => void>(() => undefined);
+
+  const stopMicrophoneProcessing = useCallback(() => {
+    microphoneSourceStreamRef.current?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.stop();
+    });
+    microphoneSourceStreamRef.current = null;
+    microphoneGainRef.current?.disconnect();
+    microphoneGainRef.current = null;
+    const context = microphoneAudioContextRef.current;
+    microphoneAudioContextRef.current = null;
+    if (context && context.state !== "closed") void context.close().catch(() => undefined);
+  }, []);
+
+  const processMicrophoneStream = useCallback((stream: MediaStream) => {
+    const AudioContextClass = window.AudioContext
+      || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass || !stream.getAudioTracks().length) return stream;
+    stopMicrophoneProcessing();
+    try {
+      const context = new AudioContextClass();
+      const source = context.createMediaStreamSource(stream);
+      const gain = context.createGain();
+      const destination = context.createMediaStreamDestination();
+      gain.gain.value = microphoneSensitivityRef.current / 100;
+      source.connect(gain).connect(destination);
+      microphoneSourceStreamRef.current = stream;
+      microphoneAudioContextRef.current = context;
+      microphoneGainRef.current = gain;
+      return destination.stream;
+    } catch {
+      stopMicrophoneProcessing();
+      return stream;
+    }
+  }, [stopMicrophoneProcessing]);
+
+  const applyBackgroundBlur = useCallback(async (enabled: boolean, streams: Array<MediaStream | null>) => {
+    const supported = navigator.mediaDevices?.getSupportedConstraints?.() as (MediaTrackSupportedConstraints & { backgroundBlur?: boolean }) | undefined;
+    if (!supported?.backgroundBlur) return false;
+    const constraints = { advanced: [{ backgroundBlur: enabled }] } as unknown as MediaTrackConstraints;
+    const tracks = streams.flatMap((stream) => stream?.getVideoTracks() || []);
+    await Promise.all(tracks.map((track) => track.applyConstraints(constraints)));
+    return true;
+  }, []);
 
   useEffect(() => {
     mediaTransportRef.current?.updateIce(iceConfigurationRef.current);
@@ -717,8 +770,9 @@ export function useTeamCallRuntime({
     localStreamRef.current?.getTracks().forEach((track) => { track.onended = null; track.stop(); });
     localStreamRef.current = null;
     setLocalStream(null);
+    stopMicrophoneProcessing();
     setSharingScreen(false);
-  }, []);
+  }, [stopMicrophoneProcessing]);
 
   const finishCall = useCallback((notify: boolean, sound: CallSound | null = null, preserveReload = false) => {
     if (!preserveReload) {
@@ -939,6 +993,7 @@ export function useTeamCallRuntime({
       }
       const track = stream.getVideoTracks()[0];
       if (!track) throw new DOMException("Nenhuma câmera respondeu.", "NotFoundError");
+      if (backgroundBlurRef.current) await applyBackgroundBlur(true, [stream]).catch(() => false);
       track.enabled = true;
       track.onended = () => {
         if (previewStreamRef.current !== stream) return;
@@ -958,7 +1013,44 @@ export function useTeamCallRuntime({
       setStatus(`${mediaAccessError(error, "camera")} A chamada pode continuar somente por áudio.`);
       return false;
     }
-  }, [selectedCameraId]);
+  }, [applyBackgroundBlur, selectedCameraId]);
+
+  const configureNoiseSuppression = useCallback(async (enabled: boolean) => {
+    noiseSuppressionRef.current = enabled;
+    setNoiseSuppressionState(enabled);
+    const track = microphoneSourceStreamRef.current?.getAudioTracks()[0]
+      || localStreamRef.current?.getAudioTracks()[0];
+    if (!track?.applyConstraints) return true;
+    try {
+      await track.applyConstraints({ echoCancellation: true, noiseSuppression: enabled, autoGainControl: true });
+      setStatus(enabled ? "Supressão de ruído ativada" : "Supressão de ruído desativada");
+      return true;
+    } catch {
+      setStatus("O navegador não conseguiu alterar a supressão de ruído deste microfone.");
+      return false;
+    }
+  }, []);
+
+  const configureMicrophoneSensitivity = useCallback((value: number) => {
+    const next = Math.max(50, Math.min(150, Math.round(value)));
+    microphoneSensitivityRef.current = next;
+    setMicrophoneSensitivityState(next);
+    const context = microphoneAudioContextRef.current;
+    const gain = microphoneGainRef.current;
+    if (context && gain) gain.gain.setTargetAtTime(next / 100, context.currentTime, 0.03);
+  }, []);
+
+  const configureBackgroundBlur = useCallback(async (enabled: boolean) => {
+    const applied = await applyBackgroundBlur(enabled, [previewStreamRef.current, localStreamRef.current]).catch(() => false);
+    if (!applied) {
+      setStatus("O desfoque de fundo não está disponível neste navegador ou câmera.");
+      return false;
+    }
+    backgroundBlurRef.current = enabled;
+    setBackgroundBlurState(enabled);
+    setStatus(enabled ? "Desfoque de fundo ativado" : "Desfoque de fundo desativado");
+    return true;
+  }, [applyBackgroundBlur]);
 
   useEffect(() => {
     const mediaDevices = navigator.mediaDevices;
@@ -988,7 +1080,7 @@ export function useTeamCallRuntime({
     if (options.microphoneMode !== "listen-only") {
       const audioPreferences: MediaTrackConstraints = {
         echoCancellation: true,
-        noiseSuppression: true,
+        noiseSuppression: noiseSuppressionRef.current,
         autoGainControl: true,
         ...(selectedMicrophoneId ? { deviceId: { exact: selectedMicrophoneId } } : {}),
       };
@@ -1004,7 +1096,7 @@ export function useTeamCallRuntime({
         setSelectedMicrophoneId("");
         try {
           audioStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            audio: { echoCancellation: true, noiseSuppression: noiseSuppressionRef.current, autoGainControl: true },
             video: false,
           });
         } catch (fallbackError) {
@@ -1014,6 +1106,7 @@ export function useTeamCallRuntime({
         }
       }
       setMicrophonePermission("granted");
+      audioStream = processMicrophoneStream(audioStream);
     }
 
     let cameraStream: MediaStream | null = null;
@@ -1034,6 +1127,7 @@ export function useTeamCallRuntime({
               height: { ideal: 720 },
             },
           });
+          if (backgroundBlurRef.current) await applyBackgroundBlur(true, [cameraStream]).catch(() => false);
           setCameraPermission("granted");
         } catch (error) {
           const name = error instanceof DOMException ? error.name : "";
@@ -1074,7 +1168,7 @@ export function useTeamCallRuntime({
     setCameraOff(!options.cameraEnabled);
     await refreshDevices().catch(() => undefined);
     return stream;
-  }, [prepareCameraPreview, refreshDevices, selectedCameraId, selectedMicrophoneId]);
+  }, [applyBackgroundBlur, prepareCameraPreview, processMicrophoneStream, refreshDevices, selectedCameraId, selectedMicrophoneId]);
 
   const requestCameraPermission = useCallback(async () => {
     if (window.isSecureContext === false || !navigator.mediaDevices?.getUserMedia) {
@@ -1131,13 +1225,15 @@ export function useTeamCallRuntime({
     }
     setStatus(kind === "audio" ? "Trocando microfone..." : "Trocando camera...");
     try {
-      const replacementStream = await navigator.mediaDevices.getUserMedia(kind === "audio"
-        ? { audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }
+      let replacementStream = await navigator.mediaDevices.getUserMedia(kind === "audio"
+        ? { audio: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), echoCancellation: true, noiseSuppression: noiseSuppressionRef.current, autoGainControl: true }, video: false }
         : { audio: false, video: { ...(deviceId ? { deviceId: { exact: deviceId } } : {}), width: { ideal: 1280 }, height: { ideal: 720 } } });
       if (epoch !== mediaEpochRef.current) {
         replacementStream.getTracks().forEach((track) => track.stop());
         return;
       }
+      if (kind === "audio") replacementStream = processMicrophoneStream(replacementStream);
+      else if (backgroundBlurRef.current) await applyBackgroundBlur(true, [replacementStream]).catch(() => false);
       const replacementTrack = kind === "audio" ? replacementStream.getAudioTracks()[0] : replacementStream.getVideoTracks()[0];
       if (!replacementTrack) throw new Error("O dispositivo selecionado nao forneceu midia.");
       replacementTrack.enabled = kind === "audio" ? !muted : !cameraOff;
@@ -1165,7 +1261,7 @@ export function useTeamCallRuntime({
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Nao foi possivel trocar o dispositivo.");
     }
-  }, [cameraOff, muted, transportMedia]);
+  }, [applyBackgroundBlur, cameraOff, muted, processMicrophoneStream, transportMedia]);
 
   const createMeetingRecordingStream = useCallback(() => createMeetingRecording(() => {
     const sources = remoteStreamsRef.current.map((item) => ({
@@ -1988,12 +2084,19 @@ export function useTeamCallRuntime({
     selectedMicrophoneId,
     selectedCameraId,
     selectedSpeakerId,
+    noiseSuppression,
+    microphoneSensitivity,
+    backgroundBlur,
+    supportsBackgroundBlur: Boolean((navigator.mediaDevices?.getSupportedConstraints?.() as (MediaTrackSupportedConstraints & { backgroundBlur?: boolean }) | undefined)?.backgroundBlur),
     screenShareQuality,
     screenShareFps,
     supportsSpeakerSelection: typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype,
     selectMicrophone: (deviceId: string) => replaceInputDevice("audio", deviceId),
     selectCamera: (deviceId: string) => replaceInputDevice("video", deviceId),
     selectSpeaker: setSelectedSpeakerId,
+    setNoiseSuppression: configureNoiseSuppression,
+    setMicrophoneSensitivity: configureMicrophoneSensitivity,
+    setBackgroundBlur: configureBackgroundBlur,
     selectScreenShareQuality: (quality: ScreenShareQuality) => applyCurrentScreenShareProfile(quality, screenShareFpsRef.current),
     selectScreenShareFps: (fps: ScreenShareFps) => applyCurrentScreenShareProfile(screenShareQualityRef.current, fps),
     refreshDevices,

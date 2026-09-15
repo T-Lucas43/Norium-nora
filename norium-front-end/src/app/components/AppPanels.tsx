@@ -104,6 +104,7 @@ export default function AppPanels({
             eventsBySource={eventsBySource}
             connected={connected}
             profile={profile}
+            userId={currentUser.id}
             onNavigate={onNavigate}
             onOpenNora={onOpenNora}
           />

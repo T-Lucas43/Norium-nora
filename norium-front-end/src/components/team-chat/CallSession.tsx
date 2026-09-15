@@ -175,6 +175,10 @@ export type CallSessionSnapshot = Pick<Runtime,
   | "selectedMicrophoneId"
   | "selectedCameraId"
   | "selectedSpeakerId"
+  | "noiseSuppression"
+  | "microphoneSensitivity"
+  | "backgroundBlur"
+  | "supportsBackgroundBlur"
   | "screenShareQuality"
   | "screenShareFps"
   | "supportsSpeakerSelection"
@@ -203,7 +207,7 @@ export type CallSessionCommands = {
   enter: () => Promise<void>;
   cancelEntry: () => void;
   setEntryMicrophoneMode: (mode: CallMicrophoneMode) => void;
-  setEntryCameraEnabled: (enabled: boolean) => void;
+  setEntryCameraEnabled: (enabled: boolean) => Promise<void>;
   setEntryPreviewEnabled: (enabled: boolean) => Promise<void>;
   reject: () => void;
   end: () => Promise<void>;
@@ -221,6 +225,9 @@ export type CallSessionCommands = {
   selectMicrophone: Runtime["selectMicrophone"];
   selectCamera: Runtime["selectCamera"];
   selectSpeaker: Runtime["selectSpeaker"];
+  setNoiseSuppression: Runtime["setNoiseSuppression"];
+  setMicrophoneSensitivity: Runtime["setMicrophoneSensitivity"];
+  setBackgroundBlur: Runtime["setBackgroundBlur"];
   selectScreenShareQuality: Runtime["selectScreenShareQuality"];
   selectScreenShareFps: Runtime["selectScreenShareFps"];
   refreshDevices: Runtime["refreshDevices"];
@@ -604,13 +611,18 @@ function ActiveCallSessionProvider({
       } : current);
       if (mode === "listen-only") void runtime.prepareCameraPreview(false);
     },
-    setEntryCameraEnabled: (enabled) => {
+    setEntryCameraEnabled: async (enabled) => {
       setPrejoin((current) => current ? {
         ...current,
         cameraEnabled: current.microphoneMode === "listen-only" ? false : enabled,
-        previewEnabled: enabled ? current.previewEnabled : false,
+        previewEnabled: enabled && current.microphoneMode !== "listen-only",
       } : current);
-      if (!enabled) void runtime.prepareCameraPreview(false);
+      if (!enabled || prejoin?.microphoneMode === "listen-only") {
+        await runtime.prepareCameraPreview(false);
+        return;
+      }
+      const available = await runtime.prepareCameraPreview(true);
+      setPrejoin((current) => current ? { ...current, cameraEnabled: available, previewEnabled: available } : current);
     },
     setEntryPreviewEnabled: async (enabled) => {
       const current = prejoin;
@@ -656,6 +668,9 @@ function ActiveCallSessionProvider({
       if (prejoin?.previewEnabled) await runtime.prepareCameraPreview(true, deviceId);
     },
     selectSpeaker: runtime.selectSpeaker,
+    setNoiseSuppression: runtime.setNoiseSuppression,
+    setMicrophoneSensitivity: runtime.setMicrophoneSensitivity,
+    setBackgroundBlur: runtime.setBackgroundBlur,
     selectScreenShareQuality: runtime.selectScreenShareQuality,
     selectScreenShareFps: runtime.selectScreenShareFps,
     refreshDevices: runtime.refreshDevices,
@@ -721,6 +736,10 @@ function ActiveCallSessionProvider({
     selectedMicrophoneId: runtime.selectedMicrophoneId,
     selectedCameraId: runtime.selectedCameraId,
     selectedSpeakerId: runtime.selectedSpeakerId,
+    noiseSuppression: runtime.noiseSuppression,
+    microphoneSensitivity: runtime.microphoneSensitivity,
+    backgroundBlur: runtime.backgroundBlur,
+    supportsBackgroundBlur: runtime.supportsBackgroundBlur,
     screenShareQuality: runtime.screenShareQuality,
     screenShareFps: runtime.screenShareFps,
     supportsSpeakerSelection: runtime.supportsSpeakerSelection,

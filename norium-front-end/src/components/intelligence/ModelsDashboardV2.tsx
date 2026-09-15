@@ -15,6 +15,10 @@ import {
 } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
 import Button from "../shared/Button";
+import openAiLogo from "../../assets/ai-providers/openai.png";
+import geminiLogo from "../../assets/ai-providers/gemini.png";
+import groqLogo from "../../assets/ai-providers/groq.png";
+import claudeLogo from "../../assets/ai-providers/claude.png";
 
 type Provider = {
   id: string;
@@ -48,12 +52,12 @@ const providerOptions = [
 
 function ProviderLogo({ provider, size = 46 }: { provider: string; size?: number }) {
   const key = provider.toLowerCase();
-  if (key.includes("google") || key.includes("gemini")) {
-    return <span className="ai-provider-logo is-gemini" style={{ width: size, height: size }} aria-hidden="true"><svg viewBox="0 0 48 48"><defs><linearGradient id="gemini-gradient" x1="7" y1="40" x2="41" y2="7"><stop stopColor="#2563eb"/><stop offset=".5" stopColor="#a855f7"/><stop offset="1" stopColor="#f472b6"/></linearGradient></defs><path fill="url(#gemini-gradient)" d="M24 3c1.8 12.4 8.5 19.1 21 21-12.5 1.9-19.2 8.6-21 21C22.1 32.6 15.4 25.9 3 24 15.4 22.1 22.1 15.4 24 3Z"/></svg></span>;
-  }
-  if (key.includes("groq")) return <span className="ai-provider-logo is-groq" style={{ width: size, height: size }} aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M32 12a15 15 0 1 0 3.7 22M25 24h12v12" fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round"/></svg></span>;
-  if (key.includes("anthropic")) return <span className="ai-provider-logo is-anthropic" style={{ width: size, height: size }} aria-hidden="true"><b>AI</b></span>;
-  if (key.includes("openai") && !key.includes("compatible")) return <span className="ai-provider-logo is-openai" style={{ width: size, height: size }} aria-hidden="true"><svg viewBox="0 0 48 48"><g fill="none" stroke="currentColor" strokeWidth="4"><ellipse cx="24" cy="14" rx="9" ry="13" transform="rotate(0 24 24)"/><ellipse cx="24" cy="14" rx="9" ry="13" transform="rotate(60 24 24)"/><ellipse cx="24" cy="14" rx="9" ry="13" transform="rotate(120 24 24)"/></g></svg></span>;
+  const asset = key.includes("google") || key.includes("gemini") ? geminiLogo
+    : key.includes("groq") ? groqLogo
+      : key.includes("anthropic") || key.includes("claude") ? claudeLogo
+        : key.includes("openai") && !key.includes("compatible") ? openAiLogo
+          : null;
+  if (asset) return <span className={`ai-provider-logo is-image is-${key.includes("google") || key.includes("gemini") ? "gemini" : key.includes("groq") ? "groq" : key.includes("anthropic") || key.includes("claude") ? "anthropic" : "openai"}`} style={{ width: size, height: size }} aria-hidden="true"><img src={asset} alt="" /></span>;
   return <span className="ai-provider-logo is-compatible" style={{ width: size, height: size }} aria-hidden="true"><Network size={Math.round(size * .48)} /></span>;
 }
 

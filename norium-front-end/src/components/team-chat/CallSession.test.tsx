@@ -505,7 +505,6 @@ describe("CallSession", () => {
     expect(mocked.runtime!.prepareAudio).toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Ativar câmera" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mostrar prévia" }));
     await waitFor(() => expect(mocked.runtime!.prepareCameraPreview).toHaveBeenCalledWith(true));
     fireEvent.click(screen.getByRole("button", { name: "Somente escuta" }));
     expect(screen.getByLabelText("prejoin")).toHaveTextContent("direct:member:listen-only:false");

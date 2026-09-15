@@ -1,15 +1,19 @@
 import type { DashboardMetrics } from "./Dashboard";
-import { CheckSquare } from "lucide-react";
+import { CheckSquare, CreditCard } from "lucide-react";
 import noriumMailIcon from "../../assets/generated/norium-mail.png";
 import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
 import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
 
 type SummaryProps = {
   metrics: DashboardMetrics;
+  financeBalance?: number | null;
   onNavigate: (tab: string) => void;
 };
 
-export default function Summary({ metrics, onNavigate }: SummaryProps) {
+export default function Summary({ metrics, financeBalance = null, onNavigate }: SummaryProps) {
+  const balanceLabel = financeBalance === null
+    ? "—"
+    : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(financeBalance);
   const stats = [
     {
       title: "E-mails",
@@ -47,10 +51,19 @@ export default function Summary({ metrics, onNavigate }: SummaryProps) {
       tone: "cyan",
       tab: "Tarefas",
     },
+    {
+      title: "Financeiro",
+      value: balanceLabel,
+      subtitle: "Ver fluxo do período",
+      Icon: CreditCard,
+      color: "bg-amber-500/10 text-amber-500",
+      tone: "amber",
+      tab: "Financeiro",
+    },
   ];
 
   return (
-    <section className="norium-dashboard-summary grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <section className="norium-dashboard-summary grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       {stats.map((item) => {
         return (
           <button

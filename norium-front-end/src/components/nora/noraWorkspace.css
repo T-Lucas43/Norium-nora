@@ -801,12 +801,10 @@
   background: color-mix(in srgb, var(--surface) 68%, transparent) !important;
 }
 
-.nora-page .nora-quick-suggestion > div {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  background: transparent;
-  box-shadow: none;
+.nora-page .nora-quick-suggestion-icon {
+  display: inline-flex;
+  width: auto;
+  height: auto;
   color: #38bdf8;
 }
 

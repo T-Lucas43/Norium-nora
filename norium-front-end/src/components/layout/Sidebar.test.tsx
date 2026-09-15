@@ -26,7 +26,7 @@ const vectorTabs = [
 ];
 
 describe("Sidebar", () => {
-  it("keeps images only for communication and agenda while other modules use compact vectors", () => {
+  it("uses compact transparent blue vectors for every module in the navigation", () => {
     const onNavigate = vi.fn();
 
     render(
@@ -41,15 +41,12 @@ describe("Sidebar", () => {
       />,
     );
 
-    for (const tab of ["E-mails", "Agenda", "Chat"]) {
-      const button = screen.getByRole("button", { name: tab });
-      expect(button.querySelector("img.norium-sidebar-channel-icon.norium-suite-icon")).not.toBeNull();
-    }
-
-    for (const tab of vectorTabs) {
+    for (const tab of [...vectorTabs, "E-mails", "Agenda", "Chat"]) {
       const button = screen.getByRole("button", { name: tab });
       expect(button.querySelector("img.norium-sidebar-channel-icon")).toBeNull();
-      expect(button.querySelector(".norium-sidebar-item-icon svg")).not.toBeNull();
+      const icon = button.querySelector(".norium-sidebar-item-icon svg");
+      expect(icon).not.toBeNull();
+      expect(icon).toHaveClass("norium-sidebar-channel-icon");
     }
 
     fireEvent.click(screen.getByRole("button", { name: "Conhecimento" }));

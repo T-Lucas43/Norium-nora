@@ -1,18 +1,50 @@
-import { Activity, BarChart3, Bell, BrainCircuit, CalendarDays, CheckSquare, CircleHelp, Clock3, ContactRound, CreditCard, Ellipsis, FileText, Globe2, LayoutDashboard, LibraryBig, Lightbulb, MessagesSquare, Network, Play, Settings, ShieldCheck, Store, UserRound, Users, Webhook, Workflow, Zap } from "lucide-react";
+import { Activity, BarChart3, Bell, BrainCircuit, CalendarDays, CheckSquare, CircleHelp, Clock3, ContactRound, CreditCard, Ellipsis, FileText, Globe2, LayoutDashboard, LibraryBig, Lightbulb, Mail, MessagesSquare, Network, Play, Settings, ShieldCheck, Store, UserRound, Users, Webhook, Workflow, Zap } from "lucide-react";
 import noriumMailIcon from "../../assets/generated/norium-mail.png";
 import whatsappIcon from "../../assets/generated/whatsapp-premium.png";
 import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
 
+type IntegrationLogoProps = {
+  name: string;
+  size?: number;
+  className?: string;
+  monochrome?: boolean;
+};
+
+function WhatsappVector({ size, className }: { size: number; className: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M20.4 11.7a8.4 8.4 0 0 1-12.35 7.42L3.6 20.4l1.3-4.37A8.4 8.4 0 1 1 20.4 11.7Z" />
+      <path d="M8.35 7.75c.28-.3.77-.25.98.12l1 1.74c.18.32.13.72-.13.98l-.7.67a8.7 8.7 0 0 0 3.18 3.18l.67-.7c.26-.26.66-.31.98-.13l1.74 1c.37.21.42.7.12.98l-.68.65c-.58.55-1.43.71-2.17.43a10.75 10.75 0 0 1-6-6c-.28-.74-.12-1.59.43-2.17Z" />
+    </svg>
+  );
+}
+
 /** Vector marks stay sharp in compact cards, the library and the flow canvas. */
-export default function IntegrationLogo({ name, size = 24, className = "" }: { name: string; size?: number; className?: string }) {
+export default function IntegrationLogo({ name, size = 24, className = "", monochrome = false }: IntegrationLogoProps) {
   const key = name.toLowerCase();
-  if (/gmail/.test(key)) return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 32 32" className={className}><path fill="#4285F4" d="M3 9h5v19H3z"/><path fill="#34A853" d="M24 9h5v19h-5z"/><path fill="#EA4335" d="m3 8 4-3 9 7 9-7 4 3-13 10z"/><path fill="#FBBC04" d="m24 6 5 2v9l-5-4z"/><path fill="#C5221F" d="m3 8 5-2v7l-5 4z"/></svg>;
+  if (monochrome && /whatsapp|message-square|^chat$/.test(key)) {
+    return <WhatsappVector size={size} className={className} />;
+  }
+  if (!monochrome && /gmail/.test(key)) return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 32 32" className={className}><path fill="#4285F4" d="M3 9h5v19H3z"/><path fill="#34A853" d="M24 9h5v19h-5z"/><path fill="#EA4335" d="m3 8 4-3 9 7 9-7 4 3-13 10z"/><path fill="#FBBC04" d="m24 6 5 2v9l-5-4z"/><path fill="#C5221F" d="m3 8 5-2v7l-5 4z"/></svg>;
   const image = /e-mail|mail/.test(key) ? noriumMailIcon
     : /whatsapp|message-square|^chat$/.test(key) ? whatsappIcon
       : /agenda|calendar/.test(key) ? noriumAgendaIcon
         : null;
-  if (image) return <img aria-hidden="true" src={image} width={size} height={size} className={`norium-suite-icon object-contain ${className}`} alt="" />;
+  if (!monochrome && image) return <img aria-hidden="true" src={image} width={size} height={size} className={`norium-suite-icon object-contain ${className}`} alt="" />;
   const [Icon, color] = /dashboard|resumo/.test(key) ? [LayoutDashboard, "#60a5fa"] as const
+    : /e-mail|mail/.test(key) ? [Mail, "#60a5fa"] as const
+    : /whatsapp|message-square|^chat$/.test(key) ? [MessagesSquare, "#60a5fa"] as const
     : /chat da equipe|messages-square/.test(key) ? [MessagesSquare, "#8b7cf8"] as const
     : /equipe|users/.test(key) ? [Users, "#8b7cf8"] as const
     : /agenda|calendar/.test(key) ? [CalendarDays, "#60a5fa"] as const
@@ -40,5 +72,5 @@ export default function IntegrationLogo({ name, size = 24, className = "" }: { n
     : /central/.test(key) ? [Activity, "#60a5fa"] as const
     : /automa/.test(key) ? [Workflow, "#818cf8"] as const
     : /api|globe/.test(key) ? [Globe2, "#22d3ee"] as const : [Zap, "#818cf8"] as const;
-  return <Icon aria-hidden="true" size={size} color={color} className={className} />;
+  return <Icon aria-hidden="true" size={size} color={monochrome ? undefined : color} className={className} />;
 }

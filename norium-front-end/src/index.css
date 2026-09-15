@@ -7987,7 +7987,7 @@ html[data-underline-links="true"] a[href] {
 }
 .nora-native-scroll{scrollbar-width:none}
 .nora-native-scroll::-webkit-scrollbar{display:none}
-.norium-sidebar-channel-icon{display:block;width:22px;height:22px;object-fit:contain;filter:drop-shadow(0 2px 5px rgba(0,0,0,.22))}
+.norium-sidebar-channel-icon{display:block;width:22px;height:22px;color:#60a5fa;object-fit:contain;filter:none}
 .norium-suite-icon{filter:drop-shadow(0 1px 1px rgba(15,23,42,.32)) drop-shadow(0 2px 5px rgba(37,99,235,.14))}
 .dark .norium-suite-icon{filter:drop-shadow(0 1px 1px rgba(0,0,0,.58)) drop-shadow(0 0 5px rgba(125,211,252,.16))}
 html:not(.dark) .marketplace-hero-mark{border-color:rgba(14,116,144,.22);background:linear-gradient(145deg,rgba(37,99,235,.13),rgba(124,58,237,.1));color:#0e7490}

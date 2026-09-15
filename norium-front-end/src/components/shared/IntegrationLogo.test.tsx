@@ -14,4 +14,10 @@ describe("IntegrationLogo", () => {
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("svg")).not.toBeNull();
   });
+
+  it.each(["E-mails", "WhatsApp", "Agenda"])("supports a monochrome transparent vector for %s", (name) => {
+    const { container } = render(<IntegrationLogo name={name} monochrome className="sidebar-blue" />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("svg.sidebar-blue")).not.toBeNull();
+  });
 });

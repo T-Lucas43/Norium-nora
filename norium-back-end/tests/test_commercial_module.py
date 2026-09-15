@@ -792,6 +792,24 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(document["branding"]["secondaryColor"], "#C98F86")
         self.assertEqual(document["metadata"]["templateLayout"], "resume-photo")
 
+    async def test_smart_resume_preserves_uploaded_photo_in_document_and_pdf(self) -> None:
+        photo = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        payload = SmartDocumentRequest(
+            templateId="standard_resume_foto_clean",
+            brief="Ana Lima, analista de dados com experiência em Python e SQL.",
+            photoDataUrl=photo,
+        )
+        with patch(
+            "app.modules.commercial.service._nora.perguntar_nora",
+            new=AsyncMock(side_effect=RuntimeError("provider indisponivel no teste")),
+        ):
+            document, _ = await create_smart_document(self.user, payload)
+
+        self.assertEqual(photo, document["branding"]["logoUrl"])
+        self.assertTrue(document["metadata"]["photoAsPortrait"])
+        pdf_bytes, _ = build_commercial_pdf(document, "proposal")
+        self.assertIn(b"/Subtype /Image", pdf_bytes)
+
     async def test_smart_document_fallback_classifies_spoken_facts_into_template_sections(self) -> None:
         payload = SmartDocumentRequest(
             templateId="standard_resume_foto_clean",

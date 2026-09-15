@@ -74,4 +74,21 @@ describe("Header Nora quick chat", () => {
     expect(await screen.findByText(/Prioridades/)).toHaveTextContent("Prioridades");
     expect(screen.queryByText(/\*\*Prioridades\*\*/)).not.toBeInTheDocument();
   });
+
+  it("shows detailed markdown and retries a temporarily failed request", async () => {
+    request
+      .mockRejectedValueOnce(new Error("A Nora falhou temporariamente."))
+      .mockResolvedValueOnce({ response: "## Visão geral\n\n- **Tarefas ativas:** 3\n- **Compromissos:** 1" });
+    renderHeader();
+    fireEvent.click(screen.getByRole("button", { name: "Conversar com a Nora" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resuma meu dia" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("A Nora falhou temporariamente.");
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+
+    expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
+    expect(screen.getByText("Tarefas ativas:").closest("li")).toHaveTextContent("Tarefas ativas: 3");
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText("Resuma meu dia")).toHaveLength(1);
+  });
 });

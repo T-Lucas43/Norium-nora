@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from typing import Any
@@ -10,6 +11,9 @@ from app.modules.platform.service import list_collection
 from app.modules.team.router import message_visible, normalize_thread_id, read_pruned_chat_store, require_team_chat, team_id_for, visible_team_members
 from app.services.finance_store import list_finance
 from app.services.task_store import list_tasks
+
+
+logger = logging.getLogger(__name__)
 
 
 def normalize(value: str) -> str:
@@ -89,12 +93,19 @@ async def _documents(user: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _operations(user: dict[str, Any]) -> dict[str, Any]:
-    overview = await operations_overview(user)
+    try:
+        overview = await operations_overview(user)
+    except Exception:
+        logger.exception("Falha na visão operacional completa da Nora; usando leitura isolada por módulo")
+        return _operations_fallback(user)
     summary = overview.get("summary") if isinstance(overview.get("summary"), dict) else {}
     briefing = overview.get("briefing") if isinstance(overview.get("briefing"), dict) else {}
     alerts = overview.get("alerts") if isinstance(overview.get("alerts"), list) else []
     approvals = overview.get("approvals") if isinstance(overview.get("approvals"), list) else []
     integrations = overview.get("integrations") if isinstance(overview.get("integrations"), list) else []
+    my_day = overview.get("myDay") if isinstance(overview.get("myDay"), dict) else {}
+    tasks = my_day.get("tasks") if isinstance(my_day.get("tasks"), list) else []
+    calendar = my_day.get("calendar") if isinstance(my_day.get("calendar"), list) else []
 
     priority = briefing.get("priority") if isinstance(briefing.get("priority"), dict) else None
     attention_lines: list[str] = []
@@ -113,7 +124,8 @@ async def _operations(user: dict[str, Any]) -> dict[str, Any]:
             break
 
     response = (
-        "A operação está atualizada com os dados reais da Central e do Controle operacional.\n\n"
+        "Consultei os dados atuais da sua operação no Norium.\n\n"
+        "## Visão geral\n\n"
         f"- **Aprovações pendentes:** {summary.get('pendingApprovals', 0)}\n"
         f"- **Tarefas ativas:** {summary.get('activeTasks', 0)}, sendo {summary.get('overdueTasks', 0)} vencida(s)\n"
         f"- **Compromissos de hoje:** {summary.get('todayEvents', 0)}\n"
@@ -121,9 +133,33 @@ async def _operations(user: dict[str, Any]) -> dict[str, Any]:
         f"- **Integrações que exigem atenção:** {summary.get('unhealthyIntegrations', 0)}"
     )
     if attention_lines:
-        response += "\n\n**Prioridades recomendadas**\n\n" + "\n".join(attention_lines)
+        response += "\n\n## Prioridades recomendadas\n\n" + "\n".join(attention_lines)
     else:
-        response += "\n\nNão há alerta crítico registrado agora. Você pode seguir pelas tarefas ativas e pelos compromissos de hoje."
+        response += "\n\n## Prioridades recomendadas\n\nNão há alerta crítico registrado agora. Siga pelas tarefas ativas e pelos compromissos de hoje."
+
+    task_lines = []
+    for task in tasks[:4]:
+        if not isinstance(task, dict):
+            continue
+        title = str(task.get("title") or task.get("titulo") or "Tarefa sem título")
+        status = str(task.get("status") or "status não informado").replace("_", " ")
+        due_date = task.get("dueDate") or task.get("due_date") or task.get("deadline")
+        suffix = f" · prazo {due_date}" if due_date else ""
+        task_lines.append(f"- **{title}** — {status}{suffix}")
+    if task_lines:
+        response += "\n\n## Tarefas em foco\n\n" + "\n".join(task_lines)
+
+    calendar_lines = []
+    for event in calendar[:4]:
+        if not isinstance(event, dict):
+            continue
+        title = str(event.get("titulo") or event.get("title") or event.get("summary") or "Compromisso")
+        start = event.get("inicio") or event.get("start") or event.get("startAt")
+        calendar_lines.append(f"- **{title}**" + (f" — {start}" if start else " — horário não informado"))
+    if calendar_lines:
+        response += "\n\n## Agenda de hoje\n\n" + "\n".join(calendar_lines)
+
+    response += "\n\nVocê pode me pedir para detalhar qualquer prioridade, tarefa, compromisso ou alerta acima."
 
     return {
         "status": "consulta",
@@ -133,8 +169,94 @@ async def _operations(user: dict[str, Any]) -> dict[str, Any]:
         "alerts": alerts[:8],
         "approvals": approvals[:12],
         "integrations": integrations,
-        "myDay": overview.get("myDay") if isinstance(overview.get("myDay"), dict) else {},
+        "myDay": my_day,
         "generatedAt": overview.get("generatedAt"),
+    }
+
+
+def _operations_fallback(user: dict[str, Any]) -> dict[str, Any]:
+    """Mantém o resumo útil mesmo quando uma fonte agregada está indisponível."""
+
+    user_id = str(user.get("id") or "lucas123")
+    unavailable: list[str] = []
+    task_stats: dict[str, Any] = {}
+    tasks: list[dict[str, Any]] = []
+    finance: dict[str, Any] = {}
+    automation_metrics: dict[str, Any] = {}
+
+    try:
+        task_payload = list_tasks(user_id, status="todas")
+        task_stats = task_payload.get("stats") if isinstance(task_payload.get("stats"), dict) else {}
+        tasks = task_payload.get("tasks") if isinstance(task_payload.get("tasks"), list) else []
+    except Exception:
+        logger.exception("Falha ao consultar tarefas no resumo degradado da Nora")
+        unavailable.append("tarefas")
+
+    try:
+        finance_payload = list_finance(user_id)
+        finance = finance_payload.get("resumo") if isinstance(finance_payload.get("resumo"), dict) else {}
+    except Exception:
+        logger.exception("Falha ao consultar financeiro no resumo degradado da Nora")
+        unavailable.append("financeiro")
+
+    try:
+        automation_data = automation_payload(read_automation_store(user_id))
+        automation_metrics = automation_data.get("metrics") if isinstance(automation_data.get("metrics"), dict) else {}
+    except Exception:
+        logger.exception("Falha ao consultar automações no resumo degradado da Nora")
+        unavailable.append("automações")
+
+    summary_lines: list[str] = []
+    next_steps: list[str] = []
+    if "tarefas" not in unavailable:
+        active = int(task_stats.get("ativas") or 0)
+        overdue = int(task_stats.get("vencidas") or 0)
+        completed = int(task_stats.get("concluidas") or 0)
+        summary_lines.append(f"- **Tarefas:** {active} ativa(s), {overdue} vencida(s) e {completed} concluída(s).")
+        if overdue:
+            next_steps.append(f"1. Revise as **{overdue} tarefa(s) vencida(s)** e atualize responsáveis e prazos.")
+        for task in tasks[:3]:
+            if not isinstance(task, dict):
+                continue
+            title = str(task.get("title") or task.get("titulo") or "Tarefa sem título")
+            status = str(task.get("status") or "pendente").replace("_", " ")
+            next_steps.append(f"{len(next_steps) + 1}. **{title}** — {status}.")
+            if len(next_steps) >= 4:
+                break
+    if "financeiro" not in unavailable:
+        balance = f"{float(finance.get('saldo') or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        summary_lines.append(f"- **Financeiro:** saldo realizado de R$ {balance}; {int(finance.get('vencidos') or 0)} registro(s) vencido(s).")
+    if "automações" not in unavailable:
+        summary_lines.append(
+            f"- **Automações:** {int(automation_metrics.get('active') or 0)} ativa(s) de "
+            f"{int(automation_metrics.get('total') or 0)}; {int(automation_metrics.get('runsToday') or 0)} execução(ões) hoje."
+        )
+
+    if not summary_lines:
+        summary_lines.append("- Nenhum módulo operacional respondeu à consulta neste instante.")
+    if not next_steps:
+        next_steps.append("1. Confira os compromissos e continue pelas tarefas ativas sem prazo vencido.")
+
+    response = (
+        "Consegui preparar um resumo parcial com as fontes disponíveis.\n\n"
+        "## Visão geral\n\n"
+        + "\n".join(summary_lines)
+        + "\n\n## Próximos passos\n\n"
+        + "\n".join(next_steps[:4])
+    )
+    if unavailable:
+        response += "\n\n**Consulta parcial:** não consegui atualizar agora: " + ", ".join(unavailable) + ". Tente novamente em instantes para completar o resumo."
+    response += "\n\nVocê pode pedir detalhes de uma tarefa, do financeiro ou das automações."
+    return {
+        "status": "consulta_parcial" if unavailable else "consulta",
+        "response": response,
+        "summary": {
+            "activeTasks": int(task_stats.get("ativas") or 0),
+            "overdueTasks": int(task_stats.get("vencidas") or 0),
+            "financialReminders": int(finance.get("vencidos") or 0),
+        },
+        "myDay": {"tasks": tasks[:8], "calendar": [], "financeSummary": finance},
+        "unavailableSources": unavailable,
     }
 
 

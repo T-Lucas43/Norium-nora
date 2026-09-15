@@ -1392,8 +1392,10 @@ function CreateSmartDocumentDialog({
             <article
               className={`commercial-rich-editor commercial-draft-preview commercial-layout-${draft.template.layout || "classic"} max-h-[60dvh] overflow-y-auto rounded-lg bg-white p-6 text-slate-900 shadow-inner`}
               style={{ borderTop: `7px solid ${primaryColor}`, "--document-primary": primaryColor, "--document-secondary": secondaryColor, "--document-text": textColor } as CSSProperties}
-              dangerouslySetInnerHTML={{ __html: draft.contentHtml }}
-            />
+            >
+              {isResume && photoDataUrl && <div data-document-decoration className="mb-5 flex justify-end"><img src={photoDataUrl} alt="Foto do currículo na prévia" className="h-28 w-28 rounded-full border-[5px] object-cover" style={{ borderColor: secondaryColor }} /></div>}
+              <div dangerouslySetInnerHTML={{ __html: draft.contentHtml }} />
+            </article>
           </section>
           <aside className="space-y-3">
             <ReviewBlock label="Comentário da Nora" value={draft.noraComment} accent />

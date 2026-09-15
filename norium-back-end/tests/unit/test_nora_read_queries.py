@@ -77,6 +77,23 @@ class NoraReadQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, result["summary"]["unhealthyIntegrations"])
         self.assertEqual(1, result["response"].count("Revisar proposta"))
 
+    async def test_operations_query_keeps_working_when_aggregate_source_fails(self) -> None:
+        with (
+            patch.object(queries, "operations_overview", side_effect=RuntimeError("fonte indisponivel")),
+            patch.object(queries, "list_tasks", return_value={"stats": {"ativas": 3, "vencidas": 1, "concluidas": 5}, "tasks": [{"title": "Enviar proposta", "status": "andamento"}]}),
+            patch.object(queries, "list_finance", return_value={"resumo": {"saldo": 1250, "vencidos": 0}}),
+            patch.object(queries, "read_automation_store", return_value={}),
+            patch.object(queries, "automation_payload", return_value={"metrics": {"active": 2, "total": 3, "runsToday": 4}}),
+        ):
+            intent, result = await queries.answer_read_query({"id": "owner"}, "operations", "Resuma meu dia")
+
+        self.assertEqual("operacoes", intent)
+        self.assertEqual("consulta", result["status"])
+        self.assertIn("Tarefas:** 3 ativa(s)", result["response"])
+        self.assertIn("Enviar proposta", result["response"])
+        self.assertIn("R$ 1.250,00", result["response"])
+        self.assertEqual([], result["unavailableSources"])
+
     async def test_financial_analysis_returns_real_totals_and_table_data(self) -> None:
         finance = {
             "resumo": {"saldo": 1200, "pendente": 1500, "vencidos": 1},

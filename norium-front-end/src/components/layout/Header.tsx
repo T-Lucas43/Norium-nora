@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowUpRight,
@@ -123,10 +125,12 @@ export default function Header({
   const [noraQuickMessages, setNoraQuickMessages] = useState<NoraQuickMessage[]>([]);
   const [noraQuickLoading, setNoraQuickLoading] = useState(false);
   const [noraQuickError, setNoraQuickError] = useState("");
+  const [noraQuickFailedQuestion, setNoraQuickFailedQuestion] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const profileMenuRef = useRef<HTMLDivElement>(null);
   const noraQuickMenuRef = useRef<HTMLDivElement>(null);
   const noraQuickInputRef = useRef<HTMLTextAreaElement>(null);
+  const noraQuickConversationRef = useRef<HTMLDivElement>(null);
   const profileName = currentUser?.nome || profile?.nome || "Perfil";
 
   const commands = useMemo<SearchCommand[]>(
@@ -233,15 +237,27 @@ export default function Header({
     window.setTimeout(() => noraQuickInputRef.current?.focus(), 0);
   }, [noraQuickOpen]);
 
-  async function askQuickNora(rawQuestion: string) {
+  useEffect(() => {
+    const conversation = noraQuickConversationRef.current;
+    if (!conversation) return;
+    conversation.scrollTop = conversation.scrollHeight;
+  }, [noraQuickError, noraQuickLoading, noraQuickMessages]);
+
+  async function askQuickNora(rawQuestion: string, retry = false) {
     const question = rawQuestion.trim();
     if (!question || noraQuickLoading) return;
 
+    const previousMessages = retry
+      && noraQuickMessages.at(-1)?.role === "user"
+      && noraQuickMessages.at(-1)?.text === question
+      ? noraQuickMessages.slice(0, -1)
+      : noraQuickMessages;
     const userMessage: NoraQuickMessage = { id: crypto.randomUUID(), role: "user", text: question };
-    const contextMessages = [...noraQuickMessages, userMessage];
+    const contextMessages = [...previousMessages, userMessage];
     setNoraQuickMessages(contextMessages);
     setNoraQuickInput("");
     setNoraQuickError("");
+    setNoraQuickFailedQuestion("");
     setNoraQuickLoading(true);
 
     try {
@@ -251,7 +267,7 @@ export default function Header({
         body: JSON.stringify({
           user_id: currentUser?.id || "primary",
           message: question,
-          messages: noraQuickMessages.slice(-6).map((message) => ({ role: message.role, content: message.text })),
+          messages: previousMessages.slice(-6).map((message) => ({ role: message.role, content: message.text })),
           agenda_session_id: null,
           email_session_id: null,
           commercial_session_id: null,
@@ -265,11 +281,12 @@ export default function Header({
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: (payload.response?.trim() || "Concluí a consulta. Abra a conversa completa para ver mais detalhes.").replace(/\*\*/g, ""),
+          text: payload.response?.trim() || "Concluí a consulta. Abra a conversa completa para ver mais detalhes.",
         },
       ]);
     } catch (reason) {
       setNoraQuickError(reason instanceof Error ? reason.message : "Não foi possível falar com a Nora agora.");
+      setNoraQuickFailedQuestion(question);
     } finally {
       setNoraQuickLoading(false);
     }
@@ -441,7 +458,7 @@ export default function Header({
                   <button type="button" onClick={() => setNoraQuickOpen(false)} aria-label="Fechar atalho da Nora"><X size={17} /></button>
                 </header>
 
-                <div className="norium-nora-quick-conversation" aria-live="polite">
+                <div ref={noraQuickConversationRef} className="norium-nora-quick-conversation" aria-live="polite">
                   {!noraQuickMessages.length && (
                     <div className="norium-nora-quick-welcome">
                       <strong>Como posso ajudar agora?</strong>
@@ -454,12 +471,17 @@ export default function Header({
                     </div>
                   )}
                   {noraQuickMessages.map((message) => (
-                    <p key={message.id} className={message.role === "user" ? "is-user" : "is-nora"}>{message.text}</p>
+                    <article key={message.id} className={`norium-nora-quick-message ${message.role === "user" ? "is-user" : "is-nora"}`}>
+                      <small>{message.role === "user" ? "Você" : "Nora"}</small>
+                      {message.role === "assistant"
+                        ? <div className="norium-nora-quick-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown></div>
+                        : <p>{message.text}</p>}
+                    </article>
                   ))}
-                  {noraQuickLoading && <p className="is-nora is-loading"><LoaderCircle size={15} className="animate-spin" /> Nora está consultando...</p>}
+                  {noraQuickLoading && <div className="norium-nora-quick-loading"><LoaderCircle size={15} className="animate-spin" /> Nora está consultando seus dados...</div>}
                 </div>
 
-                {noraQuickError && <p className="norium-nora-quick-error" role="alert">{noraQuickError}</p>}
+                {noraQuickError && <div className="norium-nora-quick-error" role="alert"><span>{noraQuickError}</span>{noraQuickFailedQuestion && <button type="button" disabled={noraQuickLoading} onClick={() => void askQuickNora(noraQuickFailedQuestion, true)}>Tentar novamente</button>}</div>}
 
                 <form onSubmit={sendQuickNora}>
                   <textarea

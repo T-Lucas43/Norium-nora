@@ -314,6 +314,64 @@ describe("CommercialDashboard leve", () => {
     }));
   });
 
+  it("mantem a foto escolhida na previa e no documento de curriculo", async () => {
+    const resumeTemplate = {
+      id: "standard_resume_foto_clean",
+      name: "Currículo clean com foto",
+      description: "Currículo demonstrativo",
+      contentHtml: "",
+      shared: true,
+      category: "Carreira",
+      documentType: "resume" as const,
+      active: true,
+      isDefault: false,
+      variables: [],
+      createdBy: "system",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      demoContent: true,
+      sections: ["Contato e objetivo", "Resumo profissional", "Experiência"],
+      layout: "resume-photo",
+      paletteName: "Rosa queimado",
+      branding: { primaryColor: "#7D3247", secondaryColor: "#C98F86", textColor: "#32242A" },
+    };
+    commercialApi.loadCommercialData.mockResolvedValue({ ...commercialData, templates: [resumeTemplate] });
+    commercialApi.createProposal.mockResolvedValue({ proposal: { ...proposal, title: "Currículo de Ana" } });
+    clientApi.apiRequest.mockImplementation((path: string) => {
+      if (path === "/api/clientes") return Promise.resolve({ items: [] });
+      if (path === "/api/brainstorm/sessions") return Promise.resolve([]);
+      if (path === "/api/comercial/document-draft") return Promise.resolve({ draft: {
+        title: "Currículo de Ana",
+        summary: "Perfil profissional de Ana",
+        contentHtml: "<h1>Ana Lima</h1><h2>Experiência</h2><p>Analista de dados.</p>",
+        noraComment: "Informações organizadas por categoria.",
+        client: { id: "", name: "Ana Lima", company: "", document: "", email: "" },
+        amount: 0,
+        currency: "BRL",
+        validUntil: null,
+        template: resumeTemplate,
+      } });
+      return Promise.resolve({});
+    });
+
+    render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Novo documento" }));
+    const photoInput = document.querySelector<HTMLInputElement>('input[type="file"][accept*="image/png"]');
+    expect(photoInput).not.toBeNull();
+    await user.upload(photoInput!, new File(["foto do curriculo"], "ana.png", { type: "image/png" }));
+    expect(await screen.findByRole("img", { name: "Prévia da foto" })).toHaveAttribute("src", expect.stringMatching(/^data:image\/png;base64,/));
+    await user.type(screen.getByRole("textbox", { name: "Conte o essencial" }), "Ana Lima, analista de dados.");
+    await user.click(screen.getByRole("button", { name: "Gerar primeira versão" }));
+
+    expect(await screen.findByRole("img", { name: "Foto do currículo na prévia" })).toHaveAttribute("src", expect.stringMatching(/^data:image\/png;base64,/));
+    await user.click(screen.getByRole("button", { name: "Criar e editar" }));
+    await waitFor(() => expect(commercialApi.createProposal).toHaveBeenCalledWith(expect.objectContaining({
+      branding: expect.objectContaining({ logoUrl: expect.stringMatching(/^data:image\/png;base64,/) }),
+      metadata: expect.objectContaining({ photoAsPortrait: true }),
+    })));
+  });
+
   it("offers proposal upload directly and counts signed proposals in the signed filter", async () => {
     commercialApi.loadCommercialData.mockResolvedValue({ ...commercialData, proposals: [
       { ...commercialData.proposals[0], id: "signed-proposal", title: "Proposta assinada", status: "signed" },

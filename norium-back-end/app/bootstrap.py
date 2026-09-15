@@ -62,6 +62,7 @@ from app.modules.nora.router import router as nora_router
 from app.modules.operations.router import router as operations_router
 from app.modules.platform.router import router as platform_router
 from app.modules.profile.router import router as perfil_router
+from app.modules.public_site.router import router as public_site_router
 from app.modules.tasks.router import router as tarefas_router
 from app.modules.team.router import (
     router as team_chat_router,
@@ -82,6 +83,10 @@ LOCAL_FRONTEND_ORIGINS = (
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    "http://localhost:4180",
+    "http://127.0.0.1:4180",
 )
 _WEBHOOK_SECRET_QUERY_PATTERN = re.compile(
     r"([?&]secret=)[^&#\s\"']*",
@@ -400,6 +405,7 @@ def create_app() -> FastAPI:
 
     # A ordem é mantida para preservar a documentação e a resolução das rotas.
     app.include_router(nora_router)
+    app.include_router(public_site_router)
     app.include_router(auth_router)
     from app.modules.auth.ai_costs_router import router as ai_costs_router
     app.include_router(ai_costs_router)

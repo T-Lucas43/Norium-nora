@@ -7813,11 +7813,17 @@ html:not(.dark) .models-notice.is-error{color:#9f1239}
 .finance-boleto-filter button[aria-pressed="true"]{background:var(--surface-hover);color:var(--text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--primary) 35%,transparent)}
 
 @media (min-width:901px){
-  .norium-agenda,
-  .norium-mail{
+  .norium-agenda{
     gap:12px;
     padding:12px;
     background:var(--background)!important;
+  }
+  .app-main-mail > .app-panel > .norium-mail,
+  html[data-norium-custom-theme="true"] .app-main-mail > .app-panel > .norium-mail{
+    gap:0;
+    padding:0;
+    background:var(--mail-bg)!important;
+    background-color:var(--mail-bg)!important;
   }
   .norium-agenda>aside,
   .norium-mail>.mail-sidebar{
@@ -7836,6 +7842,11 @@ html:not(.dark) .models-notice.is-error{color:#9f1239}
     background:var(--surface);
     box-shadow:0 14px 36px rgba(15,23,42,.07);
     overflow:hidden;
+  }
+  .norium-mail>.mail-main{
+    border:0;
+    border-radius:0;
+    box-shadow:none;
   }
   .norium-agenda .agenda-timeline-toolbar,
   .norium-mail .mail-toolbar{

@@ -43,17 +43,11 @@ def main():
     except Exception:
         file.upload_file(original)
         raise
-    # Match the bootstrap identity: runtime normalization prioritizes these values.
-    az('containerapp', 'update', '-g', rg, '-n', name, '--set-env-vars',
-       'NORIUM_BOOTSTRAP_ADMIN_USER_ID=lucas123',
-       'NORIUM_BOOTSTRAP_ADMIN_EMAIL=' + users['lucas123']['email'],
-       'NORIUM_BOOTSTRAP_ADMIN_NAME=' + users['lucas123']['nome'])
-    Path('roles-completed.txt').write_text('ok')
-    current = az('containerapp', 'show', '-g', rg, '-n', name)
-    env = {e['name']: e.get('value') for e in current['properties']['template']['containers'][0]['env']}
-    if env.get('NORIUM_BOOTSTRAP_ADMIN_USER_ID') != 'lucas123' or env.get('NORIUM_BOOTSTRAP_ADMIN_EMAIL') != users['lucas123']['email']:
-        raise RuntimeError('runtime_owner_verification_failed')
+    # A identidade persistida e autoritativa. Retome a mesma revisao sem alinhar
+    # variaveis de bootstrap, que so se aplicam a um armazenamento novo.
+    az('containerapp', 'revision', 'activate', '-g', rg, '--revision', active[0])
     write_report({'status': 'verified', 'principal': 'lucas123', 'auxiliar': 'norium-admin', 'users': len(store['users']), 'snapshot': snapshot, 'passwordsChanged': False})
+    Path('roles-completed.txt').write_text('ok')
 
 
 if __name__ == '__main__':

@@ -369,6 +369,7 @@ describe("CommercialDashboard leve", () => {
     expect(await screen.findByRole("img", { name: "Foto do currículo na prévia" })).toHaveAttribute("src", expect.stringMatching(/^data:image\/png;base64,/));
     await user.click(screen.getByRole("button", { name: "Criar e editar" }));
     await waitFor(() => expect(commercialApi.createProposal).toHaveBeenCalledWith(expect.objectContaining({
+      clientId: "__workspace__",
       branding: expect.objectContaining({ logoUrl: expect.stringMatching(/^data:image\/png;base64,/) }),
       metadata: expect.objectContaining({ photoAsPortrait: true }),
     })));

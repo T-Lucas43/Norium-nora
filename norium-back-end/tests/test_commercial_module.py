@@ -866,7 +866,7 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
     async def test_internal_document_can_be_created_without_client_link(self) -> None:
         document = await create_proposal(
             self.user,
-            ProposalCreate(clientId="", title="Currículo interno", metadata={"documentType": "resume"}),
+            ProposalCreate(clientId="__workspace__", title="Currículo interno", metadata={"documentType": "resume"}),
         )
         self.assertEqual("", document["clientId"])
         self.assertEqual("resume", document["metadata"]["documentType"])

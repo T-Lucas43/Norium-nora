@@ -1355,7 +1355,7 @@ function CreateSmartDocumentDialog({
     if (!draft || !selectedTemplate) return;
     const baseBranding = selectedBrand?.branding || brandingForTemplate(selectedTemplate);
     onCreate({
-      clientId,
+      clientId: clientId || "__workspace__",
       brainstormId: brainstormId || null,
       title: draft.title,
       contentHtml: draft.contentHtml,

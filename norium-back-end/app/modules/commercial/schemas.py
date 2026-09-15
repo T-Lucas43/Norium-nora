@@ -115,7 +115,7 @@ class DeliverableInput(StrictModel):
 class ProposalCreate(StrictModel):
     # Documentos internos, como currículos, não precisam estar vinculados a um
     # cliente. O serviço já trata esse caso como documento do workspace.
-    clientId: str = Field(default="", max_length=180)
+    clientId: str = Field(min_length=1, max_length=180)
     brainstormId: str | None = Field(default=None, max_length=180)
     title: str = Field(min_length=2, max_length=220)
     contentHtml: str = Field(default="<p>Descreva o escopo da proposta.</p>", max_length=350_000)

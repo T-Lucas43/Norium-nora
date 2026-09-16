@@ -125,7 +125,7 @@ html:not(.dark) .team-call-prejoin-backdrop {background:radial-gradient(circle a
 .team-call-studio-error button { margin-left:8px; }
 .team-call-studio-comment { border-bottom:1px solid #28313b; padding:8px 0; font-size:12px; white-space:pre-wrap; }
 .team-call-studio-empty { position:absolute; top:40%; left:0; width:100%; text-align:center; pointer-events:none; }
-.team-call-content-studio > .team-call-stage { flex:0 0 220px; display:flex; flex-direction:column; border-left:1px solid #28313b; }
+.team-call-content-studio > .team-call-stage { flex:0 0 220px; display:flex; flex-direction:column; overflow-y:auto; border-left:1px solid #28313b; }
 .team-call-content-studio .team-call-remote-tile { min-height:170px; flex-shrink:0; }
 .team-call-content-studio .team-call-participant-controls input { width:60px; }
 .team-call-content-studio .team-call-local-previews { position:relative; inset:auto; width:100%; }

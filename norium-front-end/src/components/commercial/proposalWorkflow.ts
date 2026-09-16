@@ -26,20 +26,20 @@ export const statusLabels: Record<string, string> = {
   received: "Recebido",
 };
 
-export const proposalTransitions: Record<string, CommercialProposal["status"][]> = {
-  draft: ["in_review", "approved", "archived"],
-  in_review: ["approved", "changes_requested", "rejected", "archived"],
-  changes_requested: ["draft", "in_review", "approved", "archived"],
-  approved: ["sent", "awaiting_signatures", "expired", "archived"],
-  rejected: ["draft", "in_review", "archived"],
-  sent: ["viewed", "negotiating", "accepted", "awaiting_signatures", "signed", "declined", "expired", "archived"],
-  viewed: ["negotiating", "accepted", "awaiting_signatures", "signed", "declined", "expired", "archived"],
-  negotiating: ["sent", "accepted", "awaiting_signatures", "signed", "declined", "expired", "archived"],
-  accepted: ["awaiting_signatures", "signed", "archived"],
-  awaiting_signatures: ["signed", "negotiating", "declined", "expired", "archived"],
-  signed: ["archived"],
-  declined: ["draft", "archived"],
-  expired: ["draft", "sent", "archived"],
-  contracted: ["archived"],
-  archived: ["draft"],
-};
+export const proposalStatuses: CommercialProposal["status"][] = [
+  "draft",
+  "in_review",
+  "changes_requested",
+  "approved",
+  "rejected",
+  "sent",
+  "viewed",
+  "negotiating",
+  "accepted",
+  "awaiting_signatures",
+  "signed",
+  "declined",
+  "expired",
+  "contracted",
+  "archived",
+];

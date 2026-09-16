@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Check, Plus } from "lucide-react";
+import { CalendarDays, CalendarClock, Check, Plus } from "lucide-react";
 import Hero from "./Hero";
 import Summary from "./Summary";
 import IntegrationGrid from "./IntegrationGrid";
@@ -8,7 +8,8 @@ import RecentActivity from "./RecentActivity";
 import ActiveAutomations from "./ActiveAutomations";
 import DashboardRail from "./DashboardRail";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
-import { apiBaseUrl } from "../../utils/api";
+import type { TaskItem } from "../../features/tasks/types";
+import { apiRequest } from "../../core/api/client";
 
 type EventsBySource = Record<EventSource, OmnichannelEvent[]>;
 
@@ -39,7 +40,35 @@ type DashboardProps = {
   onOpenNora: (prompt?: string) => void;
 };
 
-type FinanceSnapshot = { resumo?: { saldo?: number } };
+type FinanceSnapshot = {
+  lancamentos?: Array<{ id: string; title: string; type: "entrada" | "saida"; amount: number; status: "pendente" | "pago" | "cancelado"; dueDate?: string | null }>;
+  programados?: Array<{ id: string; title: string; type: "entrada" | "saida"; amount: number; active: boolean; nextDueDate?: string | null }>;
+  resumo?: { saldo?: number; pendente?: number; vencidos?: number };
+};
+
+export type DashboardFinancePending = {
+  id: string;
+  title: string;
+  amount: number;
+  dueDate: string | null;
+  scheduled: boolean;
+};
+
+const taskPriorityRank: Record<TaskItem["priority"], number> = { urgente: 0, alta: 1, media: 2, baixa: 3 };
+const taskStatusLabel: Record<TaskItem["status"], string> = { pendente: "Pendente", andamento: "Em andamento", revisao: "Em revisão", concluida: "Concluída" };
+
+function assignedOpenTasks(tasks: TaskItem[], userId: string) {
+  return tasks
+    .filter((task) => task.assigneeId === userId && task.status !== "concluida")
+    .sort((left, right) => {
+      const priority = taskPriorityRank[left.priority] - taskPriorityRank[right.priority];
+      if (priority) return priority;
+      if (left.dueDate && right.dueDate) return left.dueDate.localeCompare(right.dueDate);
+      if (left.dueDate) return -1;
+      if (right.dueDate) return 1;
+      return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
+    });
+}
 
 function describeWeather(code: number) {
   if (code === 0) return "Ceu limpo";
@@ -123,7 +152,9 @@ function useWeatherFromCep(cep?: string) {
 }
 
 export default function Dashboard({ eventsBySource, connected, profile, userId, onNavigate, onOpenNora }: DashboardProps) {
-  const [financeBalance, setFinanceBalance] = useState<number | null>(null);
+  const [finance, setFinance] = useState<FinanceSnapshot | null>(null);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
   const metrics = useMemo<DashboardMetrics>(() => {
     const emails = eventsBySource.gmail.length;
     const whatsapp = eventsBySource.whatsapp.length;
@@ -148,21 +179,37 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
   );
 
   const weather = useWeatherFromCep(profile?.cep);
+  const financeBalance = Number.isFinite(Number(finance?.resumo?.saldo)) ? Number(finance?.resumo?.saldo) : null;
+  const myTasks = useMemo(() => assignedOpenTasks(tasks, userId), [tasks, userId]);
+  const financePending = useMemo<DashboardFinancePending[]>(() => {
+    const entries = (finance?.lancamentos || [])
+      .filter((item) => item.type === "saida" && item.status === "pendente")
+      .map((item) => ({ id: item.id, title: item.title, amount: Number(item.amount || 0), dueDate: item.dueDate || null, scheduled: false }));
+    const scheduled = (finance?.programados || [])
+      .filter((item) => item.type === "saida" && item.active)
+      .map((item) => ({ id: item.id, title: item.title, amount: Number(item.amount || 0), dueDate: item.nextDueDate || null, scheduled: true }));
+    return [...entries, ...scheduled].sort((left, right) => {
+      if (left.dueDate && right.dueDate) return left.dueDate.localeCompare(right.dueDate);
+      if (left.dueDate) return -1;
+      if (right.dueDate) return 1;
+      return left.title.localeCompare(right.title, "pt-BR");
+    });
+  }, [finance]);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${apiBaseUrl()}/api/financeiro?user_id=${encodeURIComponent(userId)}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Financeiro indisponível");
-        return response.json() as Promise<FinanceSnapshot>;
-      })
+    apiRequest<FinanceSnapshot>(`/api/financeiro?user_id=${encodeURIComponent(userId)}`, { cache: "no-store" })
       .then((payload) => {
-        const balance = Number(payload.resumo?.saldo);
-        if (!cancelled) setFinanceBalance(Number.isFinite(balance) ? balance : null);
+        if (!cancelled) setFinance(payload);
       })
       .catch(() => {
-        if (!cancelled) setFinanceBalance(null);
+        if (!cancelled) setFinance(null);
       });
+    setTasksLoading(true);
+    apiRequest<{ tasks?: TaskItem[] }>(`/api/tarefas?user_id=${encodeURIComponent(userId)}&status=todas`, { cache: "no-store" })
+      .then((payload) => { if (!cancelled) setTasks(payload.tasks || []); })
+      .catch(() => { if (!cancelled) setTasks([]); })
+      .finally(() => { if (!cancelled) setTasksLoading(false); });
     return () => { cancelled = true; };
   }, [userId]);
 
@@ -218,15 +265,24 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
 
           <section className="norium-dashboard-card norium-task-status">
             <div className="norium-dashboard-section-heading">
-              <h2>Tarefas</h2>
+              <h2>Minhas tarefas</h2>
               <button type="button" onClick={() => onNavigate("Tarefas")}>Ver todas</button>
             </div>
-            <div className="norium-task-status-ring">
-              <span><Check size={34} /></span>
-            </div>
-            <div className="norium-task-status-copy">
-              <strong>{metrics.tasks ? `${metrics.tasks} atualizações recentes` : "Você está em dia!"}</strong>
-              <small>Acompanhe prioridades e prazos no Kanban.</small>
+            <div className="norium-assigned-task-list" aria-label="Tarefas atribuídas a mim">
+              {myTasks.map((task) => (
+                <button type="button" key={task.id} onClick={() => onNavigate("Tarefas")} className="norium-assigned-task-card">
+                  <span className={`priority-${task.priority}`} aria-hidden="true" />
+                  <span>
+                    <strong>{task.title}</strong>
+                    <small>{taskStatusLabel[task.status]} · {task.category || "Geral"}</small>
+                  </span>
+                  <time>{task.dueDate ? new Date(`${task.dueDate}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : "Sem prazo"}</time>
+                </button>
+              ))}
+              {tasksLoading && <div className="norium-dashboard-empty"><CalendarClock size={18} />Carregando suas tarefas…</div>}
+              {!tasksLoading && !myTasks.length && (
+                <div className="norium-dashboard-empty"><Check size={20} />Nenhuma tarefa pendente atribuída a você.</div>
+              )}
             </div>
             <button className="norium-dashboard-card-action" type="button" onClick={() => onNavigate("Tarefas")}>
               <Plus size={16} />
@@ -245,6 +301,9 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
       <DashboardRail
         weather={weather}
         calendarEvents={eventsBySource.calendar}
+        financePending={financePending}
+        financePendingTotal={Number(finance?.resumo?.pendente || 0)}
+        financeOverdueCount={Number(finance?.resumo?.vencidos || 0)}
         onNavigate={onNavigate}
         onOpenNora={onOpenNora}
       />

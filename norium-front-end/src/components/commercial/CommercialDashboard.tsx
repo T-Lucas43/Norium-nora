@@ -1,6 +1,6 @@
 import ProposalPdfUploadDialog from "./ProposalPdfUploadDialog";
 import ProposalPdfWorkspace from "./ProposalPdfWorkspace";
-import { proposalTransitions, statusLabels } from "./proposalWorkflow";
+import { proposalStatuses, statusLabels } from "./proposalWorkflow";
 import SignatureComposer from "./SignatureComposer";
 import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
@@ -139,6 +139,7 @@ import StatusBanner from "../shared/StatusBanner";
 import { showConfirm, showPrompt } from "../shared/AppDialogProvider";
 import A4ContentPages from "./A4ContentPages";
 import CommercialEditor from "./CommercialEditor";
+import DocumentAccessDialog from "./DocumentAccessDialog";
 import PdfToolsWorkspace from "./PdfToolsWorkspace";
 
 function brandingForTemplate(template?: CommercialTemplate | null) {
@@ -205,6 +206,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   const [brainstorms, setBrainstorms] = useState<BrainstormOption[]>([]);
   const [view, setView] = useState<View>("all");
   const [selected, setSelected] = useState<CommercialDocument | null>(null);
+  const [accessDocument, setAccessDocument] = useState<CommercialDocument | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [displayMode, setDisplayMode] = useState<DisplayMode>("list");
@@ -400,6 +402,32 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
     } finally {
       setOpeningDocumentId(null);
     }
+  }
+
+  async function openDocumentAccess(item: CommercialDocumentSummary) {
+    if (openingDocumentId) return;
+    setOpeningDocumentId(item.id);
+    setError("");
+    try {
+      const response = item.documentType === "proposal" ? await loadProposal(item.id) : await loadContract(item.id);
+      setAccessDocument("proposal" in response ? response.proposal : response.contract);
+    } catch (requestError) {
+      setError(messageFromError(requestError, "Não foi possível abrir as permissões do documento."));
+    } finally {
+      setOpeningDocumentId(null);
+    }
+  }
+
+  function saveDocumentAccess(document: CommercialDocument) {
+    const summary = commercialDocumentSummary(document);
+    setData((current) => {
+      if (!current) return current;
+      return isProposal(document)
+        ? { ...current, proposals: current.proposals.map((item) => item.id === document.id ? summary as typeof item : item) }
+        : { ...current, contracts: current.contracts.map((item) => item.id === document.id ? summary as typeof item : item) };
+    });
+    if (selected?.id === document.id) setSelected(document);
+    setNotice("Acesso da equipe atualizado.");
   }
 
   function replaceDocument(nextDocument: CommercialDocument) {
@@ -926,7 +954,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
               {(view === "all" || view === "mine" || view === "shared" || view === "documents" || view === "proposals" || view === "contracts") && (
                 <div className={`min-h-0 ${displayMode === "grid" ? "grid gap-3 p-4 sm:grid-cols-2 2xl:grid-cols-3" : ""}`}>
                   {currentItems.map((item) => (
-                    <article key={item.id} className={displayMode === "grid" ? "flex min-h-72 flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 transition hover:border-blue-400/30" : "grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_148px] xl:items-center"}>
+                    <article key={item.id} className={displayMode === "grid" ? "flex min-h-72 flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 transition hover:border-blue-400/30" : "grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_minmax(250px,auto)] xl:items-center"}>
                       <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{item.documentType === "contract" ? <FileCheck2 size={19} /> : (item.templateDocumentType || "proposal") === "proposal" ? <FileSignature size={19} /> : <FileText size={19} />}</span>
                       <button type="button" disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} className="min-w-0 text-left disabled:cursor-wait disabled:opacity-70">
                         <strong className="block truncate text-sm">{item.title}</strong>
@@ -943,9 +971,12 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
                         className="col-span-2 xl:col-auto"
                       />
                       <div className="col-span-2 flex min-h-10 flex-wrap items-center gap-2 xl:col-auto xl:justify-end">
+                        {(item.accessRole === "owner" || item.createdBy === session.user.id) && (
+                          <Button variant="secondary" loading={openingDocumentId === item.id} disabled={openingDocumentId !== null} onClick={() => void openDocumentAccess(item)} icon={<UsersRound size={15} />} aria-label={`Compartilhar ${item.title} com a equipe`}>Compartilhar</Button>
+                        )}
                         {item.accessRole !== "view" && item.documentType === "proposal" && (item.templateDocumentType || "proposal") === "proposal" && (
                           <>
-                            <select aria-label={`Alterar status de ${item.title}`} value="" disabled={busy} onChange={(event) => event.target.value && void handleProposalStatus(item, event.target.value as CommercialProposal["status"])} className="commercial-status-select h-9 max-w-[150px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="">Alterar status</option>{(proposalTransitions[item.status] || []).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>
+                            <select aria-label={`Alterar status de ${item.title}`} value="" disabled={busy} onChange={(event) => event.target.value && void handleProposalStatus(item, event.target.value as CommercialProposal["status"])} className="commercial-status-select h-9 max-w-[160px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="">Alterar status</option>{proposalStatuses.filter((status) => status !== item.status).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>
                             <Button variant="secondary" iconOnly onClick={() => void handleDuplicateProposal(item)} aria-label={`Duplicar proposta ${item.title}`} title="Duplicar proposta"><Copy size={15} /></Button>
                           </>
                         )}
@@ -1058,6 +1089,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
       {templatePreview && <TemplatePreviewDialog template={templatePreview} busy={busy} onClose={() => setTemplatePreview(null)} onEditExample={() => void handleEditTemplateExample(templatePreview)} onUse={() => { const id = templatePreview.id; setTemplatePreview(null); openCreate(id); }} onRename={() => void handleRenameTemplate(templatePreview)} onDuplicate={() => void handleDuplicateTemplate(templatePreview)} onDelete={templatePreview.id.startsWith("standard_") ? undefined : () => void handleDeleteTemplate(templatePreview)} />}
       {proposalUploadOpen && <ProposalPdfUploadDialog initialSigned={proposalUploadSigned} proposal={proposalUploadTarget} clients={clients} onClose={() => setProposalUploadOpen(false)} onUploaded={proposalUploaded}/>}
       {importOpen && <ImportDocumentDialog busy={busy} onClose={() => setImportOpen(false)} onSubmit={(input) => void handleImport(input)} />}
+      {accessDocument && <DocumentAccessDialog document={accessDocument} onClose={() => setAccessDocument(null)} onSaved={saveDocumentAccess} />}
     </main>
   );
 }

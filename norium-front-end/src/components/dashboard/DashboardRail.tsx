@@ -1,12 +1,15 @@
-import { CalendarDays, Clock3, CloudSun, Crosshair, MapPin, Send } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronRight, Clock3, CloudSun, Crosshair, MapPin, ReceiptText, Send } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import noraDigital from "../../assets/nora-brand.png";
 import type { OmnichannelEvent } from "../../types/omnichannel";
-import type { DashboardWeather } from "./Dashboard";
+import type { DashboardFinancePending, DashboardWeather } from "./Dashboard";
 
 type DashboardRailProps = {
   weather: DashboardWeather | null;
   calendarEvents: OmnichannelEvent[];
+  financePending: DashboardFinancePending[];
+  financePendingTotal: number;
+  financeOverdueCount: number;
   onNavigate: (tab: string) => void;
   onOpenNora: () => void;
 };
@@ -22,6 +25,9 @@ function dateLabel(value: Date) {
 export default function DashboardRail({
   weather,
   calendarEvents,
+  financePending,
+  financePendingTotal,
+  financeOverdueCount,
   onNavigate,
   onOpenNora,
 }: DashboardRailProps) {
@@ -38,6 +44,8 @@ export default function DashboardRail({
     const timer = window.setInterval(() => setNow(new Date()), 1_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  const money = useMemo(() => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }), []);
 
   return (
     <aside className="norium-dashboard-rail">
@@ -100,6 +108,26 @@ export default function DashboardRail({
             <em>Abra o Kanban para revisar</em>
           </span>
         </button>
+      </section>
+
+      <section className="norium-dashboard-card norium-finance-pending">
+        <div className="norium-finance-pending-heading">
+          <div><p className="norium-dashboard-card-label">Financeiro</p><h2>Contas a pagar</h2></div>
+          <button type="button" onClick={() => onNavigate("Financeiro")}>Abrir <ChevronRight size={14} /></button>
+        </div>
+        <div className="norium-finance-pending-summary">
+          <span><ReceiptText size={17} />{money.format(financePendingTotal)}</span>
+          {financeOverdueCount > 0 && <em><AlertTriangle size={13} />{financeOverdueCount} vencida{financeOverdueCount === 1 ? "" : "s"}</em>}
+        </div>
+        <div className="norium-finance-pending-list" aria-label="Pendências financeiras">
+          {financePending.map((item) => (
+            <button type="button" key={`${item.scheduled ? "scheduled" : "entry"}-${item.id}`} onClick={() => onNavigate("Financeiro")}>
+              <span><strong>{item.title}</strong><small>{item.scheduled ? "Programada" : "Pendente"}{item.dueDate ? ` · ${new Date(`${item.dueDate}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}` : " · Sem vencimento"}</small></span>
+              <b>{money.format(item.amount)}</b>
+            </button>
+          ))}
+          {!financePending.length && <p>Nenhuma conta pendente.</p>}
+        </div>
       </section>
 
       <section className="norium-nora-portrait-card">

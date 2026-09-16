@@ -2068,34 +2068,13 @@ async def decide_proposal(
     return updated
 
 
-PROPOSAL_STATUS_TRANSITIONS: dict[str, set[str]] = {
-    "draft": {"in_review", "approved", "archived"},
-    "in_review": {"approved", "changes_requested", "rejected", "archived"},
-    "changes_requested": {"draft", "in_review", "approved", "archived"},
-    "approved": {"sent", "awaiting_signatures", "expired", "archived"},
-    "rejected": {"draft", "in_review", "archived"},
-    "sent": {"viewed", "negotiating", "accepted", "awaiting_signatures", "signed", "declined", "expired", "archived"},
-    "viewed": {"negotiating", "accepted", "awaiting_signatures", "signed", "declined", "expired", "archived"},
-    "negotiating": {"sent", "accepted", "awaiting_signatures", "signed", "declined", "expired", "archived"},
-    "accepted": {"contracted", "awaiting_signatures", "signed", "archived"},
-    "awaiting_signatures": {"signed", "negotiating", "declined", "expired", "archived"},
-    "signed": {"contracted", "archived"},
-    "declined": {"draft", "archived"},
-    "expired": {"draft", "sent", "archived"},
-    "contracted": {"archived"},
-    "archived": {"draft"},
-}
-
-
 async def change_proposal_status(
     user: dict[str, Any],
     proposal_id: str,
     payload: ProposalStatusChange,
 ) -> dict[str, Any]:
-    tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = await asyncio.to_thread(read_store, tenant_id)
-        index, current = proposal_or_404(store, proposal_id)
+        tenant_id, store, index, current = await find_accessible_document(user, "proposal", proposal_id, "edit")
         if payload.expectedVersion and payload.expectedVersion != int(current.get("version") or 1):
             raise HTTPException(status_code=409, detail="A proposta mudou. Reabra o documento antes de alterar o status.")
         previous = str(current.get("status") or "draft")
@@ -2106,11 +2085,6 @@ async def change_proposal_status(
             raise HTTPException(status_code=422, detail="Gere o contrato vinculado antes de marcar a proposta como convertida.")
         if target == previous:
             return current
-        if target not in PROPOSAL_STATUS_TRANSITIONS.get(previous, set()):
-            raise HTTPException(
-                status_code=409,
-                detail=f'A transicao de "{previous}" para "{target}" nao e permitida.',
-            )
         if target == "approved" and is_team_plan(user) and not can_approve(user):
             raise HTTPException(status_code=403, detail="Somente gestor ou proprietario pode aprovar esta proposta.")
         timestamp = now_iso()

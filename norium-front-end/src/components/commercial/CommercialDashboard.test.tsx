@@ -88,6 +88,10 @@ const commercialData: CommercialData = {
     updatedAt: proposal.updatedAt,
     primaryColor: defaultBranding.primaryColor,
     favorite: false,
+    createdBy: "user-test",
+    createdByName: "Usuario teste",
+    accessRole: "owner",
+    access: { teamPermission: "none", people: [] },
     category: "proposals",
     validUntil: null,
   }],
@@ -135,6 +139,7 @@ describe("CommercialDashboard leve", () => {
         return Promise.resolve({ items: [{ id: "client-1", name: "Cliente Um", company: "Empresa", email: "cliente@empresa.local" }] });
       }
       if (path === "/api/brainstorm/sessions") return Promise.resolve([]);
+      if (path === "/api/team-chat/members") return Promise.resolve({ members: [] });
       return Promise.resolve({});
     });
   });
@@ -314,6 +319,22 @@ describe("CommercialDashboard leve", () => {
       branding: expect.objectContaining({ primaryColor: "#7D3247", secondaryColor: "#C98F86", textColor: "#32242A" }),
       metadata: expect.objectContaining({ fictionalExample: true }),
     }));
+  });
+
+  it("expõe o compartilhamento da equipe na lista e todos os status possíveis", async () => {
+    render(<CommercialDashboard session={session} onOpenNora={vi.fn()} />);
+
+    await screen.findByText("Proposta sob demanda");
+    const statusSelect = screen.getByRole("combobox", { name: "Alterar status de Proposta sob demanda" });
+    expect([...statusSelect.querySelectorAll("option")].map((option) => option.textContent)).toEqual(expect.arrayContaining([
+      "Em aprovacao", "Aprovada", "Rejeitada", "Enviada", "Visualizada", "Em negociacao", "Aceita", "Aguardando assinaturas", "Assinado", "Recusada", "Expirada", "Convertida", "Arquivada",
+    ]));
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Compartilhar Proposta sob demanda com a equipe" }));
+    await waitFor(() => expect(commercialApi.loadProposal).toHaveBeenCalledWith("proposal-1"));
+    expect(await screen.findByRole("dialog", { name: /Compartilhar “Proposta sob demanda”/ })).toBeInTheDocument();
+    expect(screen.getByText("Equipe inteira")).toBeInTheDocument();
+    expect(screen.getByText("Pessoas específicas")).toBeInTheDocument();
   });
 
   it("mantem a foto escolhida na previa e no documento de curriculo", async () => {

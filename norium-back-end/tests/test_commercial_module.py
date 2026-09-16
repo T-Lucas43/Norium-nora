@@ -172,6 +172,10 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException) as read_only:
                 await update_proposal(member, proposal["id"], ProposalUpdate(title="Alteração indevida", expectedVersion=proposal["version"]))
         self.assertEqual(403, read_only.exception.status_code)
+        with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible_members)):
+            with self.assertRaises(HTTPException) as read_only_status:
+                await change_proposal_status(member, proposal["id"], ProposalStatusChange(status="sent", expectedVersion=proposal["version"]))
+        self.assertEqual(403, read_only_status.exception.status_code)
 
         with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible_members)):
             proposal = await update_document_access(
@@ -183,6 +187,9 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible_members)):
             updated = await update_proposal(member, proposal["id"], ProposalUpdate(title="Alteração permitida", expectedVersion=proposal["version"]))
         self.assertEqual("Alteração permitida", updated["title"])
+        with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible_members)):
+            status_updated = await change_proposal_status(member, proposal["id"], ProposalStatusChange(status="sent", expectedVersion=updated["version"]))
+        self.assertEqual("sent", status_updated["status"])
 
     async def test_imported_proposal_edits_and_signed_upload_update_counts(self):
         from app.modules.commercial.pdf_export import build_commercial_pdf
@@ -1136,6 +1143,29 @@ class CommercialModuleTests(unittest.IsolatedAsyncioTestCase):
 
         other_store = read_store(f"other-{self.user['id']}")
         self.assertFalse(other_store["uploadedDocuments"])
+
+    async def test_proposal_status_can_be_changed_directly_to_any_valid_stage(self) -> None:
+        proposal = await create_proposal(
+            self.user,
+            ProposalCreate(
+                clientId=self.client_id,
+                title="Proposta com status direto",
+                contentHtml="<p>Escopo</p>",
+            ),
+        )
+        sent = await change_proposal_status(
+            self.user,
+            proposal["id"],
+            ProposalStatusChange(status="sent", expectedVersion=proposal["version"]),
+        )
+        self.assertEqual(sent["status"], "sent")
+        draft = await change_proposal_status(
+            self.user,
+            proposal["id"],
+            ProposalStatusChange(status="draft", expectedVersion=sent["version"]),
+        )
+        self.assertEqual(draft["status"], "draft")
+        self.assertEqual(draft["events"][0]["metadata"]["previousStatus"], "sent")
 
     async def test_proposal_status_duplication_and_template_crud_are_auditable(self) -> None:
         proposal = await create_proposal(

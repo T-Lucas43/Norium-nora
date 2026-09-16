@@ -56,7 +56,7 @@ class Thresholds:
     state_p99_ms: float
     state_convergence_ms: float
     ghost_removal_seconds: float
-    silent_heartbeat_removal_seconds: float
+    silent_socket_survival_seconds: float
     max_rss_mib: float
     max_rss_delta_mib: float
     max_residual_rss_delta_mib: float
@@ -535,7 +535,7 @@ async def _run_iteration(
     process_id: int,
     measure_silent_timeout: bool,
     ghost_deadline: float,
-    silent_deadline: float,
+    silent_duration: float,
 ) -> dict[str, Any]:
     reset, _ = await _json_request(http, "POST", f"{base_url}/__test__/reset")
     if not reset.get("reset"):
@@ -549,7 +549,8 @@ async def _run_iteration(
     teams = _build_teams(team_count, participants, iteration, ws_base_url)
     clients = [client for load_team in teams for client in load_team.clients]
     ghost_seconds: float | None = None
-    silent_seconds: float | None = None
+    silent_survival_seconds: float | None = None
+    silent_disconnect_seconds: float | None = None
     keepalive_stop = asyncio.Event()
     keepalive_task: asyncio.Task[None] | None = None
 
@@ -662,7 +663,7 @@ async def _run_iteration(
             silent_team = teams[1] if len(teams) > 1 else teams[0]
             candidates = [client for client in silent_team.clients[1:] if not client.closed]
             if not candidates:
-                raise LoadFailure("Nao ha participante para medir expiracao de heartbeat.")
+                raise LoadFailure("Nao ha participante para medir sobrevivencia sem heartbeat.")
             silent_client = candidates[0]
             await _send_event_and_wait_ack(silent_client, silent_team.call_id, "CALL_HEARTBEAT")
             keepalive_clients = [
@@ -676,6 +677,13 @@ async def _run_iteration(
             )
             silent_started = time.perf_counter()
 
+            def silent_present(payload: dict[str, Any]) -> bool:
+                call = next(
+                    (item for item in payload.get("calls", []) if item.get("callId") == silent_team.call_id),
+                    None,
+                )
+                return isinstance(call, dict) and silent_client.user_id in call.get("participantIds", [])
+
             def silent_removed(payload: dict[str, Any]) -> bool:
                 call = next(
                     (item for item in payload.get("calls", []) if item.get("callId") == silent_team.call_id),
@@ -683,18 +691,31 @@ async def _run_iteration(
                 )
                 return isinstance(call, dict) and silent_client.user_id not in call.get("participantIds", [])
 
+            # Um socket ativo comprova presenca mesmo quando timers do navegador
+            # param de enviar CALL_HEARTBEAT em segundo plano.
+            while True:
+                state = await _fixture_state(http, base_url, silent_team.team_id)
+                if not silent_present(state):
+                    raise LoadFailure(f"Socket vivo de {silent_client.user_id} foi removido sem heartbeat.")
+                elapsed = time.perf_counter() - silent_started
+                if elapsed >= silent_duration:
+                    break
+                await asyncio.sleep(min(LIFECYCLE_POLL_INTERVAL_SECONDS, silent_duration - elapsed))
+            silent_survival_seconds = time.perf_counter() - silent_started
+            await silent_client.close()
+            disconnected_at = time.perf_counter()
             await _poll_until(
                 lambda: _fixture_state(http, base_url, silent_team.team_id),
                 silent_removed,
-                deadline_seconds=silent_deadline,
+                deadline_seconds=ghost_deadline,
                 interval_seconds=LIFECYCLE_POLL_INTERVAL_SECONDS,
-                description=f"expiracao sem heartbeat de {silent_client.user_id}",
+                description=f"remocao apos desconexao de {silent_client.user_id}",
             )
-            silent_seconds = time.perf_counter() - silent_started
+            silent_disconnect_seconds = time.perf_counter() - disconnected_at
 
         final_state = await _fixture_state(http, base_url, teams[0].team_id)
         retained_after_load = int(final_state.get("connectionCount") or 0)
-        expected_after_abort = len(clients) - 1
+        expected_after_abort = len(clients) - 1 - int(measure_silent_timeout)
         if retained_after_load != expected_after_abort:
             raise LoadFailure(
                 f"Apos abort esperado {expected_after_abort} sockets, fixture reportou {retained_after_load}."
@@ -726,7 +747,8 @@ async def _run_iteration(
         "stateQueryMs": state_ms,
         "stateConvergenceMs": state_convergence_ms,
         "ghostRemovalSeconds": ghost_seconds,
-        "silentHeartbeatRemovalSeconds": silent_seconds,
+        "silentSocketSurvivalSeconds": silent_survival_seconds,
+        "silentDisconnectRemovalSeconds": silent_disconnect_seconds,
         "memory": {
             "baselineRssMiB": round(baseline_rss / mib, 3),
             "peakRssMiB": round(peak_rss / mib, 3),
@@ -743,10 +765,15 @@ def _aggregate(iterations: list[dict[str, Any]]) -> dict[str, Any]:
         return [float(value) for iteration in iterations for value in iteration[name]]
 
     ghost_values = [float(item["ghostRemovalSeconds"]) for item in iterations]
-    silent_values = [
-        float(item["silentHeartbeatRemovalSeconds"])
+    silent_survival_values = [
+        float(item["silentSocketSurvivalSeconds"])
         for item in iterations
-        if item["silentHeartbeatRemovalSeconds"] is not None
+        if item["silentSocketSurvivalSeconds"] is not None
+    ]
+    silent_disconnect_values = [
+        float(item["silentDisconnectRemovalSeconds"])
+        for item in iterations
+        if item["silentDisconnectRemovalSeconds"] is not None
     ]
     return {
         "connections": {
@@ -760,7 +787,8 @@ def _aggregate(iterations: list[dict[str, Any]]) -> dict[str, Any]:
         "stateQueryMs": _distribution(flatten("stateQueryMs")),
         "stateConvergenceMs": _distribution(flatten("stateConvergenceMs")),
         "ghostRemovalSeconds": _distribution(ghost_values),
-        "silentHeartbeatRemovalSeconds": _distribution(silent_values),
+        "silentSocketSurvivalSeconds": _distribution(silent_survival_values),
+        "silentDisconnectRemovalSeconds": _distribution(silent_disconnect_values),
         "memory": {
             "maxPeakRssMiB": max(float(item["memory"]["peakRssMiB"]) for item in iterations),
             "maxPeakDeltaMiB": max(float(item["memory"]["peakDeltaMiB"]) for item in iterations),
@@ -809,10 +837,12 @@ def _evaluate(aggregate: dict[str, Any], thresholds: Thresholds) -> list[str]:
         float(aggregate["ghostRemovalSeconds"]["max"]),
         thresholds.ghost_removal_seconds,
     )
+    if float(aggregate["silentSocketSurvivalSeconds"]["min"]) < thresholds.silent_socket_survival_seconds:
+        violations.append("socket vivo nao sobreviveu sem heartbeat pelo tempo minimo")
     at_most(
-        "expiracao heartbeat max s",
-        float(aggregate["silentHeartbeatRemovalSeconds"]["max"]),
-        thresholds.silent_heartbeat_removal_seconds,
+        "remocao apos desconexao max s",
+        float(aggregate["silentDisconnectRemovalSeconds"]["max"]),
+        thresholds.ghost_removal_seconds,
     )
     at_most("RSS pico MiB", float(aggregate["memory"]["maxPeakRssMiB"]), thresholds.max_rss_mib)
     at_most(
@@ -843,7 +873,7 @@ def _thresholds(arguments: argparse.Namespace) -> Thresholds:
         state_p99_ms=arguments.state_p99_ms,
         state_convergence_ms=arguments.state_convergence_ms,
         ghost_removal_seconds=arguments.ghost_removal_seconds,
-        silent_heartbeat_removal_seconds=arguments.silent_heartbeat_removal_seconds,
+        silent_socket_survival_seconds=arguments.silent_socket_survival_seconds,
         max_rss_mib=arguments.max_rss_mib,
         max_rss_delta_mib=arguments.max_rss_delta_mib,
         max_residual_rss_delta_mib=arguments.max_residual_rss_delta_mib,
@@ -910,7 +940,7 @@ async def _run(arguments: argparse.Namespace) -> tuple[dict[str, Any], ManagedFi
                     process_id=process_id,
                     measure_silent_timeout=iteration == 0,
                     ghost_deadline=thresholds.ghost_removal_seconds + 1.0,
-                    silent_deadline=thresholds.silent_heartbeat_removal_seconds + 1.0,
+                    silent_duration=thresholds.silent_socket_survival_seconds,
                 ))
         aggregate = _aggregate(iterations)
         violations = _evaluate(aggregate, thresholds)
@@ -961,9 +991,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--state-convergence-ms", type=float, default=_env_float("TEAM_CALL_LOAD_STATE_CONVERGENCE_MS", 2000))
     parser.add_argument("--ghost-removal-seconds", type=float, default=_env_float("TEAM_CALL_LOAD_GHOST_SECONDS", 12))
     parser.add_argument(
-        "--silent-heartbeat-removal-seconds",
+        "--silent-socket-survival-seconds", "--silent-heartbeat-removal-seconds",
+        dest="silent_socket_survival_seconds",
         type=float,
-        default=_env_float("TEAM_CALL_LOAD_SILENT_HEARTBEAT_SECONDS", 36),
+        default=_env_float("TEAM_CALL_LOAD_SILENT_SOCKET_SECONDS", _env_float("TEAM_CALL_LOAD_SILENT_HEARTBEAT_SECONDS", 36)),
     )
     parser.add_argument("--max-rss-mib", type=float, default=_env_float("TEAM_CALL_LOAD_MAX_RSS_MIB", 768))
     parser.add_argument("--max-rss-delta-mib", type=float, default=_env_float("TEAM_CALL_LOAD_MAX_RSS_DELTA_MIB", 256))

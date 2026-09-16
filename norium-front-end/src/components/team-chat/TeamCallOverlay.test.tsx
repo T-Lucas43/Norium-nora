@@ -482,6 +482,20 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByText("175%")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Fixar transmissão de Fernando" }));
     expect(document.querySelector('[data-tile="screen"]')).toHaveAttribute("data-pinned", "true");
+    const singleStage = document.querySelector(".team-call-stage");
+    expect(singleStage).toHaveClass("team-call-stage-single-screen");
+    expect(singleStage).toHaveAttribute("data-screen-count", "1");
+    expect(Array.from(singleStage!.querySelectorAll("[data-tile]")).map((tile) => tile.getAttribute("data-tile"))).toEqual(["screen", "member"]);
+    const multiScreenCall = {
+      ...call,
+      remoteStreams: [...call.remoteStreams, { userId: "member2", stream: remoteStream }],
+      remoteScreenSharingIds: ["member", "member2"],
+    } as unknown as ReturnTypeOfTeamCall;
+    rerender(<TeamCallOverlay {...sessionProps(multiScreenCall)} {...props} />);
+    const multiStage = document.querySelector(".team-call-stage");
+    expect(multiStage).toHaveClass("team-call-stage-multi-screen");
+    expect(multiStage).toHaveAttribute("data-screen-count", "2");
+    expect(Array.from(multiStage!.querySelectorAll("[data-tile]")).map((tile) => tile.getAttribute("data-tile"))).toEqual(["screen", "member", "screen", "member"]);
     const oldVideo = screen.getByLabelText("Tela compartilhada por Fernando");
     const cameraOffCall = { ...call, remoteScreenSharingIds: [], remoteCameraEnabled: { member: false } } as unknown as ReturnTypeOfTeamCall;
     rerender(<TeamCallOverlay {...sessionProps(cameraOffCall)} {...props} />);

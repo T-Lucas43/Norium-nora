@@ -593,6 +593,33 @@ class CallCoordinator:
                 await self._persist_locked(actor.team_id, runtime)
         await self._publish(actor.team_id, effects)
 
+    async def keepalive_connection(self, actor: CallActor) -> None:
+        """Keep a live socket's call lease even when browser timers are throttled.
+
+        Only the session bound to this exact connection may be refreshed. A
+        second tab or a newly reconnecting socket cannot revive an old lease.
+        """
+        connection_id = _connection_id(actor)
+        runtime = self._runtime(actor.team_id)
+        async with runtime.lock:
+            effects = await self._prepare_locked(actor.team_id, runtime, refresh=True, expire=False)
+            now = self._now()
+            changed = False
+            for call in runtime.calls.values():
+                session = _participant_sessions(call).get(actor.user_id)
+                if (not isinstance(session, dict)
+                    or session.get("connectionId") != connection_id
+                    or session.get("disconnectedAt")):
+                    continue
+                session["lastHeartbeatAt"] = now.isoformat()
+                if str(call.get("hostUserId") or "") == actor.user_id:
+                    call["lastHeartbeatAt"] = now.isoformat()
+                    call["hostLeaseExpiresAt"] = (now + HOST_LEASE_DURATION).isoformat()
+                changed = True
+            if changed:
+                await self._persist_locked(actor.team_id, runtime)
+        await self._publish(actor.team_id, effects)
+
     async def reconcile(self, actor: CallActor) -> None:
         runtime = self._runtime(actor.team_id)
         async with runtime.lock:

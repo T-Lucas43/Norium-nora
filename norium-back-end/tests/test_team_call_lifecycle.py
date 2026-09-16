@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from fastapi import HTTPException, WebSocketDisconnect
 from app.modules.team import router as team
@@ -233,6 +233,31 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         socket.close.assert_awaited_once_with(code=4403)
         coordinator.connection_closed.assert_awaited_once()
+
+    async def test_connected_socket_renews_call_before_reconciliation(self):
+        socket = MagicMock()
+        socket.accept = AsyncMock()
+        socket.send_json = AsyncMock()
+        socket.receive_text = AsyncMock(side_effect=[asyncio.TimeoutError(), WebSocketDisconnect()])
+        coordinator = MagicMock()
+        coordinator.keepalive_connection = AsyncMock()
+        coordinator.reconcile = AsyncMock()
+        coordinator.active_calls_for = AsyncMock(return_value=[])
+        coordinator.connection_closed = AsyncMock()
+        order = MagicMock()
+        order.attach_mock(coordinator.keepalive_connection, "keepalive")
+        order.attach_mock(coordinator.reconcile, "reconcile")
+        with (
+            patch.object(team, "user_from_websocket_ticket", AsyncMock(return_value=self.owner)),
+            patch.object(team, "emit_due_meeting_reminders", AsyncMock()),
+            patch.object(team, "read_user_store", AsyncMock(return_value={"users": [self.owner]})),
+            patch.object(team, "_reconcile_closed_connection", AsyncMock()),
+            patch.object(team, "call_coordinator", return_value=coordinator),
+        ):
+            await team.team_chat_ws(socket, "test-ticket")
+        coordinator.keepalive_connection.assert_awaited_once()
+        coordinator.reconcile.assert_awaited_once()
+        self.assertEqual([call.keepalive(ANY), call.reconcile(ANY)], order.mock_calls)
 
     async def test_mesh_capacity_error_over_websocket_has_stable_code(self):
         with (

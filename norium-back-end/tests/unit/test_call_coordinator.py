@@ -524,6 +524,42 @@ class CallCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         ended = [payload for _, _, payload in self.publisher.sent if payload["type"] == "CALL_END"]
         self.assertEqual("host_lease_expired", ended[-1]["reason"])
 
+    async def test_live_sockets_keep_call_running_beyond_fifteen_minutes_without_browser_timers(self) -> None:
+        owner = CallActor(
+            user_id="owner", team_id="owner", name="Owner",
+            attributes={"connectionId": "owner-connection"},
+        )
+        member = CallActor(
+            user_id="member", team_id="owner", name="Member",
+            attributes={"connectionId": "member-connection"},
+        )
+        await self.coordinator.handle_event(owner, event("CALL_INVITE"))
+        await self.coordinator.handle_event(member, event("CALL_ACCEPT", client="member"))
+        for _ in range(48):
+            self.clock.advance(seconds=20)
+            await self.coordinator.keepalive_connection(owner)
+            await self.coordinator.keepalive_connection(member)
+            await self.coordinator.reconcile(owner)
+        calls = await self.coordinator.active_calls_for(owner)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(["member", "owner"], calls[0]["joinedUserIds"])
+        self.assertFalse(any(payload["type"] == "CALL_END" for _, _, payload in self.publisher.sent))
+
+    async def test_other_socket_cannot_keep_host_lease_alive(self) -> None:
+        owner = CallActor(
+            user_id="owner", team_id="owner", name="Owner",
+            attributes={"connectionId": "owner-connection"},
+        )
+        other_tab = CallActor(
+            user_id="owner", team_id="owner", name="Owner",
+            attributes={"connectionId": "other-connection"},
+        )
+        await self.coordinator.handle_event(owner, event("CALL_INVITE"))
+        self.clock.advance(seconds=36)
+        await self.coordinator.keepalive_connection(other_tab)
+        await self.coordinator.reconcile(other_tab)
+        self.assertEqual([], await self.coordinator.active_calls_for(owner))
+
     async def test_participant_without_heartbeat_is_removed_while_host_stays_alive(self) -> None:
         connected_owner = CallActor(
             user_id="owner", team_id="owner", name="Owner",

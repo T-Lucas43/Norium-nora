@@ -1,5 +1,5 @@
 import "./teamCall.css";
-import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { LayoutGrid, Camera, CameraOff, Circle, Clock3, Download, FlipHorizontal2, Hand, Headphones, Maximize2, Minimize2, MessageSquareText, Mic, MicOff, MonitorUp, Move, Paperclip, PhoneOff, Pin, PinOff, Send, Settings2, SlidersHorizontal, SmilePlus, Users, Video, Volume2, VolumeX, Wifi, WifiOff, X } from "lucide-react";
 import TeamCallStudio from "./TeamCallStudio";
@@ -266,6 +266,16 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
     ...streams.map((item) => item.userId),
   ]));
   const tileCount = streams.reduce((total, item) => total + (call.remoteScreenSharingIds.includes(item.userId) ? 2 : 1), 0);
+  const screenCount = streams.filter((item) => call.remoteScreenSharingIds.includes(item.userId)).length;
+  const stageLayout = screenCount > 1 ? "team-call-stage-multi-screen"
+    : screenCount === 1 ? "team-call-stage-single-screen"
+      : pinned && tileCount > 1 ? "team-call-stage-pinned" : "";
+  const stageStyle = {
+    "--team-call-rows": Math.max(1, Math.ceil(tileCount / 2)),
+    "--team-call-side-rows": Math.max(1, tileCount - 1),
+    "--team-call-screen-columns": Math.max(1, screenCount),
+    "--team-call-member-rows": Math.max(1, Math.ceil(streams.length / Math.max(1, screenCount))),
+  } as CSSProperties;
   const togglePanel = (panel: "chat" | "people" | "devices") => {
     setChatOpen(panel === "chat" ? !chatOpen : false);
     setPeopleOpen(panel === "people" ? !peopleOpen : false);
@@ -319,7 +329,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
       {Object.keys(raisedHands).length > 0 && <div className="team-call-hands flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs" role="status" aria-label="Mãos levantadas"><Hand size={16} />{Object.entries(raisedHands).sort((a, b) => a[1].localeCompare(b[1])).map(([id], index) => <span key={id}>{index + 1}. {id === currentUserId ? "Você" : memberById.get(id)?.nome || "Participante"}</span>)}</div>}
       <div className={`team-call-content flex min-h-0 flex-1 ${studioOpen ? "team-call-content-studio" : ""}`}>
         {snapshot.clientId && <TeamCallStudio beforeEndRef={beforeStudioEndRef} key={call.active.callId} callId={call.active.callId!} clientId={snapshot.clientId} currentUserId={currentUserId} isHost={call.isHost} visible={studioOpen} onOpen={() => { setStudioOpen(true); setChatOpen(false); setPeopleOpen(false); }} onClose={() => setStudioOpen(false)} />}
-        <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 overflow-auto p-3 ${pinned && tileCount > 1 ? "team-call-stage-pinned" : tileCount > 1 ? "md:grid-cols-2" : ""}`}>
+        <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 p-3 ${stageLayout} ${!stageLayout && tileCount > 1 ? "md:grid-cols-2" : ""}`} style={stageStyle} data-screen-count={screenCount}>
           {call.recording && <div role="status" aria-live="polite" className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /><span>REC {durationLabel(call.recordingElapsedSeconds)}</span><span className="font-semibold text-rose-100">Todos foram avisados</span>{call.isHost && call.recordingUploadState !== "idle" && <span className="font-semibold text-rose-100">{call.recordingUploadState === "retrying" ? "Tentando envio novamente" : call.recordingUploadState === "finalizing" ? "Finalizando" : `Upload ${call.recordingUploadProgress}% · ${bytesLabel(call.recordingUploadedBytes)} enviados${call.recordingPendingBytes ? ` · ${bytesLabel(call.recordingPendingBytes)} pendentes` : ""}`}</span>}</div>}
           {streams.length ? streams.flatMap((item) => {
             const sharing = call.remoteScreenSharingIds.includes(item.userId);
@@ -342,7 +352,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
               <div className="relative min-h-36 flex-1 overflow-hidden"><RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing videoEnabled /><span className="team-call-screen-label absolute left-3 top-3 rounded-lg px-3 py-1.5 text-xs font-black"><MonitorUp size={14} /> Tela de {participantName}</span></div>
               <div className="team-call-participant-controls flex flex-wrap items-center gap-2 border-t p-2"><strong className="mr-auto max-w-44 truncate text-xs">Transmissão de {participantName}</strong><button type="button" aria-label={`${settings.screenMuted ? "Ouvir" : "Silenciar"} áudio da transmissão de ${participantName} para mim`} aria-pressed={settings.screenMuted} onClick={() => updateAudio(item.userId, { screenMuted: !settings.screenMuted })} className="rounded-lg p-2 hover:bg-white/10">{settings.screenMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button><button type="button" onClick={() => togglePin(item.userId, "screen")} aria-pressed={screenPinned} aria-label={`${screenPinned ? "Desafixar" : "Fixar"} transmissão de ${participantName}`} className="flex items-center gap-1 rounded-lg p-2 text-xs hover:bg-white/10">{screenPinned ? <PinOff size={15} /> : <Pin size={15} />} Transmissão</button></div>
             </section>;
-            return [memberTile, screenTile];
+            return [screenTile, memberTile];
           }) : <WaitingStage title={call.active.title} />}
           {(call.screenStream || (call.localStream && !call.cameraOff)) && <div className="team-call-local-previews pointer-events-none absolute bottom-28 right-5 z-20 flex flex-col items-end gap-2">
             {call.screenStream && <DraggableScreenPreview stream={call.screenStream} />}

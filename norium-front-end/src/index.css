@@ -3655,6 +3655,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   display:grid;
   min-width:0;
   grid-template-columns:1.18fr 1fr .82fr;
+  align-items:stretch;
   gap:12px;
 }
 
@@ -3671,7 +3672,11 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-recent-activity{
-  min-height:318px;
+  display:flex;
+  flex-direction:column;
+  height:318px;
+  min-height:0;
+  overflow:hidden;
   padding:16px!important;
 }
 
@@ -3680,7 +3685,9 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-recent-activity > div:nth-child(2){
-  max-height:246px!important;
+  min-height:0;
+  flex:1;
+  max-height:none!important;
 }
 
 .norium-recent-activity > div:nth-child(2) button{
@@ -3716,13 +3723,10 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-task-status{
   position:relative;
   display:flex;
-  min-height:318px;
+  height:318px;
+  min-height:0;
   flex-direction:column;
   padding:0 14px 12px;
-}
-
-.norium-task-status{
-  height:318px;
 }
 
 .norium-today-agenda-list{
@@ -4124,7 +4128,6 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 
   .norium-task-status{
     grid-column:1 / -1;
-    min-height:318px;
   }
 }
 

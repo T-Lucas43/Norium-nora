@@ -1852,7 +1852,6 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
         await websocket.send_json({"type": "CONNECTED", "onlineUserIds": manager.online_users(team_id)})
         await emit_due_meeting_reminders(team_id)
         # Reconectar sincroniza a lista, nunca dispara novamente o convite/toque.
-        await call_coordinator().reconcile(actor)
         calls = await call_coordinator().active_calls_for(actor)
         await websocket.send_json({
             "type": "CALLS_STATE",
@@ -1867,7 +1866,6 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             except asyncio.TimeoutError:
                 next_reconcile = time.monotonic() + CALL_RECONCILE_INTERVAL_SECONDS
                 await emit_due_meeting_reminders(team_id)
-                await call_coordinator().reconcile(actor)
                 live_directory = await read_user_store()
                 live_user = next((item for item in live_directory.get("users", []) if str(item.get("id")) == user_id), None)
                 if not manager.socket_authorized(websocket, live_user, team_id):
@@ -1877,6 +1875,11 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                     with contextlib.suppress(RuntimeError):
                         await websocket.close(code=4403)
                     return
+                # O socket vivo tambem comprova presenca. Timers do navegador
+                # podem ser reduzidos em abas em segundo plano e nao devem
+                # encerrar uma reuniao ainda conectada.
+                await call_coordinator().keepalive_connection(actor)
+                await call_coordinator().reconcile(actor)
                 # Cada conexao reconcilia seu estado; nao multiplica snapshots
                 # para toda a equipe a cada timeout de cada aba aberta.
                 calls = await call_coordinator().active_calls_for(actor)

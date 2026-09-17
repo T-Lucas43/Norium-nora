@@ -322,6 +322,10 @@ def now_iso() -> str:
 
 
 def has_team_chat_access(user: dict[str, Any]) -> bool:
+    # Auth resolves this from the live directory for HTTP, websocket tickets,
+    # fanout and call membership. Missing capability is never an authorization.
+    if not user.get("teamChatEnabled", False):
+        return False
     permissions = user.get("permissions") if isinstance(user.get("permissions"), dict) else {}
     return bool(user.get("systemAdmin") or permissions.get("chat") or permissions.get("equipe"))
 
@@ -1890,6 +1894,13 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                 continue
             if not raw:
                 continue
+            live_directory = await read_user_store()
+            live_user = next((item for item in live_directory.get("users", []) if str(item.get("id")) == user_id), None)
+            if not manager.socket_authorized(websocket, live_user, team_id):
+                with contextlib.suppress(RuntimeError):
+                    await websocket.close(code=4403)
+                return
+            user = live_user
             if not message_budget.take():
                 call_metrics.increment("socket_rate_errors")
                 await websocket.close(code=1008)

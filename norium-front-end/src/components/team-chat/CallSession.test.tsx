@@ -231,6 +231,22 @@ afterEach(() => {
 });
 
 describe("CallSession", () => {
+  it("does not connect or request ICE when participation is disabled", async () => {
+    render(<CallSessionProvider session={authSession} enabled={false}><Probe /></CallSessionProvider>);
+    await act(async () => { await Promise.resolve(); });
+    expect(Socket.instances).toHaveLength(0);
+    expect(mocked.apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("closes the active socket when participation is revoked", async () => {
+    const view = render(<CallSessionProvider session={authSession} enabled><Probe /></CallSessionProvider>);
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    act(() => Socket.instances[0].open());
+    view.rerender(<CallSessionProvider session={authSession} enabled={false}><Probe /></CallSessionProvider>);
+    expect(Socket.instances[0].close).toHaveBeenCalledOnce();
+    expect(mocked.runtime?.revokeAccess).toHaveBeenCalledOnce();
+  });
+
   it("carrega credenciais ICE temporarias sem expo-las no snapshot", async () => {
     render(<CallSessionProvider session={authSession}><IceProbe /></CallSessionProvider>);
 

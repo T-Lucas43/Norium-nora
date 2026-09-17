@@ -248,6 +248,7 @@ const CallSessionContext = createContext<CallSessionContextValue | null>(null);
 
 type CallSessionProviderProps = {
   session: AuthSession;
+  enabled?: boolean;
   children: ReactNode;
   resolveSocketUrl?: (session: AuthSession) => Promise<string>;
   onIncomingCall?: (event: TeamSocketEvent) => void;
@@ -265,6 +266,7 @@ export function CallSessionProvider(props: CallSessionProviderProps) {
 
 function ActiveCallSessionProvider({
   session,
+  enabled = true,
   children,
   onIncomingCall,
   onCallDismissed,
@@ -321,6 +323,13 @@ function ActiveCallSessionProvider({
   runtimeRef.current = runtime;
 
   useEffect(() => {
+    if (!enabled) {
+      runtimeRef.current?.revokeAccess("Seu acesso à chamada foi revogado.");
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let renewalTimer: number | null = null;
     let currentExpiry = 0;
@@ -378,7 +387,7 @@ function ActiveCallSessionProvider({
       cancelled = true;
       if (renewalTimer !== null) window.clearTimeout(renewalTimer);
     };
-  }, [session.token]);
+  }, [enabled, session.token]);
 
   useEffect(() => {
     const prepare = () => {
@@ -403,6 +412,7 @@ function ActiveCallSessionProvider({
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     let reconnectTimer: number | null = null;
     const listeners = listenersRef.current;
@@ -520,7 +530,7 @@ function ActiveCallSessionProvider({
       replayableEvents.clear();
       seenIncomingCallIds.clear();
     };
-  }, [publish, resolveSocketUrl, session, session.token, session.user.id]);
+  }, [enabled, publish, resolveSocketUrl, session, session.token, session.user.id]);
 
   useEffect(() => {
     if (runtime.incoming && !runtime.active) {

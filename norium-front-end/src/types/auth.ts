@@ -44,6 +44,7 @@ export interface NoriumUser {
   systemAdmin: boolean;
   systemAdminRole?: SystemAdminRole | null;
   teamOwnerId?: string | null;
+  teamChatEnabled?: boolean;
   createdBy?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -169,4 +170,8 @@ export function canUse(user: NoriumUser | null | undefined, permission: Permissi
   if (!user) return false;
   if (user.systemAdmin) return true;
   return Boolean(normalizePermissions(user.permissions, user.role === "owner" ? ownerPermissions : defaultMemberPermissions)[permission]);
+}
+
+export function canParticipateInTeamChat(user: NoriumUser | null | undefined): boolean {
+  return user?.status === "ativo" && user.teamChatEnabled === true;
 }

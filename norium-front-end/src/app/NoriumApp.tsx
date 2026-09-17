@@ -6,7 +6,7 @@ import Sidebar from "../components/layout/Sidebar";
 import SystemNotificationToasts from "../components/notifications/SystemNotificationToasts";
 import { useWebSockets } from "../hooks/useWebSockets";
 import type { AppMode, AuthSession, PermissionKey } from "../types/auth";
-import { canUse } from "../types/auth";
+import { canParticipateInTeamChat, canUse } from "../types/auth";
 import { applyNoriumTheme } from "../utils/theme";
 import { authJson } from "../utils/authApi";
 import { CallSessionProvider } from "../components/team-chat/CallSession";
@@ -17,6 +17,7 @@ import { useOperatorProfile } from "./hooks/useOperatorProfile";
 import {
   ACTIVE_TAB_STORAGE,
   canonicalTab,
+  canAccessModule,
   initialTab,
   navigateNoriumTab,
   PRIMARY_TABS,
@@ -107,6 +108,7 @@ export default function NoriumApp() {
   );
 
   const currentUser = authSession?.user ?? null;
+  const teamChatEnabled = canParticipateInTeamChat(currentUser);
 
   useEffect(() => {
     const syncHash = () => {
@@ -137,8 +139,8 @@ export default function NoriumApp() {
     [currentUser],
   );
   const canAccessTab = useCallback(
-    (tab: string) => canAccessPermission(TAB_PERMISSIONS[tab] ?? null),
-    [canAccessPermission],
+    (tab: string) => canAccessModule(currentUser, tab),
+    [currentUser],
   );
   const allowedTabs = useMemo(
     () => PRIMARY_TABS.filter((tab) => canAccessTab(tab)),
@@ -301,6 +303,7 @@ export default function NoriumApp() {
     return (
       <CallSessionProvider
         session={authSession}
+        enabled={teamChatEnabled}
         onTeamEvent={handleTeamSocketEvent}
         onCallDismissed={dismissCallNotifications}
         onIncomingCall={() => setTeamChatOpen(true)}
@@ -319,6 +322,7 @@ export default function NoriumApp() {
   return (
     <CallSessionProvider
       session={authSession}
+      enabled={teamChatEnabled}
       onTeamEvent={handleTeamSocketEvent}
       onCallDismissed={dismissCallNotifications}
       onIncomingCall={() => {
@@ -393,7 +397,7 @@ export default function NoriumApp() {
           currentUser={currentUser}
           allowedTabs={allowedTabs}
           canUseNora={canAccessPermission("nora")}
-          canUseTeamChat={canAccessPermission("chat")}
+          canUseTeamChat={teamChatEnabled}
           teamChatUnread={teamChatUnreadCount}
         />
 
@@ -427,7 +431,7 @@ export default function NoriumApp() {
             onRefreshEvents={() => void refreshEvents()}
             onSessionUpdate={updateSession}
           />
-          {canAccessPermission("chat") && (teamChatMounted || teamChatOpen || activeTab === "Chat da Equipe") && (
+          {teamChatEnabled && (teamChatMounted || teamChatOpen || activeTab === "Chat da Equipe") && (
             <Suspense fallback={null}>
               <TeamChatDrawer
                 initialThreadId={teamThreadToOpen}
@@ -435,7 +439,7 @@ export default function NoriumApp() {
                 key={`team-chat-${currentUser?.id || "anonymous"}`}
                 open={teamChatOpen || activeTab === "Chat da Equipe"}
                 variant={activeTab === "Chat da Equipe" ? "page" : "drawer"}
-                onClose={() => { setTeamChatOpen(false); if (activeTab === "Chat da Equipe") navigateTab("Equipe"); }}
+                onClose={() => { setTeamChatOpen(false); if (activeTab === "Chat da Equipe") navigateTab("Dashboard"); }}
                 session={authSession}
                 onUnread={addTeamChatUnread}
                 onOpenNora={openNora}

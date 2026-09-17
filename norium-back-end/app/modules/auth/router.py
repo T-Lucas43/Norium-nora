@@ -32,6 +32,7 @@ from app.core.security import (
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.request_context import normalize_workspace_id, set_ai_user_id
 from app.core.tenant import get_system_db_path, read_account_db, read_json_file, write_json_file
+from app.infrastructure.persistence.json_repository import PersistenceError
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 USERS_DB_PATH = Path(get_system_db_path("usuarios"))
@@ -349,7 +350,6 @@ ROUTE_PERMISSIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("/api/marketplace", ("marketplace",)),
     ("/api/modelos-ia", ("modelos",)),
     ("/api/brainstorm", ("equipe",)),
-    ("/api/team-chat", ("equipe",)),
     ("/api/plataforma", ("equipe",)),
     ("/api/clientes", ("central",)),
     ("/api/operacao", ("dashboard",)),
@@ -361,6 +361,12 @@ ROUTE_PERMISSIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def assert_route_permissions(user: dict[str, Any], path: str) -> None:
+    if path == "/api/team-chat" or path.startswith("/api/team-chat/"):
+        # Derived from the current directory on every authentication, including
+        # the idempotency replay guard. This capability never grants management.
+        if not user.get("teamChatEnabled", False):
+            raise HTTPException(status_code=403, detail="Chat interno nao liberado para esta conta.")
+        return
     permissions = effective_permissions(user)
     for prefix, required in ROUTE_PERMISSIONS:
         if path.startswith(prefix) and not all(permissions.get(key, False) for key in required):
@@ -561,7 +567,7 @@ def ensure_team_profiles(store: dict[str, Any]) -> dict[str, Any]:
         if isinstance(item, dict)
     }
     for member in store.get("users", []):
-        if not isinstance(member, dict) or member.get("role") == "owner" or member.get("teamOwnerId"):
+        if not isinstance(member, dict) or member.get("role") == "owner" or "teamOwnerId" in member:
             continue
         creator_id = str(member.get("createdBy") or "").strip()
         creator = users_by_id.get(creator_id)
@@ -571,8 +577,7 @@ def ensure_team_profiles(store: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_user_store(store: dict[str, Any]) -> dict[str, Any]:
-    if not isinstance(store.get("users"), list):
-        store["users"] = []
+    validate_user_store(store)
     users = store["users"]
     ensure_admin_roles(store)
     for item in users:
@@ -583,40 +588,117 @@ def normalize_user_store(store: dict[str, Any]) -> dict[str, Any]:
     return ensure_team_profiles(store)
 
 
+def validate_user_store(store: Any, path: Path | None = None) -> None:
+    """Reject incompatible records before a normalizer can discard evidence."""
+    source = path if path is not None else USERS_DB_PATH
+
+    def invalid() -> None:
+        raise PersistenceError(source, "schema")
+
+    if not isinstance(store, dict) or not isinstance(store.get("users"), list):
+        invalid()
+    seen: set[str] = set()
+    for user in store["users"]:
+        if not isinstance(user, dict):
+            invalid()
+        user_id = user.get("id")
+        if not isinstance(user_id, str) or not user_id.strip() or user_id in seen:
+            invalid()
+        seen.add(user_id)
+        for key, allowed in (("role", {"owner", "member"}),
+                             ("plan", {"free", "individual", "equipe", "enterprise"}),
+                             ("status", {"ativo", "inativo"}),
+                             ("systemAdminRole", {"owner", "assistant", None})):
+            if key in user and (not isinstance(user[key], (str, type(None))) or user[key] not in allowed):
+                invalid()
+        for key in ("teamOwnerId", "createdBy"):
+            if key in user and user[key] is not None and not isinstance(user[key], str):
+                invalid()
+        if "systemAdmin" in user and not isinstance(user["systemAdmin"], bool):
+            invalid()
+        version = user.get("sessionVersion", 0)
+        if (isinstance(version, bool) or not isinstance(version, (int, str))
+                or (isinstance(version, str) and not version.isdecimal()) or int(version) < 0):
+            invalid()
+        if "permissions" in user and (not isinstance(user["permissions"], dict)
+                                      or any(not isinstance(value, bool) for value in user["permissions"].values())):
+            invalid()
+    for key in ("teams", "plans", "adminAudit", "teamRoles"):
+        if key in store and (not isinstance(store[key], list) or any(not isinstance(item, dict) for item in store[key])):
+            invalid()
+    if "systemOwnerId" in store and store["systemOwnerId"] is not None and not isinstance(store["systemOwnerId"], str):
+        invalid()
+
+
+def can_participate_team_chat(user: dict[str, Any], store: dict[str, Any]) -> bool:
+    """Participation follows the active sponsoring owner, not management rights."""
+    if user.get("status") != "ativo":
+        return False
+    if is_system_admin(user):
+        return True
+    permissions = effective_permissions(user)
+    if not (permissions.get("chat") or permissions.get("equipe")):
+        return False
+    owner_id = str(user.get("teamOwnerId") or "")
+    owner = find_user(store, owner_id) if owner_id else user
+    return bool(owner and owner.get("role") == "owner" and owner.get("status") == "ativo"
+                and owner.get("plan") in {"equipe", "enterprise"})
+
+
+def refresh_team_capabilities(store: dict[str, Any]) -> dict[str, Any]:
+    for user in store["users"]:
+        user["teamChatEnabled"] = can_participate_team_chat(user, store)
+    return store
+
+
 async def read_user_store() -> dict[str, Any]:
     def load() -> dict[str, Any]:
-        if not USERS_DB_PATH.exists():
+        try:
+            USERS_DB_PATH.stat()
+        except FileNotFoundError:
             legacy_users = BASE_DIR / "usuarios_db.json"
             # Um diretorio explicitamente configurado representa um ambiente
             # isolado (producao, homologacao ou QA). Nunca o contamine com o
             # banco legado empacotado no codigo-fonte.
             allow_legacy_import = not os.getenv("NORIUM_DATA_DIR", "").strip()
-            if allow_legacy_import and legacy_users.exists():
-                payload = read_json_file(legacy_users, {})
-                if isinstance(payload, dict):
+            if allow_legacy_import:
+                payload = read_json_file(legacy_users, None)
+                if payload is not None:
+                    validate_user_store(payload, legacy_users)
                     store = normalize_user_store(payload)
                     write_json_file(USERS_DB_PATH, store)
                     return store
             store = create_initial_user_store()
             write_json_file(USERS_DB_PATH, store)
             return store
+        except PermissionError as exc:
+            raise PersistenceError(USERS_DB_PATH, "permission") from exc
+        except OSError as exc:
+            raise PersistenceError(USERS_DB_PATH, "io") from exc
         payload = read_json_file(USERS_DB_PATH, {})
-        if not isinstance(payload, dict):
-            payload = empty_user_store()
+        validate_user_store(payload)
+        # Never trust a capability saved by a previous version or file edit.
+        for item in payload["users"]:
+            item.pop("teamChatEnabled", None)
         original = copy.deepcopy(payload)
         store = normalize_user_store(payload)
         if store != original:
             write_json_file(USERS_DB_PATH, store)
         return store
 
-    return await asyncio.to_thread(load)
+    return refresh_team_capabilities(await asyncio.to_thread(load))
 
 
 async def write_user_store(store: dict[str, Any]) -> None:
     def save() -> None:
-        write_json_file(USERS_DB_PATH, normalize_user_store(store))
+        normalized = normalize_user_store(store)
+        persisted = copy.deepcopy(normalized)
+        for item in persisted["users"]:
+            item.pop("teamChatEnabled", None)
+        write_json_file(USERS_DB_PATH, persisted)
 
     await asyncio.to_thread(save)
+    refresh_team_capabilities(store)
 
 
 def find_user(store: dict[str, Any], user_id: str) -> dict[str, Any] | None:
@@ -1118,6 +1200,8 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
             target["passwordHash"] = hash_password(payload.password)
             target["sessionVersion"] = int(target.get("sessionVersion") or 0) + 1
         if payload.status is not None and not is_system_owner(target):
+            if payload.status != target.get("status"):
+                target["sessionVersion"] = int(target.get("sessionVersion") or 0) + 1
             target["status"] = payload.status
         if payload.role is not None and can_manage_system(user):
             target["role"] = payload.role
@@ -1150,6 +1234,8 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
             selected_team_owner_id = validate_team_owner(store, payload.teamOwnerId)
             if selected_team_owner_id == target.get("id"):
                 selected_team_owner_id = None
+            if selected_team_owner_id != target.get("teamOwnerId"):
+                target["sessionVersion"] = int(target.get("sessionVersion") or 0) + 1
             target["teamOwnerId"] = selected_team_owner_id
             target['jobRoleId'] = None
         if payload.jobRoleId:
@@ -1183,6 +1269,7 @@ async def deactivate_user(user_id: str, user: dict[str, Any] = Depends(current_u
         if is_system_owner(target):
             raise HTTPException(status_code=403, detail="O usuario principal nao pode ser removido.")
         target["status"] = "inativo"
+        target["sessionVersion"] = int(target.get("sessionVersion") or 0) + 1
         target["updatedAt"] = now_iso()
         append_admin_audit(store, user, "user_deactivated", target=target, detail="Acesso administrativo desativado.")
         await write_user_store(store)

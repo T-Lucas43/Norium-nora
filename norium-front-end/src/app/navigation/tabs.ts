@@ -1,4 +1,4 @@
-import type { PermissionKey } from "../../types/auth";
+import { canParticipateInTeamChat, canUse, type NoriumUser, type PermissionKey } from "../../types/auth";
 
 
 export const TAB_PERMISSIONS: Record<string, PermissionKey | null> = {
@@ -14,7 +14,7 @@ export const TAB_PERMISSIONS: Record<string, PermissionKey | null> = {
   "E-mail": "emails",
   Agenda: "agenda",
   Chat: "chat",
-  "Chat da Equipe": "equipe",
+  "Chat da Equipe": "chat",
   Tarefas: "tarefas",
   Gastos: "gastos",
   Financeiro: "gastos",
@@ -82,6 +82,12 @@ const TAB_ALIASES: Record<string, string> = {
   Configuracoes: "Configurações",
   Notificacoes: "Notificações",
 };
+
+export function canAccessModule(user: NoriumUser | null | undefined, tab: string): boolean {
+  if (tab === "Chat da Equipe") return canParticipateInTeamChat(user);
+  const permission = TAB_PERMISSIONS[tab];
+  return !permission || canUse(user, permission);
+}
 
 export const TAB_ROUTES: Record<string, string> = {
   Dashboard: "dashboard",

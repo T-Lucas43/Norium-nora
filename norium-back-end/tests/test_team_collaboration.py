@@ -20,6 +20,7 @@ def team_user(user_id: str, *, owner_id: str | None = None) -> dict:
         "status": "ativo",
         "role": "owner" if owner_id is None else "member",
         "teamOwnerId": owner_id,
+        "teamChatEnabled": True,
         "permissions": {"chat": True, "equipe": True},
         "systemAdmin": False,
     }

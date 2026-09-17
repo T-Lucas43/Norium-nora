@@ -14,7 +14,7 @@ from app.modules.team import router as team
 
 def member(user_id: str, owner_id: str = "owner") -> dict:
     return {"id": user_id, "nome": user_id.title(), "teamOwnerId": owner_id,
-            "status": "ativo", "permissions": {"chat": True}}
+            "status": "ativo", "teamChatEnabled": True, "permissions": {"chat": True}}
 
 
 class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):

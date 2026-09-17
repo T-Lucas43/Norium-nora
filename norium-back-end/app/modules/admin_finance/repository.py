@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from app.core.tenant import get_system_db_path, read_json_file, write_json_file
+from app.infrastructure.persistence.json_repository import PersistenceError
 
 
 DB_PATH = get_system_db_path("admin_finance")
@@ -126,14 +127,35 @@ def _remove_legacy_demo_records(store: dict[str, Any]) -> bool:
 
 
 def ensure_store(payload: Any) -> dict[str, Any]:
+    """Add absent legacy fields only; never replace invalid persisted values."""
     base = default_store()
     if not isinstance(payload, dict):
-        return base
+        raise PersistenceError(DB_PATH, "schema")
+    if "schemaVersion" in payload and (type(payload["schemaVersion"]) is not int or payload["schemaVersion"] != SCHEMA_VERSION):
+        raise PersistenceError(DB_PATH, "schema")
     for key, fallback in base.items():
-        if key not in payload or (isinstance(fallback, list) and not isinstance(payload[key], list)):
-            payload[key] = copy.deepcopy(fallback)
-    payload["schemaVersion"] = SCHEMA_VERSION
-    return payload
+        if key not in payload:
+            continue
+        value = payload[key]
+        if not isinstance(value, type(fallback)):
+            raise PersistenceError(DB_PATH, "schema")
+        if isinstance(fallback, list) and any(not isinstance(item, dict) for item in value):
+            raise PersistenceError(DB_PATH, "schema")
+    for grants in payload.get("adminPermissions", {}).values():
+        if not isinstance(grants, dict) or any(type(grant) is not bool for grant in grants.values()):
+            raise PersistenceError(DB_PATH, "schema")
+    settings = payload.get("settings", {})
+    for key, fallback in base["settings"].items():
+        if key not in settings:
+            continue
+        expected = (int, float) if type(fallback) in (int, float) else type(fallback)
+        if not isinstance(settings[key], expected) or (type(fallback) in (int, float) and type(settings[key]) is bool):
+            raise PersistenceError(DB_PATH, "schema")
+    # Validate before copying/defaulting so a failure also leaves callers intact.
+    store = copy.deepcopy(payload)
+    for key, fallback in base.items():
+        store.setdefault(key, copy.deepcopy(fallback))
+    return store
 
 
 class AdminFinanceRepository:
@@ -143,6 +165,14 @@ class AdminFinanceRepository:
     async def read(self) -> dict[str, Any]:
         async with self._lock:
             return await asyncio.to_thread(self._read_sync)
+
+    async def permissions_for(self, user_id: str) -> dict[str, bool]:
+        """Authorization reads cannot initialize or migrate financial data."""
+        async with self._lock:
+            payload = await asyncio.to_thread(read_json_file, DB_PATH, None)
+            if payload is None:
+                return {}
+            return copy.deepcopy(ensure_store(payload)["adminPermissions"].get(user_id, {}))
 
     def _read_sync(self) -> dict[str, Any]:
         payload = read_json_file(DB_PATH, None)

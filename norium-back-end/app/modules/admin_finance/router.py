@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 
-from app.modules.auth.router import can_manage_system, current_user, sanitize_user
+from app.modules.auth.router import can_manage_system, current_user, is_system_owner
 from app.modules.admin_finance.repository import now_iso, repository
 from app.modules.admin_finance.schemas import (
     AdminFinanceSettings,
@@ -49,8 +49,27 @@ COLLECTIONS = {
 
 
 def require_owner(user: dict[str, Any]) -> dict[str, Any]:
+    if not is_system_owner(user):
+        raise HTTPException(status_code=403, detail="Somente o proprietario do sistema pode gerenciar permissoes financeiras.")
+    return user
+
+
+async def require_permissions(user: dict[str, Any], *required: str) -> dict[str, Any]:
+    """Owner bypass is explicit; assistants need each persisted action grant.
+
+    Grants always come from the authenticated identity and the server store.
+    Neither account/team ownership nor payload fields confer financial access.
+    Reading grants deliberately cannot initialize or migrate a store on denial.
+    """
+    if not required or any(key not in AdminPermissionPatch.model_fields for key in required):
+        raise HTTPException(status_code=403, detail="Operacao financeira nao autorizada.")
+    if is_system_owner(user):
+        return user
     if not can_manage_system(user):
         raise HTTPException(status_code=403, detail="O financeiro administrativo e exclusivo do administrador do sistema.")
+    permissions = await repository.permissions_for(str(user.get("id") or ""))
+    if any(permissions.get(key) is not True for key in required):
+        raise HTTPException(status_code=403, detail="Permissao insuficiente para esta operacao financeira.")
     return user
 
 
@@ -136,7 +155,7 @@ async def dashboard(
     supplierId: str = "all",
     costCenterId: str = "all",
 ) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     store = await repository.read()
     return build_dashboard(store, preset, start, end, {
         "planId": planId, "status": status, "categoryId": categoryId,
@@ -147,20 +166,20 @@ async def dashboard(
 
 @router.get("/cash-flow")
 async def cash_flow(user: CurrentAdmin, days: int = Query(90, ge=7, le=730)) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     store = await repository.read()
     return {"items": cash_flow_projection(store, days), "days": days}
 
 
 @router.get("/plans")
 async def list_plans(user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     return {"items": await repository.list("plans")}
 
 
 @router.post("/plans", status_code=201)
 async def create_plan(payload: PlanInput, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "managePlans")
     plans = await repository.list("plans")
     if any(item.get("code") == payload.code for item in plans):
         raise HTTPException(status_code=409, detail="Ja existe um plano com este codigo.")
@@ -169,7 +188,7 @@ async def create_plan(payload: PlanInput, user: CurrentAdmin) -> dict[str, Any]:
 
 @router.post("/plans/{plan_id}/duplicate", status_code=201)
 async def duplicate_plan(plan_id: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "managePlans")
     plan = next((item for item in await repository.list("plans") if item.get("id") == plan_id), None)
     source = require_record(plan, "Plano")
     payload = {key: value for key, value in source.items() if key not in {"id", "createdAt", "updatedAt"}}
@@ -182,13 +201,13 @@ async def duplicate_plan(plan_id: str, user: CurrentAdmin) -> dict[str, Any]:
 
 @router.patch("/plans/{plan_id}")
 async def update_plan(plan_id: str, payload: PlanPatch, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "managePlans")
     return {"item": await patch_record("plans", plan_id, payload, user, "Plano")}
 
 
 @router.delete("/plans/{plan_id}")
 async def delete_plan(plan_id: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "managePlans")
     if any(item.get("planId") == plan_id for item in await repository.list("subscriptions")):
         raise HTTPException(status_code=409, detail="Desative o plano: existem assinaturas vinculadas a ele.")
     return {"item": await delete_record("plans", plan_id, user, "Plano")}
@@ -200,13 +219,13 @@ async def list_subscriptions(
     search: str = "", sortBy: str = "customerName", sortDir: Literal["asc", "desc"] = "asc",
     status: str = "all", planId: str = "all",
 ) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     return filtered_page(await repository.list("subscriptions"), page, pageSize, search, sortBy, sortDir, {"status": status, "planId": planId})
 
 
 @router.post("/subscriptions", status_code=201)
 async def create_subscription(payload: SubscriptionInput, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSubscriptions")
     if not any(item.get("id") == payload.planId for item in await repository.list("plans")):
         raise HTTPException(status_code=422, detail="O plano selecionado nao existe.")
     return {"item": await create_record("subscriptions", "subscription", payload, user)}
@@ -214,13 +233,13 @@ async def create_subscription(payload: SubscriptionInput, user: CurrentAdmin) ->
 
 @router.patch("/subscriptions/{record_id}")
 async def update_subscription(record_id: str, payload: SubscriptionPatch, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSubscriptions")
     return {"item": await patch_record("subscriptions", record_id, payload, user, "Assinatura")}
 
 
 @router.delete("/subscriptions/{record_id}")
 async def delete_subscription(record_id: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSubscriptions")
     return {"item": await delete_record("subscriptions", record_id, user, "Assinatura")}
 
 
@@ -230,25 +249,25 @@ async def list_payments(
     search: str = "", sortBy: str = "dueAt", sortDir: Literal["asc", "desc"] = "desc",
     status: str = "all", planId: str = "all", paymentMethod: str = "all",
 ) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     return filtered_page(await repository.list("payments"), page, pageSize, search, sortBy, sortDir, {"status": status, "planId": planId, "paymentMethod": paymentMethod})
 
 
 @router.post("/payments", status_code=201)
 async def create_payment(payload: PaymentInput, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "managePayments")
     return {"item": await create_record("payments", "payment", payload, user)}
 
 
 @router.patch("/payments/{record_id}")
 async def update_payment(record_id: str, payload: PaymentPatch, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "managePayments")
     return {"item": await patch_record("payments", record_id, payload, user, "Pagamento")}
 
 
 @router.delete("/payments/{record_id}")
 async def delete_payment(record_id: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "managePayments")
     return {"item": await delete_record("payments", record_id, user, "Pagamento")}
 
 
@@ -259,7 +278,7 @@ async def list_expenses(
     status: str = "all", categoryId: str = "all", providerId: str = "all",
     supplierId: str = "all", costCenterId: str = "all", paymentMethod: str = "all",
 ) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     return filtered_page(await repository.list("expenses"), page, pageSize, search, sortBy, sortDir, {
         "status": status, "categoryId": categoryId, "providerId": providerId,
         "supplierId": supplierId, "costCenterId": costCenterId, "paymentMethod": paymentMethod,
@@ -268,13 +287,13 @@ async def list_expenses(
 
 @router.post("/expenses", status_code=201)
 async def create_expense(payload: ExpenseInput, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageExpenses")
     return {"item": await create_record("expenses", "expense", payload, user)}
 
 
 @router.post("/expenses/bulk-status")
 async def bulk_expense_status(payload: BulkStatusInput, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageExpenses")
     if payload.status not in {"pending", "paid", "overdue", "canceled"}:
         raise HTTPException(status_code=422, detail="Status de despesa invalido.")
 
@@ -297,7 +316,7 @@ async def bulk_expense_status(payload: BulkStatusInput, user: CurrentAdmin) -> d
 
 @router.post("/expenses/{record_id}/duplicate", status_code=201)
 async def duplicate_expense(record_id: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageExpenses")
     source = require_record(next((item for item in await repository.list("expenses") if item.get("id") == record_id), None), "Despesa")
     payload = {key: value for key, value in source.items() if key not in {"id", "createdAt", "updatedAt"}}
     payload["title"] = f"{payload['title']} (copia)"
@@ -310,7 +329,7 @@ async def duplicate_expense(record_id: str, user: CurrentAdmin) -> dict[str, Any
 
 @router.patch("/expenses/{record_id}")
 async def update_expense(record_id: str, payload: ExpensePatch, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageExpenses")
     patch = model_payload(payload, exclude_unset=True)
     if patch.get("status") == "paid" and "paidAt" not in patch:
         patch["paidAt"] = date.today().isoformat()
@@ -324,13 +343,13 @@ async def update_expense(record_id: str, payload: ExpensePatch, user: CurrentAdm
 
 @router.delete("/expenses/{record_id}")
 async def delete_expense(record_id: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageExpenses")
     return {"item": await delete_record("expenses", record_id, user, "Despesa")}
 
 
 @router.get("/references/{kind}")
 async def list_references(kind: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     if kind not in COLLECTIONS:
         raise HTTPException(status_code=404, detail="Cadastro auxiliar inexistente.")
     collection, _ = COLLECTIONS[kind]
@@ -339,7 +358,7 @@ async def list_references(kind: str, user: CurrentAdmin) -> dict[str, Any]:
 
 @router.post("/references/{kind}", status_code=201)
 async def create_reference(kind: str, payload: ReferenceInput, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     if kind not in COLLECTIONS:
         raise HTTPException(status_code=404, detail="Cadastro auxiliar inexistente.")
     collection, prefix = COLLECTIONS[kind]
@@ -348,7 +367,7 @@ async def create_reference(kind: str, payload: ReferenceInput, user: CurrentAdmi
 
 @router.patch("/references/{kind}/{record_id}")
 async def update_reference(kind: str, record_id: str, payload: ReferencePatch, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     if kind not in COLLECTIONS:
         raise HTTPException(status_code=404, detail="Cadastro auxiliar inexistente.")
     collection, _ = COLLECTIONS[kind]
@@ -357,7 +376,7 @@ async def update_reference(kind: str, record_id: str, payload: ReferencePatch, u
 
 @router.delete("/references/{kind}/{record_id}")
 async def delete_reference(kind: str, record_id: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     if kind not in COLLECTIONS:
         raise HTTPException(status_code=404, detail="Cadastro auxiliar inexistente.")
     collection, _ = COLLECTIONS[kind]
@@ -366,61 +385,61 @@ async def delete_reference(kind: str, record_id: str, user: CurrentAdmin) -> dic
 
 @router.get("/goals")
 async def list_goals(user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     return {"items": await repository.list("goals")}
 
 
 @router.post("/goals", status_code=201)
 async def create_goal(payload: GoalInput, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     return {"item": await create_record("goals", "goal", payload, user)}
 
 
 @router.patch("/goals/{record_id}")
 async def update_goal(record_id: str, payload: GoalPatch, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     return {"item": await patch_record("goals", record_id, payload, user, "Meta")}
 
 
 @router.delete("/goals/{record_id}")
 async def delete_goal(record_id: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     return {"item": await delete_record("goals", record_id, user, "Meta")}
 
 
 @router.get("/budgets")
 async def list_budgets(user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     return {"items": await repository.list("budgets")}
 
 
 @router.post("/budgets", status_code=201)
 async def create_budget(payload: BudgetInput, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     return {"item": await create_record("budgets", "budget", payload, user)}
 
 
 @router.patch("/budgets/{record_id}")
 async def update_budget(record_id: str, payload: BudgetPatch, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     return {"item": await patch_record("budgets", record_id, payload, user, "Orcamento")}
 
 
 @router.delete("/budgets/{record_id}")
 async def delete_budget(record_id: str, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     return {"item": await delete_record("budgets", record_id, user, "Orcamento")}
 
 
 @router.get("/settings")
 async def get_settings(user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     return {"settings": (await repository.read())["settings"]}
 
 
 @router.put("/settings")
 async def update_settings(payload: AdminFinanceSettings, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "manageSettings")
     before = (await repository.read())["settings"]
     settings = model_payload(payload)
     await repository.mutate(lambda store: store.update({"settings": settings}))
@@ -433,7 +452,7 @@ async def list_audit(
     user: CurrentAdmin, page: int = Query(1, ge=1), pageSize: int = Query(25, ge=1, le=200),
     search: str = "", entity: str = "all",
 ) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     return filtered_page(await repository.list("auditLogs"), page, pageSize, search, "timestamp", "desc", {"entity": entity})
 
 
@@ -485,7 +504,7 @@ async def preview_import(
     user: CurrentAdmin,
     fileName: str = Query(..., min_length=1, max_length=240),
 ) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "importData")
     content = await request.body()
     if len(content) > 10_000_000:
         raise HTTPException(status_code=413, detail="O arquivo deve ter no maximo 10 MB.")
@@ -520,7 +539,7 @@ async def preview_import(
 
 @router.post("/import/commit")
 async def commit_import(payload: ImportCommitInput, user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "importData", "manageExpenses" if payload.kind in {"expenses", "jorro"} else "managePayments")
     mapping = {item.sourceColumn: item.targetField for item in payload.mapping if item.targetField}
     collection = "expenses" if payload.kind in {"expenses", "jorro"} else "payments"
     model_type: type[BaseModel] = ExpenseInput if collection == "expenses" else PaymentInput
@@ -560,7 +579,7 @@ async def commit_import(payload: ImportCommitInput, user: CurrentAdmin) -> dict[
 
 @router.get("/jorro/status")
 async def jorro_status(user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "view")
     store = await repository.read()
     provider = next((item for item in store["providers"] if item.get("id") == "provider_jorro"), {})
     settings = store["settings"]
@@ -573,7 +592,7 @@ async def jorro_status(user: CurrentAdmin) -> dict[str, Any]:
 
 @router.post("/jorro/sync")
 async def sync_jorro(user: CurrentAdmin) -> dict[str, Any]:
-    require_owner(user)
+    await require_permissions(user, "importData", "manageExpenses", "manageSettings")
     store = await repository.read()
     if not store["settings"].get("jorroProviderEnabled"):
         return {"connected": False, "synced": 0, "message": "Ative o provedor Jorro nas configuracoes ou importe um CSV."}
@@ -601,7 +620,7 @@ def export_rows(store: dict[str, Any]) -> list[dict[str, Any]]:
 
 @router.get("/export/{file_format}")
 async def export_finance(file_format: Literal["csv", "xlsx", "pdf"], user: CurrentAdmin) -> Response:
-    require_owner(user)
+    await require_permissions(user, "exportData")
     store = await repository.read()
     rows = export_rows(store)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")

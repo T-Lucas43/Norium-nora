@@ -334,7 +334,7 @@ class ImportCommitInput(StrictModel):
 
 
 class AdminPermissionPatch(StrictModel):
-    view: bool = True
+    view: bool = False
     managePlans: bool = False
     manageSubscriptions: bool = False
     managePayments: bool = False

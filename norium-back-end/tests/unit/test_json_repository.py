@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from app.infrastructure.persistence.json_repository import read_json, write_json
+from app.infrastructure.persistence.json_repository import PersistenceError, read_json, write_json
 
 
 class JsonRepositoryTest(unittest.TestCase):
@@ -58,14 +58,15 @@ class JsonRepositoryTest(unittest.TestCase):
             write_json(path, payload)
             self.assertEqual(payload, read_json(path, {}))
 
-    def test_corrupt_file_returns_independent_fallback(self) -> None:
+    def test_corrupt_file_raises_and_preserves_original(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "store.json"
             path.write_text("{quebrado", encoding="utf-8")
             fallback: list[str] = []
-            result = read_json(path, fallback)
-            result.append("novo")
+            with self.assertRaises(PersistenceError):
+                read_json(path, fallback)
             self.assertEqual([], fallback)
+            self.assertEqual("{quebrado", path.read_text(encoding="utf-8"))
 
     def test_replacement_never_leaves_temporary_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

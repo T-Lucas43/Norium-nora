@@ -11,7 +11,7 @@ import re
 import time
 import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, Response
@@ -23,6 +23,7 @@ from app.core.security import TokenValidationError, auth_secret, decode_signed_t
 from app.core.settings import settings, validate_wapi_webhook_configuration
 from app.core.tenant import is_shared_environment
 from app.infrastructure.observability.diagnostics import record_request
+from app.infrastructure.persistence.json_repository import PersistenceError
 from app.infrastructure.http.spa import configure_spa
 from app.infrastructure.reliability.idempotency import (
     begin_request,
@@ -226,6 +227,13 @@ def create_app() -> FastAPI:
                 await automations
 
     app = FastAPI(title="Norium Engine Chat Central Unificado API", lifespan=lifespan)
+
+    @app.exception_handler(PersistenceError)
+    async def persistence_unavailable(request: Request, exc: PersistenceError):
+        return JSONResponse(status_code=503, headers={"Retry-After": "30"}, content={
+            "code": "storage_unavailable",
+            "detail": "Dados temporariamente indisponiveis. Tente novamente mais tarde.",
+        })
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins(),
@@ -270,14 +278,23 @@ def create_app() -> FastAPI:
             except TokenValidationError:
                 pass
 
-        if method != "OPTIONS":
-            client_host = request.client.host if request.client else "unknown"
-            await enforce_rate_limit(request.url.path, user_id if user_id != "anonymous" else client_host)
-
         try:
-            if mutation and idempotency_key and raw_token and not request.url.path.startswith("/api/auth/"):
+            if method != "OPTIONS":
+                client_host = request.client.host if request.client else "unknown"
+                try:
+                    await enforce_rate_limit(request.url.path, user_id if user_id != "anonymous" else client_host)
+                except HTTPException as exc:
+                    if exc.status_code != 429:
+                        raise
+                    response = JSONResponse(
+                        status_code=429,
+                        content={"detail": exc.detail},
+                        headers=exc.headers,
+                    )
+
+            if response is None and mutation and idempotency_key and raw_token and not request.url.path.startswith("/api/auth/"):
                 idempotency_user_id = await idempotency_identity(request, raw_token)
-            if mutation and idempotency_key and idempotency_user_id:
+            if response is None and mutation and idempotency_key and idempotency_user_id:
                 body = await request.body()
                 state = await begin_request(
                     idempotency_user_id,
@@ -381,6 +398,8 @@ def create_app() -> FastAPI:
                     },
                 )
             return response
+        except PersistenceError as exc:
+            return await persistence_unavailable(request, exc)
         except Exception as exc:
             duration_ms = (time.perf_counter() - started) * 1000
             if request.url.path.startswith("/api/"):

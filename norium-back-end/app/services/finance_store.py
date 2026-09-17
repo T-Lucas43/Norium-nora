@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 from app.core.request_context import current_workspace_id
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, write_json_file
+from app.infrastructure.persistence.json_repository import PersistenceError
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 FINANCE_PATH = BASE_DIR / "financeiro_db.json"
@@ -491,19 +492,31 @@ def _local_today() -> datetime:
 def _read_db(user_id: str) -> dict[str, Any]:
     # Finance has no cross-account sharing. Never enumerate other tenants.
     path = Path(get_user_db_path(user_id, "financeiro"))
-    if path.exists():
-        payload = read_json_file(path, {})
-        if isinstance(payload, dict):
-            if "lancamentos" in payload or "programados" in payload or "boletos" in payload:
-                return {user_id: payload}
-            if isinstance(payload.get(user_id), dict):
-                return {user_id: payload[user_id]}
-        return {}
+    payload = read_json_file(path, None)
+    if payload is not None:
+        if not isinstance(payload, dict):
+            raise PersistenceError(path, "schema")
+        if user_id in payload:
+            payload = payload[user_id]
+        _validate_workspace(payload, path)
+        return {user_id: payload}
     if current_workspace_id() == "primary":
         legacy = read_json_file(FINANCE_PATH, {})
-        if isinstance(legacy, dict) and isinstance(legacy.get(user_id), dict):
+        if user_id in legacy:
+            _validate_workspace(legacy[user_id], FINANCE_PATH)
             return {user_id: legacy[user_id]}
     return {}
+
+
+def _validate_workspace(payload: Any, path: Path) -> None:
+    if not isinstance(payload, dict):
+        raise PersistenceError(path, "schema")
+    if payload and not any(key in payload for key in ("lancamentos", "programados", "boletos")):
+        raise PersistenceError(path, "schema")
+    for collection in ("lancamentos", "programados", "boletos"):
+        items = payload.get(collection, [])
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            raise PersistenceError(path, "schema")
 
 
 def _write_db(payload: dict[str, Any]) -> None:

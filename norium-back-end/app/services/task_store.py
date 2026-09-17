@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import mimetypes
 import re
@@ -12,6 +13,7 @@ from urllib.parse import quote
 
 from app.core.request_context import current_workspace_id
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, write_json_file
+from app.infrastructure.persistence.json_repository import PersistenceError
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 TASKS_PATH = BASE_DIR / "tarefas_db.json"
@@ -89,21 +91,45 @@ def load_workspace(user_id: str = "lucas123", *, db: dict[str, Any] | None = Non
 
 
 def ensure_workspace_defaults(workspace: dict[str, Any], user_id: str) -> bool:
+    _validate_workspace(workspace, Path(get_user_db_path(user_id, "tarefas")))
     changed = False
-    if not isinstance(workspace.get("columns"), list):
-        workspace["columns"] = DEFAULT_COLUMNS
+    if "columns" not in workspace:
+        workspace["columns"] = copy.deepcopy(DEFAULT_COLUMNS)
         changed = True
-    if not isinstance(workspace.get("labels"), list):
-        workspace["labels"] = DEFAULT_LABELS
+    if "labels" not in workspace:
+        workspace["labels"] = copy.deepcopy(DEFAULT_LABELS)
         changed = True
-    if not isinstance(workspace.get("tasks"), list):
+    if "tasks" not in workspace:
         workspace["tasks"] = []
         changed = True
-    if not isinstance(workspace.get("projects"), list) or not workspace.get("projects"):
+    if "projects" not in workspace:
         workspace["projects"] = [default_project(user_id)]
         changed = True
-    workspace["projects"] = [normalize_project(project, user_id) for project in workspace.get("projects", [])]
+    workspace["projects"] = [
+        {**project, **normalize_project(project, user_id)}
+        for project in workspace["projects"]
+    ]
     return changed
+
+
+def _validate_workspace(workspace: Any, path: Path) -> None:
+    if not isinstance(workspace, dict):
+        raise PersistenceError(path, "schema")
+    for collection in ("tasks", "projects", "columns", "labels"):
+        if collection not in workspace:
+            continue
+        items = workspace[collection]
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            raise PersistenceError(path, "schema")
+    for project in workspace.get("projects", []):
+        if "sharedUserIds" in project and (not isinstance(project["sharedUserIds"], list)
+                                           or any(not isinstance(item, str) for item in project["sharedUserIds"])):
+            raise PersistenceError(path, "schema")
+    for task in workspace.get("tasks", []):
+        for field in ("attachments", "comments"):
+            if field in task and (not isinstance(task[field], list)
+                                  or any(not isinstance(item, dict) for item in task[field])):
+                raise PersistenceError(path, "schema")
 
 
 def list_projects(user_id: str = "lucas123") -> dict[str, Any]:
@@ -674,8 +700,9 @@ def _local_today() -> datetime:
 def _read_db() -> dict[str, Any]:
     db: dict[str, Any] = {}
     legacy_payload = read_json_file(TASKS_PATH, {}) if current_workspace_id() == "primary" else {}
-    if isinstance(legacy_payload, dict):
-        db.update({str(key): value for key, value in legacy_payload.items() if isinstance(value, dict)})
+    for key, value in legacy_payload.items():
+        _validate_workspace(value, TASKS_PATH)
+        db[str(key)] = value
 
     data_root = get_data_root()
     for user_dir in data_root.glob("user_*"):
@@ -683,12 +710,16 @@ def _read_db() -> dict[str, Any]:
             continue
         user_id = user_dir.name.removeprefix("user_")
         workspace_dir = user_dir if current_workspace_id() == "primary" else user_dir / f"workspace_{current_workspace_id()}"
-        payload = read_json_file(workspace_dir / "tarefas_db.json", {})
-        if isinstance(payload, dict):
-            if "tasks" in payload or "projects" in payload:
-                db[user_id] = payload
-            elif isinstance(payload.get(user_id), dict):
-                db[user_id] = payload[user_id]
+        path = workspace_dir / "tarefas_db.json"
+        payload = read_json_file(path, {})
+        if "tasks" in payload or "projects" in payload or "columns" in payload or "labels" in payload:
+            _validate_workspace(payload, path)
+            db[user_id] = payload
+        elif user_id in payload:
+            _validate_workspace(payload[user_id], path)
+            db[user_id] = payload[user_id]
+        elif payload:
+            raise PersistenceError(path, "schema")
     return db
 
 

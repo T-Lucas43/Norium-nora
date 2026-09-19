@@ -85,6 +85,9 @@ jobs:
       - name: Check production frontend for permanent call secrets and test harnesses
         run: python norium-back-end/scripts/team_call_frontend_security.py norium-front-end
 
+      - name: Validate Azure infrastructure template
+        run: az bicep build --file infra/azure/main.bicep --stdout > /dev/null
+
   team-call-quality:
     runs-on: ubuntu-latest
     timeout-minutes: 45

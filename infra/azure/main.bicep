@@ -18,7 +18,29 @@ param registryPassword string
 @description('Configuracoes sensiveis importadas do .env local sem grava-las no repositorio.')
 param secretSettings object = {}
 
+@description('Cria o executor duravel da Nora. Permanece falso ate PostgreSQL, segredos e piloto serem aprovados.')
+param noraBrainEnabled bool = false
+
+@secure()
+@description('URL PostgreSQL do cerebro. Obrigatoria somente quando noraBrainEnabled=true.')
+param noraBrainDatabaseUrl string = ''
+
+@secure()
+@description('Segredo HMAC compartilhado somente entre web e executor, com pelo menos 32 caracteres.')
+param noraBrainInternalSecret string = ''
+
+@secure()
+@description('Credencial OpenAI exclusiva do executor. Obrigatoria somente quando noraBrainEnabled=true.')
+param noraBrainOpenAiApiKey string = ''
+
+@description('Modelo de rotina aprovado para o piloto da Nora.')
+param noraBrainRoutineModel string = 'gpt-5.6-luna'
+
+@description('Modelo documental aprovado para o piloto da Nora.')
+param noraBrainDocumentModel string = 'gpt-5.6-sol'
+
 var environmentName = 'cae-${appName}'
+var noraExecutorName = '${appName}-nora-executor'
 var storageAccountName = 'st${uniqueString(subscription().subscriptionId, resourceGroup().id)}'
 var fileShareName = 'norium-data'
 var environmentStorageName = 'noriumdata'
@@ -49,6 +71,21 @@ var secretEnvironment = [for setting in items(secretSettings): {
   name: setting.key
   secretRef: toLower(replace(setting.key, '_', '-'))
 }]
+var noraWebSecrets = noraBrainEnabled ? [
+  { name: 'nora-brain-database-url', value: noraBrainDatabaseUrl }
+  { name: 'nora-brain-internal-secret', value: noraBrainInternalSecret }
+] : []
+var noraWebEnvironment = noraBrainEnabled ? [
+  { name: 'NORA_BRAIN_DATABASE_URL', secretRef: 'nora-brain-database-url' }
+  { name: 'NORA_BRAIN_DB_SSLMODE', value: 'verify-full' }
+  { name: 'NORA_BRAIN_INTERNAL_SECRET', secretRef: 'nora-brain-internal-secret' }
+  { name: 'NORA_BRAIN_PROVIDER', value: 'openai' }
+  { name: 'NORA_BRAIN_ROUTINE_MODEL', value: noraBrainRoutineModel }
+  { name: 'NORA_BRAIN_DOCUMENT_MODEL', value: noraBrainDocumentModel }
+  { name: 'NORA_BRAIN_ALLOW_MODEL_CALLS', value: '0' }
+  { name: 'NORA_BRAIN_EXECUTOR_ENABLED', value: '0' }
+  { name: 'NORA_LEGACY_WRITER_SINGLETON', value: '1' }
+] : []
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' = {
   name: storageAccountName
@@ -145,14 +182,14 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
           name: 'ghcr-token'
           value: registryPassword
         }
-      ], applicationSecrets)
+      ], applicationSecrets, noraWebSecrets)
     }
     template: {
       containers: [
         {
           name: 'norium'
           image: containerImage
-          env: concat(baselineEnvironment, secretEnvironment)
+          env: concat(baselineEnvironment, secretEnvironment, noraWebEnvironment)
           resources: {
             cpu: json('1.0')
             memory: '2Gi'
@@ -206,9 +243,72 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
   }
 }
 
+resource noraExecutor 'Microsoft.App/containerApps@2025-01-01' = if (noraBrainEnabled) {
+  name: noraExecutorName
+  location: location
+  tags: union(commonTags, { component: 'nora-executor' })
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    managedEnvironmentId: managedEnvironment.id
+    workloadProfileName: 'Consumption'
+    configuration: {
+      activeRevisionsMode: 'Single'
+      registries: [
+        {
+          server: 'ghcr.io'
+          username: registryUsername
+          passwordSecretRef: 'ghcr-token'
+        }
+      ]
+      secrets: [
+        { name: 'ghcr-token', value: registryPassword }
+        { name: 'nora-brain-database-url', value: noraBrainDatabaseUrl }
+        { name: 'nora-brain-internal-secret', value: noraBrainInternalSecret }
+        { name: 'nora-brain-openai-key', value: noraBrainOpenAiApiKey }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'nora-executor'
+          image: containerImage
+          command: ['python']
+          args: ['-m', 'app.modules.nora.brain.worker']
+          env: [
+            { name: 'ENVIRONMENT', value: 'production' }
+            { name: 'PYTHONUNBUFFERED', value: '1' }
+            { name: 'NORA_BRAIN_DATABASE_URL', secretRef: 'nora-brain-database-url' }
+            { name: 'NORA_BRAIN_DB_SSLMODE', value: 'verify-full' }
+            { name: 'NORA_BRAIN_INTERNAL_SECRET', secretRef: 'nora-brain-internal-secret' }
+            { name: 'OPENAI_API_KEY', secretRef: 'nora-brain-openai-key' }
+            { name: 'NORA_BRAIN_INTERNAL_URL', value: publicUrl }
+            { name: 'NORA_BRAIN_PROVIDER', value: 'openai' }
+            { name: 'NORA_BRAIN_ROUTINE_MODEL', value: noraBrainRoutineModel }
+            { name: 'NORA_BRAIN_DOCUMENT_MODEL', value: noraBrainDocumentModel }
+            { name: 'NORA_BRAIN_ALLOW_MODEL_CALLS', value: '1' }
+            { name: 'NORA_BRAIN_EXECUTOR_ENABLED', value: '1' }
+            { name: 'NORA_LEGACY_WRITER_SINGLETON', value: '0' }
+          ]
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 1
+      }
+    }
+  }
+}
+
 output containerAppName string = containerApp.name
 output containerAppEnvironmentName string = managedEnvironment.name
 output publicUrl string = publicUrl
 output storageAccountName string = storageAccount.name
 output fileShareName string = fileShare.name
 output persistentDataPath string = '/app/data'
+output noraExecutorAppName string = noraBrainEnabled ? noraExecutor.name : ''

@@ -110,7 +110,8 @@ class AdmissionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(0, coordinator.resource_counts()["active_calls"])
 
     async def test_directory_excludes_active_accounts_without_call_permission(self):
-        members = [{"id": "owner", "status": "ativo", "permissions": {"chat": True}},
+        members = [{"id": "owner", "status": "ativo", "teamChatEnabled": True,
+                    "permissions": {"chat": True}},
                    {"id": "member", "teamOwnerId": "owner", "status": "ativo", "permissions": {}}]
         with patch.object(router, "read_user_store", AsyncMock(return_value={"users": members})):
             self.assertEqual({"owner"}, await router._call_active_member_ids(actor("owner")))
@@ -119,7 +120,8 @@ class AdmissionTests(unittest.IsolatedAsyncioTestCase):
         manager = router.PresenceManager()
         socket = object()
         manager.socket_session_version[socket] = 2
-        user = {"id": "owner", "status": "ativo", "sessionVersion": 2, "permissions": {"chat": True}}
+        user = {"id": "owner", "status": "ativo", "sessionVersion": 2,
+                "teamChatEnabled": True, "permissions": {"chat": True}}
         self.assertTrue(manager.socket_authorized(socket, user, "owner"))
         self.assertFalse(manager.socket_authorized(socket, {**user, "sessionVersion": 3}, "owner"))
         self.assertFalse(manager.socket_authorized(socket, {**user, "permissions": {}}, "owner"))

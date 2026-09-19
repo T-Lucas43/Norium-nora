@@ -17,7 +17,8 @@ from app.services import brainstorm_store as library
 
 def member(user_id, owner="owner"):
     return {"id": user_id, "nome": user_id.title(), "teamOwnerId": owner,
-            "status": "ativo", "permissions": {"chat": True}}
+            "status": "ativo", "teamChatEnabled": True,
+            "permissions": {"chat": True}}
 
 
 class CallStudioTests(unittest.IsolatedAsyncioTestCase):

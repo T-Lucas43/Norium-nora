@@ -5,6 +5,7 @@ param(
     [string]$Subscription = "",
     [string]$ContainerImage = "ghcr.io/noriumnoraai-ui/norium-nora:latest",
     [string]$RegistryUsername = "noriumnoraai-ui",
+    [switch]$EnableNoraBrain,
     [switch]$UploadLocalData,
     [switch]$SkipValidation
 )
@@ -150,6 +151,26 @@ if (-not $secretSettings.ContainsKey("WAPI_CREDENTIAL_ENCRYPTION_KEY")) {
     throw "WAPI_CREDENTIAL_ENCRYPTION_KEY nao foi encontrada no .env local."
 }
 
+$noraBrainDatabaseUrl = ""
+$noraBrainInternalSecret = ""
+$noraBrainOpenAiApiKey = ""
+if ($EnableNoraBrain) {
+    foreach ($required in @("NORA_BRAIN_DATABASE_URL", "NORA_BRAIN_INTERNAL_SECRET", "OPENAI_API_KEY")) {
+        if (-not $dotenv.ContainsKey($required)) {
+            throw "$required e obrigatoria no .env local quando -EnableNoraBrain for usado."
+        }
+    }
+    $noraBrainDatabaseUrl = [string]$dotenv["NORA_BRAIN_DATABASE_URL"]
+    $noraBrainInternalSecret = [string]$dotenv["NORA_BRAIN_INTERNAL_SECRET"]
+    $noraBrainOpenAiApiKey = [string]$dotenv["OPENAI_API_KEY"]
+    if ($noraBrainInternalSecret.Length -lt 32) {
+        throw "NORA_BRAIN_INTERNAL_SECRET precisa ter pelo menos 32 caracteres."
+    }
+    if ($noraBrainDatabaseUrl -notmatch '^postgres(?:ql)?://') {
+        throw "NORA_BRAIN_DATABASE_URL precisa apontar para PostgreSQL."
+    }
+}
+
 $parameterPath = Join-Path ([System.IO.Path]::GetTempPath()) ("norium-container-parameters-" + [guid]::NewGuid().ToString("N") + ".json")
 $dataStagingPath = ""
 
@@ -188,6 +209,10 @@ try {
             registryUsername = @{ value = $RegistryUsername }
             registryPassword = @{ value = $registryPassword }
             secretSettings = @{ value = $secretSettings }
+            noraBrainEnabled = @{ value = [bool]$EnableNoraBrain }
+            noraBrainDatabaseUrl = @{ value = $noraBrainDatabaseUrl }
+            noraBrainInternalSecret = @{ value = $noraBrainInternalSecret }
+            noraBrainOpenAiApiKey = @{ value = $noraBrainOpenAiApiKey }
         }
     }
     $parameterDocument | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $parameterPath -Encoding utf8
@@ -214,6 +239,7 @@ try {
     $publicUrl = [string]$deployment.properties.outputs.publicUrl.value
     $storageAccountName = [string]$deployment.properties.outputs.storageAccountName.value
     $fileShareName = [string]$deployment.properties.outputs.fileShareName.value
+    $noraExecutorAppName = [string]$deployment.properties.outputs.noraExecutorAppName.value
 
     if ($UploadLocalData) {
         Write-Host "Copiando os dados locais para o Azure Files persistente..."
@@ -285,6 +311,8 @@ try {
         url = $publicUrl
         deployedAt = [DateTime]::UtcNow.ToString("o")
         localDataUploaded = [bool]$UploadLocalData
+        noraBrainEnabled = [bool]$EnableNoraBrain
+        noraExecutorAppName = $noraExecutorAppName
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outputDirectory "azure-deployment.json") -Encoding utf8
 
     Write-Host "Deploy concluido: $publicUrl"

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bookmark, Check, Download, History, Library, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
+import { Bookmark, BrainCircuit, Check, Download, History, Library, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { ApiError, apiRequest } from "../../core/api/client";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
 import Nora, { type NoraConversationState } from "../layout/Nora";
@@ -8,6 +8,7 @@ import Button from "../shared/Button";
 import { showConfirm, showPrompt } from "../shared/AppDialogProvider";
 import { ConversationWriter, draftConversation, type ConversationSummary, type SavedConversation } from "./conversationHistory";
 import { NoraFileLibrary } from "./NoraFiles";
+import NoraBrainJobs from "./NoraBrainJobs";
 import "./noraWorkspace.css";
 
 export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenEmail }: {
@@ -19,6 +20,8 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
   const [historyView, setHistoryView] = useState<"history" | "library">("history");
   const [libraryFileCount, setLibraryFileCount] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [brainOpen, setBrainOpen] = useState(false);
+  const [brainAvailable, setBrainAvailable] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [switching, setSwitching] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -52,6 +55,13 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
     window.addEventListener("beforeunload", beforeUnload);
     return () => { mounted.current = false; window.removeEventListener("beforeunload", beforeUnload); if (timer.current) clearTimeout(timer.current); void writerRef.current?.flush().catch(() => undefined); };
   }, [loadHistory]);
+  useEffect(() => {
+    let active = true;
+    void apiRequest<{ status: string }>("/api/nora/brain/health")
+      .then((result) => { if (active) setBrainAvailable(result.status === "ready"); })
+      .catch(() => { if (active) setBrainAvailable(false); });
+    return () => { active = false; };
+  }, []);
 
   const onStateChange = useCallback((state: NoraConversationState, running: boolean) => {
     setBusy(running);
@@ -151,6 +161,7 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
       <button type="button" onClick={() => void selectConversation()} disabled={busy || switching} aria-label="Nova conversa" title="Nova conversa"><Plus size={18} /></button>
       <button type="button" onClick={() => openSidebar("history")} className={historyOpen && historyView === "history" ? "is-active" : ""} aria-label="Abrir histórico de conversas" aria-expanded={historyOpen && historyView === "history"} title="Histórico"><MessageSquare size={18} /></button>
       <button type="button" onClick={() => openSidebar("library")} className={historyOpen && historyView === "library" ? "is-active" : ""} aria-label="Abrir biblioteca da Nora" aria-expanded={historyOpen && historyView === "library"} title="Biblioteca"><Library size={18} /></button>
+      {brainAvailable && <button type="button" onClick={() => setBrainOpen(true)} className={brainOpen ? "is-active" : ""} aria-label="Abrir trabalhos persistentes" aria-expanded={brainOpen} title="Trabalhos"><BrainCircuit size={18} /></button>}
       <span className="nora-rail-spacer" />
       <span className="nora-rail-profile" title={profileName} aria-label={`Perfil de ${profileName}`}>{profileInitials}</span>
     </nav>
@@ -172,6 +183,7 @@ export default function NoraWorkspace({ userId, profile, eventsBySource, onOpenE
       })}</>}</div><div className="nora-history-footer"><Sparkles size={15} /><span>Ideias, respostas e ações.<br /><strong>Conectadas ao seu Norium.</strong></span></div>
     </aside>
     <section className="nora-workspace-main" aria-label="Conversa com a Nora">
+      {brainOpen && <NoraBrainJobs onClose={() => setBrainOpen(false)} />}
       <header className="nora-workspace-header">
         <Button variant="ghost" iconOnly onClick={() => setHistoryOpen(!historyOpen)} aria-label={historyOpen ? "Recolher histórico" : "Abrir histórico"} aria-expanded={historyOpen}>{historyOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}</Button>
         <span className="nora-workspace-header-avatar"><NoraAvatar className="h-10 w-10" /></span>

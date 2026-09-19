@@ -6,6 +6,8 @@ import json
 import mimetypes
 import re
 import uuid
+from functools import wraps
+from threading import RLock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,18 @@ PRIORITIES = {"baixa", "media", "alta", "urgente"}
 PROJECT_STATUSES = {"planejamento", "ativo", "pausado", "concluido"}
 PROJECT_CATEGORIES = {"operacao", "cliente", "produto", "financeiro", "suporte", "pessoal"}
 
+# A full read/modify/write operation must use the same lock as the Nora bridge.
+# Supported topology remains one web worker; this is not a distributed lock.
+mutation_lock = RLock()
+
+
+def serialized(operation):
+    @wraps(operation)
+    def guarded(*args, **kwargs):
+        with mutation_lock:
+            return operation(*args, **kwargs)
+    return guarded
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -68,6 +82,7 @@ def default_project(user_id: str = "lucas123") -> dict[str, Any]:
     }
 
 
+@serialized
 def load_workspace(user_id: str = "lucas123", *, db: dict[str, Any] | None = None) -> dict[str, Any]:
     if db is None:
         db = _read_db()
@@ -151,6 +166,7 @@ def list_projects(user_id: str = "lucas123") -> dict[str, Any]:
     return {"projects": projects, "updatedAt": now_iso()}
 
 
+@serialized
 def create_project(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     db = _read_db()
     workspace = load_workspace(user_id, db=db)
@@ -173,6 +189,7 @@ def create_project(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return project
 
 
+@serialized
 def update_project(user_id: str, project_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
     db = _read_db()
     resolved = resolve_project_workspace(db, user_id, project_id)
@@ -215,6 +232,7 @@ def update_project(user_id: str, project_id: str, updates: dict[str, Any]) -> di
     return None
 
 
+@serialized
 def delete_project(user_id: str, project_id: str) -> bool:
     db = _read_db()
     resolved = resolve_project_workspace(db, user_id, project_id)
@@ -286,6 +304,7 @@ def list_tasks(
     }
 
 
+@serialized
 def create_task(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     db = _read_db()
     status = payload.get("status") or "pendente"
@@ -326,6 +345,7 @@ def create_task(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return task
 
 
+@serialized
 def update_task(user_id: str, task_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
     db = _read_db()
     resolved = resolve_task_workspace(db, user_id, task_id)
@@ -353,6 +373,7 @@ def update_task(user_id: str, task_id: str, updates: dict[str, Any]) -> dict[str
     return None
 
 
+@serialized
 def delete_task(user_id: str, task_id: str) -> bool:
     db = _read_db()
     resolved = resolve_task_workspace(db, user_id, task_id)
@@ -370,6 +391,7 @@ def delete_task(user_id: str, task_id: str) -> bool:
     return True
 
 
+@serialized
 def restore_task(user_id: str, snapshot: dict[str, Any]) -> dict[str, Any] | None:
     """Restaura exatamente o card capturado em um comprovante operacional."""
     task_id = str(snapshot.get("id") or "").strip()
@@ -391,6 +413,7 @@ def restore_task(user_id: str, snapshot: dict[str, Any]) -> dict[str, Any] | Non
     return restored
 
 
+@serialized
 def add_comment(user_id: str, task_id: str, author: str, text: str) -> dict[str, Any] | None:
     db = _read_db()
     resolved = resolve_task_workspace(db, user_id, task_id)
@@ -415,6 +438,7 @@ def add_comment(user_id: str, task_id: str, author: str, text: str) -> dict[str,
     return None
 
 
+@serialized
 def add_attachment(user_id: str, task_id: str, *, file_name: str, mime_type: str, data_url: str) -> dict[str, Any] | None:
     db = _read_db()
     resolved = resolve_task_workspace(db, user_id, task_id)

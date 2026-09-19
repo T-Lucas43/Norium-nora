@@ -411,14 +411,7 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(404, error.exception.status_code)
 
     async def test_two_authenticated_users_receive_only_their_own_catalog(self) -> None:
-        from app.services import wapi_binding as wb
-        from app.services.wapi_binding import InstanceBinding
-
         with tempfile.TemporaryDirectory() as temp_dir, patch.dict(os.environ, {"NORIUM_DATA_DIR": temp_dir}):
-            # Cada conta vinculada a sua propria instancia W-API.
-            wb.save_binding("user-a", InstanceBinding(instance_id="inst-a", token="t-a", state="connected"))
-            wb.save_binding("user-b", InstanceBinding(instance_id="inst-b", token="t-b", state="connected"))
-
             # Simula lixo persistido por uma versão antiga; a leitura deve limpar.
             stores: dict[str, dict] = {
                 "user-a": {"status@broadcast": {"id": "status@broadcast"}},
@@ -433,15 +426,16 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
 
             async def fetch_chats(instance_id: str, token: str, **_kwargs):
                 # O catalogo depende da instancia (isolada por conta), nao do userId.
+                now = int(chat_router.time.time())
                 return {"chats": [
                     {
                         "id": f"chat-{instance_id}@c.us",
                         "phone": f"chat-{instance_id}@c.us",
                         "name": f"Contato {instance_id}",
-                        "timestamp": 1_787_000_000,
+                        "timestamp": now,
                         "messages": [{
                             "id": f"message-{instance_id}",
-                            "timestamp": 1_787_000_000,
+                            "timestamp": now,
                             "content": "oi",
                             "type": "chat",
                             "fromMe": False,
@@ -451,7 +445,7 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
                         "id": "status@broadcast",
                         "phone": "status@broadcast",
                         "name": "Status",
-                        "timestamp": 1_787_000_001,
+                        "timestamp": now,
                     },
                 ]}
 
@@ -459,6 +453,14 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
                 return {"contacts": []}
 
             with (
+                patch.object(
+                    chat_router,
+                    "wapi_creds",
+                    side_effect=lambda user_id: {
+                        "user-a": ("inst-a", "t-a"),
+                        "user-b": ("inst-b", "t-b"),
+                    }.get(user_id),
+                ),
                 patch.object(chat_router.wapi_connect, "status", AsyncMock(return_value={"status": "conectado"})),
                 patch.object(chat_router.wapi_client, "fetch_chats", side_effect=fetch_chats),
                 patch.object(chat_router.wapi_client, "fetch_contacts", side_effect=fetch_contacts),
@@ -469,8 +471,12 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
                 # A listagem interativa agora e cache-first e nunca espera a
                 # W-API. Executa os dois workers, como ocorreria em background,
                 # antes de validar que cada conta recebeu apenas seu catalogo.
-                await chat_router._run_contact_sync("user-a")
-                await chat_router._run_contact_sync("user-b")
+                sync_a = await chat_router._run_contact_sync("user-a")
+                sync_b = await chat_router._run_contact_sync("user-b")
+                self.assertEqual("complete", sync_a["status"], sync_a)
+                self.assertEqual("complete", sync_b["status"], sync_b)
+                self.assertIn("chat-inst-a@c.us", stores["user-a"], stores["user-a"])
+                self.assertIn("chat-inst-b@c.us", stores["user-b"], stores["user-b"])
                 catalog_a = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-a"))
                 catalog_b = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-b"))
 

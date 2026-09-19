@@ -8,6 +8,8 @@ import io
 import mimetypes
 import re
 import uuid
+from functools import wraps
+from threading import RLock
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
@@ -27,6 +29,15 @@ from app.services.task_store import list_tasks
 
 
 DB_NAME = "nora_files"
+mutation_lock = RLock()
+
+
+def serialized(operation):
+    @wraps(operation)
+    def guarded(*args, **kwargs):
+        with mutation_lock:
+            return operation(*args, **kwargs)
+    return guarded
 MAX_FILE_BYTES = 24 * 1024 * 1024
 MAX_FILES = 600
 FILE_ID_PATTERN = re.compile(r"^nora_file_[a-f0-9]{32}$")
@@ -129,6 +140,7 @@ def _artifact(record: dict[str, Any]) -> dict[str, Any]:
     return artifact
 
 
+@serialized
 def save_bytes(
     user_id: str,
     content: bytes,
@@ -179,6 +191,7 @@ def list_library_files(user_id: str) -> list[dict[str, Any]]:
     return [_artifact(record) for record in records]
 
 
+@serialized
 def set_library_status(user_id: str, file_id: str, in_library: bool) -> dict[str, Any]:
     # Validate ownership and the backing file before persisting the marker.
     owned_file(user_id, file_id)

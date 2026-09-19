@@ -130,6 +130,7 @@ class TurnCredentialEndpointTests(unittest.TestCase):
             "id": "member-1",
             "teamOwnerId": "team-owner",
             "status": "ativo",
+            "teamChatEnabled": True,
             "permissions": {"chat": True},
         }
         with patch.object(team_router, "turn_credential_provider", return_value=provider):
@@ -158,6 +159,7 @@ class TurnCredentialEndpointTests(unittest.TestCase):
             "id": "member-1",
             "teamOwnerId": "team-owner",
             "status": "ativo",
+            "teamChatEnabled": True,
             "permissions": {"equipe": True},
         }
         with patch.object(

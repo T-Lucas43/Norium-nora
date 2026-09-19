@@ -239,6 +239,9 @@ class TeamIsolationTests(unittest.IsolatedAsyncioTestCase):
             team_owner_id=None,
             created_by="owner-a",
         )
+        # Legacy records predate the field entirely. An explicit null means a
+        # deliberate unlink and must never be reattached from createdBy.
+        legacy_member.pop("teamOwnerId")
         store = {
             "users": [self.owner_a, legacy_member],
             "teams": [{"id": "owner-a", "ownerUserId": "owner-a", "name": "Equipe A"}],

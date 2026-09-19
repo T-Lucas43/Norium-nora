@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
+from app.infrastructure.persistence.json_repository import PersistenceError
 from app.modules.team import router
 from app.modules.team.recording_adapters import JsonRecordingStore
 from app.modules.team.recording_coordinator import LocalRecordingFiles, RecordingCoordinator, RecordingLimits
@@ -79,7 +80,7 @@ class RecordingRetentionStorageTests(unittest.IsolatedAsyncioTestCase):
             coordinator = RecordingCoordinator(store=store, files=LocalRecordingFiles(root),
                 call_access=MemoryCallAccess(), events=MemoryEvents(), clock=FixedClock(), limits=RecordingLimits())
             with patch.object(router, "team_chat_path", return_value=str(database)):
-                with self.assertRaises(OSError):
+                with self.assertRaises((OSError, PersistenceError)):
                     await coordinator.maintain(["owner"])
             self.assertEqual(original, database.read_bytes())
             self.assertTrue(part.exists())

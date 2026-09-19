@@ -7,7 +7,9 @@ import os
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from functools import wraps
 from pathlib import Path
+from threading import RLock
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -41,6 +43,15 @@ SYNC_STATE_PATH = BASE_DIR / "agenda_sync_state.json"
 OAUTH_STATE_PATH = BASE_DIR / "google_oauth_state.json"
 ACCOUNT_DIR = get_data_root() / "oauth_accounts" / "calendar"
 ACCOUNT_DIR.mkdir(parents=True, exist_ok=True)
+calendar_mutation_lock = RLock()
+
+
+def serialized_calendar_mutation(operation):
+    @wraps(operation)
+    def guarded(*args, **kwargs):
+        with calendar_mutation_lock:
+            return operation(*args, **kwargs)
+    return guarded
 
 
 class CalendarConfigError(RuntimeError):
@@ -65,6 +76,7 @@ class CalendarService:
             return None
         return user_id
 
+    @serialized_calendar_mutation
     def status(self) -> dict[str, Any]:
         configured = bool(self._client_config())
         connected = False
@@ -88,6 +100,7 @@ class CalendarService:
             "detail": detail,
         }
 
+    @serialized_calendar_mutation
     def authorization_url(self) -> dict[str, str]:
         oauth_user_id = self._safe_user_id()
         if not OAUTH_USER_ID_PATTERN.fullmatch(oauth_user_id):
@@ -113,6 +126,7 @@ class CalendarService:
         )
         return {"auth_url": auth_url, "state": state}
 
+    @serialized_calendar_mutation
     def finish_oauth(self, *, code: str, state: str | None) -> dict[str, Any]:
         oauth_state = self._read_profile_section("calendarOauthState", {})
         attempt, remaining_attempts = find_oauth_attempt(oauth_state, state)
@@ -149,6 +163,7 @@ class CalendarService:
         self._write_profile_section("calendarToken", payload)
         return {"connected": True, "scopes": payload.get("scopes", SCOPES)}
 
+    @serialized_calendar_mutation
     def list_events(
         self,
         *,
@@ -172,6 +187,7 @@ class CalendarService:
                 return {"eventos": self._list_local_events(time_min, time_max, query), **fallback_status}
         return {"eventos": self._list_local_events(time_min, time_max, query), **current_status}
 
+    @serialized_calendar_mutation
     def create_event(
         self,
         *,
@@ -182,12 +198,20 @@ class CalendarService:
         local: str = "",
         participantes: list[str] | None = None,
         criar_meet: bool = False,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         participantes = participantes or []
         current_status = self.status()
+        if operation_id:
+            existing = self.find_event_by_operation(operation_id)
+            if existing is not None:
+                return {"evento": existing, **current_status, "idempotentReplay": True}
         if current_status["connected"]:
             try:
-                evento = self._create_google_event(titulo, inicio, fim, descricao, local, participantes, criar_meet)
+                evento = self._create_google_event(
+                    titulo, inicio, fim, descricao, local, participantes, criar_meet,
+                    operation_id=operation_id,
+                )
                 self._mark_sync()
                 return {"evento": evento, **self.status()}
             except Exception as exc:
@@ -197,9 +221,39 @@ class CalendarService:
                 current_status = self.status()
                 current_status["detail"] = "Conexao com Google Agenda expirada ou revogada. Evento salvo localmente."
 
-        evento = self._create_local_event(titulo, inicio, fim, descricao, local, participantes, criar_meet)
+        evento = self._create_local_event(
+            titulo, inicio, fim, descricao, local, participantes, criar_meet,
+            operation_id=operation_id,
+        )
         return {"evento": evento, **current_status}
 
+    @serialized_calendar_mutation
+    def find_event_by_operation(self, operation_id: str) -> dict[str, Any] | None:
+        """Resolve the durable Nora operation key without creating an event."""
+        operation_id = str(operation_id or "").strip()
+        if not operation_id:
+            return None
+        current_status = self.status()
+        if current_status["connected"]:
+            result = self._service().events().list(
+                calendarId="primary",
+                privateExtendedProperty=f"noriumOperationId={operation_id}",
+                maxResults=2,
+                singleEvents=True,
+            ).execute()
+            matches = result.get("items") or []
+            if len(matches) > 1:
+                raise CalendarConfigError("Mais de um evento possui a mesma chave de operação.")
+            if matches:
+                return self._normalize_event(matches[0], "google")
+        local_id = f"local_{operation_id}"
+        return next(
+            (item for item in self._read_profile_section("calendarLocalEvents", [])
+             if isinstance(item, dict) and item.get("id") == local_id),
+            None,
+        )
+
+    @serialized_calendar_mutation
     def update_event(self, event_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         current_status = self.status()
         if current_status["connected"]:
@@ -395,6 +449,8 @@ class CalendarService:
         local: str,
         participantes: list[str],
         criar_meet: bool,
+        *,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "summary": titulo,
@@ -412,6 +468,8 @@ class CalendarService:
                     "conferenceSolutionKey": {"type": "hangoutsMeet"},
                 }
             }
+        if operation_id:
+            body["extendedProperties"] = {"private": {"noriumOperationId": operation_id}}
 
         created = self._service().events().insert(
             calendarId="primary",
@@ -486,9 +544,11 @@ class CalendarService:
         local: str,
         participantes: list[str],
         criar_meet: bool,
+        *,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         evento = {
-            "id": f"local_{uuid.uuid4().hex}",
+            "id": f"local_{operation_id or uuid.uuid4().hex}",
             "titulo": titulo,
             "inicio": self._rfc3339(inicio),
             "fim": self._rfc3339(fim),

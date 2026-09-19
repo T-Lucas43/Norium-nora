@@ -138,9 +138,12 @@ webhook_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
 ai_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=60)
 message_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
 admin_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
+internal_limiter = SlidingWindowRateLimiter(limit=240, window_seconds=60)
 
 
 def rate_limit_bucket(path: str) -> str:
+    if path.startswith("/api/nora/brain/internal/"):
+        return "internal"
     if path.startswith("/api/whatsapp/webhook"):
         return "webhook"
     if path.startswith(("/api/nora", "/api/brainstorm/sessions")):
@@ -166,6 +169,7 @@ async def enforce_rate_limit(path: str, key: str) -> None:
         "ai": ai_limiter,
         "message": message_limiter,
         "admin": admin_limiter,
+        "internal": internal_limiter,
     }.get(bucket)
     if limiter:
         await limiter.check(f"{bucket}:{key}")

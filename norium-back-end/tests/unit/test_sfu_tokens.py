@@ -212,6 +212,7 @@ class SfuTokenEndpointTests(unittest.TestCase):
             "nome": "Member",
             "teamOwnerId": "team-owner",
             "status": "ativo",
+            "teamChatEnabled": True,
             "permissions": {"equipe": True},
         }
         app.dependency_overrides[team_router.sfu_token_provider] = lambda: provider
@@ -261,6 +262,7 @@ class SfuTokenEndpointTests(unittest.TestCase):
             "nome": "Member",
             "teamOwnerId": "team-owner",
             "status": "ativo",
+            "teamChatEnabled": True,
             "permissions": {"equipe": True},
         }
         app.dependency_overrides[team_router.sfu_token_provider] = lambda: provider

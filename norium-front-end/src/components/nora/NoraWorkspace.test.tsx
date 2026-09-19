@@ -28,6 +28,7 @@ describe("NoraWorkspace", () => {
   beforeEach(() => {
     vi.mocked(apiRequest).mockImplementation(async (path) => {
       if (path === "/api/nora/conversations") return [];
+      if (path === "/api/nora/brain/health") return { status: "ready" };
       if (path === "/api/modelos-ia") return { providers: [] };
       return {};
     });

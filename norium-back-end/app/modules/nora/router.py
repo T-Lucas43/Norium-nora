@@ -71,6 +71,7 @@ from app.services.brainstorm_store import create_brainstorm_session, list_brains
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
 from app.modules.intelligence.service import complete_with_provider, create_browser_plan, safe_fetch, search_knowledge
 from app.modules.nora.conversations import router as conversations_router
+from app.modules.nora.brain.router import router as brain_router
 from app.services.nora_files import (
     deterministic_file_command,
     is_deterministic_file_request,
@@ -84,6 +85,7 @@ from app.modules.team.router import message_visible, read_pruned_chat_store, req
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/nora", tags=["Nora IA"])
 router.include_router(conversations_router)
+router.include_router(brain_router)
 nora_service = NoraIAService()
 wapi_messaging = WapiMessagingService()
 agent_manager = AgentManager()

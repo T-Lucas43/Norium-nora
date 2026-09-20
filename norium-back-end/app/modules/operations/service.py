@@ -365,6 +365,7 @@ async def create_approval(user: dict[str, Any], payload: ApprovalCreate) -> dict
         title="Nova aprovacao pendente",
         description=payload.title,
         metadata={"userId": user_id, "action": "approval_requested", "approvalId": item["id"]},
+        event_id=f"sistema_{user_id}_approval_{item['id']}_requested",
     )
     await manager.broadcast(
         user_id,
@@ -374,7 +375,8 @@ async def create_approval(user: dict[str, Any], payload: ApprovalCreate) -> dict
                 "title": "Aprovacao necessaria",
                 "description": payload.title,
                 "severity": "warning",
-                "metadata": {"approvalId": item["id"]},
+                "id": f"notification_approval_requested_{item['id']}",
+                "metadata": {"approvalId": item["id"], "action": "approval_requested"},
             },
         },
     )
@@ -440,6 +442,7 @@ async def _decide_approval_unlocked(
         title="Aprovacao concluida",
         description=f'{approval.get("title")}: {payload.decision}.',
         metadata={"userId": user_id, "action": "approval_decided", "approvalId": approval_id},
+        event_id=f"sistema_{user_id}_approval_{approval_id}_decided",
     )
     if should_execute:
         execution = await execute_approved_action(user, approval)

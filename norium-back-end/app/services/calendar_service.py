@@ -176,6 +176,13 @@ class CalendarService:
         if current_status["connected"]:
             try:
                 eventos = self._list_google_events(time_min, time_max, query, max_results)
+                # Eventos locais preexistem de periodos desconectados (a criacao
+                # local so ocorre fora do Google) e seguem disponiveis junto ao
+                # Google. Ids `local_*` nunca colidem com ids do Google.
+                conhecidos = {str(item.get("id")) for item in eventos}
+                locais = self._list_local_events(time_min, time_max, query)
+                eventos.extend(item for item in locais if str(item.get("id")) not in conhecidos)
+                eventos.sort(key=lambda item: str(item.get("inicio", "")))
                 self._mark_sync()
                 return {"eventos": eventos, **self.status()}
             except Exception as exc:
@@ -255,7 +262,11 @@ class CalendarService:
 
     @serialized_calendar_mutation
     def update_event(self, event_id: str, updates: dict[str, Any]) -> dict[str, Any]:
+        # Ids locais nunca existem no Google; rotear direto evita 404 e preserva edicao local.
         current_status = self.status()
+        if str(event_id).startswith("local_"):
+            evento = self._update_local_event(event_id, updates)
+            return {"evento": evento, **current_status}
         if current_status["connected"]:
             try:
                 evento = self._update_google_event(event_id, updates)
@@ -525,7 +536,12 @@ class CalendarService:
         filtrados = []
         for evento in eventos:
             inicio = self._parse_dt(evento.get("inicio"))
-            if min_dt and inicio and inicio < min_dt:
+            fim = self._parse_dt(evento.get("fim"))
+            # Interseccao com o intervalo pedido (mesma semantica do Google:
+            # timeMin limita o fim, timeMax limita o inicio). Sem fim, vale o inicio.
+            if min_dt and fim and fim <= min_dt:
+                continue
+            if min_dt and not fim and inicio and inicio < min_dt:
                 continue
             if max_dt and inicio and inicio > max_dt:
                 continue

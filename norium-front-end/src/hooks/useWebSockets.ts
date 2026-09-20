@@ -8,6 +8,15 @@ import type {
 } from "../types/omnichannel";
 import { apiBaseUrl, authenticatedWebSocketUrl, authToken, wsBaseUrl } from "../utils/api";
 import type { TeamSocketEvent } from "../components/team-chat/CallSession";
+import {
+  SYNTHETIC_ERROR_IDS,
+  forgetIds,
+  isDuplicateNotification,
+  loadPersistedDedup,
+  notificationIdForEvent,
+  rememberId,
+  systemMessageStableId,
+} from "./notificationDedup";
 
 const API_URL = `${apiBaseUrl()}/api/omnichannel/inbox`;
 const WS_URL = `${wsBaseUrl()}/api/omnichannel/ws`;
@@ -123,7 +132,7 @@ function notificationForEvent(event: OmnichannelEvent, read = false): SystemNoti
   }
 
   return {
-    id: `notification_${event.id}`,
+    id: notificationIdForEvent(event),
     title,
     description: event.description || "Uma nova atividade requer sua atencao.",
     timestamp: event.timestamp,
@@ -174,6 +183,9 @@ export function useWebSockets(
   const notificationsRef = useRef(systemNotifications);
   notificationsRef.current = systemNotifications;
   const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const notifiedIdsRef = useRef<Set<string>>(new Set());
+  const toastedIdsRef = useRef<Set<string>>(new Set());
+  const dismissedToastIdsRef = useRef<Set<string>>(new Set());
   const currentUserIdRef = useRef(userId);
   currentUserIdRef.current = userId;
   const isolatedForCurrentUser = stateUserId === userId;
@@ -199,6 +211,10 @@ export function useWebSockets(
     hasOpenedRef.current = false;
     lastConnectionStateRef.current = null;
     integrationSyncInFlightRef.current = false;
+    const persisted = loadPersistedDedup(userId);
+    notifiedIdsRef.current = persisted.notified;
+    toastedIdsRef.current = persisted.toasted;
+    dismissedToastIdsRef.current = persisted.dismissed;
     setStateUserId(userId);
   }, [userId]);
 
@@ -213,6 +229,8 @@ export function useWebSockets(
 
   const dismissSystemToast = useCallback((toastId: string) => {
     setSystemToasts((current) => current.filter((toast) => toast.id !== toastId));
+    dismissedToastIdsRef.current.add(toastId);
+    rememberId("dismissed", currentUserIdRef.current, toastId);
   }, []);
 
   const dismissCallNotifications = useCallback((callId: string) => {
@@ -245,13 +263,23 @@ export function useWebSockets(
       showToast?: boolean;
     }) => {
       const notification = buildSystemNotification(payload);
-      // An invite and its end can arrive in one React batch. Keep the unread
-      // bookkeeping synchronous so ending it cannot leave a ghost badge.
-      notificationsRef.current = [notification, ...notificationsRef.current].slice(0, 80);
-      setSystemNotifications((current) => [notification, ...current].slice(0, 80));
+      if (notifiedIdsRef.current.has(notification.id)) return;
+      notifiedIdsRef.current.add(notification.id);
+      rememberId("notified", currentUserIdRef.current, notification.id);
+      if (notifiedIdsRef.current.size > 600) {
+        const oldestNotified = notifiedIdsRef.current.values().next().value;
+        if (oldestNotified) notifiedIdsRef.current.delete(oldestNotified);
+      }
+      setSystemNotifications((current) =>
+        isDuplicateNotification(current, notification.id) ? current : [notification, ...current].slice(0, 80),
+      );
+      // Call-end messages can arrive in the same React batch as an invite.
+      notificationsRef.current = isDuplicateNotification(notificationsRef.current, notification.id)
+        ? notificationsRef.current
+        : [notification, ...notificationsRef.current].slice(0, 80);
 
       if (activeTabRef.current !== NOTIFICATIONS_TAB) {
-        setSystemUnreadCount((current) => current + 1);
+        if (!notification.read) setSystemUnreadCount((current) => current + 1);
       }
 
       if (payload.showToast !== false && activeTabRef.current !== NOTIFICATIONS_TAB) {
@@ -260,7 +288,17 @@ export function useWebSockets(
           notification,
           createdAt: Date.now(),
         };
-        setSystemToasts((current) => [...current, toast].slice(0, 20));
+        if (!toastedIdsRef.current.has(toast.id) && !dismissedToastIdsRef.current.has(toast.id)) {
+          toastedIdsRef.current.add(toast.id);
+          rememberId("toasted", currentUserIdRef.current, toast.id);
+          if (toastedIdsRef.current.size > 600) {
+            const oldestToasted = toastedIdsRef.current.values().next().value;
+            if (oldestToasted) toastedIdsRef.current.delete(oldestToasted);
+          }
+          setSystemToasts((current) =>
+            current.some((existing) => existing.id === toast.id) ? current : [...current, toast].slice(0, 20),
+          );
+        }
       }
     },
     [],
@@ -288,8 +326,11 @@ export function useWebSockets(
       const mentioned = Array.isArray(message.metadata?.mentionedUserIds) && message.metadata.mentionedUserIds.includes(userId);
       if (message.senderId === userId || (teamChatOpenRef.current && !mentioned) || ["call_started", "call_ended", "meeting_scheduled"].includes(String(message.metadata?.action || ""))) return;
 
+      const teamNotificationId = messageId ? `notification_team_${messageId}` : null;
+      if (teamNotificationId && notifiedIdsRef.current.has(teamNotificationId)) return;
       setTeamChatUnreadCount((current) => current + 1);
       pushSystemNotification({
+        id: teamNotificationId ?? undefined,
         title: mentioned ? `${message.senderName || "Um membro"} mencionou você` : "Nova mensagem no chat da equipe",
         description: `${message.senderName || "Equipe"}: ${message.text || "Uma nova mensagem foi enviada."}`,
         severity: "info",
@@ -363,16 +404,22 @@ export function useWebSockets(
       if (notificationState.userId !== requestedUserId) throw new Error("Estado de notificacao pertence a outro usuario.");
       const isolatedEvents = sortEvents(data.filter((event) => eventBelongsToUser(event, requestedUserId)));
       isolatedEvents.forEach((event) => seenEventIdsRef.current.add(event.id));
+      isolatedEvents.forEach((event) => {
+        const historyMessageId = String(event.metadata?.messageId || "");
+        if (event.source === "equipe" && historyMessageId) seenTeamMessageIdsRef.current.add(historyMessageId);
+      });
       setEvents(isolatedEvents);
       const storedNotifications = isolatedEvents
         .filter(eventShouldNotify)
         .filter((event) => happenedAfter(event.timestamp, notificationState.clearedBefore))
         .map((event) => notificationForEvent(event, !happenedAfter(event.timestamp, notificationState.readBefore)));
       setSystemNotifications(storedNotifications.slice(0, 80));
+      storedNotifications.forEach((notification) => notifiedIdsRef.current.add(notification.id));
       setSystemUnreadCount(storedNotifications.filter((notification) => !notification.read).length);
     } catch {
       if (currentUserIdRef.current !== requestedUserId) return;
       pushSystemNotification({
+        id: SYNTHETIC_ERROR_IDS.centralUnavailable,
         title: "Central de Atividades indisponivel",
         description: "Nao foi possivel carregar os eventos das integracoes agora.",
         severity: "error",
@@ -418,6 +465,11 @@ export function useWebSockets(
     setSystemUnreadCount(0);
     setSystemNotifications([]);
     setSystemToasts([]);
+    const recurrentIds = [SYNTHETIC_ERROR_IDS.centralUnavailable, SYNTHETIC_ERROR_IDS.websocketMalformed];
+    recurrentIds.forEach((id) => notifiedIdsRef.current.delete(id));
+    recurrentIds.forEach((id) => toastedIdsRef.current.delete(id));
+    recurrentIds.forEach((id) => dismissedToastIdsRef.current.delete(id));
+    forgetIds(currentUserIdRef.current, recurrentIds);
     void fetch(NOTIFICATION_CLEAR_URL, { method: "DELETE", headers: requestHeaders() });
   }, []);
 
@@ -438,6 +490,7 @@ export function useWebSockets(
           payload.description ||
           "O Norium recebeu uma atualizacao operacional.",
         severity: payload.notification?.severity || payload.severity || "info",
+        id: payload.notification?.id || systemMessageStableId({ metadata: payload.notification?.metadata, title: payload.notification?.title || payload.title }) || undefined,
         metadata: payload.notification?.metadata,
       });
     },
@@ -547,7 +600,12 @@ export function useWebSockets(
 
           if (payload.type === "NEW_EVENT" && payload.event) {
             if (!eventBelongsToUser(payload.event, userId)) return;
-            if (seenEventIdsRef.current.has(payload.event.id)) return;
+            if (seenEventIdsRef.current.has(payload.event.id)) {
+              // Um ID conhecido pode trazer uma edicao material da agenda.
+              // Atualize o feed sem recriar o aviso da mesma ocorrencia.
+              setEvents((current) => mergeEvent(current, payload.event as OmnichannelEvent));
+              return;
+            }
             seenEventIdsRef.current.add(payload.event.id);
             setEvents((current) => mergeEvent(current, payload.event as OmnichannelEvent));
             if (payload.event.source === "whatsapp") {
@@ -580,6 +638,7 @@ export function useWebSockets(
           }
         } catch {
           pushSystemNotification({
+            id: SYNTHETIC_ERROR_IDS.websocketMalformed,
             title: "Mensagem WebSocket ignorada",
             description: "O Norium recebeu um pacote em formato inesperado.",
             severity: "warning",

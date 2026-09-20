@@ -10,6 +10,8 @@ import DashboardRail from "./DashboardRail";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
 import type { TaskItem } from "../../features/tasks/types";
 import { apiRequest } from "../../core/api/client";
+import { formatTodayAgendaTime } from "./todayAgenda";
+import { useTodayAgenda } from "./useTodayAgenda";
 
 type EventsBySource = Record<EventSource, OmnichannelEvent[]>;
 
@@ -212,6 +214,7 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
       .finally(() => { if (!cancelled) setTasksLoading(false); });
     return () => { cancelled = true; };
   }, [userId]);
+  const todayAgenda = useTodayAgenda(eventsBySource.calendar);
 
   return (
     <main className="norium-dashboard">
@@ -235,25 +238,42 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
               <button type="button" onClick={() => onNavigate("Agenda")}>Ver agenda</button>
             </div>
             <div className="norium-today-agenda-list">
-              {eventsBySource.calendar.slice(0, 4).map((event, index) => (
-                <button type="button" key={event.id} onClick={() => onNavigate("Agenda")}>
+              {todayAgenda.loading && todayAgenda.items.length === 0 && (
+                <div className="norium-dashboard-empty">
+                  <CalendarDays size={20} />
+                  Carregando agenda de hoje...
+                </div>
+              )}
+              {todayAgenda.items.map((item, index) => (
+                <button type="button" key={item.key} onClick={() => onNavigate("Agenda")}>
                   <span className={`norium-agenda-dot color-${index % 3}`} />
-                  <time>
-                    {new Date(event.timestamp).toLocaleTimeString("pt-BR", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </time>
+                  <time>{formatTodayAgendaTime(item, todayAgenda.timeZone, todayAgenda.dayStartMs)}</time>
+
+
+
                   <span>
-                    <strong>{event.title}</strong>
-                    <small>{event.description || "Compromisso da agenda"}</small>
+                    <strong>{item.title}</strong>
+                    <small>{item.description || "Compromisso da agenda"}</small>
                   </span>
                 </button>
               ))}
-              {!eventsBySource.calendar.length && (
+              {todayAgenda.error && todayAgenda.items.length > 0 && (
+                <div className="norium-dashboard-empty">
+                  <small>{todayAgenda.error}</small>
+                  <button type="button" onClick={() => todayAgenda.reload()}>
+                    Tentar novamente
+                  </button>
+                </div>
+              )}
+              {!todayAgenda.loading && todayAgenda.items.length === 0 && (
                 <div className="norium-dashboard-empty">
                   <CalendarDays size={20} />
-                  Nenhum compromisso recente.
+                  {todayAgenda.error ?? "Nenhum compromisso hoje."}
+                  {todayAgenda.error && (
+                    <button type="button" onClick={() => todayAgenda.reload()}>
+                      Tentar novamente
+                    </button>
+                  )}
                 </div>
               )}
             </div>

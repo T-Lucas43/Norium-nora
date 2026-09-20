@@ -609,6 +609,13 @@ def short_text(value: str, limit: int = 150) -> str:
     return text if len(text) <= limit else f"{text[:limit - 3]}..."
 
 
+def team_inbox_event_id(team_id: str, metadata: dict[str, Any] | None) -> str | None:
+    message_id = str((metadata or {}).get("messageId") or "").strip()
+    if not message_id:
+        return None
+    return f"team_{team_id}_{message_id}"
+
+
 async def record_team_event(team_id: str, title: str, description: str, metadata: dict[str, Any] | None = None, *, user_ids: set[str] | None = None) -> None:
     try:
         for participant_id in sorted(user_ids if user_ids is not None else {team_id}):
@@ -617,6 +624,7 @@ async def record_team_event(team_id: str, title: str, description: str, metadata
                 title=title,
                 description=description,
                 metadata={**(metadata or {}), "userId": participant_id},
+                event_id=team_inbox_event_id(participant_id, metadata),
             )
     except Exception:
         # O chat interno nao deve falhar se a Central estiver temporariamente indisponivel.

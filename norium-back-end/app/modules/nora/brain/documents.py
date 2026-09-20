@@ -8,7 +8,8 @@ import zipfile
 from decimal import Decimal, InvalidOperation
 from html import escape
 from typing import Literal
-from xml.etree import ElementTree
+
+from defusedxml import ElementTree
 
 from pydantic import Field
 from pydantic import field_validator, model_validator

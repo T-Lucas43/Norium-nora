@@ -24,6 +24,13 @@ from fastapi import HTTPException
 from playwright.async_api import BrowserContext, Download, Error as BrowserError, Locator, Page, Playwright, Route, async_playwright
 
 from app.core.tenant import get_user_db_path
+from app.infrastructure.storage_quota import (
+    atomic_write_bytes,
+    configured_bytes,
+    enforce_storage_quota,
+    remove_managed_file,
+    storage_mutation_lock,
+)
 from app.modules.intelligence.browser_live import FEEDS, live_key, start_live
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 from app.modules.platform.service import decrypt_secret, encrypt_secret, list_collection, update_collection_item
@@ -31,6 +38,7 @@ from app.modules.platform.service import decrypt_secret, encrypt_secret, list_co
 
 MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 MAX_SCREENSHOTS = 30
+DEFAULT_BROWSER_RUN_QUOTA_BYTES = 128 * 1024 * 1024
 ACTIVE_BROWSER_LIMIT = max(1, min(4, int(__import__("os").getenv("BROWSER_AGENT_CONCURRENCY", "1"))))
 _SEMAPHORE = asyncio.Semaphore(ACTIVE_BROWSER_LIMIT)
 _ACTIVE: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -230,7 +238,13 @@ async def store_uploaded_artifact(user_id: str, run_id: str, file_name: str, mim
     safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", Path(file_name).name).strip("._") or "arquivo"
     artifact_id = f"artifact_{uuid.uuid4().hex[:16]}"
     path = _run_dir(user_id, run_id) / f"{artifact_id}_{safe_name}"
-    await asyncio.to_thread(path.write_bytes, content)
+    with storage_mutation_lock:
+        enforce_storage_quota(
+            path.parent,
+            len(content),
+            workspace_limit=configured_bytes("BROWSER_RUN_STORAGE_QUOTA_BYTES", DEFAULT_BROWSER_RUN_QUOTA_BYTES),
+        )
+        await asyncio.to_thread(atomic_write_bytes, path, content)
     artifact = {
         "id": artifact_id, "kind": "upload", "name": safe_name,
         "mimeType": mime_type or match.group(1) or "application/octet-stream",
@@ -246,7 +260,11 @@ async def store_uploaded_artifact(user_id: str, run_id: str, file_name: str, mim
         run["updatedAt"] = now_iso()
         return artifact
 
-    await mutate_store(user_id, mutation)
+    try:
+        await mutate_store(user_id, mutation)
+    except Exception:
+        remove_managed_file(path, path.parent)
+        raise
     return {key: value for key, value in artifact.items() if key != "path"}
 
 

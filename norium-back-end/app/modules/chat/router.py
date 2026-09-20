@@ -2208,10 +2208,12 @@ async def webhook_whatsapp(
     supplied_secret = ""
     if request is not None:
         supplied_secret = str(
-            request.query_params.get("secret")
-            or request.headers.get("x-wapi-webhook-secret")
+            request.headers.get("x-wapi-webhook-secret")
+            or (x_whatsapp_webhook_secret if isinstance(x_whatsapp_webhook_secret, str) else "")
             or ""
         )
+        if not supplied_secret and os.getenv("WAPI_WEBHOOK_QUERY_SECRET_COMPAT", "0").strip() == "1":
+            supplied_secret = str(request.query_params.get("secret") or "")
     try:
         result = await whatsapp_integration.handle_webhook(
             {"x-wapi-webhook-secret": supplied_secret},

@@ -27,8 +27,8 @@ export function useAuthSession() {
     if (sessionUserId.current !== nextSession.user.id) clearPrivateSnapshots();
     sessionUserId.current = nextSession.user.id;
     setAuthSession(nextSession);
-    localStorage.setItem(AUTH_TOKEN_STORAGE, nextSession.token);
-    sessionStorage.removeItem(AUTH_TOKEN_STORAGE);
+    sessionStorage.setItem(AUTH_TOKEN_STORAGE, nextSession.token);
+    localStorage.removeItem(AUTH_TOKEN_STORAGE);
   }, []);
 
   const clearSession = useCallback(() => {
@@ -43,9 +43,8 @@ export function useAuthSession() {
 
   useEffect(() => {
     const restoringRevision = ++revision.current;
-    const token = localStorage.getItem(AUTH_TOKEN_STORAGE) || sessionStorage.getItem(AUTH_TOKEN_STORAGE);
-    if (token) localStorage.setItem(AUTH_TOKEN_STORAGE, token);
-    sessionStorage.removeItem(AUTH_TOKEN_STORAGE);
+    localStorage.removeItem(AUTH_TOKEN_STORAGE);
+    const token = sessionStorage.getItem(AUTH_TOKEN_STORAGE);
     if (!token) {
       setAuthLoading(false);
       return;

@@ -83,6 +83,28 @@ def require_record(record: dict[str, Any] | None, label: str) -> dict[str, Any]:
     return record
 
 
+def validate_payment_relations(store: dict[str, Any], candidate: dict[str, Any]) -> None:
+    plan_id = candidate.get("planId")
+    if plan_id and not any(item.get("id") == plan_id for item in store["plans"]):
+        raise HTTPException(status_code=422, detail="O plano selecionado nao existe.")
+    subscription_id = candidate.get("subscriptionId")
+    if subscription_id:
+        subscription = next((item for item in store["subscriptions"] if item.get("id") == subscription_id), None)
+        if not subscription:
+            raise HTTPException(status_code=422, detail="A assinatura selecionada nao existe.")
+        if subscription.get("customerId") != candidate.get("customerId"):
+            raise HTTPException(status_code=422, detail="O cliente nao pertence a assinatura selecionada.")
+        if plan_id and subscription.get("planId") != plan_id:
+            raise HTTPException(status_code=422, detail="O plano nao corresponde a assinatura selecionada.")
+        candidate["planId"] = subscription.get("planId")
+    elif not any(
+        item.get("customerId") == candidate.get("customerId")
+        and (not plan_id or item.get("planId") == plan_id)
+        for item in store["subscriptions"]
+    ):
+        raise HTTPException(status_code=422, detail="O cliente nao possui assinatura compativel.")
+
+
 def filtered_page(
     items: list[dict[str, Any]],
     page: int,
@@ -256,7 +278,11 @@ async def list_payments(
 @router.post("/payments", status_code=201)
 async def create_payment(payload: PaymentInput, user: CurrentAdmin) -> dict[str, Any]:
     await require_permissions(user, "managePayments")
-    return {"item": await create_record("payments", "payment", payload, user)}
+    payment = model_payload(payload)
+
+    record = await repository.create("payments", payment, "payment", validate=validate_payment_relations)
+    await audit(user, "create", "payments", record["id"], None, record)
+    return {"item": record}
 
 
 @router.patch("/payments/{record_id}")
@@ -570,9 +596,16 @@ async def commit_import(payload: ImportCommitInput, user: CurrentAdmin) -> dict[
             transformed.setdefault("customerId", transformed.get("customerName") or f"import-{row_index}")
         try:
             model = model_type.model_validate(transformed)
-            created.append(await repository.create(collection, model_payload(model), "expense" if collection == "expenses" else "payment"))
+            created.append(await repository.create(
+                collection,
+                model_payload(model),
+                "expense" if collection == "expenses" else "payment",
+                validate=validate_payment_relations if collection == "payments" else None,
+            ))
         except ValidationError as exc:
             errors.append({"row": row_index, "errors": exc.errors(include_url=False)})
+        except HTTPException as exc:
+            errors.append({"row": row_index, "errors": [{"msg": str(exc.detail), "type": "reference_error"}]})
     await audit(user, "import", collection, f"batch-{datetime.now().timestamp()}", None, {"created": len(created), "errors": len(errors), "kind": payload.kind})
     return {"created": len(created), "errors": errors[:100], "items": created[:100]}
 

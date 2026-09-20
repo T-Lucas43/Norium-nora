@@ -118,7 +118,7 @@ class WapiWebhookAuthenticationTests(unittest.IsolatedAsyncioTestCase):
             ) as compare_digest:
                 result = await chat_router.webhook_whatsapp(
                     payload,
-                    request=FakeRequest(secret=SECRET),
+                    request=FakeRequest(header_secret=SECRET),
                 )
                 self.assertEqual("success", result["status"])
                 compare_digest.assert_called_once_with(SECRET, SECRET)

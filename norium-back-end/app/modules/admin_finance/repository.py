@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 from app.core.tenant import get_system_db_path, read_json_file, write_json_file
 from app.infrastructure.persistence.json_repository import PersistenceError
+from app.shared.plan_catalog import finance_plan_catalog
 
 
 DB_PATH = get_system_db_path("admin_finance")
@@ -23,40 +24,7 @@ def _id(prefix: str) -> str:
 
 
 def default_plans() -> list[dict[str, Any]]:
-    return [
-        {
-            "id": "plan_free", "code": "free", "name": "Free", "description": "Para conhecer o Norium.",
-            "monthlyPriceCents": 0, "quarterlyPriceCents": 0, "semiannualPriceCents": 0,
-            "annualPriceCents": 0, "lifetimePriceCents": 0, "setupFeeCents": 0,
-            "cancellationFeeCents": 0, "lateFeePercentage": 0, "trialDays": 0,
-            "active": True, "popular": False, "features": ["Dashboard", "Tarefas basicas"],
-            "limits": {"users": 1, "noraCalls": 20, "storageMb": 100}, "internalNotes": "",
-        },
-        {
-            "id": "plan_individual", "code": "individual", "name": "Individual", "description": "Operacao completa para uma pessoa.",
-            "monthlyPriceCents": 12900, "quarterlyPriceCents": 34800, "semiannualPriceCents": 65800,
-            "annualPriceCents": 118800, "lifetimePriceCents": 0, "setupFeeCents": 0,
-            "cancellationFeeCents": 0, "lateFeePercentage": 2, "trialDays": 7,
-            "active": True, "popular": True, "features": ["Nora", "Gmail", "Agenda", "Chat", "Tarefas", "Relatorios"],
-            "limits": {"users": 1, "noraCalls": 1000, "storageMb": 5000}, "internalNotes": "",
-        },
-        {
-            "id": "plan_equipe", "code": "equipe", "name": "Equipe", "description": "Colaboracao, permissoes e automacoes.",
-            "monthlyPriceCents": 29900, "quarterlyPriceCents": 80700, "semiannualPriceCents": 152500,
-            "annualPriceCents": 274800, "lifetimePriceCents": 0, "setupFeeCents": 0,
-            "cancellationFeeCents": 0, "lateFeePercentage": 2, "trialDays": 14,
-            "active": True, "popular": False, "features": ["Tudo do Individual", "Equipe", "Automacoes", "Brainstorm"],
-            "limits": {"users": 10, "noraCalls": 5000, "storageMb": 20000}, "internalNotes": "",
-        },
-        {
-            "id": "plan_enterprise", "code": "enterprise", "name": "Enterprise", "description": "Governanca e operacao em escala.",
-            "monthlyPriceCents": 89900, "quarterlyPriceCents": 242700, "semiannualPriceCents": 458500,
-            "annualPriceCents": 826800, "lifetimePriceCents": 0, "setupFeeCents": 149900,
-            "cancellationFeeCents": 0, "lateFeePercentage": 2, "trialDays": 14,
-            "active": True, "popular": False, "features": ["Tudo do Equipe", "White-label", "Aprovacoes", "Suporte prioritario"],
-            "limits": {"users": 100, "noraCalls": 25000, "storageMb": 100000}, "internalNotes": "",
-        },
-    ]
+    return finance_plan_catalog()
 
 
 def default_store() -> dict[str, Any]:
@@ -200,10 +168,20 @@ class AdminFinanceRepository:
         store = await self.read()
         return copy.deepcopy(store.get(collection, []))
 
-    async def create(self, collection: str, payload: dict[str, Any], prefix: str) -> dict[str, Any]:
+    async def create(
+        self,
+        collection: str,
+        payload: dict[str, Any],
+        prefix: str,
+        *,
+        validate: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         def operation(store: dict[str, Any]) -> dict[str, Any]:
+            candidate = copy.deepcopy(payload)
+            if validate is not None:
+                validate(store, candidate)
             now = now_iso()
-            record = {"id": _id(prefix), **payload, "createdAt": now, "updatedAt": now}
+            record = {"id": _id(prefix), **candidate, "createdAt": now, "updatedAt": now}
             store[collection].append(record)
             return copy.deepcopy(record)
         return await self.mutate(operation)

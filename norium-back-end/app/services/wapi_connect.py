@@ -168,9 +168,11 @@ class WapiConnectService:
             address = None
         if address is not None and not address.is_global:
             return {}
-        # O segredo viaja na URL registrada para autenticar cada entrega recebida.
+        # O modo seguro exige que o provedor injete X-Wapi-Webhook-Secret. A
+        # compatibilidade por query fica desligada por padrao e exige aceite
+        # operacional explicito enquanto a conta do provedor e migrada.
         secret = self._client.config.webhook_secret
-        if secret:
+        if secret and os.getenv("WAPI_WEBHOOK_QUERY_SECRET_COMPAT", "0").strip() == "1":
             url = f"{url}?secret={quote(secret)}"
         return {event: url for event in _WEBHOOK_EVENTS}
 

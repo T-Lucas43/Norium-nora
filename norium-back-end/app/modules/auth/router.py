@@ -33,6 +33,7 @@ from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.request_context import normalize_workspace_id, set_ai_user_id
 from app.core.tenant import get_system_db_path, read_account_db, read_json_file, write_json_file
 from app.infrastructure.persistence.json_repository import PersistenceError
+from app.shared.plan_catalog import public_plan_catalog, seat_limit
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 USERS_DB_PATH = Path(get_system_db_path("usuarios"))
@@ -138,40 +139,7 @@ PLAN_PERMISSION_PRESETS: dict[str, dict[str, bool]] = {
     "enterprise": EQUIPE_PERMISSIONS,
 }
 
-PLAN_CATALOG = [
-    {
-        "code": "free",
-        "name": "Free",
-        "description": "Comece com Dashboard, Central, Perfil e Tarefas locais.",
-        "teamSeats": 1,
-        "monthlyPrice": 0,
-        "features": ["Dashboard", "Central", "Tarefas", "Perfil"],
-    },
-    {
-        "code": "individual",
-        "name": "Individual",
-        "description": "Uso proprio do Norium com modulos principais.",
-        "teamSeats": 1,
-        "monthlyPrice": 79,
-        "features": ["Dashboard", "Nora", "E-mails", "Agenda", "Chat", "Tarefas", "Gastos", "Automacoes", "Relatorios"],
-    },
-    {
-        "code": "equipe",
-        "name": "Equipe",
-        "description": "Permite criar usuarios menores e controlar acessos por modulo.",
-        "teamSeats": 8,
-        "monthlyPrice": 179,
-        "features": ["Tudo do individual", "Modo equipe", "Permissoes por integracao", "Gestao de membros"],
-    },
-    {
-        "code": "enterprise",
-        "name": "Enterprise",
-        "description": "Administracao avancada, auditoria e liberacao granular.",
-        "teamSeats": 50,
-        "monthlyPrice": 399,
-        "features": ["Tudo do equipe", "Tema personalizado", "Admin do sistema", "Planos", "Governanca"],
-    },
-]
+PLAN_CATALOG = public_plan_catalog()
 
 
 class LoginPayload(StrictModel):
@@ -1144,6 +1112,17 @@ async def create_user(payload: CreateUserPayload, user: dict[str, Any] = Depends
         selected_team_owner_id = validate_team_owner(store, payload.teamOwnerId) if can_manage_system(user) else user["id"]
         if payload.jobRoleId and not payload.teamOwnerId:
             selected_team_owner_id = team_id_for_user(user)
+        if selected_team_owner_id:
+            team_owner = find_user(store, selected_team_owner_id)
+            if not team_owner:
+                raise HTTPException(status_code=422, detail="Equipe selecionada nao existe.")
+            active_seats = sum(
+                1 for item in store.get("users", [])
+                if item.get("status") == "ativo"
+                and (item.get("id") == selected_team_owner_id or item.get("teamOwnerId") == selected_team_owner_id)
+            )
+            if active_seats >= seat_limit(str(team_owner.get("plan") or "free")):
+                raise HTTPException(status_code=409, detail="O limite de usuarios ativos deste plano foi atingido.")
         new_user = {
             "id": f"usr_{secrets.token_hex(8)}",
             "nome": payload.nome.strip(),

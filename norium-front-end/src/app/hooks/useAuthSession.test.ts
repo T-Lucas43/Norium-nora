@@ -14,8 +14,8 @@ beforeEach(() => {
 });
 
 describe("useAuthSession", () => {
-  it("restaura a sessao persistente depois de reabrir o navegador", async () => {
-    localStorage.setItem(AUTH_TOKEN_STORAGE, "token-persistente");
+  it("restaura a sessao dentro da mesma sessao do navegador", async () => {
+    sessionStorage.setItem(AUTH_TOKEN_STORAGE, "token-persistente");
     authJson.mockResolvedValue({
       user: { id: "u1", nome: "Operador", email: "operador@norium.test" },
       availableModes: ["app"],
@@ -26,12 +26,12 @@ describe("useAuthSession", () => {
     await waitFor(() => expect(result.current.authLoading).toBe(false));
     expect(authJson).toHaveBeenCalledWith("/api/auth/me", "token-persistente");
     expect(result.current.authSession?.token).toBe("token-persistente");
-    expect(localStorage.getItem(AUTH_TOKEN_STORAGE)).toBe("token-persistente");
-    expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE)).toBeNull();
+    expect(localStorage.getItem(AUTH_TOKEN_STORAGE)).toBeNull();
+    expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE)).toBe("token-persistente");
   });
 
-  it("migra uma sessao temporaria antiga para o armazenamento persistente", async () => {
-    sessionStorage.setItem(AUTH_TOKEN_STORAGE, "token-legado");
+  it("descarta uma sessao persistente legada", async () => {
+    localStorage.setItem(AUTH_TOKEN_STORAGE, "token-legado");
     authJson.mockResolvedValue({
       user: { id: "u2", nome: "Operador", email: "legado@norium.test" },
       availableModes: ["app"],
@@ -40,7 +40,7 @@ describe("useAuthSession", () => {
     const { result } = renderHook(() => useAuthSession());
     await waitFor(() => expect(result.current.authLoading).toBe(false));
 
-    expect(localStorage.getItem(AUTH_TOKEN_STORAGE)).toBe("token-legado");
+    expect(localStorage.getItem(AUTH_TOKEN_STORAGE)).toBeNull();
     expect(sessionStorage.getItem(AUTH_TOKEN_STORAGE)).toBeNull();
   });
 
@@ -68,7 +68,7 @@ describe("useAuthSession", () => {
   });
 
   it("does not restore an older session after logout during startup", async () => {
-    localStorage.setItem(AUTH_TOKEN_STORAGE, "old-token");
+    sessionStorage.setItem(AUTH_TOKEN_STORAGE, "old-token");
     let finish!: (value: unknown) => void;
     authJson.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     const { result } = renderHook(() => useAuthSession());

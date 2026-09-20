@@ -105,9 +105,15 @@ async def delete_workspace(user: dict[str, Any], workspace_id: str) -> bool:
     owner_id = account_id(user)
 
     def mutation(store: dict[str, Any]) -> bool:
-        before = len(store["workspaces"])
-        store["workspaces"] = [item for item in store["workspaces"] if str(item.get("id")) != workspace_id]
-        return len(store["workspaces"]) != before
+        workspace = next((item for item in store["workspaces"] if str(item.get("id")) == workspace_id), None)
+        if not workspace or not workspace.get("active", True):
+            return False
+        deleted_at = datetime.now(timezone.utc)
+        workspace["active"] = False
+        workspace["deletedAt"] = deleted_at.isoformat()
+        workspace["deletionDueAt"] = (deleted_at + timedelta(days=30)).isoformat()
+        workspace["updatedAt"] = deleted_at.isoformat()
+        return True
 
     return await mutate_store(owner_id, mutation, account_level=True)
 

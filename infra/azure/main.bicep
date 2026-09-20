@@ -76,6 +76,7 @@ var noraWebSecrets = noraBrainEnabled ? [
   { name: 'nora-brain-internal-secret', value: noraBrainInternalSecret }
 ] : []
 var noraWebEnvironment = noraBrainEnabled ? [
+  { name: 'NORA_BRAIN_ENABLED', value: '1' }
   { name: 'NORA_BRAIN_DATABASE_URL', secretRef: 'nora-brain-database-url' }
   { name: 'NORA_BRAIN_DB_SSLMODE', value: 'verify-full' }
   { name: 'NORA_BRAIN_INTERNAL_SECRET', secretRef: 'nora-brain-internal-secret' }
@@ -216,7 +217,7 @@ resource containerApp 'Microsoft.App/containerApps@2025-01-01' = {
             {
               type: 'Readiness'
               httpGet: {
-                path: '/health'
+                path: '/health/ready'
                 port: 8000
                 scheme: 'HTTP'
               }

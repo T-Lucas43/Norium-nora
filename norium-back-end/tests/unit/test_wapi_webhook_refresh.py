@@ -55,7 +55,7 @@ class WapiWebhookRefreshTests(unittest.IsolatedAsyncioTestCase):
             configured_events,
         )
         for call in client.set_webhook.await_args_list:
-            self.assertIn("/api/whatsapp/webhook?secret=hook-secret", call.args[3])
+            self.assertEqual("https://api.norium.example/api/whatsapp/webhook", call.args[3])
 
     async def test_loopback_url_is_never_registered(self) -> None:
         client = AsyncMock()

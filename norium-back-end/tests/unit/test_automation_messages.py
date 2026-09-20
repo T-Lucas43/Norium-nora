@@ -49,7 +49,7 @@ class ExecutionRegressionTests(unittest.IsolatedAsyncioTestCase):
         from app.modules.automations.router import execute_automation
         item = {'id': 'a', 'name': 'Original', 'active': True, 'flow': {'nodes': []}, 'variables': {}, 'logs': [], 'executions': 0}
         stored = {'automations': [item], 'history': []}
-        async def effect(*args):
+        async def effect(*args, **kwargs):
             stored['automations'][0]['active'] = False
             stored['automations'][0]['name'] = 'Editada durante envio'
             return ['Mensagem enviada']

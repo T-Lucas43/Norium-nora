@@ -20,24 +20,24 @@ function mockSuccessfulBlobFetch(blob = new Blob(["media"], { type: "image/png" 
 
 describe("response isolation", () => {
   it.each(["token", "workspace"])("rejects a late JSON response after changing %s", async (change) => {
-    localStorage.setItem(AUTH_TOKEN_STORAGE, "session-a");
+    sessionStorage.setItem(AUTH_TOKEN_STORAGE, "session-a");
     let finish!: (value: unknown) => void;
     vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true, json: () => new Promise((resolve) => { finish = resolve; }) } as unknown as Response);
     const pending = apiRequest("/api/clientes");
     await Promise.resolve();
-    if (change === "token") localStorage.setItem(AUTH_TOKEN_STORAGE, "session-b");
+    if (change === "token") sessionStorage.setItem(AUTH_TOKEN_STORAGE, "session-b");
     else localStorage.setItem("norium-workspace-id", "workspace-b");
     finish({ private: "account-a-data" });
     await expect(pending).rejects.toMatchObject({ status: 499 });
   });
 
   it("rejects a PDF that finishes after logout", async () => {
-    localStorage.setItem(AUTH_TOKEN_STORAGE, "session-a");
+    sessionStorage.setItem(AUTH_TOKEN_STORAGE, "session-a");
     let finish!: (value: Blob) => void;
     vi.spyOn(globalThis, "fetch").mockResolvedValue({ ok: true, blob: () => new Promise((resolve) => { finish = resolve; }) } as unknown as Response);
     const pending = apiBlobRequest("/api/nora/files/id/content");
     await Promise.resolve();
-    localStorage.removeItem(AUTH_TOKEN_STORAGE);
+    sessionStorage.removeItem(AUTH_TOKEN_STORAGE);
     finish(new Blob(["private PDF"]));
     await expect(pending).rejects.toMatchObject({ status: 499 });
   });
@@ -57,7 +57,7 @@ describe("apiErrorMessage", () => {
 
 describe("apiBlobRequest", () => {
   it("autentica uma URL relativa protegida no backend configurado", async () => {
-    window.localStorage.setItem(AUTH_TOKEN_STORAGE, "token-relativo");
+    window.sessionStorage.setItem(AUTH_TOKEN_STORAGE, "token-relativo");
     const fetchMock = mockSuccessfulBlobFetch();
 
     await apiBlobRequest("/api/chat/midia/message-1");
@@ -69,7 +69,7 @@ describe("apiBlobRequest", () => {
   });
 
   it("autentica uma URL absoluta da mesma origem da aplicacao", async () => {
-    window.localStorage.setItem(AUTH_TOKEN_STORAGE, "token-same-origin");
+    window.sessionStorage.setItem(AUTH_TOKEN_STORAGE, "token-same-origin");
     const fetchMock = mockSuccessfulBlobFetch();
     const url = new URL("/api/chat/midia/message-2", window.location.origin).href;
 
@@ -81,7 +81,7 @@ describe("apiBlobRequest", () => {
   });
 
   it("recusa uma URL externa que imita uma rota interna sem enviar o Bearer", async () => {
-    window.localStorage.setItem(AUTH_TOKEN_STORAGE, "token-secreto");
+    window.sessionStorage.setItem(AUTH_TOKEN_STORAGE, "token-secreto");
     const fetchMock = mockSuccessfulBlobFetch();
 
     await expect(apiBlobRequest("https://host-malicioso.example/api/chat/x", {

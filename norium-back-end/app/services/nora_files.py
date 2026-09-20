@@ -23,6 +23,13 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.core.tenant import get_user_db_path, read_user_db, write_user_db
+from app.infrastructure.storage_quota import (
+    atomic_write_bytes,
+    configured_bytes,
+    enforce_storage_quota,
+    remove_managed_file,
+    storage_mutation_lock,
+)
 from app.modules.commercial.document_files import process_native_documents
 from app.services.finance_store import list_finance
 from app.services.task_store import list_tasks
@@ -40,6 +47,7 @@ def serialized(operation):
     return guarded
 MAX_FILE_BYTES = 24 * 1024 * 1024
 MAX_FILES = 600
+DEFAULT_WORKSPACE_QUOTA_BYTES = 512 * 1024 * 1024
 FILE_ID_PATTERN = re.compile(r"^nora_file_[a-f0-9]{32}$")
 
 ALLOWED_MIME_TYPES = {
@@ -160,7 +168,13 @@ def save_bytes(
     path = (root / f"{file_id}{suffix}").resolve()
     if path.parent != root:
         raise HTTPException(status_code=400, detail="Destino de arquivo inválido.")
-    path.write_bytes(content)
+    with storage_mutation_lock:
+        enforce_storage_quota(
+            root,
+            len(content),
+            workspace_limit=configured_bytes("NORA_FILES_WORKSPACE_QUOTA_BYTES", DEFAULT_WORKSPACE_QUOTA_BYTES),
+        )
+        atomic_write_bytes(path, content)
     record = {
         "id": file_id,
         "name": safe_name,
@@ -177,7 +191,17 @@ def save_bytes(
         record["metadata"] = metadata
     store = read_user_db(user_id, DB_NAME, {"files": []})
     items = [item for item in store.get("files", []) if isinstance(item, dict)]
-    write_user_db(user_id, DB_NAME, {"files": [record, *items][:MAX_FILES]})
+    retained = [record, *items][:MAX_FILES]
+    evicted = [item for item in items if item not in retained]
+    try:
+        write_user_db(user_id, DB_NAME, {"files": retained})
+    except Exception:
+        remove_managed_file(path, root)
+        raise
+    for item in evicted:
+        storage_name = Path(str(item.get("storageName") or "")).name
+        if storage_name:
+            remove_managed_file(root / storage_name, root)
     return _artifact(record)
 
 

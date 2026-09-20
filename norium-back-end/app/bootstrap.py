@@ -269,6 +269,7 @@ def create_app() -> FastAPI:
         user_id = "anonymous"
         raw_token = ""
         idempotency_user_id: str | None = None
+        idempotency_lease_id: str | None = None
 
         authorization = request.headers.get("Authorization", "")
         if authorization.lower().startswith("bearer "):
@@ -317,6 +318,14 @@ def create_app() -> FastAPI:
                         status_code=409,
                         content={"detail": "Esta operacao ainda esta sendo processada."},
                     )
+                elif state["state"] == "uncertain":
+                    response = JSONResponse(
+                        status_code=409,
+                        content={
+                            "code": "idempotency_outcome_unknown",
+                            "detail": "O resultado anterior precisa ser conciliado antes de uma nova tentativa.",
+                        },
+                    )
                 elif state["state"] == "completed":
                     record = state["record"]
                     response = JSONResponse(
@@ -324,6 +333,8 @@ def create_app() -> FastAPI:
                         content=record.get("payload"),
                         headers={"X-Idempotency-Replayed": "true"},
                     )
+                else:
+                    idempotency_lease_id = str(state["record"].get("leaseId") or "")
 
             if response is None:
                 response = await call_next(request)
@@ -346,6 +357,7 @@ def create_app() -> FastAPI:
                     response.status_code,
                     cached_payload,
                     {"content-type": content_type},
+                    lease_id=idempotency_lease_id or "",
                 )
                 headers = {
                     key: value

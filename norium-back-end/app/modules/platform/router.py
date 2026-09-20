@@ -256,6 +256,40 @@ def find_public_record(collection: str, field: str, value: str) -> tuple[str, di
     return None
 
 
+def _workspace_path_is_active(path: Path) -> bool:
+    workspace_directory = path.parent.name
+    if not workspace_directory.startswith("workspace_"):
+        return True
+    workspace_id = workspace_directory.removeprefix("workspace_")
+    for account_path in get_data_root().glob("user_*/plataforma_db.json"):
+        account = read_json_file(account_path, {})
+        if not isinstance(account, dict):
+            continue
+        workspace = next(
+            (item for item in account.get("workspaces", []) if isinstance(item, dict) and str(item.get("id")) == workspace_id),
+            None,
+        )
+        if workspace is not None:
+            return bool(workspace.get("active", False))
+    return False
+
+
+def _find_public_form(token: str) -> tuple[Path, dict[str, Any], dict[str, Any]] | None:
+    for path in get_data_root().glob("user_*/**/plataforma_db.json"):
+        if not _workspace_path_is_active(path):
+            continue
+        store = read_json_file(path, {})
+        if not isinstance(store, dict):
+            continue
+        form = next(
+            (item for item in store.get("forms", []) if isinstance(item, dict) and item.get("publicToken") == token and item.get("active")),
+            None,
+        )
+        if form:
+            return path, store, form
+    return None
+
+
 @router.get("/portal/publico/{token}")
 async def public_portal(token: str) -> dict[str, Any]:
     found = find_public_record("portalInvites", "token", token)
@@ -322,25 +356,17 @@ async def remove_form(form_id: str, user: dict[str, Any] = Depends(current_user)
 
 @router.get("/formularios/publico/{token}")
 async def public_form(token: str) -> dict[str, Any]:
-    for path in get_data_root().glob("user_*/**/plataforma_db.json"):
-        payload = read_json_file(path, {})
-        if not isinstance(payload, dict):
-            continue
-        for item in payload.get("forms", []):
-            if item.get("publicToken") == token and item.get("active"):
-                return {"form": item}
+    found = _find_public_form(token)
+    if found:
+        return {"form": found[2]}
     raise HTTPException(status_code=404, detail="Formulario indisponivel.")
 
 
 @router.post("/formularios/publico/{token}/respostas")
 async def submit_public_form(token: str, payload: FormSubmissionPayload) -> dict[str, Any]:
-    for path in get_data_root().glob("user_*/**/plataforma_db.json"):
-        store = read_json_file(path, {})
-        if not isinstance(store, dict):
-            continue
-        form = next((item for item in store.get("forms", []) if item.get("publicToken") == token), None)
-        if not form or not form.get("active"):
-            continue
+    found = _find_public_form(token)
+    if found:
+        path, store, form = found
         timestamp = now_iso()
         item = {
             "id": f"submission_{uuid.uuid4().hex[:12]}",

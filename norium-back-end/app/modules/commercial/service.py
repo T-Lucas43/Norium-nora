@@ -2739,7 +2739,10 @@ def signature_links(
     contract: dict[str, Any],
     frontend_url: str,
 ) -> list[dict[str, Any]]:
+    from app.core.request_context import current_workspace_id
+
     base_url = frontend_url.rstrip("/")
+    workspace_id = current_workspace_id()
     links: list[dict[str, Any]] = []
     for signer in contract.get("signers", []):
         if signer.get("status") == "signed":
@@ -2752,6 +2755,7 @@ def signature_links(
         token = _encode_signature_token(
             {
                 "tenantId": tenant_id,
+                "workspaceId": workspace_id,
                 "contractId": str(contract.get("id") or ""),
                 "signerId": str(signer.get("id") or ""),
                 "exp": int(expires_at.timestamp()),
@@ -2772,11 +2776,18 @@ def signature_links(
 
 
 def public_signature_data(token: str) -> dict[str, Any]:
+    from app.core.request_context import reset_request_context, set_request_context
+
     payload = _decode_signature_token(token)
     tenant_id = str(payload.get("tenantId") or "")
+    workspace_id = str(payload.get("workspaceId") or "primary")
     contract_id = str(payload.get("contractId") or "")
     signer_id = str(payload.get("signerId") or "")
-    store = read_store(tenant_id)
+    context = set_request_context("public-signature", workspace_id)
+    try:
+        store = read_store(tenant_id)
+    finally:
+        reset_request_context(context)
     _, contract = contract_or_404(store, contract_id)
     signer = next(
         (item for item in contract.get("signers", []) if str(item.get("id")) == signer_id),
@@ -2828,17 +2839,23 @@ async def sign_contract_public(
     ip: str,
     user_agent: str,
 ) -> dict[str, Any]:
+    from app.core.request_context import reset_request_context, set_request_context
+
     invitation = public_signature_data(token)
     token_data = _decode_signature_token(token)
-    return await sign_contract(
-        str(token_data.get("tenantId") or ""),
-        str(token_data.get("contractId") or ""),
-        str(invitation["signer"].get("id") or ""),
-        payload,
-        ip=ip,
-        user_agent=user_agent,
-        actor_id=f'public:{invitation["signer"].get("id")}',
-    )
+    context = set_request_context("public-signature", str(token_data.get("workspaceId") or "primary"))
+    try:
+        return await sign_contract(
+            str(token_data.get("tenantId") or ""),
+            str(token_data.get("contractId") or ""),
+            str(invitation["signer"].get("id") or ""),
+            payload,
+            ip=ip,
+            user_agent=user_agent,
+            actor_id=f'public:{invitation["signer"].get("id")}',
+        )
+    finally:
+        reset_request_context(context)
 
 
 async def sign_contract(

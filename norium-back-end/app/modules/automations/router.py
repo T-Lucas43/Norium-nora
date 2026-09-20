@@ -8,8 +8,8 @@ import json
 import re
 import unicodedata
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Literal
+from datetime import datetime, timedelta, timezone
+from typing import Any, Awaitable, Callable, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
@@ -110,6 +110,17 @@ class AutomationImportPayload(StrictModel):
 
 class AutomationAgentPayload(StrictModel):
     message: str = Field(min_length=1, max_length=1200)
+
+
+class EffectReconciliationPayload(StrictModel):
+    outcome: Literal["completed", "no_effect"]
+    note: str = Field(min_length=3, max_length=320)
+
+
+class AutomationEffectUncertain(RuntimeError):
+    def __init__(self, effect_id: str):
+        self.effect_id = effect_id
+        super().__init__(f"O efeito {effect_id} precisa ser conciliado antes da retomada.")
 
 
 def tenant_id(user: dict[str, Any]) -> str:
@@ -491,12 +502,48 @@ def classify_email_category(message: dict[str, Any]) -> str:
     return "principal"
 
 
-async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> list[str]:
+async def apply_automation_effects(
+    user_id: str,
+    automation: dict[str, Any],
+    *,
+    checkpoints: dict[str, dict[str, Any]] | None = None,
+    save_checkpoint: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None = None,
+) -> list[str]:
     # A trigger/name mentioning a task must not cause an unconfigured action.
     action_nodes = [item for item in (automation.get("flow") or {}).get("nodes", []) if item.get("kind") != "trigger"]
     text = normalize_text(" ".join(str(item.get("title") or "") for item in action_nodes)) if action_nodes else normalize_text(" ".join(automation.get("actions") or []))
     variables = automation.get("variables") if isinstance(automation.get("variables"), dict) else {}
     effects: list[str] = []
+    effect_checkpoints = checkpoints or {}
+
+    async def run_effect(
+        effect_id: str,
+        operation: Callable[[], Awaitable[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        previous = effect_checkpoints.get(effect_id) or {}
+        if previous.get("status") == "succeeded":
+            result = previous.get("result") if isinstance(previous.get("result"), dict) else {}
+            updates = result.get("variableUpdates") if isinstance(result.get("variableUpdates"), dict) else {}
+            automation.setdefault("variables", {}).update(updates)
+            description = str(result.get("description") or "Efeito concluido em tentativa anterior.")
+            effects.append(description)
+            return result
+        if previous.get("status") == "uncertain":
+            raise AutomationEffectUncertain(effect_id)
+        if save_checkpoint is not None:
+            await save_checkpoint(effect_id, "running", None)
+        try:
+            result = await operation()
+        except Exception:
+            if save_checkpoint is not None:
+                await save_checkpoint(effect_id, "uncertain", None)
+            raise
+        updates = result.get("variableUpdates") if isinstance(result.get("variableUpdates"), dict) else {}
+        automation.setdefault("variables", {}).update(updates)
+        if save_checkpoint is not None:
+            await save_checkpoint(effect_id, "succeeded", result)
+        effects.append(str(result.get("description") or "Efeito concluido."))
+        return result
 
     flow = automation.get("flow") if isinstance(automation.get("flow"), dict) else {}
     flow_nodes = flow.get("nodes") if isinstance(flow.get("nodes"), list) else []
@@ -543,20 +590,42 @@ async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> 
                                              config.get("recipientId") if scope == "subteam" else None)
         for item, config, action_type in message_nodes:
             message = str(config["message"]).strip()
-            if action_type == "send_whatsapp":
-                from app.modules.chat.router import EnviarMensagemPayload, enviar_mensagem
-                recipient = str(config["recipient"]).strip()
-                if config.get("recipientMode") == "number":
-                    recipient = re.sub(r"[+\s()-]", "", recipient)
-                await enviar_mensagem(EnviarMensagemPayload(conversa_id=recipient, texto=message), actor)
-                effects.append("Mensagem enviada no WhatsApp.")
-            else:
-                from app.modules.team.router import SendTeamMessagePayload, SendSubteamMessagePayload, send_message, send_subteam_message
-                if config.get("scope") == "subteam":
-                    await send_subteam_message(config["recipientId"], SendSubteamMessagePayload(text=message), actor)
+            async def send_configured_message(
+                current_config: dict[str, Any] = config,
+                current_type: str = action_type,
+                current_message: str = message,
+            ) -> dict[str, Any]:
+                if current_type == "send_whatsapp":
+                    from app.modules.chat.router import EnviarMensagemPayload, enviar_mensagem
+                    recipient = str(current_config["recipient"]).strip()
+                    if current_config.get("recipientMode") == "number":
+                        recipient = re.sub(r"[+\s()-]", "", recipient)
+                    await enviar_mensagem(
+                        EnviarMensagemPayload(conversa_id=recipient, texto=current_message), actor
+                    )
+                    return {"description": "Mensagem enviada no WhatsApp."}
+                from app.modules.team.router import (
+                    SendSubteamMessagePayload,
+                    SendTeamMessagePayload,
+                    send_message,
+                    send_subteam_message,
+                )
+                if current_config.get("scope") == "subteam":
+                    await send_subteam_message(
+                        current_config["recipientId"], SendSubteamMessagePayload(text=current_message), actor
+                    )
                 else:
-                    await send_message(SendTeamMessagePayload(scope=config.get("scope") or "team", recipientId=config.get("recipientId") or None, text=message), actor)
-                effects.append("Mensagem enviada ao destino selecionado no chat da equipe.")
+                    await send_message(
+                        SendTeamMessagePayload(
+                            scope=current_config.get("scope") or "team",
+                            recipientId=current_config.get("recipientId") or None,
+                            text=current_message,
+                        ),
+                        actor,
+                    )
+                return {"description": "Mensagem enviada ao destino selecionado no chat da equipe."}
+
+            await run_effect(f"message:{item.get('id') or 'configured'}", send_configured_message)
     browser_node = next(
         (
             item for item in flow_nodes
@@ -587,22 +656,31 @@ async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> 
                 actions = parsed_actions if isinstance(parsed_actions, list) else []
             except json.JSONDecodeError as exc:
                 raise RuntimeError("O plano JSON do no Agente Navegador e invalido.") from exc
-        run = await create_browser_plan(
-            synthetic_user,
-            {
-                "objective": objective, "startUrl": target_url,
-                "profileId": node_config.get("profileId") or None,
-                "executionMode": node_config.get("executionMode") or "automatic",
-                "expectedResult": node_config.get("expectedResult") or "structured",
-                "maxPages": min(20, max(1, int(node_config.get("maxPages") or 10))),
-                "maxSteps": min(40, max(1, int(node_config.get("maxSteps") or 20))),
-                "timeoutSeconds": min(900, max(30, int(node_config.get("timeoutSeconds") or 300))),
-                "actions": actions, "useAiPlanner": not bool(actions),
-            },
-            source="automation",
-        )
-        await queue_browser_run(synthetic_user, str(run["id"]))
-        effects.append(f'Agente Navegador iniciou a execucao real {run["id"]}; resultados e aprovacoes ficam na tela Navegador.')
+        async def start_browser_run() -> dict[str, Any]:
+            run = await create_browser_plan(
+                synthetic_user,
+                {
+                    "objective": objective, "startUrl": target_url,
+                    "profileId": node_config.get("profileId") or None,
+                    "executionMode": node_config.get("executionMode") or "automatic",
+                    "expectedResult": node_config.get("expectedResult") or "structured",
+                    "maxPages": min(20, max(1, int(node_config.get("maxPages") or 10))),
+                    "maxSteps": min(40, max(1, int(node_config.get("maxSteps") or 20))),
+                    "timeoutSeconds": min(900, max(30, int(node_config.get("timeoutSeconds") or 300))),
+                    "actions": actions, "useAiPlanner": not bool(actions),
+                },
+                source="automation",
+            )
+            await queue_browser_run(synthetic_user, str(run["id"]))
+            return {
+                "description": (
+                    f'Agente Navegador iniciou a execucao real {run["id"]}; '
+                    "resultados e aprovacoes ficam na tela Navegador."
+                ),
+                "runId": str(run["id"]),
+            }
+
+        await run_effect(f"browser:{browser_node.get('id') or 'run'}", start_browser_run)
 
     model_node = next(
         (
@@ -636,122 +714,122 @@ async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> 
             or automation.get("description")
             or "Resuma o contexto desta automacao."
         )
-        answer, usage = await complete_with_provider(
-            {"id": user_id},
-            str(selected.get("id")),
-            [{"role": "user", "content": prompt}],
-            "Voce executa um bloco de automacao do Norium. Responda somente com o resultado solicitado, sem inventar dados externos.",
-        )
-        automation.setdefault("variables", {})["lastModelOutput"] = answer[:4000]
-        effects.append(
-            f'IA executada por {selected.get("name")} / {selected.get("model")}; '
-            f'{int(usage.get("usage", {}).get("outputTokens") or 0)} token(s) de saida registrados.'
-        )
+        async def run_model() -> dict[str, Any]:
+            answer, usage = await complete_with_provider(
+                {"id": user_id},
+                str(selected.get("id")),
+                [{"role": "user", "content": prompt}],
+                "Voce executa um bloco de automacao do Norium. Responda somente com o resultado solicitado, sem inventar dados externos.",
+            )
+            return {
+                "description": (
+                    f'IA executada por {selected.get("name")} / {selected.get("model")}; '
+                    f'{int(usage.get("usage", {}).get("outputTokens") or 0)} token(s) de saida registrados.'
+                ),
+                "variableUpdates": {"lastModelOutput": answer[:4000]},
+            }
+
+        await run_effect(f"model:{model_node.get('id') or 'completion'}", run_model)
 
     if "criar tarefa" in text or "tarefa" in text and "criar" in text:
         project_id = str(variables.get("taskProjectId") or "default")
         project_name = str(variables.get("taskProjectName") or project_id or "Operacao Norium")
         task_category = str(variables.get("taskCategory") or "geral")
-        task = create_task(
-            user_id,
-            {
-                "projectId": project_id,
-                "title": f"[Automacao] {automation.get('name') or 'Nova acao'}",
-                "description": automation.get("description") or "Tarefa criada automaticamente por fluxo do Norium.",
-                "category": task_category,
-                "priority": "media",
-                "labels": ["automacao", task_category],
-                "status": "pendente",
-                "authorName": "Nora",
-            },
-        )
-        effects.append(f'Tarefa "{task.get("title")}" criada no projeto "{project_name}".')
-        await record_event(
-            source="kanban",
-            title=f"Tarefa criada por automacao em {project_name}",
-            description=f'"{task.get("title")}" foi criada pela automacao "{automation.get("name")}".',
-            metadata={
-                "action": "automation_task_created",
-                "userId": user_id,
-                "automationId": automation.get("id"),
-                "taskId": task.get("id"),
-                "projectId": project_id,
-                "projectName": project_name,
-                "category": task_category,
-            },
-        )
-        await append_team_message_for_user(
-            user_id,
-            "\n".join(
-                [
+        async def create_configured_task() -> dict[str, Any]:
+            task = create_task(
+                user_id,
+                {
+                    "projectId": project_id,
+                    "title": f"[Automacao] {automation.get('name') or 'Nova acao'}",
+                    "description": automation.get("description") or "Tarefa criada automaticamente por fluxo do Norium.",
+                    "category": task_category,
+                    "priority": "media",
+                    "labels": ["automacao", task_category],
+                    "status": "pendente",
+                    "authorName": "Nora",
+                },
+            )
+            await record_event(
+                source="kanban",
+                title=f"Tarefa criada por automacao em {project_name}",
+                description=f'"{task.get("title")}" foi criada pela automacao "{automation.get("name")}".',
+                metadata={
+                    "action": "automation_task_created", "userId": user_id,
+                    "automationId": automation.get("id"), "taskId": task.get("id"),
+                    "projectId": project_id, "projectName": project_name, "category": task_category,
+                },
+            )
+            await append_team_message_for_user(
+                user_id,
+                "\n".join([
                     "Nora executou uma automacao",
                     f"Automacao: {automation.get('name') or 'Fluxo sem nome'}",
                     f"Tarefa criada: {task.get('title')}",
                     f"Projeto: {project_name}",
-                ]
-            ),
-            metadata={
-                "action": "automation_task_created",
-                "automationId": automation.get("id"),
-                "automationName": automation.get("name") or "Fluxo sem nome",
-                "taskId": task.get("id"),
-                "taskTitle": task.get("title"),
-                "projectId": project_id,
-                "projectName": project_name,
-                "summary": {
+                ]),
+                metadata={
+                    "action": "automation_task_created", "automationId": automation.get("id"),
                     "automationName": automation.get("name") or "Fluxo sem nome",
-                    "taskTitle": task.get("title"),
-                    "projectName": project_name,
-                    "changes": ["Tarefa criada automaticamente pelo fluxo."],
-                    "state": {
-                        "Status": "pendente",
-                        "Prioridade": "media",
-                        "Categoria": task_category,
-                        "Responsavel": "Nora",
-                        "Vencimento": "sem vencimento",
-                        "Etiquetas": f"automacao, {task_category}",
+                    "taskId": task.get("id"), "taskTitle": task.get("title"),
+                    "projectId": project_id, "projectName": project_name,
+                    "summary": {
+                        "automationName": automation.get("name") or "Fluxo sem nome",
+                        "taskTitle": task.get("title"), "projectName": project_name,
+                        "changes": ["Tarefa criada automaticamente pelo fluxo."],
+                        "state": {
+                            "Status": "pendente", "Prioridade": "media", "Categoria": task_category,
+                            "Responsavel": "Nora", "Vencimento": "sem vencimento",
+                            "Etiquetas": f"automacao, {task_category}",
+                        },
                     },
                 },
-            },
-        )
+            )
+            return {
+                "description": f'Tarefa "{task.get("title")}" criada no projeto "{project_name}".',
+                "taskId": task.get("id"),
+            }
+
+        await run_effect("task:create", create_configured_task)
 
     if "agrupar e-mails" in text or "agrupar emails" in text or "categoria" in text and ("email" in text or "e-mail" in text):
-        try:
-            data = GmailService(user_id).list_messages(folder="inbox", max_results=20)
-            messages = data.get("messages", [])
-            groups: dict[str, list[dict[str, str]]] = {}
-            target_category = str(variables.get("emailCategory") or "auto")
-            for message in messages:
-                category = classify_email_category(message)
-                if target_category != "auto" and category != target_category:
-                    continue
-                groups.setdefault(category, []).append(
-                    {
+        async def group_email() -> dict[str, Any]:
+            try:
+                data = GmailService(user_id).list_messages(folder="inbox", max_results=20)
+                messages = data.get("messages", [])
+                groups: dict[str, list[dict[str, str]]] = {}
+                target_category = str(variables.get("emailCategory") or "auto")
+                for message in messages:
+                    category = classify_email_category(message)
+                    if target_category != "auto" and category != target_category:
+                        continue
+                    groups.setdefault(category, []).append({
                         "id": str(message.get("id") or ""),
                         "from": str(message.get("fromName") or message.get("fromEmail") or ""),
                         "subject": str(message.get("subject") or "(sem assunto)"),
-                    }
+                    })
+                summary = ", ".join(
+                    f"{category}: {len(items)}" for category, items in sorted(groups.items())
+                ) or "nenhum e-mail encontrado"
+                await record_event(
+                    source="gmail", title="E-mails agrupados por categoria", description=summary,
+                    metadata={
+                        "action": "automation_email_grouped", "userId": user_id,
+                        "automationId": automation.get("id"), "groups": groups,
+                        "targetCategory": target_category,
+                    },
                 )
-            summary = ", ".join(f"{category}: {len(items)}" for category, items in sorted(groups.items())) or "nenhum e-mail encontrado"
-            automation.setdefault("variables", {})["lastEmailGrouping"] = groups
-            automation.setdefault("variables", {})["lastEmailGroupingSummary"] = summary
-            effects.append(f"Gmail agrupado por categoria: {summary}.")
-            await record_event(
-                source="gmail",
-                title="E-mails agrupados por categoria",
-                description=summary,
-                metadata={
-                    "action": "automation_email_grouped",
-                    "userId": user_id,
-                    "automationId": automation.get("id"),
-                    "groups": groups,
-                    "targetCategory": target_category,
-                },
-            )
-        except GmailConfigError:
-            effects.append("Gmail nao conectado; agrupamento de e-mails ficou pendente.")
-        except Exception as exc:
-            effects.append(f"Falha ao agrupar e-mails: {str(exc)}")
+                return {
+                    "description": f"Gmail agrupado por categoria: {summary}.",
+                    "variableUpdates": {
+                        "lastEmailGrouping": groups, "lastEmailGroupingSummary": summary,
+                    },
+                }
+            except GmailConfigError:
+                return {"description": "Gmail nao conectado; agrupamento de e-mails ficou pendente."}
+            except Exception as exc:
+                return {"description": f"Falha ao agrupar e-mails: {str(exc)}"}
+
+        await run_effect("gmail:group", group_email)
 
     if not message_nodes and ("notificar equipe" in text or "chat interno" in text or "avisar equipe" in text or "mensagem ao time" in text):
         message = (
@@ -759,12 +837,15 @@ async def apply_automation_effects(user_id: str, automation: dict[str, Any]) -> 
             f'Gatilho: {automation.get("trigger") or "manual"}. '
             f'Acoes: {", ".join(str(action) for action in automation.get("actions", [])[:4]) or "sem acoes registradas"}.'
         )
-        await append_team_message_for_user(
-            user_id,
-            message,
-            metadata={"action": "automation_team_notification", "automationId": automation.get("id")},
-        )
-        effects.append("Equipe notificada no chat interno.")
+        async def notify_team() -> dict[str, Any]:
+            await append_team_message_for_user(
+                user_id,
+                message,
+                metadata={"action": "automation_team_notification", "automationId": automation.get("id")},
+            )
+            return {"description": "Equipe notificada no chat interno."}
+
+        await run_effect("team:notification", notify_team)
 
     return effects
 
@@ -834,13 +915,38 @@ async def simulate_automation(user_id: str, automation_id: str, executed_by: str
     return {"automation": automation, "historyItem": log, "metrics": metrics(store)}
 
 
-async def execute_automation(user_id: str, automation_id: str, executed_by: str = "Operador", *, event: dict[str, Any] | None = None) -> dict[str, Any]:
+async def execute_automation(
+    user_id: str,
+    automation_id: str,
+    executed_by: str = "Operador",
+    *,
+    event: dict[str, Any] | None = None,
+    resume_from: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     store = read_store(user_id)
     automation = find_automation(store, automation_id)
     if not automation:
         raise HTTPException(status_code=404, detail="Automacao nao encontrada.")
     if not automation.get("active"):
         raise HTTPException(status_code=400, detail="Automacao desativada. Ative antes de executar.")
+    if resume_from and resume_from.get("automationVersion") not in {None, automation.get("version")}:
+        raise HTTPException(
+            status_code=409,
+            detail="A automacao mudou desde a falha. Duplique ou restaure a versao antes de retomar.",
+        )
+    previous_checkpoints = copy.deepcopy(
+        resume_from.get("effectCheckpoints") if isinstance((resume_from or {}).get("effectCheckpoints"), dict) else {}
+    )
+    uncertain = [key for key, value in previous_checkpoints.items() if value.get("status") == "uncertain"]
+    if uncertain:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "automation_effect_reconciliation_required",
+                "effectIds": uncertain,
+                "message": "Concilie os efeitos de resultado incerto antes de retomar.",
+            },
+        )
 
     original_variables = copy.deepcopy(automation.get("variables") or {})
     timestamp = now_iso()
@@ -856,12 +962,74 @@ async def execute_automation(user_id: str, automation_id: str, executed_by: str 
         step["attempt"] = 1
         step["startedAt"] = now_iso()
         step["status"] = "executando"
+    log_id = slug_id("log")
+    log: dict[str, Any] = {
+        "id": log_id,
+        "automationId": automation["id"],
+        "automationName": automation.get("name"),
+        "automationVersion": automation.get("version"),
+        "timestamp": timestamp,
+        "status": "executando",
+        "durationMs": 0,
+        "result": "Execucao iniciada.",
+        "executedBy": executed_by,
+        "savedMinutes": 0,
+        "attempt": int((resume_from or {}).get("attempt") or 0) + 1,
+        "input": {
+            "trigger": automation.get("trigger"),
+            "variables": automation.get("variables") if isinstance(automation.get("variables"), dict) else {},
+            "event": event,
+        },
+        "steps": steps,
+        "error": None,
+        "sideEffects": False,
+        "effectCheckpoints": previous_checkpoints,
+        "leaseExpiresAt": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+        "resumedFromLogId": (resume_from or {}).get("id"),
+    }
+    store.setdefault("history", []).insert(0, copy.deepcopy(log))
+    automation.setdefault("logs", []).insert(0, copy.deepcopy(log))
+    automation["logs"] = automation["logs"][:20]
+    store["history"] = store["history"][:120]
+    write_store(user_id, store)
+
+    async def save_effect_checkpoint(
+        effect_id: str,
+        status: str,
+        result: dict[str, Any] | None,
+    ) -> None:
+        checkpoint = {
+            "status": status,
+            "updatedAt": now_iso(),
+            "result": copy.deepcopy(result) if result is not None else None,
+        }
+        previous_checkpoints[effect_id] = checkpoint
+        current = read_store(user_id)
+        current_automation = find_automation(current, automation_id)
+        targets = [item for item in current.get("history", []) if item.get("id") == log_id]
+        if current_automation:
+            targets.extend(item for item in current_automation.get("logs", []) if item.get("id") == log_id)
+        if not targets:
+            raise RuntimeError("Registro duravel da execucao nao encontrado.")
+        for target in targets:
+            target.setdefault("effectCheckpoints", {})[effect_id] = copy.deepcopy(checkpoint)
+            target["sideEffects"] = True
+            target["requiresReconciliation"] = any(
+                value.get("status") == "uncertain"
+                for value in target["effectCheckpoints"].values()
+            )
+        write_store(user_id, current)
     effects: list[str] = []
     failure: Exception | None = None
     from app.modules.automations.events import automation_origin
     origin_token = automation_origin.set(True)
     try:
-        effects = await apply_automation_effects(user_id, automation)
+        effects = await apply_automation_effects(
+            user_id,
+            automation,
+            checkpoints=previous_checkpoints,
+            save_checkpoint=save_effect_checkpoint,
+        )
     except Exception as exc:
         failure = exc
     finally:
@@ -884,33 +1052,11 @@ async def execute_automation(user_id: str, automation_id: str, executed_by: str 
     )
     if effects:
         result = f"{result} " + " ".join(effects)
-    log = {
-        "id": slug_id("log"),
-        "automationId": automation["id"],
-        "automationName": automation.get("name"),
-        "timestamp": timestamp,
-        "status": status,
-        "durationMs": max(1, int((finished_at - started_at).total_seconds() * 1000)),
-        "result": result,
-        "executedBy": executed_by,
-        "savedMinutes": 0 if failure else saved,
-        "attempt": 1,
-        "input": {
-            "trigger": automation.get("trigger"),
-            "variables": automation.get("variables") if isinstance(automation.get("variables"), dict) else {},
-            "event": event,
-        },
-        "steps": steps,
-        "error": str(failure) if failure else None,
-        "sideEffects": True,
-    }
     # External sends await I/O. Preserve edits/deactivation made during that
     # wait instead of replacing the user's newer flow with our old snapshot.
     latest_store = read_store(user_id)
     latest = find_automation(latest_store, automation_id)
     if latest:
-        latest["executions"] = int(latest.get("executions") or 0) + 1
-        latest["lastRunAt"] = timestamp
         if failure is None:
             latest["savedMinutes"] = int(latest.get("savedMinutes") or 0) + saved
         for key, value in (automation.get("variables") or {}).items():
@@ -918,10 +1064,30 @@ async def execute_automation(user_id: str, automation_id: str, executed_by: str 
                 latest.setdefault("variables", {})[key] = value
         automation = latest
     store = latest_store
-    store.setdefault("history", []).insert(0, log)
-    automation.setdefault("logs", []).insert(0, log)
-    automation["logs"] = automation["logs"][:20]
-    store["history"] = store["history"][:120]
+    final_values = {
+        "status": status,
+        "durationMs": max(1, int((finished_at - started_at).total_seconds() * 1000)),
+        "result": result,
+        "savedMinutes": 0 if failure else saved,
+        "input": {
+            "trigger": automation.get("trigger"),
+            "variables": automation.get("variables") if isinstance(automation.get("variables"), dict) else {},
+            "event": event,
+        },
+        "steps": steps,
+        "error": str(failure) if failure else None,
+        "sideEffects": bool(previous_checkpoints),
+        "effectCheckpoints": previous_checkpoints,
+        "requiresReconciliation": any(
+            value.get("status") == "uncertain" for value in previous_checkpoints.values()
+        ),
+        "finishedAt": finished_at.isoformat(),
+    }
+    history_log = next(item for item in store.get("history", []) if item.get("id") == log_id)
+    history_log.update(copy.deepcopy(final_values))
+    automation_log = next(item for item in automation.get("logs", []) if item.get("id") == log_id)
+    automation_log.update(copy.deepcopy(final_values))
+    log = history_log
     write_store(user_id, store)
 
     await record_event(
@@ -1073,6 +1239,33 @@ async def reexecutar_automacao(
     )
     if previous is None:
         raise HTTPException(status_code=404, detail="Execucao nao encontrada.")
+    if previous.get("status") == "executando":
+        try:
+            lease_expired = datetime.fromisoformat(str(previous.get("leaseExpiresAt"))) <= datetime.now(timezone.utc)
+        except (TypeError, ValueError):
+            lease_expired = True
+        if not lease_expired:
+            raise HTTPException(status_code=409, detail="A execucao ainda possui lease ativo.")
+        automation = find_automation(store, automation_id)
+        automation_log = next(
+            (item for item in (automation or {}).get("logs", []) if item.get("id") == log_id),
+            None,
+        )
+        for target in (previous, automation_log):
+            if target is None:
+                continue
+            for checkpoint in (target.get("effectCheckpoints") or {}).values():
+                if checkpoint.get("status") == "running":
+                    checkpoint.update({"status": "uncertain", "updatedAt": now_iso()})
+            target.update({
+                "status": "erro",
+                "error": "Execucao interrompida apos o vencimento do lease.",
+                "requiresReconciliation": any(
+                    item.get("status") == "uncertain"
+                    for item in (target.get("effectCheckpoints") or {}).values()
+                ),
+            })
+        write_store(user_id, store)
     if previous.get("status") != "erro":
         raise HTTPException(status_code=409, detail="Somente execucoes com erro podem ser retomadas.")
     failed_step = next(
@@ -1083,6 +1276,7 @@ async def reexecutar_automacao(
         user_id,
         automation_id,
         str(user.get("nome") or user.get("email") or "Operador"),
+        resume_from=previous,
     )
     result["historyItem"]["resumedFromLogId"] = log_id
     result["historyItem"]["resumedFromStepId"] = (failed_step or {}).get("id")
@@ -1100,6 +1294,66 @@ async def reexecutar_automacao(
         )
         write_store(user_id, refreshed)
     return {**response_payload(read_store(user_id)), "lastExecution": result}
+
+
+@router.post("/{automation_id}/execucoes/{log_id}/efeitos/{effect_id}/conciliar")
+async def reconcile_automation_effect(
+    automation_id: str,
+    log_id: str,
+    effect_id: str,
+    payload: EffectReconciliationPayload,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    user_id = tenant_id(user)
+    store = read_store(user_id)
+    automation = find_automation(store, automation_id)
+    if automation is None:
+        raise HTTPException(status_code=404, detail="Automacao nao encontrada.")
+    history_log = next(
+        (item for item in store.get("history", []) if item.get("id") == log_id),
+        None,
+    )
+    automation_log = next(
+        (item for item in automation.get("logs", []) if item.get("id") == log_id),
+        None,
+    )
+    if history_log is None or automation_log is None:
+        raise HTTPException(status_code=404, detail="Execucao nao encontrada.")
+    checkpoint = (history_log.get("effectCheckpoints") or {}).get(effect_id)
+    if not isinstance(checkpoint, dict) or checkpoint.get("status") != "uncertain":
+        raise HTTPException(status_code=409, detail="O efeito nao aguarda conciliacao.")
+    status = "succeeded" if payload.outcome == "completed" else "retryable"
+    stamp = now_iso()
+    for target in (history_log, automation_log):
+        target_checkpoint = target.setdefault("effectCheckpoints", {}).setdefault(effect_id, {})
+        target_checkpoint.update({
+            "status": status,
+            "reconciledAt": stamp,
+            "reconciledBy": str(user.get("id") or ""),
+            "reconciliation": payload.outcome,
+            "note": payload.note,
+            "updatedAt": stamp,
+        })
+        if status == "succeeded" and not isinstance(target_checkpoint.get("result"), dict):
+            target_checkpoint["result"] = {
+                "description": "Efeito confirmado por conciliacao do operador."
+            }
+        target["requiresReconciliation"] = any(
+            item.get("status") == "uncertain"
+            for item in target["effectCheckpoints"].values()
+        )
+    write_store(user_id, store)
+    await record_event(
+        source="automacoes",
+        title="Efeito de automacao conciliado",
+        description=payload.note,
+        metadata={
+            "action": "automation_effect_reconciled", "userId": user_id,
+            "automationId": automation_id, "logId": log_id,
+            "effectId": effect_id, "outcome": payload.outcome,
+        },
+    )
+    return {"log": history_log, "effectId": effect_id, "status": status}
 
 
 @router.post("/{automation_id}/duplicar")

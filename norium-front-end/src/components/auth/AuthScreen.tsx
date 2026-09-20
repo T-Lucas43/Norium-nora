@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, LockKeyhole, ShieldCheck, Sparkles, UserPlus } from "lucide-react";
-import type { AppMode, AuthSession, UserPlan } from "../../types/auth";
+import type { AppMode, AuthSession, PlanInfo, UserPlan } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import BrandLogo from "../layout/BrandLogo";
 import AccountEmailAction from "./AccountEmailAction";
@@ -11,13 +11,6 @@ interface AuthScreenProps {
 }
 
 type FormMode = "login" | "register";
-
-const planOptions: Array<{ code: UserPlan; name: string; price: string; description: string; features: string[] }> = [
-  { code: "free", name: "Free", price: "R$ 0", description: "Para testar o Norium com tarefas e central.", features: ["Dashboard", "Central", "Tarefas", "Perfil"] },
-  { code: "individual", name: "Individual", price: "R$ 79", description: "Operação completa para uma conta.", features: ["Gmail", "Agenda", "Chat", "Gastos", "Nora"] },
-  { code: "equipe", name: "Equipe", price: "R$ 179", description: "Usuários menores e permissões por módulo.", features: ["Modo equipe", "Chat interno", "Permissões", "Integrações"] },
-  { code: "enterprise", name: "Enterprise", price: "R$ 399", description: "Governança e liberações avançadas.", features: ["Tudo do Equipe", "Tema personalizado", "Auditoria", "Admin assistido"] },
-];
 
 export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [mode, setMode] = useState<FormMode>("login");
@@ -30,6 +23,16 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [forgot, setForgot] = useState(false);
+  const [planOptions, setPlanOptions] = useState<PlanInfo[]>([]);
+
+  useEffect(() => {
+    if (!planSession) return;
+    let active = true;
+    authJson<{ plans: PlanInfo[] }>("/api/auth/plans", planSession.token)
+      .then((result) => { if (active) setPlanOptions(result.plans); })
+      .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : "Não foi possível carregar os planos."); });
+    return () => { active = false; };
+  }, [planSession]);
 
   async function submit() {
     setError("");
@@ -109,7 +112,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
                 disabled={loading || plan.code !== "free"}
                 className="group rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 text-left shadow-xl shadow-blue-950/16 transition hover:-translate-y-1 hover:border-cyan-300/45 hover:bg-[var(--surface-hover)] disabled:opacity-60"
               >
-                <span className="text-sm font-bold text-[var(--primary)]">{plan.price}/mês</span>
+                <span className="text-sm font-bold text-[var(--primary)]">R$ {plan.monthlyPrice}/mês</span>
                 <span className="mt-3 block text-2xl font-black">{plan.name}</span>
                 <span className="mt-2 block min-h-12 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{plan.description}</span>
                 <span className="mt-5 grid gap-2">

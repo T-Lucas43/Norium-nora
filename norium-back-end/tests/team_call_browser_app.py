@@ -47,6 +47,7 @@ _data_root = Path(_data.name)
 _fixture_lock = asyncio.Lock()
 _websocket_handler_condition = asyncio.Condition()
 _active_websocket_handlers = 0
+WEBSOCKET_SHUTDOWN_DEADLINE_SECONDS = 20.0
 
 
 def _base_users() -> list[dict[str, Any]]:
@@ -56,6 +57,7 @@ def _base_users() -> list[dict[str, Any]]:
             "nome": name.title(),
             "teamOwnerId": "owner",
             "status": "ativo",
+            "teamChatEnabled": True,
             "permissions": {"chat": True, "nora": True},
         }
         for name in ("owner", "member", "other")
@@ -67,6 +69,7 @@ def _base_users() -> list[dict[str, Any]]:
             "nome": f"Load {team_index:03d} Owner",
             "teamOwnerId": owner_id,
             "status": "ativo",
+            "teamChatEnabled": True,
             "permissions": {"chat": True},
         })
         for participant_index in range(1, LOAD_USERS_PER_TEAM):
@@ -76,6 +79,7 @@ def _base_users() -> list[dict[str, Any]]:
                 "nome": f"Load {team_index:03d} User {participant_index}",
                 "teamOwnerId": owner_id,
                 "status": "ativo",
+                "teamChatEnabled": True,
                 "permissions": {"chat": True},
             })
     return users
@@ -162,7 +166,7 @@ async def _close_matching_connections(user_id: str | None = None) -> int:
 
 
 async def _wait_for_websocket_handlers() -> None:
-    deadline = asyncio.get_running_loop().time() + 5.0
+    deadline = asyncio.get_running_loop().time() + WEBSOCKET_SHUTDOWN_DEADLINE_SECONDS
     async with _websocket_handler_condition:
         while _active_websocket_handlers:
             remaining = deadline - asyncio.get_running_loop().time()

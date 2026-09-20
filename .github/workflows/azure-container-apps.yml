@@ -49,7 +49,7 @@ jobs:
           NORIUM_AI_COSTS_SQLITE_VFS: unix-dotfile
         run: |
           python -m compileall app main.py
-          python -m unittest discover -s tests
+          python ../scripts/run_backend_audit_tests.py --label ci-backend
           python -m pip check
 
       - name: Scan backend dependencies and source

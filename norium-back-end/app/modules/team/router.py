@@ -12,6 +12,7 @@ import re
 import secrets
 import time
 import uuid
+import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -789,8 +790,14 @@ _call_reconcile_tasks: set[asyncio.Task[None]] = set()
 async def _reconcile_closed_connection(actor: CallActor) -> None:
     # A permission check may close the last socket before its periodic loop can
     # reconcile. Revocation is immediate; only transport loss gets the grace.
+    disconnected_at = time.monotonic()
     await call_coordinator().reconcile(actor)
-    await asyncio.sleep(PARTICIPANT_DISCONNECT_GRACE.total_seconds())
+    remaining_grace = max(
+        0.0,
+        PARTICIPANT_DISCONNECT_GRACE.total_seconds() - (time.monotonic() - disconnected_at),
+    )
+    if remaining_grace:
+        await asyncio.sleep(remaining_grace)
     await call_coordinator().reconcile(actor)
 
 
@@ -1851,7 +1858,13 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
     actor = call_actor(user, connection_id)
     message_budget = EventBudget(240, 60)
     telemetry_budget = EventBudget(20, 1 / 3)
-    next_reconcile = time.monotonic() + CALL_RECONCILE_INTERVAL_SECONDS
+    # Conexoes abertas em lote nao devem disputar o mesmo lock e gravar o
+    # estado persistente no mesmo instante. Espalhar o primeiro keepalive pelo
+    # intervalo preserva a janela de heartbeat e evita starvation da tarefa que
+    # remove uma conexao encerrada depois da tolerancia definida.
+    reconcile_window_ms = max(1, int(CALL_RECONCILE_INTERVAL_SECONDS * 1000))
+    reconcile_phase = (zlib.crc32(connection_id.encode("utf-8")) % reconcile_window_ms) / 1000
+    next_reconcile = time.monotonic() + CALL_RECONCILE_INTERVAL_SECONDS + reconcile_phase
     try:
         await websocket.send_json({"type": "CONNECTED", "onlineUserIds": manager.online_users(team_id)})
         await emit_due_meeting_reminders(team_id)

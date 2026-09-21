@@ -40,6 +40,7 @@ import NoraAvatar from "./NoraAvatar";
 import { NoraAutomationCards, NoraCalendar, NoraFinanceTable, NoraMarkdown, NoraTaskCards } from "../nora/NoraResponseContent";
 import { buildNoraResponseView, legacyFinanceView, legacyTaskView, type NoraResponseView, type NoraCalendarEvent as NoraAgendaEvent } from "../nora/responseView";
 import { drainNoraSseEvents, type NoraStreamEvent } from "../nora/noraStream";
+import NoraApprovalCard, { normalizeApprovalCard, type NoraApprovalSnapshot } from "../nora/NoraApprovalCard";
 import { NoraFileCards, type NoraChatFile } from "../nora/NoraFiles";
 import Button from "../shared/Button";
 import { speechTextFromDisplay, takeNaturalSpeechSegments } from "./noraSpeech";
@@ -51,6 +52,7 @@ interface NoraProps {
   onStateChange?: (state: NoraConversationState, running: boolean) => void;
   onClose: () => void;
   conversaId?: string;
+  conversationId?: string;
   profile?: PerfilOperador | null;
   eventsBySource?: Partial<Record<EventSource, OmnichannelEvent[]>>;
   userId?: string;
@@ -126,6 +128,7 @@ export type Msg = {
   agendaEvents?: NoraAgendaEvent[];
   responseView?: NoraResponseView;
   files?: NoraChatFile[];
+  approval?: NoraApprovalSnapshot | null;
 };
 
 export type NoraConversationState = {
@@ -760,12 +763,13 @@ function NoraStructuredContent({ agent, text, emailMessages, agendaEvents, respo
   return markdownFallback(text);
 }
 
-function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onRegenerate, actionsDisabled = false }: {
+function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onRegenerate, onApprovalDecision, actionsDisabled = false }: {
   msg: Msg;
   onOpenEmail?: (messageId: string) => void;
   onAgendaPrompt?: (prompt: string) => void;
   onFeedback?: (feedback: "positive" | "negative") => void;
   onRegenerate?: () => void;
+  onApprovalDecision?: (next: NoraApprovalSnapshot) => void;
   actionsDisabled?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
@@ -863,6 +867,7 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onReg
             onAgendaPrompt={onAgendaPrompt}
           />
           {msg.files?.length ? <NoraFileCards files={msg.files} /> : null}
+          {msg.approval && onApprovalDecision ? <NoraApprovalCard approval={msg.approval} onDecision={onApprovalDecision} /> : null}
         </div>
         <span className="nora-message-actions" aria-label="Ações da mensagem">
           <button type="button" onClick={copyMessage} className="nora-message-action" title={copied ? "Mensagem copiada" : "Copiar mensagem"} aria-label={copied ? "Mensagem copiada" : "Copiar mensagem"}>
@@ -968,6 +973,7 @@ async function askNaturalNoraStream(
   screenContext: string,
   modelId: string | null,
   attachmentIds: string[],
+  conversationId: string | null,
   signal: AbortSignal,
   handlers: {
     onDelta: (fullText: string, delta: string) => void;
@@ -1001,6 +1007,7 @@ async function askNaturalNoraStream(
       model_id: modelId || undefined,
       routing_mode: modelId && modelId !== "auto" ? "manual" : "automatic",
       attachment_ids: attachmentIds,
+      conversation_id: conversationId || undefined,
     }),
   });
 
@@ -1078,6 +1085,7 @@ async function askNaturalNora(
   screenContext: string,
   modelId: string | null,
   attachmentIds: string[],
+  conversationId: string | null,
 ) {
   const payloadMessages = messages.slice(-6).map((message) => ({
     role: message.role === "user" ? "user" : "assistant",
@@ -1103,6 +1111,7 @@ async function askNaturalNora(
       model_id: modelId || undefined,
       routing_mode: modelId && modelId !== "auto" ? "manual" : "automatic",
       attachment_ids: attachmentIds,
+      conversation_id: conversationId || undefined,
     }),
   });
   const data = await res.json();
@@ -1194,7 +1203,7 @@ function interruptsActiveAgentSession(text: string) {
   );
 }
 
-export default function Nora({ open, onClose, conversaId, profile, eventsBySource, userId = "primary", activeTab, onOpenEmail, contextualRequest, variant = "drawer", initialState, onStateChange }: NoraProps) {
+export default function Nora({ open, onClose, conversaId, conversationId, profile, eventsBySource, userId = "primary", activeTab, onOpenEmail, contextualRequest, variant = "drawer", initialState, onStateChange }: NoraProps) {
   const screenContext = buildScreenContext(activeTab, eventsBySource);
   const welcomeName = (profile?.nome || "").trim().split(/\s+/)[0] || "";
   const [input, setInput] = useState("");
@@ -1561,6 +1570,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
       let responseStatus = "";
       let responseEmailMessages: NoraEmailMessage[] | undefined;
       let responseAgendaEvents: NoraAgendaEvent[] | undefined;
+      let responseApproval: NoraApprovalSnapshot | null = null;
       let responseView: NoraResponseView | undefined;
       let responseFiles: NoraChatFile[] | undefined;
       let handledInline = false;
@@ -1606,6 +1616,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
         responseAgent = "email";
         responseStatus = result.status;
         responseEmailMessages = normalizeEmailMessages(result.messages);
+        responseApproval = normalizeApprovalCard((result as { approval?: unknown }).approval);
         setEmailSessionId(result.session_id);
         setEmailAgentActive(Boolean(result.session_id && !["enviado", "cancelado", "consulta", "resumo", "desconectado"].includes(result.status)));
         if (result.status === "enviado") {
@@ -1651,6 +1662,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             screenContext,
             effectiveModelId,
             queuedFiles.map((file) => file.id),
+            conversationId ?? null,
             controller.signal,
             {
               onResponseId: (responseId) => {
@@ -1744,6 +1756,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             screenContext,
             effectiveModelId,
             queuedFiles.map((file) => file.id),
+            conversationId ?? null,
           );
           if (activeCycleRef.current !== cycleId) return;
           applyNaturalAgentEffects(result);
@@ -1751,6 +1764,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
           responseView = buildNoraResponseView(result.intent, result.agent_result);
           responseFiles = normalizeChatFiles(result.agent_result?.files);
           responseStatus = result.status;
+          responseApproval = normalizeApprovalCard(result.agent_result?.approval);
           if (result.intent === "email") {
             responseEmailMessages = normalizeEmailMessages(result.agent_result?.messages);
           }
@@ -1781,6 +1795,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
             agendaEvents: responseAgendaEvents,
             responseView,
             files: responseFiles,
+            approval: responseApproval,
           },
         ]);
       }
@@ -1805,6 +1820,12 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
     } finally {
       if (requestAbortRef.current === controller) requestAbortRef.current = null;
     }
+  }
+
+  function updateMessageApproval(index: number, next: NoraApprovalSnapshot) {
+    setMessages((current) => current.map((message, messageIndex) => (
+      messageIndex === index ? { ...message, approval: next } : message
+    )));
   }
 
   function evaluateMessage(index: number, feedback: "positive" | "negative") {
@@ -2361,6 +2382,7 @@ export default function Nora({ open, onClose, conversaId, profile, eventsBySourc
                   onAgendaPrompt={(prompt) => void sendMessage(prompt)}
                   onFeedback={msg.role === "ai" ? (feedback) => evaluateMessage(index, feedback) : undefined}
                   onRegenerate={msg.role === "ai" && messages.slice(0, index).some((item) => item.role === "user") ? () => regenerateMessage(index) : undefined}
+                  onApprovalDecision={msg.role === "ai" && msg.approval ? (next) => updateMessageApproval(index, next) : undefined}
                   actionsDisabled={loading}
                 />
               ))}

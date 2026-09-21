@@ -17,12 +17,12 @@ from app.infrastructure.http.oauth_result import oauth_result_html
 from app.routers.inbox_router import record_event
 from app.routers.auth_router import current_user
 from app.modules.operations.schemas import ReceiptCreate
-from app.modules.operations.service import record_receipt
-from app.services.email_agent import EmailAgent
+from app.modules.operations.service import finalize_email_agent_result, record_receipt
+from app.services.email_agent import shared_email_agent
 from app.services.gmail_service import GmailConfigError, GmailService
 
 router = APIRouter(tags=["Gmail"])
-email_agent = EmailAgent()
+email_agent = shared_email_agent
 logger = logging.getLogger(__name__)
 
 
@@ -513,11 +513,12 @@ async def download_gmail_attachment(
 @router.post("/api/emails/gmail/agente/mensagem")
 async def conversar_com_agente_email(payload: EmailAgentPayload, user: dict[str, Any] = Depends(current_user)):
     try:
-        return await email_agent.handle(
+        result = await email_agent.handle(
             message=payload.message,
             session_id=payload.session_id,
             user_id=tenant_id(user),
         )
+        return await finalize_email_agent_result(user, email_agent, result, surface="mail")
     except Exception as exc:
         logger.exception("Agente de e-mail falhou.")
         raise HTTPException(status_code=500, detail="O agente de e-mail falhou temporariamente.") from exc

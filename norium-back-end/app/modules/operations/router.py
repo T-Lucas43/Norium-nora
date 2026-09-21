@@ -42,6 +42,7 @@ from app.modules.operations.service import (
     remove_nora_memory,
     record_audit,
     record_receipt,
+    reconcile_email_send,
     save_nora_memory,
     undo_receipt,
     update_follow_up,
@@ -190,10 +191,27 @@ async def update_approval(
     payload: ApprovalDecision,
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    item = await decide_approval(user, approval_id, payload)
+    try:
+        item = await decide_approval(user, approval_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="Aprovacao nao encontrada.")
     return {"item": item}
+
+
+@router.post("/aprovacoes/{approval_id}/reconciliar")
+async def reconcile_approval(
+    approval_id: str,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    try:
+        outcome = await reconcile_email_send(user, approval_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if outcome.get("reason") == "approval_not_found":
+        raise HTTPException(status_code=404, detail="Aprovacao nao encontrada.")
+    return outcome
 
 
 @router.post("/integracoes/{integration_id}/testar")

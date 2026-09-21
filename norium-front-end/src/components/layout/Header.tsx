@@ -80,7 +80,7 @@ function initials(name: string) {
 }
 
 export default function Header({
-  activeTab,
+
   setActiveTab,
   onOpenNora,
   onOpenTeamChat,
@@ -309,15 +309,6 @@ export default function Header({
       </div>
 
       <div className="norium-topbar-actions">
-        <button
-          type="button"
-          className={`norium-topbar-icon ${activeTab === "Agenda" ? "is-active" : ""}`}
-          onClick={() => setActiveTab("Agenda")}
-          title="Abrir Agenda"
-         aria-label="Abrir Agenda">
-          <CalendarDays size={19} />
-        </button>
-
         <button
           type="button"
           className="norium-topbar-icon"

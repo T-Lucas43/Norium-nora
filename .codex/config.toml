@@ -1,0 +1,6 @@
+[mcp_servers.norium-muse]
+command = "node"
+args = ["C:/Users/Tarcisio Lucas/norium/scripts/muse-codex-bridge.mjs", "mcp", "--state-dir", "C:/Users/Tarcisio Lucas/norium/tmp/muse-codex-bridge"]
+startup_timeout_sec = 10
+tool_timeout_sec = 1800
+default_tools_approval_mode = "approve"

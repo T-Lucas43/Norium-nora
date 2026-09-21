@@ -33,12 +33,12 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: norium-back-end/requirements.txt
+          cache-dependency-path: norium-back-end/requirements.lock.txt
 
       - name: Install backend dependencies
         working-directory: norium-back-end
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements.lock.txt
           pip install bandit pip-audit
 
       - name: Validate backend
@@ -55,8 +55,16 @@ jobs:
       - name: Scan backend dependencies and source
         working-directory: norium-back-end
         run: |
-          pip-audit -r requirements.txt
+          pip-audit -r requirements.lock.txt -f cyclonedx-json -o ../output/backend-sbom.cdx.json
           bandit -q -r app -x tests -ll
+
+      - name: Preserve revision-bound backend SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-sbom-${{ github.sha }}
+          path: output/backend-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 90
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -105,11 +113,11 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: norium-back-end/requirements.txt
+          cache-dependency-path: norium-back-end/requirements.lock.txt
 
       - name: Install backend and browser-test dependencies
         working-directory: norium-back-end
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.lock.txt
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -193,7 +201,7 @@ jobs:
         with:
           python-version: '3.14'
       - name: Install release dependencies
-        run: pip install -r norium-back-end/requirements.txt
+        run: pip install -r norium-back-end/requirements.lock.txt
       - name: Check release configuration before publishing anything
         run: python norium-back-end/scripts/team_call_release_check.py --report output/team-call-release/preflight.json
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -419,9 +427,9 @@ jobs:
             exit 1
           fi
 
-      - name: Verify health endpoint
+      - name: Verify readiness endpoint
         shell: bash
-        run: curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health"
+        run: curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health/ready"
 
       - name: Verify real Chromium navigation and click
         shell: bash
@@ -494,3 +502,20 @@ jobs:
           GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}" \
           OAUTH_PUBLIC_URL="${{ vars.AZURE_PUBLIC_URL }}" \
             python .github/scripts/verify-google-oauth.py
+
+      - name: Roll back automatically after a failed release gate
+        if: ${{ failure() && steps.rollback.outputs.image != '' }}
+        shell: bash
+        run: |
+          previous_image="${{ steps.rollback.outputs.image }}"
+          az containerapp update \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --image "${previous_image}" \
+            --min-replicas 1 --max-replicas 1 --output none
+          curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health/ready"
+          active_image="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query 'properties.template.containers[0].image' --output tsv)"
+          test "${active_image}" = "${previous_image}"

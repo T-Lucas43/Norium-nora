@@ -117,12 +117,12 @@ describe("renovacao de fotos de grupos", () => {
       onRefresh: vi.fn(),
     };
 
-    window.localStorage.setItem("norium-auth-token", "token-a");
+    window.sessionStorage.setItem("norium-auth-token", "token-a");
     window.localStorage.setItem("norium-workspace-id", "workspace-a");
     render(<WhatsAppDirectory {...props} />);
     await waitFor(() => expect(mediaApi.apiRequest).toHaveBeenCalledTimes(1));
 
-    window.localStorage.setItem("norium-auth-token", "token-b");
+    window.sessionStorage.setItem("norium-auth-token", "token-b");
     render(<WhatsAppDirectory {...props} />);
     await waitFor(() => expect(mediaApi.apiRequest).toHaveBeenCalledTimes(2));
 
@@ -165,12 +165,12 @@ describe("renovacao de fotos de grupos", () => {
       .mockResolvedValueOnce({ photoUrl: freshA })
       .mockReturnValueOnce(new Promise((resolve) => { resolveB = resolve; }));
     const observedSources: string[] = [];
-    window.localStorage.setItem("norium-auth-token", "token-a");
+    window.sessionStorage.setItem("norium-auth-token", "token-a");
     const view = render(<ProfilePhotoProbe identifier="same-contact" onSource={(source) => observedSources.push(source)} />);
     await waitFor(() => expect(view.getByRole("img", { name: "foto renovada" })).toHaveAttribute("src", blobUrl(freshA)));
 
     observedSources.length = 0;
-    window.localStorage.setItem("norium-auth-token", "token-b");
+    window.sessionStorage.setItem("norium-auth-token", "token-b");
     view.rerender(<ProfilePhotoProbe identifier="same-contact" onSource={(source) => observedSources.push(source)} />);
     await waitFor(() => expect(mediaApi.apiRequest).toHaveBeenCalledTimes(2));
     expect(observedSources).not.toContain(freshA);

@@ -10,7 +10,8 @@ vi.mock("../commercial/PdfDocumentPreview", () => ({ default: () => <div>Prévia
 vi.mock("../../features/reports/pdfBuilder", async original => ({ ...await original<object>(), buildStructuredReportPdf: vi.fn(async () => new Blob(["%PDF-test"])) }));
 import ReportsDashboard from "./ReportsDashboard";
 import { clearReportAnalysisCache } from "../../features/reports/analysis";
-const day = new Date().toISOString().slice(0, 10);
+const now = new Date();
+const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 const entries: FinanceEntry[] = Array.from({ length: 14 }, (_, index) => ({ id: `e${index}`, title: `Pagamento ${index}`, amount: 100, description: "Serviços", category: "Operação", method: "pix", status: index < 10 ? "pago" : "pendente", type: "saida", dueDate: day, paidAt: index < 10 ? day : null, attachments: [], source: "manual", createdAt: day, updatedAt: day }));
 const events = Object.fromEntries(Object.keys(sourceLabels).map(source => [source, [] as OmnichannelEvent[]])) as Record<EventSource, OmnichannelEvent[]>;
 events.kanban = [{ id: "task", source: "kanban", title: "Tarefa concluída", description: "Entrega concluída", timestamp: new Date().toISOString(), metadata: { status: "done" } }];

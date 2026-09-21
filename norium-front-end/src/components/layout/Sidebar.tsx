@@ -14,6 +14,11 @@ type NavigationItem = {
   title: string;
 };
 
+type NavigationGroup = {
+  label: string;
+  items: string[];
+};
+
 type SidebarProps = {
   activeTab: string;
   allowedTabs?: string[];
@@ -26,29 +31,14 @@ type SidebarProps = {
   onToggleCollapsed: () => void;
 };
 
-const navigation: NavigationItem[] = [
-  { title: "Nora" },
-  { title: "Dashboard" },
-  { title: "Controle" },
-  { title: "Central" },
-  { title: "E-mails" },
-  { title: "Agenda" },
-  { title: "Chat" },
-  { title: "Tarefas" },
-  { title: "Financeiro" },
-  { title: "Automações" },
-  { title: "Relatórios" },
-  { title: "Documentos" },
-  { title: "Agente Navegador" },
-  { title: "Conhecimento" },
-  { title: "Marketplace" },
-  { title: "IA e Modelos" },
-  { title: "Equipe" },
-  { title: "Chat da Equipe" },
-  { title: "Clientes" },
-  { title: "Governanca" },
-  { title: "Estúdio" },
-  { title: "Mais" },
+const NORA_ENTRY = "Nora";
+
+const NAVIGATION_GROUPS: NavigationGroup[] = [
+  { label: "Início", items: ["Dashboard", "Controle", "Central"] },
+  { label: "Comunicação", items: ["E-mails", "Agenda", "Chat", "Chat da Equipe"] },
+  { label: "Trabalho", items: ["Tarefas", "Financeiro", "Documentos", "Clientes"] },
+  { label: "Inteligência", items: ["Automações", "Relatórios", "Agente Navegador", "Conhecimento", "Marketplace", "IA e Modelos", "Estúdio"] },
+  { label: "Equipe", items: ["Equipe", "Governanca", "Mais"] },
 ];
 
 function initials(name: string) {
@@ -72,7 +62,7 @@ export default function Sidebar({
   onNavigate,
   onToggleCollapsed,
 }: SidebarProps) {
-  const items = navigation.filter((item) => !allowedTabs || allowedTabs.includes(item.title));
+  const isAllowed = (title: string) => !allowedTabs || allowedTabs.includes(title);
   const compact = collapsed && !mobileOpen;
   const profileName = currentUser?.nome || profile?.nome || "Operador";
   const planLabel = currentUser?.plan
@@ -82,6 +72,33 @@ export default function Sidebar({
   function navigate(tab: string) {
     onNavigate(tab);
     onCloseMobile();
+  }
+
+  function renderItem(item: NavigationItem) {
+    const active =
+      activeTab === item.title ||
+      (activeTab === "Inbox" && item.title === "Central") ||
+      (activeTab === "Automacoes" && item.title === "Automações") ||
+      (activeTab === "Relatorios" && item.title === "Relatórios");
+
+    return (
+      <button
+        key={item.title}
+        type="button"
+        className={`norium-sidebar-item ${active ? "is-active" : ""} ${item.title === NORA_ENTRY ? "is-nora" : ""}`}
+        onClick={() => navigate(item.title)}
+        onPointerEnter={() => preloadPanel(item.title)}
+        onFocus={() => preloadPanel(item.title)}
+        title={compact ? item.title : undefined}
+        aria-current={active ? "page" : undefined}
+       aria-label={compact ? item.title : undefined}>
+        <span className="norium-sidebar-item-icon" aria-hidden="true">
+          {item.title === NORA_ENTRY ? <NoraAvatar variant="navigation" className="norium-sidebar-nora-avatar" />
+            : <IntegrationLogo name={item.title} size={20} className="norium-sidebar-channel-icon" monochrome />}
+        </span>
+        {!compact && <span className="norium-sidebar-item-label">{item.title}</span>}
+      </button>
+    );
   }
 
   return (
@@ -120,30 +137,19 @@ export default function Sidebar({
         </div>
 
         <nav className="norium-sidebar-navigation">
-          {items.map((item) => {
-            const active =
-              activeTab === item.title ||
-              (activeTab === "Inbox" && item.title === "Central") ||
-              (activeTab === "Automacoes" && item.title === "Automações") ||
-              (activeTab === "Relatorios" && item.title === "Relatórios");
-
+          {isAllowed(NORA_ENTRY) && renderItem({ title: NORA_ENTRY })}
+          {NAVIGATION_GROUPS.map((group) => {
+            const visible = group.items.filter(isAllowed);
+            if (!visible.length) return null;
             return (
-              <button
-                key={item.title}
-                type="button"
-                className={`norium-sidebar-item ${active ? "is-active" : ""} ${item.title === "Nora" ? "is-nora" : ""}`}
-                onClick={() => navigate(item.title)}
-                onPointerEnter={() => preloadPanel(item.title)}
-                onFocus={() => preloadPanel(item.title)}
-                title={compact ? item.title : undefined}
-                aria-current={active ? "page" : undefined}
-               aria-label={compact ? item.title : undefined}>
-                <span className="norium-sidebar-item-icon" aria-hidden="true">
-                  {item.title === "Nora" ? <NoraAvatar variant="navigation" className="norium-sidebar-nora-avatar" />
-                    : <IntegrationLogo name={item.title} size={20} className="norium-sidebar-channel-icon" monochrome />}
-                </span>
-                {!compact && <span className="norium-sidebar-item-label">{item.title}</span>}
-              </button>
+              <div key={group.label} className="norium-sidebar-group">
+                {!compact && (
+                  <p className="norium-sidebar-group-label" aria-hidden="true">
+                    {group.label}
+                  </p>
+                )}
+                {visible.map((title) => renderItem({ title }))}
+              </div>
             );
           })}
         </nav>

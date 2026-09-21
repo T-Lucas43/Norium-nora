@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -12,6 +13,9 @@ from app.core.tenant import read_user_db, write_user_db
 from app.routers.auth_router import current_user
 from app.shared.schemas import StrictModel
 from app.modules.nora.response_schema import ResponseView
+from app.modules.nora.context import delete_conversation_context
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations")
 history_lock = asyncio.Lock()
@@ -25,6 +29,23 @@ def history_user(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+class ApprovalSnapshot(StrictModel):
+    id: str = Field(max_length=120)
+    action: str | None = Field(default=None, max_length=120)
+    source: str | None = Field(default=None, max_length=60)
+    title: str = Field(default="", max_length=300)
+    status: str = Field(default="pending", max_length=30)
+    digest: str | None = Field(default=None, max_length=128)
+    expiresAt: str | None = Field(default=None, max_length=64)
+    workspace: str | None = Field(default=None, max_length=80)
+    version: str | None = Field(default=None, max_length=40)
+    summary: str = Field(default="", max_length=2000)
+    recipients: list[str] = Field(default_factory=list, max_length=25)
+    decidedAt: str | None = Field(default=None, max_length=64)
+    outcome: str | None = Field(default=None, max_length=2000)
+    uncertain: bool = False
+
+
 class SavedMessage(StrictModel):
     role: Literal["user", "ai"]
     text: str = Field(max_length=100_000)
@@ -35,6 +56,7 @@ class SavedMessage(StrictModel):
     agendaEvents: list[dict[str, Any]] | None = Field(default=None, max_length=100)
     responseView: ResponseView | None = None
     files: list[dict[str, Any]] | None = Field(default=None, max_length=20)
+    approval: ApprovalSnapshot | None = None
 
 
 class ConversationState(StrictModel):
@@ -149,4 +171,8 @@ async def delete_conversation(conversation_id: str = Path(pattern=ID_PATTERN), u
         index = read_index(user_id)
         index["conversations"] = [item for item in index["conversations"] if item["id"] != conversation_id]
         write_user_db(user_id, INDEX, index)
+        try:
+            await delete_conversation_context(user_id, conversation_id)
+        except Exception:
+            logger.warning("nora_context_delete_failed")
         return {"deleted": True}

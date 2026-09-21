@@ -7,6 +7,7 @@ import Statistics from "./Statistics";
 import RecentActivity from "./RecentActivity";
 import ActiveAutomations from "./ActiveAutomations";
 import DashboardRail from "./DashboardRail";
+import type { DayFocusTask } from "./DashboardRail";
 import type { EventSource, OmnichannelEvent, PerfilOperador } from "../../types/omnichannel";
 import type { TaskItem } from "../../features/tasks/types";
 import { apiRequest } from "../../core/api/client";
@@ -55,6 +56,7 @@ export type DashboardFinancePending = {
 };
 
 const taskPriorityRank: Record<TaskItem["priority"], number> = { urgente: 0, alta: 1, media: 2, baixa: 3 };
+const taskPriorityLabel: Record<TaskItem["priority"], string> = { urgente: "Urgente", alta: "Alta", media: "Média", baixa: "Baixa" };
 const taskStatusLabel: Record<TaskItem["status"], string> = { pendente: "Pendente", andamento: "Em andamento", revisao: "Em revisão", concluida: "Concluída" };
 
 function assignedOpenTasks(tasks: TaskItem[], userId: string) {
@@ -68,6 +70,10 @@ function assignedOpenTasks(tasks: TaskItem[], userId: string) {
       if (right.dueDate) return 1;
       return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
     });
+}
+
+function formatShortDate(dueDate: string) {
+  return new Date(`${dueDate}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
 function describeWeather(code: number) {
@@ -174,13 +180,31 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
       Object.values(eventsBySource)
         .flat()
         .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
-        .slice(0, 18),
+        .slice(0, 12),
     [eventsBySource],
   );
 
   const weather = useWeatherFromCep(profile?.cep);
   const financeBalance = Number.isFinite(Number(finance?.resumo?.saldo)) ? Number(finance?.resumo?.saldo) : null;
   const myTasks = useMemo(() => assignedOpenTasks(tasks, userId), [tasks, userId]);
+  const todayKey = new Date().toLocaleDateString("pt-BR");
+  const todayIso = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`;
+  const todayEventCount = useMemo(
+    () => eventsBySource.calendar.filter((event) => new Date(event.timestamp).toLocaleDateString("pt-BR") === todayKey).length,
+    [eventsBySource, todayKey],
+  );
+  const overdueTasks = useMemo(
+    () => myTasks.filter((task) => task.dueDate && task.dueDate < todayIso),
+    [myTasks, todayIso],
+  );
+  const focusTask: DayFocusTask | null = useMemo(() => {
+    const top = overdueTasks[0] || myTasks[0];
+    if (!top) return null;
+    return {
+      title: top.title,
+      meta: `${taskPriorityLabel[top.priority]} · ${top.dueDate ? `vence ${formatShortDate(top.dueDate)}` : "sem prazo"}`,
+    };
+  }, [myTasks, overdueTasks]);
   const financePending = useMemo<DashboardFinancePending[]>(() => {
     const entries = (finance?.lancamentos || [])
       .filter((item) => item.type === "saida" && item.status === "pendente")
@@ -224,11 +248,9 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
           onNavigate={onNavigate}
         />
 
-        <Summary metrics={metrics} financeBalance={financeBalance} onNavigate={onNavigate} />
+        <Summary metrics={metrics} financeBalance={financeBalance} myTaskCount={myTasks.length} todayEventCount={todayEventCount} onNavigate={onNavigate} />
 
-        <section className="norium-dashboard-detail-grid">
-          <RecentActivity events={recentEvents} onNavigate={onNavigate} />
-
+        <section className="norium-dashboard-detail-grid" aria-label="Prioridades do dia">
           <section className="norium-dashboard-card norium-today-agenda">
             <div className="norium-dashboard-section-heading">
               <h2>Agenda de hoje</h2>
@@ -276,7 +298,7 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
                     <strong>{task.title}</strong>
                     <small>{taskStatusLabel[task.status]} · {task.category || "Geral"}</small>
                   </span>
-                  <time>{task.dueDate ? new Date(`${task.dueDate}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" }) : "Sem prazo"}</time>
+                  <time>{task.dueDate ? formatShortDate(task.dueDate) : "Sem prazo"}</time>
                 </button>
               ))}
               {tasksLoading && <div className="norium-dashboard-empty"><CalendarClock size={18} />Carregando suas tarefas…</div>}
@@ -292,9 +314,10 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
         </section>
 
         <section className="norium-dashboard-secondary-content">
+          <RecentActivity events={recentEvents} onNavigate={onNavigate} />
           <IntegrationGrid onNavigate={onNavigate} />
           <ActiveAutomations onNavigate={onNavigate} />
-          <Statistics metrics={metrics} onOpenNora={onOpenNora} />
+          <Statistics metrics={metrics} />
         </section>
       </div>
 
@@ -304,8 +327,10 @@ export default function Dashboard({ eventsBySource, connected, profile, userId, 
         financePending={financePending}
         financePendingTotal={Number(finance?.resumo?.pendente || 0)}
         financeOverdueCount={Number(finance?.resumo?.vencidos || 0)}
+        focusTask={focusTask}
+        taskOverdueCount={overdueTasks.length}
+        todayEventCount={todayEventCount}
         onNavigate={onNavigate}
-        onOpenNora={onOpenNora}
       />
     </main>
   );

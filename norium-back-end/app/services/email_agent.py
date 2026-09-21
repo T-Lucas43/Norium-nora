@@ -31,7 +31,7 @@ class EmailAgent:
         if session_id:
             self.sessions.pop(session_id, None)
 
-    async def handle(self, *, message: str, session_id: str | None, user_id: str = "lucas123") -> dict[str, Any]:
+    async def handle(self, *, message: str, session_id: str | None, user_id: str = "lucas123", attachment_ids: list[str] | None = None) -> dict[str, Any]:
         text = message.strip()
         normalized = self._normalize(text)
         service = GmailService(user_id)
@@ -50,15 +50,26 @@ class EmailAgent:
         if self._is_cancel(normalized):
             if session:
                 self.sessions.pop(session.id, None)
-            return {"session_id": None, "status": "cancelado", "response": "Rascunho cancelado. Nada foi enviado."}
+            return {"session_id": None, "status": "cancelado", "response": "Rascunho cancelado. Nada foi enviado.", "cancelApprovalId": session.fields.get("_approval_id") if session else None}
 
         if session:
             session.updated_at = datetime.now(timezone.utc)
-            return await self._continue_compose(session, text, normalized)
+            pending = session.fields.pop("_pending_attachment_ids", [])
+            merged = [*(pending if isinstance(pending, list) else []), *(attachment_ids or [])]
+            if session.awaiting != "attachments":
+                if merged:
+                    session.fields["_pending_attachment_ids"] = merged
+                merged = []
+            return await self._continue_compose(session, text, normalized, merged or None)
 
         if self._is_compose_intent(normalized):
             session = EmailSession(id=session_id or uuid.uuid4().hex, user_id=user_id)
             self.sessions[session.id] = session
+            attached, skipped = self._resolve_attachments(user_id, attachment_ids or [])
+            if attached:
+                session.fields["attachments"] = attached
+            if skipped:
+                session.fields["_attachment_errors"] = skipped
             self._extract_initial_fields(session, text)
             return await self._next_question(session)
 
@@ -80,23 +91,30 @@ class EmailAgent:
             ),
         }
 
-    async def _continue_compose(self, session: EmailSession, text: str, normalized: str) -> dict[str, Any]:
+    async def _continue_compose(self, session: EmailSession, text: str, normalized: str, attachment_ids: list[str] | None = None) -> dict[str, Any]:
         fields = session.fields
         if session.awaiting == "confirmacao":
-            if self._is_yes(normalized):
-                result = GmailService(session.user_id).send_message(
-                    to=fields["to"],
-                    subject=fields["subject"],
-                    body=fields["body"],
-                    cc=fields.get("cc", []),
-                    bcc=fields.get("bcc", []),
-                )
-                self.sessions.pop(session.id, None)
+            edit_target = self._edit_command(normalized)
+            if edit_target is not None:
+                if edit_target == "attachments":
+                    session.fields["attachments"] = []
+                    session.fields.pop("_attachments_done", None)
+                session.awaiting = edit_target
                 return {
-                    "session_id": None,
-                    "status": "enviado",
-                    "response": f"Enviei o e-mail para {', '.join(fields['to'])}. Assunto: {fields['subject']}",
-                    "result": result,
+                    "session_id": session.id,
+                    "status": "coletando",
+                    "response": self._edit_prompt(edit_target),
+                    "fields": fields,
+                }
+            if self._is_yes(normalized):
+                return {
+                    "session_id": session.id,
+                    "status": "pronto_para_aprovacao",
+                    "response": "Prévia pronta. Confira o cartão de aprovação e use Permitir para enviar, ou peça um ajuste.",
+                    "fields": fields,
+                    "preview": self._preview_payload(session),
+                    "emailExact": self._exact_payload(session),
+                    "supersedes": fields.get("_approval_id"),
                 }
             if self._is_no(normalized):
                 session.awaiting = "body"
@@ -111,10 +129,35 @@ class EmailAgent:
             recipients = self._extract_emails(text)
             if recipients:
                 fields["to"] = recipients
+        elif session.awaiting == "cc":
+            if self._is_skip(normalized):
+                fields["cc"] = []
+            else:
+                copied = self._extract_emails(text)
+                if copied:
+                    fields["cc"] = copied
+        elif session.awaiting == "bcc":
+            if self._is_skip(normalized):
+                fields["bcc"] = []
+            else:
+                blind = self._extract_emails(text)
+                if blind:
+                    fields["bcc"] = blind
         elif session.awaiting == "subject":
             fields["subject"] = text[:180]
         elif session.awaiting == "body":
             fields["body"] = self._clean_body_for_send(text[:12000])
+        elif session.awaiting == "attachments":
+            if self._is_skip(normalized):
+                fields.setdefault("attachments", [])
+                fields["_attachments_done"] = True
+            elif attachment_ids:
+                attached, skipped = self._resolve_attachments(session.user_id, attachment_ids)
+                if attached:
+                    fields["attachments"] = attached
+                    fields["_attachments_done"] = True
+                else:
+                    fields["_attachment_errors"] = skipped or ["não reconheci nenhum arquivo válido."]
 
         return await self._next_question(session)
 
@@ -122,25 +165,126 @@ class EmailAgent:
         fields = session.fields
         if not fields.get("to"):
             session.awaiting = "to"
-            response = "Para qual e-mail eu envio?"
+            response = "Para qual e-mail eu envio? Pode mandar um ou vários endereços."
+        elif "cc" not in fields:
+            session.awaiting = "cc"
+            response = "Algum e-mail em cópia (Cc)? Mande os endereços ou diga 'pular'."
+        elif "bcc" not in fields:
+            session.awaiting = "bcc"
+            response = "Algum e-mail em cópia oculta (Cco)? Mande os endereços ou diga 'pular'."
         elif not fields.get("subject"):
             session.awaiting = "subject"
             response = "Qual vai ser o assunto?"
         elif not fields.get("body"):
             session.awaiting = "body"
             response = "Qual mensagem voce quer enviar? Pode mandar em texto livre."
+        elif not fields.get("_attachments_done"):
+            session.awaiting = "attachments"
+            errors = fields.pop("_attachment_errors", [])
+            note = f" Não consegui usar: {', '.join(errors[:3])}." if errors else ""
+            response = f"Quer anexar arquivos? Envie pelo clipe do chat ou diga 'pular'.{note}"
         else:
             session.awaiting = "confirmacao"
             draft = await self._polish_body(fields)
             fields["body"] = draft
-            response = f"Confirma o envio?\n\n{self._summary(fields)}"
+            response = f"Prévia pronta. Confira abaixo \u2014 para ajustar, diga por exemplo 'editar assunto'. Diga 'sim' para gerar o cart\u00e3o de aprova\u00e7\u00e3o.\n\n{self._summary(fields)}"
 
         return {
             "session_id": session.id,
             "status": "confirmar" if session.awaiting == "confirmacao" else "coletando",
             "response": response,
             "fields": fields,
+            "preview": self._preview_payload(session) if session.awaiting == "confirmacao" else None,
         }
+
+    def _is_skip(self, value: str) -> bool:
+        return value in {"pular", "pule", "sem cc", "sem cco", "sem copia", "sem anexo", "sem anexos", "nenhum", "nenhuma", "nao", "n"}
+
+    def _edit_command(self, value: str) -> str | None:
+        if not re.search(r"\b(editar|edit|corrigir|corrija|alterar|altere|mudar|mude|trocar|troque)\b", value):
+            return None
+        if re.search(r"\bcco\b|oculta|bcc", value):
+            return "bcc"
+        if re.search(r"\bcc\b|copia", value):
+            return "cc"
+        if re.search(r"\banexo", value):
+            return "attachments"
+        if "assunto" in value:
+            return "subject"
+        if re.search(r"\bcorpo\b|mensagem|texto", value):
+            return "body"
+        if re.search(r"\bpara\b|destinatario", value):
+            return "to"
+        return "body"
+
+    def _edit_prompt(self, target: str) -> str:
+        return {
+            "to": "Para qual e-mail eu envio agora? Pode mandar um ou vários endereços.",
+            "cc": "Quais e-mails em cópia (Cc)? Ou diga 'pular'.",
+            "bcc": "Quais e-mails em cópia oculta (Cco)? Ou diga 'pular'.",
+            "subject": "Qual vai ser o assunto agora?",
+            "body": "Me manda o corpo do e-mail revisado.",
+            "attachments": "Envie os novos anexos pelo clipe do chat, ou diga 'pular' para seguir sem anexos.",
+        }.get(target, "O que voce quer ajustar?")
+
+    def _preview_payload(self, session: EmailSession) -> dict[str, Any]:
+        fields = session.fields
+        return {
+            "to": list(fields.get("to") or []),
+            "cc": list(fields.get("cc") or []),
+            "bcc": list(fields.get("bcc") or []),
+            "subject": str(fields.get("subject") or ""),
+            "body": str(fields.get("body") or ""),
+            "attachments": [
+                {"fileName": str(item.get("fileName") or "anexo"), "mimeType": str(item.get("mimeType") or ""), "size": int(item.get("size") or 0)}
+                for item in (fields.get("attachments") or [])
+                if isinstance(item, dict)
+            ],
+        }
+
+    def _exact_payload(self, session: EmailSession) -> dict[str, Any]:
+        preview = self._preview_payload(session)
+        preview["attachments"] = [
+            {
+                "fileId": str(item.get("fileId") or ""),
+                "fileName": str(item.get("fileName") or "anexo"),
+                "mimeType": str(item.get("mimeType") or "application/octet-stream"),
+                "size": int(item.get("size") or 0),
+                "sha256": str(item.get("sha256") or ""),
+            }
+            for item in (session.fields.get("attachments") or [])
+            if isinstance(item, dict)
+        ]
+        return preview
+
+    def _resolve_attachments(self, user_id: str, attachment_ids: list[str] | None) -> tuple[list[dict[str, Any]], list[str]]:
+        import hashlib
+        from pathlib import Path
+
+        from app.services.nora_files import owned_file
+
+        attached: list[dict[str, Any]] = []
+        skipped: list[str] = []
+        seen: set[str] = set()
+        for raw_id in (attachment_ids or [])[:8]:
+            file_id = str(raw_id or "").strip()
+            if not file_id or file_id in seen:
+                continue
+            seen.add(file_id)
+            try:
+                record, path = owned_file(user_id, file_id)
+                file_bytes = Path(path).read_bytes()
+            except Exception:
+                skipped.append(file_id[:24])
+                continue
+            attached.append({
+                "fileId": file_id,
+                "fileName": str(record.get("name") or "anexo"),
+                "mimeType": str(record.get("mimeType") or "application/octet-stream"),
+                "size": len(file_bytes),
+                "sha256": hashlib.sha256(file_bytes).hexdigest(),
+            })
+        return attached, skipped
 
     async def _polish_body(self, fields: dict[str, Any]) -> str:
         body = str(fields.get("body") or "").strip()
@@ -320,14 +464,20 @@ class EmailAgent:
                 session.fields["subject"] = self._infer_subject_from_body(body)
 
     def _summary(self, fields: dict[str, Any]) -> str:
-        return "\n".join(
-            [
-                f"- Para: {', '.join(fields.get('to', []))}",
-                f"- Assunto: {fields.get('subject')}",
-                "",
-                str(fields.get("body") or "").strip(),
-            ]
-        )
+        lines = [
+            f"- Para: {', '.join(fields.get('to', []))}",
+        ]
+        if fields.get("cc"):
+            lines.append(f"- Cc: {', '.join(fields['cc'])}")
+        if fields.get("bcc"):
+            lines.append(f"- Cco: {', '.join(fields['bcc'])}")
+        lines.append(f"- Assunto: {fields.get('subject')}")
+        attachments = fields.get("attachments") or []
+        if attachments:
+            names = ", ".join(str(item.get("fileName") or "anexo") for item in attachments)
+            lines.append(f"- Anexos: {names}")
+        lines.extend(["", str(fields.get("body") or "").strip()])
+        return "\n".join(lines)
 
     def _extract_emails(self, text: str) -> list[str]:
         return sorted(set(re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", text)))
@@ -481,3 +631,5 @@ class EmailAgent:
     def _normalize(self, value: str) -> str:
         lowered = value.lower().strip()
         return "".join(char for char in unicodedata.normalize("NFKD", lowered) if not unicodedata.combining(char))
+
+shared_email_agent = EmailAgent()

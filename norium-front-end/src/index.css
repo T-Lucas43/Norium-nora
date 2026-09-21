@@ -2612,10 +2612,10 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-sidebar-item.is-active{
-  border-color:rgba(39,130,255,.72);
-  background:rgba(39,130,255,.10);
+  border-color:rgba(39,130,255,.34);
+  background:rgba(39,130,255,.06);
   color:var(--text);
-  box-shadow:inset 3px 0 0 #2782ff;
+  box-shadow:inset 2px 0 0 #2782ff;
 }
 
 .norium-sidebar-item-icon{
@@ -3509,7 +3509,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-dashboard-hero{
   position:relative;
   display:flex;
-  min-height:218px;
+  min-height:132px;
   align-items:center;
   overflow:hidden;
   border:1px solid var(--border);
@@ -3527,7 +3527,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-dashboard-hero h1{
   margin:0;
   color:var(--text);
-  font-size:clamp(2rem, 3vw, 3rem);
+  font-size:clamp(1.4rem, 2vw, 1.9rem);
   font-weight:760;
   letter-spacing:0;
   line-height:1.1;
@@ -3547,7 +3547,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   display:flex;
   flex-wrap:wrap;
   gap:9px;
-  margin-top:28px;
+  margin-top:14px;
 }
 
 .norium-dashboard-hero-actions button{
@@ -3581,7 +3581,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   top:-70px;
   left:37%;
   width:auto;
-  height:286px;
+  height:190px;
   opacity:1;
   pointer-events:none;
   transform:rotate(-2deg);
@@ -3595,7 +3595,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   position:absolute;
   inset:24px 0 10px 100px;
   border-radius:50%;
-  background:radial-gradient(ellipse at center, rgba(39,130,255,.16), transparent 70%);
+  background:radial-gradient(ellipse at center, rgba(39,130,255,.07), transparent 70%);
   filter:blur(18px);
   animation:norium-signal-glow 4.8s ease-in-out infinite;
 }
@@ -3654,7 +3654,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 .norium-dashboard-detail-grid{
   display:grid;
   min-width:0;
-  grid-template-columns:1.18fr 1fr .82fr;
+  grid-template-columns:1fr 1fr;
   align-items:stretch;
   gap:12px;
 }
@@ -4275,7 +4275,7 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   }
 
   .norium-dashboard-hero{
-    min-height:280px;
+    min-height:170px;
     padding:24px 20px;
   }
 
@@ -8207,4 +8207,120 @@ html:not(.dark) .models-notice.is-error{color:#9f1239}
   .finance-period-filter>div:first-child{min-width:0}
   .finance-custom-period{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)}
   .finance-custom-period input{min-width:0;width:100%}
+}
+
+/* Acabamento do dashboard: hierarquia compacta, texto secundario legivel,
+   indicadores sem card-in-card, decisao do dia e foco visivel acessivel. */
+.norium-dashboard :focus-visible{
+  outline:2px solid #2782ff;
+  outline-offset:2px;
+  border-radius:6px;
+}
+.norium-dashboard small{
+  font-size:12px;
+  line-height:1.45;
+}
+.norium-dashboard .norium-dashboard-section-heading button{
+  font-size:12px;
+  font-weight:700;
+  color:var(--text-secondary);
+}
+.norium-dashboard .norium-dashboard-section-heading button:hover{
+  color:var(--text);
+}
+.norium-dashboard-stats{
+  display:grid;
+  gap:12px;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+}
+.norium-dashboard-stat-flat{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  min-width:0;
+  border-top:1px solid var(--border);
+  padding:14px 4px 2px;
+}
+.norium-dashboard-stat-flat:first-child{
+  border-top:0;
+  padding-top:2px;
+}
+.norium-dashboard-stat-flat p{
+  margin:0;
+  color:var(--text-secondary);
+  font-size:12px;
+  font-weight:700;
+}
+.norium-dashboard-stat-flat .metric-value{
+  margin:2px 0 0;
+  color:var(--text);
+  font-size:1.5rem;
+  font-weight:800;
+  line-height:1.1;
+}
+.norium-dashboard-stat-flat .metric-value small{
+  color:var(--text-secondary);
+  font-size:12px;
+  font-weight:600;
+}
+.norium-day-decision{
+  display:flex;
+  width:100%;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:12px;
+  border:0;
+  border-radius:10px;
+  background:color-mix(in srgb, #2782ff 12%, transparent);
+  padding:12px 14px;
+  color:var(--text);
+  text-align:left;
+}
+.norium-day-decision small{
+  display:block;
+  color:var(--text-secondary);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.norium-day-decision strong{
+  display:block;
+  margin-top:2px;
+  font-size:14px;
+}
+.norium-day-decision em{
+  display:block;
+  margin-top:2px;
+  color:var(--text-secondary);
+  font-size:12px;
+  font-style:normal;
+}
+.norium-sidebar-group-label{
+  margin:14px 12px 4px;
+  color:var(--text-secondary);
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.norium-sidebar-group-label:first-of-type{
+  margin-top:2px;
+}
+.norium-sidebar.is-collapsed .norium-sidebar-group-label{
+  display:none;
+}
+@media (max-width:1100px){
+  .norium-dashboard-stats{
+    grid-template-columns:1fr;
+  }
+  .norium-dashboard-stat-flat{
+    border-top:0;
+    border-left:2px solid var(--border);
+    padding:2px 0 2px 12px;
+  }
+  .norium-dashboard-stat-flat:first-child{
+    padding-top:2px;
+  }
 }

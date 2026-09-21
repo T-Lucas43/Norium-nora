@@ -234,6 +234,7 @@ export default function AppPanels({
             currentUser={currentUser}
             onSaved={onProfileSaved}
             onOpenAdmin={onOpenAdmin}
+            onLogout={onLogout}
           />
         </section>
       )}

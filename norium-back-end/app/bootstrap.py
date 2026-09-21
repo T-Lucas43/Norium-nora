@@ -64,6 +64,7 @@ from app.modules.operations.router import router as operations_router
 from app.modules.platform.router import router as platform_router
 from app.modules.profile.router import router as perfil_router
 from app.modules.public_site.router import router as public_site_router
+from app.modules.privacy.router import data_lifecycle_worker, router as privacy_router
 from app.modules.tasks.router import router as tarefas_router
 from app.modules.team.router import (
     router as team_chat_router,
@@ -89,6 +90,18 @@ LOCAL_FRONTEND_ORIGINS = (
     "http://localhost:4180",
     "http://127.0.0.1:4180",
 )
+
+
+def validate_runtime_topology() -> None:
+    """JSON stores and in-memory coordination require one web writer."""
+    if not is_shared_environment(require_explicit=True):
+        return
+    try:
+        workers = int(os.getenv("WEB_CONCURRENCY", "1"))
+    except ValueError as exc:
+        raise RuntimeError("WEB_CONCURRENCY must be an integer") from exc
+    if workers != 1:
+        raise RuntimeError("Norium legacy stores require WEB_CONCURRENCY=1 until the SQL migration is complete")
 _WEBHOOK_SECRET_QUERY_PATTERN = re.compile(
     r"([?&]secret=)[^&#\s\"']*",
     flags=re.IGNORECASE,
@@ -198,6 +211,7 @@ def cors_origins() -> list[str]:
 
 
 def create_app() -> FastAPI:
+    validate_runtime_topology()
     validate_wapi_credential_encryption_configuration()
     validate_wapi_test_configuration()
     validate_wapi_webhook_configuration()
@@ -216,6 +230,7 @@ def create_app() -> FastAPI:
         delivery = asyncio.create_task(worker())
         reminders = asyncio.create_task(reminder_worker())
         automations = asyncio.create_task(automation_worker())
+        privacy_maintenance = asyncio.create_task(data_lifecycle_worker())
         try:
             yield
         finally:
@@ -223,12 +238,15 @@ def create_app() -> FastAPI:
             delivery.cancel()
             reminders.cancel()
             automations.cancel()
+            privacy_maintenance.cancel()
             with suppress(asyncio.CancelledError):
                 await delivery
             with suppress(asyncio.CancelledError):
                 await reminders
             with suppress(asyncio.CancelledError):
                 await automations
+            with suppress(asyncio.CancelledError):
+                await privacy_maintenance
 
     app = FastAPI(title="Norium Engine Chat Central Unificado API", lifespan=lifespan)
 
@@ -442,6 +460,7 @@ def create_app() -> FastAPI:
     app.include_router(nora_router)
     app.include_router(public_site_router)
     app.include_router(auth_router)
+    app.include_router(privacy_router)
     from app.modules.auth.ai_costs_router import router as ai_costs_router
     app.include_router(ai_costs_router)
     app.include_router(account_email_router)

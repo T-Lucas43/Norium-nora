@@ -1,16 +1,16 @@
-import { CheckCircle2, Clock3, Sparkles, TrendingUp } from "lucide-react";
+import { CheckCircle2, Clock3, TrendingUp } from "lucide-react";
 import type { DashboardMetrics } from "./Dashboard";
 
 type StatisticsProps = {
   metrics: DashboardMetrics;
-  onOpenNora: (prompt?: string) => void;
 };
 
-export default function Statistics({ metrics, onOpenNora }: StatisticsProps) {
+export default function Statistics({ metrics }: StatisticsProps) {
   const stats = [
     {
       title: "Eventos monitorados",
       value: metrics.total,
+      hint: "consolidados na Central",
       icon: TrendingUp,
       color: "text-blue-500",
       tone: "blue",
@@ -18,6 +18,7 @@ export default function Statistics({ metrics, onOpenNora }: StatisticsProps) {
     {
       title: "Tarefas movimentadas",
       value: metrics.tasks,
+      hint: "no Kanban recente",
       icon: CheckCircle2,
       color: "text-emerald-500",
       tone: "emerald",
@@ -25,6 +26,7 @@ export default function Statistics({ metrics, onOpenNora }: StatisticsProps) {
     {
       title: "Canais ativos",
       value: 4,
+      hint: "integrações ligadas",
       icon: Clock3,
       color: "text-cyan-500",
       tone: "cyan",
@@ -32,47 +34,22 @@ export default function Statistics({ metrics, onOpenNora }: StatisticsProps) {
   ];
 
   return (
-    <section className="grid gap-5 xl:grid-cols-[420px_1fr]">
-      <div className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-6">
-        <div className="flex items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-r from-blue-700 to-cyan-500 text-white">
-            <Sparkles size={30} />
-          </div>
+    <section className="norium-dashboard-stats" aria-label="Indicadores da operação">
+      {stats.map((item) => {
+        const Icon = item.icon;
 
-          <div className="flex-1">
-            <h3 className="font-bold text-[var(--text)]">Insight da Nora</h3>
-            <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-              A Central já consolidou {metrics.total} eventos recentes. Peça uma leitura objetiva das prioridades e dos próximos passos.
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => onOpenNora("Resuma minha operação com os dados reais da Central e mostre minhas prioridades de hoje, os alertas e os próximos passos.")}
-          className="mt-6 rounded-xl border border-blue-500 px-5 py-2 text-sm font-bold text-blue-500 transition hover:bg-blue-500 hover:text-white"
-        >
-          Consultar insights
-        </button>
-      </div>
-
-      <div className="grid gap-4 rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-6 md:grid-cols-3">
-        {stats.map((item) => {
-          const Icon = item.icon;
-
-          return (
-            <div key={item.title} data-metric-tone={item.tone} className="flex items-center justify-between rounded-2xl border border-[var(--border)] p-5">
-              <div>
-                <p className="text-sm font-semibold text-[var(--text-secondary)]">{item.title}</p>
-                <h2 className="metric-value mt-2 text-4xl font-black">{item.value}</h2>
-              </div>
-
-              <div className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-current/10 ${item.color}`}>
-                <Icon className="metric-icon" size={26} />
-              </div>
+        return (
+          <div key={item.title} data-metric-tone={item.tone} className="norium-dashboard-stat-flat">
+            <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-current/10 ${item.color}`}>
+              <Icon className="metric-icon" size={22} aria-hidden="true" />
             </div>
-          );
-        })}
-      </div>
+            <div>
+              <p>{item.title}</p>
+              <h2 className="metric-value">{item.value} <small>{item.hint}</small></h2>
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 }

@@ -53,10 +53,12 @@ describe("Dashboard operacional", () => {
   it("mostra cartões roláveis somente das tarefas atribuídas ao usuário atual", async () => {
     render(<Dashboard eventsBySource={emptyEvents} connected profile={null} userId="user-1" onNavigate={vi.fn()} onOpenNora={vi.fn()} />);
 
-    expect(await screen.findByText("Revisar proposta")).toBeInTheDocument();
+    const matches = await screen.findAllByText("Revisar proposta");
+    expect(matches.length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("Tarefa de outra pessoa")).not.toBeInTheDocument();
     expect(screen.queryByText("Tarefa já concluída")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Tarefas atribuídas a mim")).toHaveClass("norium-assigned-task-list");
+    expect(screen.getByText("Próxima decisão")).toBeInTheDocument();
     await waitFor(() => expect(request).toHaveBeenCalledWith(expect.stringContaining("/api/tarefas"), expect.objectContaining({ cache: "no-store" })));
   });
 });

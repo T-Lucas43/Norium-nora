@@ -7,9 +7,12 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import Field
+
+from app.shared.schemas import StrictModel
 
 from app.infrastructure.http.spa import (
     accepts_html,
@@ -17,12 +20,23 @@ from app.infrastructure.http.spa import (
     spa_index_response,
 )
 from app.infrastructure.observability.diagnostics import diagnostics_snapshot
-from app.infrastructure.reliability.idempotency import reliability_snapshot
+from app.infrastructure.reliability.idempotency import reconcile_request, reliability_snapshot
 from app.modules.auth.router import can_manage_system, current_user
 from app.core.tenant import get_data_root
 
 
 router = APIRouter(tags=["Sistema"])
+
+
+class IdempotencyReconciliationPayload(StrictModel):
+    """Evidencia do operador para liberar uma mutacao de resultado incerto."""
+
+    key: str = Field(min_length=1, max_length=128)
+    outcome: Literal["completed", "no_effect"]
+    note: str = Field(min_length=3, max_length=320)
+    statusCode: int = Field(default=200, ge=200, lt=500)
+
+
 _browser_health_lock = asyncio.Lock()
 _browser_health_cache: dict[str, Any] | None = None
 
@@ -111,3 +125,45 @@ async def diagnostics(user: dict[str, Any] = Depends(current_user)) -> dict[str,
 @router.get("/api/system/outbox")
 async def outbox(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     return await reliability_snapshot(str(user.get("id") or "lucas123"))
+
+
+@router.post("/api/system/idempotency/reconcile")
+async def reconcile_idempotency(
+    payload: IdempotencyReconciliationPayload,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    """Libera retry ou replay somente apos evidencia explicita do operador.
+
+    O namespace e o mesmo do middleware de idempotencia (por usuario), e a
+    rota herda a guarda de `current_user`: sessao, workspace e permissao de
+    dashboard sao revalidados. Chaves de outro tenant nunca sao encontradas.
+    """
+    user_id = str(user.get("id") or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Login necessario.")
+    key = payload.key.strip()
+    if not key:
+        raise HTTPException(status_code=422, detail="Informe a chave de idempotencia.")
+    note = payload.note.strip()
+    try:
+        if payload.outcome == "no_effect":
+            record = await reconcile_request(user_id, key, "no_effect", actor=user_id, note=note)
+        else:
+            record = await reconcile_request(
+                user_id,
+                key,
+                "completed",
+                status_code=payload.statusCode,
+                payload={
+                    "detail": "Resultado confirmado por conciliacao do operador.",
+                    "note": note,
+                },
+                headers={"content-type": "application/json"},
+                actor=user_id,
+                note=note,
+            )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Operacao de idempotencia nao encontrada.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"key": key, "status": record.get("status"), "outcome": payload.outcome, "record": record}

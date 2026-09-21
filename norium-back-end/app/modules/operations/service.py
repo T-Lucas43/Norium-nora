@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextvars
+import hashlib
+import hmac
+import json
 import os
 import uuid
 import unicodedata
@@ -21,6 +25,7 @@ from app.modules.operations.repository import (
     FOLLOWUP_DB,
     MEMORY_DB,
     RECEIPT_DB,
+    SEND_DB,
     SETTINGS_DB,
     TEMPLATE_DB,
     delete_item,
@@ -334,6 +339,96 @@ async def update_follow_up(
     return await replace_item(str(user.get("id") or "lucas123"), FOLLOWUP_DB, follow_up_id, update)
 
 
+APPROVAL_VERSION = 1
+EMAIL_EXACT_VERSION = "nora-email-v1"
+EMAIL_APPROVAL_TTL = timedelta(hours=24)
+EMAIL_RECONCILE_WINDOW = timedelta(minutes=10)
+EMAIL_SEND_RECIPIENT_CAP = 20
+EMAIL_SEND_ATTACHMENT_CAP = 8
+
+
+def approval_digest(
+    action: str,
+    source: str,
+    title: str,
+    description: str,
+    payload: dict[str, Any],
+    workspace: str,
+    user_id: str,
+    version: str = EMAIL_EXACT_VERSION,
+) -> str:
+    """Bind an approval to its exact action, content, target, tool, workspace and version."""
+    canonical = json.dumps(
+        {
+            "action": action,
+            "source": source,
+            "title": title,
+            "description": description,
+            "payload": payload,
+            "workspace": workspace,
+            "userId": user_id,
+            "version": version,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _parse_expiry(value: Any) -> datetime | None:
+    """Parse expiresAt; malformed values fail closed (treated as expired)."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return datetime.now(timezone.utc) - timedelta(seconds=1)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+async def _enforce_approval_binding(
+    user: dict[str, Any],
+    user_id: str,
+    current: dict[str, Any],
+    payload: ApprovalDecision,
+) -> None:
+    """Deny-by-default guards: expiry, workspace and exact-digest binding.
+
+    Only approvals execute, so only they require exactness. Deny and cancel
+    never execute anything and are always permitted on pending items.
+    """
+    if payload.decision != "approved":
+        return
+    approval_id = str(current.get("id"))
+    expiry = _parse_expiry(current.get("expiresAt"))
+    if expiry is not None and expiry <= datetime.now(timezone.utc):
+        await replace_item(user_id, APPROVAL_DB, approval_id, {"status": "expired", "updatedAt": now_iso()})
+        await record_audit(
+            user,
+            AuditCreate(
+                action="approval_expired",
+                source=str(current.get("source") or "operacao"),
+                description=str(current.get("title") or "Aprovacao"),
+                status="warning",
+                entityType="approval",
+                entityId=approval_id,
+            ),
+        )
+        raise ValueError("Esta aprovação expirou. Gere uma nova prévia no chat para continuar.")
+    metadata = current.get("metadata") if isinstance(current.get("metadata"), dict) else {}
+    bound_workspace = str(metadata.get("workspace") or "").strip()
+    if bound_workspace and bound_workspace != current_workspace_id():
+        raise ValueError("Esta aprovação pertence a outro ambiente de trabalho.")
+    digest = str(current.get("digest") or "").strip()
+    if digest and not hmac.compare_digest(str(payload.expectedDigest or ""), digest):
+        raise ValueError("O conteúdo mudou após a preparação. Gere uma nova prévia para aprovar o conteúdo exato.")
+
+
 async def create_approval(user: dict[str, Any], payload: ApprovalCreate) -> dict[str, Any]:
     user_id = str(user.get("id") or "lucas123")
     item = {
@@ -347,6 +442,10 @@ async def create_approval(user: dict[str, Any], payload: ApprovalCreate) -> dict
         "decidedBy": None,
         "decisionNote": "",
     }
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    metadata.setdefault("workspace", current_workspace_id())
+    metadata.setdefault("approvalVersion", APPROVAL_VERSION)
+    item["metadata"] = metadata
     await prepend_item(user_id, APPROVAL_DB, item)
     await record_audit(
         user,
@@ -406,6 +505,7 @@ async def _decide_approval_unlocked(
     if str(current.get("status") or "") != "pending":
         return current
 
+    await _enforce_approval_binding(user, user_id, current, payload)
     approved = payload.decision == "approved"
     should_execute = approved and str(current.get("action") or "") != "manual_review"
     approval = await replace_item(
@@ -453,6 +553,7 @@ async def _decide_approval_unlocked(
                 "updatedAt": now_iso(),
                 "execution": execution.get("result"),
                 "executionError": execution.get("error"),
+            "executionUncertain": bool(execution.get("uncertain")),
             },
         ) or approval
     return approval
@@ -467,9 +568,13 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
     result: dict[str, Any]
 
     try:
-        if not message:
+        if not message and not (source == "email" and isinstance(payload.get("emailExact"), dict)):
             raise ValueError("A solicitacao aprovada nao possui a instrucao original.")
-        if source == "financeiro":
+        if source == "email" and isinstance(payload.get("emailExact"), dict):
+            # Exact sends execute only the digest-bound payload captured at
+            # preview time; they never re-run the agent from a message.
+            result = await _execute_exact_email(user, approval)
+        elif source == "financeiro":
             from app.routers.financeiro_router import handle_finance_agent
 
             result = await handle_finance_agent(user_id, message)
@@ -477,6 +582,8 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
             from app.routers.tarefas_router import handle_task_agent
 
             result = await handle_task_agent(user_id, message)
+        elif source == "email_exact_handled_above":  # unreachable: exact email is dispatched before the agent branches
+            result = await _execute_exact_email(user, approval)
         elif source == "email":
             from app.services.email_agent import EmailAgent
 
@@ -587,7 +694,7 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
                 metadata={"approvalId": approval.get("id"), "agentStatus": result.get("status")},
             ),
         )
-        return {"ok": ok, "result": result, "receipt": receipt}
+        return {"ok": ok, "result": result, "receipt": receipt, "uncertain": bool(result.get("uncertain"))}
     except Exception as exc:
         await record_receipt(
             user,
@@ -604,6 +711,412 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
         return {"ok": False, "error": str(exc), "result": None}
 
 
+def _valid_email_address(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text):
+        return text
+    return None
+
+
+def _normalize_exact_recipients(values: Any) -> list[str]:
+    items = values if isinstance(values, list) else []
+    cleaned = [address for raw in items if (address := _valid_email_address(raw))]
+    return cleaned[:EMAIL_SEND_RECIPIENT_CAP]
+
+
+def _normalize_exact_attachments(values: Any) -> list[dict[str, Any]]:
+    items = values if isinstance(values, list) else []
+    normalized: list[dict[str, str]] = []
+    for entry in items[:EMAIL_SEND_ATTACHMENT_CAP]:
+        if not isinstance(entry, dict):
+            continue
+        file_id = str(entry.get("fileId") or "").strip()
+        sha256 = str(entry.get("sha256") or "").strip().lower()
+        if not file_id or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            continue
+        try:
+            size = max(0, int(entry.get("size") or 0))
+        except (TypeError, ValueError):
+            size = 0
+        normalized.append({
+            "fileId": file_id[:80],
+            "fileName": str(entry.get("fileName") or "anexo")[:180],
+            "mimeType": str(entry.get("mimeType") or "application/octet-stream")[:120],
+            "size": size,
+            "sha256": sha256,
+        })
+    return normalized
+
+
+async def create_exact_email_approval(
+    user: dict[str, Any],
+    exact: dict[str, Any],
+    session_id: str | None,
+) -> dict[str, Any]:
+    """Create a digest-bound approval authorizing one exact Gmail send."""
+    user_id = str(user.get("id") or "lucas123")
+    workspace = current_workspace_id()
+    recipients = _normalize_exact_recipients(exact.get("to"))
+    if not recipients:
+        raise ValueError("Informe ao menos um destinatário válido.")
+    body = str(exact.get("body") or "").strip()
+    if not body:
+        raise ValueError("O corpo do e-mail não pode ficar vazio.")
+    email_exact = {
+        "to": recipients,
+        "cc": _normalize_exact_recipients(exact.get("cc")),
+        "bcc": _normalize_exact_recipients(exact.get("bcc")),
+        "subject": str(exact.get("subject") or "(sem assunto)").strip()[:180] or "(sem assunto)",
+        "body": body[:12000],
+        "attachments": _normalize_exact_attachments(exact.get("attachments")),
+    }
+    payload = {
+        "kind": "nora_email_exact",
+        "sessionId": session_id,
+        "idempotencyKey": f"email_{uuid.uuid4().hex}",
+        "emailExact": email_exact,
+    }
+    extra = f" +{len(recipients) - 3}" if len(recipients) > 3 else ""
+    title = f"Enviar e-mail para {', '.join(recipients[:3])}{extra}"[:180]
+    attachment_names = ", ".join(item["fileName"] for item in email_exact["attachments"][:4])
+    description = (
+        f"Para: {', '.join(recipients)}\n"
+        + (f"Cc: {', '.join(email_exact['cc'])}\n" if email_exact["cc"] else "")
+        + (f"Cco: {', '.join(email_exact['bcc'])}\n" if email_exact["bcc"] else "")
+        + f"Assunto: {email_exact['subject']}\n"
+        + (f"Anexos: {attachment_names}\n" if attachment_names else "")
+        + email_exact["body"][:700]
+    )[:1200]
+    expires_at = (datetime.now(timezone.utc) + EMAIL_APPROVAL_TTL).isoformat()
+    digest = approval_digest("nora_email_send_exact", "email", title, description, payload, workspace, user_id)
+    return await create_approval(
+        user,
+        ApprovalCreate(
+            title=title,
+            description=description,
+            action="nora_email_send_exact",
+            source="email",
+            payload=payload,
+            metadata={
+                "requestedBy": "nora",
+                "requiresExplicitDecision": True,
+                "tool": "gmail",
+                "version": EMAIL_EXACT_VERSION,
+            },
+            expiresAt=expires_at,
+            digest=digest,
+        ),
+    )
+
+
+def _safe_timestamp(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _send_error_is_definitive(exc: Exception) -> bool:
+    """Validation and 4xx failures will not succeed on retry; anything else is uncertain."""
+    from app.services.gmail_service import GmailConfigError
+
+    if isinstance(exc, (GmailConfigError, ValueError)):
+        return True
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "resp", None), "status", None)
+    try:
+        code = int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return False
+    return code is not None and code < 500
+
+
+async def _record_send_attempt(
+    user_id: str,
+    key: str,
+    approval_id: str,
+    digest: str,
+    status: str,
+    gmail_id: str | None = None,
+    detail: str = "",
+) -> dict[str, Any]:
+    entry = {
+        "key": key,
+        "approvalId": approval_id,
+        "digest": digest,
+        "status": status,
+        "gmailId": gmail_id,
+        "detail": str(detail or "")[:300],
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+    }
+    await prepend_item(user_id, SEND_DB, entry)
+    return entry
+
+
+async def _find_send_attempt(user_id: str, key: str) -> dict[str, Any] | None:
+    entries = await list_items(user_id, SEND_DB)
+    return next((entry for entry in entries if str(entry.get("key")) == key), None)
+
+
+async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -> dict[str, Any]:
+    """Execute the exact send bound to an approval; never retries or guesses."""
+    from app.services.gmail_service import GmailService
+    from app.services.nora_files import owned_file
+
+    user_id = str(user.get("id") or "lucas123")
+    approval_payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
+    exact = approval_payload.get("emailExact") if isinstance(approval_payload.get("emailExact"), dict) else {}
+    key = str(approval_payload.get("idempotencyKey") or "").strip()
+    recipients = _normalize_exact_recipients(exact.get("to"))
+    subject = str(exact.get("subject") or "(sem assunto)")[:180]
+    body = str(exact.get("body") or "")
+    if not recipients or not body.strip() or not key:
+        return {
+            "status": "falha_validacao",
+            "response": "A prévia aprovada está incompleta. Gere uma nova prévia no chat.",
+        }
+    replay = await _find_send_attempt(user_id, key)
+    if replay is not None and replay.get("status") == "confirmed":
+        return {
+            "status": "enviado",
+            "response": f"E-mail já enviado para {', '.join(recipients)} (registro {key}). Nada foi duplicado.",
+            "gmailId": replay.get("gmailId"),
+            "idempotencyKey": key,
+            "replayed": True,
+        }
+    try:
+        gmail_status = GmailService(user_id).status()
+    except Exception:
+        logger.warning("email_send_status_failed")
+        gmail_status = {"connected": False}
+    if not gmail_status.get("connected"):
+        await _record_send_attempt(user_id, key, str(approval.get("id")), str(approval.get("digest") or ""), "failed", detail="gmail_desconectado")
+        return {
+            "status": "falha_conexao",
+            "response": "O Gmail não está conectado. Conecte em Configurações > Integrações e gere uma nova prévia. Nada foi enviado.",
+        }
+    attachments: list[dict[str, Any]] = []
+    try:
+        for entry in _normalize_exact_attachments(exact.get("attachments")):
+            _record, path = owned_file(user_id, entry["fileId"])
+            file_bytes = Path(path).read_bytes()
+            if hashlib.sha256(file_bytes).hexdigest() != entry["sha256"] or len(file_bytes) != entry["size"]:
+                raise ValueError(f"O anexo {entry['fileName']} mudou após a prévia.")
+            data_url = f"data:{entry['mimeType']};base64,{base64.b64encode(file_bytes).decode('ascii')}"
+            attachments.append({"fileName": entry["fileName"], "mimeType": entry["mimeType"], "dataUrl": data_url})
+    except Exception as exc:
+        await _record_send_attempt(user_id, key, str(approval.get("id")), str(approval.get("digest") or ""), "failed", detail="anexo_invalido")
+        logger.warning("email_send_attachment_failed")
+        return {
+            "status": "falha_validacao",
+            "response": "Não consegui validar os anexos da prévia (arquivo ausente ou alterado). Gere uma nova prévia. Nada foi enviado.",
+        }
+    try:
+        sent = GmailService(user_id).send_message(
+            to=recipients,
+            subject=subject,
+            body=body[:12000],
+            cc=_normalize_exact_recipients(exact.get("cc")) or None,
+            bcc=_normalize_exact_recipients(exact.get("bcc")) or None,
+            attachments=attachments or None,
+            extra_headers={"X-Norium-Email-Key": key},
+        )
+    except Exception as exc:
+        if _send_error_is_definitive(exc):
+            await _record_send_attempt(user_id, key, str(approval.get("id")), str(approval.get("digest") or ""), "failed", detail="provedor_recusou")
+            logger.warning("email_send_rejected")
+            return {
+                "status": "falha_envio",
+                "response": "O Gmail recusou o envio. Confira destinatários e anexos e gere uma nova prévia. Nada foi repetido automaticamente.",
+            }
+        await _record_send_attempt(user_id, key, str(approval.get("id")), str(approval.get("digest") or ""), "unknown", detail="resultado_incerto")
+        logger.warning("email_send_uncertain")
+        return {
+            "status": "falha_incerta",
+            "uncertain": True,
+            "response": (
+                "Não consegui confirmar se o e-mail foi enviado (falha de comunicação após a tentativa). "
+                "Nada será repetido automaticamente: use Verificar envio para reconciliar antes de tentar de novo."
+            ),
+        }
+    gmail_id = sent.get("message", {}).get("id") if isinstance(sent.get("message"), dict) else None
+    try:
+        await _record_send_attempt(user_id, key, str(approval.get("id")), str(approval.get("digest") or ""), "confirmed", gmail_id=gmail_id)
+    except Exception:
+        logger.warning("email_send_receipt_failed")
+        return {
+            "status": "falha_incerta",
+            "uncertain": True,
+            "response": "O envio foi aceito, mas não consegui registrar o comprovante. Use Verificar envio para confirmar antes de tentar de novo.",
+        }
+    return {
+        "status": "enviado",
+        "response": f"E-mail enviado para {', '.join(recipients)} com assunto “{subject}”.",
+        "gmailId": gmail_id,
+        "idempotencyKey": key,
+    }
+
+
+async def reconcile_email_send(user: dict[str, Any], approval_id: str) -> dict[str, Any]:
+    """Check the sent folder for an uncertain send; read-only, never resends."""
+    from app.services.gmail_service import GmailService
+
+    user_id = str(user.get("id") or "lucas123")
+    items = await list_items(user_id, APPROVAL_DB)
+    current = next((item for item in items if str(item.get("id")) == approval_id), None)
+    if current is None:
+        return {"reconciled": False, "reason": "approval_not_found"}
+    approval_payload = current.get("payload") if isinstance(current.get("payload"), dict) else {}
+    exact = approval_payload.get("emailExact") if isinstance(approval_payload.get("emailExact"), dict) else {}
+    if not exact:
+        raise ValueError("Esta aprovação não é um envio de e-mail.")
+    if not current.get("executionUncertain"):
+        raise ValueError("Este envio não precisa de reconciliação.")
+    recipients = _normalize_exact_recipients(exact.get("to"))
+    subject = str(exact.get("subject") or "")
+    if not recipients or not subject:
+        raise ValueError("A prévia aprovada está incompleta.")
+    try:
+        created_at = datetime.fromisoformat(str(current.get("createdAt") or "").replace("Z", "+00:00"))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        created_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    earliest = int((created_at - timedelta(minutes=5)).timestamp())
+    try:
+        listing = GmailService(user_id).list_messages(folder="sent", query=f"to:{recipients[0]} subject:({subject})", max_results=5)
+    except Exception:
+        logger.warning("email_reconcile_unavailable")
+        return {
+            "reconciled": False,
+            "reason": "provider_unavailable",
+            "guidance": "Não consegui consultar a caixa de enviados agora. Tente verificar de novo em instantes.",
+        }
+    messages = listing.get("messages") if isinstance(listing.get("messages"), list) else []
+    match = next(
+        (
+            message
+            for message in messages
+            if isinstance(message, dict)
+            and str(message.get("subject") or "") == subject
+            and recipients[0].lower() in str(message.get("to") or "").lower()
+            and _safe_timestamp(message.get("timestamp")) >= earliest
+        ),
+        None,
+    )
+    if match is None:
+        await record_audit(
+            user,
+            AuditCreate(
+                action="email_reconcile_checked",
+                source="email",
+                description=str(current.get("title") or "Envio de e-mail"),
+                status="warning",
+                entityType="approval",
+                entityId=approval_id,
+            ),
+        )
+        return {
+            "reconciled": False,
+            "reason": "not_found",
+            "guidance": "Nenhum e-mail correspondente na caixa de enviados. Se precisar, gere um novo envio no chat; nada foi repetido.",
+        }
+    gmail_id = str(match.get("id") or "")
+    key = str(approval_payload.get("idempotencyKey") or "")
+    execution = {
+        "status": "enviado",
+        "response": f"E-mail confirmado na caixa de enviados para {', '.join(recipients)} (reconciliado).",
+        "gmailId": gmail_id,
+        "idempotencyKey": key,
+        "reconciled": True,
+    }
+    await replace_item(user_id, APPROVAL_DB, approval_id, {"status": "executed", "updatedAt": now_iso(), "execution": execution, "executionError": "", "executionUncertain": False})
+    if key:
+        await _record_send_attempt(user_id, key, approval_id, str(current.get("digest") or ""), "confirmed", gmail_id=gmail_id, detail="reconciliado")
+    receipt = await create_receipt(
+        user,
+        ReceiptCreate(
+            title=str(current.get("title") or "Envio de e-mail"),
+            description="Envio confirmado por reconciliação da caixa de enviados.",
+            status="executed",
+            source="email",
+            approvalId=approval_id,
+        ),
+    )
+    await record_audit(
+        user,
+        AuditCreate(
+            action="email_reconciled",
+            source="email",
+            description=str(current.get("title") or "Envio de e-mail"),
+            status="success",
+            entityType="approval",
+            entityId=approval_id,
+        ),
+    )
+    updated = next((item for item in await list_items(user_id, APPROVAL_DB) if str(item.get("id")) == approval_id), current)
+    return {"reconciled": True, "item": updated, "receipt": receipt, "gmailId": gmail_id}
+
+
+async def finalize_email_agent_result(
+    user: dict[str, Any],
+    agent: Any | None,
+    result: dict[str, Any],
+    surface: str = "chat",
+) -> dict[str, Any]:
+    """Turn email-agent outcomes into approval actions; nothing sends here."""
+    status = str(result.get("status") or "")
+    session_id = result.get("session_id")
+    if status == "cancelado":
+        cancel_id = result.get("cancelApprovalId")
+        if cancel_id:
+            try:
+                await decide_approval(user, str(cancel_id), ApprovalDecision(decision="cancelled", note="Rascunho cancelado no chat."))
+            except Exception:
+                logger.warning("email_cancel_approval_failed")
+        return result
+    if status != "pronto_para_aprovacao":
+        return result
+    supersedes = result.get("supersedes")
+    if supersedes:
+        try:
+            await decide_approval(user, str(supersedes), ApprovalDecision(decision="cancelled", note="Substituída por nova prévia do chat."))
+        except Exception:
+            logger.warning("email_supersede_failed")
+    try:
+        approval = await create_exact_email_approval(user, result.get("emailExact") or {}, session_id)
+    except ValueError as exc:
+        return {
+            "session_id": session_id,
+            "status": "falha_validacao",
+            "response": f"{exc} Revise a prévia no chat.",
+            "fields": result.get("fields"),
+            "preview": result.get("preview"),
+        }
+    if agent is not None and session_id:
+        try:
+            sessions = getattr(agent, "sessions", None)
+            linked = sessions.get(session_id) if isinstance(sessions, dict) else None
+            if linked is not None:
+                linked.fields["_approval_id"] = approval["id"]
+        except Exception:
+            logger.warning("email_link_approval_failed")
+    if surface == "mail":
+        response = "Prévia pronta. Aprove em Operações > Central de aprovações para enviar, ou peça um ajuste no chat."
+    else:
+        response = "Prévia pronta. Confira o cartão de aprovação abaixo e use Permitir para enviar, ou peça um ajuste."
+    return {
+        "session_id": session_id,
+        "status": "aguardando_aprovacao",
+        "response": response,
+        "fields": result.get("fields"),
+        "preview": result.get("preview"),
+        "approval": approval,
+    }
+
+
 async def edit_approval(
     user: dict[str, Any],
     approval_id: str,
@@ -614,6 +1127,8 @@ async def edit_approval(
     current = next((item for item in current_items if str(item.get("id")) == approval_id), None)
     if current is None or current.get("status") != "pending":
         return None
+    if str(current.get("digest") or "").strip():
+        raise ValueError("Esta aprovação está vinculada ao conteúdo exato. Edite pelo chat para gerar uma nova prévia.")
     update: dict[str, Any] = {
         "title": payload.title,
         "description": payload.description,

@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import ModuleCoach from "./ModuleCoach";
 
@@ -8,5 +8,19 @@ describe("ModuleCoach", () => {
 
     expect(container.querySelector("img.norium-module-coach__icon-image")).toBeNull();
     expect(container.querySelector(".norium-module-coach__icon svg")).not.toBeNull();
+  });
+
+  it("omits the redundant Nora CTA on the Dashboard banner", () => {
+    render(<ModuleCoach module="Dashboard" onAskNora={vi.fn()} />);
+
+    expect(screen.getByText("Veja seu dia, agenda, tarefas, canais e próximos passos em um único resumo.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Perguntar a Nora" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the Nora CTA on other module banners", () => {
+    const onAskNora = vi.fn();
+    render(<ModuleCoach module="Automacoes" onAskNora={onAskNora} />);
+
+    expect(screen.getByRole("button", { name: "Perguntar a Nora" })).toBeInTheDocument();
   });
 });

@@ -39,7 +39,7 @@ from app.services.conversation_store import (
     whatsapp_conversation_mutation_lock,
 )
 
-from app.services.email_agent import EmailAgent
+from app.services.email_agent import shared_email_agent
 from app.services.nora import NoraIAService
 from app.services.nora_module_help import answer_module_help
 from app.services.nora_team_meetings import is_team_meeting_intent, team_meeting_agent
@@ -54,6 +54,7 @@ from app.modules.operations.schemas import ApprovalCreate, NoraMemoryCreate
 from app.modules.commercial.nora_agent import cancel_commercial_session, handle_commercial_agent, is_document_creation_request
 from app.modules.operations.service import (
     create_approval,
+    finalize_email_agent_result,
     get_operation_settings,
     list_nora_memory,
     save_nora_memory,
@@ -71,6 +72,13 @@ from app.services.brainstorm_store import create_brainstorm_session, list_brains
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
 from app.modules.intelligence.service import complete_with_provider, create_browser_plan, safe_fetch, search_knowledge
 from app.modules.nora.conversations import router as conversations_router
+from app.modules.nora.context import (
+    append_conversation_turn,
+    context_prompt_messages,
+    load_conversation_context,
+    merge_histories,
+    valid_conversation_id,
+)
 from app.modules.nora.brain.router import router as brain_router
 from app.services.nora_files import (
     deterministic_file_command,
@@ -89,7 +97,7 @@ router.include_router(brain_router)
 nora_service = NoraIAService()
 wapi_messaging = WapiMessagingService()
 agent_manager = AgentManager()
-email_agent = EmailAgent()
+email_agent = shared_email_agent
 ELEVENLABS_DEFAULT_VOICE_ID = "KHmfNHtEjHhLK9eER20w"
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 EDGE_TTS_DEFAULT_VOICE = "pt-BR-ThalitaMultilingualNeural"
@@ -115,6 +123,7 @@ class NoraNaturalPayload(StrictModel):
     model_id: str | None = Field(default=None, max_length=180)
     routing_mode: Literal["automatic", "manual"] = "automatic"
     attachment_ids: list[str] = Field(default_factory=list, max_length=8)
+    conversation_id: str | None = Field(default=None, max_length=80)
 
 
 class NoraFileUpload(StrictModel):
@@ -1066,6 +1075,51 @@ async def gerar_texto_de_envio_whatsapp(payload: NoraWhatsAppPayload, historico:
     return resposta[:1200]
 
 
+def context_window(messages: list[MessageItem], tail: int) -> list[MessageItem]:
+    """Keep a pinned conversation summary first, then the most recent turns."""
+    pinned = [message for message in messages if message.role == "system"][:1]
+    rest = [message for message in messages if message.role != "system"][-tail:]
+    return [*pinned, *rest]
+
+
+def restore_natural_context(payload: NoraNaturalPayload, user: dict[str, Any]) -> None:
+    """Prepend persisted turns so context survives restarts and thin clients."""
+    conversation_id = valid_conversation_id(payload.conversation_id)
+    if conversation_id is None:
+        return
+    try:
+        snapshot, _ = load_conversation_context(tenant_id(user), conversation_id)
+    except Exception:
+        logger.warning("nora_context_restore_failed")
+        return
+    persisted = context_prompt_messages(snapshot)
+    if not persisted:
+        return
+    merged = merge_histories(persisted, [message.model_dump() for message in payload.messages])
+    pinned = [item for item in merged if item.get("role") == "system"][:1]
+    rest = [item for item in merged if item.get("role") != "system"][-12:]
+    payload.messages = [MessageItem(role=item["role"], content=item["content"]) for item in (*pinned, *rest)]
+
+
+async def record_natural_turn(payload: NoraNaturalPayload, user: dict[str, Any], result: Any) -> None:
+    """Persist the turn for the next message; chat never fails because of it."""
+    if not isinstance(result, dict):
+        return
+    response = result.get("response")
+    if not isinstance(response, str) or not response.strip():
+        return
+    try:
+        await append_conversation_turn(
+            tenant_id(user),
+            str(payload.conversation_id or ""),
+            payload.message,
+            response,
+            str(result.get("intent") or result.get("skill") or "") or None,
+        )
+    except Exception:
+        logger.warning("nora_context_record_failed")
+
+
 @router.post("/chat")
 async def conversar_com_nora_generico(payload: ConversaPayload, _: dict[str, Any] = Depends(require_nora_permission)):
     try:
@@ -1079,6 +1133,13 @@ async def conversar_com_nora_generico(payload: ConversaPayload, _: dict[str, Any
 
 @router.post("/natural")
 async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str, Any] = Depends(require_nora_permission)):
+    restore_natural_context(payload, user)
+    result = await _execute_natural_conversation(payload, user)
+    await record_natural_turn(payload, user, result)
+    return result
+
+
+async def _execute_natural_conversation(payload: NoraNaturalPayload, user: dict[str, Any]):
     resolved_user_id = tenant_id(user)
     texto = payload.message.strip()
     resolution = resolve_skill(texto)
@@ -1256,13 +1317,16 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
             }
 
         if payload.email_session_id and resolution.skill_id in {"email", "chat"}:
-            approval_response = await request_sensitive_approval(
-                user, texto, "email", payload.email_session_id, resolution,
-            )
-            if approval_response is not None:
-                return approval_response
+            # Email sessions own their flow end to end: the guided agent collects
+            # the draft and finalize_email_agent_result binds the exact approval.
             email_message = await message_with_memory(user, texto, {"communication", "client", "process"})
-            result = await email_agent.handle(message=email_message, session_id=payload.email_session_id, user_id=resolved_user_id)
+            result = await email_agent.handle(
+                message=email_message,
+                session_id=payload.email_session_id,
+                user_id=resolved_user_id,
+                attachment_ids=payload.attachment_ids,
+            )
+            result = await finalize_email_agent_result(user, email_agent, result)
             return resposta_agente("email", result, "email")
 
         if payload.agenda_session_id and resolution.skill_id in {"agenda", "chat"}:
@@ -1283,7 +1347,7 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
 
         intent = resolution.skill_id
         recent_context = "\n".join(
-            f"{message.role}: {message.content}" for message in payload.messages[-4:]
+            f"{message.role}: {message.content}" for message in context_window(payload.messages, 4)
         )
         semantic_enabled = os.getenv("NORA_INTENT_LLM", "1").strip() != "0"
         if resolution.needs_semantic_fallback and semantic_enabled and len(texto.split()) >= 2:
@@ -1317,13 +1381,17 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
         if intent == "whatsapp":
             return await request_whatsapp_approval(user, texto, resolution)
 
-        approval_response = await request_sensitive_approval(
-            user,
-            texto,
-            intent,
-            payload.email_session_id if intent == "email" else payload.agenda_session_id if intent == "agenda" else None,
-            resolution,
-        )
+        # Email owns its exact-approval flow inside the guided agent, so the
+        # generic gate only applies to the other intents.
+        approval_response = None
+        if intent != "email":
+            approval_response = await request_sensitive_approval(
+                user,
+                texto,
+                intent,
+                payload.agenda_session_id if intent == "agenda" else None,
+                resolution,
+            )
         if approval_response is not None:
             return approval_response
 
@@ -1342,7 +1410,13 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
 
         if intent == "email":
             email_message = await message_with_memory(user, texto, {"communication", "client", "process"})
-            result = await email_agent.handle(message=email_message, session_id=None, user_id=resolved_user_id)
+            result = await email_agent.handle(
+                message=email_message,
+                session_id=None,
+                user_id=resolved_user_id,
+                attachment_ids=payload.attachment_ids,
+            )
+            result = await finalize_email_agent_result(user, email_agent, result)
             return resposta_agente("email", result, "email", resolution)
 
         if intent == "agenda":
@@ -1433,7 +1507,7 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
                     result = await query_knowledge(user, texto, 5)
             return resposta_agente("operacoes", result, resolution=resolution)
 
-        mensagens_dict = [msg.model_dump() for msg in payload.messages[-6:]]
+        mensagens_dict = [msg.model_dump() for msg in context_window(payload.messages, 6)]
         user_message = await message_with_memory(user, texto, {"communication", "client", "project", "process", "general"})
         knowledge_context, knowledge_sources = knowledge_context_for_nora(user, texto)
         mensagens_dict.append({"role": "user", "content": user_message + knowledge_context})
@@ -1480,6 +1554,7 @@ async def conversar_com_nora_natural_stream(
     """
     request_started = time.perf_counter()
     response_id = uuid.uuid4().hex
+    restore_natural_context(payload, user)
     texto = payload.message.strip()
 
     has_active_session = bool(
@@ -1501,7 +1576,7 @@ async def conversar_com_nora_natural_stream(
 
     resolution = resolve_skill(texto)
     if not needs_structured_flow and resolution.skill_id == "chat":
-        base_messages = [msg.model_dump() for msg in payload.messages[-6:]]
+        base_messages = [msg.model_dump() for msg in context_window(payload.messages, 6)]
 
         def encode_event(event_type: str, payload_data: dict[str, Any]) -> str:
             data = {"type": event_type, "response_id": response_id, **payload_data}
@@ -1510,6 +1585,7 @@ async def conversar_com_nora_natural_stream(
         async def event_stream():
             first_token_at: float | None = None
             first_token_sent_at: float | None = None
+            completed_chunks: list[str] = []
             try:
                 yield encode_event("status", {"state": "thinking"})
                 context_started = time.perf_counter()
@@ -1540,8 +1616,12 @@ async def conversar_com_nora_natural_stream(
                     event = encode_event("delta", {"delta": delta})
                     if first_token_sent_at is None:
                         first_token_sent_at = time.perf_counter()
+                    completed_chunks.append(delta if isinstance(delta, str) else str(delta))
                     yield event
 
+                completed_text = "".join(completed_chunks)
+                if completed_text.strip():
+                    await record_natural_turn(payload, user, {"response": completed_text, "intent": "chat"})
                 completed_at = time.perf_counter()
                 metrics = {
                     "context_ms": round((context_ready - context_started) * 1000, 1),

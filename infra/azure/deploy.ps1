@@ -5,6 +5,8 @@ param(
     [string]$Subscription = "",
     [string]$ContainerImage = "ghcr.io/noriumnoraai-ui/norium-nora:latest",
     [string]$RegistryUsername = "noriumnoraai-ui",
+    [switch]$ProvisionPostgres,
+    [string]$PostgresAdministratorLogin = "noriumadmin",
     [switch]$EnableNoraBrain,
     [switch]$UploadLocalData,
     [switch]$SkipValidation
@@ -124,6 +126,7 @@ if (-not $account -or $account.state -ne "Enabled") {
 }
 if ($Subscription) {
     Invoke-AzureCli account set --subscription $Subscription --output none | Out-Null
+    $account = Invoke-AzureCli account show --output json | ConvertFrom-Json
 }
 
 $registryPassword = (Invoke-GitHubCli auth token --hostname github.com | Out-String).Trim()
@@ -154,13 +157,44 @@ if (-not $secretSettings.ContainsKey("WAPI_CREDENTIAL_ENCRYPTION_KEY")) {
 $noraBrainDatabaseUrl = ""
 $noraBrainInternalSecret = ""
 $noraBrainOpenAiApiKey = ""
+$postgresAdministratorPassword = ""
+$postgresDatabaseName = "norium"
+$postgresIdentityBytes = [System.Text.Encoding]::UTF8.GetBytes("$($account.id):$ResourceGroup")
+$postgresHasher = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $postgresIdentityHash = $postgresHasher.ComputeHash($postgresIdentityBytes)
+}
+finally {
+    $postgresHasher.Dispose()
+}
+$postgresSuffix = ([System.BitConverter]::ToString($postgresIdentityHash).Replace("-", "").ToLowerInvariant()).Substring(0, 12)
+$postgresServerName = "pg-norium-$postgresSuffix"
+if ($ProvisionPostgres) {
+    if (-not $dotenv.ContainsKey("NORA_POSTGRES_ADMIN_PASSWORD")) {
+        throw "NORA_POSTGRES_ADMIN_PASSWORD e obrigatoria no .env local quando -ProvisionPostgres for usado."
+    }
+    $postgresAdministratorPassword = [string]$dotenv["NORA_POSTGRES_ADMIN_PASSWORD"]
+    if ($postgresAdministratorPassword.Length -lt 16) {
+        throw "NORA_POSTGRES_ADMIN_PASSWORD precisa ter pelo menos 16 caracteres."
+    }
+}
 if ($EnableNoraBrain) {
-    foreach ($required in @("NORA_BRAIN_DATABASE_URL", "NORA_BRAIN_INTERNAL_SECRET", "OPENAI_API_KEY")) {
+    foreach ($required in @("NORA_BRAIN_INTERNAL_SECRET", "OPENAI_API_KEY")) {
         if (-not $dotenv.ContainsKey($required)) {
             throw "$required e obrigatoria no .env local quando -EnableNoraBrain for usado."
         }
     }
-    $noraBrainDatabaseUrl = [string]$dotenv["NORA_BRAIN_DATABASE_URL"]
+    if ($ProvisionPostgres) {
+        $encodedLogin = [uri]::EscapeDataString($PostgresAdministratorLogin)
+        $encodedPassword = [uri]::EscapeDataString($postgresAdministratorPassword)
+        $noraBrainDatabaseUrl = "postgresql://$encodedLogin`:$encodedPassword@$postgresServerName.postgres.database.azure.com:5432/$postgresDatabaseName"
+    }
+    elseif ($dotenv.ContainsKey("NORA_BRAIN_DATABASE_URL")) {
+        $noraBrainDatabaseUrl = [string]$dotenv["NORA_BRAIN_DATABASE_URL"]
+    }
+    else {
+        throw "NORA_BRAIN_DATABASE_URL e obrigatoria quando -EnableNoraBrain for usado sem -ProvisionPostgres."
+    }
     $noraBrainInternalSecret = [string]$dotenv["NORA_BRAIN_INTERNAL_SECRET"]
     $noraBrainOpenAiApiKey = [string]$dotenv["OPENAI_API_KEY"]
     if ($noraBrainInternalSecret.Length -lt 32) {
@@ -209,6 +243,11 @@ try {
             registryUsername = @{ value = $RegistryUsername }
             registryPassword = @{ value = $registryPassword }
             secretSettings = @{ value = $secretSettings }
+            postgresEnabled = @{ value = [bool]$ProvisionPostgres }
+            postgresServerName = @{ value = $postgresServerName }
+            postgresDatabaseName = @{ value = $postgresDatabaseName }
+            postgresAdministratorLogin = @{ value = $PostgresAdministratorLogin }
+            postgresAdministratorPassword = @{ value = $postgresAdministratorPassword }
             noraBrainEnabled = @{ value = [bool]$EnableNoraBrain }
             noraBrainDatabaseUrl = @{ value = $noraBrainDatabaseUrl }
             noraBrainInternalSecret = @{ value = $noraBrainInternalSecret }
@@ -220,6 +259,7 @@ try {
     Write-Host "Registrando os provedores serverless necessarios..."
     Invoke-AzureCli provider register --namespace Microsoft.App --wait --output none | Out-Null
     Invoke-AzureCli provider register --namespace Microsoft.Storage --wait --output none | Out-Null
+    Invoke-AzureCli provider register --namespace Microsoft.DBforPostgreSQL --wait --output none | Out-Null
     Invoke-AzureCli extension add --name containerapp --upgrade --yes --output none | Out-Null
 
     $resourceGroupExists = (Invoke-AzureCli group exists --name $ResourceGroup --output tsv).Trim() -eq "true"
@@ -240,6 +280,7 @@ try {
     $storageAccountName = [string]$deployment.properties.outputs.storageAccountName.value
     $fileShareName = [string]$deployment.properties.outputs.fileShareName.value
     $noraExecutorAppName = [string]$deployment.properties.outputs.noraExecutorAppName.value
+    $postgresHost = [string]$deployment.properties.outputs.postgresHost.value
 
     if ($UploadLocalData) {
         Write-Host "Copiando os dados locais para o Azure Files persistente..."
@@ -313,6 +354,9 @@ try {
         localDataUploaded = [bool]$UploadLocalData
         noraBrainEnabled = [bool]$EnableNoraBrain
         noraExecutorAppName = $noraExecutorAppName
+        postgresProvisioned = [bool]$ProvisionPostgres
+        postgresHost = $postgresHost
+        postgresDatabaseName = $postgresDatabaseName
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $outputDirectory "azure-deployment.json") -Encoding utf8
 
     Write-Host "Deploy concluido: $publicUrl"

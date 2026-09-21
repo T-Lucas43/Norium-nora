@@ -193,21 +193,31 @@ async def reconcile_request(
     status_code: int = 200,
     payload: Any = None,
     headers: dict[str, str] | None = None,
+    actor: str | None = None,
+    note: str | None = None,
 ) -> dict[str, Any]:
     """Record evidence before a retry or cached replay is released."""
     async with _lock:
         store = await asyncio.to_thread(_load, user_id)
         record = next((item for item in store["idempotency"] if item.get("key") == key), None)
-        if not record or record.get("status") != "uncertain":
+        if record is None:
+            raise KeyError(key)
+        if record.get("status") != "uncertain":
             raise ValueError("A operacao nao esta aguardando conciliacao.")
         stamp = now_iso()
+        evidence: dict[str, Any] = {
+            "reconciledAt": stamp, "reconciliation": outcome, "updatedAt": stamp,
+        }
+        if actor is not None:
+            evidence["reconciledBy"] = actor
+        if note is not None:
+            evidence["reconciliationNote"] = note
         if outcome == "no_effect":
-            record.update({"status": "retryable", "reconciledAt": stamp, "reconciliation": outcome, "updatedAt": stamp})
+            record.update({"status": "retryable", **evidence})
         else:
             record.update({
                 "status": "completed", "statusCode": status_code, "payload": payload,
-                "headers": headers or {}, "completedAt": stamp, "reconciledAt": stamp,
-                "reconciliation": outcome, "updatedAt": stamp,
+                "headers": headers or {}, "completedAt": stamp, **evidence,
             })
         item = _outbox_for(store, key)
         if item is not None:

@@ -14,6 +14,22 @@ param registryUsername string = 'noriumnoraai-ui'
 @description('Token GitHub com permissao read:packages, usado apenas pelo Container Apps para baixar a imagem privada.')
 param registryPassword string
 
+@description('Cria um PostgreSQL Flexible Server gerenciado para dados transacionais novos.')
+param postgresEnabled bool = false
+
+@description('Nome global do PostgreSQL Flexible Server.')
+param postgresServerName string = 'pg-${uniqueString(subscription().subscriptionId, resourceGroup().id)}'
+
+@description('Nome do banco da aplicacao.')
+param postgresDatabaseName string = 'norium'
+
+@description('Login administrativo do PostgreSQL. Nao use postgres, admin ou nomes pessoais.')
+param postgresAdministratorLogin string = 'noriumadmin'
+
+@secure()
+@description('Senha administrativa do PostgreSQL, fornecida somente no deployment.')
+param postgresAdministratorPassword string = ''
+
 @secure()
 @description('Configuracoes sensiveis importadas do .env local sem grava-las no repositorio.')
 param secretSettings object = {}
@@ -49,11 +65,13 @@ var commonTags = {
   application: 'norium'
   environment: 'production'
   managedBy: 'bicep'
-  costProfile: 'free-consumption'
+  costProfile: 'controlled-monthly'
 }
 var baselineEnvironment = [
   { name: 'ENVIRONMENT', value: 'production' }
   { name: 'PORT', value: '8000' }
+  { name: 'WEB_CONCURRENCY', value: '1' }
+  { name: 'NORIUM_TOPOLOGY', value: 'single-writer' }
   { name: 'NORIUM_DATA_DIR', value: '/app/data' }
   { name: 'NORIUM_AI_COSTS_SQLITE_VFS', value: 'unix-dotfile' }
   { name: 'NORIUM_SPA_DIR', value: '/app/static' }
@@ -88,6 +106,60 @@ var noraWebEnvironment = noraBrainEnabled ? [
   { name: 'NORA_LEGACY_WRITER_SINGLETON', value: '1' }
 ] : []
 
+resource postgresServer 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = if (postgresEnabled) {
+  name: postgresServerName
+  location: location
+  tags: union(commonTags, { component: 'postgresql' })
+  sku: {
+    name: 'Standard_B1ms'
+    tier: 'Burstable'
+  }
+  properties: {
+    administratorLogin: postgresAdministratorLogin
+    administratorLoginPassword: postgresAdministratorPassword
+    version: '16'
+    createMode: 'Create'
+    availabilityZone: '1'
+    backup: {
+      backupRetentionDays: 35
+      geoRedundantBackup: 'Disabled'
+    }
+    highAvailability: {
+      mode: 'Disabled'
+    }
+    storage: {
+      autoGrow: 'Enabled'
+      storageSizeGB: 32
+      tier: 'P4'
+    }
+    network: {
+      publicNetworkAccess: 'Enabled'
+    }
+    authConfig: {
+      activeDirectoryAuth: 'Disabled'
+      passwordAuth: 'Enabled'
+    }
+  }
+}
+
+resource postgresAzureServicesFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = if (postgresEnabled) {
+  parent: postgresServer
+  name: 'AllowAzureServices'
+  properties: {
+    startIpAddress: '0.0.0.0'
+    endIpAddress: '0.0.0.0'
+  }
+}
+
+resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = if (postgresEnabled) {
+  parent: postgresServer
+  name: postgresDatabaseName
+  properties: {
+    charset: 'UTF8'
+    collation: 'en_US.utf8'
+  }
+}
+
 resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' = {
   name: storageAccountName
   location: location
@@ -114,7 +186,12 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2025-06-01' = {
 resource fileService 'Microsoft.Storage/storageAccounts/fileServices@2025-06-01' = {
   parent: storageAccount
   name: 'default'
-  properties: {}
+  properties: {
+    shareDeleteRetentionPolicy: {
+      enabled: true
+      days: 30
+    }
+  }
 }
 
 resource fileShare 'Microsoft.Storage/storageAccounts/fileServices/shares@2025-06-01' = {
@@ -313,3 +390,6 @@ output storageAccountName string = storageAccount.name
 output fileShareName string = fileShare.name
 output persistentDataPath string = '/app/data'
 output noraExecutorAppName string = noraBrainEnabled ? noraExecutor.name : ''
+output postgresServerName string = postgresEnabled ? postgresServer.name : ''
+output postgresHost string = postgresEnabled ? postgresServer.properties.fullyQualifiedDomainName : ''
+output postgresDatabaseName string = postgresEnabled ? postgresDatabase.name : ''

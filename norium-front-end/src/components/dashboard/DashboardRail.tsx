@@ -1,8 +1,12 @@
-import { AlertTriangle, CalendarDays, ChevronRight, Clock3, CloudSun, Crosshair, MapPin, ReceiptText, Send } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarDays, ChevronRight, Clock3, CloudSun, Crosshair, MapPin, ReceiptText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import noraDigital from "../../assets/nora-brand.png";
 import type { OmnichannelEvent } from "../../types/omnichannel";
 import type { DashboardFinancePending, DashboardWeather } from "./Dashboard";
+
+export type DayFocusTask = {
+  title: string;
+  meta: string;
+};
 
 type DashboardRailProps = {
   weather: DashboardWeather | null;
@@ -10,8 +14,10 @@ type DashboardRailProps = {
   financePending: DashboardFinancePending[];
   financePendingTotal: number;
   financeOverdueCount: number;
+  focusTask: DayFocusTask | null;
+  taskOverdueCount: number;
+  todayEventCount: number;
   onNavigate: (tab: string) => void;
-  onOpenNora: () => void;
 };
 
 function dateLabel(value: Date) {
@@ -28,8 +34,10 @@ export default function DashboardRail({
   financePending,
   financePendingTotal,
   financeOverdueCount,
+  focusTask,
+  taskOverdueCount,
+  todayEventCount,
   onNavigate,
-  onOpenNora,
 }: DashboardRailProps) {
   const [now, setNow] = useState(() => new Date());
   const nextEvent = useMemo(
@@ -41,16 +49,24 @@ export default function DashboardRail({
   );
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1_000);
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
 
   const money = useMemo(() => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }), []);
 
+  const decision = taskOverdueCount > 0
+    ? { tab: "Tarefas", label: "Resolver pendências", detail: `${taskOverdueCount} ${taskOverdueCount === 1 ? "tarefa vencida" : "tarefas vencidas"} precisam de você` }
+    : nextEvent
+      ? { tab: "Agenda", label: "Preparar próximo compromisso", detail: nextEvent.title }
+      : focusTask
+        ? { tab: "Tarefas", label: "Avançar o foco do dia", detail: focusTask.title }
+        : { tab: "Central", label: "Ver a Central", detail: "Nenhuma pendência urgente" };
+
   return (
-    <aside className="norium-dashboard-rail">
+    <aside className="norium-dashboard-rail" aria-label="Seu dia">
       <section className="norium-dashboard-card norium-day-summary">
-        <p className="norium-dashboard-card-label">Resumo do dia</p>
+        <p className="norium-dashboard-card-label">Seu dia</p>
 
         <div className="norium-day-summary-row">
           <Clock3 />
@@ -79,13 +95,22 @@ export default function DashboardRail({
             </span>
           </div>
         </div>
+
+        <button type="button" className="norium-day-decision" onClick={() => onNavigate(decision.tab)}>
+          <span>
+            <small>Próxima decisão</small>
+            <strong>{decision.label}</strong>
+            <em>{decision.detail}</em>
+          </span>
+          <ArrowRight size={17} aria-hidden="true" />
+        </button>
       </section>
 
       <section className="norium-dashboard-card norium-next-steps">
         <button type="button" onClick={() => onNavigate("Agenda")}>
           <CalendarDays />
           <span>
-            <small>Próximos passos</small>
+            <small>Próximos passos · {todayEventCount} hoje</small>
             <strong>{nextEvent?.title || "Agenda livre"}</strong>
             <em>
               {nextEvent
@@ -103,9 +128,9 @@ export default function DashboardRail({
         <button type="button" onClick={() => onNavigate("Tarefas")}>
           <Crosshair className="is-focus" />
           <span>
-            <small>Foco do dia</small>
-            <strong>Finalizar prioridades</strong>
-            <em>Abra o Kanban para revisar</em>
+            <small>Foco do dia{taskOverdueCount > 0 ? ` · ${taskOverdueCount} vencida${taskOverdueCount === 1 ? "" : "s"}` : ""}</small>
+            <strong>{focusTask?.title || "Sem tarefas atribuídas"}</strong>
+            <em>{focusTask?.meta || "Abra o Kanban para revisar"}</em>
           </span>
         </button>
       </section>
@@ -128,18 +153,6 @@ export default function DashboardRail({
           ))}
           {!financePending.length && <p>Nenhuma conta pendente.</p>}
         </div>
-      </section>
-
-      <section className="norium-nora-portrait-card">
-        <div className="norium-nora-portrait-copy">
-          <h2>NORA <span>Online</span></h2>
-          <p>Sua assistente inteligente</p>
-        </div>
-        <img src={noraDigital} alt="Nora, assistente digital do Norium" />
-        <button type="button" onClick={onOpenNora}>
-          <span>Fale com a Nora...</span>
-          <Send size={17} />
-        </button>
       </section>
     </aside>
   );

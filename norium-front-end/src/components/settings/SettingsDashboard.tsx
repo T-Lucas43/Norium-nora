@@ -3,6 +3,7 @@ import {
   Bell,
   Bot,
   Check,
+  Download,
   LockKeyhole,
   Moon,
   Palette,
@@ -12,6 +13,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sun,
+  Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { NoriumUser } from "../../types/auth";
@@ -23,12 +25,14 @@ import {
   saveOperatorProfile,
 } from "../profile/profileService";
 import Button from "../shared/Button";
+import { apiBlobRequest, apiRequest } from "../../core/api/client";
 
 type SettingsDashboardProps = {
   userId?: string;
   currentUser?: NoriumUser | null;
   onSaved: (profile: PerfilOperador) => void;
   onOpenAdmin?: () => void;
+  onLogout?: () => void;
 };
 
 const colorGroups: Array<{
@@ -73,12 +77,17 @@ export default function SettingsDashboard({
   currentUser,
   onSaved,
   onOpenAdmin,
+  onLogout,
 }: SettingsDashboardProps) {
   const [profile, setProfile] = useState<PerfilOperador>(createDefaultProfile);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [exportingData, setExportingData] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [deletionConfirmation, setDeletionConfirmation] = useState("");
   const canCustomizeTheme = Boolean(currentUser?.systemAdmin || currentUser?.plan === "enterprise");
   const preferences = { ...defaultInterfacePreferences, ...profile.interface_preferences };
   function updatePreference<K extends keyof InterfacePreferences>(key: K, value: InterfacePreferences[K]) {
@@ -139,6 +148,41 @@ export default function SettingsDashboard({
         [key]: value,
       },
     }));
+  }
+
+  async function exportPersonalData() {
+    setExportingData(true);
+    setError("");
+    try {
+      const blob = await apiBlobRequest("/api/auth/privacy/export", { headers: { Accept: "application/zip" } });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "norium-dados-pessoais.zip";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setMessage("Exportação de dados preparada com manifesto de integridade.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao exportar seus dados.");
+    } finally {
+      setExportingData(false);
+    }
+  }
+
+  async function deleteAccount() {
+    setDeletingAccount(true);
+    setError("");
+    try {
+      await apiRequest("/api/auth/privacy/account", {
+        method: "DELETE",
+        body: JSON.stringify({ currentPassword, confirmation: deletionConfirmation }),
+      });
+      onLogout?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Falha ao excluir a conta.");
+    } finally {
+      setDeletingAccount(false);
+    }
   }
 
   async function save() {
@@ -407,6 +451,41 @@ export default function SettingsDashboard({
               </div>
             </div>
           </section>
+
+          {currentUser && (
+            <section className="rounded-lg border border-red-500/25 bg-red-500/5 p-5" aria-labelledby="privacy-rights-title">
+              <div className="flex items-start gap-3">
+                <ShieldCheck size={19} className="mt-0.5 text-[var(--primary)]" />
+                <div>
+                  <h2 id="privacy-rights-title" className="text-sm font-bold">Seus dados e privacidade</h2>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
+                    Baixe uma cópia portátil dos dados pessoais da conta. A exclusão revoga as sessões, elimina o diretório pessoal e anonimiza o cadastro e a auditoria.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button size="sm" onClick={() => void exportPersonalData()} disabled={exportingData}>
+                  <Download size={14} /> {exportingData ? "Preparando…" : "Exportar meus dados"}
+                </Button>
+              </div>
+              <div className="mt-5 grid gap-3 border-t border-red-500/20 pt-5 md:grid-cols-2">
+                <label className="text-xs font-bold">Senha atual
+                  <input type="password" autoComplete="current-password" className="norium-platform-input mt-2" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} />
+                </label>
+                <label className="text-xs font-bold">Digite EXCLUIR MINHA CONTA
+                  <input className="norium-platform-input mt-2" value={deletionConfirmation} onChange={event => setDeletionConfirmation(event.target.value)} />
+                </label>
+              </div>
+              <Button
+                size="sm"
+                className="mt-3"
+                onClick={() => void deleteAccount()}
+                disabled={deletingAccount || !currentPassword || deletionConfirmation !== "EXCLUIR MINHA CONTA"}
+              >
+                <Trash2 size={14} /> {deletingAccount ? "Excluindo…" : "Excluir minha conta"}
+              </Button>
+            </section>
+          )}
 
           {error && <p role="alert" className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm font-bold text-red-300">{error}</p>}
           {message && <p role="status" className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm font-bold text-emerald-300">{message}</p>}

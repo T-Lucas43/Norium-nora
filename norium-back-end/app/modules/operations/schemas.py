@@ -7,7 +7,7 @@ from pydantic import Field, field_validator
 from app.shared.schemas import StrictModel
 
 
-OperationStatus = Literal["pending", "approved", "rejected", "executed", "failed", "cancelled"]
+OperationStatus = Literal["pending", "approved", "rejected", "executed", "failed", "cancelled", "expired"]
 AuditStatus = Literal["success", "warning", "error", "info"]
 
 
@@ -40,11 +40,14 @@ class ApprovalCreate(StrictModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
     expiresAt: str | None = None
+    digest: str | None = Field(default=None, max_length=128)
 
 
 class ApprovalDecision(StrictModel):
     decision: Literal["approved", "rejected", "cancelled"]
     note: str = Field(default="", max_length=800)
+    expectedRevision: int | None = Field(default=None, ge=1)
+    expectedDigest: str | None = Field(default=None, max_length=128)
 
     @field_validator("note")
     @classmethod

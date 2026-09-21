@@ -31,20 +31,20 @@ export default function DashboardSignal() {
       const phase = reduceMotion.matches ? 0.8 : elapsed * 0.00042;
       const gradient = context.createLinearGradient(0, 0, width, 0);
       gradient.addColorStop(0, "rgba(39, 130, 255, 0)");
-      gradient.addColorStop(0.1, "rgba(39, 130, 255, 0.96)");
-      gradient.addColorStop(0.56, "rgba(39, 130, 255, 1)");
-      gradient.addColorStop(0.84, "rgba(39, 130, 255, 0.82)");
+      gradient.addColorStop(0.1, "rgba(39, 130, 255, 0.5)");
+      gradient.addColorStop(0.56, "rgba(39, 130, 255, 0.55)");
+      gradient.addColorStop(0.84, "rgba(39, 130, 255, 0.45)");
       gradient.addColorStop(1, "rgba(39, 130, 255, 0)");
 
       context.lineCap = "round";
       context.setLineDash([1.4, 4]);
-      context.shadowBlur = 9;
-      context.shadowColor = "rgba(39, 130, 255, 0.5)";
-      context.globalCompositeOperation = "lighter";
+      context.shadowBlur = 0;
+      context.shadowColor = "rgba(39, 130, 255, 0)";
+      context.globalCompositeOperation = "source-over";
 
-      for (let line = 0; line < 15; line += 1) {
-        const offset = line - 7;
-        const amplitude = 30 + Math.abs(offset) * 2.2;
+      for (let line = 0; line < 8; line += 1) {
+        const offset = line - 3.5;
+        const amplitude = 13 + Math.abs(offset) * 1.6;
         const linePhase = phase + line * 0.27;
         const startX = Math.max(12, width * 0.02);
         const endX = Math.max(startX + 1, width - Math.max(26, width * 0.055));
@@ -63,9 +63,9 @@ export default function DashboardSignal() {
           else context.lineTo(x, y);
         }
 
-        context.globalAlpha = 0.82 + (1 - Math.abs(offset) / 9) * 0.18;
+        context.globalAlpha = 0.42 + (1 - Math.abs(offset) / 5) * 0.14;
         context.strokeStyle = gradient;
-        context.lineWidth = line === 7 ? 1.5 : 1;
+        context.lineWidth = line === 4 ? 1.25 : 1;
         context.stroke();
       }
 

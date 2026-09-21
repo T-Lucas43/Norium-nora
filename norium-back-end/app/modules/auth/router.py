@@ -45,7 +45,7 @@ OWNER_EMAIL = os.getenv("NORIUM_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
 OWNER_USER_ID = os.getenv("NORIUM_BOOTSTRAP_ADMIN_USER_ID", "").strip()
 OWNER_NAME = os.getenv("NORIUM_BOOTSTRAP_ADMIN_NAME", "").strip()
 OWNER_BOOTSTRAP_PASSWORD = os.getenv("NORIUM_BOOTSTRAP_ADMIN_PASSWORD", "").strip()
-LEGAL_VERSION = "2026-08-20"
+LEGAL_VERSION = "2026-09-20"
 
 router = APIRouter(prefix="/api/auth", tags=["Usuarios"])
 auth_lock = asyncio.Lock()

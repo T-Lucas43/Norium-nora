@@ -65,7 +65,7 @@ type ModuleGuide = {
 const guides: Record<GuidedModule, ModuleGuide> = {
   Dashboard: {
     title: "Dashboard",
-    description: "Veja seu Meu Dia, agenda, tarefas, canais e proximos passos em um unico resumo.",
+    description: "Veja seu dia, agenda, tarefas, canais e próximos passos em um único resumo.",
     topics: ["O resumo diario fica nesta tela", "Atalhos abrem a origem de cada item", "Agenda e prioridades sao atualizadas pelos canais conectados"],
     prompt: "Explique meu Dashboard e resuma o Meu Dia, indicando compromissos, mensagens, tarefas, pagamentos e aprovacoes que exigem atencao, sem alterar nada.",
   },
@@ -274,8 +274,12 @@ export default function ModuleCoach({
 }) {
   const guide = guides[module];
   const GuideIcon = moduleIcons[module];
+  // The Dashboard hero already carries the primary Nora CTA; its banner keeps
+  // orientation content only so the button is not duplicated on the same screen.
+  const showAsk = module !== "Dashboard";
 
   if (compact) {
+    if (!showAsk) return null;
     return (
       <div className="norium-module-coach-compact" aria-label={`Ajuda contextual da tela ${guide.title}`}>
         <button type="button" className="norium-module-coach__ask" onClick={() => onAskNora(guide.prompt)}>
@@ -304,21 +308,25 @@ export default function ModuleCoach({
           {guide.topics.map((topic) => <li key={topic}>{topic}</li>)}
         </ul>
       </details>
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="norium-module-coach__ask" onClick={() => onAskNora(guide.prompt)}>
-          <Sparkles size={16} /> Perguntar a Nora
-        </button>
-        {guide.quickPrompts?.map((quick) => (
-          <Button size="sm"
-            key={quick.label}
-           
-            onClick={() => onAskNora(quick.prompt)}
-            className="rounded-full text-[var(--text-secondary)] hover:border-[var(--primary)] hover:text-[var(--primary)]"
-          >
-            <Sparkles size={12} /> {quick.label}
-          </Button>
-        ))}
-      </div>
+      {(showAsk || (guide.quickPrompts?.length ?? 0) > 0) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {showAsk && (
+            <button type="button" className="norium-module-coach__ask" onClick={() => onAskNora(guide.prompt)}>
+              <Sparkles size={16} /> Perguntar a Nora
+            </button>
+          )}
+          {guide.quickPrompts?.map((quick) => (
+            <Button size="sm"
+              key={quick.label}
+
+              onClick={() => onAskNora(quick.prompt)}
+              className="rounded-full text-[var(--text-secondary)] hover:border-[var(--primary)] hover:text-[var(--primary)]"
+            >
+              <Sparkles size={12} /> {quick.label}
+            </Button>
+          ))}
+        </div>
+      )}
     </aside>
   );
 }

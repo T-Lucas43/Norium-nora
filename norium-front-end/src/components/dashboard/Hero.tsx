@@ -1,8 +1,6 @@
 import {
   CheckSquare,
-  Grid2X2,
-  Mail,
-  MessageSquare,
+  Sparkles,
 } from "lucide-react";
 import type { PerfilOperador } from "../../types/omnichannel";
 import DashboardSignal from "./DashboardSignal";
@@ -39,26 +37,12 @@ export default function Hero({ metrics, profile, connected, onOpenNora, onNaviga
 
         <div className="norium-dashboard-hero-actions">
           <button type="button" className="is-primary" onClick={onOpenNora}>
-            <MessageSquare size={17} />
-            Conversar com a Nora
-          </button>
-          <button type="button" onClick={() => onNavigate("Central")}>
-            <Grid2X2 size={17} />
-            Ver central
+            <Sparkles size={17} />
+            Perguntar à Nora
           </button>
           <button type="button" onClick={() => onNavigate("Tarefas")}>
             <CheckSquare size={17} />
             Nova tarefa
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onNavigate("E-mails");
-              window.setTimeout(() => window.dispatchEvent(new Event("emails:compose")), 80);
-            }}
-          >
-            <Mail size={17} />
-            Enviar e-mail
           </button>
         </div>
       </div>

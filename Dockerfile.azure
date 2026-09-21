@@ -26,8 +26,8 @@ RUN apt-get update \
     && groupadd --gid 10001 norium \
     && useradd --uid 10001 --gid norium --no-create-home --shell /usr/sbin/nologin norium
 
-COPY norium-back-end/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+COPY norium-back-end/requirements.lock.txt ./requirements.lock.txt
+RUN pip install --no-cache-dir -r requirements.lock.txt
 RUN mkdir -p /ms-playwright \
     && python -m playwright install --with-deps chromium \
     && chmod -R a+rX /ms-playwright

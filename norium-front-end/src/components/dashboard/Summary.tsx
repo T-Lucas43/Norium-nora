@@ -7,10 +7,16 @@ import noriumAgendaIcon from "../../assets/generated/norium-agenda.png";
 type SummaryProps = {
   metrics: DashboardMetrics;
   financeBalance?: number | null;
+  myTaskCount?: number;
+  todayEventCount?: number;
   onNavigate: (tab: string) => void;
 };
 
-export default function Summary({ metrics, financeBalance = null, onNavigate }: SummaryProps) {
+function pluralize(value: number, singular: string, plural: string) {
+  return value === 1 ? singular : plural;
+}
+
+export default function Summary({ metrics, financeBalance = null, myTaskCount = 0, todayEventCount = 0, onNavigate }: SummaryProps) {
   const balanceLabel = financeBalance === null
     ? "—"
     : new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 }).format(financeBalance);
@@ -18,7 +24,7 @@ export default function Summary({ metrics, financeBalance = null, onNavigate }: 
     {
       title: "E-mails",
       value: metrics.emails,
-      subtitle: "Abrir Norium Mail",
+      subtitle: `${metrics.emails} ${pluralize(metrics.emails, "recente", "recentes")}`,
       icon: noriumMailIcon,
       color: "bg-red-500/10 text-red-500",
       tone: "rose",
@@ -27,7 +33,7 @@ export default function Summary({ metrics, financeBalance = null, onNavigate }: 
     {
       title: "WhatsApp",
       value: metrics.whatsapp,
-      subtitle: "Abrir conversas",
+      subtitle: `${metrics.whatsapp} ${pluralize(metrics.whatsapp, "conversa recente", "conversas recentes")}`,
       icon: whatsappIcon,
       color: "bg-emerald-500/10 text-emerald-500",
       tone: "emerald",
@@ -35,8 +41,8 @@ export default function Summary({ metrics, financeBalance = null, onNavigate }: 
     },
     {
       title: "Agenda",
-      value: metrics.calendar,
-      subtitle: "Ver compromissos",
+      value: todayEventCount,
+      subtitle: pluralize(todayEventCount, "compromisso hoje", "compromissos hoje"),
       icon: noriumAgendaIcon,
       color: "bg-blue-500/10 text-blue-500",
       tone: "blue",
@@ -44,8 +50,8 @@ export default function Summary({ metrics, financeBalance = null, onNavigate }: 
     },
     {
       title: "Tarefas",
-      value: metrics.tasks,
-      subtitle: "Abrir Kanban",
+      value: myTaskCount,
+      subtitle: pluralize(myTaskCount, "atribuída a você", "atribuídas a você"),
       Icon: CheckSquare,
       color: "bg-cyan-500/10 text-cyan-500",
       tone: "cyan",
@@ -54,7 +60,7 @@ export default function Summary({ metrics, financeBalance = null, onNavigate }: 
     {
       title: "Financeiro",
       value: balanceLabel,
-      subtitle: "Ver fluxo do período",
+      subtitle: "saldo atual",
       Icon: CreditCard,
       color: "bg-amber-500/10 text-amber-500",
       tone: "amber",
@@ -63,7 +69,7 @@ export default function Summary({ metrics, financeBalance = null, onNavigate }: 
   ];
 
   return (
-    <section className="norium-dashboard-summary grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+    <section className="norium-dashboard-summary grid gap-4 sm:grid-cols-2 xl:grid-cols-5" aria-label="Indicadores por canal">
       {stats.map((item) => {
         return (
           <button

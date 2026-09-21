@@ -13,6 +13,7 @@ MEMORY_DB = "nora_memoria"
 TEMPLATE_DB = "operacao_modelos"
 FOLLOWUP_DB = "operacao_acompanhamentos"
 SETTINGS_DB = "operacao_configuracoes"
+SEND_DB = "operacao_envios"
 MAX_ITEMS = 1000
 
 _locks = {
@@ -23,6 +24,7 @@ _locks = {
     TEMPLATE_DB: asyncio.Lock(),
     FOLLOWUP_DB: asyncio.Lock(),
     SETTINGS_DB: asyncio.Lock(),
+    SEND_DB: asyncio.Lock(),
 }
 
 

@@ -235,6 +235,12 @@ async def persist_event(event: OmnichannelEvent, user_id: str | None = None) -> 
         event_payload.setdefault("metadata", {})["userId"] = resolved_user_id
         events = await read_events(resolved_user_id)
         previous = next((item for item in events if item.get("id") == event.id), None)
+        # Sincronizacao repetida gera timestamp novo; ignorar so timestamp evita reacender lidos.
+        if previous is not None:
+            previous_content = {key: value for key, value in previous.items() if key != "timestamp"}
+            new_content = {key: value for key, value in event_payload.items() if key != "timestamp"}
+            if previous_content == new_content:
+                return previous, False
         changed = previous != event_payload
         if not changed:
             return event_payload, False

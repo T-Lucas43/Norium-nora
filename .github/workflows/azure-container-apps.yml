@@ -46,6 +46,8 @@ jobs:
         env:
           ENVIRONMENT: test
           APP_ENV: test
+          NORIUM_DATA_DIR: ${{ runner.temp }}/norium-test-data
+          PYTHON_DOTENV_DISABLED: "1"
           NORIUM_AI_COSTS_SQLITE_VFS: unix-dotfile
         run: |
           python -m compileall app main.py

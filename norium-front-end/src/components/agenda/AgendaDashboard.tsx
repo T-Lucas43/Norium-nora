@@ -241,6 +241,7 @@ export default function AgendaDashboard({ userId = "primary" }: { userId?: strin
       });
       setShowCreate(false);
       await carregarEventos();
+      window.dispatchEvent(new CustomEvent("norium:agenda-mutated"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não consegui criar o evento.");
     }

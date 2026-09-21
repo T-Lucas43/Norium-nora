@@ -220,6 +220,7 @@ async def criar_evento(payload: CriarEventoPayload, user: dict[str, Any] = Depen
             source="calendar",
             title="Compromisso criado",
             description=payload.titulo,
+            event_id=f"calendar_{resolved_user_id}_{evento.get('id') or 'novo'}_created",
             metadata={
                 "eventId": evento.get("id"),
                 "userId": resolved_user_id,
@@ -245,6 +246,7 @@ async def atualizar_evento(event_id: str, payload: AtualizarEventoPayload, user:
             source="calendar",
             title="Compromisso atualizado",
             description=str(evento.get("titulo") or payload.titulo or event_id),
+            event_id=f"calendar_{resolved_user_id}_{evento.get('id') or event_id}_updated",
             metadata={
                 "eventId": evento.get("id") or event_id,
                 "userId": resolved_user_id,

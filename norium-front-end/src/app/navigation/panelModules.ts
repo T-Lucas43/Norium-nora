@@ -9,6 +9,7 @@ export const panelModules = {
   "Notificações": () => import("../../components/notifications/SystemNotificationsCenter"),
   "E-mails": () => import("../../components/emails/EmailDashboard"),
   Agenda: () => import("../../components/agenda/AgendaDashboard"),
+  Agendamentos: () => import("../../components/scheduling/SchedulingDashboard"),
   Chat: () => import("../../components/chat/ChatCentral"),
   Tarefas: () => import("../../components/tasks/TasksDashboard"),
   Financeiro: () => import("../../components/finance/FinanceDashboard"),

@@ -50,6 +50,7 @@ from app.modules.clients.router import router as clients_router
 from app.modules.commercial.router import router as commercial_router
 from app.modules.finance.router import router as financeiro_router
 from app.modules.reports.router import router as reports_router
+from app.modules.scheduling.router import public_router as scheduling_public_router, router as scheduling_router
 from app.modules.inbox.router import router as inbox_router
 from app.modules.intelligence.router import (
     browser_router,
@@ -466,6 +467,8 @@ def create_app() -> FastAPI:
     app.include_router(account_email_router)
     app.include_router(admin_finance_router)
     app.include_router(agenda_router)
+    app.include_router(scheduling_router)
+    app.include_router(scheduling_public_router)
     app.include_router(integracoes_google_router)
     app.include_router(gmail_router)
     app.include_router(inbox_router)

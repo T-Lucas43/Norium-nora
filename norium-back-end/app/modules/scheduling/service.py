@@ -1,0 +1,401 @@
+from __future__ import annotations
+
+import base64
+import binascii
+import json
+import re
+import sqlite3
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from fastapi import HTTPException
+
+from app.modules.scheduling.repository import SchedulingRepository, now_iso, opaque_id, public_id, token_hash, token_pair
+from app.modules.scheduling.schemas import AvailabilityPayload, BookingField, BookingPayload, HoldPayload, PagePayload, ServicePayload
+from app.core.tenant import get_user_dir
+
+ACTIVE = ("PENDING", "CONFIRMED")
+CPF_DIGITS = re.compile(r"\D")
+
+
+def validate_cpf(value: str) -> str:
+    digits = CPF_DIGITS.sub("", value)
+    if len(digits) != 11 or digits == digits[0] * 11:
+        raise ValueError("CPF invalido.")
+    for size in (9, 10):
+        total = sum(int(digits[index]) * (size + 1 - index) for index in range(size))
+        check = (total * 10 % 11) % 10
+        if check != int(digits[size]):
+            raise ValueError("CPF invalido.")
+    return digits
+
+
+def parse_utc(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(422, "Data e hora invalidas.") from exc
+    if parsed.tzinfo is None:
+        raise HTTPException(422, "Data e hora devem incluir timezone.")
+    return parsed.astimezone(timezone.utc)
+
+
+def scope_from_user(user: dict[str, Any], workspace_id: str) -> tuple[str, str, str]:
+    user_id = str(user.get("id") or "").strip()
+    if not user_id:
+        raise HTTPException(401, "Sessao invalida.")
+    # A conta autenticada e o tenant oficial dos stores atuais; workspaces sao
+    # uma subdivisao obrigatoria desse tenant.
+    return user_id, workspace_id, user_id
+
+
+class SchedulingService:
+    def __init__(self, repository: SchedulingRepository | None = None) -> None:
+        self.repo = repository or SchedulingRepository()
+
+    @staticmethod
+    def _where_scope(scope: tuple[str, str, str]) -> tuple[str, str, str]:
+        return scope
+
+    def list_services(self, scope: tuple[str, str, str]) -> list[dict[str, Any]]:
+        return self.repo.all(
+            "SELECT * FROM scheduling_services WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND archived_at IS NULL ORDER BY created_at DESC",
+            scope,
+        )
+
+    def create_service(self, scope: tuple[str, str, str], payload: ServicePayload) -> dict[str, Any]:
+        stamp, entity_id = now_iso(), opaque_id("svc")
+        data = payload.model_dump()
+        with self.repo.transaction() as db:
+            db.execute("""INSERT INTO scheduling_services
+              (id,tenant_id,workspace_id,owner_id,name,description,durations_json,color,location_type,location,instructions,buffer_before,buffer_after,capacity,minimum_notice_minutes,maximum_days,slot_interval,active,created_at,updated_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                entity_id, *scope, data["name"].strip(), data["description"].strip(), json.dumps(data["durations"]), data["color"],
+                data["locationType"], data["location"].strip(), data["instructions"].strip(), data["bufferBefore"], data["bufferAfter"],
+                data["capacity"], data["minimumNoticeMinutes"], data["maximumDays"], data["slotInterval"], int(data["active"]), stamp, stamp,
+            ))
+            self.repo.audit(db, scope, "service_created", "service", entity_id, {"name": data["name"]})
+        return self.get_service(scope, entity_id)
+
+    def get_service(self, scope: tuple[str, str, str], entity_id: str) -> dict[str, Any]:
+        item = self.repo.one("SELECT * FROM scheduling_services WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=? AND archived_at IS NULL", (entity_id, *scope))
+        if not item:
+            raise HTTPException(404, "Servico nao encontrado.")
+        return item
+
+    def update_service(self, scope: tuple[str, str, str], entity_id: str, payload: ServicePayload) -> dict[str, Any]:
+        self.get_service(scope, entity_id)
+        data = payload.model_dump()
+        with self.repo.transaction() as db:
+            db.execute("""UPDATE scheduling_services SET name=?,description=?,durations_json=?,color=?,location_type=?,location=?,instructions=?,buffer_before=?,buffer_after=?,capacity=?,minimum_notice_minutes=?,maximum_days=?,slot_interval=?,active=?,updated_at=? WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?""", (
+                data["name"].strip(), data["description"].strip(), json.dumps(data["durations"]), data["color"], data["locationType"], data["location"].strip(), data["instructions"].strip(), data["bufferBefore"], data["bufferAfter"], data["capacity"], data["minimumNoticeMinutes"], data["maximumDays"], data["slotInterval"], int(data["active"]), now_iso(), entity_id, *scope,
+            ))
+            self.repo.audit(db, scope, "service_updated", "service", entity_id)
+        return self.get_service(scope, entity_id)
+
+    def set_availability(self, scope: tuple[str, str, str], payload: AvailabilityPayload) -> dict[str, Any]:
+        if payload.serviceId:
+            self.get_service(scope, payload.serviceId)
+        item_id, stamp = opaque_id("avail"), now_iso()
+        with self.repo.transaction() as db:
+            existing = db.execute("SELECT id FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id IS ?", (*scope, payload.serviceId)).fetchone()
+            if existing:
+                item_id = existing["id"]
+                db.execute("UPDATE scheduling_availability SET timezone=?,weekly_json=?,exceptions_json=?,blocked_json=?,updated_at=? WHERE id=?", (payload.timezone, json.dumps({k:[p.model_dump() for p in v] for k,v in payload.weekly.items()}), json.dumps({k:[p.model_dump() for p in v] for k,v in payload.exceptions.items()}), json.dumps([p.model_dump() for p in payload.blocked]), stamp, item_id))
+            else:
+                db.execute("INSERT INTO scheduling_availability VALUES (?,?,?,?,?,?,?,?,?,?,?)", (item_id, *scope, payload.serviceId, payload.timezone, json.dumps({k:[p.model_dump() for p in v] for k,v in payload.weekly.items()}), json.dumps({k:[p.model_dump() for p in v] for k,v in payload.exceptions.items()}), json.dumps([p.model_dump() for p in payload.blocked]), stamp, stamp))
+            self.repo.audit(db, scope, "availability_updated", "availability", item_id, {"serviceId": payload.serviceId})
+        return self.get_availability(scope, payload.serviceId)
+
+    def get_availability(self, scope: tuple[str, str, str], service_id: str | None) -> dict[str, Any]:
+        item = self.repo.one("SELECT * FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id IS ?", (*scope, service_id))
+        if not item:
+            return {"service_id": service_id, "timezone": "America/Sao_Paulo", "weekly": {}, "exceptions": {}, "blocked": []}
+        return item
+
+    def create_page(self, scope: tuple[str, str, str], payload: PagePayload) -> dict[str, Any]:
+        self.get_service(scope, payload.serviceId)
+        stamp, entity_id = now_iso(), opaque_id("page")
+        try:
+            with self.repo.transaction() as db:
+                db.execute("""INSERT INTO scheduling_pages
+                  (id,public_id,tenant_id,workspace_id,owner_id,service_id,slug,title,description,theme_json,fields_json,logo_url,active,created_at,updated_at)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (entity_id, public_id(), *scope, payload.serviceId, payload.slug, payload.title.strip(), payload.description.strip(), json.dumps(payload.theme), json.dumps([f.model_dump() for f in payload.fields]), payload.logoUrl, int(payload.active), stamp, stamp))
+                self.repo.audit(db, scope, "page_created", "page", entity_id, {"title": payload.title})
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "Slug ou identificador publico ja esta em uso.") from exc
+        return self.get_page(scope, entity_id)
+
+    def get_page(self, scope: tuple[str, str, str], entity_id: str) -> dict[str, Any]:
+        item = self.repo.one("SELECT * FROM scheduling_pages WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=? AND archived_at IS NULL", (entity_id, *scope))
+        if not item:
+            raise HTTPException(404, "Pagina nao encontrada.")
+        return item
+
+    def list_pages(self, scope: tuple[str, str, str]) -> list[dict[str, Any]]:
+        return self.repo.all("SELECT * FROM scheduling_pages WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND archived_at IS NULL ORDER BY created_at DESC", scope)
+
+    def update_page(self, scope: tuple[str, str, str], entity_id: str, payload: PagePayload) -> dict[str, Any]:
+        self.get_page(scope, entity_id)
+        self.get_service(scope, payload.serviceId)
+        try:
+            with self.repo.transaction() as db:
+                db.execute("""UPDATE scheduling_pages SET service_id=?,slug=?,title=?,description=?,theme_json=?,fields_json=?,logo_url=?,active=?,updated_at=?
+                  WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?""", (payload.serviceId, payload.slug, payload.title.strip(), payload.description.strip(), json.dumps(payload.theme), json.dumps([f.model_dump() for f in payload.fields]), payload.logoUrl, int(payload.active), now_iso(), entity_id, *scope))
+                self.repo.audit(db, scope, "page_updated", "page", entity_id)
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "Slug ja esta em uso.") from exc
+        return self.get_page(scope, entity_id)
+
+    def archive_page(self, scope: tuple[str, str, str], entity_id: str) -> None:
+        self.get_page(scope, entity_id)
+        with self.repo.transaction() as db:
+            db.execute("UPDATE scheduling_pages SET active=0,archived_at=?,updated_at=? WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (now_iso(), now_iso(), entity_id, *scope))
+            self.repo.audit(db, scope, "page_archived", "page", entity_id)
+
+    def upload_logo(self, scope: tuple[str, str, str], entity_id: str, encoded: str) -> dict[str, str]:
+        page = self.get_page(scope, entity_id)
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise HTTPException(422, "Logo em base64 invalido.") from exc
+        if not 1 <= len(raw) <= 2_000_000:
+            raise HTTPException(413, "Logo deve possuir no maximo 2 MB.")
+        signatures = ((b"\x89PNG\r\n\x1a\n", "png", "image/png"), (b"\xff\xd8\xff", "jpg", "image/jpeg"), (b"RIFF", "webp", "image/webp"))
+        match = next(((extension, mime) for signature, extension, mime in signatures if raw.startswith(signature) and (extension != "webp" or raw[8:12] == b"WEBP")), None)
+        if not match:
+            raise HTTPException(422, "Formato real do logo deve ser PNG, JPEG ou WebP.")
+        extension, mime = match
+        folder = get_user_dir(scope[0]) / "scheduling_assets"; folder.mkdir(parents=True, exist_ok=True)
+        target = folder / f"{entity_id}.{extension}"; target.write_bytes(raw)
+        url = f"/api/public/scheduling/pages/{page['public_id']}/logo"
+        with self.repo.transaction() as db:
+            db.execute("UPDATE scheduling_pages SET logo_url=?,updated_at=? WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (url, now_iso(), entity_id, *scope))
+            self.repo.audit(db, scope, "page_logo_updated", "page", entity_id, {"mime": mime, "size": len(raw)})
+        return {"logoUrl": url, "mime": mime}
+
+    def logo_asset(self, identifier: str) -> tuple[str, str]:
+        page = self.public_page(identifier)["page"]
+        folder = get_user_dir(page["tenant_id"]) / "scheduling_assets"
+        for extension, mime in (("png", "image/png"), ("jpg", "image/jpeg"), ("webp", "image/webp")):
+            candidate = folder / f"{page['id']}.{extension}"
+            if candidate.is_file(): return str(candidate), mime
+        raise HTTPException(404, "Logo nao encontrado.")
+
+    def public_page(self, identifier: str) -> dict[str, Any]:
+        page = self.repo.one("SELECT * FROM scheduling_pages WHERE (public_id=? OR slug=?) AND active=1 AND archived_at IS NULL", (identifier, identifier))
+        if not page:
+            raise HTTPException(404, "Pagina de agendamento nao encontrada.")
+        service = self.repo.one("SELECT * FROM scheduling_services WHERE id=? AND active=1 AND archived_at IS NULL", (page["service_id"],))
+        if not service:
+            raise HTTPException(404, "Servico indisponivel.")
+        return {"page": page, "service": service}
+
+    def _availability_for_page(self, page: dict[str, Any]) -> dict[str, Any]:
+        specific = self.repo.one("SELECT * FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id=?", (page["tenant_id"], page["workspace_id"], page["owner_id"], page["service_id"]))
+        if specific:
+            return specific
+        return self.repo.one("SELECT * FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id IS NULL", (page["tenant_id"], page["workspace_id"], page["owner_id"])) or {"timezone":"America/Sao_Paulo","weekly":{},"exceptions":{},"blocked":[]}
+
+    @staticmethod
+    def _overlap(start: datetime, end: datetime, item_start: str, item_end: str) -> bool:
+        return start < parse_utc(item_end) and end > parse_utc(item_start)
+
+    @staticmethod
+    def _fits_availability(start: datetime, end: datetime, availability: dict[str, Any], service: dict[str, Any]) -> bool:
+        zone = ZoneInfo(availability["timezone"])
+        local_start, local_end = start.astimezone(zone), end.astimezone(zone)
+        if local_start.date() != local_end.date():
+            return False
+        periods = availability.get("exceptions", {}).get(local_start.date().isoformat())
+        if periods is None:
+            periods = availability.get("weekly", {}).get(str(local_start.weekday()), [])
+        inside = any(
+            time.fromisoformat(period["start"]) <= local_start.time().replace(tzinfo=None)
+            and local_end.time().replace(tzinfo=None) <= time.fromisoformat(period["end"])
+            for period in periods
+        )
+        now = datetime.now(timezone.utc)
+        return inside and start >= now + timedelta(minutes=service["minimum_notice_minutes"]) and start <= now + timedelta(days=service["maximum_days"])
+
+    def available_slots(self, identifier: str, day: date, duration: int) -> dict[str, Any]:
+        bundle = self.public_page(identifier)
+        page, service = bundle["page"], bundle["service"]
+        if duration not in service["durations"]:
+            raise HTTPException(422, "Duracao nao permitida.")
+        availability = self._availability_for_page(page)
+        zone = ZoneInfo(availability["timezone"])
+        periods = availability.get("exceptions", {}).get(day.isoformat())
+        if periods is None:
+            periods = availability.get("weekly", {}).get(str(day.weekday()), [])
+        now = datetime.now(timezone.utc)
+        latest = now + timedelta(days=service["maximum_days"])
+        step = timedelta(minutes=service["slot_interval"])
+        result: list[dict[str, Any]] = []
+        for period in periods:
+            cursor = datetime.combine(day, time.fromisoformat(period["start"]), zone).astimezone(timezone.utc)
+            period_end = datetime.combine(day, time.fromisoformat(period["end"]), zone).astimezone(timezone.utc)
+            while cursor + timedelta(minutes=duration) <= period_end:
+                end = cursor + timedelta(minutes=duration)
+                if cursor >= now + timedelta(minutes=service["minimum_notice_minutes"]) and cursor <= latest:
+                    remaining = self.remaining_capacity(service, page["owner_id"], cursor, end, availability)
+                    if remaining > 0:
+                        result.append({"startAt": cursor.isoformat(), "endAt": end.isoformat(), "remaining": remaining})
+                cursor += step
+        return {"date": day.isoformat(), "timezone": availability["timezone"], "slots": result}
+
+    def remaining_capacity(self, service: dict[str, Any], responsible_id: str, start: datetime, end: datetime, availability: dict[str, Any], *, db: sqlite3.Connection | None = None) -> int:
+        blocked_start = start - timedelta(minutes=service["buffer_before"])
+        blocked_end = end + timedelta(minutes=service["buffer_after"])
+        if any(self._overlap(blocked_start, blocked_end, item["start"], item["end"]) for item in availability.get("blocked", [])):
+            return 0
+        connection = db or self.repo.connect()
+        try:
+            # Other services for the same professional remain exclusive.
+            other = connection.execute("""SELECT 1 FROM scheduling_bookings b JOIN scheduling_services s ON s.id=b.service_id
+              WHERE b.responsible_id=? AND b.status IN ('PENDING','CONFIRMED') AND b.service_id<>?
+              AND datetime(b.start_at, '-' || s.buffer_before || ' minutes') < ?
+              AND datetime(b.end_at, '+' || s.buffer_after || ' minutes') > ? LIMIT 1""", (responsible_id, service["id"], blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
+            if other:
+                return 0
+            count = connection.execute("SELECT COUNT(*) FROM scheduling_bookings WHERE service_id=? AND responsible_id=? AND start_at=? AND status IN ('PENDING','CONFIRMED')", (service["id"], responsible_id, start.isoformat())).fetchone()[0]
+            holds = connection.execute("SELECT COUNT(*) FROM scheduling_holds WHERE service_id=? AND responsible_id=? AND start_at=? AND consumed_at IS NULL AND expires_at>?", (service["id"], responsible_id, start.isoformat(), now_iso())).fetchone()[0]
+            overlapping = connection.execute("""SELECT 1 FROM scheduling_bookings
+              WHERE service_id=? AND responsible_id=? AND start_at<>? AND status IN ('PENDING','CONFIRMED')
+              AND start_at < ? AND end_at > ? LIMIT 1""", (service["id"], responsible_id, start.isoformat(), blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
+            overlapping_hold = connection.execute("""SELECT 1 FROM scheduling_holds
+              WHERE service_id=? AND responsible_id=? AND start_at<>? AND consumed_at IS NULL AND expires_at>?
+              AND start_at < ? AND end_at > ? LIMIT 1""", (service["id"], responsible_id, start.isoformat(), now_iso(), blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
+            if overlapping or overlapping_hold:
+                return 0
+            return max(service["capacity"] - count - holds, 0)
+        finally:
+            if db is None:
+                connection.close()
+
+    def create_hold(self, identifier: str, payload: HoldPayload) -> dict[str, Any]:
+        bundle = self.public_page(identifier)
+        page, service = bundle["page"], bundle["service"]
+        start = parse_utc(payload.startAt); end = start + timedelta(minutes=payload.duration)
+        responsible = payload.responsibleId or page["owner_id"]
+        if responsible != page["owner_id"]:
+            raise HTTPException(422, "Responsavel nao pertence a esta pagina.")
+        availability = self._availability_for_page(page)
+        if not self._fits_availability(start, end, availability, service):
+            raise HTTPException(409, "Horario fora da disponibilidade.")
+        raw, hashed = token_pair(); hold_id = opaque_id("hold")
+        expires = datetime.now(timezone.utc) + timedelta(minutes=5)
+        with self.repo.transaction() as db:
+            if self.remaining_capacity(service, responsible, start, end, availability, db=db) <= 0:
+                raise HTTPException(409, "Horario indisponivel.")
+            db.execute("INSERT INTO scheduling_holds VALUES (?,?,?,?,?,?,?,?,?,?)", (hold_id, hashed, page["id"], service["id"], responsible, start.isoformat(), end.isoformat(), expires.isoformat(), None, now_iso()))
+        return {"holdToken": raw, "expiresAt": expires.isoformat()}
+
+    def _validate_responses(self, fields: list[dict[str, Any]], responses: dict[str, Any]) -> dict[str, Any]:
+        builtins = {"full_name", "email", "phone"}
+        allowed = {field["id"]: field for field in fields if field["id"] not in builtins and field.get("active", True) and not field.get("hidden")}
+        if set(responses) - set(allowed):
+            raise HTTPException(422, "O formulario contem campos desconhecidos.")
+        cleaned: dict[str, Any] = {}
+        for key, field in allowed.items():
+            value = responses.get(key)
+            if field.get("required") and (value is None or value == "" or value == []):
+                raise HTTPException(422, f"O campo {field['label']} e obrigatorio.")
+            if value in (None, "", []):
+                continue
+            if field["type"] == "cpf":
+                try: value = validate_cpf(str(value))
+                except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+            elif field["type"] == "email":
+                value = str(value).strip().lower()
+                if len(value) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value): raise HTTPException(422, "Email invalido.")
+            elif isinstance(value, str):
+                maximum = int(field.get("maxLength") or (5000 if field["type"] == "textarea" else 500))
+                if len(value) > maximum: raise HTTPException(422, f"O campo {field['label']} excede o limite.")
+            cleaned[key] = value
+        return cleaned
+
+    def create_booking(self, identifier: str, payload: BookingPayload) -> dict[str, Any]:
+        bundle = self.public_page(identifier); page, service = bundle["page"], bundle["service"]
+        if payload.duration not in service["durations"]: raise HTTPException(422, "Duracao nao permitida.")
+        start = parse_utc(payload.startAt); end = start + timedelta(minutes=payload.duration)
+        responsible = payload.responsibleId or page["owner_id"]
+        if responsible != page["owner_id"]:
+            raise HTTPException(422, "Responsavel nao pertence a esta pagina.")
+        responses = self._validate_responses(page["fields"], payload.responses)
+        cancel_raw, cancel_hash = token_pair(); reschedule_raw, reschedule_hash = token_pair()
+        booking_id, booking_public = opaque_id("book"), public_id(); stamp = now_iso()
+        availability = self._availability_for_page(page)
+        if not self._fits_availability(start, end, availability, service):
+            raise HTTPException(409, "Horario fora da disponibilidade.")
+        try:
+            with self.repo.transaction() as db:
+                replay = db.execute("SELECT * FROM scheduling_bookings WHERE page_id=? AND idempotency_key=?", (page["id"], payload.idempotencyKey)).fetchone()
+                if replay:
+                    item = self.repo.decode(replay) or {}
+                    return {"booking": self._public_booking(item), "idempotentReplay": True}
+                if payload.holdToken:
+                    hold = db.execute("SELECT * FROM scheduling_holds WHERE token_hash=? AND page_id=? AND consumed_at IS NULL AND expires_at>?", (token_hash(payload.holdToken), page["id"], stamp)).fetchone()
+                    if not hold or hold["start_at"] != start.isoformat(): raise HTTPException(409, "Reserva temporaria invalida ou expirada.")
+                    db.execute("UPDATE scheduling_holds SET consumed_at=? WHERE id=?", (stamp, hold["id"]))
+                if self.remaining_capacity(service, responsible, start, end, availability, db=db) <= 0:
+                    raise HTTPException(409, "Horario indisponivel.")
+                db.execute("""INSERT INTO scheduling_bookings
+                  (id,public_id,tenant_id,workspace_id,owner_id,responsible_id,service_id,page_id,start_at,end_at,timezone,status,attendee_name,attendee_email,attendee_phone,responses_json,source,cancel_token_hash,reschedule_token_hash,idempotency_key,created_at,updated_at)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (booking_id, booking_public, page["tenant_id"], page["workspace_id"], page["owner_id"], responsible, service["id"], page["id"], start.isoformat(), end.isoformat(), payload.timezone, "CONFIRMED", payload.name.strip(), payload.email, payload.phone, json.dumps(responses, ensure_ascii=False), "public", cancel_hash, reschedule_hash, payload.idempotencyKey, stamp, stamp))
+                self.repo.audit(db, (page["tenant_id"], page["workspace_id"], "public"), "booking_created", "booking", booking_id, {"serviceId": service["id"]})
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(409, "Agendamento duplicado.") from exc
+        item = self.repo.one("SELECT * FROM scheduling_bookings WHERE id=?", (booking_id,)) or {}
+        return {"booking": self._public_booking(item), "cancelToken": cancel_raw, "rescheduleToken": reschedule_raw}
+
+    @staticmethod
+    def _public_booking(item: dict[str, Any]) -> dict[str, Any]:
+        return {key: item.get(key) for key in ("public_id", "start_at", "end_at", "timezone", "status")}
+
+    def list_bookings(self, scope: tuple[str, str, str]) -> list[dict[str, Any]]:
+        return self.repo.all("SELECT * FROM scheduling_bookings WHERE tenant_id=? AND workspace_id=? AND owner_id=? ORDER BY start_at DESC", scope)
+
+    def update_booking_status(self, scope: tuple[str, str, str], booking_id: str, status: str) -> dict[str, Any]:
+        allowed = {"PENDING", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"}
+        if status not in allowed:
+            raise HTTPException(422, "Status invalido.")
+        with self.repo.transaction() as db:
+            row = db.execute("SELECT id FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (booking_id, *scope)).fetchone()
+            if not row: raise HTTPException(404, "Agendamento nao encontrado.")
+            db.execute("UPDATE scheduling_bookings SET status=?,updated_at=? WHERE id=?", (status, now_iso(), booking_id))
+            self.repo.audit(db, scope, "booking_status_updated", "booking", booking_id, {"status": status})
+        return self.repo.one("SELECT * FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (booking_id, *scope)) or {}
+
+    def attach_external_event(self, booking_public_id: str, event_id: str) -> None:
+        with self.repo.transaction() as db:
+            db.execute("UPDATE scheduling_bookings SET external_event_id=?,updated_at=? WHERE public_id=?", (event_id, now_iso(), booking_public_id))
+
+    def cancel(self, token: str) -> dict[str, Any]:
+        stamp = now_iso()
+        with self.repo.transaction() as db:
+            row = db.execute("SELECT * FROM scheduling_bookings WHERE cancel_token_hash=?", (token_hash(token),)).fetchone()
+            if not row: raise HTTPException(404, "Link de cancelamento invalido.")
+            if row["status"] == "CANCELLED": return {"status": "CANCELLED", "idempotentReplay": True}
+            db.execute("UPDATE scheduling_bookings SET status='CANCELLED',updated_at=? WHERE id=?", (stamp, row["id"]))
+            self.repo.audit(db, (row["tenant_id"], row["workspace_id"], "public"), "booking_cancelled", "booking", row["id"])
+        return {"status": "CANCELLED"}
+
+    def reschedule(self, token: str, start_at: str, duration: int) -> dict[str, Any]:
+        start = parse_utc(start_at); end = start + timedelta(minutes=duration); stamp = now_iso()
+        with self.repo.transaction() as db:
+            row = db.execute("SELECT * FROM scheduling_bookings WHERE reschedule_token_hash=?", (token_hash(token),)).fetchone()
+            if not row: raise HTTPException(404, "Link de reagendamento invalido.")
+            service = self.repo.decode(db.execute("SELECT * FROM scheduling_services WHERE id=?", (row["service_id"],)).fetchone()) or {}
+            page = self.repo.decode(db.execute("SELECT * FROM scheduling_pages WHERE id=?", (row["page_id"],)).fetchone()) or {}
+            if duration not in service.get("durations", []): raise HTTPException(422, "Duracao nao permitida.")
+            availability = self._availability_for_page(page)
+            if not self._fits_availability(start, end, availability, service):
+                raise HTTPException(409, "Novo horario fora da disponibilidade.")
+            db.execute("UPDATE scheduling_bookings SET status='RESCHEDULED' WHERE id=?", (row["id"],))
+            if self.remaining_capacity(service, row["responsible_id"], start, end, availability, db=db) <= 0:
+                raise HTTPException(409, "Novo horario indisponivel.")
+            db.execute("UPDATE scheduling_bookings SET start_at=?,end_at=?,status='CONFIRMED',updated_at=? WHERE id=?", (start.isoformat(), end.isoformat(), stamp, row["id"]))
+            self.repo.audit(db, (row["tenant_id"], row["workspace_id"], "public"), "booking_rescheduled", "booking", row["id"])
+        return {"status": "CONFIRMED", "startAt": start.isoformat(), "endAt": end.isoformat()}

@@ -43,6 +43,37 @@ class CreateTask(Strict):
         return value
 
 
+class SchedulingQuery(Strict):
+    kind: Literal["services", "pages", "bookings"] = "bookings"
+    query: str = Field(default="", max_length=160)
+
+
+class SchedulingCreate(Strict):
+    serviceName: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    durationMinutes: int = Field(ge=5, le=1440)
+    weekdays: list[int] = Field(min_length=1, max_length=7)
+    startTime: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    endTime: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    breakStart: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    breakEnd: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    capacity: int = Field(default=1, ge=1, le=500)
+    timezone: str = Field(default="America/Sao_Paulo", max_length=80)
+    slug: str | None = Field(default=None, max_length=64)
+    collectCpf: bool = False
+
+    @model_validator(mode="after")
+    def valid_schedule(self):
+        if self.startTime >= self.endTime:
+            raise ValueError("startTime must precede endTime")
+        if (self.breakStart is None) != (self.breakEnd is None):
+            raise ValueError("breakStart and breakEnd must be provided together")
+        if self.breakStart and not (self.startTime < self.breakStart < self.breakEnd < self.endTime):
+            raise ValueError("break must be inside availability")
+        if any(day < 0 or day > 6 for day in self.weekdays):
+            raise ValueError("weekdays must use 0=Monday through 6=Sunday")
+        return self
+
 class ChangeTask(Strict):
     id: str = Field(min_length=1, max_length=100)
     action: Literal["deadline", "complete", "delete"]
@@ -136,6 +167,41 @@ async def query_finance(user, prepared, job):
     payload = list_finance(user["id"])
     data = page(payload.get("lancamentos", []), prepared, ("id", "descricao", "valor", "tipo", "data", "status"))
     return Outcome("succeeded", data, {"read": "finance", "total": data["total"]})
+
+
+async def prepare_scheduling(user, args, job):
+    return {**args.model_dump(), "effects": []}
+
+
+async def query_scheduling(user, prepared, job):
+    from app.core.request_context import current_workspace_id
+    from app.modules.scheduling.service import SchedulingService, scope_from_user
+    scheduling = SchedulingService()
+    scope = scope_from_user(user, current_workspace_id())
+    records = {"services": scheduling.list_services, "pages": scheduling.list_pages, "bookings": scheduling.list_bookings}[prepared["kind"]](scope)
+    query = prepared["query"].casefold()
+    if query:
+        records = [item for item in records if query in " ".join(str(value) for value in item.values() if not isinstance(value, (dict, list))).casefold()]
+    safe = [{key: value for key, value in item.items() if key not in {"responses", "cancel_token_hash", "reschedule_token_hash", "attendee_phone"}} for item in records[:20]]
+    return Outcome("succeeded", {"records": safe, "total": len(records)}, {"read": f"scheduling_{prepared['kind']}", "total": len(records)})
+
+
+async def prepare_scheduling_create(user, args, job):
+    return {**args.model_dump(), "effects": ["scheduling_page"], "summary": {"service": args.serviceName, "duration": args.durationMinutes, "weekdays": args.weekdays, "hours": f"{args.startTime}-{args.endTime}", "capacity": args.capacity}}
+
+
+async def create_scheduling_page(user, prepared, job):
+    from app.core.request_context import current_workspace_id
+    from app.modules.scheduling.schemas import AvailabilityPayload, BookingField, PagePayload, Period, ServicePayload
+    from app.modules.scheduling.service import SchedulingService, scope_from_user
+    scheduling = SchedulingService(); scope = scope_from_user(user, current_workspace_id())
+    item = scheduling.create_service(scope, ServicePayload(name=prepared["serviceName"], description=prepared["description"], durations=[prepared["durationMinutes"]], capacity=prepared["capacity"]))
+    periods = ([Period(start=prepared["startTime"], end=prepared["breakStart"]), Period(start=prepared["breakEnd"], end=prepared["endTime"])] if prepared.get("breakStart") else [Period(start=prepared["startTime"], end=prepared["endTime"])])
+    scheduling.set_availability(scope, AvailabilityPayload(serviceId=item["id"], timezone=prepared["timezone"], weekly={str(day): periods for day in sorted(set(prepared["weekdays"]))}))
+    fields = [BookingField(id="full_name", type="full_name", label="Nome completo", required=True, maxLength=160), BookingField(id="email", type="email", label="E-mail", required=True, maxLength=254), BookingField(id="phone", type="phone", label="WhatsApp", maxLength=32)]
+    if prepared["collectCpf"]: fields.append(BookingField(id="cpf", type="cpf", label="CPF", required=True, maxLength=14))
+    page = scheduling.create_page(scope, PagePayload(serviceId=item["id"], title=prepared["serviceName"], description=prepared["description"], slug=prepared.get("slug"), fields=fields))
+    return Outcome("succeeded", {"serviceId": item["id"], "pageId": page["id"], "publicId": page["public_id"], "slug": page.get("slug")}, {"operationId": job["operationId"], "created": "scheduling_page", "pageId": page["id"]})
 
 
 class Email(Strict):
@@ -454,6 +520,8 @@ def registry(repository):
         Tool("tasks_change", "Alterar prazo, concluir ou excluir tarefa privada pelo ID. Exclusão exige revisão.", "tarefas", "D", ChangeTask, prepare_change, execute_task, reconcile=reconcile_task),
         Tool("clients_query", "Buscar cadastro de clientes por nome e somente os campos pedidos; não inclui histórico amplo.", "central", "C", Query, prepare_query, query_clients),
         Tool("finance_query", "Consultar lançamentos financeiros autorizados por descrição, com paginação.", "gastos", "C", Query, prepare_query, query_finance),
+        Tool("scheduling_query", "Consultar serviços, páginas e agendamentos reais, sempre no tenant e workspace autenticados.", "agenda", "C", SchedulingQuery, prepare_scheduling, query_scheduling),
+        Tool("scheduling_create_page", "Criar serviço, disponibilidade e página pública de agendamento após revisão do resumo exato.", "agenda", "R", SchedulingCreate, prepare_scheduling_create, create_scheduling_page),
         Tool("calendar_query", "Consultar eventos no intervalo absoluto informado, com cobertura explícita.", "agenda", "C", CalendarQuery, prepare_calendar_query, query_calendar),
         Tool("calendar_create", "Criar compromisso. Participantes transformam a operação em revisão de convite.", "agenda", "D", CalendarCreate, prepare_calendar_create, create_calendar_event, reconcile=reconcile_calendar_event),
         Tool("email_send", "Preparar e enviar email após revisão exata de remetente, destinatários, conteúdo e anexos.", ("emails", "integracao_gmail"), "R", Email, prepare_email, send_email),

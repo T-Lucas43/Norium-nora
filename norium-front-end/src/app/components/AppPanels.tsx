@@ -11,6 +11,7 @@ import ModuleCoach, { type GuidedModule } from "../../components/shared/ModuleCo
 
 const NoraWorkspace = lazy(() => import("../../components/nora/NoraWorkspace"));
 const AgendaDashboard = lazy(() => import("../../components/agenda/AgendaDashboard"));
+const SchedulingDashboard = lazy(() => import("../../components/scheduling/SchedulingDashboard"));
 const AutomationsDashboard = lazy(() => import("../../components/automations/AutomationsDashboard"));
 const BrainstormDashboard = lazy(() => import("../../components/brainstorm/BrainstormDashboard"));
 const ChatCentral = lazy(() => import("../../components/chat/ChatCentral"));
@@ -147,6 +148,11 @@ export default function AppPanels({
         <section className={activePanelClass("Agenda")}>
           {coach("Agenda")}
           <AgendaDashboard userId={currentUser.id} />
+        </section>
+      )}
+      {isPanelMounted("Agendamentos") && (
+        <section className={activePanelClass("Agendamentos")}>
+          <SchedulingDashboard />
         </section>
       )}
       {isPanelMounted("Chat") && (

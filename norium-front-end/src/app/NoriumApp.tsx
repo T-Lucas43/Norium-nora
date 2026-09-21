@@ -37,6 +37,7 @@ const AuthScreen = lazy(() => import("../components/auth/AuthScreen"));
 const AccountEmailAction = lazy(() => import("../components/auth/AccountEmailAction"));
 const Nora = lazy(() => import("../components/layout/Nora"));
 const PublicAccess = lazy(() => import("../components/public/PublicAccess"));
+const PublicSchedulingPage = lazy(() => import("../components/scheduling/PublicSchedulingPage"));
 const LegalPage = lazy(() => import("../components/public/LegalPage"));
 const TeamChatDrawer = lazy(() => import("../components/team-chat/TeamChatDrawer"));
 const SIMULATION_BACKUP_STORAGE = "norium-simulation-backup";
@@ -52,6 +53,7 @@ export default function NoriumApp() {
   const [currentHash, setCurrentHash] = useState(() => window.location.hash);
   const [currentView, setCurrentView] = useState<NoriumView>(currentNoriumView);
   const publicMatch = currentHash.match(/^#\/(portal|formulario|assinatura)\/([^/?#]+)/i);
+  const schedulingMatch = window.location.pathname.match(/^\/agendar\/([^/?#]+)\/?$/i);
   const publicRoute = publicMatch
     ? publicMatch[1].toLowerCase() === "portal"
       ? { kind: "portal" as const, token: decodeURIComponent(publicMatch[2]) }
@@ -257,6 +259,9 @@ export default function NoriumApp() {
   }, [openDeepLink]);
 
   const emailAction = currentHash.match(/^#\/(redefinir-senha|confirmar-email)\/([A-Za-z0-9_-]{32,128})$/);
+  if (schedulingMatch) {
+    return <Suspense fallback={<AppLoading label="Abrindo agendamento..." />}><PublicSchedulingPage identifier={decodeURIComponent(schedulingMatch[1])} /></Suspense>;
+  }
   if (emailAction) {
     return <Suspense fallback={<AppLoading label="Abrindo acesso seguro..." />}><AccountEmailAction
       key={currentHash} mode={emailAction[1] === "redefinir-senha" ? "reset" : "verify"} token={emailAction[2]}

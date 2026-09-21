@@ -204,7 +204,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         payload["instanceId"] = "INST-DESCONHECIDA"
         with patch.object(chat_router.wapi_webhook, "classify_event") as classify_event:
             with self.assertRaises(HTTPException) as error:
-                await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+                await chat_router.webhook_whatsapp(payload, request=FakeRequest(header_secret=SECRET))
         self.assertEqual(404, error.exception.status_code)
         classify_event.assert_not_called()
 
@@ -217,14 +217,14 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(chat_router, "_wapi_handle_received", handler):
             result = await chat_router.webhook_whatsapp(
                 payload,
-                request=FakeRequest(secret=SECRET),
+                request=FakeRequest(header_secret=SECRET),
             )
 
         self.assertEqual("success", result["status"])
         handler.assert_awaited_once_with("user-a", payload)
 
     async def test_received_persists_only_for_owner(self) -> None:
-        result = await chat_router.webhook_whatsapp(self._received(), request=FakeRequest(secret=SECRET))
+        result = await chat_router.webhook_whatsapp(self._received(), request=FakeRequest(header_secret=SECRET))
         self.assertEqual("success", result["status"])
         # Mensagem foi para o dono (user-a) e nao para outra conta (user-b).
         db_a = await load_conversations("user-a")
@@ -251,7 +251,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
 
         event = AsyncMock()
         with patch.object(chat_router, "record_event", event):
-            result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+            result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(header_secret=SECRET))
 
         self.assertEqual("success", result["status"])
         stored = (await load_conversations("user-a"))["5511999998888"]
@@ -278,7 +278,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
             "sender": {"pushName": "Eu Mesmo", "profilePicture": "https://exemplo/eu.jpg"},
             "msgContent": {"conversation": "oi"},
         }
-        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(header_secret=SECRET))
         self.assertEqual("success", result["status"])
         db2 = await load_conversations("user-a")
         conv = db2["5511999998888"]
@@ -299,7 +299,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         }
         group_metadata = AsyncMock(return_value={"nome": "Equipe", "photoUrl": "https://exemplo/equipe.jpg"})
         with patch.object(chat_router, "fetch_group_metadata", group_metadata):
-            result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+            result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(header_secret=SECRET))
 
         self.assertEqual("success", result["status"])
         db = await load_conversations("user-a")
@@ -336,7 +336,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
             "msgContent": {"conversation": "oi grupo"},
         }
 
-        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(header_secret=SECRET))
 
         self.assertEqual("success", result["status"])
         conversation = (await load_conversations("user-a"))["120363000000000000@g.us"]
@@ -368,7 +368,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
                     "msgContent": content,
                 }
                 with patch.object(chat_router, "fetch_profile_picture", AsyncMock(return_value=None)):
-                    result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+                    result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(header_secret=SECRET))
 
                 self.assertEqual("success", result["status"])
                 self.assertNotIn("status@broadcast", await load_conversations("user-a"))
@@ -399,7 +399,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(header_secret=SECRET))
 
         self.assertEqual("success", result["status"])
         feed = await chat_router.load_whatsapp_status_feed("user-a")
@@ -511,7 +511,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
             }
         }
 
-        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+        result = await chat_router.webhook_whatsapp(payload, request=FakeRequest(header_secret=SECRET))
 
         self.assertEqual("success", result["status"])
         self.assertEqual({}, await load_conversations("user-a"))
@@ -523,8 +523,8 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"items": []}, await chat_router.load_whatsapp_status_feed("user-b"))
 
     async def test_duplicate_received_is_ignored(self) -> None:
-        await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))
-        again = await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(secret=SECRET))
+        await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(header_secret=SECRET))
+        again = await chat_router.webhook_whatsapp(self._received("DUP"), request=FakeRequest(header_secret=SECRET))
         self.assertEqual("duplicate", again["status"])
 
     async def test_stored_group_duplicate_skips_catalog_lookup(self) -> None:
@@ -555,7 +555,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(chat_router, "load_whatsapp_catalog_cache", catalog):
             result = await chat_router.webhook_whatsapp(
                 payload,
-                request=FakeRequest(secret=SECRET),
+                request=FakeRequest(header_secret=SECRET),
             )
 
         self.assertEqual("duplicate", result["status"])
@@ -566,10 +566,10 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(chat_router, "_wapi_handle_received", handler):
             with self.assertRaises(HTTPException) as error:
                 await chat_router.webhook_whatsapp(
-                    self._received("RETRY-AFTER-FAILURE"), request=FakeRequest(secret=SECRET)
+                    self._received("RETRY-AFTER-FAILURE"), request=FakeRequest(header_secret=SECRET)
                 )
             retry = await chat_router.webhook_whatsapp(
-                self._received("RETRY-AFTER-FAILURE"), request=FakeRequest(secret=SECRET)
+                self._received("RETRY-AFTER-FAILURE"), request=FakeRequest(header_secret=SECRET)
             )
 
         self.assertEqual(502, error.exception.status_code)
@@ -587,11 +587,11 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(chat_router, "_wapi_handle_received", side_effect=slow_handler) as handler:
             first = asyncio.create_task(
-                chat_router.webhook_whatsapp(self._received("CONCURRENT"), request=FakeRequest(secret=SECRET))
+                chat_router.webhook_whatsapp(self._received("CONCURRENT"), request=FakeRequest(header_secret=SECRET))
             )
             await entered.wait()
             second = asyncio.create_task(
-                chat_router.webhook_whatsapp(self._received("CONCURRENT"), request=FakeRequest(secret=SECRET))
+                chat_router.webhook_whatsapp(self._received("CONCURRENT"), request=FakeRequest(header_secret=SECRET))
             )
             await asyncio.sleep(0)
             self.assertEqual(1, handler.await_count)
@@ -609,7 +609,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
         task: asyncio.Task[dict] | None = None
         try:
             task = asyncio.create_task(
-                chat_router.webhook_whatsapp(payload, request=FakeRequest(secret=SECRET))
+                chat_router.webhook_whatsapp(payload, request=FakeRequest(header_secret=SECRET))
             )
             for _ in range(20):
                 if chat_router.whatsapp_webhook_inflight:
@@ -641,7 +641,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
 
         # evento de status para o MESMO messageId nao pode ser descartado como duplicado
         status_event = {"event": "messageStatus", "instanceId": "INST-A", "messageId": "M9", "status": "READ"}
-        result = await chat_router.webhook_whatsapp(status_event, request=FakeRequest(secret=SECRET))
+        result = await chat_router.webhook_whatsapp(status_event, request=FakeRequest(header_secret=SECRET))
         self.assertEqual("success", result["status"])
         db2 = await load_conversations("user-a")
         msg = db2["5511999998888"]["mensagens"][0]
@@ -656,8 +656,8 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
 
         delivered = {"event": "messageStatus", "instanceId": "INST-A", "messageId": "M10", "status": "DELIVERED"}
         read = {"event": "messageStatus", "instanceId": "INST-A", "messageId": "M10", "status": "READ"}
-        self.assertEqual("success", (await chat_router.webhook_whatsapp(delivered, request=FakeRequest(secret=SECRET)))["status"])
-        self.assertEqual("success", (await chat_router.webhook_whatsapp(read, request=FakeRequest(secret=SECRET)))["status"])
+        self.assertEqual("success", (await chat_router.webhook_whatsapp(delivered, request=FakeRequest(header_secret=SECRET)))["status"])
+        self.assertEqual("success", (await chat_router.webhook_whatsapp(read, request=FakeRequest(header_secret=SECRET)))["status"])
         stored = (await load_conversations("user-a"))["5511999998888"]["mensagens"][0]
         self.assertEqual("lido", stored["status"])
 
@@ -677,7 +677,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
             "isRead": True,
             "unreadCount": 0,
         }
-        result = await chat_router.webhook_whatsapp(event, request=FakeRequest(secret=SECRET))
+        result = await chat_router.webhook_whatsapp(event, request=FakeRequest(header_secret=SECRET))
         self.assertEqual("success", result["status"])
         stored = (await load_conversations("user-a"))["5511999998888"]
         self.assertTrue(stored["lida"])
@@ -699,7 +699,7 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
             "isRead": True,
             "unreadCount": 0,
         }
-        result = await chat_router.webhook_whatsapp(event, request=FakeRequest(secret=SECRET))
+        result = await chat_router.webhook_whatsapp(event, request=FakeRequest(header_secret=SECRET))
         self.assertEqual("success", result["status"])
         stored = (await load_conversations("user-a"))["5511888887777"]
         self.assertTrue(stored["lida"])
@@ -719,8 +719,8 @@ class WapiWebhookTests(unittest.IsolatedAsyncioTestCase):
             "sender": {"pushName": "Eu"},
             "msgContent": {"conversation": "resposta pelo celular"},
         }
-        first = await chat_router.webhook_whatsapp(event, request=FakeRequest(secret=SECRET))
-        second = await chat_router.webhook_whatsapp(event, request=FakeRequest(secret=SECRET))
+        first = await chat_router.webhook_whatsapp(event, request=FakeRequest(header_secret=SECRET))
+        second = await chat_router.webhook_whatsapp(event, request=FakeRequest(header_secret=SECRET))
         self.assertEqual("success", first["status"])
         self.assertEqual("duplicate", second["status"])
         messages = (await load_conversations("user-a"))["5511999998888"]["mensagens"]

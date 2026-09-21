@@ -111,6 +111,25 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         ),
     ),
     ModuleHelp(
+        module="agendamentos",
+        aliases=(
+            "tela de agendamentos",
+            "paginas de agendamento",
+            "link de agendamento",
+            "agendamentos",
+        ),
+        response=(
+            "A tela de Agendamentos permite publicar páginas para clientes escolherem horários disponíveis sem acessar o Norium.\n\n"
+            "Como usar:\n"
+            "1. Cadastre os serviços, com duração, capacidade, intervalos e antecedência mínima.\n"
+            "2. Defina horários semanais, pausas, exceções e períodos bloqueados.\n"
+            "3. Crie uma página, ajuste a identidade visual e escolha os serviços oferecidos.\n"
+            "4. Compartilhe o link público e acompanhe as reservas na seção Agendamentos.\n"
+            "5. Cancele ou reagende somente depois de conferir cliente, serviço, data e horário.\n\n"
+            "A disponibilidade é validada novamente pelo servidor ao confirmar a reserva para evitar conflito de horários."
+        ),
+    ),
+    ModuleHelp(
         module="chat",
         aliases=("tela de chat", "conversas do chat", "chat", "whatsapp"),
         response=(

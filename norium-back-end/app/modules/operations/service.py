@@ -6,11 +6,14 @@ import contextvars
 import hashlib
 import hmac
 import json
+import logging
 import os
+import re
 import uuid
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 from weakref import WeakKeyDictionary
 
@@ -51,6 +54,7 @@ from app.services.task_store import delete_task, list_tasks, restore_task
 
 
 LOCAL_TZ = timezone(timedelta(hours=-3))
+logger = logging.getLogger(__name__)
 approval_decision_locks: dict[tuple[int, str, str], asyncio.Lock] = {}
 
 
@@ -1035,14 +1039,16 @@ async def reconcile_email_send(user: dict[str, Any], approval_id: str) -> dict[s
     await replace_item(user_id, APPROVAL_DB, approval_id, {"status": "executed", "updatedAt": now_iso(), "execution": execution, "executionError": "", "executionUncertain": False})
     if key:
         await _record_send_attempt(user_id, key, approval_id, str(current.get("digest") or ""), "confirmed", gmail_id=gmail_id, detail="reconciliado")
-    receipt = await create_receipt(
+    receipt = await record_receipt(
         user,
         ReceiptCreate(
+            action="nora_email_send_exact",
             title=str(current.get("title") or "Envio de e-mail"),
             description="Envio confirmado por reconciliação da caixa de enviados.",
             status="executed",
-            source="email",
-            approvalId=approval_id,
+            entityType="email",
+            entityId=approval_id,
+            metadata={"approvalId": approval_id, "reconciled": True},
         ),
     )
     await record_audit(

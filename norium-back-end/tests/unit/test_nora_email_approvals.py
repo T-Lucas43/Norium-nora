@@ -327,7 +327,7 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
         confirmed = await agent.handle(message="sim", session_id=ready["session_id"], user_id="owner-mail")
         finalized = await ops.finalize_email_agent_result(owner(), agent, confirmed)
         with self.assertRaisesRegex(ValueError, "conteúdo exato"):
-            await ops.edit_approval(owner(), finalized["approval"]["id"], ApprovalUpdate(title="x", description="y"))
+            await ops.edit_approval(owner(), finalized["approval"]["id"], ApprovalUpdate(title="xx", description="y"))
         self.assertEqual([], FakeGmail.sent)
 
     async def test_uncertain_send_reconciles_without_resending(self) -> None:

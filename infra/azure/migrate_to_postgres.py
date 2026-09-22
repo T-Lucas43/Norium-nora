@@ -188,6 +188,21 @@ def _copy_scheduling_logos(root: Path) -> int:
     return copied
 
 
+def _verify_accounts(root: Path) -> dict[str, int]:
+    from app.infrastructure.persistence import postgres_store
+
+    path = root / "usuarios_db.json"
+    if not path.is_file():
+        raise RuntimeError("user registry missing from migration source")
+    source = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(source, dict) or not isinstance(source.get("users"), list) or not source["users"]:
+        raise RuntimeError("user registry invalid or empty in migration source")
+    found, target = postgres_store.read_document("usuarios_db.json")
+    if not found or target != source:
+        raise RuntimeError("user registry verification failed in PostgreSQL")
+    return {key: len(source[key]) for key in ("users", "teams", "plans") if isinstance(source.get(key), list)}
+
+
 def migrate(root: Path, migration_id: str) -> dict[str, Any]:
     from psycopg.types.json import Jsonb
     from app.infrastructure.persistence import postgres_store
@@ -203,9 +218,11 @@ def migrate(root: Path, migration_id: str) -> dict[str, Any]:
             raise RuntimeError("migration id already used by a different source")
         return {**previous["report"], "replayed": True}
     documents, blobs = _copy_json_and_blobs(root)
+    accounts = _verify_accounts(root)
     tables = _copy_sqlite(root)
     logos = _copy_scheduling_logos(root)
     report = {"migrationId": migration_id, "sourceSha256": source_sha256, "documents": documents,
+              "accounts": accounts,
               "blobs": blobs, "schedulingLogos": logos, "tables": tables, "status": "validated"}
     with postgres_store.connection() as db:
         db.execute("INSERT INTO norium_migrations(migration_id,source_sha256,report) VALUES (%s,%s,%s)",

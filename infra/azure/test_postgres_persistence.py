@@ -11,6 +11,10 @@ from migrate_to_postgres import _initialize_schemas, migrate
 
 
 def create_source(root: Path) -> None:
+    (root / "usuarios_db.json").write_text(json.dumps({
+        "users": [{"id": "ci-user", "email": "ci@example.invalid", "passwordHash": "synthetic-hash"}],
+        "teams": [{"id": "ci-team"}], "plans": [{"id": "ci-plan"}],
+    }), encoding="utf-8")
     profile = root / "user_ci-user" / "perfil_db.json"
     profile.parent.mkdir(parents=True)
     profile.write_text(json.dumps({"nome": "Teste PostgreSQL", "email": "ci@example.invalid"}), encoding="utf-8")
@@ -50,6 +54,8 @@ def main() -> None:
         second = migrate(root, "ci-cutover")
         if first["status"] != "validated" or second.get("replayed") is not True:
             raise RuntimeError("migration receipt validation failed")
+        if first["accounts"] != {"users": 1, "teams": 1, "plans": 1}:
+            raise RuntimeError("user registry count validation failed")
 
     from app.core.tenant import get_user_db_path, read_json_file
     from app.infrastructure.persistence import files as persistent_files

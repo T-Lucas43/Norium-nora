@@ -273,8 +273,6 @@ class SchedulingService:
         blocked_end = end + timedelta(minutes=service["buffer_after"])
         if any(self._overlap(blocked_start, blocked_end, item["start"], item["end"]) for item in availability.get("blocked", [])):
             return 0
-        exclusion = " AND id<>?" if exclude_booking_id else ""
-        exclusion_params: tuple[Any, ...] = (exclude_booking_id,) if exclude_booking_id else ()
         connection = db or self.repo.connect()
         try:
             # Other services for the same professional remain exclusive.
@@ -284,11 +282,25 @@ class SchedulingService:
               AND datetime(b.end_at, '+' || s.buffer_after || ' minutes') > ? LIMIT 1""", (responsible_id, service["id"], blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
             if other:
                 return 0
-            count = connection.execute(f"SELECT COUNT(*) FROM scheduling_bookings WHERE service_id=? AND responsible_id=? AND start_at=? AND status IN ('PENDING','CONFIRMED'){exclusion}", (service["id"], responsible_id, start.isoformat(), *exclusion_params)).fetchone()[0]
+            if exclude_booking_id:
+                count = connection.execute(
+                    "SELECT COUNT(*) FROM scheduling_bookings WHERE service_id=? AND responsible_id=? AND start_at=? AND status IN ('PENDING','CONFIRMED') AND id<>?",
+                    (service["id"], responsible_id, start.isoformat(), exclude_booking_id),
+                ).fetchone()[0]
+            else:
+                count = connection.execute(
+                    "SELECT COUNT(*) FROM scheduling_bookings WHERE service_id=? AND responsible_id=? AND start_at=? AND status IN ('PENDING','CONFIRMED')",
+                    (service["id"], responsible_id, start.isoformat()),
+                ).fetchone()[0]
             holds = connection.execute("SELECT COUNT(*) FROM scheduling_holds WHERE service_id=? AND responsible_id=? AND start_at=? AND consumed_at IS NULL AND expires_at>?", (service["id"], responsible_id, start.isoformat(), now_iso())).fetchone()[0]
-            overlapping = connection.execute(f"""SELECT 1 FROM scheduling_bookings
-              WHERE service_id=? AND responsible_id=? AND start_at<>? AND status IN ('PENDING','CONFIRMED'){exclusion}
-              AND start_at < ? AND end_at > ? LIMIT 1""", (service["id"], responsible_id, start.isoformat(), *exclusion_params, blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
+            if exclude_booking_id:
+                overlapping = connection.execute("""SELECT 1 FROM scheduling_bookings
+                  WHERE service_id=? AND responsible_id=? AND start_at<>? AND status IN ('PENDING','CONFIRMED') AND id<>?
+                  AND start_at < ? AND end_at > ? LIMIT 1""", (service["id"], responsible_id, start.isoformat(), exclude_booking_id, blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
+            else:
+                overlapping = connection.execute("""SELECT 1 FROM scheduling_bookings
+                  WHERE service_id=? AND responsible_id=? AND start_at<>? AND status IN ('PENDING','CONFIRMED')
+                  AND start_at < ? AND end_at > ? LIMIT 1""", (service["id"], responsible_id, start.isoformat(), blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
             overlapping_hold = connection.execute("""SELECT 1 FROM scheduling_holds
               WHERE service_id=? AND responsible_id=? AND start_at<>? AND consumed_at IS NULL AND expires_at>?
               AND start_at < ? AND end_at > ? LIMIT 1""", (service["id"], responsible_id, start.isoformat(), now_iso(), blocked_end.isoformat(), blocked_start.isoformat())).fetchone()

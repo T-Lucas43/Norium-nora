@@ -162,6 +162,7 @@ export default function AgendaDashboard({ userId = "primary" }: { userId?: strin
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<Evento | null>(null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [form, setForm] = useState<EventForm>(() => emptyForm(new Date()));
 
@@ -286,8 +287,59 @@ export default function AgendaDashboard({ userId = "primary" }: { userId?: strin
         status={status}
         onRefresh={() => void carregarEventos()}
         onCreateEvent={abrirCriacao}
+        onOpenEvent={setSelectedEvent}
         todayKey={todayKey()}
       />
+
+      {selectedEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onMouseDown={() => setSelectedEvent(null)}>
+          <div className="w-full max-w-xl rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4">
+              <div className="min-w-0">
+                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Evento</p>
+                <h2 className="mt-1 truncate text-lg font-bold">{selectedEvent.title}</h2>
+              </div>
+              <Button variant="ghost" size="sm" iconOnly onClick={() => setSelectedEvent(null)}>
+                <X size={18} />
+              </Button>
+            </div>
+            <div className="grid gap-4 p-5 text-sm">
+              <div>
+                <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Data e hora</p>
+                <p className="mt-1 font-semibold">
+                  {new Date(selectedEvent.inicio).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}
+                  {!selectedEvent.allDay && ` · ${selectedEvent.timeStart} - ${selectedEvent.timeEnd}`}
+                </p>
+              </div>
+              {selectedEvent.location && (
+                <div>
+                  <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Endereço</p>
+                  <p className="mt-1 whitespace-pre-wrap">{selectedEvent.location}</p>
+                </div>
+              )}
+              {selectedEvent.description && (
+                <div>
+                  <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Descrição</p>
+                  <p className="mt-1 whitespace-pre-wrap leading-6">{selectedEvent.description}</p>
+                </div>
+              )}
+              {selectedEvent.participants.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold uppercase text-[var(--text-secondary)]">Participantes</p>
+                  <p className="mt-1">{selectedEvent.participants.join(", ")}</p>
+                </div>
+              )}
+              {selectedEvent.meetLink && (
+                <div>
+                  <a href={selectedEvent.meetLink} target="_blank" rel="noreferrer" className="font-bold text-[var(--primary)] hover:underline">
+                    Entrar na reunião
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">

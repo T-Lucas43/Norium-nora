@@ -586,13 +586,57 @@ async def create_hold(identifier: str, payload: HoldPayload):
     return scheduling.create_hold(identifier, payload)
 
 
-def _sync_public_booking_calendar(owner_id: str, service_name: str, booking: dict[str, Any], attendee_email: str) -> None:
+def _format_booking_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "Sim" if value else "Não"
+    if isinstance(value, list):
+        return ", ".join(str(item).strip() for item in value if str(item).strip())
+    return str(value).strip()
+
+
+def _booking_calendar_details(payload: BookingPayload, fields: list[dict[str, Any]], service_data: dict[str, Any]) -> tuple[str, str]:
+    lines = [
+        "Agendamento criado pela página pública do Norium.",
+        "",
+        f"Nome: {payload.name.strip()}",
+        f"E-mail: {payload.email}",
+    ]
+    if payload.phone:
+        lines.append(f"Telefone: {payload.phone}")
+
+    fields_by_id = {str(field.get("id") or ""): field for field in fields if isinstance(field, dict)}
+    address = ""
+    for key, value in payload.responses.items():
+        formatted = _format_booking_value(value)
+        if not formatted:
+            continue
+        field = fields_by_id.get(str(key), {})
+        label = str(field.get("label") or key).strip()
+        lines.append(f"{label}: {formatted}")
+        if not address and field.get("type") == "address":
+            address = formatted
+
+    if not address and service_data.get("location_type") == "in_person":
+        address = str(service_data.get("location") or "").strip()
+
+    return "\n".join(lines), address
+
+
+def _sync_public_booking_calendar(
+    owner_id: str,
+    service_name: str,
+    booking: dict[str, Any],
+    attendee_email: str,
+    description: str,
+    location: str,
+) -> None:
     try:
         calendar_result = CalendarService(owner_id).create_event(
             titulo=service_name,
             inicio=booking["start_at"],
             fim=booking["end_at"],
-            descricao="Agendamento criado pela pagina publica do Norium.",
+            descricao=description,
+            local=location,
             participantes=[attendee_email],
             operation_id=f"scheduling:{booking['public_id']}",
         )
@@ -619,12 +663,19 @@ async def create_booking(identifier: str, payload: BookingPayload, background_ta
     result = scheduling.create_booking(identifier, payload)
     booking = result.get("booking", {})
     if not result.get("idempotentReplay") and booking:
+        description, location = _booking_calendar_details(
+            payload,
+            list(bundle["page"].get("fields") or []),
+            dict(bundle["service"]),
+        )
         background_tasks.add_task(
             _sync_public_booking_calendar,
             str(bundle["page"]["owner_id"]),
             str(bundle["service"]["name"]),
             dict(booking),
             payload.email,
+            description,
+            location,
         )
     return result
 

@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 
 from app.modules.scheduling.repository import SchedulingRepository
+from app.modules.scheduling.router import _booking_calendar_details
 from app.modules.scheduling.schemas import AvailabilityPayload, BookingField, BookingPayload, PagePayload, Period, ServicePayload
 from app.modules.scheduling.service import SchedulingService, validate_cpf
 
@@ -287,6 +288,23 @@ class SchedulingTests(unittest.TestCase):
         text = SchedulingService.render_reschedule_whatsapp(service_name="Consultoria", attendee_name="Maria", old_start="2026-09-28T11:00:00+00:00", new_start="2026-09-29T12:00:00+00:00", timezone_name="America/Sao_Paulo")
         self.assertIn("28/09/2026", text)
         self.assertIn("29/09/2026", text)
+
+    def test_booking_calendar_details_include_registration_fields_and_address(self):
+        payload = self.booking_payload(self.next_monday_at(8), "calendar-details")
+        payload.responses = {"cpf": "52998224725", "address": "Rua das Flores, 100", "newsletter": True}
+        description, location = _booking_calendar_details(
+            payload,
+            [
+                {"id": "cpf", "type": "cpf", "label": "CPF"},
+                {"id": "address", "type": "address", "label": "Endereço"},
+                {"id": "newsletter", "type": "boolean", "label": "Aceita novidades"},
+            ],
+            {"location_type": "in_person", "location": "Endereço do serviço"},
+        )
+        self.assertIn("Nome: Cliente Teste", description)
+        self.assertIn("CPF: 52998224725", description)
+        self.assertIn("Aceita novidades: Sim", description)
+        self.assertEqual(location, "Rua das Flores, 100")
 
 
 if __name__ == "__main__": unittest.main()

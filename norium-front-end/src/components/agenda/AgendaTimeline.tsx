@@ -23,6 +23,7 @@ interface TimelineProps {
   status: AgendaStatus;
   onRefresh: () => void;
   onCreateEvent: (date?: Date) => void;
+  onOpenEvent: (evento: Evento) => void;
   todayKey: string;
 }
 
@@ -113,7 +114,7 @@ function navigate(date: Date, mode: ViewMode, direction: number) {
   return next;
 }
 
-function EventChip({ evento, dense = false }: { evento: Evento; dense?: boolean }) {
+function EventChip({ evento, dense = false, onOpenEvent }: { evento: Evento; dense?: boolean; onOpenEvent: (evento: Evento) => void }) {
   const content = (
     <div className={`min-w-0 rounded-md border-l-4 px-2.5 py-2 text-left shadow-sm ${evento.colorClass}`}>
       <div className="flex min-w-0 items-center gap-1.5">
@@ -140,14 +141,24 @@ function EventChip({ evento, dense = false }: { evento: Evento; dense?: boolean 
     </div>
   );
 
-  if (evento.htmlLink) {
-    return (
-      <a href={evento.htmlLink} target="_blank" rel="noreferrer" title={evento.title}>
-        {content}
-      </a>
-    );
-  }
-  return content;
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      title={evento.title}
+      className="cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]"
+      onClick={(event) => { event.stopPropagation(); onOpenEvent(evento); }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenEvent(evento);
+        }
+      }}
+    >
+      {content}
+    </div>
+  );
 }
 
 export default function AgendaTimeline({
@@ -161,6 +172,7 @@ export default function AgendaTimeline({
   status,
   onRefresh,
   onCreateEvent,
+  onOpenEvent,
   todayKey,
 }: TimelineProps) {
   const dayKey = formatDateKey(dataSelecionada);
@@ -174,7 +186,7 @@ export default function AgendaTimeline({
         <div className="grid grid-cols-[72px_1fr] border-b border-[var(--border)]">
           <div className="p-3 text-right text-xs font-bold text-[var(--text-secondary)]">Dia todo</div>
           <div className="flex min-h-14 flex-wrap gap-2 border-l border-[var(--border)] p-2">
-            {allDay.map((evento) => <EventChip key={evento.id} evento={evento} dense />)}
+            {allDay.map((evento) => <EventChip key={evento.id} evento={evento} dense onOpenEvent={onOpenEvent} />)}
           </div>
         </div>
         {hours.map((hour) => {
@@ -183,7 +195,7 @@ export default function AgendaTimeline({
             <div key={hour} className="grid min-h-20 grid-cols-[72px_1fr] border-b border-[var(--border)]">
               <div className="pr-3 pt-2 text-right text-xs font-bold text-[var(--text-secondary)]">{formatHour(hour)}</div>
               <div className="space-y-2 border-l border-[var(--border)] p-2">
-                {hourEvents.map((evento) => <EventChip key={evento.id} evento={evento} />)}
+                {hourEvents.map((evento) => <EventChip key={evento.id} evento={evento} onOpenEvent={onOpenEvent} />)}
               </div>
             </div>
           );
@@ -224,7 +236,7 @@ export default function AgendaTimeline({
                 const hourEvents = eventsForDate(eventos, key).filter((evento) => evento.allDay || eventHour(evento) === hour);
                 return (
                   <div key={`${key}-${hour}`} className="space-y-1 border-l border-[var(--border)] p-1.5">
-                    {hourEvents.slice(0, 3).map((evento) => <EventChip key={evento.id} evento={evento} dense />)}
+                    {hourEvents.slice(0, 3).map((evento) => <EventChip key={evento.id} evento={evento} dense onOpenEvent={onOpenEvent} />)}
                   </div>
                 );
               })}
@@ -249,7 +261,7 @@ export default function AgendaTimeline({
                 </div>
                 <div className="space-y-2">
                   {dayEvents.length
-                    ? dayEvents.map((evento) => <EventChip key={evento.id} evento={evento} />)
+                    ? dayEvents.map((evento) => <EventChip key={evento.id} evento={evento} onOpenEvent={onOpenEvent} />)
                     : <span className="text-xs font-semibold text-[var(--text-secondary)]">Sem compromissos.</span>}
                 </div>
               </button>
@@ -281,7 +293,7 @@ export default function AgendaTimeline({
               {day.getDate()}
             </span>
             <div className="space-y-1">
-              {dayEvents.slice(0, 4).map((evento) => <EventChip key={evento.id} evento={evento} dense />)}
+              {dayEvents.slice(0, 4).map((evento) => <EventChip key={evento.id} evento={evento} dense onOpenEvent={onOpenEvent} />)}
               {dayEvents.length > 4 && <p className="text-xs font-bold text-[var(--primary)]">+{dayEvents.length - 4} mais</p>}
             </div>
           </button>

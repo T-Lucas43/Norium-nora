@@ -234,7 +234,10 @@ jobs:
           retention-days: 14
 
   publish-image:
-    needs: [validate, team-call-quality, team-call-release]
+    # Publica a imagem assim que a validação de código termina. Os gates longos
+    # de chamada continuam obrigatórios para promover a imagem no job deploy,
+    # mas não consomem todo o limite de runner antes de o build começar.
+    needs: validate
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     permissions:
@@ -278,7 +281,7 @@ jobs:
           sbom: true
 
   deploy:
-    needs: publish-image
+    needs: [publish-image, team-call-release]
     # Permite publicar e validar uma imagem sem promovê-la antes da autorização.
     if: ${{ vars.DEPLOY_AZURE_ENABLED != 'false' && vars.AZURE_CONTAINER_APP_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' }}
     runs-on: ubuntu-latest

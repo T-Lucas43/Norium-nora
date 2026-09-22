@@ -25,7 +25,7 @@ jobs:
       POSTGRES_DATABASE: norium
       POSTGRES_ADMIN_LOGIN: noriumbootstrap
       POSTGRES_APP_LOGIN: norium_app
-      MIGRATION_SOURCE: ${{ runner.temp }}/norium-postgres-source
+      MIGRATION_SOURCE: /tmp/norium-postgres-source
     steps:
       - name: Require exact cutover confirmation
         env:

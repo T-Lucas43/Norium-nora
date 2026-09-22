@@ -347,6 +347,7 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
             "tela de documentos",
             "central de documentos",
             "documentos comerciais",
+            "pdf studio",
             "tela de propostas",
             "propostas e contratos",
             "propostas",

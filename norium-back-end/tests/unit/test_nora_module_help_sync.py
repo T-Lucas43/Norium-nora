@@ -32,6 +32,7 @@ TAB_ALIASES = {
     "gastos": "financeiro",
     "e-mail": "emails",
     "documentos": "propostas",
+    "pdf studio": "propostas",
 }
 
 

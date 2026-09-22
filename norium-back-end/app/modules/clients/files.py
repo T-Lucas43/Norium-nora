@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.core.tenant import get_user_db_path
+from app.infrastructure.persistence import files as persistent_files
 
 MAX_FILE_BYTES = 15 * 1024 * 1024
 MIME_TYPES = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".txt": "text/plain", ".csv": "text/csv", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
@@ -86,10 +87,17 @@ def profile_image(data: bytes) -> bytes:
 def write_file(user_id: str, client_id: str, data: bytes) -> str:
     file_id = uuid.uuid4().hex
     path = file_path(user_id, client_id, file_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    persistent_files.write(path, data)
     return file_id
 
 
 def remove_file(user_id: str, client_id: str, file_id: str) -> None:
-    file_path(user_id, client_id, file_id).unlink(missing_ok=True)
+    persistent_files.delete(file_path(user_id, client_id, file_id))
+
+
+def read_file(user_id: str, client_id: str, file_id: str) -> bytes | None:
+    path = file_path(user_id, client_id, file_id)
+    try:
+        return persistent_files.read(path)
+    except FileNotFoundError:
+        return None

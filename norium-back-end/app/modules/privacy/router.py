@@ -21,6 +21,7 @@ from app.core.security import hash_password, verify_password
 from app.core.request_context import normalize_workspace_id
 from app.core.tenant import get_data_root, read_json_file, safe_tenant_id, write_json_file
 from app.modules.auth import router as auth
+from app.infrastructure.persistence import postgres_store
 from app.shared.schemas import StrictModel
 
 
@@ -71,7 +72,32 @@ def _build_export(user: dict[str, Any]) -> bytes:
         account = json.dumps(_redact(auth.sanitize_user(user)), ensure_ascii=False, indent=2).encode("utf-8")
         archive.writestr("conta.json", account)
         manifest.append({"path": "conta.json", "sha256": hashlib.sha256(account).hexdigest(), "bytes": len(account)})
-        if directory.exists():
+        if postgres_store.configured() or postgres_store.required():
+            prefixes = (f"user_{safe_tenant_id(user_id)}/", f"{safe_tenant_id(user_id)}/",
+                        f"uploads/{safe_tenant_id(user_id)}/")
+            document_keys = sorted({key for prefix in prefixes for key in postgres_store.list_document_keys(prefix)})
+            for key in document_keys:
+                found, payload = postgres_store.read_document(key)
+                if not found:
+                    continue
+                data = json.dumps(_redact(payload), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+                name = f"dados/jsonb/{key}.json"
+                archive.writestr(name, data)
+                manifest.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+            blob_keys = sorted({key for prefix in prefixes for key in postgres_store.list_blob_keys(prefix)})
+            for key in blob_keys:
+                blob = postgres_store.read_blob(key)
+                if blob is None:
+                    continue
+                data = bytes(blob["content"])
+                name = f"dados/binarios/{key}"
+                archive.writestr(name, data)
+                manifest.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+            relational = _postgres_relational_export(user_id)
+            data = json.dumps(_redact(relational), ensure_ascii=False, indent=2, default=str).encode("utf-8")
+            archive.writestr("dados/postgresql-relacional.json", data)
+            manifest.append({"path": "dados/postgresql-relacional.json", "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+        elif directory.exists():
             for path in sorted(item for item in directory.rglob("*") if item.is_file()):
                 relative = path.relative_to(directory)
                 data = path.read_bytes()
@@ -89,9 +115,85 @@ def _build_export(user: dict[str, Any]) -> bytes:
 
 
 def _purge_personal_files(user_id: str) -> None:
+    if postgres_store.configured() or postgres_store.required():
+        prefixes = (f"user_{safe_tenant_id(user_id)}/", f"{safe_tenant_id(user_id)}/",
+                    f"uploads/{safe_tenant_id(user_id)}/")
+        for key in {key for prefix in prefixes for key in postgres_store.list_document_keys(prefix)}:
+            postgres_store.delete_document(key)
+        for key in {key for prefix in prefixes for key in postgres_store.list_blob_keys(prefix)}:
+            postgres_store.delete_blob(key)
+        _purge_postgres_relational(user_id)
+        return
     for directory in (_user_directory(user_id), _chat_upload_directory(user_id)):
         if directory.exists():
             shutil.rmtree(directory)
+
+
+def _table_exists(db: Any, table: str) -> bool:
+    return db.execute("SELECT to_regclass(%s) AS name", (table,)).fetchone()["name"] is not None
+
+
+def _postgres_relational_export(user_id: str) -> dict[str, Any]:
+    queries = {
+        "scheduling_services": ("tenant_id=%s", (user_id,)),
+        "scheduling_availability": ("tenant_id=%s", (user_id,)),
+        "scheduling_pages": ("tenant_id=%s", (user_id,)),
+        "scheduling_holds": ("page_id IN (SELECT id FROM scheduling_pages WHERE tenant_id=%s)", (user_id,)),
+        "scheduling_bookings": ("tenant_id=%s", (user_id,)),
+        "scheduling_audit": ("tenant_id=%s", (user_id,)),
+        "scheduling_notification_attempts": ("tenant_id=%s", (user_id,)),
+        "wapi_ownership": ("tenant_id=%s", (user_id,)),
+        "wapi_instance_lifecycle": ("tenant_id=%s", (user_id,)),
+        "wapi_binding_journal": ("tenant_id=%s", (user_id,)),
+        "automation_jobs": ("user_id=%s", (user_id,)),
+        "norium_system_logs": ("user_id=%s", (user_id,)),
+        "usage": ("user_id=%s", (user_id,)),
+        "limits": ("user_id=%s", (user_id,)),
+        "reservations": ("user_id=%s", (user_id,)),
+        "audit": ("actor=%s OR target=%s", (user_id, user_id)),
+        "nora_jobs": ("tenant=%s OR actor=%s", (user_id, user_id)),
+        "nora_events": ("tenant=%s OR actor=%s", (user_id, user_id)),
+        "nora_preferences": ("tenant=%s OR actor=%s", (user_id, user_id)),
+        "nora_budget": ("account=%s", (user_id,)),
+    }
+    exported: dict[str, Any] = {}
+    with postgres_store.connection() as db:
+        for table, (where, params) in queries.items():
+            if not _table_exists(db, table):
+                continue
+            row = db.execute(f"SELECT COALESCE(jsonb_agg(to_jsonb(t)), '[]'::jsonb) AS rows FROM {table} t WHERE {where}", params).fetchone()  # nosec B608 -- fixed table/where map
+            if row and row["rows"]:
+                exported[table] = row["rows"]
+    return exported
+
+
+def _purge_postgres_relational(user_id: str) -> None:
+    statements = (
+        ("scheduling_notification_attempts", "tenant_id=%s", (user_id,)),
+        ("scheduling_holds", "page_id IN (SELECT id FROM scheduling_pages WHERE tenant_id=%s)", (user_id,)),
+        ("scheduling_bookings", "tenant_id=%s", (user_id,)),
+        ("scheduling_audit", "tenant_id=%s", (user_id,)),
+        ("scheduling_availability", "tenant_id=%s", (user_id,)),
+        ("scheduling_pages", "tenant_id=%s", (user_id,)),
+        ("scheduling_services", "tenant_id=%s", (user_id,)),
+        ("wapi_binding_journal", "tenant_id=%s", (user_id,)),
+        ("wapi_instance_lifecycle", "tenant_id=%s", (user_id,)),
+        ("wapi_ownership", "tenant_id=%s", (user_id,)),
+        ("automation_jobs", "user_id=%s", (user_id,)),
+        ("norium_system_logs", "user_id=%s", (user_id,)),
+        ("reservations", "user_id=%s", (user_id,)),
+        ("usage", "user_id=%s", (user_id,)),
+        ("limits", "user_id=%s", (user_id,)),
+        ("audit", "actor=%s OR target=%s", (user_id, user_id)),
+        ("nora_events", "tenant=%s OR actor=%s", (user_id, user_id)),
+        ("nora_preferences", "tenant=%s OR actor=%s", (user_id, user_id)),
+        ("nora_jobs", "tenant=%s OR actor=%s", (user_id, user_id)),
+        ("nora_budget", "account=%s", (user_id,)),
+    )
+    with postgres_store.connection() as db:
+        for table, where, params in statements:
+            if _table_exists(db, table):
+                db.execute(f"DELETE FROM {table} WHERE {where}", params)  # nosec B608 -- fixed table/where tuple
 
 
 def _parse_due(value: Any) -> datetime | None:
@@ -105,8 +207,14 @@ def _parse_due(value: Any) -> datetime | None:
 def _purge_due_workspace_directories(now: datetime | None = None) -> int:
     current = now or datetime.now(timezone.utc)
     root = get_data_root().resolve()
+    in_postgres = postgres_store.configured() or postgres_store.required()
+    if in_postgres:
+        store_paths = [root / key for key in postgres_store.list_document_keys("user_")
+                       if key.count("/") == 1 and key.endswith("/plataforma_db.json")]
+    else:
+        store_paths = sorted(root.glob("user_*/plataforma_db.json"))
     purged = 0
-    for store_path in sorted(root.glob("user_*/plataforma_db.json")):
+    for store_path in store_paths:
         account_directory = store_path.parent.resolve()
         if account_directory.parent != root or not account_directory.name.startswith("user_"):
             continue
@@ -127,7 +235,34 @@ def _purge_due_workspace_directories(now: datetime | None = None) -> int:
             target = (account_directory / f"workspace_{workspace_id}").resolve()
             if target.parent != account_directory or not target.name.startswith("workspace_"):
                 continue
-            if target.exists():
+            if in_postgres:
+                tenant_id = account_directory.name.removeprefix("user_")
+                prefix = f"{account_directory.name}/workspace_{workspace_id}/"
+                document_keys = postgres_store.list_document_keys(prefix)
+                blob_keys = postgres_store.list_blob_keys(prefix)
+                with postgres_store.connection() as db:
+                    for table, where in (
+                        ("scheduling_notification_attempts", "tenant_id=%s AND workspace_id=%s"),
+                        ("scheduling_holds", "page_id IN (SELECT id FROM scheduling_pages WHERE tenant_id=%s AND workspace_id=%s)"),
+                        ("scheduling_bookings", "tenant_id=%s AND workspace_id=%s"),
+                        ("scheduling_audit", "tenant_id=%s AND workspace_id=%s"),
+                        ("scheduling_availability", "tenant_id=%s AND workspace_id=%s"),
+                        ("scheduling_pages", "tenant_id=%s AND workspace_id=%s"),
+                        ("scheduling_services", "tenant_id=%s AND workspace_id=%s"),
+                        ("automation_jobs", "user_id=%s AND workspace_id=%s"),
+                        ("norium_system_logs", "user_id=%s AND workspace_id=%s"),
+                        ("nora_events", "tenant=%s AND workspace=%s"),
+                        ("nora_preferences", "tenant=%s AND workspace=%s"),
+                        ("nora_jobs", "tenant=%s AND workspace=%s"),
+                        ("usage", "user_id=%s AND workspace=%s"),
+                    ):
+                        if _table_exists(db, table):
+                            db.execute(f"DELETE FROM {table} WHERE {where}", (tenant_id, workspace_id))  # nosec B608 -- fixed table map
+                    for key in document_keys:
+                        db.execute("DELETE FROM norium_documents WHERE store_key=%s", (key,))
+                    for key in blob_keys:
+                        db.execute("DELETE FROM norium_blobs WHERE object_key=%s", (key,))
+            elif target.exists():
                 shutil.rmtree(target)
             workspace["name"] = "Workspace excluido"
             for key in ("legalName", "document", "domain", "logoUrl", "emailSignature", "reportFooter"):

@@ -20,6 +20,7 @@ from fastapi import HTTPException
 
 from app.core.request_context import current_ai_user_id, current_workspace_id
 from app.core.tenant import get_data_root, read_json_file, safe_tenant_id
+from app.infrastructure.persistence import postgres_store
 
 BRAZIL = timezone(timedelta(hours=-3))
 NANO = Decimal(1_000_000_000)
@@ -42,6 +43,48 @@ CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
 
+class _CostRow(dict):
+    def __getitem__(self, key):
+        return tuple(self.values())[key] if isinstance(key, int) else super().__getitem__(key)
+
+
+class _CostCursor:
+    def __init__(self, cursor):
+        self.cursor = cursor
+        self.rowcount = cursor.rowcount
+
+    @staticmethod
+    def wrap(row):
+        return _CostRow(row) if isinstance(row, dict) else row
+
+    def fetchone(self):
+        return self.wrap(self.cursor.fetchone())
+
+    def fetchall(self):
+        return [self.wrap(row) for row in self.cursor.fetchall()]
+
+    def __iter__(self):
+        return (self.wrap(row) for row in self.cursor)
+
+
+class _PostgresCosts:
+    postgres = True
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    def execute(self, query, params=()):
+        normalized = query
+        if normalized.startswith("INSERT OR IGNORE INTO usage"):
+            normalized = normalized.replace("INSERT OR IGNORE", "INSERT", 1) + " ON CONFLICT DO NOTHING"
+        elif normalized.startswith("INSERT OR IGNORE INTO metadata"):
+            normalized = normalized.replace("INSERT OR IGNORE", "INSERT", 1) + " ON CONFLICT DO NOTHING"
+        elif normalized.startswith("INSERT OR REPLACE INTO limits"):
+            normalized = "INSERT INTO limits(user_id,data) VALUES (%s,%s) ON CONFLICT(user_id) DO UPDATE SET data=EXCLUDED.data"
+            return _CostCursor(self.raw.execute(normalized, params))
+        return _CostCursor(self.raw.execute(normalized.replace("?", "%s"), params))
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -53,6 +96,27 @@ def month_for(value: str | None = None) -> str:
 
 @contextmanager
 def database():
+    if postgres_store.configured() or postgres_store.required():
+        with postgres_store.connection() as raw:
+            db = _PostgresCosts(raw)
+            statements = [statement.strip() for statement in SCHEMA.split(";") if statement.strip()]
+            for statement in statements:
+                statement = statement.replace(
+                    "id INTEGER PRIMARY KEY, created_at",
+                    "id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, created_at",
+                )
+                if statement.startswith("CREATE TABLE IF NOT EXISTS usage") or statement.startswith("CREATE TABLE IF NOT EXISTS reservations"):
+                    statement = statement.replace(" INTEGER", " BIGINT")
+                db.execute(statement)
+            db.execute("ALTER TABLE reservations ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT ''")
+            db.execute("INSERT OR IGNORE INTO metadata VALUES ('trackingStartedAt', ?)", (now(),))
+            try:
+                yield db
+                raw.commit()
+            except BaseException:
+                raw.rollback()
+                raise
+        return
     # DELETE journaling works with the persistent volume; WAL requires shared memory.
     path = get_data_root() / "ai_costs.sqlite3"
     vfs = os.getenv("NORIUM_AI_COSTS_SQLITE_VFS", "").strip()
@@ -369,9 +433,14 @@ def sync_catalog(users: list[dict]) -> dict:
             connect(provider)
         for user in users:
             folder = root / f'user_{safe_tenant_id(user["id"])}'
-            paths = [folder / "intelligence_db.json", *folder.glob("workspace_*/intelligence_db.json")]
+            if postgres_store.configured() or postgres_store.required():
+                prefix = f'user_{safe_tenant_id(user["id"])}/'
+                paths = [root / key for key in postgres_store.list_document_keys(prefix)
+                         if key == prefix + "intelligence_db.json" or (key.startswith(prefix + "workspace_") and key.endswith("/intelligence_db.json"))]
+            else:
+                paths = [folder / "intelligence_db.json", *folder.glob("workspace_*/intelligence_db.json")]
             for path in paths:
-                if not path.is_file():
+                if not (postgres_store.configured() or postgres_store.required()) and not path.is_file():
                     continue
                 store = read_json_file(path, {})
                 if not isinstance(store, dict):

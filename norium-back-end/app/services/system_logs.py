@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.tenant import get_system_db_path
+from app.infrastructure.persistence import postgres_store
 
 
 _LOCK = threading.RLock()
@@ -74,6 +75,17 @@ def record_system_log(
         "metadata": metadata or {},
         "createdAt": _now_iso(),
     }
+    if postgres_store.configured() or postgres_store.required():
+        from psycopg.types.json import Jsonb
+        postgres_store.initialize()
+        with postgres_store.connection() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS norium_system_logs (
+                id TEXT PRIMARY KEY,event TEXT NOT NULL,level TEXT NOT NULL,message TEXT NOT NULL,
+                user_id TEXT NOT NULL,workspace_id TEXT NOT NULL,metadata JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL)""")
+            db.execute("INSERT INTO norium_system_logs VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                       (entry["id"], entry["event"], entry["level"], entry["message"], entry["userId"],
+                        entry["workspaceId"], Jsonb(entry["metadata"]), entry["createdAt"]))
+        return entry
     with _LOCK:
         path = _path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,8 +98,19 @@ def record_system_log(
 
 def list_system_logs(*, limit: int = 200, level: str = "", search: str = "") -> list[dict[str, Any]]:
     query = search.strip().casefold()
-    with _LOCK:
-        items = _read()
+    if postgres_store.configured() or postgres_store.required():
+        postgres_store.initialize()
+        with postgres_store.connection() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS norium_system_logs (
+                id TEXT PRIMARY KEY,event TEXT NOT NULL,level TEXT NOT NULL,message TEXT NOT NULL,
+                user_id TEXT NOT NULL,workspace_id TEXT NOT NULL,metadata JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL)""")
+            rows = db.execute("SELECT * FROM norium_system_logs ORDER BY created_at DESC LIMIT %s", (max(1, min(limit * 5, 5000)),)).fetchall()
+        items = [{"id": row["id"], "event": row["event"], "level": row["level"], "message": row["message"],
+                  "userId": row["user_id"], "workspaceId": row["workspace_id"], "metadata": row["metadata"],
+                  "createdAt": row["created_at"].isoformat()} for row in rows]
+    else:
+        with _LOCK:
+            items = _read()
     if level in _ALLOWED_LEVELS:
         items = [item for item in items if item.get("level") == level]
     if query:

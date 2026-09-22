@@ -12,6 +12,7 @@ import base64
 import json
 import mimetypes
 import re
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ from app.infrastructure.storage_quota import (
     remove_managed_file,
     storage_mutation_lock,
 )
+from app.infrastructure.persistence import files as persistent_files
+from app.infrastructure.persistence import postgres_store
 from app.modules.intelligence.browser_live import FEEDS, live_key, start_live
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 from app.modules.platform.service import decrypt_secret, encrypt_secret, list_collection, update_collection_item
@@ -198,7 +201,8 @@ def sanitize_run(run: dict[str, Any]) -> dict[str, Any]:
 
 def _run_dir(user_id: str, run_id: str) -> Path:
     root = Path(get_user_db_path(user_id, "intelligence")).parent / "browser_runs" / run_id
-    root.mkdir(parents=True, exist_ok=True)
+    if not (postgres_store.configured() or postgres_store.required()):
+        root.mkdir(parents=True, exist_ok=True)
     return root.resolve()
 
 
@@ -214,7 +218,7 @@ def artifact_path(user_id: str, run_id: str, artifact_id: str) -> tuple[Path, di
         path.relative_to(_run_dir(user_id, run_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="Arquivo fora da execucao autorizada.") from exc
-    if not path.is_file():
+    if not persistent_files.exists(path):
         raise HTTPException(status_code=404, detail="O arquivo da execucao nao esta mais disponivel.")
     return path, artifact
 
@@ -412,10 +416,18 @@ async def _save_download(user_id: str, run_id: str, download: Download) -> dict[
     artifact_id = f"artifact_{uuid.uuid4().hex[:16]}"
     safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", Path(download.suggested_filename).name).strip("._") or "download"
     path = _run_dir(user_id, run_id) / f"{artifact_id}_{safe_name}"
-    await download.save_as(str(path))
-    size = path.stat().st_size
+    if postgres_store.configured() or postgres_store.required():
+        with tempfile.TemporaryDirectory(prefix="norium-browser-download-") as directory:
+            temporary = Path(directory) / safe_name
+            await download.save_as(str(temporary))
+            content = temporary.read_bytes()
+        atomic_write_bytes(path, content)
+        size = len(content)
+    else:
+        await download.save_as(str(path))
+        size = path.stat().st_size
     if size > MAX_DOWNLOAD_BYTES:
-        path.unlink(missing_ok=True)
+        persistent_files.delete(path)
         raise HTTPException(status_code=413, detail="O download excedeu o limite seguro de 25 MB.")
     artifact = {
         "id": artifact_id, "kind": "download", "name": safe_name,

@@ -549,13 +549,15 @@ async def nora_file_content(
     download: bool = Query(default=False),
     user: dict[str, Any] = Depends(require_nora_permission),
 ):
-    record, path = await asyncio.to_thread(owned_file, tenant_id(user), file_id)
-    return FileResponse(
-        path,
+    from app.services.nora_files import owned_bytes
+    record, content = await asyncio.to_thread(owned_bytes, tenant_id(user), file_id)
+    disposition = "attachment" if download else "inline"
+    name = str(record.get("name") or "arquivo")
+    return Response(
+        content,
         media_type=str(record.get("mimeType") or "application/octet-stream"),
-        filename=str(record.get("name") or path.name),
-        content_disposition_type="attachment" if download else "inline",
-        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+                 "Content-Disposition": f'{disposition}; filename="{name.replace(chr(34), "")}"'},
     )
 
 

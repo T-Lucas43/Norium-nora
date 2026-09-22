@@ -226,20 +226,20 @@ async def prepare_email(user, args, job):
     status = GmailService(user["id"]).status()
     if not status.get("connected") or not status.get("email"):
         raise BrainError("email_connection_required")
-    from app.services.nora_files import owned_file
+    from app.services.nora_files import owned_bytes
     attachments, total = [], 0
     for file_id in args.attachmentIds:
-        record, path = owned_file(user["id"], file_id)
-        size = path.stat().st_size
+        record, content = owned_bytes(user["id"], file_id)
+        size = len(content)
         total += size
         if total > 18 * 1024 * 1024:
             raise BrainError("email_attachment_limit", 413)
         attachments.append({
             "id": file_id,
-            "name": str(record.get("name") or record.get("fileName") or path.name),
+            "name": str(record.get("name") or record.get("fileName") or "anexo"),
             "mimeType": str(record.get("mimeType") or "application/octet-stream"),
             "size": size,
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "sha256": hashlib.sha256(content).hexdigest(),
         })
     payload = args.model_dump(exclude={"attachmentIds"})
     return {**payload, "sender": status["email"], "attachments": attachments, "effects": ["send"]}
@@ -250,12 +250,11 @@ async def send_email(user, prepared, job):
     service = GmailService(user["id"])
     if service.status().get("email") != prepared["sender"]:
         return Outcome("rejected", {}, {"reason": "sender_changed"})
-    from app.services.nora_files import owned_file
+    from app.services.nora_files import owned_bytes
     import base64
     attachments = []
     for item in prepared["attachments"]:
-        _, path = owned_file(user["id"], item["id"])
-        content = path.read_bytes()
+        _, content = owned_bytes(user["id"], item["id"])
         if hashlib.sha256(content).hexdigest() != item["sha256"]:
             return Outcome("rejected", {}, {"reason": "attachment_changed", "attachment": item["id"]})
         attachments.append({"fileName": item["name"], "mimeType": item["mimeType"],

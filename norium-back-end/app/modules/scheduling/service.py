@@ -146,7 +146,9 @@ class SchedulingService:
                   (id,public_id,tenant_id,workspace_id,owner_id,service_id,slug,title,description,theme_json,fields_json,logo_url,active,created_at,updated_at)
                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (entity_id, public_id(), *scope, payload.serviceId, payload.slug, payload.title.strip(), payload.description.strip(), json.dumps(payload.theme), json.dumps([f.model_dump() for f in payload.fields]), payload.logoUrl, int(payload.active), stamp, stamp))
                 self.repo.audit(db, scope, "page_created", "page", entity_id, {"title": payload.title})
-        except sqlite3.IntegrityError as exc:
+        except Exception as exc:
+            if not self.repo.is_integrity_error(exc):
+                raise
             raise HTTPException(409, "Slug ou identificador publico ja esta em uso.") from exc
         return self.get_page(scope, entity_id)
 
@@ -167,7 +169,9 @@ class SchedulingService:
                 db.execute("""UPDATE scheduling_pages SET service_id=?,slug=?,title=?,description=?,theme_json=?,fields_json=?,logo_url=?,active=?,updated_at=?
                   WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?""", (payload.serviceId, payload.slug, payload.title.strip(), payload.description.strip(), json.dumps(payload.theme), json.dumps([f.model_dump() for f in payload.fields]), payload.logoUrl, int(payload.active), now_iso(), entity_id, *scope))
                 self.repo.audit(db, scope, "page_updated", "page", entity_id)
-        except sqlite3.IntegrityError as exc:
+        except Exception as exc:
+            if not self.repo.is_integrity_error(exc):
+                raise
             raise HTTPException(409, "Slug ja esta em uso.") from exc
         return self.get_page(scope, entity_id)
 
@@ -190,16 +194,27 @@ class SchedulingService:
         if not match:
             raise HTTPException(422, "Formato real do logo deve ser PNG, JPEG ou WebP.")
         extension, mime = match
-        folder = get_user_dir(scope[0]) / "scheduling_assets"; folder.mkdir(parents=True, exist_ok=True)
-        target = folder / f"{entity_id}.{extension}"; target.write_bytes(raw)
+        from app.infrastructure.persistence import postgres_store
+        object_key = f"{scope[0]}/{scope[1]}/scheduling/logo/{entity_id}"
+        if postgres_store.configured() or postgres_store.required():
+            postgres_store.write_blob(object_key, raw, mime, {"extension": extension, "tenant": scope[0], "workspace": scope[1]})
+        else:
+            folder = get_user_dir(scope[0]) / "scheduling_assets"; folder.mkdir(parents=True, exist_ok=True)
+            target = folder / f"{entity_id}.{extension}"; target.write_bytes(raw)
         url = f"/api/public/scheduling/pages/{page['public_id']}/logo"
         with self.repo.transaction() as db:
             db.execute("UPDATE scheduling_pages SET logo_url=?,updated_at=? WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (url, now_iso(), entity_id, *scope))
             self.repo.audit(db, scope, "page_logo_updated", "page", entity_id, {"mime": mime, "size": len(raw)})
         return {"logoUrl": url, "mime": mime}
 
-    def logo_asset(self, identifier: str) -> tuple[str, str]:
+    def logo_asset(self, identifier: str) -> tuple[bytes | str, str]:
         page = self.public_page(identifier)["page"]
+        from app.infrastructure.persistence import postgres_store
+        if postgres_store.configured() or postgres_store.required():
+            blob = postgres_store.read_blob(f"{page['tenant_id']}/{page['workspace_id']}/scheduling/logo/{page['id']}")
+            if blob:
+                return bytes(blob["content"]), str(blob["content_type"])
+            raise HTTPException(404, "Logo nao encontrado.")
         folder = get_user_dir(page["tenant_id"]) / "scheduling_assets"
         for extension, mime in (("png", "image/png"), ("jpg", "image/jpeg"), ("webp", "image/webp")):
             candidate = folder / f"{page['id']}.{extension}"
@@ -328,6 +343,7 @@ class SchedulingService:
         raw, hashed = token_pair(); hold_id = opaque_id("hold")
         expires = datetime.now(timezone.utc) + timedelta(minutes=5)
         with self.repo.transaction() as db:
+            self.repo.lock_slot(db, service["id"], responsible, start.isoformat())
             if self.remaining_capacity(service, responsible, start, end, availability, db=db) <= 0:
                 raise HTTPException(409, "Horario indisponivel.")
             db.execute("INSERT INTO scheduling_holds VALUES (?,?,?,?,?,?,?,?,?,?)", (hold_id, hashed, page["id"], service["id"], responsible, start.isoformat(), end.isoformat(), expires.isoformat(), None, now_iso()))
@@ -377,6 +393,7 @@ class SchedulingService:
             raise HTTPException(409, "Horario fora da disponibilidade.")
         try:
             with self.repo.transaction() as db:
+                self.repo.lock_slot(db, service["id"], responsible, start.isoformat())
                 replay = db.execute("SELECT * FROM scheduling_bookings WHERE page_id=? AND idempotency_key=?", (page["id"], payload.idempotencyKey)).fetchone()
                 if replay:
                     item = self.repo.decode(replay) or {}
@@ -391,7 +408,9 @@ class SchedulingService:
                   (id,public_id,tenant_id,workspace_id,owner_id,responsible_id,service_id,page_id,start_at,end_at,timezone,status,attendee_name,attendee_email,attendee_phone,responses_json,source,cancel_token_hash,reschedule_token_hash,idempotency_key,created_at,updated_at)
                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (booking_id, booking_public, page["tenant_id"], page["workspace_id"], page["owner_id"], responsible, service["id"], page["id"], start.isoformat(), end.isoformat(), payload.timezone, "CONFIRMED", payload.name.strip(), payload.email, payload.phone, json.dumps(responses, ensure_ascii=False), "public", cancel_hash, reschedule_hash, payload.idempotencyKey, stamp, stamp))
                 self.repo.audit(db, (page["tenant_id"], page["workspace_id"], "public"), "booking_created", "booking", booking_id, {"serviceId": service["id"]})
-        except sqlite3.IntegrityError as exc:
+        except Exception as exc:
+            if not self.repo.is_integrity_error(exc):
+                raise
             raise HTTPException(409, "Agendamento duplicado.") from exc
         item = self.repo.one("SELECT * FROM scheduling_bookings WHERE id=?", (booking_id,)) or {}
         return {"booking": self._public_booking(item), "cancelToken": cancel_raw, "rescheduleToken": reschedule_raw}

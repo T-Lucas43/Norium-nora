@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import Field
 
 from app.modules.auth.router import current_user, assert_route_permissions
@@ -15,6 +15,7 @@ from app.modules.clients.repository import list_clients as load_clients
 from app.modules.clients.repository import save_clients
 from app.modules.operations.schemas import AuditCreate
 from app.modules.operations.service import record_audit
+from app.infrastructure.persistence import postgres_store
 from app.shared.schemas import StrictModel
 
 
@@ -108,14 +109,18 @@ async def upload_client_file(client_id: str, payload: ClientFileUpload, user: di
 
 
 @router.get("/{client_id}/files/{file_id}")
-async def download_client_file(client_id: str, file_id: str, user: dict = Depends(current_user)) -> FileResponse:
+async def download_client_file(client_id: str, file_id: str, user: dict = Depends(current_user)) -> Response:
     user_id = tenant_id(user)
     client = client_or_404(await asyncio.to_thread(load_clients, user_id), client_id)
     attachment = next((item for item in client.get("attachments", []) if item["id"] == file_id), None)
-    path = files.file_path(user_id, client_id, file_id)
-    if not attachment or not path.is_file():
+    content = await asyncio.to_thread(files.read_file, user_id, client_id, file_id)
+    if not attachment or content is None:
         raise HTTPException(404, "Documento não encontrado.")
-    return FileResponse(path, media_type=attachment["mimeType"], filename=attachment["fileName"], headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+    safe_name = str(attachment["fileName"]).replace('"', "")
+    headers = {"Content-Disposition": f'attachment; filename="{safe_name}"', "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+    if not (postgres_store.configured() or postgres_store.required()):
+        return FileResponse(files.file_path(user_id, client_id, file_id), media_type=attachment["mimeType"], headers=headers)
+    return Response(content, media_type=attachment["mimeType"], headers=headers)
 
 
 @router.delete("/{client_id}/files/{file_id}")
@@ -155,15 +160,15 @@ async def upload_client_avatar(client_id: str, payload: ClientFileUpload, user: 
 
 
 @router.get("/{client_id}/avatar")
-async def read_client_avatar(client_id: str, user: dict = Depends(current_user)) -> FileResponse:
+async def read_client_avatar(client_id: str, user: dict = Depends(current_user)) -> Response:
     user_id = tenant_id(user)
     client = client_or_404(await asyncio.to_thread(load_clients, user_id), client_id)
     if not client.get("avatarId"):
         raise HTTPException(404, "Foto não encontrada.")
-    path = files.file_path(user_id, client_id, client["avatarId"])
-    if not path.is_file():
+    content = await asyncio.to_thread(files.read_file, user_id, client_id, client["avatarId"])
+    if content is None:
         raise HTTPException(404, "Foto não encontrada.")
-    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+    return Response(content, media_type="image/webp", headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @router.delete("/{client_id}/avatar")

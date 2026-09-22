@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from app.core.tenant import get_user_db_path
+from app.core.tenant import get_user_db_path, read_json_file, write_json_file
+from app.infrastructure.persistence import postgres_store
 
 ChatChannel = Literal["whatsapp"]
 
@@ -36,6 +37,9 @@ def _json_file_for_user(user_id: str) -> Path:
 
 def _read_json_sync(user_id: str = "lucas123") -> Dict[str, Any]:
     json_file = _json_file_for_user(user_id)
+    if postgres_store.configured() or postgres_store.required():
+        payload = read_json_file(json_file, {})
+        return payload if isinstance(payload, dict) else {}
     if not json_file.exists() and user_id == "lucas123" and JSON_FILE.exists():
         json_file.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -55,6 +59,9 @@ def _read_json_sync(user_id: str = "lucas123") -> Dict[str, Any]:
 
 def _write_json_sync(data: Dict[str, Any], user_id: str = "lucas123") -> None:
     json_file = _json_file_for_user(user_id)
+    if postgres_store.configured() or postgres_store.required():
+        write_json_file(json_file, data)
+        return
     json_file.parent.mkdir(parents=True, exist_ok=True)
     with json_file.open("w", encoding="utf-8") as arquivo:
         json.dump(data, arquivo, ensure_ascii=False, indent=4)

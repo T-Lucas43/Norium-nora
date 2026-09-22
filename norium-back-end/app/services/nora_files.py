@@ -31,6 +31,8 @@ from app.infrastructure.storage_quota import (
     storage_mutation_lock,
 )
 from app.modules.commercial.document_files import process_native_documents
+from app.infrastructure.persistence import files as persistent_files
+from app.infrastructure.persistence import postgres_store
 from app.services.finance_store import list_finance
 from app.services.task_store import list_tasks
 
@@ -82,7 +84,8 @@ def _now_iso() -> str:
 def _workspace_root(user_id: str) -> Path:
     db_path = Path(get_user_db_path(user_id, DB_NAME)).resolve()
     root = (db_path.parent / "nora_files").resolve()
-    root.mkdir(parents=True, exist_ok=True)
+    if not (postgres_store.configured() or postgres_store.required()):
+        root.mkdir(parents=True, exist_ok=True)
     return root
 
 
@@ -248,9 +251,14 @@ def owned_file(user_id: str, file_id: str) -> tuple[dict[str, Any], Path]:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
     root = _workspace_root(user_id)
     path = (root / Path(str(record.get("storageName") or "")).name).resolve()
-    if path.parent != root or not path.is_file():
+    if path.parent != root or not persistent_files.exists(path):
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
     return record, path
+
+
+def owned_bytes(user_id: str, file_id: str) -> tuple[dict[str, Any], bytes]:
+    record, path = owned_file(user_id, file_id)
+    return record, persistent_files.read(path)
 
 
 def artifacts_for_ids(user_id: str, file_ids: list[str]) -> list[dict[str, Any]]:
@@ -260,7 +268,17 @@ def artifacts_for_ids(user_id: str, file_ids: list[str]) -> list[dict[str, Any]]
 def process_files(user_id: str, file_ids: list[str], operation: str, options: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     records_and_paths = [owned_file(user_id, file_id) for file_id in file_ids]
     paths = [item[1] for item in records_and_paths]
-    outputs = process_native_documents(operation, paths, options or {})
+    if postgres_store.configured() or postgres_store.required():
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="norium-pdf-") as directory:
+            temporary_paths = []
+            for index, path in enumerate(paths):
+                temporary = Path(directory) / f"{index}{path.suffix}"
+                temporary.write_bytes(persistent_files.read(path))
+                temporary_paths.append(temporary)
+            outputs = process_native_documents(operation, temporary_paths, options or {})
+    else:
+        outputs = process_native_documents(operation, paths, options or {})
     return [save_bytes(user_id, content, name, mime_type, source=f"pdf:{operation}") for content, name, mime_type in outputs]
 
 

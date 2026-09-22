@@ -24,20 +24,22 @@ class ReadFile(Strict):
 
 
 def checked_file(user, file_id):
-    from app.services.nora_files import owned_file
-    record, path = owned_file(user["id"], file_id)
-    if path.stat().st_size > 24 * 1024 * 1024:
+    from app.services.nora_files import owned_bytes
+    record, content = owned_bytes(user["id"], file_id)
+    if len(content) > 24 * 1024 * 1024:
         raise BrainError("file_size_limit", 413)
-    return record, path
+    suffix = str(record.get("name") or record.get("storageName") or "").lower()
+    suffix = "." + suffix.rsplit(".", 1)[-1] if "." in suffix else ""
+    return record, content, suffix
 
 
 async def prepare_read(user, args, job):
-    record, path = checked_file(user, args.id)
-    return {"id": args.id, "start": args.start, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "effects": []}
+    _record, content, _suffix = checked_file(user, args.id)
+    return {"id": args.id, "start": args.start, "sha256": hashlib.sha256(content).hexdigest(), "effects": []}
 
 
-def safe_zip(path):
-    archive = zipfile.ZipFile(path)
+def safe_zip(content):
+    archive = zipfile.ZipFile(io.BytesIO(content))
     if len(archive.infolist()) > 5000 or sum(item.file_size for item in archive.infolist()) > 64 * 1024 * 1024:
         archive.close()
         raise BrainError("archive_expansion_limit", 413)
@@ -45,23 +47,23 @@ def safe_zip(path):
 
 
 async def read_file(user, prepared, job):
-    record, path = checked_file(user, prepared["id"])
-    if hashlib.sha256(path.read_bytes()).hexdigest() != prepared["sha256"]:
+    _record, content, suffix = checked_file(user, prepared["id"])
+    if hashlib.sha256(content).hexdigest() != prepared["sha256"]:
         return Outcome("rejected", {}, {"reason": "file_version_changed"})
-    start, suffix = prepared["start"], path.suffix.lower()
+    start = prepared["start"]
     if suffix == ".pdf":
         from pypdf import PdfReader
-        reader = PdfReader(path)
+        reader = PdfReader(io.BytesIO(content))
         total = len(reader.pages)
         units = [{"page": i + 1, "text": (reader.pages[i].extract_text() or "")[:6000]} for i in range(start, min(start + 1, total))]
         end = start + len(units)
         warning = "PDF: extração de texto; imagens e tabelas visuais não foram verificadas."
     elif suffix in {".xlsx", ".docx"}:
-        with safe_zip(path):
+        with safe_zip(content):
             pass
         if suffix == ".xlsx":
             from openpyxl import load_workbook
-            workbook = load_workbook(path, read_only=True, data_only=False)
+            workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=False)
             try:
                 sheet = workbook.worksheets[0]
                 total = sheet.max_row or 0
@@ -73,7 +75,7 @@ async def read_file(user, prepared, job):
             finally:
                 workbook.close()
         else:
-            with safe_zip(path) as archive:
+            with safe_zip(content) as archive:
                 content = archive.read("word/document.xml")
             tree = ElementTree.fromstring(content)
             paragraphs = ["".join(node.itertext()) for node in tree.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p")]
@@ -82,9 +84,9 @@ async def read_file(user, prepared, job):
             warning = "Texto do corpo; imagens, cabeçalhos e notas exigem leitura específica."
         end = start + len(units)
     elif suffix in {".txt", ".md", ".csv", ".json"}:
-        content = path.read_text(encoding="utf-8-sig")
-        total, end = len(content), min(start + 6000, len(content))
-        units = [{"offset": start, "text": content[start:end]}]
+        text = content.decode("utf-8-sig")
+        total, end = len(text), min(start + 6000, len(text))
+        units = [{"offset": start, "text": text[start:end]}]
         warning = "Recorte textual; totais exigem cálculo sobre o arquivo completo."
     else:
         raise BrainError("file_format_requires_specialized_reader", 422)
@@ -145,7 +147,7 @@ def docx_bytes(title, paragraphs):
 
 
 async def generate_document(user, prepared, job):
-    from app.services.nora_files import save_bytes, owned_file
+    from app.services.nora_files import save_bytes, owned_bytes
     title, paragraphs, format_name = prepared["title"], prepared["paragraphs"], prepared["format"]
     if format_name == "docx":
         content = docx_bytes(title, paragraphs)
@@ -174,9 +176,9 @@ async def generate_document(user, prepared, job):
         mime = "text/plain"
     artifact = save_bytes(user["id"], content, "documento-nora." + format_name, mime, source="nora_brain",
                           metadata={"operationId": job["operationId"], "sources": prepared["sources"], "verification": "structure_and_saved_bytes", "visualReview": "pending"})
-    _, saved = owned_file(user["id"], artifact["id"])
+    _, saved = owned_bytes(user["id"], artifact["id"])
     digest = hashlib.sha256(content).hexdigest()
-    if hashlib.sha256(saved.read_bytes()).hexdigest() != digest:
+    if hashlib.sha256(saved).hexdigest() != digest:
         raise BrainError("document_verification_failed")
     return Outcome("succeeded", {"file": artifact, "visualReview": "pending"}, {"artifact": artifact["id"], "sha256": digest, "structuralVerification": True, "visualReview": "pending"})
 
@@ -241,7 +243,7 @@ def decimal_cell(sheet, reference):
 
 async def generate_spreadsheet(user, prepared, job):
     from openpyxl import Workbook, load_workbook
-    from app.services.nora_files import save_bytes, owned_file
+    from app.services.nora_files import save_bytes, owned_bytes
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Dados"
@@ -281,9 +283,9 @@ async def generate_spreadsheet(user, prepared, job):
                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                           source="nora_brain", metadata={"operationId": job["operationId"],
                           "sources": prepared["sources"], "verification": "reopened_structure_formulas"})
-    _, saved = owned_file(user["id"], artifact["id"])
+    _, saved = owned_bytes(user["id"], artifact["id"])
     digest = hashlib.sha256(content).hexdigest()
-    if hashlib.sha256(saved.read_bytes()).hexdigest() != digest:
+    if hashlib.sha256(saved).hexdigest() != digest:
         raise BrainError("document_verification_failed")
     return Outcome("succeeded", {"file": artifact, "formulaChecks": checks}, {
         "artifact": artifact["id"], "sha256": digest, "reopened": True, "formulaChecks": checks,
@@ -292,15 +294,15 @@ async def generate_spreadsheet(user, prepared, job):
 
 async def reconcile_generated_file(user, prepared, job):
     from app.core.tenant import read_user_db
-    from app.services.nora_files import owned_file
+    from app.services.nora_files import owned_bytes
     payload = read_user_db(user["id"], "nora_files", {"files": []})
     record = next((item for item in payload.get("files", []) if isinstance(item, dict)
                    and isinstance(item.get("metadata"), dict)
                    and item["metadata"].get("operationId") == job["operationId"]), None)
     if record is None:
         return Outcome("rejected", {}, {"confirmedNotApplied": True, "reason": "artifact_receipt_absent"})
-    artifact, path = owned_file(user["id"], record["id"])
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    artifact, content = owned_bytes(user["id"], record["id"])
+    digest = hashlib.sha256(content).hexdigest()
     return Outcome("succeeded", {"file": artifact}, {
         "artifact": artifact["id"], "sha256": digest, "confirmedApplied": True,
     })

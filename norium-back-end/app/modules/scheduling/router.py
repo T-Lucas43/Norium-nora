@@ -223,6 +223,18 @@ def _whatsapp_connected(owner_id: str) -> bool:
         return False
 
 
+async def _channel_connections(owner_id: str) -> tuple[bool, bool]:
+    """Channel probes never block rendering the actual message preview."""
+    async def probe(callable_) -> bool:
+        try:
+            return bool(await asyncio.wait_for(asyncio.to_thread(callable_, owner_id), timeout=0.8))
+        except (TimeoutError, Exception):
+            return False
+
+    gmail, whatsapp = await asyncio.gather(probe(_gmail_connected), probe(_whatsapp_connected))
+    return gmail, whatsapp
+
+
 def _whatsapp_target(phone: str | None) -> str:
     digits = re.sub(r"\D", "", phone or "")
     if not 8 <= len(digits) <= 15:
@@ -261,8 +273,7 @@ async def reschedule_notify_preview(
         timezone_name=timezone_name,
     )
     owner_id = str(booking.get("owner_id") or scope[2])
-    gmail_ok = _gmail_connected(owner_id)
-    whatsapp_ok = _whatsapp_connected(owner_id)
+    gmail_ok, whatsapp_ok = await _channel_connections(owner_id)
     phone_digits = re.sub(r"\D", "", str(booking.get("attendee_phone") or ""))
     return {
         "bookingId": booking["id"],
@@ -533,8 +544,10 @@ def get_public_page(identifier: str):
 
 @public_router.get("/pages/{identifier}/logo")
 def get_public_logo(identifier: str):
-    path, mime = service().logo_asset(identifier)
-    return FileResponse(path, media_type=mime, headers={"Cache-Control": "public, max-age=3600"})
+    asset, mime = service().logo_asset(identifier)
+    if isinstance(asset, bytes):
+        return Response(asset, media_type=mime, headers={"Cache-Control": "public, max-age=3600"})
+    return FileResponse(asset, media_type=mime, headers={"Cache-Control": "public, max-age=3600"})
 
 
 @public_router.get("/pages/{identifier}/slots")

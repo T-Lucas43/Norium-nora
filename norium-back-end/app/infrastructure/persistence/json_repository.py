@@ -87,6 +87,21 @@ def _fallback_copy(fallback: Any) -> Any:
 
 def read_json(path: str | Path, fallback: Any) -> Any:
     """Default only on an initially absent file; all invalid reads fail closed."""
+    from app.infrastructure.persistence import postgres_store
+
+    if postgres_store.configured() or postgres_store.required():
+        try:
+            exists, payload = postgres_store.read_document(postgres_store.canonical_key(path))
+            if not exists:
+                return _fallback_copy(fallback)
+            validate_shape(payload, fallback, path)
+            if payload is None:
+                raise PersistenceError(path, "schema")
+            return copy.deepcopy(payload)
+        except PersistenceError:
+            raise
+        except postgres_store.PostgresStoreError as exc:
+            raise PersistenceError(path, exc.args[0]) from exc
     file_path = Path(path)
     key = str(file_path.resolve())
     with _lock_for(file_path):
@@ -130,6 +145,14 @@ def read_json(path: str | Path, fallback: Any) -> Any:
 
 def write_json(path: str | Path, payload: Any) -> None:
     """Grava primeiro em arquivo temporário para nunca expor JSON parcial."""
+    from app.infrastructure.persistence import postgres_store
+
+    if postgres_store.configured() or postgres_store.required():
+        try:
+            postgres_store.write_document(postgres_store.canonical_key(path), payload)
+            return
+        except postgres_store.PostgresStoreError as exc:
+            raise PersistenceError(path, exc.args[0]) from exc
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
 

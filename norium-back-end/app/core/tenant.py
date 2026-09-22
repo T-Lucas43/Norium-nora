@@ -80,7 +80,8 @@ def get_data_root() -> Path:
         root = VERCEL_DATA_ROOT
     else:
         root = PRODUCTION_DATA_ROOT if is_production() else LOCAL_DATA_ROOT
-    root.mkdir(parents=True, exist_ok=True)
+    if not (os.getenv("NORIUM_DATABASE_URL", "").strip() or os.getenv("NORIUM_POSTGRES_REQUIRED", "").strip().lower() in {"1", "true", "yes"}):
+        root.mkdir(parents=True, exist_ok=True)
     return root
 
 
@@ -91,7 +92,8 @@ def safe_tenant_id(user_id: str) -> str:
 
 def get_user_dir(user_id: str) -> Path:
     path = get_data_root() / f"user_{safe_tenant_id(user_id)}"
-    path.mkdir(parents=True, exist_ok=True)
+    if not (os.getenv("NORIUM_DATABASE_URL", "").strip() or os.getenv("NORIUM_POSTGRES_REQUIRED", "").strip().lower() in {"1", "true", "yes"}):
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -102,7 +104,8 @@ def get_user_db_path(user_id: str, db_name: str) -> str:
     if workspace_id != "primary":
         base_dir = base_dir / f"workspace_{workspace_id}"
     path = base_dir / f"{safe_name}_db.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if not (os.getenv("NORIUM_DATABASE_URL", "").strip() or os.getenv("NORIUM_POSTGRES_REQUIRED", "").strip().lower() in {"1", "true", "yes"}):
+        path.parent.mkdir(parents=True, exist_ok=True)
     return str(path)
 
 
@@ -110,14 +113,16 @@ def get_account_db_path(user_id: str, db_name: str) -> str:
     """Retorna um banco compartilhado pelos workspaces da mesma conta."""
     safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(db_name or "").strip()).strip("_") or "database"
     path = get_user_dir(user_id) / f"{safe_name}_db.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if not (os.getenv("NORIUM_DATABASE_URL", "").strip() or os.getenv("NORIUM_POSTGRES_REQUIRED", "").strip().lower() in {"1", "true", "yes"}):
+        path.parent.mkdir(parents=True, exist_ok=True)
     return str(path)
 
 
 def get_system_db_path(db_name: str) -> str:
     safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(db_name or "").strip()).strip("_") or "database"
     path = get_data_root() / f"{safe_name}_db.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if not (os.getenv("NORIUM_DATABASE_URL", "").strip() or os.getenv("NORIUM_POSTGRES_REQUIRED", "").strip().lower() in {"1", "true", "yes"}):
+        path.parent.mkdir(parents=True, exist_ok=True)
     return str(path)
 
 

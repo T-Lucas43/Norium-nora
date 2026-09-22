@@ -357,6 +357,11 @@ async def remove_follow_up(follow_up_id: str, user: dict[str, Any] = Depends(cur
 @router.get("/backup")
 async def export_tenant_backup(user: dict[str, Any] = Depends(current_user)) -> Response:
     user_id = str(user.get("id") or "lucas123")
+    from app.infrastructure.persistence import postgres_store
+    if postgres_store.configured() or postgres_store.required():
+        from app.modules.privacy.router import _build_export
+        return Response(content=await asyncio.to_thread(_build_export, user), media_type="application/zip",
+                        headers={"Content-Disposition": 'attachment; filename="norium-backup.zip"', "Cache-Control": "no-store"})
     user_dir = Path(get_user_db_path(user_id, "perfil")).parent
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:

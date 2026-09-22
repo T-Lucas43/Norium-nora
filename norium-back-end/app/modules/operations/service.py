@@ -870,7 +870,7 @@ async def _find_send_attempt(user_id: str, key: str) -> dict[str, Any] | None:
 async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -> dict[str, Any]:
     """Execute the exact send bound to an approval; never retries or guesses."""
     from app.services.gmail_service import GmailService
-    from app.services.nora_files import owned_file
+    from app.services.nora_files import owned_bytes
 
     user_id = str(user.get("id") or "lucas123")
     approval_payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
@@ -907,8 +907,7 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
     attachments: list[dict[str, Any]] = []
     try:
         for entry in _normalize_exact_attachments(exact.get("attachments")):
-            _record, path = owned_file(user_id, entry["fileId"])
-            file_bytes = Path(path).read_bytes()
+            _record, file_bytes = owned_bytes(user_id, entry["fileId"])
             if hashlib.sha256(file_bytes).hexdigest() != entry["sha256"] or len(file_bytes) != entry["size"]:
                 raise ValueError(f"O anexo {entry['fileName']} mudou após a prévia.")
             data_url = f"data:{entry['mimeType']};base64,{base64.b64encode(file_bytes).decode('ascii')}"

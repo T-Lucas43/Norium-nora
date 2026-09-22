@@ -259,9 +259,7 @@ class EmailAgent:
 
     def _resolve_attachments(self, user_id: str, attachment_ids: list[str] | None) -> tuple[list[dict[str, Any]], list[str]]:
         import hashlib
-        from pathlib import Path
-
-        from app.services.nora_files import owned_file
+        from app.services.nora_files import owned_bytes
 
         attached: list[dict[str, Any]] = []
         skipped: list[str] = []
@@ -272,8 +270,7 @@ class EmailAgent:
                 continue
             seen.add(file_id)
             try:
-                record, path = owned_file(user_id, file_id)
-                file_bytes = Path(path).read_bytes()
+                record, file_bytes = owned_bytes(user_id, file_id)
             except Exception:
                 skipped.append(file_id[:24])
                 continue

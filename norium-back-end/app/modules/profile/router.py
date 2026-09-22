@@ -118,17 +118,10 @@ def enforce_theme_plan(profile_payload: dict[str, Any], user: dict[str, Any]) ->
 
 async def read_profile_store() -> dict[str, Any]:
     def load() -> dict[str, Any]:
-        if not PROFILE_DB_PATH.exists():
-            PROFILE_DB_PATH.write_text(
-                json.dumps({"lucas123": DEFAULT_PROFILE}, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            return {"lucas123": DEFAULT_PROFILE}
-
-        try:
-            payload = json.loads(PROFILE_DB_PATH.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return {"lucas123": DEFAULT_PROFILE}
+        payload = read_json_file(PROFILE_DB_PATH, None)
+        if payload is None:
+            payload = {"lucas123": DEFAULT_PROFILE}
+            write_json_file(PROFILE_DB_PATH, payload)
 
         if not isinstance(payload, dict):
             return {"lucas123": DEFAULT_PROFILE}
@@ -142,10 +135,7 @@ async def read_profile_store() -> dict[str, Any]:
 
 async def write_profile_store(store: dict[str, Any]) -> None:
     def save() -> None:
-        PROFILE_DB_PATH.write_text(
-            json.dumps(store, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        write_json_file(PROFILE_DB_PATH, store)
 
     await asyncio.to_thread(save)
 

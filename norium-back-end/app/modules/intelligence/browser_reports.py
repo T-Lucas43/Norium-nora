@@ -18,6 +18,7 @@ from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
+from app.infrastructure.persistence import files as persistent_files
 
 
 _REWRITES: set[str] = set()
@@ -26,19 +27,18 @@ _REWRITES: set[str] = set()
 def save_research_material(user_id: str, run_id: str, pages: list[dict]) -> None:
     from app.modules.intelligence.browser_runtime import _run_dir
     path = _run_dir(user_id, run_id) / "research-material.json.gz"
-    temporary = path.with_suffix(".tmp")
-    temporary.write_bytes(gzip.compress(json.dumps(pages, ensure_ascii=False).encode("utf-8")))
-    temporary.replace(path)
+    persistent_files.write(path, gzip.compress(json.dumps(pages, ensure_ascii=False).encode("utf-8")),
+                           content_type="application/gzip")
 
 
 def load_research_material(user_id: str, run_id: str) -> list[dict] | None:
     from app.modules.intelligence.browser_runtime import _run_dir
     path = _run_dir(user_id, run_id) / "research-material.json.gz"
-    if not path.is_file():
+    if not persistent_files.exists(path):
         return None
     try:
-        return json.loads(gzip.decompress(path.read_bytes()))
-    except (OSError, ValueError, EOFError):
+        return json.loads(gzip.decompress(persistent_files.read(path)))
+    except (OSError, ValueError, EOFError, FileNotFoundError):
         return None
 
 

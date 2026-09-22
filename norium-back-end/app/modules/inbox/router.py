@@ -14,7 +14,8 @@ from pydantic import Field, field_validator
 
 from app.shared.schemas import StrictModel
 
-from app.core.tenant import get_user_db_path
+from app.core.tenant import get_user_db_path, read_json_file, write_json_file
+from app.infrastructure.persistence import postgres_store
 from app.routers.auth_router import current_user, user_from_websocket_ticket
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -125,20 +126,16 @@ def notification_state_path(user_id: str) -> Path:
 async def read_notification_state(user_id: str) -> dict[str, str | None]:
     def load() -> dict[str, str | None]:
         path = notification_state_path(user_id)
-        if not path.exists():
+        payload = read_json_file(path, None)
+        if payload is None:
             initialized_at = utc_now_iso()
             initial_state = {
                 "userId": user_id,
                 "readBefore": initialized_at,
                 "clearedBefore": initialized_at,
             }
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(initial_state, ensure_ascii=False, indent=2), encoding="utf-8")
+            write_json_file(path, initial_state)
             return initial_state
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {"userId": user_id, "readBefore": None, "clearedBefore": None}
         if not isinstance(payload, dict) or str(payload.get("userId") or "") != user_id:
             return {"userId": user_id, "readBefore": None, "clearedBefore": None}
         return {
@@ -158,9 +155,7 @@ async def write_notification_state(user_id: str, state: dict[str, str | None]) -
     }
 
     def save() -> None:
-        path = notification_state_path(user_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json_file(notification_state_path(user_id), payload)
 
     await asyncio.to_thread(save)
     return payload
@@ -169,24 +164,21 @@ async def write_notification_state(user_id: str, state: dict[str, str | None]) -
 async def read_events(user_id: str) -> list[dict[str, Any]]:
     def load() -> list[dict[str, Any]]:
         path = event_db_path(user_id)
-        if not path.exists():
-            if user_id == "lucas123" and EVENTS_DB_PATH.exists():
+        payload = read_json_file(path, None)
+        if payload is None:
+            from app.infrastructure.persistence import postgres_store
+            if not (postgres_store.configured() or postgres_store.required()) and user_id == "lucas123" and EVENTS_DB_PATH.exists():
                 try:
                     legacy = json.loads(EVENTS_DB_PATH.read_text(encoding="utf-8"))
                     events = [
                         item for item in legacy
                         if isinstance(item, dict) and event_visible_for_user(item, user_id)
                     ] if isinstance(legacy, list) else []
-                    path.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
+                    write_json_file(path, events)
                     return events
                 except Exception:
                     pass
-            path.write_text("[]", encoding="utf-8")
-            return []
-
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+            write_json_file(path, [])
             return []
 
         if not isinstance(payload, list):
@@ -202,12 +194,7 @@ async def read_events(user_id: str) -> list[dict[str, Any]]:
 
 async def write_events(user_id: str, events: list[dict[str, Any]]) -> None:
     def save() -> None:
-        path = event_db_path(user_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(events, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        write_json_file(event_db_path(user_id), events)
 
     await asyncio.to_thread(save)
 

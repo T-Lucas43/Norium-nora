@@ -5,7 +5,7 @@ from contextlib import suppress
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 
 from app.modules.auth.router import assert_route_permissions, assert_workspace_access, can_manage_team, current_user, user_from_websocket_ticket
 from app.core.request_context import reset_request_context, set_request_context
@@ -234,9 +234,12 @@ async def upload_browser_file(run_id: str, payload: BrowserUploadPayload, user: 
 
 
 @browser_router.get("/runs/{run_id}/artifacts/{artifact_id}")
-async def get_browser_artifact(run_id: str, artifact_id: str, user: dict[str, Any] = Depends(current_user)) -> FileResponse:
+async def get_browser_artifact(run_id: str, artifact_id: str, user: dict[str, Any] = Depends(current_user)) -> Response:
     path, artifact = artifact_path(tenant_id(user), run_id, artifact_id)
-    return FileResponse(path, media_type=str(artifact.get("mimeType") or "application/octet-stream"), filename=str(artifact.get("name") or path.name))
+    from app.infrastructure.persistence import files as persistent_files
+    filename = str(artifact.get("name") or path.name).replace('"', "")
+    return Response(persistent_files.read(path), media_type=str(artifact.get("mimeType") or "application/octet-stream"),
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "private, no-store"})
 
 
 @browser_router.post("/runs/{run_id}/pause")

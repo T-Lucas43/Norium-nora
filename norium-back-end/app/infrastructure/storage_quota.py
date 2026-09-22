@@ -25,6 +25,10 @@ def configured_bytes(name: str, default: int) -> int:
 
 
 def directory_bytes(root: Path) -> int:
+    from app.infrastructure.persistence import postgres_store
+    if postgres_store.configured() or postgres_store.required():
+        prefix = "" if root.resolve() == get_data_root().resolve() else postgres_store.canonical_key(root).rstrip("/") + "/"
+        return postgres_store.blob_bytes(prefix)
     if not root.exists():
         return 0
     total = 0
@@ -49,6 +53,11 @@ def enforce_storage_quota(workspace_root: Path, incoming_bytes: int, *, workspac
 
 
 def atomic_write_bytes(path: Path, content: bytes) -> None:
+    from app.infrastructure.persistence import files
+    from app.infrastructure.persistence import postgres_store
+    if postgres_store.configured() or postgres_store.required():
+        files.write(path, content)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp-{uuid.uuid4().hex}")
     try:
@@ -62,9 +71,13 @@ def atomic_write_bytes(path: Path, content: bytes) -> None:
 
 
 def remove_managed_file(path: Path, root: Path) -> None:
+    from app.infrastructure.persistence import files, postgres_store
     try:
         resolved = path.resolve()
         resolved.relative_to(root.resolve())
-        resolved.unlink(missing_ok=True)
+        if postgres_store.configured() or postgres_store.required():
+            files.delete(resolved)
+        else:
+            resolved.unlink(missing_ok=True)
     except (OSError, ValueError):
         return

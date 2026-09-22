@@ -42,7 +42,8 @@ LOCAL_EVENTS_PATH = BASE_DIR / "agenda_local_events.json"
 SYNC_STATE_PATH = BASE_DIR / "agenda_sync_state.json"
 OAUTH_STATE_PATH = BASE_DIR / "google_oauth_state.json"
 ACCOUNT_DIR = get_data_root() / "oauth_accounts" / "calendar"
-ACCOUNT_DIR.mkdir(parents=True, exist_ok=True)
+if not os.getenv("NORIUM_DATABASE_URL", "").strip():
+    ACCOUNT_DIR.mkdir(parents=True, exist_ok=True)
 calendar_mutation_lock = RLock()
 
 
@@ -663,12 +664,18 @@ class CalendarService:
         return datetime.now(timezone.utc).isoformat()
 
     def _read_json(self, path: Path, fallback: Any) -> Any:
+        from app.infrastructure.persistence import postgres_store
+        if postgres_store.configured() or postgres_store.required():
+            return fallback
         try:
             return json.loads(path.read_text(encoding="utf-8")) if path.exists() else fallback
         except Exception:
             return fallback
 
     def _write_json(self, path: Path, payload: Any) -> None:
+        from app.infrastructure.persistence import postgres_store
+        if postgres_store.configured() or postgres_store.required():
+            raise CalendarConfigError("Armazenamento legado desativado; use o perfil PostgreSQL da conta.")
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _redirect_uri(self) -> str:

@@ -43,7 +43,7 @@ from app.modules.commercial.service import (
 )
 from app.services.brainstorm_store import list_brainstorm_sessions
 from app.modules.commercial.pdf_export import build_commercial_pdf
-from app.services.nora_files import owned_file, save_bytes
+from app.services.nora_files import owned_bytes, save_bytes
 
 
 _sessions: dict[str, dict[str, Any]] = {}
@@ -404,11 +404,10 @@ def _document_palette(message: str) -> tuple[str, str, str]:
 
 def _attached_photo(user_id: str, attachment_ids: list[str]) -> str:
     for file_id in attachment_ids:
-        record, path = owned_file(user_id, file_id)
+        record, content = owned_bytes(user_id, file_id)
         mime_type = str(record.get("mimeType") or "")
         if not mime_type.startswith("image/"):
             continue
-        content = path.read_bytes()
         if len(content) > 1_450_000:
             raise ValueError("A foto do currículo deve ter até 1,4 MB. Envie uma imagem menor para eu incorporá-la ao documento.")
         return f"data:{mime_type};base64,{base64.b64encode(content).decode('ascii')}"

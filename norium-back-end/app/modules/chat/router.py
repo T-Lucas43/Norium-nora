@@ -29,10 +29,12 @@ from zoneinfo import ZoneInfo
 import httpx
 from dotenv import load_dotenv
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from pydantic import Field, model_validator
 
 from app.shared.schemas import StrictModel
+from app.infrastructure.persistence import files as persistent_files
+from app.infrastructure.persistence import postgres_store
 from app.modules.whatsapp import (
     ConsentRequired,
     FeatureUnavailable,
@@ -287,7 +289,8 @@ def _webhook_debug_snapshot(data: Dict[str, Any], kind: str) -> Dict[str, Any]:
         "state": _debug_token(data.get("state")),
     }
 UPLOAD_DIR = get_data_root() / "uploads"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+if not (postgres_store.configured() or postgres_store.required()):
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_BYTES = 14 * 1024 * 1024
 REMOTE_MEDIA_TEMP_DIR = UPLOAD_DIR / ".remote_media_tmp"
 REMOTE_MEDIA_ALLOWED_MIME_TYPES = {
@@ -1441,26 +1444,28 @@ def assert_channel_permission(user: dict[str, Any], channel: str) -> None:
 
 def user_upload_dir(user_id: str) -> Path:
     path = UPLOAD_DIR / re.sub(r"[^a-zA-Z0-9._-]", "_", user_id)
-    path.mkdir(parents=True, exist_ok=True)
+    if not (postgres_store.configured() or postgres_store.required()):
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def whatsapp_media_cache_paths(user_id: str, message_id: str) -> tuple[Path, Path]:
     digest = hashlib.sha256(message_id.encode("utf-8")).hexdigest()
     cache_dir = user_upload_dir(user_id) / "whatsapp_media"
-    cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / f"{digest}.bin", cache_dir / f"{digest}.mime"
 
 
 def read_whatsapp_media_cache(user_id: str, message_id: str) -> tuple[bytes, str] | None:
     data_path, mime_path = whatsapp_media_cache_paths(user_id, message_id)
-    if not data_path.is_file() or not mime_path.is_file():
+    if not persistent_files.exists(data_path):
         return None
     try:
-        with data_path.open("rb") as source:
-            file_bytes = source.read(MAX_UPLOAD_BYTES + 1)
-        mime_type = mime_path.read_text(encoding="utf-8").strip()
-    except OSError:
+        file_bytes = persistent_files.read(data_path)
+        info = persistent_files.info(data_path) or {}
+        mime_type = str(info.get("contentType") or "")
+        if not mime_type and persistent_files.exists(mime_path):
+            mime_type = persistent_files.read(mime_path).decode("utf-8").strip()
+    except (OSError, FileNotFoundError, UnicodeDecodeError):
         return None
     normalized_mime = mime_type.split(";", 1)[0].strip().casefold()
     if (
@@ -1474,20 +1479,8 @@ def read_whatsapp_media_cache(user_id: str, message_id: str) -> tuple[bytes, str
 
 def write_whatsapp_media_cache(user_id: str, message_id: str, file_bytes: bytes, mime_type: str) -> None:
     data_path, mime_path = whatsapp_media_cache_paths(user_id, message_id)
-    suffix = uuid.uuid4().hex[:10]
-    temp_data = data_path.with_name(f"{data_path.name}.{suffix}.tmp")
-    temp_mime = mime_path.with_name(f"{mime_path.name}.{suffix}.tmp")
-    try:
-        temp_data.write_bytes(file_bytes)
-        temp_mime.write_text(mime_type, encoding="utf-8")
-        temp_data.replace(data_path)
-        temp_mime.replace(mime_path)
-    finally:
-        for temp_path in (temp_data, temp_mime):
-            try:
-                temp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+    persistent_files.write(data_path, file_bytes, content_type=mime_type)
+    persistent_files.delete(mime_path)
 
 
 def unpack_wapi_media_response(payload: Any) -> tuple[str | None, str | None]:
@@ -1857,9 +1850,10 @@ async def media_proxy(
 async def obter_upload_local(file_name: str, user: dict[str, Any] = Depends(current_user)):
     safe_name = Path(file_name).name
     file_path = user_upload_dir(tenant_id(user)) / safe_name
-    if not file_path.exists() or not file_path.is_file():
+    if not persistent_files.exists(file_path):
         raise HTTPException(status_code=404, detail="Arquivo local nao encontrado.")
-    return FileResponse(file_path)
+    return Response(persistent_files.read(file_path), media_type=(persistent_files.info(file_path) or {}).get("contentType") or "application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{safe_name}"', "Cache-Control": "private, no-store"})
 
 
 def _whatsapp_connection_shape(
@@ -4779,7 +4773,7 @@ def safe_upload_name(original_name: str, mime_type: str) -> str:
 def save_upload_file(user_id: str, original_name: str, mime_type: str, file_bytes: bytes) -> tuple[str, str]:
     safe_name = safe_upload_name(original_name, mime_type)
     file_path = user_upload_dir(user_id) / safe_name
-    file_path.write_bytes(file_bytes)
+    persistent_files.write(file_path, file_bytes, content_type=mime_type)
     return public_api_url(f"/api/chat/uploads/{quote(safe_name)}"), safe_name
 
 

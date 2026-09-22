@@ -29,9 +29,10 @@ name: Build and deploy a container to an Azure Web App
 env:
   AZURE_WEBAPP_NAME: your-app-name  # set this to the name of your Azure Web App
 
+# Modelo legado mantido apenas para acionamento manual. A produção atual usa
+# azure-container-apps.yml; executar este placeholder em todo push criava uma
+# falha paralela sem relação com o deploy real.
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:

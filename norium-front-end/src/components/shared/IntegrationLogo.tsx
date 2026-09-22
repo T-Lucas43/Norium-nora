@@ -42,13 +42,14 @@ export default function IntegrationLogo({ name, size = 24, className = "", monoc
     : /whatsapp|message-square|^chat$/.test(key) ? [MessagesSquare, "#60a5fa"] as const
     : /chat da equipe|messages-square/.test(key) ? [MessagesSquare, "#8b7cf8"] as const
     : /equipe|users/.test(key) ? [Users, "#8b7cf8"] as const
+    : /agendamento/.test(key) ? [Clock3, "#fb923c"] as const
     : /agenda|calendar/.test(key) ? [CalendarDays, "#60a5fa"] as const
     : /tarefa|check-square/.test(key) ? [CheckSquare, "#2dd4bf"] as const
     : /gasto|financeiro|credit-card/.test(key) ? [CreditCard, "#fbbf24"] as const
     : /relat/.test(key) ? [BarChart3, "#38bdf8"] as const
     : /document|file-text/.test(key) ? [FileText, "#38bdf8"] as const
     : /webhook/.test(key) ? [Webhook, "#fb7185"] as const
-    : /agendamento|clock/.test(key) ? [Clock3, "#fb923c"] as const
+    : /clock/.test(key) ? [Clock3, "#fb923c"] as const
     : /manual/.test(key) ? [Play, "#a3e635"] as const
     : /notifica|bell/.test(key) ? [Bell, "#fbbf24"] as const
     : /cliente/.test(key) ? [ContactRound, "#38bdf8"] as const

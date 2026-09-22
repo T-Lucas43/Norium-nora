@@ -20,4 +20,12 @@ describe("IntegrationLogo", () => {
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("svg.sidebar-blue")).not.toBeNull();
   });
+
+  it("uses a scheduling icon distinct from the Agenda calendar", () => {
+    const agenda = render(<IntegrationLogo name="Agenda" monochrome />);
+    const scheduling = render(<IntegrationLogo name="Agendamentos" monochrome />);
+
+    expect(agenda.container.querySelector(".lucide-calendar-days")).not.toBeNull();
+    expect(scheduling.container.querySelector(".lucide-clock-3")).not.toBeNull();
+  });
 });

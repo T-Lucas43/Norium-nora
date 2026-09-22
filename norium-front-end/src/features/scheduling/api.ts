@@ -1,4 +1,4 @@
-import { apiBaseUrl } from "../../core/api/config";
+import { apiRequest } from "../../core/api/client";
 
 export type SchedulingService = {
   id: string; name: string; description: string; durations: number[]; color: string;
@@ -9,10 +9,7 @@ export type BookingField = { id: string; type: string; label: string; required?:
 export type Booking = { id: string; service_id: string; attendee_name: string; attendee_email: string; start_at: string; end_at: string; status: string };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl()}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers || {}) } });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.detail || "Não foi possível concluir a operação.");
-  return data as T;
+  return apiRequest<T>(path, { ...init, timeoutMs: 15_000 });
 }
 
 export const schedulingApi = {

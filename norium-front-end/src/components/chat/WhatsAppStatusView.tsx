@@ -107,7 +107,7 @@ function StatusPreview({ item, name }: { item?: WhatsAppStatusItem; name: string
 function StatusMedia({ item }: { item: WhatsAppStatusItem }) {
   const { source, loading, error, retry } = useAuthenticatedMediaState(item.mediaUrl);
   const [elementError, setElementError] = useState(false);
-  useEffect(() => setElementError(false), [item.id, source]);
+  useEffect(() => setElementError(false), [item.id, item.mediaUrl]);
   const retryMedia = () => {
     setElementError(false);
     retry();

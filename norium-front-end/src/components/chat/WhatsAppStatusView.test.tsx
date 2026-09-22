@@ -317,7 +317,7 @@ describe("estado vazio do Status", () => {
     expect(firstImage).toHaveAttribute("src", expect.stringMatching(/^blob:status-media-/));
     expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(mediaProxyUrl(first.mediaUrl), { cache: "no-store" });
     fireEvent.error(firstImage);
-    expect(screen.getByText("Mídia do Status indisponível")).toBeInTheDocument();
+    expect(await screen.findByText("Mídia do Status indisponível")).toBeInTheDocument();
     const callsBeforeRetry = mediaApi.apiBlobRequest.mock.calls.length;
     await user.click(screen.getByRole("button", { name: "Tentar novamente" }));
     await waitFor(() => expect(mediaApi.apiBlobRequest).toHaveBeenCalledTimes(callsBeforeRetry + 1));

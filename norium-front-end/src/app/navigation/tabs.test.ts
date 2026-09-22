@@ -21,6 +21,8 @@ describe("module page navigation", () => {
     expect(tabPath("Brainstorm")).toBe("/app/estudio");
     expect(tabFromPath("/app/brainstorm")).toBe("Estúdio");
     expect(tabPath("Documentos")).toBe("/app/documentos");
+    expect(tabPath("PDF Studio")).toBe("/app/pdf-studio");
+    expect(tabFromPath("/app/pdf-studio")).toBe("PDF Studio");
     expect(tabPath("Agente Navegador")).toBe("/app/navegador");
     expect(tabPath("E-mails")).toBe("/app/emails");
     expect(tabPath("Pendencias")).toBe("/app/central");

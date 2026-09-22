@@ -1292,6 +1292,8 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                       }`}
                       style={{ left: nodeItem.x, top: nodeItem.y }}
                     >
+                      {nodeItem.kind !== "trigger" && <span className="automation-node-port is-input" aria-hidden="true" />}
+                      <span className="automation-node-port is-output" aria-hidden="true" />
                       <div className="flex items-start justify-between gap-3">
                         <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${nodeItem.kind === "nora" ? "bg-cyan-400/18 text-cyan-100" : nodeItem.kind === "trigger" ? "bg-emerald-400/18 text-emerald-100" : "bg-blue-400/18 text-blue-100"}`}>
                           <IconByName name={nodeItem.icon} size={20} />
@@ -1301,6 +1303,7 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                       <h3 className="mt-3 text-sm font-bold">{nodeItem.title}</h3>
                       {nodeItem.kind === "trigger" && <span className="text-xs text-emerald-300">{nodeItem.config?.automatic === "true" ? "Disparo automático ativado" : "Execução manual"}</span>}
                       <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-white/62">{nodeItem.description}</p>
+                      <div className="automation-node-footer"><span><i /> Configurado</span><small>{nodeItem.kind === "nora" ? "IA supervisionada" : nodeItem.kind === "trigger" ? "Entrada" : "Ação"}</small></div>
                     </motion.div>
                   ))}
                 </div>

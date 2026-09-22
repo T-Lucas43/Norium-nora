@@ -195,10 +195,10 @@ export default function AppPanels({
           />
         </section>
       )}
-      {isPanelMounted("Documentos", "Propostas") && (
-        <section className={activeTab === "Documentos" || activeTab === "Propostas" ? "app-panel" : "hidden"}>
+      {isPanelMounted("Documentos", "Propostas", "PDF Studio") && (
+        <section className={activeTab === "Documentos" || activeTab === "Propostas" || activeTab === "PDF Studio" ? "app-panel" : "hidden"}>
           {coach("Propostas", true)}
-          <CommercialDashboard session={authSession} onOpenNora={onOpenNora} />
+          <CommercialDashboard session={authSession} onOpenNora={onOpenNora} initialPdfToolsOpen={activeTab === "PDF Studio"} onOpenDocuments={() => onNavigate("Documentos")} />
         </section>
       )}
       {isPanelMounted("Agente Navegador") && (

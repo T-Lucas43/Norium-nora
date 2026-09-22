@@ -36,7 +36,7 @@ const NORA_ENTRY = "Nora";
 const NAVIGATION_GROUPS: NavigationGroup[] = [
   { label: "Início", items: ["Dashboard", "Controle", "Central"] },
   { label: "Comunicação", items: ["E-mails", "Agenda", "Agendamentos", "Chat", "Chat da Equipe"] },
-  { label: "Trabalho", items: ["Tarefas", "Financeiro", "Documentos", "Clientes"] },
+  { label: "Trabalho", items: ["Tarefas", "Financeiro", "Documentos", "PDF Studio", "Clientes"] },
   { label: "Inteligência", items: ["Automações", "Relatórios", "Agente Navegador", "Conhecimento", "Marketplace", "IA e Modelos", "Estúdio"] },
   { label: "Equipe", items: ["Equipe", "Governanca", "Mais"] },
 ];

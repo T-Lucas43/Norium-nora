@@ -270,6 +270,16 @@ describe("CommercialDashboard leve", () => {
     expect(await screen.findByText("Editar PDF")).toBeInTheDocument();
   });
 
+  it("abre o PDF Studio diretamente pelo atalho de navegação", async () => {
+    const onOpenDocuments = vi.fn();
+    render(<CommercialDashboard session={session} onOpenNora={vi.fn()} initialPdfToolsOpen onOpenDocuments={onOpenDocuments} />);
+
+    expect(await screen.findByRole("heading", { name: "Norium PDF Studio" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abrir editor" })).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Voltar para Documentos" }));
+    expect(onOpenDocuments).toHaveBeenCalledOnce();
+  });
+
   it("mostra texto e retrato ficticios na previa de curriculo", async () => {
     commercialApi.loadCommercialTemplate.mockResolvedValue({ template: {
       id: "standard_resume_foto_clean",

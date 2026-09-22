@@ -17,6 +17,7 @@ import StatusBanner from "../shared/StatusBanner";
 import PdfVisualEditor from "./PdfVisualEditor";
 import PdfResult from "./PdfResult";
 import type { PdfEdits } from "./pdfEditorModel";
+import "./pdfToolsWorkspace.css";
 
 type ToolMeta = {
   title: string;
@@ -95,6 +96,7 @@ export default function PdfToolsWorkspace({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
 
   const availableTools = useMemo(() => (capabilities?.operations || []).filter((item) => {
     const meta = toolMeta[item.id];
@@ -135,6 +137,17 @@ export default function PdfToolsWorkspace({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [selectedDocumentId]);
+
+  useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k" && !operation) {
+        event.preventDefault();
+        searchInput.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, [operation]);
 
   function chooseTool(value: PdfOperation) {
     setOperation(value);
@@ -230,20 +243,42 @@ export default function PdfToolsWorkspace({
         {activeJob && <div role="status" className="my-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"><strong>{processing ? "Preparando seu arquivo…" : activeJob.status === "completed" ? "Processamento concluído" : "Processamento interrompido"}</strong><p className="mt-1 text-xs text-[var(--text-secondary)]">{activeJob.message}</p>{processing && <progress className="mt-3 w-full accent-emerald-500" max={100} value={activeJob.progress}/>}</div>}
         {resultDocuments.map(document => <PdfResult key={document.id} document={document}/>)}
         {!operation ? (
-          <>
-            <section className="pdf-library-intro relative overflow-hidden rounded-3xl border border-blue-400/20 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,.28),transparent_42%),linear-gradient(135deg,rgba(15,23,42,.98),rgba(5,25,55,.95))] px-5 py-10 text-center shadow-2xl sm:px-8 sm:py-14">
-              <h2 className="mx-auto mt-4 max-w-4xl text-3xl font-black tracking-tight text-white sm:text-5xl">Suas ferramentas PDF</h2>
-              <p className="mx-auto mt-4 max-w-2xl text-sm font-semibold leading-6 text-slate-300 sm:text-base">Organize, converta, proteja, visualize e edite sem sair do workspace da empresa.</p>
-              <label className="mx-auto mt-7 flex h-12 max-w-xl items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 text-left shadow-xl backdrop-blur"><Search size={18} className="text-cyan-200" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar uma ferramenta PDF" className="min-w-0 flex-1 bg-transparent text-sm font-bold text-white outline-none placeholder:text-slate-400" /></label>
-            </section>
+          <section className="pdf-home-shell">
+            <aside className="pdf-home-sidebar" aria-label="Navegação das ferramentas PDF">
+              <div className="pdf-home-sidebar-heading"><Wrench size={18} /><span><strong>Ferramentas</strong><small>{capabilities.operations.length} disponíveis</small></span></div>
+              <nav>{categories.map((item) => {
+                const count = item === "Todos" ? capabilities.operations.length : capabilities.operations.filter((tool) => toolMeta[tool.id].category === item).length;
+                return <button key={item} aria-pressed={category === item} onClick={() => setCategory(item)}><span>{item}</span><small>{count}</small></button>;
+              })}</nav>
+              <div className={`pdf-engine-status ${capabilities.stirling.available ? "is-online" : ""}`}>
+                <i aria-hidden="true" />
+                <span><strong>{capabilities.stirling.available ? "Stirling privado conectado" : "Motor nativo ativo"}</strong><small>{capabilities.stirling.message}</small></span>
+              </div>
+            </aside>
 
-            <nav className="workspace-tabs mt-6" aria-label="Categorias de ferramentas PDF">{categories.map((item) => <button key={item} aria-pressed={category === item} onClick={() => setCategory(item)} className={`whitespace-nowrap rounded-full border px-4 py-2 text-xs font-black transition ${category === item ? "border-blue-400 bg-blue-500 text-white" : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] hover:border-blue-400/40"}`}>{item}</button>)}</nav>
+            <div className="pdf-home-content">
+              <section className="pdf-library-intro">
+                <div className="pdf-library-copy">
+                  <span className="pdf-library-kicker"><ShieldCheck size={14} /> PDF Studio privado</span>
+                  <h2>Leia, edite ou transforme qualquer PDF.</h2>
+                  <p>Uma central completa para documentos, com processamento no ambiente do Norium e integração privada opcional.</p>
+                  <div className="pdf-library-actions">
+                    <Button variant="primary" onClick={() => chooseTool("edit_pdf")} icon={<Pencil size={16} />}>Abrir editor</Button>
+                    <Button variant="secondary" onClick={() => fileInput.current?.click()} loading={importing} icon={<Upload size={16} />}>Importar arquivos</Button>
+                  </div>
+                </div>
+                <div className="pdf-library-visual" aria-hidden="true"><span><FileText size={42} /></span><i /><i /><i /></div>
+              </section>
 
-            <section className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">{availableTools.map((tool) => { const item = toolMeta[tool.id]; const Icon = item.icon; return <button key={tool.id} onClick={() => chooseTool(tool.id)} className="pdf-tool-card group min-h-48 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 text-left shadow-[var(--glass-shadow)] transition hover:-translate-y-1 hover:border-blue-400/40 hover:shadow-2xl"><span className={`grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br ${item.accent} text-white shadow-lg`}><Icon size={22} /></span><span className="mt-5 block text-xs font-black uppercase tracking-[.12em] text-blue-300">{item.category}</span><strong className="mt-1 block text-lg font-black">{item.title}</strong><span className="mt-2 block text-sm font-semibold leading-6 text-[var(--text-secondary)]">{item.description}</span><span className="mt-4 inline-flex items-center gap-1 text-xs font-black text-cyan-300 opacity-0 transition group-hover:opacity-100">Abrir ferramenta <ArrowLeft className="rotate-180" size={13} /></span></button>; })}</section>
-            {!availableTools.length && <EmptyState title="Nenhuma ferramenta encontrada" description="Tente outra categoria ou termo de busca." icon={Search} className="mt-5 min-h-64" />}
+              <label className="pdf-tool-search"><Search size={18} /><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar entre edição, organização, OCR e segurança" /><kbd>Ctrl K</kbd></label>
 
-            <section className="mt-8 grid gap-4 lg:grid-cols-[1.4fr_1fr]"><article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5"><div className="flex items-center justify-between"><div><h3 className="font-black">Processamentos recentes</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Visualize e baixe os resultados aqui.</p></div><Sparkles className="text-cyan-300" size={20} /></div><div className="mt-4 space-y-2">{jobs.slice(0, 5).map((job) => <div key={job.id} className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3"><span className="min-w-0"><strong className="block truncate text-sm">{job.label}</strong><small className="text-[var(--text-secondary)]">{job.message}</small></span><span className="rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-black text-blue-300">{job.status}</span>{job.status === "completed" && <Button size="sm" onClick={() => setActiveJobId(job.id)}>Ver resultado</Button>}</div>)}{!jobs.length && <p className="py-5 text-center text-sm font-semibold text-[var(--text-secondary)]">Nenhum processamento realizado.</p>}</div></article><article className="rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-5"><ShieldCheck className="text-emerald-300" size={24} /><h3 className="mt-4 font-black">Arquivos privados</h3><p className="mt-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">As ferramentas nativas processam os documentos no backend do Norium. Operacoes externas aparecem somente quando um servico privado autorizado estiver configurado.</p></article></section>
-          </>
+              <div className="pdf-section-heading"><div><span>{category === "Todos" ? "Todas as ferramentas" : category}</span><h3>Escolha o que deseja fazer</h3></div><small>{availableTools.length} resultado(s)</small></div>
+              <section className="pdf-tools-grid">{availableTools.map((tool) => { const item = toolMeta[tool.id]; const Icon = item.icon; const engine = capabilities.operations.find((candidate) => candidate.id === tool.id)?.engine; return <button key={tool.id} onClick={() => chooseTool(tool.id)} className="pdf-tool-card"><span className={`pdf-tool-icon bg-gradient-to-br ${item.accent}`}><Icon size={21} /></span><span className="pdf-tool-copy"><small>{item.category}</small><strong>{item.title}</strong><span>{item.description}</span></span><span className="pdf-tool-engine">{engine === "stirling" ? "Stirling" : "Norium"}</span><ArrowLeft className="pdf-tool-arrow rotate-180" size={15} /></button>; })}</section>
+              {!availableTools.length && <EmptyState title="Nenhuma ferramenta encontrada" description="Tente outra categoria ou termo de busca." icon={Search} className="mt-5 min-h-64" />}
+
+              <section className="pdf-home-bottom"><article><div className="pdf-section-heading"><div><span>Atividade</span><h3>Processamentos recentes</h3></div><Sparkles size={19} /></div><div className="pdf-recent-list">{jobs.slice(0, 5).map((job) => <div key={job.id}><span className="min-w-0"><strong>{job.label}</strong><small>{job.message}</small></span><em>{job.status}</em>{job.status === "completed" && <Button size="sm" onClick={() => setActiveJobId(job.id)}>Ver</Button>}</div>)}{!jobs.length && <p>Nenhum processamento realizado.</p>}</div></article><article className="pdf-privacy-card"><ShieldCheck size={23} /><h3>Privacidade por padrão</h3><p>O arquivo original é preservado. Cada resultado vira um novo documento e serviços externos só são usados quando uma instância privada autorizada confirma a operação.</p></article></section>
+            </div>
+          </section>
         ) : (
           <section className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)_340px]">
             <aside className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)]"><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br ${meta?.accent} text-white`}>{SelectedToolIcon && <SelectedToolIcon size={20} />}</span><div><span className="text-xs font-black uppercase tracking-wide text-blue-300">{meta?.category}</span><h2 className="font-black">{meta?.title}</h2></div></div><p className="mt-3 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{meta?.description}</p><div className="mt-5 border-t border-[var(--border)] pt-4"><div className="flex items-center justify-between"><h3 className="text-xs font-black uppercase text-[var(--text-secondary)]">Arquivos</h3><button onClick={() => fileInput.current?.click()} className="text-xs font-black text-cyan-300">+ Importar</button></div><div className="mt-3 max-h-[52dvh] space-y-2 overflow-auto">{compatibleDocuments.map((document) => { const checked = selectedIds.includes(document.id); return <div key={document.id} className={`flex items-center gap-1 rounded-xl border pr-2 ${checked ? "border-blue-400/50 bg-blue-500/10" : "border-[var(--border)] bg-[var(--background)]"}`}><label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 p-3"><input type={needsMany || operation === "images_to_pdf" ? "checkbox" : "radio"} checked={checked} name="pdf-studio-document" onChange={() => toggleDocument(document.id)} /><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-300">{document.mimeType.startsWith("image/") ? <FileImage size={17} /> : <FileText size={17} />}</span><span className="min-w-0"><strong className="block truncate text-xs">{document.title}</strong><small className="text-[var(--text-secondary)]">{fileSize(document.size)}</small></span></label><button type="button" disabled={busy} onClick={() => void removeDocument(document)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-40" aria-label={`Excluir ${document.title}`} title="Excluir PDF"><Trash2 size={15} /></button></div>; })}{!compatibleDocuments.length && <p className="py-8 text-center text-xs font-semibold text-[var(--text-secondary)]">Importe um arquivo compativel.</p>}</div></div></aside>

@@ -156,6 +156,8 @@ type SortMode = "updated_desc" | "updated_asc" | "title";
 type CommercialDashboardProps = {
   session: AuthSession;
   onOpenNora: (prompt?: string) => void;
+  initialPdfToolsOpen?: boolean;
+  onOpenDocuments?: () => void;
 };
 
 type ProposalTemplateGuidance = {
@@ -200,7 +202,7 @@ function templateGuidance(template?: CommercialTemplate): ProposalTemplateGuidan
   return base;
 }
 
-export default function CommercialDashboard({ session, onOpenNora }: CommercialDashboardProps) {
+export default function CommercialDashboard({ session, onOpenNora, initialPdfToolsOpen = false, onOpenDocuments }: CommercialDashboardProps) {
   const [data, setData] = useState<CommercialData | null>(null);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [brainstorms, setBrainstorms] = useState<BrainstormOption[]>([]);
@@ -232,11 +234,24 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
   const [proposalUploadTarget, setProposalUploadTarget] = useState<CommercialProposal | undefined>();
   const [proposalUploadSigned, setProposalUploadSigned] = useState(false);
   const [editUploadedPdf, setEditUploadedPdf] = useState(false);
-  const [pdfToolsOpen, setPdfToolsOpen] = useState(false);
+  const [pdfToolsOpen, setPdfToolsOpen] = useState(initialPdfToolsOpen);
   const [pdfCapabilities, setPdfCapabilities] = useState<PdfCapabilities | null>(null);
   const [templatePreview, setTemplatePreview] = useState<CommercialTemplate | null>(null);
   const [contractProposal, setContractProposal] = useState<CommercialProposal | null>(null);
   const [signatureLinks, setSignatureLinks] = useState<SignatureLink[]>([]);
+
+  useEffect(() => {
+    setPdfToolsOpen(initialPdfToolsOpen);
+  }, [initialPdfToolsOpen]);
+
+  useEffect(() => {
+    if (!initialPdfToolsOpen || pdfCapabilities) return undefined;
+    let active = true;
+    void loadPdfCapabilities()
+      .then((capabilities) => { if (active) setPdfCapabilities(capabilities); })
+      .catch((requestError) => { if (active) setError(messageFromError(requestError, "Nao foi possivel carregar as ferramentas de PDF.")); });
+    return () => { active = false; };
+  }, [initialPdfToolsOpen, pdfCapabilities]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -799,7 +814,7 @@ export default function CommercialDashboard({ session, onOpenNora }: CommercialD
           documents={data.uploadedDocuments}
           jobs={data.processingJobs}
           busy={busy}
-          onBack={() => setPdfToolsOpen(false)}
+          onBack={() => { setPdfToolsOpen(false); if (initialPdfToolsOpen) onOpenDocuments?.(); }}
           onProcess={handlePdfProcess}
           onDelete={handleDeleteImported}
           onImported={(document) => setData((current) => current ? {

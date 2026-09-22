@@ -11,6 +11,7 @@ const vectorTabs = [
   "Automações",
   "Relatórios",
   "Documentos",
+  "PDF Studio",
   "Agente Navegador",
   "Conhecimento",
   "Marketplace",

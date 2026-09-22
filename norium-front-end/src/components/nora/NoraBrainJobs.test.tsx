@@ -88,4 +88,22 @@ describe("NoraBrainJobs", () => {
       }),
     ));
   });
+
+  it("shows the real execution trace and evidence coverage", async () => {
+    vi.mocked(apiRequest).mockResolvedValue({ items: [{
+      ...pending,
+      status: "completed",
+      steps: [{
+        ...pending.steps[0],
+        status: "succeeded",
+        result: { evidence: { messageId: "message-1", sender: "conta@example.test" } },
+      }],
+    }] });
+
+    render(<NoraBrainJobs onClose={vi.fn()} />);
+
+    expect(await screen.findByText("1/1 com evidência")).toBeInTheDocument();
+    expect(screen.getByText("Plano e trilha de execução")).toBeInTheDocument();
+    expect(screen.getByText(/Evidências: messageId, sender/)).toBeInTheDocument();
+  });
 });

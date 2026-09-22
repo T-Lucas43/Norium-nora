@@ -16,6 +16,7 @@ export const panelModules = {
   "Automações": () => import("../../components/automations/AutomationsDashboard"),
   "Relatórios": () => import("../../components/reports/ReportsDashboard"),
   Documentos: () => import("../../components/commercial/CommercialDashboard"),
+  "PDF Studio": () => import("../../components/commercial/CommercialDashboard"),
   "Estúdio": () => import("../../components/brainstorm/BrainstormDashboard"),
   Clientes: () => import("../../components/clients/ClientsDashboard"),
   Equipe: () => import("../../components/team/TeamDashboard"),

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, BrainCircuit, Check, Clock3, Loader2, Paperclip, Pause, Play, RefreshCcw, Send, ShieldCheck, Trash2, X } from "lucide-react";
+import { Activity, AlertTriangle, BrainCircuit, Check, Clock3, Eye, ListChecks, Loader2, Paperclip, Pause, Play, RefreshCcw, Send, ShieldCheck, Trash2, X } from "lucide-react";
 import { ApiError, apiRequest } from "../../core/api/client";
 import Button from "../shared/Button";
 import "./noraBrainJobs.css";
@@ -32,6 +32,17 @@ const stateLabels: Record<string, string> = {
   cancelled: "Cancelado", failed: "Falhou",
 };
 const profileLabels = { routine: "Rotina", document: "Documento profissional", complex: "Complexo" };
+const stepLabels: Record<string, string> = {
+  planned: "Planejada", preparing: "Preparando", awaiting_approval: "Em revisão",
+  executing: "Executando", succeeded: "Confirmada", rejected: "Não aplicada",
+  unknown: "A verificar", failed: "Falhou", cancelled: "Cancelada",
+};
+
+function jobSignals(job: BrainJob) {
+  const withEvidence = job.steps.filter((step) => Object.keys(step.result?.evidence || {}).length > 0).length;
+  const reviewed = job.steps.filter((step) => step.approval?.approvedAt || step.status === "awaiting_approval").length;
+  return { withEvidence, reviewed };
+}
 
 function fileBase64(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -166,6 +177,12 @@ export default function NoraBrainJobs({ onClose }: { onClose: () => void }) {
       <span><BrainCircuit size={20} /><span><strong>Trabalhos da Nora</strong><small>Execução persistente, revisão e evidências</small></span></span>
       <Button variant="ghost" iconOnly onClick={onClose} aria-label="Fechar trabalhos"><X size={18} /></Button>
     </header>
+    <section className="nora-brain-controls" aria-label="Controles de engenharia dos agentes">
+      <span><ListChecks size={15} /><strong>Plano por etapas</strong><small>Uma ferramenta por decisão</small></span>
+      <span><BrainCircuit size={15} /><strong>Contexto limitado</strong><small>Orçamento por perfil</small></span>
+      <span><ShieldCheck size={15} /><strong>Supervisão humana</strong><small>Ações sensíveis revisadas</small></span>
+      <span><Eye size={15} /><strong>Evidências</strong><small>Resultado confirmado ou incerto</small></span>
+    </section>
     <section className="nora-brain-compose" aria-label="Novo trabalho">
       <textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={4000} placeholder="Descreva o resultado que você precisa..." />
       {attachments.length > 0 && <div className="nora-brain-attachments">{attachments.map((file) => <span key={file.id}><Paperclip size={12} /> {file.name}<button type="button" aria-label={`Remover ${file.name}`} onClick={() => setAttachments((current) => current.filter((item) => item.id !== file.id))}><Trash2 size={12} /></button></span>)}</div>}
@@ -180,10 +197,24 @@ export default function NoraBrainJobs({ onClose }: { onClose: () => void }) {
     <div className="nora-brain-list">
       {loading ? <p className="nora-brain-empty"><Loader2 className="animate-spin" /> Carregando trabalhos...</p> : jobs.length === 0 ? <p className="nora-brain-empty"><BrainCircuit /> Nenhum trabalho persistente iniciado.</p> : jobs.map((job) => {
         const review = job.steps.find((step) => step.status === "awaiting_approval" && step.approval && step.prepared);
+        const signals = jobSignals(job);
         return <article key={job.id} className={`nora-brain-job state-${job.status}`}>
           <div className="nora-brain-job-title"><span className="nora-brain-state">{activeStates.has(job.status) ? <Loader2 className="animate-spin" size={14} /> : job.status === "completed" ? <Check size={14} /> : job.status === "unknown" ? <AlertTriangle size={14} /> : <Clock3 size={14} />} {stateLabels[job.status] || job.status}</span><small>{profileLabels[job.profile]}</small></div>
           <h3>{job.message || "Conteúdo temporário expirado"}</h3>
           {job.result && <p className="nora-brain-result">{job.result}</p>}
+          <div className="nora-brain-signals" aria-label="Sinais de qualidade do trabalho">
+            <span><Activity size={13} /> {job.steps.length} etapa(s)</span>
+            <span><Eye size={13} /> {signals.withEvidence}/{job.steps.length || 0} com evidência</span>
+            <span><ShieldCheck size={13} /> {signals.reviewed} revisão(ões)</span>
+            <span><Clock3 size={13} /> {Math.round(job.budget.seconds)}s contabilizados</span>
+          </div>
+          {job.steps.length > 0 && <details className="nora-brain-trace">
+            <summary><ListChecks size={14} /> Plano e trilha de execução <span>{job.steps.length}</span></summary>
+            <ol>{job.steps.map((step, index) => {
+              const evidenceKeys = Object.keys(step.result?.evidence || {});
+              return <li key={step.id} className={`state-${step.status}`}><i>{index + 1}</i><span><strong>{step.tool.replaceAll("_", " ")}</strong><small>{evidenceKeys.length ? `Evidências: ${evidenceKeys.join(", ")}` : "Nenhuma evidência registrada nesta etapa"}</small></span><em>{stepLabels[step.status] || step.status}</em></li>;
+            })}</ol>
+          </details>}
           {review && <section className="nora-brain-review" aria-label="Operação aguardando revisão">
             <strong><ShieldCheck size={16} /> Revise a operação exata</strong>
             <dl>{reviewFields(review).map((field) => <div key={field.label}><dt>{field.label}</dt><dd>{field.value}</dd></div>)}</dl>

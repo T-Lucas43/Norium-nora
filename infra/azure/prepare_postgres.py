@@ -16,13 +16,12 @@ def main() -> None:
     app_login = os.environ.get("POSTGRES_APP_LOGIN", "norium_app")
     app_password = os.environ["POSTGRES_APP_PASSWORD"]
     with psycopg.connect(host=host, dbname=database, user=admin, password=admin_password,
-                         sslmode="verify-full", connect_timeout=15, autocommit=True) as db:
+                         sslmode="verify-full", sslrootcert="system", connect_timeout=15, autocommit=True) as db:
         exists = db.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (app_login,)).fetchone()
         if exists:
             db.execute(sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(app_login), sql.Literal(app_password)))
         else:
             db.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(app_login), sql.Literal(app_password)))
-        db.execute(sql.SQL("ALTER DATABASE {} OWNER TO {}").format(sql.Identifier(database), sql.Identifier(app_login)))
         db.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(sql.Identifier(database), sql.Identifier(app_login)))
         db.execute(sql.SQL("GRANT USAGE, CREATE ON SCHEMA public TO {}").format(sql.Identifier(app_login)))
     encoded_login, encoded_password = quote(app_login, safe=""), quote(app_password, safe="")

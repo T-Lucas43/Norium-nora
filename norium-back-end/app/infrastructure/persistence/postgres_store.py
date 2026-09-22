@@ -45,13 +45,17 @@ def _pool_instance():
             sslmode = os.getenv("NORIUM_DATABASE_SSLMODE", "verify-full" if required() else "prefer").strip().lower()
             if required() and sslmode not in {"verify-ca", "verify-full"}:
                 raise PostgresStoreError("postgresql_tls_verification_required")
+            sslrootcert = os.getenv("NORIUM_DATABASE_SSLROOTCERT", "system" if required() and sslmode == "verify-full" else "").strip()
+            connection_kwargs = {"row_factory": dict_row, "connect_timeout": 5, "sslmode": sslmode}
+            if sslrootcert:
+                connection_kwargs["sslrootcert"] = sslrootcert
             _pool = ConnectionPool(
                 conninfo=url,
                 min_size=1,
                 max_size=max(1, min(10, int(os.getenv("NORIUM_DATABASE_POOL_SIZE", "5")))),
                 timeout=5,
                 max_waiting=32,
-                kwargs={"row_factory": dict_row, "connect_timeout": 5, "sslmode": sslmode},
+                kwargs=connection_kwargs,
                 open=True,
             )
     return _pool

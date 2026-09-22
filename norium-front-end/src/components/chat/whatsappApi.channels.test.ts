@@ -20,7 +20,7 @@ describe("whatsappApi.channels", () => {
     await expect(whatsappApi.channels()).resolves.toEqual(payload);
     expect(apiRequest).toHaveBeenCalledWith("/api/chat/canais", {
       cache: "no-store",
-      timeoutMs: 30_000,
+      timeoutMs: 8_000,
       signal: undefined,
     });
   });

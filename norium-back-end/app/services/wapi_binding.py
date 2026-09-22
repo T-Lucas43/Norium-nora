@@ -8,12 +8,11 @@ Isolamento:
 
 - O vínculo é gravado em store por conta (``read_account_db``), então já nasce
   segregado pelo identificador autenticado.
-- Um registro SQLite transacional aplica unicidade para conta e instância. O
-  índice JSON legado é mantido apenas como espelho recuperável para
-  compatibilidade. O webhook nunca confia no ``userId`` do payload: resolve o
-  dono pelo registro e reconfirma o ``instanceId`` no vínculo.
-- Processos ou réplicas precisam apontar ``NORIUM_DATA_DIR`` para o mesmo volume
-  com suporte a locks; discos efêmeros independentes não formam um lock distribuído.
+- Em produção, um registro PostgreSQL transacional aplica unicidade para conta
+  e instância. O índice JSON lógico fica no mesmo PostgreSQL para compatibilidade.
+  O webhook nunca confia no ``userId`` do payload: resolve o dono pelo registro
+  e reconfirma o ``instanceId`` no vínculo.
+- O bloqueio de propriedade usa advisory locks do PostgreSQL entre processos.
 
 Nenhum token é exposto ao frontend nem registrado em log.
 """
@@ -43,6 +42,7 @@ from app.core.tenant import (
     get_system_db_path,
 )
 from app.services.wapi_credentials import wapi_credential_store
+from app.infrastructure.persistence import postgres_store
 
 
 # Versão dos termos de "uso responsável e risco de banimento". Se o texto mudar,
@@ -58,6 +58,8 @@ _PROVISIONING_STATES = frozenset(
     {"provisioning", "active", "failed", "disconnecting"}
 )
 _ownership_lock = threading.RLock()
+_postgres_registry_schema_guard = threading.Lock()
+_postgres_registry_schema_ready = False
 _ownership_lock_state = threading.local()
 
 
@@ -201,7 +203,12 @@ def _locked_store() -> Iterator[None]:
                 _ownership_lock_state.depth = depth
             return
 
-        with _interprocess_ownership_lock():
+        distributed_lock = (
+            postgres_store.advisory_lock("norium:wapi-binding")
+            if postgres_store.configured() or postgres_store.required()
+            else _interprocess_ownership_lock()
+        )
+        with distributed_lock:
             _ownership_lock_state.depth = 1
             try:
                 _recover_store()
@@ -211,6 +218,9 @@ def _locked_store() -> Iterator[None]:
 
 
 def _read_json_object(path: Path) -> dict[str, Any] | None:
+    if postgres_store.configured() or postgres_store.required():
+        payload = read_json_file(path, None)
+        return payload if payload is None or isinstance(payload, dict) else None
     if not path.is_file():
         return {}
     try:
@@ -240,7 +250,12 @@ def _known_tenant_ids_by_directory() -> dict[str, set[str]]:
 def _active_binding_candidates() -> dict[str, str]:
     candidates: dict[str, str] = {}
     known_tenants = _known_tenant_ids_by_directory()
-    for path in sorted(get_data_root().glob(f"user_*/{_BINDING_DB}_db.json")):
+    if postgres_store.configured() or postgres_store.required():
+        paths = [get_data_root() / key for key in postgres_store.list_document_keys("user_")
+                 if key.count("/") == 1 and key.endswith(f"/{_BINDING_DB}_db.json")]
+    else:
+        paths = sorted(get_data_root().glob(f"user_*/{_BINDING_DB}_db.json"))
+    for path in paths:
         payload = _read_json_object(path)
         if not payload:
             continue
@@ -303,7 +318,7 @@ def _legacy_ownership_candidates() -> list[tuple[str, str]]:
     return selected
 
 
-def _ensure_registry_schema(connection: sqlite3.Connection) -> None:
+def _ensure_registry_schema(connection) -> None:
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS wapi_ownership (
@@ -355,6 +370,14 @@ def _ensure_registry_schema(connection: sqlite3.Connection) -> None:
     )
     connection.commit()
 
+    if getattr(connection, "postgres", False):
+        connection.execute(
+            "INSERT INTO wapi_binding_metadata(key,value) VALUES (?,?) ON CONFLICT(key) DO NOTHING",
+            ("legacy_index_imported", "1"),
+        )
+        connection.commit()
+        return
+
     migrated = connection.execute(
         "SELECT value FROM wapi_binding_metadata WHERE key = ?",
         ("legacy_index_imported",),
@@ -381,7 +404,62 @@ def _ensure_registry_schema(connection: sqlite3.Connection) -> None:
         ) from None
 
 
-def _registry_connection() -> sqlite3.Connection:
+class _PostgresRegistryConnection:
+    postgres = True
+
+    def __init__(self) -> None:
+        from psycopg.rows import tuple_row
+        self._context = postgres_store.connection()
+        self.raw = self._context.__enter__()
+        self._row_factory = tuple_row
+        self.closed = False
+
+    @staticmethod
+    def _translate(query: str) -> str:
+        return ("BEGIN" if query.strip().upper() == "BEGIN IMMEDIATE" else query).replace("?", "%s")
+
+    def execute(self, query: str, params=()):
+        try:
+            return self.raw.cursor(row_factory=self._row_factory).execute(self._translate(query), params)
+        except Exception as exc:
+            if str(getattr(exc, "sqlstate", "")).startswith("23"):
+                raise sqlite3.IntegrityError("postgresql constraint violation") from exc
+            raise sqlite3.DatabaseError("postgresql registry unavailable") from exc
+
+    def executemany(self, query: str, params):
+        try:
+            return self.raw.cursor(row_factory=self._row_factory).executemany(self._translate(query), params)
+        except Exception as exc:
+            if str(getattr(exc, "sqlstate", "")).startswith("23"):
+                raise sqlite3.IntegrityError("postgresql constraint violation") from exc
+            raise sqlite3.DatabaseError("postgresql registry unavailable") from exc
+
+    def commit(self):
+        self.raw.commit()
+
+    def rollback(self):
+        self.raw.rollback()
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self._context.__exit__(None, None, None)
+
+
+def _registry_connection():
+    if postgres_store.configured() or postgres_store.required():
+        global _postgres_registry_schema_ready
+        try:
+            connection = _PostgresRegistryConnection()
+            with _postgres_registry_schema_guard:
+                if not _postgres_registry_schema_ready:
+                    _ensure_registry_schema(connection)
+                    _postgres_registry_schema_ready = True
+            return connection
+        except Exception as exc:
+            if 'connection' in locals():
+                connection.close()
+            raise BindingPersistenceError("Não foi possível abrir o registro transacional W-API.") from exc
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(str(_registry_path()), timeout=30.0)
@@ -557,6 +635,13 @@ def _repair_index_mirror(connection: sqlite3.Connection) -> None:
 
 def _binding_snapshot(user_id: str) -> tuple[bool, dict[str, Any] | None]:
     path = Path(get_account_db_path(user_id, _BINDING_DB))
+    if postgres_store.configured() or postgres_store.required():
+        payload = read_json_file(path, None)
+        if payload is None:
+            return False, None
+        if not isinstance(payload, dict):
+            raise BindingPersistenceError("Não foi possível validar o vínculo W-API persistido.")
+        return True, payload
     if not path.is_file():
         return False, None
     payload = _read_json_object(path)
@@ -594,9 +679,11 @@ def _recover_pending_transaction() -> None:
                     "Não foi possível recuperar uma transação W-API interrompida."
                 ) from None
             else:
-                Path(get_account_db_path(tenant_id, _BINDING_DB)).unlink(
-                    missing_ok=True
-                )
+                binding_path = Path(get_account_db_path(tenant_id, _BINDING_DB))
+                if postgres_store.configured() or postgres_store.required():
+                    postgres_store.delete_document(postgres_store.canonical_key(binding_path))
+                else:
+                    binding_path.unlink(missing_ok=True)
             _write_index_mirror(connection)
             connection.execute(
                 "DELETE FROM wapi_binding_journal WHERE singleton = 1"

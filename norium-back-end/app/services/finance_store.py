@@ -13,11 +13,14 @@ from urllib.parse import quote
 from app.core.request_context import current_workspace_id
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, write_json_file
 from app.infrastructure.persistence.json_repository import PersistenceError
+from app.infrastructure.persistence import files as persistent_files
+from app.infrastructure.persistence import postgres_store
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 FINANCE_PATH = BASE_DIR / "financeiro_db.json"
 FINANCE_UPLOAD_DIR = get_data_root() / "finance_uploads"
-FINANCE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+if not (postgres_store.configured() or postgres_store.required()):
+    FINANCE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 ENTRY_TYPES = {"entrada", "saida"}
 STATUS = {"pendente", "pago", "cancelado"}
@@ -226,7 +229,7 @@ def add_attachment(user_id: str, lancamento_id: str, *, file_name: str, mime_typ
     file_bytes, detected_mime = decode_data_url(data_url, mime_type)
     safe_name = safe_upload_name(file_name, detected_mime)
     file_path = FINANCE_UPLOAD_DIR / safe_name
-    file_path.write_bytes(file_bytes)
+    persistent_files.write(file_path, file_bytes, content_type=detected_mime)
     attachment = {
         "id": f"fin_att_{uuid.uuid4().hex}",
         "name": Path(file_name).name or safe_name,
@@ -276,8 +279,7 @@ def remove_attachment(user_id: str, lancamento_id: str, attachment_id: str) -> d
         stored_name = Path(str(removed.get("storedName") or "")).name
         if stored_name and not _attachment_file_still_used(workspace, stored_name):
             path = FINANCE_UPLOAD_DIR / stored_name
-            if path.exists() and path.is_file():
-                path.unlink(missing_ok=True)
+            persistent_files.delete(path)
         return removed
 
     return None
@@ -295,7 +297,7 @@ def attachment_path(user_id: str, file_name: str) -> Path | None:
     if not authorized:
         return None
     path = FINANCE_UPLOAD_DIR / safe_name
-    if not path.exists() or not path.is_file():
+    if not persistent_files.exists(path):
         return None
     return path
 

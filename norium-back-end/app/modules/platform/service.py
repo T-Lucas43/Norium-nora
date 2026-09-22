@@ -585,21 +585,25 @@ def _examine_pdf_file(
     confined = root in path.parents
     if not confined:
         raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
-    is_file = path.is_file()
-    if not is_file:
+    from app.infrastructure.persistence import files as persistent_files
+    info = persistent_files.info(path)
+    if info is None:
         raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
-    try:
-        stat = path.stat()
-    except OSError:
-        raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
-    return path, (stat.st_mtime_ns, stat.st_size)
+    version = int(info.get("revision") or 0)
+    if not version:
+        try:
+            version = path.stat().st_mtime_ns
+        except OSError:
+            raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
+    return path, (version, int(info["size"]))
 
 
 def _read_pdf_file_bytes(path: Path) -> bytes:
     """Fase 5 do acesso ao arquivo, síncrona (cache miss; fora do event loop)."""
     try:
-        return path.read_bytes()
-    except OSError as exc:
+        from app.infrastructure.persistence import files as persistent_files
+        return persistent_files.read(path)
+    except (OSError, FileNotFoundError) as exc:
         raise HTTPException(
             status_code=422,
             detail="Nao foi possivel ler o conteudo deste PDF.",

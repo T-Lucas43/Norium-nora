@@ -7,6 +7,7 @@ import hashlib
 import io
 import os
 import re
+import tempfile
 import unicodedata
 import uuid
 from datetime import datetime, timezone
@@ -21,6 +22,8 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from app.core.tenant import get_user_db_path
+from app.infrastructure.persistence import files as persistent_files
+from app.infrastructure.persistence import postgres_store
 from app.modules.commercial.repository import STORE_LOCK, read_store, write_store
 from app.modules.commercial.schemas import DocumentImportRequest, ImportedDocumentUpdate, PdfProcessRequest
 from app.modules.commercial.stirling_pdf import StirlingPdfClient, StirlingPdfError
@@ -129,7 +132,8 @@ def processing_retries() -> int:
 def _storage_root(tenant_id: str) -> Path:
     database_path = Path(get_user_db_path(tenant_id, "comercial"))
     root = (database_path.parent / "documents").resolve()
-    root.mkdir(parents=True, exist_ok=True)
+    if not (postgres_store.configured() or postgres_store.required()):
+        root.mkdir(parents=True, exist_ok=True)
     return root
 
 
@@ -196,7 +200,7 @@ async def prepare_imported_document(
     destination = (_storage_root(tenant_id) / stored_name).resolve()
     if destination.parent != _storage_root(tenant_id):
         raise HTTPException(status_code=422, detail="Nome de arquivo invalido.")
-    await asyncio.to_thread(destination.write_bytes, content)
+    await asyncio.to_thread(persistent_files.write, destination, content, content_type=payload.mimeType)
     title = Path(_safe_filename(payload.fileName)).stem.replace("-", " ").strip() or "Documento importado"
     event = {
         "id": f"event_{uuid.uuid4().hex}",
@@ -258,9 +262,13 @@ def processing_job_or_404(store: dict[str, Any], job_id: str) -> tuple[int, dict
 def document_path(tenant_id: str, document: dict[str, Any]) -> Path:
     root = _storage_root(tenant_id)
     path = Path(str(document.get("storagePath") or "")).resolve()
-    if path.parent != root or not path.is_file():
+    if path.parent != root or not persistent_files.exists(path):
         raise HTTPException(status_code=404, detail="Arquivo privado indisponivel.")
     return path
+
+
+def document_bytes(tenant_id: str, document: dict[str, Any]) -> bytes:
+    return persistent_files.read(document_path(tenant_id, document))
 
 
 async def update_imported_document(
@@ -320,8 +328,8 @@ async def delete_imported_document(tenant_id: str, document_id: str) -> dict[str
         await write_store(tenant_id, store)
     path = Path(str(current.get("storagePath") or ""))
     try:
-        if path.resolve().parent == _storage_root(tenant_id) and path.is_file():
-            await asyncio.to_thread(path.unlink)
+        if path.resolve().parent == _storage_root(tenant_id):
+            await asyncio.to_thread(persistent_files.delete, path)
     except OSError:
         pass
     return document_file_summary(current)
@@ -500,21 +508,27 @@ async def run_processing_job(
 async def _execute_job(tenant_id: str, job: dict[str, Any]) -> list[tuple[bytes, str, str]]:
     store = await asyncio.to_thread(read_store, tenant_id)
     documents = [imported_document_or_404(store, document_id)[1] for document_id in job.get("documentIds", [])]
-    paths = [document_path(tenant_id, document) for document in documents]
+    stored_paths = [document_path(tenant_id, document) for document in documents]
     operation = str(job.get("operation") or "")
     options = job.get("options") if isinstance(job.get("options"), dict) else {}
 
-    if operation == "ocr":
-        content, filename, content_type = await StirlingPdfClient().process(operation, paths, options)
-        return [(content, filename, content_type)]
-    if operation in {"watermark", "merge", "compress"}:
-        stirling = StirlingPdfClient()
-        if stirling.configured:
-            capabilities = await stirling.capabilities()
-            if operation in capabilities.get("operations", []):
-                content, filename, content_type = await stirling.process(operation, paths, options)
-                return [(content, filename, content_type)]
-    return await asyncio.to_thread(_process_native, operation, paths, options)
+    with tempfile.TemporaryDirectory(prefix="norium-doc-process-") as directory:
+        paths: list[Path] = []
+        for index, stored_path in enumerate(stored_paths):
+            temporary = Path(directory) / f"{index}{stored_path.suffix}"
+            temporary.write_bytes(persistent_files.read(stored_path))
+            paths.append(temporary)
+        if operation == "ocr":
+            content, filename, content_type = await StirlingPdfClient().process(operation, paths, options)
+            return [(content, filename, content_type)]
+        if operation in {"watermark", "merge", "compress"}:
+            stirling = StirlingPdfClient()
+            if stirling.configured:
+                capabilities = await stirling.capabilities()
+                if operation in capabilities.get("operations", []):
+                    content, filename, content_type = await stirling.process(operation, paths, options)
+                    return [(content, filename, content_type)]
+        return await asyncio.to_thread(_process_native, operation, paths, options)
 
 
 def _reader(path: Path, password: str = "") -> PdfReader:
@@ -711,7 +725,7 @@ async def _persist_outputs(
         destination = (root / f"{document_id}{suffix}").resolve()
         if destination.parent != root:
             raise ValueError("Destino interno invalido.")
-        await asyncio.to_thread(destination.write_bytes, content)
+        await asyncio.to_thread(persistent_files.write, destination, content, content_type=mime_type)
         item = {
             "id": document_id,
             "documentType": "text" if mime_type == "text/plain" else "pdf",

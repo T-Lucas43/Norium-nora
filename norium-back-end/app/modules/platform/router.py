@@ -8,11 +8,12 @@ from typing import Any
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from app.modules.platform.pdf_text import decode_pdf_data_url, extract_pdf_pages_async
 
 from app.core.tenant import get_data_root, get_user_db_path, read_json_file, write_json_file
+from app.infrastructure.persistence import files as persistent_files
 from app.modules.auth.router import (
     can_manage_system,
     can_manage_team,
@@ -407,9 +408,8 @@ async def upload_knowledge_pdf(
     safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", Path(payload.fileName).name).strip("._") or "documento.pdf"
     file_id = f"knowledge_{uuid.uuid4().hex[:12]}"
     directory = Path(get_user_db_path(tenant_id(user), "platform")).parent / "knowledge_files"
-    await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
     stored_path = directory / f"{file_id}_{safe_name}"
-    await asyncio.to_thread(stored_path.write_bytes, pdf_bytes)
+    await asyncio.to_thread(persistent_files.write, stored_path, pdf_bytes, content_type="application/pdf")
 
     item = await create_collection_item(
         user,
@@ -449,9 +449,11 @@ async def download_knowledge_pdf(
         raise HTTPException(status_code=404, detail="PDF nao encontrado.")
     path = Path(str(item.get("storedPath") or "")).resolve()
     allowed_root = (Path(get_user_db_path(tenant_id(user), "platform")).parent / "knowledge_files").resolve()
-    if not path.is_file() or allowed_root not in path.parents:
+    if allowed_root not in path.parents or not persistent_files.exists(path):
         raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
-    return FileResponse(path, media_type="application/pdf", filename=str(item.get("fileName") or "documento.pdf"))
+    filename = str(item.get("fileName") or "documento.pdf").replace('"', "")
+    return Response(persistent_files.read(path), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "private, no-store"})
 
 
 @router.put("/conhecimento/{document_id}")
@@ -472,8 +474,8 @@ async def remove_knowledge(document_id: str, user: dict[str, Any] = Depends(curr
     if item and item.get("sourceType") == "pdf":
         path = Path(str(item.get("storedPath") or "")).resolve()
         allowed_root = (Path(get_user_db_path(tenant_id(user), "platform")).parent / "knowledge_files").resolve()
-        if path.is_file() and allowed_root in path.parents:
-            path.unlink()
+        if allowed_root in path.parents:
+            persistent_files.delete(path)
     return {"deleted": await delete_collection_item(user, "knowledge", document_id)}
 
 

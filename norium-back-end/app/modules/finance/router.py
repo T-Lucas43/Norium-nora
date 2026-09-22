@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import Field
 
 from app.shared.schemas import StrictModel
@@ -302,7 +302,11 @@ async def baixar_anexo(file_name: str, user: dict[str, Any] = Depends(current_us
     path = attachment_path(tenant_id(user), file_name)
     if not path:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
-    return FileResponse(path, filename=path.name)
+    from app.infrastructure.persistence import files as persistent_files
+    return Response(
+        persistent_files.read(path), media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{path.name}"', "Cache-Control": "private, no-store"},
+    )
 
 
 @router.delete("/lancamentos/{lancamento_id}/anexos/{attachment_id}")

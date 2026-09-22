@@ -16,11 +16,14 @@ from urllib.parse import quote
 from app.core.request_context import current_workspace_id
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, write_json_file
 from app.infrastructure.persistence.json_repository import PersistenceError
+from app.infrastructure.persistence import files as persistent_files
+from app.infrastructure.persistence import postgres_store
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 TASKS_PATH = BASE_DIR / "tarefas_db.json"
 TASK_UPLOAD_DIR = get_data_root() / "task_uploads"
-TASK_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+if not (postgres_store.configured() or postgres_store.required()):
+    TASK_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_COLUMNS = [
     {"id": "pendente", "title": "Pendentes", "limit": None},
@@ -448,7 +451,7 @@ def add_attachment(user_id: str, task_id: str, *, file_name: str, mime_type: str
     file_bytes, detected_mime = decode_data_url(data_url, mime_type)
     safe_name = safe_upload_name(file_name, detected_mime)
     file_path = TASK_UPLOAD_DIR / safe_name
-    file_path.write_bytes(file_bytes)
+    persistent_files.write(file_path, file_bytes, content_type=detected_mime)
 
     attachment = {
         "id": f"att_{uuid.uuid4().hex}",
@@ -499,7 +502,7 @@ def attachment_path(user_id: str, file_name: str) -> Path | None:
     if not authorized:
         return None
     path = TASK_UPLOAD_DIR / safe_name
-    if not path.exists() or not path.is_file():
+    if not persistent_files.exists(path):
         return None
     return path
 

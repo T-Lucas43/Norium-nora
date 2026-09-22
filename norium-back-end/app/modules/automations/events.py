@@ -12,18 +12,73 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 
 from app.core.request_context import current_workspace_id, set_request_context, reset_request_context
 from app.core.tenant import get_data_root, read_user_db, read_account_db
+from app.infrastructure.persistence import postgres_store
 
 logger = logging.getLogger(__name__)
 automation_origin = contextvars.ContextVar("automation_origin", default=False)
+_postgres_schema_guard = threading.Lock()
+_postgres_schema_ready = False
 EVENT_TYPES = {"whatsapp.received", "team.message", "team.mentioned", "gmail.received", "task.created", "task.updated", "task.comment", "finance.created", "finance.updated", "calendar.created", "calendar.updated"}
 
 
+class _PostgresAutomationConnection:
+    postgres = True
+
+    def __init__(self):
+        self._context = postgres_store.connection()
+        self.raw = self._context.__enter__()
+        self.closed = False
+
+    def execute(self, query, params=()):
+        normalized = query.replace("INSERT OR IGNORE INTO", "INSERT INTO")
+        if "INSERT OR IGNORE INTO" in query:
+            normalized += " ON CONFLICT DO NOTHING"
+        if normalized.strip().upper() == "BEGIN IMMEDIATE":
+            normalized = "BEGIN"
+        normalized = re.sub(r"\bjobs\b", "automation_jobs", normalized)
+        return self.raw.execute(normalized.replace("?", "%s"), params)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        try:
+            self.raw.rollback() if exc_type else self.raw.commit()
+        finally:
+            self.close()
+
+    def close(self):
+        if not self.closed:
+            self.closed = True
+            self._context.__exit__(None, None, None)
+
+
 def connection():
+    if postgres_store.configured() or postgres_store.required():
+        global _postgres_schema_ready
+        db = _PostgresAutomationConnection()
+        try:
+            with _postgres_schema_guard:
+                if not _postgres_schema_ready:
+                    db.execute("""CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY, user_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
+                automation_id TEXT NOT NULL, fingerprint TEXT NOT NULL, event TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
+                finished_at TEXT, error TEXT, lease_until DOUBLE PRECISION NOT NULL DEFAULT 0)""")
+                    db.execute("CREATE INDEX IF NOT EXISTS automation_jobs_status ON jobs(status, created_at)")
+                    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS automation_one_running_scope ON jobs(user_id,workspace_id) WHERE status='running'")
+                    db.raw.commit()
+                    _postgres_schema_ready = True
+            return db
+        except Exception:
+            db.close()
+            raise
     db = sqlite3.connect(get_data_root() / "automation_events.sqlite3", timeout=15)
     db.row_factory = sqlite3.Row
     db.execute("""CREATE TABLE IF NOT EXISTS jobs (
@@ -132,12 +187,25 @@ def claim_job():
             db.execute("BEGIN IMMEDIATE")
             db.execute("UPDATE jobs SET status='interrupted',finished_at=?,error=? WHERE status='running' AND lease_until<?",
                        (datetime.now(timezone.utc).isoformat(), "O executor perdeu a conexão. Confira o canal antes de repetir o envio.", time.time()))
-            row = db.execute("""SELECT * FROM jobs candidate WHERE status='pending'
+            pending_query = """SELECT * FROM jobs candidate WHERE status='pending'
                 AND NOT EXISTS (SELECT 1 FROM jobs running WHERE running.status='running'
                 AND running.user_id=candidate.user_id AND running.workspace_id=candidate.workspace_id)
-                ORDER BY created_at LIMIT 1""").fetchone()
+                ORDER BY created_at LIMIT 1"""
+            locked_query = """SELECT * FROM jobs candidate WHERE status='pending'
+                AND NOT EXISTS (SELECT 1 FROM jobs running WHERE running.status='running'
+                AND running.user_id=candidate.user_id AND running.workspace_id=candidate.workspace_id)
+                ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED"""
+            row = db.execute(locked_query if getattr(db, "postgres", False) else pending_query).fetchone()
             if row:
-                db.execute("UPDATE jobs SET status='running',lease_until=? WHERE id=?", (time.time() + 90, row["id"]))
+                try:
+                    updated = db.execute("UPDATE jobs SET status='running',lease_until=? WHERE id=? AND status='pending'", (time.time() + 90, row["id"]))
+                except Exception as exc:
+                    if getattr(db, "postgres", False) and getattr(exc, "sqlstate", None) == "23505":
+                        db.raw.rollback()
+                        return None
+                    raise
+                if updated.rowcount != 1:
+                    return None
                 return dict(row)
     finally:
         db.close()

@@ -28,7 +28,7 @@ class NoraDocumentXmlSecurityTests(unittest.IsolatedAsyncioTestCase):
                 "start": 0,
                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             }
-            with patch.object(documents, "checked_file", return_value=({}, path)):
+            with patch.object(documents, "checked_file", return_value=({}, path.read_bytes(), ".docx")):
                 with self.assertRaises(EntitiesForbidden):
                     await documents.read_file({"id": "synthetic-user"}, prepared, None)
 

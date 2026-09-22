@@ -10,7 +10,7 @@ from collections import defaultdict
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.modules.auth.router import current_user, effective_permissions, user_from_websocket_ticket
 from app.modules.commercial.repository import read_store
@@ -46,7 +46,7 @@ from app.modules.commercial.document_files import (
     cancel_processing_job,
     create_processing_job,
     delete_imported_document,
-    document_path,
+    document_bytes,
     import_document,
     imported_document_or_404,
     pdf_capabilities,
@@ -355,17 +355,15 @@ async def remove_imported_document(
 async def download_imported_document(
     document_id: str,
     user: dict[str, Any] = Depends(current_user),
-) -> FileResponse:
+) -> Response:
     tenant_id = collaboration_tenant_id(user)
     store = await asyncio.to_thread(read_store, tenant_id)
     _, document = imported_document_or_404(store, document_id)
-    path = document_path(tenant_id, document)
+    content = document_bytes(tenant_id, document)
     await audit(user, "document_downloaded", f'Arquivo "{document.get("title")}" baixado.', "document", document_id, "info")
-    return FileResponse(
-        path,
-        media_type=str(document.get("mimeType") or "application/octet-stream"),
-        filename=str(document.get("originalFileName") or path.name),
-    )
+    filename = str(document.get("originalFileName") or "documento").replace('"', "")
+    return Response(content, media_type=str(document.get("mimeType") or "application/octet-stream"),
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "private, no-store"})
 
 
 @router.post("/pdf/process")

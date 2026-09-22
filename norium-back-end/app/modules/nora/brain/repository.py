@@ -71,7 +71,9 @@ class Repository:
             sslmode = os.getenv("NORA_BRAIN_DB_SSLMODE", "prefer" if local else "verify-full").strip().lower()
             if not local and sslmode not in {"verify-ca", "verify-full"}:
                 raise BrainError("postgresql_tls_verification_required", 503)
-            connection = psycopg.connect(self.url, row_factory=dict_row, connect_timeout=5, sslmode=sslmode)
+            sslrootcert = os.getenv("NORA_BRAIN_DB_SSLROOTCERT", "system" if not local and sslmode == "verify-full" else "").strip()
+            tls_options = {"sslrootcert": sslrootcert} if sslrootcert else {}
+            connection = psycopg.connect(self.url, row_factory=dict_row, connect_timeout=5, sslmode=sslmode, **tls_options)
         else:
             connection = sqlite3.connect(self.path, timeout=5)
             connection.row_factory = sqlite3.Row

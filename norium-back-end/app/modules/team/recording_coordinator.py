@@ -148,42 +148,51 @@ class LocalRecordingFiles:
 
     async def append_at(self, name: str, offset: int, content: bytes) -> None:
         path = self._path(name)
-        self.root.mkdir(parents=True, exist_ok=True)
 
         def write() -> None:
-            mode = "r+b" if path.exists() else "w+b"
-            with path.open(mode) as output:
-                output.truncate(offset)
-                output.seek(offset)
-                output.write(content)
-                output.flush()
+            from app.infrastructure.persistence import files as persistent_files
+            try:
+                current = persistent_files.read(path)
+            except FileNotFoundError:
+                current = b""
+            persistent_files.write(path, current[:offset] + content)
 
         await asyncio.to_thread(write)
 
     async def delete(self, name: str) -> None:
         if not name:
             return
-        await asyncio.to_thread(self._path(name).unlink, True)
+        from app.infrastructure.persistence import files as persistent_files
+        await asyncio.to_thread(persistent_files.delete, self._path(name))
 
     async def exists(self, name: str) -> bool:
-        return bool(name) and await asyncio.to_thread(self._path(name).is_file)
+        from app.infrastructure.persistence import files as persistent_files
+        return bool(name) and await asyncio.to_thread(persistent_files.exists, self._path(name))
 
     async def move(self, source: str, destination: str) -> None:
         if not source or not destination:
             raise RecordingError(500, "Arquivo da gravacao indisponivel.")
-        await asyncio.to_thread(self._path(source).replace, self._path(destination))
+        from app.infrastructure.persistence import files as persistent_files
+        source_path, destination_path = self._path(source), self._path(destination)
+        content = await asyncio.to_thread(persistent_files.read, source_path)
+        await asyncio.to_thread(persistent_files.write, destination_path, content)
+        await asyncio.to_thread(persistent_files.delete, source_path)
 
     async def list_parts(self) -> list[tuple[str, datetime]]:
-        if not self.root.exists():
-            return []
-
         def scan() -> list[tuple[str, datetime]]:
-            return [
-                (path.name, datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc))
-                for path in self.root.iterdir()
-                if path.is_file() and not path.is_symlink() and (path.suffix == ".part"
-                    or (path.name.startswith("team-recording-") and path.suffix in {".webm", ".mp4"}))
-            ]
+            from app.infrastructure.persistence import files as persistent_files
+            result: list[tuple[str, datetime]] = []
+            for path in persistent_files.list_paths(self.root):
+                if path.suffix != ".part" and not (path.name.startswith("team-recording-") and path.suffix in {".webm", ".mp4"}):
+                    continue
+                info = persistent_files.info(path) or {}
+                updated = info.get("updatedAt")
+                if isinstance(updated, datetime):
+                    stamp = updated if updated.tzinfo else updated.replace(tzinfo=timezone.utc)
+                else:
+                    stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+                result.append((path.name, stamp))
+            return result
 
         return await asyncio.to_thread(scan)
 

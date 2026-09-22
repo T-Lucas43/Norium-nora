@@ -26,6 +26,8 @@ from app.shared.schemas import StrictModel
 from app.core.request_context import current_workspace_id
 
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, read_profile_db, write_json_file
+from app.infrastructure.persistence import files as persistent_files
+from app.infrastructure.persistence import postgres_store
 from app.modules.team.call_adapters import CallbackCallPublisher, CallbackTeamDirectory, JsonCallStateStore
 from app.modules.team.call_configuration import mesh_max_participants_from_environment
 from app.modules.team.call_release import CallReleasePolicy
@@ -78,7 +80,8 @@ from app.services.calendar_service import CalendarService
 router = APIRouter(prefix="/api/team-chat", tags=["Chat interno"])
 chat_lock = asyncio.Lock()
 UPLOAD_DIR = get_data_root() / "team_chat_uploads"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+if not (postgres_store.configured() or postgres_store.required()):
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _positive_env_int(name: str, default: int) -> int:
@@ -411,7 +414,7 @@ def clear_meeting_chat(call: dict[str, Any]) -> None:
         for attachment in message.get("attachments", []):
             name = str(attachment.get("storedName") or "")
             if name and Path(name).name == name:
-                (UPLOAD_DIR / name).unlink(missing_ok=True)
+                persistent_files.delete(UPLOAD_DIR / name)
 async def read_pruned_chat_store(team_id: str) -> dict[str, Any]:
     async with chat_lock:
         return await asyncio.to_thread(read_chat_store, team_id)
@@ -1783,7 +1786,7 @@ async def abort_recording(recording_id: str, request: Request, user: dict[str, A
 
 
 @router.get("/attachments/{file_name}")
-async def download_attachment(file_name: str, user: dict[str, Any] = Depends(current_user)) -> FileResponse:
+async def download_attachment(file_name: str, user: dict[str, Any] = Depends(current_user)) -> Response:
     require_team_chat(user)
     safe_file_name = Path(file_name).name
     await active_calls_snapshot(team_id_for(user))
@@ -1829,9 +1832,13 @@ async def download_attachment(file_name: str, user: dict[str, Any] = Depends(cur
     if not visible_file:
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
     path = UPLOAD_DIR / safe_file_name
-    if not path.exists() or not path.is_file():
+    if not persistent_files.exists(path):
         raise HTTPException(status_code=404, detail="Anexo nao encontrado.")
-    return FileResponse(path, filename=path.name, headers={"Cache-Control": "no-store, private"})
+    headers = {"Content-Disposition": f'attachment; filename="{path.name}"', "Cache-Control": "no-store, private"}
+    if not (postgres_store.configured() or postgres_store.required()):
+        return FileResponse(path, media_type="application/octet-stream", headers=headers)
+    return Response(persistent_files.read(path), media_type="application/octet-stream",
+                    headers=headers)
 
 
 async def handle_call_event(
@@ -1991,7 +1998,7 @@ def save_attachments(payloads: list[AttachmentPayload]) -> list[dict[str, Any]]:
 
 def save_attachment_bytes(payload: AttachmentPayload, file_bytes: bytes, mime_type: str) -> dict[str, Any]:
     safe_name = safe_upload_name(payload.fileName, mime_type)
-    (UPLOAD_DIR / safe_name).write_bytes(file_bytes)
+    persistent_files.write(UPLOAD_DIR / safe_name, file_bytes, content_type=mime_type)
     return {
         "id": f"team_att_{uuid.uuid4().hex}",
         "name": Path(payload.fileName).name or safe_name,
@@ -2004,8 +2011,11 @@ def save_attachment_bytes(payload: AttachmentPayload, file_bytes: bytes, mime_ty
 
 
 def append_file_bytes(path: Path, content: bytes) -> None:
-    with path.open("ab") as output:
-        output.write(content)
+    try:
+        current = persistent_files.read(path)
+    except FileNotFoundError:
+        current = b""
+    persistent_files.write(path, current + content)
 
 
 def decode_data_url(data_url: str, fallback_mime: str) -> tuple[bytes, str]:

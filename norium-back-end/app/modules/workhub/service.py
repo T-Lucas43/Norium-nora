@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import uuid
 import unicodedata
@@ -9,6 +10,9 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from app.core.tenant import get_user_dir, read_user_db, write_user_db
+from app.core.tenant import safe_tenant_id
+from app.infrastructure.persistence import postgres_store
+from app.infrastructure.storage_quota import directory_bytes
 from app.modules.auth.router import read_user_store, sanitize_user
 from app.modules.clients.repository import list_clients, save_clients
 from app.modules.inbox.router import read_events
@@ -1141,9 +1145,7 @@ async def usage_meter(user: dict[str, Any]) -> dict[str, Any]:
     user_id = tenant_id(user)
     events, receipts = await asyncio.gather(read_events(user_id), list_items(user_id, RECEIPT_DB))
     user_dir = get_user_dir(user_id)
-    storage_bytes = await asyncio.to_thread(
-        lambda: sum(path.stat().st_size for path in user_dir.rglob("*") if path.is_file())
-    )
+    storage_bytes = await asyncio.to_thread(directory_bytes, user_dir)
     try:
         from app.routers.automacoes_router import read_store
 
@@ -1184,6 +1186,33 @@ async def create_backup_snapshot(user: dict[str, Any]) -> dict[str, Any]:
     migrate_account_binding_credentials(user_id, include_backups=True)
     backup_id = f"backup_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid.uuid4().hex[:8]}"
     backup_dir = source_dir / "backups" / backup_id
+    if postgres_store.configured() or postgres_store.required():
+        prefix = f"user_{safe_tenant_id(user_id)}/"
+        snapshot_key = f"{prefix}backups/{backup_id}"
+        documents: dict[str, Any] = {}
+        blobs: dict[str, Any] = {}
+        for key in postgres_store.list_document_keys(prefix):
+            if "/backups/" in key:
+                continue
+            found, payload = postgres_store.read_document(key)
+            if found:
+                documents[key] = payload
+        for key in postgres_store.list_blob_keys(prefix):
+            if "/backups/" in key:
+                continue
+            blob = postgres_store.read_blob(key)
+            if blob:
+                blobs[key] = {
+                    "content": base64.b64encode(bytes(blob["content"])).decode("ascii"),
+                    "contentType": blob["content_type"], "metadata": blob["metadata"],
+                }
+        snapshot = {"createdAt": now_iso(), "documents": documents, "blobs": blobs}
+        postgres_store.write_document(snapshot_key, snapshot)
+        size_bytes = len(json.dumps(snapshot, ensure_ascii=False, default=str).encode("utf-8"))
+        item = {"id": backup_id, "createdAt": snapshot["createdAt"], "files": sorted(documents),
+                "blobCount": len(blobs), "sizeBytes": size_bytes, "status": "ready", "storeKey": snapshot_key}
+        await upsert_record(user_id, BACKUP_DB, item, max_items=30)
+        return item
     backup_dir.mkdir(parents=True, exist_ok=True)
     files: list[str] = []
     for source in source_dir.glob("*.json"):
@@ -1207,6 +1236,26 @@ async def restore_backup_snapshot(user: dict[str, Any], backup_id: str) -> dict[
     backup = next((item for item in backups if str(item.get("id") or "") == backup_id), None)
     if backup is None:
         return None
+    if postgres_store.configured() or postgres_store.required():
+        store_key = str(backup.get("storeKey") or f"user_{safe_tenant_id(user_id)}/backups/{backup_id}")
+        found, snapshot = postgres_store.read_document(store_key)
+        if not found or not isinstance(snapshot, dict):
+            return None
+        documents = snapshot.get("documents") if isinstance(snapshot.get("documents"), dict) else {}
+        blobs = snapshot.get("blobs") if isinstance(snapshot.get("blobs"), dict) else {}
+        for key, payload in documents.items():
+            postgres_store.write_document(str(key), payload)
+        for key, payload in blobs.items():
+            if not isinstance(payload, dict):
+                continue
+            postgres_store.write_blob(str(key), base64.b64decode(str(payload.get("content") or ""), validate=True),
+                                      str(payload.get("contentType") or "application/octet-stream"),
+                                      payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {})
+        restored = [*documents, *blobs]
+        await record_audit(user, AuditCreate(action="backup_restored", source="workhub",
+            description=f"Backup {backup_id} restaurado.", status="warning", entityType="backup", entityId=backup_id,
+            metadata={"files": restored}))
+        return {**backup, "restoredAt": now_iso(), "restoredFiles": restored}
     user_dir = get_user_dir(user_id)
     backup_dir = user_dir / "backups" / backup_id
     if not backup_dir.exists():

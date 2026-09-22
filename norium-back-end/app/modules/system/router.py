@@ -61,24 +61,30 @@ async def health() -> dict[str, Any]:
 def _readiness_snapshot() -> dict[str, Any]:
     started = time.perf_counter()
     checks: dict[str, Any] = {}
-    root = get_data_root().resolve()
-    marker: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(prefix=".readiness-", dir=root, delete=False) as handle:
-            marker = Path(handle.name)
-            handle.write(b"ready")
-            handle.flush()
-            os.fsync(handle.fileno())
-        if marker.read_bytes() != b"ready":
-            raise OSError("readiness marker mismatch")
-        free_bytes = shutil.disk_usage(root).free
-        minimum_free = max(1, int(os.getenv("NORIUM_READINESS_MIN_FREE_BYTES", str(64 * 1024 * 1024))))
-        if free_bytes < minimum_free:
-            raise OSError("persistent volume below minimum free space")
-        checks["persistence"] = {"status": "ready", "freeBytes": free_bytes}
-    finally:
-        if marker is not None:
-            marker.unlink(missing_ok=True)
+    from app.infrastructure.persistence import postgres_store
+
+    uses_postgres = postgres_store.configured() or postgres_store.required()
+    if uses_postgres:
+        checks["persistence"] = postgres_store.ping()
+    else:
+        root = get_data_root().resolve()
+        marker: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix=".readiness-", dir=root, delete=False) as handle:
+                marker = Path(handle.name)
+                handle.write(b"ready")
+                handle.flush()
+                os.fsync(handle.fileno())
+            if marker.read_bytes() != b"ready":
+                raise OSError("readiness marker mismatch")
+            free_bytes = shutil.disk_usage(root).free
+            minimum_free = max(1, int(os.getenv("NORIUM_READINESS_MIN_FREE_BYTES", str(64 * 1024 * 1024))))
+            if free_bytes < minimum_free:
+                raise OSError("persistent volume below minimum free space")
+            checks["persistence"] = {"status": "ready", "freeBytes": free_bytes}
+        finally:
+            if marker is not None:
+                marker.unlink(missing_ok=True)
 
     if os.getenv("NORA_BRAIN_ENABLED", "0").strip() == "1":
         from app.modules.nora.brain.repository import repository

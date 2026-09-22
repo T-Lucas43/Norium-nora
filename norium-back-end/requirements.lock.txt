@@ -41,7 +41,7 @@ playwright==1.62.0
 propcache==0.5.2
 proto-plus==1.28.0
 protobuf==7.35.1
-psycopg[binary]==3.3.6
+psycopg[binary,pool]==3.3.6
 pyasn1==0.6.4
 pyasn1_modules==0.4.2
 pycparser==3.0

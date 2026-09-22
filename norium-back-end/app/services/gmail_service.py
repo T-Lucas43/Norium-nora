@@ -1015,12 +1015,18 @@ class GmailService:
         return datetime.now(timezone.utc).isoformat()
 
     def _read_json(self, path: Path, fallback: Any) -> Any:
+        from app.infrastructure.persistence import postgres_store
+        if postgres_store.configured() or postgres_store.required():
+            return fallback
         try:
             return json.loads(path.read_text(encoding="utf-8")) if path.exists() else fallback
         except Exception:
             return fallback
 
     def _write_json(self, path: Path, payload: Any) -> None:
+        from app.infrastructure.persistence import postgres_store
+        if postgres_store.configured() or postgres_store.required():
+            raise GmailConfigError("Armazenamento legado desativado; use a integração PostgreSQL da conta.")
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _read_profile(self) -> dict[str, Any]:

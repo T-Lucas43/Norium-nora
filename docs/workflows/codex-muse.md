@@ -65,6 +65,8 @@ Consulte checks e registre o estado do checkpoint. Se ainda estiverem pendentes,
 
 O Muse precisa de permissão de escrita no GitHub para PR/merge, mas não de credenciais Azure locais: o GitHub Actions já usa OpenID Connect e variáveis/segredos configurados no repositório. A proteção da branch e as aprovações do Muse continuam valendo.
 
+A condição de `main` no YAML protege este workflow, mas um workflow alterado em outra branch pode remover sua própria condição. Antes de tratar isso como fronteira de segurança do deploy, confirme no Azure que a credencial federada aceita somente a referência `refs/heads/main`, como previsto em `infra/azure/configure-github-oidc.ps1`, e restrinja o ambiente GitHub de produção à mesma branch quando aplicável.
+
 ## Aplicação no Norium
 
 - Leia [governança de IA](../AI_GOVERNANCE.md) para trabalho assistido por IA e os contratos pertinentes ao módulo. Use dados sintéticos; não inclua segredos nem dados de produção no pacote de tarefa.

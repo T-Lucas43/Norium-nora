@@ -161,7 +161,7 @@ jobs:
           retention-days: 5
 
   team-call-release:
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     needs: [validate, team-call-quality]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -238,7 +238,7 @@ jobs:
     # de chamada continuam obrigatórios para promover a imagem no job deploy,
     # mas não consomem todo o limite de runner antes de o build começar.
     needs: validate
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

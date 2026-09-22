@@ -18,3 +18,6 @@ output/
 .env
 .env.*
 !.env.example
+
+# Runtime local do Muse Code
+.muse-runtime/

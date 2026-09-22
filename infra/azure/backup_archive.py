@@ -14,6 +14,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import time
 import zipfile
 from contextlib import closing
 from pathlib import Path
@@ -27,6 +28,13 @@ SQLITE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
 
 def _safe_files(root: Path):
     for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise ValueError("backup source must not contain symbolic links")
+        # The SQLite backup API folds committed WAL pages into the snapshot.
+        # Restoring an old WAL/journal next to it can overwrite that snapshot.
+        if any(path.name.endswith(suffix) and path.with_name(path.name[:-len(suffix)]).suffix.lower() in SQLITE_SUFFIXES
+               for suffix in ("-wal", "-shm", "-journal")):
+            continue
         if path.is_file() and ".tmp-" not in path.name and path.name != MANIFEST:
             yield path, path.relative_to(root).as_posix()
 
@@ -34,10 +42,14 @@ def _safe_files(root: Path):
 def _sqlite_snapshot(path: Path) -> bytes:
     with tempfile.TemporaryDirectory(prefix="norium-sqlite-backup-") as directory:
         target = Path(directory) / "snapshot.sqlite3"
-        source_uri = f"file:{path.resolve().as_posix()}?mode=ro"
+        source_uri = path.resolve().as_uri() + "?mode=ro"
+        deadline = time.monotonic() + 60
+        def progress(status, remaining, total):
+            if time.monotonic() > deadline:
+                raise TimeoutError("sqlite snapshot exceeded its time budget")
         with closing(sqlite3.connect(source_uri, uri=True, timeout=10)) as source, closing(sqlite3.connect(target)) as destination:
             with destination:
-                source.backup(destination)
+                source.backup(destination, pages=256, progress=progress)
         return target.read_bytes()
 
 
@@ -45,6 +57,8 @@ def create_backup(source: Path, destination: Path, key: bytes) -> dict:
     source = source.resolve()
     if not source.is_dir():
         raise ValueError("backup source must be a directory")
+    if destination.resolve().is_relative_to(source):
+        raise ValueError("backup destination must be outside the source")
     manifest = {"schema": 1, "files": []}
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:

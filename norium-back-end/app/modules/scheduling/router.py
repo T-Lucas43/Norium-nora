@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from threading import Lock
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -18,9 +19,17 @@ from app.shared.schemas import StrictModel
 router = APIRouter(prefix="/api/scheduling", tags=["Agendamentos"])
 public_router = APIRouter(prefix="/api/public/scheduling", tags=["Agendamentos publicos"])
 
+_service_instance: SchedulingService | None = None
+_service_lock = Lock()
+
 
 def service() -> SchedulingService:
-    return SchedulingService()
+    global _service_instance
+    if _service_instance is None:
+        with _service_lock:
+            if _service_instance is None:
+                _service_instance = SchedulingService()
+    return _service_instance
 
 
 async def calendar_busy(owner_id: str, start_at: str, end_at: str) -> list[tuple[datetime, datetime]]:

@@ -388,6 +388,7 @@ jobs:
             ENVIRONMENT=production \
             WEB_CONCURRENCY=1 \
             NORIUM_AI_COSTS_SQLITE_VFS=unix-dotfile \
+            NORIUM_SCHEDULING_SQLITE_VFS=unix-dotfile \
             TEAM_CALL_RELEASE_PROFILE="${CALL_RELEASE_PROFILE}" \
             TEAM_CALL_ENABLED="${{ vars.TEAM_CALL_ENABLED || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && 'true' || 'false') }}" \
             TEAM_CALL_ROLLOUT_PERCENT="${{ vars.TEAM_CALL_ROLLOUT_PERCENT || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && '100' || '0') }}" \
@@ -453,6 +454,17 @@ jobs:
             curl --fail --max-time 20 "${{ vars.AZURE_PUBLIC_URL }}/health"
             if [[ "${attempt}" != "3" ]]; then sleep 3; fi
           done
+
+      - name: Verify scheduling API responds without hanging
+        shell: bash
+        run: |
+          status="$(curl --silent --show-error --max-time 10 \
+            --output /tmp/scheduling-response.json --write-out '%{http_code}' \
+            "${{ vars.AZURE_PUBLIC_URL }}/api/scheduling/services")"
+          if [[ "${status}" != "401" ]]; then
+            echo "Expected scheduling API to reject anonymous access with 401, received ${status}." >&2
+            exit 1
+          fi
 
       - name: Smoke test two production call sessions and protected metrics
         if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}

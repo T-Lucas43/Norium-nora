@@ -74,6 +74,7 @@ var baselineEnvironment = [
   { name: 'NORIUM_TOPOLOGY', value: 'single-writer' }
   { name: 'NORIUM_DATA_DIR', value: '/app/data' }
   { name: 'NORIUM_AI_COSTS_SQLITE_VFS', value: 'unix-dotfile' }
+  { name: 'NORIUM_SCHEDULING_SQLITE_VFS', value: 'unix-dotfile' }
   { name: 'NORIUM_SPA_DIR', value: '/app/static' }
   { name: 'BACKEND_PUBLIC_URL', value: publicUrl }
   { name: 'FRONTEND_URL', value: publicUrl }

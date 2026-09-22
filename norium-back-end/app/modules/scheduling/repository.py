@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import sqlite3
 from contextlib import contextmanager
@@ -9,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from app.core.tenant import get_data_root
+from app.core.tenant import get_data_root, is_shared_environment
 
 
 def now_iso() -> str:
@@ -39,18 +40,32 @@ class SchedulingRepository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.migrate()
 
+    def _connection_target(self) -> tuple[str, bool]:
+        configured_vfs = os.getenv("NORIUM_SCHEDULING_SQLITE_VFS", "").strip()
+        if configured_vfs not in ("", "unix-dotfile"):
+            raise ValueError("Unsupported scheduling SQLite VFS")
+        # Azure Files is an SMB volume. SQLite WAL and its default POSIX
+        # byte-range locks are not safe there; dotfile locking serializes the
+        # single-writer production runtime without disabling locking.
+        vfs = configured_vfs or ("unix-dotfile" if is_shared_environment() else "")
+        if vfs:
+            return self.path.resolve().as_uri() + f"?vfs={vfs}", True
+        return str(self.path), False
+
     def connect(self) -> sqlite3.Connection:
-        db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        target, uri = self._connection_target()
+        db = sqlite3.connect(target, uri=uri, timeout=30, isolation_level=None)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys = ON")
         db.execute("PRAGMA busy_timeout = 30000")
-        db.execute("PRAGMA journal_mode = WAL")
         return db
 
     def migrate(self) -> None:
         sql = (Path(__file__).parent / "migrations" / "001_initial.sql").read_text(encoding="utf-8")
         db = self.connect()
         try:
+            # DELETE journaling is supported by Azure Files; WAL is not.
+            db.execute("PRAGMA journal_mode = DELETE")
             db.executescript(sql)
         finally:
             db.close()

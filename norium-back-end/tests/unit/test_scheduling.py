@@ -5,6 +5,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -122,6 +123,24 @@ class SchedulingTests(unittest.TestCase):
         result = self.scheduling.create_booking(page["public_id"], self.booking_payload(self.next_monday_at(8), "move-one"))
         self.assertEqual(self.scheduling.reschedule(result["rescheduleToken"], self.next_monday_at(9).isoformat(), 60)["status"], "CONFIRMED")
         self.assertEqual(self.scheduling.cancel(result["cancelToken"])["status"], "CANCELLED")
+
+    def test_repository_uses_delete_journal_instead_of_wal(self):
+        connection = self.scheduling.repo.connect()
+        try:
+            journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        finally:
+            connection.close()
+        self.assertEqual(journal_mode.lower(), "delete")
+
+    def test_shared_runtime_uses_dotfile_locking(self):
+        repository = object.__new__(SchedulingRepository)
+        repository.path = Path(self.temporary.name) / "production.sqlite3"
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "app.modules.scheduling.repository.is_shared_environment", return_value=True
+        ):
+            target, uri = repository._connection_target()
+        self.assertTrue(uri)
+        self.assertTrue(target.endswith("?vfs=unix-dotfile"))
 
 
 if __name__ == "__main__": unittest.main()

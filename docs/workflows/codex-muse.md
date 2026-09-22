@@ -1,6 +1,6 @@
 # Fluxo de teste — Codex + Muse Code
 
-Estado: piloto solicitado pelo usuário em 18/09/2026; desempenho ainda não avaliado.
+Estado: piloto encerrado pelo usuário em 22/09/2026; assinatura Muse Code cancelada. Este documento preserva o procedimento e o aprendizado, sem definir tarefa ativa nem autorização para retomada.
 Escopo: implementação assistida no Norium. Não altera o provedor de IA do produto Nora.
 
 ## Fluxo
@@ -123,9 +123,7 @@ Copie esta seção para o handoff da tarefa e preencha antes de executar:
 
 ## Avaliar o piloto
 
-Execute três tarefas pequenas: alteração repetitiva, funcionalidade delimitada e correção reproduzível. São categorias de teste, não autorização para alterar qualquer área.
-Compare tarefas aceitas, tempo de intervenção, rodadas de correção e consumo observado. Não compare prompts de um fornecedor com requisições de outro.
-As tarefas 1 e 2 foram integradas; a tarefa 3 chegou à PR após várias rodadas técnicas e alta intervenção operacional. O [retrospecto de 22/09/2026](codex-muse-retrospective-2026-09-22.md) é a linha de base para as próximas medições. Só recomende manter a segunda assinatura se ela reduzir o esforço total e aliviar o limite que motivou o teste.
+O piloto foi encerrado após as tarefas de agenda, notificações e PDF/Nora. As tarefas 1 e 2 foram integradas; a tarefa 3 foi integrada pela PR #31 após várias rodadas técnicas e alta intervenção operacional. O [retrospecto de 22/09/2026](codex-muse-retrospective-2026-09-22.md) registra o resultado e as falhas. A assinatura adicional foi cancelada; nenhuma tarefa nova deve ser enviada ao Muse sem decisão explícita do usuário.
 
 ## Modelo de prompt de correção
 

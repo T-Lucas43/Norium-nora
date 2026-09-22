@@ -1,6 +1,6 @@
 # Entrada do Muse Code
 
-Este arquivo não define uma tarefa ativa.
+Este arquivo não define uma tarefa ativa. O piloto foi encerrado pelo usuário em 22/09/2026 após o cancelamento da assinatura Muse Code. Não inicie outra tarefa sem um novo pedido explícito.
 
 Leia `AGENTS.md` e `docs/workflows/codex-muse.md`. O prompt atual deve indicar exatamente um handoff, uma rodada atual e um checkpoint. Execute somente essa fase.
 

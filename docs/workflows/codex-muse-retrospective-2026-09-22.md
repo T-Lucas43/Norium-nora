@@ -2,7 +2,8 @@
 
 Data: 22/09/2026
 Escopo: tarefas de agenda, notificações e PDF/Nora; preparação e publicação da tarefa 3.
-Resultado observado: PR #31 criada com 14 arquivos da tarefa 3; validação principal verde no momento desta análise; nenhuma falha relatada em produção.
+Resultado observado: PR #31 integrada com 14 arquivos da tarefa 3; seus checks foram verdes. Uma execução posterior de `main` falhou no gate de qualidade e não fez deploy, conforme E10. Não há falha de produto em produção atribuída à tarefa 3 nesta análise.
+Decisão do usuário: assinatura Muse Code cancelada em 22/09/2026; piloto encerrado por exigir mais maturidade da ferramenta.
 
 ## Resumo
 
@@ -64,10 +65,10 @@ Comportamento positivo a preservar: quando o ambiente impediu testes, o Muse reg
 - [ ] Restringir/recriar os arquivos antigos da credencial local e rotacionar o token após a release.
 - [ ] Conferir no Azure a credencial federada efetiva e seu `subject` para `refs/heads/main`.
 - [ ] Diagnosticar o p95 do gate `team-call-quality` na execução 35764542603 antes de declarar o último commit de `main` publicado.
-- [ ] Usar um handoff por resultado na próxima rodada do piloto.
+- [ ] Se houver novo piloto autorizado, usar um handoff por resultado.
 - [ ] Reportar o replay de aprovação e o deadlock ao mantenedor do `muse-acp` com logs redigidos.
-- [ ] Medir, nas próximas tarefas, rodadas de correção, intervenção humana, duração e uso observado.
+- [ ] Se houver novo piloto autorizado, medir rodadas de correção, intervenção humana, duração e uso observado.
 
-## Critério para continuar o piloto
+## Critério para eventual retomada
 
-Nas próximas tarefas, o Muse deve reduzir intervenção total: no máximo duas rodadas por invariante, nenhuma retomada dependente de conversa anterior e nenhum checkpoint operacional com repetição cega. Se o adaptador repetir aprovação invisível ou deadlock em duas tarefas novas, executar o piloto pelo Muse CLI até haver correção upstream.
+Não retome o Muse com base neste documento. Uma nova tentativa exige pedido explícito do usuário e evidência de melhora da ferramenta e do adaptador: nenhuma aprovação invisível, nenhum turno travado e uma tarefa pequena concluída com no máximo duas rodadas por invariante, sem depender da memória de outra conversa. Compare a intervenção total antes de decidir por nova assinatura.

@@ -341,6 +341,7 @@ class DownloadedRemoteMedia:
 class InicializarLoginPayload(StrictModel):
     user_id: str | None = Field(default=None, min_length=1)
     canal: Literal["whatsapp"]
+    plano: Literal["lite", "pro"] | None = Field(default=None)
 
 
 class ConsentimentoPayload(StrictModel):
@@ -1861,7 +1862,9 @@ async def obter_upload_local(file_name: str, user: dict[str, Any] = Depends(curr
     return FileResponse(file_path)
 
 
-def _whatsapp_connection_shape(result: dict[str, Any]) -> dict[str, Any]:
+def _whatsapp_connection_shape(
+    result: dict[str, Any], plan: str | None = None
+) -> dict[str, Any]:
     """Normaliza o estado do WapiConnectService para o formato do frontend."""
     status = result.get("status")
     return {
@@ -1873,6 +1876,7 @@ def _whatsapp_connection_shape(result: dict[str, Any]) -> dict[str, Any]:
         "numero": result.get("numero"),
         "conectadoEm": result.get("conectadoEm"),
         "consentRequired": bool(result.get("consentRequired")),
+        "plano": plan if plan in {"lite", "pro"} else None,
     }
 
 
@@ -1887,7 +1891,9 @@ async def obter_status_canais(
     user_status["whatsapp"] = {"conectado": False, "qrcode": None}
     try:
         resultado = await wapi_connect.status(resolved_user_id)
-        user_status["whatsapp"] = _whatsapp_connection_shape(resultado)
+        user_status["whatsapp"] = _whatsapp_connection_shape(
+            resultado, wapi_connect.current_plan(resolved_user_id)
+        )
         if resultado.get("status") == "conectado":
             catalog_cache = await load_whatsapp_catalog_cache(resolved_user_id)
             if not catalog_cache_is_fresh(
@@ -2136,7 +2142,9 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, payload.canal)
     try:
-        resultado = await whatsapp_integration.ensure_connection(resolved_user_id)
+        resultado = await whatsapp_integration.ensure_connection(
+            resolved_user_id, payload.plano
+        )
     except WhatsAppIntegrationError as exc:
         raise _whatsapp_http_error(
             exc,
@@ -2148,6 +2156,7 @@ async def inicializar_login(payload: InicializarLoginPayload, user: dict[str, An
         return {
             "status": status,
             "qrcode": None if status == "conectado" else resultado.qr_code,
+            "plano": resultado.plan,
             "sincronizacao": dict(contact_sync_state(resolved_user_id)),
         }
     raise HTTPException(status_code=503, detail="API do WhatsApp ainda nao esta disponivel.")

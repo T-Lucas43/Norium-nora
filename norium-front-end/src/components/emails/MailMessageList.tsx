@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { BellRing, Bot, Check, ChevronLeft, ChevronRight, Filter, Inbox, Loader2, MailOpen, Megaphone, RefreshCw, Tags, UsersRound } from "lucide-react";
 import Button from "../shared/Button";
 import { cn } from "../../utils/cn";
@@ -31,8 +32,8 @@ type MailMessageListProps = {
   inboxCategoryCounts: Record<InboxCategoryKey, number>;
 
   onRefresh: () => void;
-  onFirstPage: () => void;
   onNextPage: () => void;
+  syncActive: boolean;
   onFilterChange: (filter: MailQuickFilter) => void;
   onToggleSelectAll: () => void;
   onToggleSelectOne: (id: string) => void;
@@ -68,8 +69,8 @@ export default function MailMessageList({
   activeInboxCategory,
   inboxCategoryCounts,
   onRefresh,
-  onFirstPage,
   onNextPage,
+  syncActive,
   onFilterChange,
   onToggleSelectAll,
   onToggleSelectOne,
@@ -82,6 +83,7 @@ export default function MailMessageList({
   onAskNora,
 }: MailMessageListProps) {
   const allSelected = messages.length > 0 && selectedIds.size === messages.length;
+  const listScrollRef = useRef<HTMLDivElement>(null);
   const inboxCategoryIcons = {
     principal: Inbox,
     promocoes: Megaphone,
@@ -145,14 +147,14 @@ export default function MailMessageList({
             {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
           </Button>
           <span>
-            {visibleRange} / {resultSize || messages.length}
+            {visibleRange} / {resultSize || messages.length}{syncActive ? " · sincronizando…" : ""}
           </span>
           <Button
             variant="ghost"
             size="sm"
             iconOnly
             disabled={messages.length <= GMAIL_PAGE_SIZE}
-            onClick={onFirstPage}
+            onClick={() => listScrollRef.current?.scrollTo?.({ top: 0 })}
             title="Voltar ao inicio"
             className="hover:bg-white/7"
             aria-label="Voltar ao inicio"
@@ -163,7 +165,7 @@ export default function MailMessageList({
             variant="ghost"
             size="sm"
             iconOnly
-            disabled={!nextPageToken}
+            disabled={!nextPageToken || syncActive}
             onClick={onNextPage}
             className="hover:bg-white/7"
             aria-label="Proxima pagina"
@@ -263,7 +265,7 @@ export default function MailMessageList({
         <div className="border-b border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200">{error}</div>
       )}
 
-      <div className="mail-list-scroll min-h-0 flex-1 overflow-y-auto">
+      <div ref={listScrollRef} className="mail-list-scroll min-h-0 flex-1 overflow-y-auto">
         {loading && !messages.length ? (
           <div className="flex h-full items-center justify-center text-sm font-bold text-white/50">
             <Loader2 size={18} className="mr-2 animate-spin" />

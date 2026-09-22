@@ -149,6 +149,7 @@ class ConnectionResult:
     connected_at: float | None = None
     detail: str | None = None
     consent_required: bool = False
+    plan: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -45,9 +45,22 @@ class HttpWApiAdapterTests(unittest.IsolatedAsyncioTestCase):
         result = await adapter.ensure_connection("tenant-a")
 
         stale_service.start.assert_not_awaited()
-        current_service.start.assert_awaited_once_with("tenant-a")
+        current_service.start.assert_awaited_once_with("tenant-a", None)
         self.assertEqual("conectado", result.status)
         self.assertEqual("5511999999999", result.phone)
+
+    async def test_plan_is_forwarded_and_effective_plan_is_exposed(self) -> None:
+        connect_service = MagicMock()
+        connect_service.start = AsyncMock(
+            return_value={"status": "aguardando_qrcode", "qrcode": "qr"}
+        )
+        connect_service.current_plan = MagicMock(return_value="pro")
+        adapter = self._adapter(connect_service=lambda: connect_service)
+
+        result = await adapter.ensure_connection("tenant-a", "pro")
+
+        connect_service.start.assert_awaited_once_with("tenant-a", "pro")
+        self.assertEqual("pro", result.plan)
 
     async def test_disconnect_uses_only_the_local_disconnector(self) -> None:
         connect_service = MagicMock()

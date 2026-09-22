@@ -1,10 +1,10 @@
-import { Bot, Eye, Menu, Search, Settings, SlidersHorizontal, X } from "lucide-react";
+import { Bot, Check, Eye, Loader2, Menu, Search, Settings, SlidersHorizontal, X } from "lucide-react";
 import Button from "../shared/Button";
 import { cn } from "../../utils/cn";
 import AdvancedSearchPanel from "./AdvancedSearchPanel";
 import { accountInitials } from "../../features/mail/formatters";
 import type { AdvancedMailFilters } from "../../features/mail/queryBuilder";
-import type { GmailStatus } from "../../features/mail/types";
+import type { GmailStatus, MailboxSyncState } from "../../features/mail/types";
 
 type MailToolbarProps = {
   status: GmailStatus | null;
@@ -20,6 +20,7 @@ type MailToolbarProps = {
   onAdvancedFiltersChange: (filters: AdvancedMailFilters) => void;
   onOpenMobileSidebar: () => void;
   onOpenNora: () => void;
+  sync: MailboxSyncState;
   onTogglePreview: () => void;
   onOpenSettings: () => void;
   onToggleProfile: () => void;
@@ -40,6 +41,7 @@ export default function MailToolbar({
   onAdvancedFiltersChange,
   onOpenMobileSidebar,
   onOpenNora,
+  sync,
   onTogglePreview,
   onOpenSettings,
   onToggleProfile,
@@ -102,6 +104,22 @@ export default function MailToolbar({
       </div>
 
       <div className="mail-toolbar-actions flex items-center gap-2">
+        {canUseNora && status?.connected && (sync.active || sync.loaded > 0) && (
+          <div
+            className="mail-sync-progress hidden items-center gap-2 rounded-full border border-white/12 px-3 py-1.5 text-[11px] font-bold text-white/70 md:flex"
+            role="status"
+            aria-live="polite"
+            title={sync.error ? `Sincronização parcial: ${sync.error}` : sync.active ? "Sincronizando todas as páginas da caixa atual…" : "Caixa sincronizada e guardada em memória."}
+          >
+            {sync.active ? <Loader2 size={13} className="animate-spin text-cyan-300" /> : <Check size={13} className="text-emerald-300" />}
+            <span>{sync.active ? "Sincronizando" : "Sincronizado"} {sync.loaded}{sync.estimated > sync.loaded ? ` de ~${sync.estimated}` : ""}</span>
+            {sync.active && sync.estimated > 0 && (
+              <span className="h-1 w-16 overflow-hidden rounded-full bg-white/15" aria-hidden="true">
+                <span className="block h-full rounded-full bg-cyan-300" style={{ width: `${Math.min(100, Math.round((sync.loaded / sync.estimated) * 100))}%` }} />
+              </span>
+            )}
+          </div>
+        )}
         {canUseNora && (
           <Button onClick={onOpenNora} className="rounded-full border-[#38BDF8] hover:bg-[#38BDF8]/12">
             <Bot size={15} />

@@ -8,7 +8,7 @@ const msg = (id: string, over: Partial<GmailMessage> = {}) =>
 
 function setup(over: Partial<Parameters<typeof MailMessageList>[0]> = {}) {
   const h = {
-    onRefresh: vi.fn(), onFirstPage: vi.fn(), onNextPage: vi.fn(), onFilterChange: vi.fn(),
+    onRefresh: vi.fn(), onNextPage: vi.fn(), onFilterChange: vi.fn(),
     onToggleSelectAll: vi.fn(), onToggleSelectOne: vi.fn(), onToggleStar: vi.fn(),
     onOpenMessage: vi.fn(), onBulkAction: vi.fn(), onToggleGroupByCategory: vi.fn(),
     onOpenFilters: vi.fn(), onAskNora: vi.fn(),
@@ -28,6 +28,7 @@ function setup(over: Partial<Parameters<typeof MailMessageList>[0]> = {}) {
       visibleRange="1-2"
       resultSize={2}
       nextPageToken={null}
+      syncActive={false}
       activeFilter="all"
       compactMode={false}
       showPreview={false}
@@ -156,5 +157,26 @@ describe("MailMessageList", () => {
     const h = setup();
     fireEvent.click(screen.getByText("De a").closest("button")!);
     expect(h.onOpenMessage).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
+  });
+
+  it("rola ao topo sem recarregar ao voltar ao inicio", () => {
+    const scrollTo = vi.fn();
+    Object.defineProperty(window.HTMLElement.prototype, "scrollTo", { value: scrollTo, configurable: true, writable: true });
+    try {
+      const many = Array.from({ length: 51 }, (_, i) => msg(`m${i}`));
+      setup({ messages: many });
+      fireEvent.click(screen.getByRole("button", { name: /voltar ao inicio/i }));
+      expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
+    } finally {
+      Reflect.deleteProperty(window.HTMLElement.prototype, "scrollTo");
+    }
+  });
+
+  it("indica sincronizacao e trava a proxima pagina durante o sync", () => {
+    const h = setup({ nextPageToken: "p2", syncActive: true });
+    expect(screen.getByRole("button", { name: /proxima pagina/i })).toBeDisabled();
+    expect(screen.getByText(/sincronizando…/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /proxima pagina/i }));
+    expect(h.onNextPage).not.toHaveBeenCalled();
   });
 });

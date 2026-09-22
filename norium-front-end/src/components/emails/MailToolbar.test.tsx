@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import MailToolbar from "./MailToolbar";
 import { emptyAdvancedFilters } from "../../features/mail/queryBuilder";
-import type { GmailStatus } from "../../features/mail/types";
+import { initialMailboxSyncState, type GmailStatus } from "../../features/mail/types";
 
 function setup(over: Partial<Parameters<typeof MailToolbar>[0]> = {}) {
   const handlers = {
@@ -18,6 +18,7 @@ function setup(over: Partial<Parameters<typeof MailToolbar>[0]> = {}) {
       searchDraft=""
       filtersOpen={false}
       advancedFilters={emptyAdvancedFilters}
+      sync={initialMailboxSyncState}
       {...handlers}
       {...over}
     />,
@@ -42,6 +43,7 @@ describe("MailToolbar", () => {
     const { rerender } = render(
       <MailToolbar
         status={null} canUseNora searchDraft="" filtersOpen={false} advancedFilters={emptyAdvancedFilters}
+        sync={initialMailboxSyncState}
         onSearchDraftChange={vi.fn()} onApplySearch={vi.fn()} onClearSearch={vi.fn()}
         onToggleFilters={vi.fn()} onCloseFilters={vi.fn()} onAdvancedFiltersChange={vi.fn()}
         onOpenMobileSidebar={vi.fn()} onOpenNora={vi.fn()} onTogglePreview={vi.fn()}
@@ -53,6 +55,7 @@ describe("MailToolbar", () => {
     rerender(
       <MailToolbar
         status={null} canUseNora searchDraft="nota" filtersOpen={false} advancedFilters={emptyAdvancedFilters}
+        sync={initialMailboxSyncState}
         onSearchDraftChange={vi.fn()} onApplySearch={vi.fn()} onClearSearch={vi.fn()}
         onToggleFilters={vi.fn()} onCloseFilters={vi.fn()} onAdvancedFiltersChange={vi.fn()}
         onOpenMobileSidebar={vi.fn()} onOpenNora={vi.fn()} onTogglePreview={vi.fn()}

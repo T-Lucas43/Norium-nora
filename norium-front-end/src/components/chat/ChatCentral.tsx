@@ -163,6 +163,10 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
   const [consentInfo, setConsentInfo] = useState<ConsentInfo | null>(null);
   const [consentChecked, setConsentChecked] = useState<boolean>(false);
   const [aceitandoConsent, setAceitandoConsent] = useState<boolean>(false);
+  const [selectedPlan, setSelectedPlan] = useState<"lite" | "pro">("pro");
+  const [planStep, setPlanStep] = useState(false);
+  const [instancePlan, setInstancePlan] = useState<"lite" | "pro" | null>(null);
+  const [requestedPlan, setRequestedPlan] = useState<"lite" | "pro" | null>(null);
 
   const [conversas, setConversas] = useState<ChatConversa[]>([]);
   const [secaoWhatsApp, setSecaoWhatsApp] = useState<WhatsAppSection>("conversations");
@@ -1396,12 +1400,14 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     } catch (err) { mostrarAviso("error", err instanceof Error ? err.message : "Falha ao atualizar conversa."); }
   };
 
-  const iniciarQrCode = async (canal: "whatsapp") => {
+  const iniciarQrCode = async (canal: "whatsapp", plan?: "lite" | "pro" | null) => {
     setQrCodeString(null);
     setErroLogin(null);
     setMensagemLogin(null);
+    setRequestedPlan(plan ?? null);
     try {
-      const data = await whatsappApi.start();
+      const data = await whatsappApi.start(undefined, plan ?? undefined);
+      if (data.plano === "lite" || data.plano === "pro") setInstancePlan(data.plano);
       if (data.qrcode) setQrCodeString(data.qrcode);
       if (canal === "whatsapp") {
         setMensagemLogin(
@@ -1428,6 +1434,8 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     setErroLogin(null);
     setMensagemLogin(null);
     setConsentChecked(false);
+    setPlanStep(false);
+    setRequestedPlan(null);
     try {
       const info = await whatsappApi.consentStatus();
       setConsentInfo(info);
@@ -1437,7 +1445,15 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       setConsentInfo({ termVersion: "", accepted: false });
       return;
     }
-    await iniciarQrCode(canal);
+    const bound = canaisStatus.whatsapp?.plano;
+    if (bound === "lite" || bound === "pro") {
+      setInstancePlan(bound);
+      await iniciarQrCode(canal);
+      return;
+    }
+    // Sem instância vinculada: o plano é escolhido antes de criar.
+    setInstancePlan(null);
+    setPlanStep(true);
   };
 
   const handleAceitarConsentimento = async () => {
@@ -1447,7 +1463,14 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     try {
       const info = await whatsappApi.acceptConsent(consentInfo?.termVersion || undefined);
       setConsentInfo(info);
-      await iniciarQrCode("whatsapp");
+      const bound = canaisStatus.whatsapp?.plano;
+      if (bound === "lite" || bound === "pro") {
+        setInstancePlan(bound);
+        await iniciarQrCode("whatsapp");
+      } else {
+        setInstancePlan(null);
+        setPlanStep(true);
+      }
     } catch (error) {
       setErroLogin(error instanceof Error ? error.message : "Nao foi possivel registrar o aceite.");
     } finally {
@@ -1490,6 +1513,9 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       setConversaSelecionada(null);
       setQrCodeString(null);
       setCanalSelecionadoLogin(null);
+      setPlanStep(false);
+      setInstancePlan(null);
+      setRequestedPlan(null);
       catalogoInicialTentadoRef.current = true;
       setCanaisStatus({ whatsapp: { conectado: false, qrcode: null, status: "desconectado" } });
       setConfirmarDesconexaoAberta(false);
@@ -1630,6 +1656,45 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     );
   }
 
+  if (canalSelecionadoLogin === "whatsapp" && planStep && !instancePlan) {
+    return (
+      <div className="w-full h-full min-h-0 overflow-y-auto flex items-start sm:items-center justify-center bg-[var(--background)] p-4 sm:p-6 font-sans">
+        <div className="w-full max-w-[520px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 sm:p-7 space-y-4 text-xs font-bold text-[var(--text)] shadow-2xl">
+          <div className="text-center">
+            <h3 className="text-base font-extrabold text-[var(--primary)]">Escolha o plano da instância</h3>
+            <p className="mt-2 text-[var(--text-secondary)] leading-5">
+              O plano é definido na criação da instância. A troca depois exige desconectar e conectar novamente.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Plano da instância W-API">
+            <label className={`cursor-pointer rounded-2xl border p-4 text-left leading-5 ${selectedPlan === "lite" ? "border-[var(--primary)] bg-[var(--primary)]/10" : "border-[var(--border)]"}`}>
+              <input type="radio" name="wapi-plan" value="lite" checked={selectedPlan === "lite"} onChange={() => setSelectedPlan("lite")} className="accent-[var(--primary)]" />
+              <span className="ml-2 text-sm font-extrabold">LITE</span>
+              <span className="mt-2 block font-semibold text-[var(--text-secondary)]">Mensagens de texto e mídia, arquivos e webhooks. Ideal para conversas.</span>
+            </label>
+            <label className={`cursor-pointer rounded-2xl border p-4 text-left leading-5 ${selectedPlan === "pro" ? "border-[var(--primary)] bg-[var(--primary)]/10" : "border-[var(--border)]"}`}>
+              <input type="radio" name="wapi-plan" value="pro" checked={selectedPlan === "pro"} onChange={() => setSelectedPlan("pro")} className="accent-[var(--primary)]" />
+              <span className="ml-2 text-sm font-extrabold">PRO</span>
+              <span className="mt-2 block font-semibold text-[var(--text-secondary)]">Tudo do LITE, mais mensagens interativas, logs completos e gestão de grupos.</span>
+            </label>
+          </div>
+          <p className="text-left font-semibold leading-5 text-[var(--text-secondary)]">
+            Mensagens de texto funcionam nos dois planos. Recursos PRO continuam bloqueados em instâncias LITE.
+          </p>
+          {erroLogin && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-left font-semibold leading-5 text-red-400">{erroLogin}</p>}
+          <Button
+            onClick={() => { setPlanStep(false); void iniciarQrCode("whatsapp", selectedPlan); }}
+            className="w-full"
+            variant="primary"
+          >
+            Continuar e gerar QR Code
+          </Button>
+          <Button onClick={() => { setPlanStep(false); setCanalSelecionadoLogin(null); }} className="w-full">Voltar</Button>
+        </div>
+      </div>
+    );
+  }
+
   if (canalSelecionadoLogin === "whatsapp") {
     return (
       <div className="w-full h-full min-h-0 overflow-y-auto flex items-start sm:items-center justify-center bg-[var(--background)] p-4 sm:p-6 font-sans">
@@ -1637,6 +1702,14 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
           <div>
             <h3 className="text-base font-extrabold text-[var(--primary)]">Conectar WhatsApp</h3>
             <p className="mt-2 text-[var(--text-secondary)] leading-5">O QR Code e gerado com seguranca e atualizado automaticamente nesta tela.</p>
+            {instancePlan && (
+              <p className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-left font-semibold leading-5 text-[var(--text-secondary)]">
+                Instância atual: {instancePlan === "pro" ? "PRO" : "LITE"}. A troca de plano exige desconectar e conectar novamente.
+                {requestedPlan && requestedPlan !== instancePlan && (
+                  <> Você escolheu {requestedPlan === "pro" ? "PRO" : "LITE"}, mas a instância vinculada foi mantida.</>
+                )}
+              </p>
+            )}
           </div>
           <div className="aspect-square w-full max-w-[300px] bg-white mx-auto flex items-center justify-center rounded-2xl p-3 shadow-inner overflow-hidden">
             {erroLogin ? (

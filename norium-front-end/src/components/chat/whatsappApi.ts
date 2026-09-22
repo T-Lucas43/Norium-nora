@@ -9,6 +9,7 @@ export type WhatsAppConnection = {
   detail?: string | null;
   numero?: string | null;
   conectadoEm?: string | null;
+  plano?: "lite" | "pro" | null;
 };
 
 export type WhatsAppSyncProgress = {
@@ -411,10 +412,10 @@ export const whatsappApi = {
     return payload.whatsapp;
   },
 
-  async start(signal?: AbortSignal) {
-    return apiRequest<{ status: string; qrcode?: string | null }>("/api/chat/inicializar-login", {
+  async start(signal?: AbortSignal, plan?: "lite" | "pro" | null) {
+    return apiRequest<{ status: string; qrcode?: string | null; plano?: "lite" | "pro" | null }>("/api/chat/inicializar-login", {
       method: "POST",
-      body: JSON.stringify({ canal: "whatsapp" }),
+      body: JSON.stringify({ canal: "whatsapp", plano: plan ?? null }),
       timeoutMs: 20_000,
       signal,
     });

@@ -117,4 +117,21 @@ export type MailboxSnapshot = {
   nextPageToken: string | null;
   resultSize: number;
   cachedAt: number;
+  complete?: boolean;
+};
+
+export type MailboxSyncState = {
+  active: boolean;
+  loaded: number;
+  estimated: number;
+  done: boolean;
+  error: string | null;
+};
+
+export const initialMailboxSyncState: MailboxSyncState = {
+  active: false,
+  loaded: 0,
+  estimated: 0,
+  done: false,
+  error: null,
 };

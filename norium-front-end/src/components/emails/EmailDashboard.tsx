@@ -145,6 +145,9 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
     resultSize,
     loading,
     fetchMessages,
+    syncMailbox,
+    refreshFirstPage,
+    syncState,
     prefetchMailbox,
     currentMailboxKey,
     cacheRef: mailboxCacheRef,
@@ -178,7 +181,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
     currentMailboxKey,
     cacheRef: mailboxCacheRef,
     onError: setError,
-    onRefreshMessages: () => void fetchMessages(false),
+    onRefreshMessages: () => void refreshFirstPage(),
     onRefreshLabels: handleRefreshLabels,
     onActionStart: () => setMessageMenuOpen(false),
   });
@@ -231,7 +234,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
     compose,
     replyText,
     onError: setError,
-    onMailSent: () => void fetchMessages(false),
+    onMailSent: () => void refreshFirstPage(),
     onApplySuggestion: (target, text) => {
       if (target === "reply") setReplyText(text);
       else setCompose((prev) => ({ ...prev, body: text }));
@@ -440,6 +443,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
           onCloseFilters={() => setFiltersOpen(false)}
           onAdvancedFiltersChange={setAdvancedFilters}
           onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+          sync={syncState}
           onOpenNora={() => {
             setAiOpen(true);
             if (!aiMessages.length) void askEmailAgent("resumir minha caixa de entrada");
@@ -503,9 +507,9 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
               activeInboxCategory={activeInboxCategory}
               inboxCategoryCounts={inboxCategoryCounts}
               onInboxCategoryChange={selectInboxCategory}
-              onRefresh={() => void fetchMessages(false)}
-              onFirstPage={() => void fetchMessages(false, null)}
+              onRefresh={() => void syncMailbox()}
               onNextPage={() => void fetchMessages(true, nextPageToken)}
+              syncActive={syncState.active}
               onFilterChange={setActiveFilter}
               onToggleSelectAll={() => setSelectedIds((prev) => (prev.size === messages.length ? new Set() : new Set(messages.map((m) => m.id))))}
               onToggleSelectOne={(id) => setSelectedIds((prev) => {

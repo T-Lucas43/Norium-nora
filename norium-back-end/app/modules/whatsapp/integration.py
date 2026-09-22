@@ -102,12 +102,14 @@ class WhatsAppIntegration:
             value = self._webhook_secret
         return str(value or "")
 
-    async def ensure_connection(self, tenant_id: str) -> ConnectionResult:
+    async def ensure_connection(
+        self, tenant_id: str, plan: str | None = None
+    ) -> ConnectionResult:
         """Converge chamadas concorrentes para uma unica instancia do tenant."""
         tenant = self._tenant(tenant_id)
         async with self._lock_for(tenant):
             try:
-                result = await self._wapi.ensure_connection(tenant)
+                result = await self._wapi.ensure_connection(tenant, plan)
                 return await self._runtime.connection_established(tenant, result)
             except PortFailure as exc:
                 if exc.kind == "ownership_conflict":

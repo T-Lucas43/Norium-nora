@@ -61,12 +61,13 @@ class SchedulingRepository:
         return db
 
     def migrate(self) -> None:
-        sql = (Path(__file__).parent / "migrations" / "001_initial.sql").read_text(encoding="utf-8")
+        migrations = sorted((Path(__file__).parent / "migrations").glob("*.sql"))
         db = self.connect()
         try:
             # DELETE journaling is supported by Azure Files; WAL is not.
             db.execute("PRAGMA journal_mode = DELETE")
-            db.executescript(sql)
+            for migration in migrations:
+                db.executescript(migration.read_text(encoding="utf-8"))
         finally:
             db.close()
 

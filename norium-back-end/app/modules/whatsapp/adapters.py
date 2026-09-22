@@ -77,7 +77,9 @@ class InMemoryWApiAdapter:
     def plan_instance(self, tenant_id: str, instance_id: str) -> None:
         self._planned_instances[tenant_id] = instance_id
 
-    async def ensure_connection(self, tenant_id: str) -> ConnectionResult:
+    async def ensure_connection(
+        self, tenant_id: str, plan: str | None = None
+    ) -> ConnectionResult:
         current = self._connections.get(tenant_id)
         if current is not None:
             return current

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
 import re
 import sqlite3
@@ -93,6 +94,28 @@ class SchedulingService:
             ))
             self.repo.audit(db, scope, "service_updated", "service", entity_id)
         return self.get_service(scope, entity_id)
+
+    def archive_service(self, scope: tuple[str, str, str], entity_id: str) -> dict[str, Any]:
+        service = self.get_service(scope, entity_id)
+        stamp = now_iso()
+        with self.repo.transaction() as db:
+            active_pages = db.execute(
+                "SELECT COUNT(*) FROM scheduling_pages WHERE service_id=? AND tenant_id=? AND workspace_id=? AND owner_id=? AND archived_at IS NULL",
+                (entity_id, *scope),
+            ).fetchone()[0]
+            active_bookings = db.execute(
+                "SELECT COUNT(*) FROM scheduling_bookings WHERE service_id=? AND tenant_id=? AND workspace_id=? AND owner_id=? AND status IN ('PENDING','CONFIRMED')",
+                (entity_id, *scope),
+            ).fetchone()[0]
+            db.execute(
+                "UPDATE scheduling_services SET active=0,archived_at=?,updated_at=? WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?",
+                (stamp, stamp, entity_id, *scope),
+            )
+            self.repo.audit(db, scope, "service_archived", "service", entity_id, {"activePages": active_pages, "activeBookings": active_bookings})
+        archived = dict(service)
+        archived["active"] = False
+        archived["archived_at"] = stamp
+        return {"service": archived, "activePages": active_pages, "activeBookings": active_bookings}
 
     def set_availability(self, scope: tuple[str, str, str], payload: AvailabilityPayload) -> dict[str, Any]:
         if payload.serviceId:
@@ -219,9 +242,9 @@ class SchedulingService:
         now = datetime.now(timezone.utc)
         return inside and start >= now + timedelta(minutes=service["minimum_notice_minutes"]) and start <= now + timedelta(days=service["maximum_days"])
 
-    def available_slots(self, identifier: str, day: date, duration: int) -> dict[str, Any]:
-        bundle = self.public_page(identifier)
-        page, service = bundle["page"], bundle["service"]
+    def available_slots(self, identifier: str, day: date, duration: int, *, bundle: dict[str, Any] | None = None) -> dict[str, Any]:
+        resolved = bundle or self.public_page(identifier)
+        page, service = resolved["page"], resolved["service"]
         if duration not in service["durations"]:
             raise HTTPException(422, "Duracao nao permitida.")
         availability = self._availability_for_page(page)
@@ -245,11 +268,13 @@ class SchedulingService:
                 cursor += step
         return {"date": day.isoformat(), "timezone": availability["timezone"], "slots": result}
 
-    def remaining_capacity(self, service: dict[str, Any], responsible_id: str, start: datetime, end: datetime, availability: dict[str, Any], *, db: sqlite3.Connection | None = None) -> int:
+    def remaining_capacity(self, service: dict[str, Any], responsible_id: str, start: datetime, end: datetime, availability: dict[str, Any], *, db: sqlite3.Connection | None = None, exclude_booking_id: str | None = None) -> int:
         blocked_start = start - timedelta(minutes=service["buffer_before"])
         blocked_end = end + timedelta(minutes=service["buffer_after"])
         if any(self._overlap(blocked_start, blocked_end, item["start"], item["end"]) for item in availability.get("blocked", [])):
             return 0
+        exclusion = " AND id<>?" if exclude_booking_id else ""
+        exclusion_params: tuple[Any, ...] = (exclude_booking_id,) if exclude_booking_id else ()
         connection = db or self.repo.connect()
         try:
             # Other services for the same professional remain exclusive.
@@ -259,11 +284,11 @@ class SchedulingService:
               AND datetime(b.end_at, '+' || s.buffer_after || ' minutes') > ? LIMIT 1""", (responsible_id, service["id"], blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
             if other:
                 return 0
-            count = connection.execute("SELECT COUNT(*) FROM scheduling_bookings WHERE service_id=? AND responsible_id=? AND start_at=? AND status IN ('PENDING','CONFIRMED')", (service["id"], responsible_id, start.isoformat())).fetchone()[0]
+            count = connection.execute(f"SELECT COUNT(*) FROM scheduling_bookings WHERE service_id=? AND responsible_id=? AND start_at=? AND status IN ('PENDING','CONFIRMED'){exclusion}", (service["id"], responsible_id, start.isoformat(), *exclusion_params)).fetchone()[0]
             holds = connection.execute("SELECT COUNT(*) FROM scheduling_holds WHERE service_id=? AND responsible_id=? AND start_at=? AND consumed_at IS NULL AND expires_at>?", (service["id"], responsible_id, start.isoformat(), now_iso())).fetchone()[0]
-            overlapping = connection.execute("""SELECT 1 FROM scheduling_bookings
-              WHERE service_id=? AND responsible_id=? AND start_at<>? AND status IN ('PENDING','CONFIRMED')
-              AND start_at < ? AND end_at > ? LIMIT 1""", (service["id"], responsible_id, start.isoformat(), blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
+            overlapping = connection.execute(f"""SELECT 1 FROM scheduling_bookings
+              WHERE service_id=? AND responsible_id=? AND start_at<>? AND status IN ('PENDING','CONFIRMED'){exclusion}
+              AND start_at < ? AND end_at > ? LIMIT 1""", (service["id"], responsible_id, start.isoformat(), *exclusion_params, blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
             overlapping_hold = connection.execute("""SELECT 1 FROM scheduling_holds
               WHERE service_id=? AND responsible_id=? AND start_at<>? AND consumed_at IS NULL AND expires_at>?
               AND start_at < ? AND end_at > ? LIMIT 1""", (service["id"], responsible_id, start.isoformat(), now_iso(), blocked_end.isoformat(), blocked_start.isoformat())).fetchone()
@@ -367,6 +392,141 @@ class SchedulingService:
             db.execute("UPDATE scheduling_bookings SET status=?,updated_at=? WHERE id=?", (status, now_iso(), booking_id))
             self.repo.audit(db, scope, "booking_status_updated", "booking", booking_id, {"status": status})
         return self.repo.one("SELECT * FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (booking_id, *scope)) or {}
+
+    def get_booking(self, scope: tuple[str, str, str], booking_id: str) -> dict[str, Any]:
+        item = self.repo.one("SELECT * FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (booking_id, *scope))
+        if not item:
+            raise HTTPException(404, "Agendamento nao encontrado.")
+        return item
+
+    def booking_context(self, scope: tuple[str, str, str], booking_id: str) -> dict[str, Any]:
+        booking = self.get_booking(scope, booking_id)
+        service = self.repo.one(
+            "SELECT * FROM scheduling_services WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?",
+            (booking["service_id"], *scope),
+        )
+        if not service:
+            raise HTTPException(404, "Servico do agendamento nao encontrado.")
+        return {"booking": booking, "service": service}
+
+    def admin_reschedule(self, scope: tuple[str, str, str], booking_id: str, start_at: str, duration: int) -> dict[str, Any]:
+        start = parse_utc(start_at); end = start + timedelta(minutes=duration); stamp = now_iso()
+        with self.repo.transaction() as db:
+            row = db.execute("SELECT * FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (booking_id, *scope)).fetchone()
+            if not row:
+                raise HTTPException(404, "Agendamento nao encontrado.")
+            booking = self.repo.decode(row) or {}
+            if booking.get("status") == "CANCELLED":
+                raise HTTPException(409, "Agendamento cancelado nao pode ser reagendado.")
+            service = self.repo.decode(db.execute("SELECT * FROM scheduling_services WHERE id=?", (booking["service_id"],)).fetchone()) or {}
+            page = self.repo.decode(db.execute("SELECT * FROM scheduling_pages WHERE id=?", (booking["page_id"],)).fetchone()) or {}
+            if not service or service.get("archived_at") or not service.get("active"):
+                raise HTTPException(409, "Servico indisponivel para reagendamento.")
+            if not page:
+                raise HTTPException(409, "Pagina do agendamento nao encontrada.")
+            if duration not in service.get("durations", []):
+                raise HTTPException(422, "Duracao nao permitida.")
+            if booking["start_at"] == start.isoformat() and booking["end_at"] == end.isoformat():
+                return {"booking": booking, "replay": True}
+            availability = self._availability_for_page(page)
+            if not self._fits_availability(start, end, availability, service):
+                raise HTTPException(409, "Novo horario fora da disponibilidade.")
+            if self.remaining_capacity(service, booking["responsible_id"], start, end, availability, db=db, exclude_booking_id=booking["id"]) <= 0:
+                raise HTTPException(409, "Novo horario indisponivel.")
+            db.execute("UPDATE scheduling_bookings SET start_at=?,end_at=?,status='CONFIRMED',updated_at=? WHERE id=?", (start.isoformat(), end.isoformat(), stamp, booking["id"]))
+            self.repo.audit(db, scope, "booking_rescheduled", "booking", booking["id"], {"previousStart": booking["start_at"], "startAt": start.isoformat(), "duration": duration})
+        return {"booking": self.get_booking(scope, booking_id), "replay": False}
+
+    @staticmethod
+    def format_local(value_iso: str, timezone_name: str) -> str:
+        return parse_utc(value_iso).astimezone(ZoneInfo(timezone_name)).strftime("%d/%m/%Y as %H:%M")
+
+    @classmethod
+    def render_reschedule_email(cls, *, service_name: str, attendee_name: str, old_start: str, new_start: str, timezone_name: str) -> dict[str, str]:
+        old_label = cls.format_local(old_start, timezone_name)
+        new_label = cls.format_local(new_start, timezone_name)
+        subject = f"Reagendamento: {service_name} em {new_label}"
+        body = (
+            f"Ola {attendee_name},\n\n"
+            f"Seu agendamento de {service_name} foi reagendado.\n\n"
+            f"Antes: {old_label} ({timezone_name})\n"
+            f"Agora: {new_label} ({timezone_name})\n\n"
+            "Se esse horario nao funcionar para voce, responda esta mensagem.\n\n"
+            "Atenciosamente."
+        )
+        return {"subject": subject, "body": body}
+
+    @classmethod
+    def render_reschedule_whatsapp(cls, *, service_name: str, attendee_name: str, old_start: str, new_start: str, timezone_name: str) -> str:
+        old_label = cls.format_local(old_start, timezone_name)
+        new_label = cls.format_local(new_start, timezone_name)
+        return (
+            f"Ola {attendee_name}! Seu agendamento de {service_name} foi reagendado: "
+            f"de {old_label} para {new_label} ({timezone_name}). "
+            "Se esse horario nao funcionar, responda esta mensagem."
+        )
+
+    def get_notification_attempt(self, scope: tuple[str, str, str], operation_key: str, channel: str) -> dict[str, Any] | None:
+        scoped_key = self._notification_key(scope, operation_key)
+        return self.repo.one(
+            "SELECT * FROM scheduling_notification_attempts WHERE operation_key=? AND channel=? AND tenant_id=? AND workspace_id=? AND owner_id=?",
+            (scoped_key, channel, *scope),
+        )
+
+    @staticmethod
+    def _notification_key(scope: tuple[str, str, str], operation_key: str) -> str:
+        raw = "\x1f".join((*scope, operation_key))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def begin_notification_attempt(self, scope: tuple[str, str, str], operation_key: str, channel: str, booking_id: str) -> dict[str, Any]:
+        """Reserva um envio antes do efeito externo.
+
+        Um registro ``pending`` nunca e reenviado automaticamente: ele pode
+        representar um timeout depois de o provedor ter aceitado a mensagem e
+        exige conciliacao. Falhas deterministicas podem ser reivindicadas para
+        uma nova tentativa. ``BEGIN IMMEDIATE`` serializa retries concorrentes.
+        """
+        scoped_key, stamp = self._notification_key(scope, operation_key), now_iso()
+        with self.repo.transaction() as db:
+            row = db.execute(
+                "SELECT * FROM scheduling_notification_attempts WHERE operation_key=? AND channel=? AND tenant_id=? AND workspace_id=? AND owner_id=?",
+                (scoped_key, channel, *scope),
+            ).fetchone()
+            current = self.repo.decode(row)
+            if current:
+                if current.get("booking_id") != booking_id:
+                    raise HTTPException(409, "A chave de operacao ja pertence a outro agendamento.")
+                if current.get("status") in {"sent", "pending"}:
+                    return {"claimed": False, "attempt": current}
+                db.execute(
+                    "UPDATE scheduling_notification_attempts SET status='pending',receipt_json='{}',error='',updated_at=? WHERE operation_key=? AND channel=? AND tenant_id=? AND workspace_id=? AND owner_id=? AND status='failed'",
+                    (stamp, scoped_key, channel, *scope),
+                )
+                self.repo.audit(db, scope, f"booking_notify_{channel}_retry_started", "booking", booking_id)
+                return {"claimed": True, "attempt": {**current, "status": "pending", "receipt": {}, "error": ""}}
+            db.execute(
+                """INSERT INTO scheduling_notification_attempts
+                   (operation_key, channel, tenant_id, workspace_id, owner_id, booking_id, status, receipt_json, error, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?, 'pending','{}','',?,?)""",
+                (scoped_key, channel, *scope, booking_id, stamp, stamp),
+            )
+            self.repo.audit(db, scope, f"booking_notify_{channel}_started", "booking", booking_id)
+        return {"claimed": True, "attempt": {"status": "pending", "receipt": {}, "error": ""}}
+
+    def save_notification_attempt(self, scope: tuple[str, str, str], operation_key: str, channel: str, booking_id: str, status: str, receipt: dict[str, Any] | None = None, error: str = "") -> dict[str, Any]:
+        stamp = now_iso()
+        scoped_key = self._notification_key(scope, operation_key)
+        payload = json.dumps(receipt or {}, ensure_ascii=False)
+        with self.repo.transaction() as db:
+            db.execute(
+                """INSERT INTO scheduling_notification_attempts
+                   (operation_key, channel, tenant_id, workspace_id, owner_id, booking_id, status, receipt_json, error, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(operation_key, channel) DO UPDATE SET status=excluded.status, receipt_json=excluded.receipt_json, error=excluded.error, updated_at=excluded.updated_at""",
+                (scoped_key, channel, *scope, booking_id, status, payload, error[:500], stamp, stamp),
+            )
+            self.repo.audit(db, scope, f"booking_notify_{channel}_{status}", "booking", booking_id, {"operationKeyHash": scoped_key})
+        return self.get_notification_attempt(scope, operation_key, channel) or {}
 
     def attach_external_event(self, booking_public_id: str, event_id: str) -> None:
         with self.repo.transaction() as db:

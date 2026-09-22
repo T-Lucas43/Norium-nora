@@ -106,9 +106,11 @@ class HttpWApiAdapter:
         self._local_disconnector = local_disconnector
         self._media_send_timeout = max(1.0, float(media_send_timeout))
 
-    async def ensure_connection(self, tenant_id: str) -> ConnectionResult:
+    async def ensure_connection(
+        self, tenant_id: str, plan: str | None = None
+    ) -> ConnectionResult:
         try:
-            raw = await self._connect_service().start(tenant_id)
+            raw = await self._connect_service().start(tenant_id, plan)
         except ConsentRequiredError as exc:
             raise PortFailure("consent_required", str(exc)) from None
         except WapiError:
@@ -125,6 +127,10 @@ class HttpWApiAdapter:
 
         if not isinstance(raw, Mapping):
             raise PortFailure("unavailable")
+        try:
+            current_plan = self._connect_service().current_plan(tenant_id)
+        except Exception:
+            current_plan = None
         return ConnectionResult(
             status=str(raw.get("status") or "iniciando"),
             qr_code=(str(raw["qrcode"]) if raw.get("qrcode") else None),
@@ -133,6 +139,7 @@ class HttpWApiAdapter:
             connected_at=_optional_float(raw.get("conectadoEm")),
             detail=(str(raw["detail"]) if raw.get("detail") else None),
             consent_required=bool(raw.get("consent_required", False)),
+            plan=str(current_plan) if current_plan in {"lite", "pro"} else None,
         )
 
     async def disconnect_local(self, tenant_id: str) -> None:

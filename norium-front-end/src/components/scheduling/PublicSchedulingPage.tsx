@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { CalendarDays, CheckCircle2, Clock3, ShieldCheck } from "lucide-react";
 import { apiBaseUrl } from "../../core/api/config";
 import { schedulingApi, type SchedulingPage, type SchedulingService } from "../../features/scheduling/api";
@@ -14,20 +14,37 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   const [slot, setSlot] = useState<Slot | null>(null);
   const [form, setForm] = useState<Record<string, string>>({ full_name: "", email: "", phone: "" });
   const [loading, setLoading] = useState(true);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [calendarVerified, setCalendarVerified] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [slotsError, setSlotsError] = useState("");
   const [success, setSuccess] = useState("");
+  const [slotsRetry, setSlotsRetry] = useState(0);
+  const slotsRequestRef = useRef(0);
 
   useEffect(() => {
     schedulingApi.publicPage(identifier).then((data) => {
       setPage(data.page); setService(data.service); setDuration(data.service.durations[0]);
     }).catch((reason) => setError(reason.message)).finally(() => setLoading(false));
   }, [identifier]);
+
   useEffect(() => {
     if (!service) return;
-    setSlot(null);
-    schedulingApi.slots(identifier, day, duration).then((data) => setSlots(data.slots)).catch((reason) => setError(reason.message));
-  }, [identifier, day, duration, service]);
+    const requestId = ++slotsRequestRef.current;
+    const controller = new AbortController();
+    setSlot(null); setSlotsError(""); setSlotsLoading(true);
+    schedulingApi.slotsCached(identifier, day, duration, controller.signal).then((data) => {
+      if (slotsRequestRef.current !== requestId) return;
+      setSlots(data.slots); setCalendarVerified(data.calendarVerified !== false);
+    }).catch((reason) => {
+      if (slotsRequestRef.current !== requestId || controller.signal.aborted) return;
+      setSlotsError(reason instanceof Error ? reason.message : "Não foi possível carregar os horários.");
+    }).finally(() => {
+      if (slotsRequestRef.current === requestId) setSlotsLoading(false);
+    });
+    return () => { controller.abort(); };
+  }, [identifier, day, duration, service, slotsRetry]);
 
   const theme = useMemo(() => ({
     "--booking-primary": page?.theme?.primary || "#6d5dfc",
@@ -69,10 +86,18 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
         </aside>
         <section className="p-6">
           <label className="grid gap-1 text-sm font-bold">Escolha a data<input type="date" min={new Date().toISOString().slice(0, 10)} value={day} onChange={(event) => setDay(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3"/></label>
-          <div className="mt-5"><p className="mb-2 text-sm font-bold">Horários disponíveis</p><div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-            {slots.map((item) => <button key={item.startAt} onClick={() => setSlot(item)} className={`rounded-xl border p-3 text-sm font-black ${slot?.startAt === item.startAt ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{new Date(item.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}<small className="block font-semibold opacity-75">{item.remaining} vaga(s)</small></button>)}
-            {!slots.length && <p className="col-span-full rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Nenhum horário disponível nesta data.</p>}
-          </div></div>
+          <div className="mt-5"><p className="mb-2 text-sm font-bold">Horários disponíveis</p>
+            {!calendarVerified && <p role="status" className="mb-2 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-700">Calendário externo indisponível — os horários podem estar desatualizados. A reserva será validada na confirmação.</p>}
+            {slotsLoading
+              ? <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-label="Carregando horários">{[0, 1, 2, 3, 4, 5].map((item) => <div key={item} className="h-16 animate-pulse rounded-xl bg-slate-100"/>)}
+            </div>
+              : slotsError
+                ? <div role="alert" className="rounded-xl bg-red-50 p-4 text-center text-sm font-semibold text-red-600">{slotsError} <button className="underline" onClick={() => setSlotsRetry((value) => value + 1)}>Tentar novamente</button></div>
+                : <div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+              {slots.map((item) => <button key={item.startAt} onClick={() => setSlot(item)} className={`rounded-xl border p-3 text-sm font-black ${slot?.startAt === item.startAt ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{new Date(item.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}<small className="block font-semibold opacity-75">{item.remaining} vaga(s)</small></button>)}
+              {!slots.length && <p className="col-span-full rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Nenhum horário disponível nesta data.</p>}
+            </div>}
+          </div>
           {slot && <div className="mt-6 grid gap-3">
             <Input label="Nome completo" required value={form.full_name} maxLength={160} onChange={(value) => setForm({...form, full_name: value})}/>
             <Input label="E-mail" required type="email" value={form.email} maxLength={254} onChange={(value) => setForm({...form, email: value})}/>

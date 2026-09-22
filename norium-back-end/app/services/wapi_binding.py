@@ -93,6 +93,7 @@ class InstanceBinding:
     connected_at: float | None = None
     updated_at: float = 0.0
     consent: dict[str, Any] | None = None  # serialized ConsentRecord
+    plan: str = ""  # "lite" | "pro" | "" (legado, derivado do nome)
 
     @property
     def exists(self) -> bool:

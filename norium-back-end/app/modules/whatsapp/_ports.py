@@ -65,7 +65,9 @@ class ProviderMedia:
 class WApiPort(Protocol):
     """Port interno para a dependencia externa W-API."""
 
-    async def ensure_connection(self, tenant_id: str) -> ConnectionResult: ...
+    async def ensure_connection(
+        self, tenant_id: str, plan: str | None = None
+    ) -> ConnectionResult: ...
 
     async def disconnect_local(self, tenant_id: str) -> None: ...
 

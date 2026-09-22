@@ -54,6 +54,13 @@ class AvailabilityPayload(StrictModel):
     exceptions: dict[str, list[Period]] = Field(default_factory=dict)
     blocked: list[BlockedPeriod] = Field(default_factory=list, max_length=500)
 
+    @field_validator("serviceId")
+    @classmethod
+    def normalize_service(cls, value: str | None) -> str | None:
+        # String vazia equivale a disponibilidade geral (sem serviço).
+        cleaned = (value or "").strip()
+        return cleaned or None
+
     @field_validator("timezone")
     @classmethod
     def timezone_known(cls, value: str) -> str:
@@ -205,3 +212,23 @@ class ReschedulePayload(StrictModel):
 
 class LogoPayload(StrictModel):
     dataBase64: str = Field(min_length=16, max_length=2_800_000)
+
+
+NotifyChannel = Literal["gmail", "whatsapp"]
+
+
+class AdminReschedulePayload(StrictModel):
+    startAt: str
+    duration: int = Field(ge=5, le=1440)
+    notifyGmail: bool = False
+    notifyWhatsapp: bool = False
+    gmailSubject: str = Field(default="", max_length=200)
+    gmailBody: str = Field(default="", max_length=20000)
+    whatsappMessage: str = Field(default="", max_length=4000)
+    operationKey: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def notification_requires_operation_key(self):
+        if (self.notifyGmail or self.notifyWhatsapp) and not self.operationKey:
+            raise ValueError("Notificacoes exigem uma chave de operacao estavel para retry sem duplicar.")
+        return self

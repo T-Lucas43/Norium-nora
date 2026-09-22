@@ -105,6 +105,29 @@ _WEBHOOK_REFRESH_TIMEOUT_SECONDS = 20.0
 _QR_CACHE_TTL_SECONDS = max(5.0, float(os.getenv("WAPI_QR_TTL_SECONDS", "20")))
 
 
+def _normalize_instance_plan(plan: str | None) -> str | None:
+    if plan is None:
+        return None
+    normalized = str(plan).strip().lower()
+    if normalized not in {"lite", "pro"}:
+        raise WapiError("Plano da instância inválido; use lite ou pro.", code="invalid_plan")
+    return normalized
+
+
+def binding_plan(binding: InstanceBinding) -> str | None:
+    """Plano efetivo do vínculo; legados derivam do sufixo do nome."""
+    if binding.plan in {"lite", "pro"}:
+        return binding.plan
+    if not binding.exists:
+        return None
+    name = str(binding.instance_name or "")
+    if name.endswith("-pro"):
+        return "pro"
+    if name.startswith("norium-"):
+        return "lite"
+    return None
+
+
 class WapiConnectService:
     def __init__(self, client: WapiClient | None = None) -> None:
         self._client = client or WapiClient()
@@ -495,6 +518,7 @@ class WapiConnectService:
                 state="awaiting_qr",
                 created_at=time.time(),
                 consent=claim.binding.consent,
+                plan="lite" if lite else "pro",
             )
             return await self._finish_provisioning(
                 user_id,
@@ -604,6 +628,7 @@ class WapiConnectService:
             state="awaiting_qr",
             created_at=time.time(),
             consent=claim.binding.consent,
+            plan="lite" if lite else "pro",
         )
         return await self._finish_provisioning(
             user_id,
@@ -613,8 +638,19 @@ class WapiConnectService:
             lease_seconds=lease_seconds,
         )
 
-    async def ensure_instance(self, user_id: str, *, allow_create: bool = True) -> InstanceBinding:
-        """Garante o vínculo de uma instância à conta, de forma idempotente."""
+    async def ensure_instance(
+        self,
+        user_id: str,
+        *,
+        allow_create: bool = True,
+        plan: str | None = None,
+    ) -> InstanceBinding:
+        """Garante o vínculo de uma instância à conta, de forma idempotente.
+
+        O plano só vale para a criação; um vínculo existente nunca é
+        substituído silenciosamente por causa do plano solicitado.
+        """
+        requested_plan = _normalize_instance_plan(plan)
         binding = self._get_owned_binding(user_id)
         homologation = self._homologation
         if (
@@ -685,7 +721,9 @@ class WapiConnectService:
 
         # Produção: o claim SQLite é o ponto de serialização entre processos.
         legacy_instance_name = f"norium-{user_id}"[:60]
-        lite = os.getenv("WAPI_INSTANCE_LITE", "false").strip().lower() in {"1", "true", "yes"}
+        if requested_plan is None:
+            requested_plan = "lite" if os.getenv("WAPI_INSTANCE_LITE", "false").strip().lower() in {"1", "true", "yes"} else "pro"
+        lite = requested_plan == "lite"
         # Instâncias PRO usam um nome próprio para que uma reconexão local não
         # volte a capturar uma instância LITE antiga com o nome legado.
         instance_name = (
@@ -930,10 +968,17 @@ class WapiConnectService:
             return {"status": "aguardando_qrcode", "qrcode": qrcode, "state": "qr"}
         return {"status": "iniciando", "qrcode": None, "state": "starting"}
 
-    async def start(self, user_id: str) -> dict[str, Any]:
+    def current_plan(self, user_id: str) -> str | None:
+        """Plano do vínculo atual, apenas para exibição (sem I/O remoto)."""
+        try:
+            return binding_plan(self._get_owned_binding(user_id))
+        except Exception:
+            return None
+
+    async def start(self, user_id: str, plan: str | None = None) -> dict[str, Any]:
         """Inicia a conexão. Exige aceite; retorna o estado já com QR quando houver."""
         self._require_consent(user_id)
-        await self.ensure_instance(user_id)
+        await self.ensure_instance(user_id, plan=plan)
         return await self.qr(user_id)
 
     async def qr(self, user_id: str) -> dict[str, Any]:

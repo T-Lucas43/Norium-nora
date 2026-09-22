@@ -275,8 +275,9 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ steps.image.outputs.reference }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Nao usa o cache remoto do Actions neste job critico. O backend de
+          # cache ja falhou depois de a imagem ter sido publicada no GHCR e
+          # transformou uma otimizacao opcional em falso bloqueio de deploy.
           provenance: mode=max
           sbom: true
 

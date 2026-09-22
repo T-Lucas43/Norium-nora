@@ -8,6 +8,7 @@ import json
 import math
 import os
 import sqlite3
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -41,6 +42,8 @@ CREATE TABLE IF NOT EXISTS reservations (id TEXT PRIMARY KEY, user_id TEXT NOT N
 CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY, created_at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT NOT NULL, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
+_postgres_schema_guard = threading.Lock()
+_postgres_schema_ready = False
 
 
 class _CostRow(dict):
@@ -97,19 +100,25 @@ def month_for(value: str | None = None) -> str:
 @contextmanager
 def database():
     if postgres_store.configured() or postgres_store.required():
+        global _postgres_schema_ready
+        if not _postgres_schema_ready:
+            with _postgres_schema_guard:
+                if not _postgres_schema_ready:
+                    with postgres_store.connection() as schema_connection:
+                        schema = _PostgresCosts(schema_connection)
+                        for statement in (item.strip() for item in SCHEMA.split(";") if item.strip()):
+                            statement = statement.replace(
+                                "id INTEGER PRIMARY KEY, created_at",
+                                "id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, created_at",
+                            )
+                            if statement.startswith("CREATE TABLE IF NOT EXISTS usage") or statement.startswith("CREATE TABLE IF NOT EXISTS reservations"):
+                                statement = statement.replace(" INTEGER", " BIGINT")
+                            schema.execute(statement)
+                        schema.execute("ALTER TABLE reservations ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT ''")
+                        schema.execute("INSERT OR IGNORE INTO metadata VALUES ('trackingStartedAt', ?)", (now(),))
+                    _postgres_schema_ready = True
         with postgres_store.connection() as raw:
             db = _PostgresCosts(raw)
-            statements = [statement.strip() for statement in SCHEMA.split(";") if statement.strip()]
-            for statement in statements:
-                statement = statement.replace(
-                    "id INTEGER PRIMARY KEY, created_at",
-                    "id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, created_at",
-                )
-                if statement.startswith("CREATE TABLE IF NOT EXISTS usage") or statement.startswith("CREATE TABLE IF NOT EXISTS reservations"):
-                    statement = statement.replace(" INTEGER", " BIGINT")
-                db.execute(statement)
-            db.execute("ALTER TABLE reservations ADD COLUMN IF NOT EXISTS created_at TEXT NOT NULL DEFAULT ''")
-            db.execute("INSERT OR IGNORE INTO metadata VALUES ('trackingStartedAt', ?)", (now(),))
             try:
                 yield db
                 raw.commit()

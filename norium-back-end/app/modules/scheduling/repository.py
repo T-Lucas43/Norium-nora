@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Any, Iterator
 from app.core.tenant import get_data_root, is_shared_environment
 from app.infrastructure.persistence import postgres_store
 
+_postgres_migration_guard = threading.Lock()
+_postgres_migrated = False
 
 class _CompatRow(dict):
     def __getitem__(self, key):
@@ -88,7 +91,14 @@ class SchedulingRepository:
         self.path = Path(path) if path else get_data_root() / "scheduling.sqlite3"
         if not self.postgres:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.migrate()
+        if self.postgres:
+            global _postgres_migrated
+            with _postgres_migration_guard:
+                if not _postgres_migrated:
+                    self.migrate()
+                    _postgres_migrated = True
+        else:
+            self.migrate()
 
     def _connection_target(self) -> tuple[str, bool]:
         configured_vfs = os.getenv("NORIUM_SCHEDULING_SQLITE_VFS", "").strip()

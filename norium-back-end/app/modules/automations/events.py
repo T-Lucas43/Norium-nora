@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -21,6 +22,8 @@ from app.infrastructure.persistence import postgres_store
 
 logger = logging.getLogger(__name__)
 automation_origin = contextvars.ContextVar("automation_origin", default=False)
+_postgres_schema_guard = threading.Lock()
+_postgres_schema_ready = False
 EVENT_TYPES = {"whatsapp.received", "team.message", "team.mentioned", "gmail.received", "task.created", "task.updated", "task.comment", "finance.created", "finance.updated", "calendar.created", "calendar.updated"}
 
 
@@ -58,16 +61,20 @@ class _PostgresAutomationConnection:
 
 def connection():
     if postgres_store.configured() or postgres_store.required():
+        global _postgres_schema_ready
         db = _PostgresAutomationConnection()
         try:
-            db.execute("""CREATE TABLE IF NOT EXISTS jobs (
+            with _postgres_schema_guard:
+                if not _postgres_schema_ready:
+                    db.execute("""CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY, user_id TEXT NOT NULL, workspace_id TEXT NOT NULL,
                 automation_id TEXT NOT NULL, fingerprint TEXT NOT NULL, event TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
                 finished_at TEXT, error TEXT, lease_until DOUBLE PRECISION NOT NULL DEFAULT 0)""")
-            db.execute("CREATE INDEX IF NOT EXISTS automation_jobs_status ON jobs(status, created_at)")
-            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS automation_one_running_scope ON jobs(user_id,workspace_id) WHERE status='running'")
-            db.raw.commit()
+                    db.execute("CREATE INDEX IF NOT EXISTS automation_jobs_status ON jobs(status, created_at)")
+                    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS automation_one_running_scope ON jobs(user_id,workspace_id) WHERE status='running'")
+                    db.raw.commit()
+                    _postgres_schema_ready = True
             return db
         except Exception:
             db.close()

@@ -8,12 +8,11 @@ Isolamento:
 
 - O vínculo é gravado em store por conta (``read_account_db``), então já nasce
   segregado pelo identificador autenticado.
-- Um registro SQLite transacional aplica unicidade para conta e instância. O
-  índice JSON legado é mantido apenas como espelho recuperável para
-  compatibilidade. O webhook nunca confia no ``userId`` do payload: resolve o
-  dono pelo registro e reconfirma o ``instanceId`` no vínculo.
-- Processos ou réplicas precisam apontar ``NORIUM_DATA_DIR`` para o mesmo volume
-  com suporte a locks; discos efêmeros independentes não formam um lock distribuído.
+- Em produção, um registro PostgreSQL transacional aplica unicidade para conta
+  e instância. O índice JSON lógico fica no mesmo PostgreSQL para compatibilidade.
+  O webhook nunca confia no ``userId`` do payload: resolve o dono pelo registro
+  e reconfirma o ``instanceId`` no vínculo.
+- O bloqueio de propriedade usa advisory locks do PostgreSQL entre processos.
 
 Nenhum token é exposto ao frontend nem registrado em log.
 """
@@ -59,6 +58,8 @@ _PROVISIONING_STATES = frozenset(
     {"provisioning", "active", "failed", "disconnecting"}
 )
 _ownership_lock = threading.RLock()
+_postgres_registry_schema_guard = threading.Lock()
+_postgres_registry_schema_ready = False
 _ownership_lock_state = threading.local()
 
 
@@ -447,9 +448,13 @@ class _PostgresRegistryConnection:
 
 def _registry_connection():
     if postgres_store.configured() or postgres_store.required():
+        global _postgres_registry_schema_ready
         try:
             connection = _PostgresRegistryConnection()
-            _ensure_registry_schema(connection)
+            with _postgres_registry_schema_guard:
+                if not _postgres_registry_schema_ready:
+                    _ensure_registry_schema(connection)
+                    _postgres_registry_schema_ready = True
             return connection
         except Exception as exc:
             if 'connection' in locals():

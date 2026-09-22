@@ -15,6 +15,7 @@ from app.infrastructure.persistence import postgres_store
 
 
 _LOCK = threading.RLock()
+_postgres_schema_ready = False
 _MAX_STORED_LOGS = 10_000
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _ALLOWED_LEVELS = {"info", "warning", "error"}
@@ -54,6 +55,21 @@ def _compact(path: Path) -> None:
     os.replace(temporary, path)
 
 
+def _ensure_postgres_schema() -> None:
+    global _postgres_schema_ready
+    if _postgres_schema_ready:
+        return
+    with _LOCK:
+        if _postgres_schema_ready:
+            return
+        postgres_store.initialize()
+        with postgres_store.connection() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS norium_system_logs (
+                id TEXT PRIMARY KEY,event TEXT NOT NULL,level TEXT NOT NULL,message TEXT NOT NULL,
+                user_id TEXT NOT NULL,workspace_id TEXT NOT NULL,metadata JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL)""")
+        _postgres_schema_ready = True
+
+
 def record_system_log(
     event: str,
     *,
@@ -77,11 +93,8 @@ def record_system_log(
     }
     if postgres_store.configured() or postgres_store.required():
         from psycopg.types.json import Jsonb
-        postgres_store.initialize()
+        _ensure_postgres_schema()
         with postgres_store.connection() as db:
-            db.execute("""CREATE TABLE IF NOT EXISTS norium_system_logs (
-                id TEXT PRIMARY KEY,event TEXT NOT NULL,level TEXT NOT NULL,message TEXT NOT NULL,
-                user_id TEXT NOT NULL,workspace_id TEXT NOT NULL,metadata JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL)""")
             db.execute("INSERT INTO norium_system_logs VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                        (entry["id"], entry["event"], entry["level"], entry["message"], entry["userId"],
                         entry["workspaceId"], Jsonb(entry["metadata"]), entry["createdAt"]))
@@ -99,11 +112,8 @@ def record_system_log(
 def list_system_logs(*, limit: int = 200, level: str = "", search: str = "") -> list[dict[str, Any]]:
     query = search.strip().casefold()
     if postgres_store.configured() or postgres_store.required():
-        postgres_store.initialize()
+        _ensure_postgres_schema()
         with postgres_store.connection() as db:
-            db.execute("""CREATE TABLE IF NOT EXISTS norium_system_logs (
-                id TEXT PRIMARY KEY,event TEXT NOT NULL,level TEXT NOT NULL,message TEXT NOT NULL,
-                user_id TEXT NOT NULL,workspace_id TEXT NOT NULL,metadata JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL)""")
             rows = db.execute("SELECT * FROM norium_system_logs ORDER BY created_at DESC LIMIT %s", (max(1, min(limit * 5, 5000)),)).fetchall()
         items = [{"id": row["id"], "event": row["event"], "level": row["level"], "message": row["message"],
                   "userId": row["user_id"], "workspaceId": row["workspace_id"], "metadata": row["metadata"],

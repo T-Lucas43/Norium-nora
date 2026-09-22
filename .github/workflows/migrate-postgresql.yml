@@ -84,8 +84,8 @@ jobs:
         run: |
           runner_ip="$(curl --fail --silent --show-error --max-time 20 https://api.ipify.org)"
           [[ "$runner_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          az postgres flexible-server firewall-rule create -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" \
-            --rule-name "github-${GITHUB_RUN_ID}" --start-ip-address "$runner_ip" --end-ip-address "$runner_ip" --output none
+          az postgres flexible-server firewall-rule create -g "$RESOURCE_GROUP" --server-name "$POSTGRES_SERVER_NAME" \
+            --name "github-${GITHUB_RUN_ID}" --start-ip-address "$runner_ip" --end-ip-address "$runner_ip" --output none
 
       - name: Install migration dependencies
         run: pip install -r norium-back-end/requirements.lock.txt azure-storage-file-share==12.23.1
@@ -128,8 +128,8 @@ jobs:
       - name: Permit Azure runtime access with database authentication enforced
         shell: bash
         run: |
-          az postgres flexible-server firewall-rule create -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" \
-            --rule-name norium-container-apps --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 --output none
+          az postgres flexible-server firewall-rule create -g "$RESOURCE_GROUP" --server-name "$POSTGRES_SERVER_NAME" \
+            --name norium-container-apps --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0 --output none
 
       - name: Activate PostgreSQL-backed production revision
         shell: bash
@@ -158,7 +158,7 @@ jobs:
 
       - name: Remove temporary runner database access
         shell: bash
-        run: az postgres flexible-server firewall-rule delete -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" --rule-name "github-${GITHUB_RUN_ID}" --yes --output none
+        run: az postgres flexible-server firewall-rule delete -g "$RESOURCE_GROUP" --server-name "$POSTGRES_SERVER_NAME" --name "github-${GITHUB_RUN_ID}" --yes --output none
 
       - name: Mark the cutover as verified
         id: cutover
@@ -176,16 +176,24 @@ jobs:
         shell: bash
         run: |
           if [[ -n "${PREVIOUS_REVISION:-}" ]]; then
+            active_revision="$(az containerapp revision list -g "$RESOURCE_GROUP" -n "$APP_NAME" \
+              --query '[?properties.active].name | [0]' -o tsv)"
+            if [[ -n "$active_revision" && "$active_revision" != "$PREVIOUS_REVISION" ]]; then
+              az containerapp revision deactivate -g "$RESOURCE_GROUP" --revision "$active_revision" --output none
+            fi
             az containerapp revision activate -g "$RESOURCE_GROUP" --revision "$PREVIOUS_REVISION" --output none
             curl --fail --retry 24 --retry-delay 10 --retry-all-errors "$AZURE_PUBLIC_URL/health/ready"
             previous_active="$(az containerapp revision show -g "$RESOURCE_GROUP" -n "$APP_NAME" \
               --revision "$PREVIOUS_REVISION" --query properties.active -o tsv)"
-            test "$previous_active" = true
+            test "${previous_active,,}" = true
+            active_count="$(az containerapp revision list -g "$RESOURCE_GROUP" -n "$APP_NAME" \
+              --query 'length([?properties.active])' -o tsv)"
+            test "$active_count" = 1
           fi
-          az postgres flexible-server firewall-rule delete -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" \
-            --rule-name norium-container-apps --yes --output none 2>/dev/null || true
+          az postgres flexible-server firewall-rule delete -g "$RESOURCE_GROUP" --server-name "$POSTGRES_SERVER_NAME" \
+            --name norium-container-apps --yes --output none 2>/dev/null || true
 
       - name: Remove temporary runner access after failure
         if: ${{ always() }}
         shell: bash
-        run: az postgres flexible-server firewall-rule delete -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" --rule-name "github-${GITHUB_RUN_ID}" --yes --output none 2>/dev/null || true
+        run: az postgres flexible-server firewall-rule delete -g "$RESOURCE_GROUP" --server-name "$POSTGRES_SERVER_NAME" --name "github-${GITHUB_RUN_ID}" --yes --output none 2>/dev/null || true

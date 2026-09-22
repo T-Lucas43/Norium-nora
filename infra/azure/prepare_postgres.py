@@ -23,7 +23,6 @@ def main() -> None:
         else:
             db.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(app_login), sql.Literal(app_password)))
         db.execute(sql.SQL("ALTER DATABASE {} OWNER TO {}").format(sql.Identifier(database), sql.Identifier(app_login)))
-        db.execute(sql.SQL("ALTER SCHEMA public OWNER TO {}").format(sql.Identifier(app_login)))
         db.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(sql.Identifier(database), sql.Identifier(app_login)))
         db.execute(sql.SQL("GRANT USAGE, CREATE ON SCHEMA public TO {}").format(sql.Identifier(app_login)))
     encoded_login, encoded_password = quote(app_login, safe=""), quote(app_password, safe="")

@@ -419,10 +419,19 @@ jobs:
             call_connectivity=(TEAM_CALL_TURN_REQUIRED=true "TEAM_CALL_TURN_URLS=${{ vars.TEAM_CALL_TURN_URLS }}" TEAM_CALL_TURN_SHARED_SECRET=secretref:team-call-turn TEAM_CALL_METRICS_TOKEN=secretref:team-call-metrics)
           fi
           postgres_environment=()
-          postgres_secret_count="$(az containerapp secret list \
+          active_revision="$(az containerapp revision list \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
-            --query "length([?name=='norium-database-url'])" --output tsv)"
-          if [[ "${postgres_secret_count}" = "1" ]]; then
+            --query '[?properties.active].name | [0]' --output tsv)"
+          test -n "${active_revision}"
+          postgres_required="$(az containerapp revision show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --revision "${active_revision}" \
+            --query "properties.template.containers[0].env[?name=='NORIUM_POSTGRES_REQUIRED'].value | [0]" --output tsv)"
+          if [[ "${postgres_required}" = "1" ]]; then
+            postgres_secret_count="$(az containerapp secret list \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+              --query "length([?name=='norium-database-url'])" --output tsv)"
+            test "${postgres_secret_count}" = "1"
             postgres_environment=(NORIUM_DATABASE_URL=secretref:norium-database-url NORIUM_POSTGRES_REQUIRED=1 \
               NORIUM_DATABASE_SSLMODE=verify-full NORA_BRAIN_DATABASE_URL=secretref:norium-database-url \
               NORA_BRAIN_DB_SSLMODE=verify-full)

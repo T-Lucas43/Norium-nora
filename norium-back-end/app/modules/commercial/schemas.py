@@ -128,6 +128,7 @@ class ProposalCreate(StrictModel):
     signers: list[SignerInput] = Field(default_factory=list, max_length=50)
     deliverables: list[DeliverableInput] = Field(default_factory=list, max_length=100)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    visibility: Literal["team", "private"] = "team"
 
 
 class ProposalBriefRequest(StrictModel):
@@ -145,7 +146,6 @@ class ProposalBriefRequest(StrictModel):
     currency: str = Field(default="BRL", min_length=3, max_length=3)
     tone: Literal["consultive", "executive", "technical", "friendly"] = "consultive"
 
-
 class SmartDocumentRequest(StrictModel):
     templateId: str = Field(min_length=1, max_length=180)
     clientId: str = Field(default="", max_length=180)
@@ -160,6 +160,34 @@ class SmartDocumentRequest(StrictModel):
     primaryColor: str = Field(default="#1E293B", pattern=r"^#[0-9A-Fa-f]{6}$")
     secondaryColor: str = Field(default="#3B82F6", pattern=r"^#[0-9A-Fa-f]{6}$")
     textColor: str = Field(default="#0F172A", pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class ProposalFromPdfRequest(StrictModel):
+    """Nova proposta em rascunho privado a partir de um PDF autorizado."""
+
+    documentId: str = Field(min_length=1, max_length=180)
+    clientId: str = Field(min_length=1, max_length=180)
+    title: str | None = Field(default=None, max_length=220)
+    fieldOverrides: dict[str, str] = Field(default_factory=dict)
+    scopeSummary: str = Field(default="", max_length=4000)
+    amount: float | None = Field(default=None, ge=0, le=999_999_999)
+    validUntil: str | None = Field(default=None, max_length=40)
+
+    @field_validator("fieldOverrides")
+    @classmethod
+    def limit_overrides(cls, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > 30:
+            raise ValueError("Informe no maximo 30 campos para alterar.")
+        cleaned: dict[str, str] = {}
+        for key, item in value.items():
+            label = str(key or "").strip()
+            if len(label) < 1 or len(label) > 80:
+                raise ValueError("Cada campo deve ter entre 1 e 80 caracteres.")
+            text = str(item or "")
+            if len(text) > 2000:
+                raise ValueError("Cada novo valor deve ter no maximo 2000 caracteres.")
+            cleaned[label] = text
+        return cleaned
 
 
 class ProposalUpdate(StrictModel):
@@ -177,6 +205,7 @@ class ProposalUpdate(StrictModel):
     signers: list[SignerInput] | None = Field(default=None, max_length=50)
     deliverables: list[DeliverableInput] | None = Field(default=None, max_length=100)
     metadata: dict[str, Any] | None = None
+    visibility: Literal["team", "private"] | None = None
 
 
 class ProposalSubmit(StrictModel):

@@ -1,19 +1,25 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
+import os
 import re
 import secrets
 import unicodedata
 import uuid
+from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
+
+from fastapi import HTTPException
 
 from cryptography.fernet import Fernet
 
 from app.core.security import auth_secret
-from app.core.tenant import read_user_db
+from app.core.tenant import get_user_db_path, read_user_db
+from app.modules.platform.pdf_text import detect_value_conflicts, extract_pdf_pages_async, search_pdf_pages
 from app.modules.platform.repository import load_store, mutate_store, now_iso
 from app.services.finance_store import create_lancamento, list_finance
 from app.services.task_store import list_tasks
@@ -452,20 +458,241 @@ async def query_knowledge(user: dict[str, Any], query: str, limit: int) -> dict[
         if common:
             ranked.append((len(common), document))
     ranked.sort(key=lambda item: item[0], reverse=True)
-    citations = [
-        {
+    bounded = max(1, min(int(limit or 5), 20))
+    citations = []
+    pdf_enriched = 0
+    for score, document in ranked[:bounded]:
+        citation = {
             "id": document.get("id"),
             "title": document.get("title"),
             "sourceUrl": document.get("sourceUrl"),
             "excerpt": str(document.get("content") or "")[:420],
             "matchedTerms": score,
         }
-        for score, document in ranked[:limit]
-    ]
+        if (
+            document.get("sourceType") == "pdf"
+            and document.get("storedPath")
+            and pdf_enriched < MAX_PDF_CITATIONS_PER_QUERY
+        ):
+            pdf_enriched += 1
+            page_hit = await _pdf_page_citation(user, document, query, 1)
+            if page_hit is not None:
+                citation.update(page_hit)
+        citations.append(citation)
     return {
         "answer": citations[0]["excerpt"] if citations else "Nao encontrei uma fonte autorizada para responder.",
         "citations": citations,
         "grounded": bool(citations),
+    }
+
+
+async def _pdf_page_citation(
+    user: dict[str, Any],
+    document: dict[str, Any],
+    query: str,
+    limit: int,
+) -> dict[str, Any] | None:
+    """Evidência por página para um documento PDF autorizado (melhor esforço).
+
+    Retorna None quando o arquivo não puder ser lido; a consulta então usa o
+    trecho armazenado, sem página. Nunca quebra a busca por causa de um PDF.
+    """
+    try:
+        _document, pages = await load_pdf_pages_for_user(user, str(document.get("id")))
+    except HTTPException:
+        return None
+    except Exception:
+        return None
+    hits = search_pdf_pages(pages, query, limit)
+    if not hits:
+        return None
+    return {
+        "excerpt": hits[0]["excerpt"],
+        "page": hits[0]["page"],
+        "pageCount": len(pages),
+        "matchedTerms": hits[0]["matchedTerms"],
+    }
+
+
+_PDF_PAGES_CACHE: dict[tuple[str, str, str], tuple[int, int, list[str]]] = {}
+_PDF_PAGES_CACHE_MAX = 100
+# Teto de memoria do cache: cerca de 2 MB de texto extraido no total; documentos
+# com mais de 256 mil caracteres nao entram no cache (extraidos sob demanda).
+_PDF_PAGES_CACHE_MAX_CHARS = 2_000_000
+_PDF_SINGLE_DOC_CACHE_CHARS = 256_000
+# Máximo de PDFs reabertos por consulta geral: citar mais que isso bloquearia
+# o atendimento com extrações síncronas em sequência.
+MAX_PDF_CITATIONS_PER_QUERY = 3
+
+
+def _lookup_pdf_pages_cache(
+    cache_key: tuple[str, str, str], signature: tuple[int, int]
+) -> list[str] | None:
+    """Reutiliza páginas já extraídas deste arquivo autorizado (LRU em memória).
+
+    Operação só de memória: a assinatura do arquivo vem do helper de I/O.
+    """
+    entry = _PDF_PAGES_CACHE.get(cache_key)
+    if entry is None or (entry[0], entry[1]) != signature:
+        return None
+    _PDF_PAGES_CACHE[cache_key] = _PDF_PAGES_CACHE.pop(cache_key)
+    return entry[2]
+
+
+def _cache_total_chars() -> int:
+    return sum(len(text) for _mtime, _size, texts in _PDF_PAGES_CACHE.values() for text in texts)
+
+
+def _store_pdf_pages_cache(
+    cache_key: tuple[str, str, str], signature: tuple[int, int], pages: list[str]
+) -> None:
+    if sum(len(text) for text in pages) > _PDF_SINGLE_DOC_CACHE_CHARS:
+        return
+    _PDF_PAGES_CACHE[cache_key] = (signature[0], signature[1], pages)
+    while len(_PDF_PAGES_CACHE) > _PDF_PAGES_CACHE_MAX or _cache_total_chars() > _PDF_PAGES_CACHE_MAX_CHARS:
+        _PDF_PAGES_CACHE.pop(next(iter(_PDF_PAGES_CACHE)))
+
+
+def _examine_pdf_file(
+    document: dict[str, Any], allowed_root: Path
+) -> tuple[Path, tuple[int, int]]:
+    """Fases 1-4 do acesso ao arquivo, síncronas (executar fora do event loop).
+
+    Duas etapas, em instruções separadas (sem depender de ordem de operandos):
+    1. triagem lexical sem tocar no candidato — normalização absoluta pura
+       (`abspath`, sem `resolve`/`stat`) e comparação por `commonpath` (nunca
+       prefixo textual); caminho claramente externo é rejeitado aqui, antes de
+       qualquer acesso ao arquivo;
+    2. somente após a aprovação lexical, resolve o candidato interno e
+       reconfirma o confinamento real, bloqueando `..`, symlink e junction;
+       apenas então executa `is_file`, `stat` e (no miss) a leitura.
+    Caminho externo, ausente ou diretório dá o mesmo 404 indistinguível;
+    falha de leitura de arquivo já autorizado vira 422 em `_read_pdf_file_bytes`.
+    """
+    root = allowed_root.resolve()
+    raw = str(document.get("storedPath") or "")
+    if not raw:
+        raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
+    root_lexical = os.path.abspath(os.fspath(allowed_root))
+    candidate_lexical = os.path.abspath(raw)
+    try:
+        lexically_inside = os.path.commonpath((root_lexical, candidate_lexical)) == root_lexical
+    except ValueError:
+        lexically_inside = False
+    if not lexically_inside:
+        raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
+    path = Path(candidate_lexical).resolve()
+    confined = root in path.parents
+    if not confined:
+        raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
+    is_file = path.is_file()
+    if not is_file:
+        raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
+    try:
+        stat = path.stat()
+    except OSError:
+        raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
+    return path, (stat.st_mtime_ns, stat.st_size)
+
+
+def _read_pdf_file_bytes(path: Path) -> bytes:
+    """Fase 5 do acesso ao arquivo, síncrona (cache miss; fora do event loop)."""
+    try:
+        return path.read_bytes()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Nao foi possivel ler o conteudo deste PDF.",
+        ) from exc
+
+
+async def load_pdf_pages_for_user(
+    user: dict[str, Any],
+    document_id: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """Carrega as páginas de um PDF autorizado, com isolamento por tenant.
+
+    A autorização vem de `list_collection` (somente documentos do tenant) e o
+    caminho do arquivo é validado dentro de `knowledge_files` do tenant, com a
+    mesma regra do download. Conteúdo do PDF é dado não confiável: os trechos
+    servem apenas como evidência e nunca como instrução do sistema.
+    """
+    documents = await list_collection(user, "knowledge")
+    document = next(
+        (entry for entry in documents if str(entry.get("id")) == str(document_id)),
+        None,
+    )
+    if not document or document.get("sourceType") != "pdf":
+        raise HTTPException(status_code=404, detail="PDF nao encontrado.")
+    allowed_root = Path(get_user_db_path(tenant_id(user), "platform")).parent / "knowledge_files"
+    path, signature = await asyncio.to_thread(_examine_pdf_file, document, allowed_root)
+    cache_key = (tenant_id(user), str(document.get("id")), str(path))
+    cached = _lookup_pdf_pages_cache(cache_key, signature)
+    if cached is not None:
+        return document, cached
+    pdf_bytes = await asyncio.to_thread(_read_pdf_file_bytes, path)
+    pages = await extract_pdf_pages_async(pdf_bytes)
+    _store_pdf_pages_cache(cache_key, signature, pages)
+    return document, pages
+
+
+async def query_knowledge_pdf(
+    user: dict[str, Any],
+    document_id: str,
+    query: str,
+    limit: int = 5,
+) -> dict[str, Any]:
+    """Consulta determinística a um PDF autorizado, sem chamada a modelo.
+
+    Recupera apenas as páginas/seções pertinentes, com referência ao documento
+    e às páginas. Para valores, nomes, datas, cláusulas e condições, o
+    chamador deve responder com evidência; ausência ou ambiguidade aparece como
+    `grounded: False`, nunca como informação inventada.
+    """
+    bounded = max(1, min(int(limit or 5), 20))
+    document, pages = await load_pdf_pages_for_user(user, document_id)
+    excerpts = search_pdf_pages(pages, query, bounded)
+    if not excerpts:
+        return {
+            "documentId": document.get("id"),
+            "title": document.get("title"),
+            "sourceUrl": document.get("sourceUrl"),
+            "pageCount": len(pages),
+            "query": query,
+            "excerpts": [],
+            "grounded": False,
+            "conflicts": [],
+            "answer": "Nao encontrei o dado pedido neste PDF autorizado.",
+        }
+    first = excerpts[0]
+    conflicts = detect_value_conflicts(pages, query)
+    if conflicts:
+        shown = conflicts[:2]
+        parts = "; ".join(
+            chr(39) + item["field"] + chr(39) + " (" + ", ".join(
+                "p. " + str(hit["page"]) + ": " + hit["value"] for hit in item["occurrences"][:4]
+            ) + ")"
+            for item in shown
+        )
+        answer = (
+            str(document.get("title")) + ": encontrei valores diferentes para o mesmo campo "
+            "(" + parts + "). Trecho principal (p. " + str(first["page"]) + "): " + first["excerpt"]
+        )
+    else:
+        answer = str(document.get("title")) + " (p. " + str(first["page"]) + "): " + first["excerpt"]
+        hit_values = [value for excerpt in excerpts for value in (excerpt.get("values") or [])]
+        if len(set(hit_values)) > 1:
+            answer += " (valores em campos distintos; sem divergencia comparavel para a pergunta)."
+    return {
+        "documentId": document.get("id"),
+        "title": document.get("title"),
+        "sourceUrl": document.get("sourceUrl"),
+        "pageCount": len(pages),
+        "query": query,
+        "excerpts": excerpts,
+        "grounded": True,
+        "conflicts": conflicts,
+        "answer": answer,
     }
 
 

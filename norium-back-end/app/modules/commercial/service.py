@@ -45,12 +45,18 @@ from app.modules.commercial.schemas import (
     ProposalCreate,
     ProposalPdfUpload,
     ProposalStatusChange,
+    ProposalFromPdfRequest,
     ProposalUpdate,
     SmartDocumentRequest,
     SignatureRequest,
     TemplateCreate,
     TemplateUpdate,
 )
+from app.modules.operations.schemas import AuditCreate
+from app.modules.inbox.router import record_event
+from app.modules.operations.service import record_audit
+from app.modules.platform import service as platform_service
+from app.modules.platform.pdf_text import find_accent_insensitive
 from app.services.calendar_service import CalendarService
 from app.services.nora import NoraIAService
 from app.services.task_store import create_task
@@ -530,10 +536,19 @@ def standalone_files(store: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def document_access_role(document: dict[str, Any], user: dict[str, Any]) -> str | None:
-    """Resolve acesso sem herdar a visibilidade do armazenamento da equipe."""
+    """Resolve acesso sem herdar a visibilidade do armazenamento da equipe.
+
+    Regra central fail-closed: proposta privada só resolve papel para quem a
+    criou. Permissões residuais em `access` (people/teamPermission) não valem
+    para terceiros enquanto privada — tornar privada revoga o compartilhamento
+    (ver `update_proposal`) e compartilhar exige transição explícita a equipe
+    (ver `update_document_access`).
+    """
     user_id = str(user.get("id") or "")
     if user_id and str(document.get("createdBy") or "") == user_id:
         return "owner"
+    if str(document.get("visibility") or "team") == "private":
+        return None
     access = document.get("access") if isinstance(document.get("access"), dict) else {}
     team_permission = str(access.get("teamPermission") or "none")
     person_permission = next(
@@ -552,6 +567,8 @@ def document_access_role(document: dict[str, Any], user: dict[str, Any]) -> str 
 
 
 def require_document_access(document: dict[str, Any], user: dict[str, Any], minimum: str = "view") -> str:
+    if str(document.get("visibility") or "team") == "private" and str(document.get("createdBy") or "") != str(user.get("id") or ""):
+        raise HTTPException(status_code=404, detail="Documento não encontrado.")
     role = document_access_role(document, user)
     allowed = {"view": {"owner", "edit", "view"}, "edit": {"owner", "edit"}, "owner": {"owner"}}
     if role not in allowed[minimum]:
@@ -675,7 +692,7 @@ async def list_commercial_data(user: dict[str, Any]) -> dict[str, Any]:
     own_store = await asyncio.to_thread(read_store, collaboration_tenant_id(user))
     team_stores = await asyncio.gather(*(asyncio.to_thread(read_store, store_id) for store_id in await document_store_ids_for_user(user)))
     proposals = sorted(
-        (item for team_store in team_stores for item in team_store["proposals"] if document_access_role(item, user)),
+        (item for team_store in team_stores for item in team_store["proposals"] if document_access_role(item, user) and can_view_proposal(user, item)),
         key=lambda item: str(item.get("updatedAt") or ""),
         reverse=True,
     )
@@ -1812,12 +1829,28 @@ async def delete_proposal(user: dict[str, Any], proposal_id: str) -> dict[str, A
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, proposal = proposal_or_404(store, proposal_id)
+        ensure_proposal_visible(user, proposal)
         require_document_access(proposal, user, "owner")
         if proposal.get("contractId") or any(item.get("proposalId") == proposal_id for item in store["contracts"]):
             raise HTTPException(status_code=409, detail="Esta proposta possui contrato vinculado e deve ser preservada no historico.")
         removed = store["proposals"].pop(index)
         await write_store(tenant_id, store)
     return removed
+
+
+def can_view_proposal(user: dict[str, Any], proposal: dict[str, Any]) -> bool:
+    """Rascunho derivado de PDF privado: visivel somente a quem o criou.
+
+    As demais propostas mantem o comportamento: visiveis a toda a equipe.
+    """
+    if str(proposal.get("visibility") or "team") != "private":
+        return True
+    return str(proposal.get("createdBy") or "") == str(user.get("id") or "")
+
+
+def ensure_proposal_visible(user: dict[str, Any], proposal: dict[str, Any]) -> None:
+    if not can_view_proposal(user, proposal):
+        raise HTTPException(status_code=404, detail="Proposta nao encontrada.")
 
 
 def proposal_or_404(store: dict[str, list[dict[str, Any]]], proposal_id: str) -> tuple[int, dict[str, Any]]:
@@ -1905,6 +1938,11 @@ async def update_document_access(
         collection = "proposals" if document_type == "proposal" else "contracts"
         index, current = proposal_or_404(store, document_id) if document_type == "proposal" else contract_or_404(store, document_id)
         require_document_access(current, user, "owner")
+        if document_type == "proposal" and str(current.get("visibility") or "team") == "private":
+            raise HTTPException(
+                status_code=409,
+                detail="Proposta privada nao pode ser compartilhada. Torne-a visivel a equipe antes de compartilhar.",
+            )
         updated = {
             **current,
             "access": {"teamPermission": payload.teamPermission, "people": people},
@@ -1929,11 +1967,27 @@ async def update_document_access(
 async def update_proposal(user: dict[str, Any], proposal_id: str, payload: ProposalUpdate) -> dict[str, Any]:
     async with _store_lock:
         tenant_id, store, index, current = await find_accessible_document(user, "proposal", proposal_id, "edit")
+        ensure_proposal_visible(user, current)
         if payload.expectedVersion and int(current.get("version") or 1) != payload.expectedVersion:
             raise HTTPException(status_code=409, detail="O documento foi alterado por outra pessoa. Recarregue para conciliar as versoes.")
         updates = payload.model_dump(exclude_unset=True, exclude={"expectedVersion", "signers"})
         if current.get("signedDocumentId") and updates:
             raise HTTPException(status_code=409, detail="A versão assinada está preservada. Envie uma nova versão para editar.")
+        if "visibility" in updates and str(current.get("createdBy") or "") != str(user.get("id") or ""):
+            raise HTTPException(status_code=403, detail="Somente quem criou a proposta pode alterar sua visibilidade.")
+        if updates.get("visibility") in ("team", "private"):
+            access = current.get("access")
+            access = dict(access) if isinstance(access, dict) else {}
+            if updates.get("visibility") == "private":
+                # Tornar privada revoga o compartilhamento: permissões de
+                # equipe e de pessoas são removidas para não vazar via resíduo.
+                # Voltar a equipe depois não restaura nada silenciosamente.
+                access["teamPermission"] = "none"
+                access["people"] = []
+            else:
+                access["teamPermission"] = "view"
+                access.setdefault("people", [])
+            updates["access"] = access
         if "contentHtml" in updates:
             updates["contentHtml"] = sanitize_document_html(str(updates["contentHtml"]))
         if payload.clientId and payload.clientId != current.get("clientId"):
@@ -1992,7 +2046,13 @@ async def submit_proposal(user: dict[str, Any], proposal_id: str, note: str) -> 
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
+        ensure_proposal_visible(user, current)
         require_document_access(current, user, "edit")
+        if str(current.get("visibility") or "team") == "private":
+            raise HTTPException(
+                status_code=409,
+                detail="Proposta privada nao entra em revisao. Torne-a visivel a equipe antes de submeter.",
+            )
         if current.get("status") not in {"draft", "changes_requested", "rejected"}:
             raise HTTPException(status_code=409, detail="Esta proposta nao pode ser submetida no status atual.")
         status = "in_review" if is_team_plan(user) else "approved"
@@ -2033,11 +2093,18 @@ async def decide_proposal(
 ) -> dict[str, Any]:
     if not can_approve(user):
         raise HTTPException(status_code=403, detail="Somente gestor ou proprietario pode decidir esta aprovacao.")
-    tenant_id = collaboration_tenant_id(user)
     async with _store_lock:
-        store = await asyncio.to_thread(read_store, tenant_id)
-        index, current = proposal_or_404(store, proposal_id)
-        require_document_access(current, user, "edit")
+        # O decisor autorizado localiza a proposta no armazenamento do autor
+        # pelo resolvedor (o modelo é por autor: a submissão grava in_review no
+        # armazenamento de quem submeteu). A escrita volta ao mesmo
+        # armazenamento; nunca ao do aprovador.
+        tenant_id, store, index, current = await find_accessible_document(user, "proposal", proposal_id, "view")
+        ensure_proposal_visible(user, current)
+        # can_approve é capacidade só de decidir: aprovar ou solicitar
+        # alterações mexe apenas em status/aprovação, sem conceder edição do
+        # conteúdo (que continua exigindo owner/edit).
+        if document_access_role(current, user) not in ("owner", "edit") and not can_approve(user):
+            raise HTTPException(status_code=403, detail="Somente gestor ou proprietario pode decidir esta aprovacao.")
         if current.get("status") != "in_review":
             raise HTTPException(status_code=409, detail="A proposta nao esta aguardando aprovacao.")
         updated = {
@@ -2075,6 +2142,7 @@ async def change_proposal_status(
 ) -> dict[str, Any]:
     async with _store_lock:
         tenant_id, store, index, current = await find_accessible_document(user, "proposal", proposal_id, "edit")
+        ensure_proposal_visible(user, current)
         if payload.expectedVersion and payload.expectedVersion != int(current.get("version") or 1):
             raise HTTPException(status_code=409, detail="A proposta mudou. Reabra o documento antes de alterar o status.")
         previous = str(current.get("status") or "draft")
@@ -2297,6 +2365,7 @@ async def analyze_with_nora(
     tenant_id = collaboration_tenant_id(user)
     store = await asyncio.to_thread(read_store, tenant_id)
     _, proposal = proposal_or_404(store, proposal_id)
+    ensure_proposal_visible(user, proposal)
     require_document_access(proposal, user, "view")
     document_text = plain_text(str(proposal.get("contentHtml") or ""))[:24_000]
     focus_instructions = {
@@ -2334,6 +2403,7 @@ async def analyze_with_nora(
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
+        ensure_proposal_visible(user, current)
         updated = {
             **current,
             "noraAnalysis": {
@@ -2360,6 +2430,7 @@ async def write_document_with_nora(
     store = await asyncio.to_thread(read_store, tenant_id)
     if document_type == "proposal":
         _, document = proposal_or_404(store, document_id)
+        ensure_proposal_visible(user, document)
     elif document_type == "contract":
         _, document = contract_or_404(store, document_id)
     else:
@@ -2412,6 +2483,7 @@ async def decide_suggestion(
     async with _store_lock:
         store = await asyncio.to_thread(read_store, tenant_id)
         index, current = proposal_or_404(store, proposal_id)
+        ensure_proposal_visible(user, current)
         require_document_access(current, user, "edit")
         require_document_access(current, user, "edit")
         suggestion = next(
@@ -2509,6 +2581,12 @@ async def create_contract(
         store = await asyncio.to_thread(read_store, tenant_id)
         proposal_index, proposal = proposal_or_404(store, proposal_id)
         require_document_access(proposal, user, "edit")
+        if str(proposal.get("visibility") or "team") == "private":
+            raise HTTPException(
+                status_code=409,
+                detail="Proposta privada nao pode gerar contrato compartilhado com a equipe.",
+            )
+        ensure_proposal_visible(user, proposal)
         if proposal.get("status") not in {"approved", "sent", "accepted", "signed"}:
             raise HTTPException(status_code=409, detail="O contrato so pode ser gerado a partir de uma proposta aprovada.")
         existing = next((item for item in store["contracts"] if item.get("proposalId") == proposal_id), None)
@@ -3176,3 +3254,582 @@ async def delete_template(user: dict[str, Any], template_id: str) -> dict[str, A
         store["templates"].pop(index)
         await write_store(tenant_id, store)
     return item
+
+
+_FROM_PDF_TITLE_KEYS = {"title", "titulo", "nome"}
+_FROM_PDF_AMOUNT_KEYS = {"amount", "valor", "preco", "total"}
+_FROM_PDF_VALIDITY_KEYS = {"validuntil", "validade", "validoate"}
+_FROM_PDF_SCOPE_KEYS = {"scopesummary", "escopo", "resumo"}
+_FROM_PDF_KNOWN_KEYS = _FROM_PDF_TITLE_KEYS | _FROM_PDF_AMOUNT_KEYS | _FROM_PDF_VALIDITY_KEYS | _FROM_PDF_SCOPE_KEYS
+_FROM_PDF_MAX_HTML = 340_000
+
+
+def _parse_pdf_amount(value: str) -> float | None:
+    candidate = re.sub(r"\s+", "", str(value or "").replace("R$", "").replace("r$", "").strip())
+    if not candidate or re.fullmatch(r"[0-9][0-9.,]*", candidate) is None:
+        return None
+    if "," in candidate and "." in candidate:
+        integer_part, _, decimal_part = candidate.rpartition(",")
+        if "," in integer_part or not decimal_part.isdigit() or not 1 <= len(decimal_part) <= 2:
+            return None
+        groups = integer_part.split(".")
+        if not groups[0].isdigit() or not 1 <= len(groups[0]) <= 3:
+            return None
+        if any(len(group) != 3 or not group.isdigit() for group in groups[1:]):
+            return None
+        candidate = "".join(groups) + "." + decimal_part
+    elif "," in candidate:
+        integer_part, _, decimal_part = candidate.rpartition(",")
+        if "," in integer_part or not integer_part.isdigit() or not decimal_part.isdigit():
+            return None
+        if not 1 <= len(decimal_part) <= 2:
+            return None
+        candidate = integer_part + "." + decimal_part
+    elif "." in candidate:
+        groups = candidate.split(".")
+        if not groups[0].isdigit() or not 1 <= len(groups[0]) <= 3:
+            return None
+        if any(len(group) != 3 or not group.isdigit() for group in groups[1:]):
+            return None
+        candidate = "".join(groups)
+    try:
+        amount = float(candidate)
+    except ValueError:
+        return None
+    if amount < 0 or amount > 999_999_999:
+        return None
+    return amount
+
+
+def _format_pdf_amount(amount: float) -> str:
+    """Total em reais no padrao brasileiro: "R$ 20.000", "R$ 20.000,50"."""
+    text = f"{amount:,.2f}"
+    integer_part, _, decimal_part = text.partition(".")
+    integer_part = integer_part.replace(",", ".")
+    decimal_part = decimal_part.rstrip("0")
+    if decimal_part:
+        return "R$ " + integer_part + "," + decimal_part
+    return "R$ " + integer_part
+
+
+def _split_source_lines(pages: list[str]) -> tuple[list[str], list[int]]:
+    """Linhas nao vazias da fonte com a pagina (1-based) de cada uma."""
+    lines: list[str] = []
+    line_pages: list[int] = []
+    for number, page in enumerate(pages, start=1):
+        for raw in re.split(r"\n+", str(page or "")):
+            stripped = raw.strip()
+            if stripped:
+                lines.append(stripped)
+                line_pages.append(number)
+    return lines, line_pages
+
+
+def _find_field_lines(lines: list[str], label: str) -> list[int]:
+    """Indices das linhas que citam o rotulo (normalizado, minimo 3 chars)."""
+    wanted = _briefing_key(label)
+    if len(wanted) < 3:
+        return []
+    return [index for index, line in enumerate(lines) if wanted in _briefing_key(line)]
+
+
+def _locate_label_span(line: str, label: str) -> tuple[int, int] | None:
+    """Trecho do rotulo na linha original, palavra por palavra, sem acentos."""
+    words = [str(part) for part in str(label or "").split() if len(str(part).strip()) >= 2]
+    if not words:
+        return None
+    text = str(line or "")
+    cursor = 0
+    start: int | None = None
+    end = 0
+    for word in words:
+        found = find_accent_insensitive(text[cursor:], word)
+        if found is None:
+            return None
+        if start is None:
+            start = cursor + found[0]
+        end = cursor + found[1]
+        cursor = end
+    if start is None:
+        return None
+    return (start, end)
+
+
+_FIELD_SEPARATORS = (":", "\u2013", "\u2014", "-", "=")
+
+
+def _extend_label_to_separator(line: str, key_end: int) -> int | None:
+    """Estende o rotulo ate o separador sem atravessar numeros ou simbolos.
+
+    Retorna o indice do separador, ou None quando entre o rotulo e o
+    separador ha algo que nao seja palavra (ex.: numero de outro campo).
+    """
+    cursor = key_end
+    while cursor < len(line) and (line[cursor] == " " or line[cursor].isalpha()):
+        cursor += 1
+    probe = cursor
+    while probe < len(line) and line[probe] == " ":
+        probe += 1
+    if probe < len(line) and line[probe] in _FIELD_SEPARATORS:
+        return probe
+    return None
+
+
+def _split_value_tail(tail: str) -> tuple[str, str]:
+    """Divide o valor do restante da linha: (valor_antigo, preservado).
+
+    O valor termina no primeiro ";" ou em ponto final que nao faca parte de
+    numero (ex.: "R$ 10.000" nao e cortado). Sem delimitador seguro, o valor
+    vai ate o fim da linha.
+    """
+    for pos, char in enumerate(tail):
+        if char == ";":
+            return tail[:pos].rstrip(), tail[pos:]
+        if char == ".":
+            prev = tail[pos - 1] if pos > 0 else ""
+            nxt = tail[pos + 1] if pos + 1 < len(tail) else ""
+            if not prev.isdigit() and nxt in ("", " "):
+                return tail[:pos].rstrip(), tail[pos:]
+    return tail.rstrip(), ""
+
+
+def _substitute_line_value(line: str, label: str, new_value: str) -> tuple[str, str] | None:
+    """Substitui somente o valor delimitado; devolve (nova_linha, preservado).
+
+    None quando o rotulo nao alcanca um separador sem atravessar numeros ou
+    simbolos: sem delimitacao segura nao ha substituicao.
+    """
+    span = _locate_label_span(line, label)
+    if span is None:
+        return None
+    _key_start, key_end = span
+    sep = _extend_label_to_separator(line, key_end)
+    if sep is None:
+        return None
+    _old_value, preserved = _split_value_tail(line[sep + 1 :])
+    head = line[: sep + 1].rstrip()
+    return (head + " " + str(new_value).strip() + preserved, preserved)
+
+
+def _verify_generated_pdf_draft(
+    lines: list[str],
+    substitutions: dict[int, str],
+    preserved_tails: dict[int, str],
+    generated_plain: str,
+    check_values: list[str],
+) -> tuple[bool, list[str]]:
+    """Confere o rascunho contra a fonte: novos, preservados, sem resto nem omissao."""
+    warnings: list[str] = []
+    if any(value and value not in generated_plain for value in check_values):
+        warnings.append("A conferencia do conteudo gerado contra a fonte encontrou valores ausentes.")
+    if any(new_line not in generated_plain for new_line in substitutions.values()):
+        warnings.append("A conferencia nao localizou no rascunho todos os trechos alterados.")
+    if any(lines[index] in generated_plain for index in substitutions):
+        warnings.append("A conferencia encontrou condicoes antigas ainda presentes apos a substituicao.")
+    for tail in preserved_tails.values():
+        if tail and tail not in generated_plain:
+            warnings.append("A conferencia encontrou clausula preservada ausente no rascunho gerado.")
+            break
+    if any(line not in generated_plain for index, line in enumerate(lines) if index not in substitutions):
+        warnings.append("A conferencia encontrou trechos da fonte ausentes no rascunho gerado.")
+    return (not warnings, warnings)
+
+
+async def build_proposal_from_pdf_plan(
+    user: dict[str, Any],
+    document_id: str,
+    payload: ProposalFromPdfRequest,
+) -> dict[str, Any]:
+    """Monta o plano puro da proposta derivada de PDF, sem persistir nada.
+
+    Executa exatamente a mesma localização, ambiguidade e substituição usada
+    na criação: carrega as páginas autorizadas, localiza cada campo pedido em
+    um único trecho e monta o HTML do rascunho. Campo ausente, ambíguo ou sem
+    substituição segura levanta o mesmo 422 da criação — por isso a prévia da
+    Nora pode validar a viabilidade antes de pedir confirmação, sem criar
+    proposta, auditoria ou notificação ("criar e apagar" não é validação).
+
+    O `verified` aqui é calculado sobre o HTML montado; a criação continua
+    verificando o conteúdo armazenado, que é o valor autoritativo.
+    """
+    document, pages = await platform_service.load_pdf_pages_for_user(user, document_id)
+    source_text = (chr(10) + chr(10)).join(pages).strip()
+    if len(source_text) < 2:
+        raise HTTPException(
+            status_code=422,
+            detail="Este PDF nao possui texto pesquisavel. Envie uma versao com OCR para indexacao.",
+        )
+    lines, line_pages = _split_source_lines(pages)
+    if not lines:
+        raise HTTPException(
+            status_code=422,
+            detail="Este PDF nao possui texto pesquisavel. Envie uma versao com OCR para indexacao.",
+        )
+    doc_title = str(document.get("title") or "documento")
+    overrides = dict(payload.fieldOverrides or {})
+    substitutions: dict[int, str] = {}
+    preserved_tails: dict[int, str] = {}
+    changed_fields: list[str] = []
+    change_rows: list[tuple[str, str]] = []
+    check_values: list[str] = []
+    warnings: list[str] = []
+
+    def untouched_candidates(key: str) -> list[int]:
+        return [index for index in _find_field_lines(lines, key) if index not in substitutions]
+
+    def missing_field_error(key: str) -> HTTPException:
+        return HTTPException(
+            status_code=422,
+            detail="Nao localizei o campo " + chr(39) + key + chr(39) + " no PDF " + chr(39) + doc_title + chr(39) + ". "
+            "Para alterar so esse campo, informe o trecho atual dele no documento.",
+        )
+
+    def ambiguous_field_error(key: str, candidates: list[int]) -> HTTPException:
+        hint = ", ".join(sorted({"p. " + str(line_pages[index]) for index in candidates}))
+        return HTTPException(
+            status_code=422,
+            detail="O campo " + chr(39) + key + chr(39) + " aparece em " + str(len(candidates)) + " trechos do PDF "
+            + chr(39) + doc_title + chr(39) + " (" + hint + "). Indique qual trecho deve mudar.",
+        )
+
+    def unsafe_field_error(key: str, lineno: int) -> HTTPException:
+        return HTTPException(
+            status_code=422,
+            detail="Nao consegui substituir o campo " + chr(39) + key + chr(39) + " com seguranca "
+            "(p. " + str(line_pages[lineno]) + "). Informe o valor atual exato para aplicar so essa mudanca.",
+        )
+
+    def unreadable_amount_error(raw: str) -> HTTPException:
+        return HTTPException(
+            status_code=422,
+            detail="Nao consegui interpretar " + chr(39) + raw.strip()[:40] + chr(39) + " como total da proposta. "
+            "Informe apenas o valor em reais de forma inequivoca (ex.: R$ 20.000,50).",
+        )
+
+    def substitute_required(key: str, new_value: str) -> None:
+        candidates = untouched_candidates(key)
+        if not candidates:
+            raise missing_field_error(key)
+        if len(candidates) > 1:
+            raise ambiguous_field_error(key, candidates)
+        lineno = candidates[0]
+        replaced = _substitute_line_value(lines[lineno], key, new_value)
+        if replaced is None:
+            raise unsafe_field_error(key, lineno)
+        new_line, preserved = replaced
+        substitutions[lineno] = new_line
+        if preserved:
+            preserved_tails[lineno] = preserved
+        changed_fields.append(key)
+        change_rows.append((key, str(new_value)))
+        check_values.append(str(new_value))
+
+    payload_title = (payload.title or "").strip() or None
+    payload_dimensions = set()
+    if payload_title is not None:
+        payload_dimensions |= _FROM_PDF_TITLE_KEYS
+    if payload.amount is not None:
+        payload_dimensions |= _FROM_PDF_AMOUNT_KEYS
+    if payload.validUntil is not None:
+        payload_dimensions |= _FROM_PDF_VALIDITY_KEYS
+    if payload.scopeSummary.strip():
+        payload_dimensions |= _FROM_PDF_SCOPE_KEYS
+    for key in overrides:
+        if _briefing_key(key) in payload_dimensions:
+            warnings.append("Campo " + chr(39) + key + chr(39) + " nao aplicado ao texto: o pedido ja define esse dado da proposta.")
+
+    title = payload_title
+    if title is not None:
+        changed_fields.append("title")
+        change_rows.append(("title", title))
+        check_values.append(title)
+    else:
+        for key, value in overrides.items():
+            if _briefing_key(key) in _FROM_PDF_TITLE_KEYS and str(value).strip():
+                title = str(value).strip()[:220]
+                changed_fields.append(key)
+                change_rows.append((key, title))
+                check_values.append(title)
+                break
+    if title is None:
+        title = ("Proposta derivada de " + doc_title)[:220]
+    if len(title) < 2:
+        warnings.append("Titulo indicado muito curto; usado o titulo padrao derivado da fonte.")
+        title = ("Proposta derivada de " + doc_title)[:220]
+
+    amount = payload.amount
+    amount_from_body = False
+    if amount is not None:
+        amount_candidates: dict[int, list[str]] = {}
+        for amount_key in sorted(_FROM_PDF_AMOUNT_KEYS):
+            for amount_index in untouched_candidates(amount_key):
+                amount_candidates.setdefault(amount_index, []).append(amount_key)
+        if not amount_candidates:
+            changed_fields.append("total da proposta")
+            change_rows.append(("total da proposta", str(amount)))
+        elif len(amount_candidates) > 1:
+            raise ambiguous_field_error("valor", sorted(amount_candidates))
+        else:
+            amount_lineno = sorted(amount_candidates)[0]
+            formatted_amount = _format_pdf_amount(amount)
+            replaced_amount: tuple[str, str] | None = None
+            for amount_label in amount_candidates[amount_lineno]:
+                replaced_amount = _substitute_line_value(lines[amount_lineno], amount_label, formatted_amount)
+                if replaced_amount is not None:
+                    break
+            if replaced_amount is None:
+                raise unsafe_field_error(amount_candidates[amount_lineno][0], amount_lineno)
+            new_line, preserved = replaced_amount
+            substitutions[amount_lineno] = new_line
+            if preserved:
+                preserved_tails[amount_lineno] = preserved
+            changed_fields.append("total da proposta")
+            change_rows.append(("total da proposta", formatted_amount))
+            check_values.append(formatted_amount)
+            amount_from_body = True
+    else:
+        for key, value in overrides.items():
+            if _briefing_key(key) in _FROM_PDF_AMOUNT_KEYS:
+                parsed = _parse_pdf_amount(str(value))
+                if parsed is None:
+                    raise unreadable_amount_error(str(value))
+                substitute_required(key, value)
+                amount = parsed
+                amount_from_body = True
+                break
+    if amount is not None and not amount_from_body:
+        warnings.append("Total aplicado aos dados da proposta; o corpo preserva os valores da fonte.")
+
+    valid_until = payload.validUntil
+    validity_from_body = False
+    if valid_until is not None:
+        changed_fields.append("validade da proposta")
+        change_rows.append(("validade da proposta", valid_until))
+        check_values.append(valid_until)
+    else:
+        for key, value in overrides.items():
+            if _briefing_key(key) in _FROM_PDF_VALIDITY_KEYS and str(value).strip():
+                substitute_required(key, value)
+                valid_until = str(value).strip()[:40]
+                validity_from_body = True
+                break
+    if valid_until is not None and not validity_from_body:
+        warnings.append("Validade aplicada aos dados da proposta; o corpo preserva os valores da fonte.")
+
+    scope_summary = payload.scopeSummary.strip()
+    if scope_summary:
+        changed_fields.append("escopo da proposta")
+        change_rows.append(("escopo da proposta", scope_summary))
+        check_values.append(scope_summary)
+    else:
+        for key, value in overrides.items():
+            if _briefing_key(key) in _FROM_PDF_SCOPE_KEYS and str(value).strip():
+                scope_summary = str(value).strip()[:4000]
+                changed_fields.append(key)
+                change_rows.append((key, scope_summary))
+                check_values.append(scope_summary)
+                break
+
+    consumed = {_briefing_key(key) for key in changed_fields}
+    for key, value in overrides.items():
+        normalized_key = _briefing_key(key)
+        if normalized_key in consumed or normalized_key in _FROM_PDF_KNOWN_KEYS:
+            continue
+        substitute_required(key, value)
+
+    if not changed_fields and not scope_summary:
+        warnings.append("Nenhum campo indicado; a proposta preserva integralmente o conteudo da fonte.")
+
+    body_lines = [substitutions.get(index, lines[index]) for index in range(len(lines))]
+    parts = [
+        "<h1>" + html.escape(title) + "</h1>",
+        "<p>Fonte: " + html.escape(doc_title) + " (" + str(len(pages)) + " pagina(s)).</p>",
+        "<h2>Conteudo preservado da fonte</h2>",
+    ]
+    parts.extend("<p>" + html.escape(part) + "</p>" for part in body_lines)
+    if change_rows:
+        items = "".join(
+            "<li><b>" + html.escape(str(label)) + "</b>: " + html.escape(str(new_value)[:500]) + "</li>"
+            for label, new_value in change_rows
+        )
+        parts.append("<h2>Campos alterados</h2><ul>" + items + "</ul>")
+    else:
+        parts.append("<h2>Campos alterados</h2><p>Nenhum campo alterado.</p>")
+    content_html = sanitize_document_html("".join(parts))
+    if len(content_html) > _FROM_PDF_MAX_HTML:
+        raise HTTPException(
+            status_code=422,
+            detail="O PDF e extenso demais para preservar integralmente no rascunho. Informe quais secoes usar como base.",
+        )
+    generated_plain = html.unescape(plain_text(content_html))
+    verified, verify_warnings = _verify_generated_pdf_draft(
+        lines, substitutions, preserved_tails, generated_plain, check_values
+    )
+    return {
+        "document": document,
+        "pages": pages,
+        "doc_title": doc_title,
+        "title": title,
+        "content_html": content_html,
+        "scope_summary": scope_summary,
+        "amount": amount,
+        "valid_until": valid_until,
+        "changed_fields": changed_fields,
+        "warnings": warnings,
+        "verified": verified,
+        "verify_warnings": verify_warnings,
+        "lines": lines,
+        "substitutions": substitutions,
+        "preserved_tails": preserved_tails,
+        "check_values": check_values,
+    }
+
+
+async def create_proposal_from_knowledge_pdf(
+    user: dict[str, Any],
+    document_id: str,
+    payload: ProposalFromPdfRequest,
+    *,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    """Gera nova proposta em rascunho privado a partir de um PDF autorizado.
+
+    Extracao e buscas sao deterministicas e locais: nenhuma chamada a modelo,
+    nenhum token consumido. A fonte e preservada integralmente; somente os
+    campos pedidos tem o valor substituido no proprio trecho. Conteudo do
+    PDF e dado nao confiavel e nunca aciona ferramentas nem altera
+    prioridades da Nora.
+
+    Quando um campo nao e identificado em exatamente um trecho, ou a fonte
+    nao permite substituir com seguranca, nenhum rascunho enganoso e criado:
+    a resposta e um erro 422 pedindo apenas o dado indispensavel.
+
+    O rascunho nasce sempre privado, qualquer que seja a visibilidade do PDF:
+    visivel somente a quem o criou, inclusive em listagem e leitura. Nada e publicado,
+    enviado ou encaminhado para assinatura aqui: o retorno e sempre draft.
+
+    A transformação (localizar, validar, montar) vem de
+    `build_proposal_from_pdf_plan`, o mesmo plano puro usado pela prévia da
+    Nora. `idempotency_key`, quando informado, é gravado em
+    `metadata.pdfIdempotencyKey` para que confirmações repetidas ou
+    concorrentes encontrem este rascunho no armazenamento em vez de duplicar.
+    """
+    plan = await build_proposal_from_pdf_plan(user, document_id, payload)
+    document = plan["document"]
+    pages = plan["pages"]
+    title = plan["title"]
+    content_html = plan["content_html"]
+    scope_summary = plan["scope_summary"]
+    amount = plan["amount"]
+    valid_until = plan["valid_until"]
+    changed_fields = plan["changed_fields"]
+    warnings = list(plan["warnings"])
+    visibility = "private"
+    metadata: dict[str, Any] = {
+        "sourcePdfDocumentId": document.get("id"),
+        "sourcePdfTitle": document.get("title"),
+        "sourcePdfPages": len(pages),
+        "changedFields": changed_fields,
+        "pdfWarnings": list(plan["warnings"]),
+        "pdfVerified": bool(plan["verified"]),
+    }
+    if idempotency_key:
+        metadata["pdfIdempotencyKey"] = idempotency_key
+    proposal = await create_proposal(
+        user,
+        ProposalCreate(
+            clientId=payload.clientId,
+            title=title,
+            contentHtml=content_html,
+            scopeSummary=scope_summary,
+            amount=amount if amount is not None else 0,
+            validUntil=valid_until,
+            visibility=visibility,
+            metadata=metadata,
+        ),
+    )
+    generated = proposal.get("contentHtml") or ""
+    generated_plain = html.unescape(plain_text(generated))
+    verified, check_warnings = _verify_generated_pdf_draft(
+        plan["lines"],
+        plan["substitutions"],
+        plan["preserved_tails"],
+        generated_plain,
+        plan["check_values"],
+    )
+    warnings.extend(check_warnings)
+    return {
+        "proposal": proposal,
+        "source": {
+            "documentId": document.get("id"),
+            "title": document.get("title"),
+            "pageCount": len(pages),
+            "sourceUrl": document.get("sourceUrl"),
+        },
+        "changedFields": changed_fields,
+        "warnings": warnings,
+        "verified": verified,
+        "visibility": visibility,
+        "modelTokensUsed": 0,
+    }
+
+
+async def audit_proposal_created_from_pdf(user: dict[str, Any], result: dict[str, Any]) -> None:
+    """Auditoria restrita + notificacao da proposta derivada de PDF.
+
+    Mesmo contrato da rota comercial: auditoria restrita sempre; notificacao
+    a equipe somente quando a proposta nao e privada. Usada pela rota HTTP e
+    pelo fluxo natural da Nora (prévia confirmada pelo usuário antes de
+    persistir; a auditoria sai uma única vez, na confirmação).
+    """
+    proposal = result["proposal"]
+    await record_audit(
+        user,
+        AuditCreate(
+            action="proposal_created_from_pdf",
+            source="commercial",
+            description="Proposta " + chr(39) + str(proposal.get("title")) + chr(39)
+            + " criada a partir do PDF " + chr(39) + str(result["source"].get("title")) + chr(39) + ".",
+            status="success",
+            entityType="proposal",
+            entityId=str(proposal.get("id")),
+        ),
+    )
+    if str(proposal.get("visibility") or "team") != "private":
+        await record_event(
+            source="sistema",
+            title="Nova proposta comercial",
+            description=str(proposal.get("title")),
+            metadata={
+                "userId": collaboration_tenant_id(user),
+                "action": "proposal_created",
+                "entityType": "commercial_document",
+                "entityId": str(proposal.get("id")),
+                "deepLink": {"tab": "Propostas", "entityType": "commercial_document", "entityId": str(proposal.get("id"))},
+            },
+        )
+
+
+async def ensure_pdf_creation_audit(user: dict[str, Any], result: dict[str, Any]) -> bool:
+    """Garante a auditoria de criação do rascunho derivado de PDF, uma vez só.
+
+    Devolve True quando registrou agora e False quando a auditoria já existia
+    para esta proposta. O retry após falha de auditoria usa esta função: como
+    a proposta já foi persistida com a chave de idempotência, concluir ou
+    recuperar a auditoria nunca autoriza nova criação nem duplica o registro.
+    """
+    from app.modules.operations.repository import AUDIT_DB, list_items
+
+    proposal = result["proposal"]
+    entity_id = str(proposal.get("id") or "")
+    user_id = str(user.get("id") or "lucas123")
+    existing = await list_items(user_id, AUDIT_DB)
+    if any(
+        item.get("action") == "proposal_created_from_pdf"
+        and str(item.get("entityId") or "") == entity_id
+        for item in existing
+        if isinstance(item, dict)
+    ):
+        return False
+    await audit_proposal_created_from_pdf(user, result)
+    return True

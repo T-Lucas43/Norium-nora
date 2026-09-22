@@ -70,6 +70,7 @@ from app.services.nora_whatsapp_action import (
 )
 from app.services.brainstorm_store import create_brainstorm_session, list_brainstorm_sessions
 from app.modules.nora.orchestrator import build_compound_plan, is_compound_request
+
 from app.modules.intelligence.service import complete_with_provider, create_browser_plan, safe_fetch, search_knowledge
 from app.modules.nora.conversations import router as conversations_router
 from app.modules.nora.context import (
@@ -89,6 +90,9 @@ from app.services.nora_files import (
     set_library_status,
 )
 from app.modules.team.router import message_visible, read_pruned_chat_store, require_team_chat, team_id_for
+
+from app.modules.nora.pdf_requests import maybe_handle_pdf_request
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/nora", tags=["Nora IA"])
@@ -1252,6 +1256,17 @@ async def _execute_natural_conversation(payload: NoraNaturalPayload, user: dict[
                 },
                 resolution=resolution,
             )
+
+        if (
+            payload.email_session_id is None
+            and payload.agenda_session_id is None
+            and payload.commercial_session_id is None
+            and not is_compound_request(texto)
+        ):
+            pdf_request = await maybe_handle_pdf_request(user, texto)
+            if pdf_request is not None:
+                pdf_intent = str(pdf_request.pop("intent"))
+                return resposta_agente(pdf_intent, pdf_request, resolution=resolution)
 
         if not payload.email_session_id and not payload.agenda_session_id and is_compound_request(texto):
             steps = build_compound_plan(texto)

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import base64
-import binascii
+import asyncio
 from datetime import datetime, timezone
-from io import BytesIO
 from pathlib import Path
 import re
 from typing import Any
@@ -12,10 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-try:
-    from pypdf import PdfReader
-except ImportError:  # Mantem o backend inicializavel ate a dependencia ser instalada.
-    PdfReader = None
+from app.modules.platform.pdf_text import decode_pdf_data_url, extract_pdf_pages_async
 
 from app.core.tenant import get_data_root, get_user_db_path, read_json_file, write_json_file
 from app.modules.auth.router import (
@@ -68,6 +63,7 @@ from app.modules.platform.service import (
     process_ocr,
     quality_scan,
     query_knowledge,
+    query_knowledge_pdf,
     sanitize_vault_item,
     save_vault_secret,
     tenant_id,
@@ -404,39 +400,16 @@ async def upload_knowledge_pdf(
     payload: KnowledgePdfPayload,
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
-    if PdfReader is None:
-        raise HTTPException(status_code=503, detail="Leitor de PDF indisponivel. Instale a dependencia pypdf.")
-    try:
-        encoded = payload.dataUrl.split(",", 1)[1] if "," in payload.dataUrl else payload.dataUrl
-        pdf_bytes = base64.b64decode(encoded, validate=True)
-    except (ValueError, binascii.Error) as exc:
-        raise HTTPException(status_code=422, detail="O PDF enviado esta corrompido ou em formato invalido.") from exc
-    if len(pdf_bytes) > 12 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="O PDF deve ter no maximo 12 MB.")
-    if not pdf_bytes.startswith(b"%PDF"):
-        raise HTTPException(status_code=422, detail="O arquivo enviado nao e um PDF valido.")
-
-    try:
-        reader = PdfReader(BytesIO(pdf_bytes))
-        if len(reader.pages) > 200:
-            raise HTTPException(status_code=413, detail="O PDF deve ter no maximo 200 paginas.")
-        extracted = "\n\n".join((page.extract_text() or "").strip() for page in reader.pages).strip()
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail="Nao foi possivel ler o conteudo deste PDF.") from exc
-    if len(extracted) < 2:
-        raise HTTPException(
-            status_code=422,
-            detail="Este PDF nao possui texto pesquisavel. Envie uma versao com OCR para indexacao.",
-        )
+    pdf_bytes = decode_pdf_data_url(payload.dataUrl)
+    pages = await extract_pdf_pages_async(pdf_bytes)
+    extracted = "\n\n".join(pages).strip()
 
     safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "_", Path(payload.fileName).name).strip("._") or "documento.pdf"
     file_id = f"knowledge_{uuid.uuid4().hex[:12]}"
     directory = Path(get_user_db_path(tenant_id(user), "platform")).parent / "knowledge_files"
-    directory.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(directory.mkdir, parents=True, exist_ok=True)
     stored_path = directory / f"{file_id}_{safe_name}"
-    stored_path.write_bytes(pdf_bytes)
+    await asyncio.to_thread(stored_path.write_bytes, pdf_bytes)
 
     item = await create_collection_item(
         user,
@@ -451,7 +424,7 @@ async def upload_knowledge_pdf(
             "sourceType": "pdf",
             "fileName": safe_name,
             "storedPath": str(stored_path),
-            "pageCount": len(reader.pages),
+            "pageCount": len(pages),
             "characterCount": len(extracted),
         },
         item_id=file_id,
@@ -459,7 +432,7 @@ async def upload_knowledge_pdf(
     await activity(
         user,
         "PDF adicionado a base de conhecimento",
-        f"{item['title']}: {len(reader.pages)} pagina(s) indexadas para consulta da Nora.",
+        f"{item['title']}: {len(pages)} pagina(s) indexadas para consulta da Nora.",
         "knowledge.pdf_uploaded",
         item["id"],
     )
@@ -510,6 +483,21 @@ async def consult_knowledge(
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
     return await query_knowledge(user, payload.query, payload.limit)
+
+
+@router.post("/conhecimento/{document_id}/consultar")
+async def consult_knowledge_pdf(
+    document_id: str,
+    payload: KnowledgeQueryPayload,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    """Consulta determinística a um PDF autorizado, sem chamada a modelo.
+
+    Retorna apenas trechos pertinentes com página, preservando a referência ao
+    documento. Conteúdo do PDF é dado não confiável: serve como evidência,
+    nunca como instrução do sistema.
+    """
+    return await query_knowledge_pdf(user, document_id, payload.query, payload.limit)
 
 
 @router.get("/assinaturas")

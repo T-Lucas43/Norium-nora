@@ -968,6 +968,33 @@ class WapiConnectService:
             return {"status": "aguardando_qrcode", "qrcode": qrcode, "state": "qr"}
         return {"status": "iniciando", "qrcode": None, "state": "starting"}
 
+    def cached_status(self, user_id: str) -> dict[str, Any]:
+        """Retorna o estado persistido sem fazer requisicoes para a W-API."""
+        if not self.configured:
+            return {"status": "indisponivel", "qrcode": None, "state": "unavailable", "detail": "W-API não configurada."}
+        binding = self._get_owned_binding(user_id)
+        if not binding.exists:
+            accepted = binding.has_valid_consent()
+            return {
+                "status": "sem_instancia" if accepted else "aguardando_aceite",
+                "qrcode": None,
+                "state": "none",
+                "consentRequired": not accepted,
+            }
+        if binding.state == "connected" or binding.connected_at is not None:
+            return {
+                "status": "conectado",
+                "qrcode": None,
+                "state": "connected",
+                "numero": None,
+                "conectadoEm": binding.connected_at,
+            }
+        if not binding.has_valid_consent():
+            return {"status": "aguardando_aceite", "qrcode": None, "state": binding.state, "consentRequired": True}
+        if binding.state in {"creating", "connecting", "provisioning"}:
+            return {"status": "iniciando", "qrcode": None, "state": "starting"}
+        return {"status": "aguardando_qrcode", "qrcode": None, "state": "qr"}
+
     def current_plan(self, user_id: str) -> str | None:
         """Plano do vínculo atual, apenas para exibição (sem I/O remoto)."""
         try:

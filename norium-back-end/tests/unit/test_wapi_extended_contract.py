@@ -1004,6 +1004,32 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"STATUS-A", "STATUS-B"}, set(by_id))
         self.assertTrue(by_id["STATUS-A"]["visualizado"])
 
+    async def test_groups_default_returns_local_snapshot_without_waiting_for_provider(self) -> None:
+        group_id = "120363000000000777@g.us"
+        group = new_conversation(
+            group_id,
+            contato="Grupo local",
+            channel="whatsapp",
+            is_group=True,
+        )
+        group["timestampUltimaMsg"] = int(time.time())
+        await save_conversations({group_id: group}, "user-a")
+        await chat_router.save_whatsapp_catalog_cache(
+            "user-a",
+            {
+                "schemaVersion": chat_router.WHATSAPP_CATALOG_SCHEMA_VERSION,
+                "catalogSyncedAt": time.time(),
+                "contactsSyncedAt": time.time(),
+            },
+        )
+        provider = AsyncMock()
+        with patch.object(chat_router.wapi_client, "get_all_groups", provider):
+            result = await chat_router.listar_grupos(chat_user())
+
+        provider.assert_not_awaited()
+        self.assertEqual([group_id], [item["id"] for item in result["items"]])
+        self.assertEqual("Grupo local", result["items"][0]["contato"])
+
     async def test_groups_list_returns_chat_conversations(self) -> None:
         payload = {
             "groups": [
@@ -1017,7 +1043,7 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
             ]
         }
         with patch.object(chat_router.wapi_client, "get_all_groups", AsyncMock(return_value=payload)):
-            result = await chat_router.listar_grupos(chat_user())
+            result = await chat_router.listar_grupos(chat_user(), live=True)
         group = result["items"][0]
         self.assertEqual("120363000000000000@g.us", group["id"])
         self.assertEqual("Familia", group["contato"])
@@ -1054,7 +1080,7 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with patch.object(chat_router.wapi_client, "get_all_groups", AsyncMock(return_value=payload)):
-            result = await chat_router.listar_grupos(chat_user())
+            result = await chat_router.listar_grupos(chat_user(), live=True)
 
         self.assertEqual(photo_url, result["items"][0].get("photoUrl"))
         self.assertEqual(photo_url, result["items"][0]["metadados"].get("photoUrl"))

@@ -403,10 +403,10 @@ export const whatsappApi = {
     });
   },
 
-  async status(signal?: AbortSignal) {
-    const payload = await apiRequest<{ whatsapp: WhatsAppConnection }>("/api/chat/status-canais", {
+  async status(signal?: AbortSignal, live = false) {
+    const payload = await apiRequest<{ whatsapp: WhatsAppConnection }>(`/api/chat/status-canais${live ? "?live=true" : ""}`, {
       cache: "no-store",
-      timeoutMs: 15_000,
+      timeoutMs: live ? 12_000 : 6_000,
       signal,
     });
     return payload.whatsapp;
@@ -436,7 +436,7 @@ export const whatsappApi = {
     const query = params.size ? `?${params.toString()}` : "";
     const payload = await apiRequest<unknown[] | { items: unknown[]; cursor: number; hasMore: boolean }>(
       `/api/chat/conversas${query}`,
-      { timeoutMs: 35_000 },
+      { timeoutMs: refresh ? 12_000 : 8_000 },
     );
     const normalizeItems = (items: unknown[]) => items.map(normalizeWhatsAppConversation).filter((item): item is ChatConversa => Boolean(item));
     return Array.isArray(payload) ? normalizeItems(payload) : { ...payload, items: normalizeItems(payload.items || []) };
@@ -466,14 +466,14 @@ export const whatsappApi = {
   },
 
   async contacts() {
-    const payload = await apiRequest<unknown[]>("/api/chat/contatos-disponiveis", { timeoutMs: 30_000 });
+    const payload = await apiRequest<unknown[]>("/api/chat/contatos-disponiveis", { timeoutMs: 8_000 });
     return payload.map(normalizeWhatsAppContact).filter((item): item is Contact => Boolean(item));
   },
 
   async syncStatus(signal?: AbortSignal) {
     return apiRequest<WhatsAppSyncProgress>("/api/chat/sincronizacao", {
       cache: "no-store",
-      timeoutMs: 20_000,
+      timeoutMs: 8_000,
       signal,
     });
   },
@@ -482,14 +482,14 @@ export const whatsappApi = {
     return apiRequest<WhatsAppSyncProgress>("/api/chat/sincronizacao", {
       method: "POST",
       body: JSON.stringify({}),
-      timeoutMs: 90_000,
+      timeoutMs: 10_000,
     });
   },
 
   async statuses(signal?: AbortSignal) {
     return apiRequest<WhatsAppStatusFeed>("/api/chat/status-whatsapp", {
       cache: "no-store",
-      timeoutMs: 30_000,
+      timeoutMs: 8_000,
       signal,
     });
   },
@@ -505,7 +505,7 @@ export const whatsappApi = {
   async profile(signal?: AbortSignal) {
     return apiRequest<WhatsAppProfile | { profile: WhatsAppProfile }>("/api/chat/perfil-whatsapp", {
       cache: "no-store",
-      timeoutMs: 30_000,
+      timeoutMs: 6_000,
       signal,
     });
   },
@@ -513,7 +513,7 @@ export const whatsappApi = {
   async channels(signal?: AbortSignal) {
     return apiRequest<WhatsAppChannelFeed>("/api/chat/canais", {
       cache: "no-store",
-      timeoutMs: 30_000,
+      timeoutMs: 8_000,
       signal,
     });
   },
@@ -521,7 +521,7 @@ export const whatsappApi = {
   async groups(signal?: AbortSignal) {
     return apiRequest<{ items: unknown[] } | unknown[]>("/api/chat/grupos", {
       cache: "no-store",
-      timeoutMs: 35_000,
+      timeoutMs: 8_000,
       signal,
     });
   },

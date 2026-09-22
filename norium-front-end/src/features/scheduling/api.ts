@@ -13,7 +13,7 @@ export type AvailabilityPeriod = { start: string; end: string };
 export type Availability = { service_id?: string | null; timezone: string; weekly: Record<string, AvailabilityPeriod[]>; exceptions?: Record<string, AvailabilityPeriod[]>; blocked?: Array<{start:string;end:string}> };
 export type Slot = { startAt: string; endAt: string; remaining: number };
 export type SlotsResponse = { slots: Slot[]; date?: string; timezone?: string; calendarVerified?: boolean };
-export type ChannelReceipt = { sent: boolean; replay?: boolean; uncertain?: boolean; receipt?: Record<string,string>; error?: string; needsConnection?: boolean } | null;
+export type ChannelReceipt = { sent: boolean; replay?: boolean; uncertain?: boolean; queued?: boolean; receipt?: Record<string,string>; error?: string; needsConnection?: boolean } | null;
 export type NotifyPreview = {
   bookingId: string; serviceName: string; timezone: string;
   oldStartAt: string; oldEndAt: string; newStartAt: string; newEndAt: string;
@@ -21,7 +21,7 @@ export type NotifyPreview = {
   gmailConnected: boolean; whatsappConnected: boolean;
   gmailSubject: string; gmailBody: string; whatsappMessage: string;
 };
-export type RescheduleResult = { booking: Booking; replay: boolean; calendarSync?: { synced: boolean; error?: string }; receipts: { gmail: ChannelReceipt; whatsapp: ChannelReceipt } };
+export type RescheduleResult = { booking: Booking; replay: boolean; calendarSync?: { synced: boolean; queued?: boolean; verifiedBeforeSave?: boolean; error?: string }; receipts: { gmail: ChannelReceipt; whatsapp: ChannelReceipt } };
 
 async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number; signal?: AbortSignal }): Promise<T> {
   return apiRequest<T>(path, { ...init, timeoutMs: init?.timeoutMs ?? 15_000 });
@@ -61,17 +61,17 @@ export const schedulingApi = {
   archivePage: (id: string) => request<void>(`/api/scheduling/pages/${encodeURIComponent(id)}`, { method: "DELETE" }),
   uploadLogo: (pageId: string, dataBase64: string) => request<{logoUrl:string}>(`/api/scheduling/pages/${encodeURIComponent(pageId)}/logo`, { method: "POST", body: JSON.stringify({dataBase64}) }),
   updateBookingStatus: (id: string, status: string) => request<Booking>(`/api/scheduling/bookings/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify({status}) }),
-  notifyPreview: (id: string, startAt: string, duration: number) => request<NotifyPreview>(`/api/scheduling/bookings/${encodeURIComponent(id)}/notify-preview?startAt=${encodeURIComponent(startAt)}&duration=${duration}`),
-  adminReschedule: (id: string, body: {startAt:string;duration:number;notifyGmail:boolean;notifyWhatsapp:boolean;gmailSubject:string;gmailBody:string;whatsappMessage:string;operationKey:string}) => request<RescheduleResult>(`/api/scheduling/bookings/${encodeURIComponent(id)}/reschedule`, { method: "POST", body: JSON.stringify(body) }),
-  publicPage: (id: string) => request<{page: SchedulingPage; service: SchedulingService}>(`/api/public/scheduling/pages/${encodeURIComponent(id)}`),
+  notifyPreview: (id: string, startAt: string, duration: number) => request<NotifyPreview>(`/api/scheduling/bookings/${encodeURIComponent(id)}/notify-preview?startAt=${encodeURIComponent(startAt)}&duration=${duration}`, { timeoutMs: 6_000 }),
+  adminReschedule: (id: string, body: {startAt:string;duration:number;notifyGmail:boolean;notifyWhatsapp:boolean;gmailSubject:string;gmailBody:string;whatsappMessage:string;operationKey:string}) => request<RescheduleResult>(`/api/scheduling/bookings/${encodeURIComponent(id)}/reschedule`, { method: "POST", body: JSON.stringify(body), timeoutMs: 8_000 }),
+  publicPage: (id: string) => request<{page: SchedulingPage; service: SchedulingService}>(`/api/public/scheduling/pages/${encodeURIComponent(id)}`, { timeoutMs: 6_000 }),
   slots: (id: string, day: string, duration: number, signal?: AbortSignal) => request<SlotsResponse>(`/api/public/scheduling/pages/${encodeURIComponent(id)}/slots?day=${day}&duration=${duration}`, { signal }),
   slotsCached: async (id: string, day: string, duration: number, signal?: AbortSignal): Promise<SlotsResponse> => {
     const key = slotsCacheKey(id, day, duration);
     const cached = slotsCache.get(key);
     if (cached && Date.now() - cached.at < SLOTS_CACHE_TTL_MS) return cached.data;
-    const data = await request<SlotsResponse>(`/api/public/scheduling/pages/${encodeURIComponent(id)}/slots?day=${day}&duration=${duration}`, { signal });
+    const data = await request<SlotsResponse>(`/api/public/scheduling/pages/${encodeURIComponent(id)}/slots?day=${day}&duration=${duration}`, { signal, timeoutMs: 6_000 });
     if (!signal?.aborted) slotsCache.set(key, { at: Date.now(), data });
     return data;
   },
-  book: (id: string, body: unknown) => request<{booking:{public_id:string;status:string};cancelToken:string;rescheduleToken:string}>(`/api/public/scheduling/pages/${encodeURIComponent(id)}/bookings`, { method: "POST", body: JSON.stringify(body) }),
+  book: (id: string, body: unknown) => request<{booking:{public_id:string;status:string};cancelToken:string;rescheduleToken:string}>(`/api/public/scheduling/pages/${encodeURIComponent(id)}/bookings`, { method: "POST", body: JSON.stringify(body), timeoutMs: 8_000 }),
 };

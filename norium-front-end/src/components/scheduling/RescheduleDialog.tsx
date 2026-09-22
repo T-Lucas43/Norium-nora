@@ -75,7 +75,7 @@ export default function RescheduleDialog({ booking, services, onClose, onSaved }
         operationKey: operationKey.current,
       });
       setReceipts(result.receipts);
-      setCalendarWarning(result.calendarSync?.synced === false ? (result.calendarSync.error || "A agenda externa ainda precisa ser conciliada.") : "");
+      setCalendarWarning(result.calendarSync?.synced === false && !result.calendarSync.queued ? (result.calendarSync.error || "A agenda externa ainda precisa ser conciliada.") : "");
       setDone(true);
       onSaved();
     } catch (reason) {
@@ -86,8 +86,8 @@ export default function RescheduleDialog({ booking, services, onClose, onSaved }
   }
 
   const retryableFailures = Boolean(
-    (receipts?.gmail && !receipts.gmail.sent && !receipts.gmail.uncertain)
-    || (receipts?.whatsapp && !receipts.whatsapp.sent && !receipts.whatsapp.uncertain),
+    (receipts?.gmail && !receipts.gmail.sent && !receipts.gmail.uncertain && !receipts.gmail.queued)
+    || (receipts?.whatsapp && !receipts.whatsapp.sent && !receipts.whatsapp.uncertain && !receipts.whatsapp.queued),
   );
 
   return (
@@ -168,5 +168,6 @@ export default function RescheduleDialog({ booking, services, onClose, onSaved }
 function ReceiptLine({ channel, receipt, enabled }: { channel: string; receipt: ChannelReceipt; enabled: boolean }) {
   if (!enabled || !receipt) return null;
   if (receipt.sent) return <p className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-3 font-semibold text-emerald-600">{channel} enviado{receipt.replay ? " (recibo reaproveitado, sem duplicar)" : ""} · recibo {receipt.receipt?.messageId || "verificado"}.</p>;
+  if (receipt.queued) return <p className="rounded-lg border border-sky-400/40 bg-sky-500/10 p-3 font-semibold text-sky-600">{channel}: envio iniciado em segundo plano. O reagendamento já foi salvo.</p>;
   return <p className="rounded-lg border border-amber-400/40 bg-amber-500/10 p-3 font-semibold text-amber-600">{channel} não enviado: {receipt.error || "falha temporária."}{receipt.needsConnection ? " Conecte a integração e tente novamente." : ""}{receipt.uncertain ? " Não reenvie antes de conferir o canal." : ""} O reagendamento foi mantido.</p>;
 }

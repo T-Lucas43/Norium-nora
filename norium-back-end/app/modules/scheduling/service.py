@@ -256,16 +256,20 @@ class SchedulingService:
         latest = now + timedelta(days=service["maximum_days"])
         step = timedelta(minutes=service["slot_interval"])
         result: list[dict[str, Any]] = []
-        for period in periods:
-            cursor = datetime.combine(day, time.fromisoformat(period["start"]), zone).astimezone(timezone.utc)
-            period_end = datetime.combine(day, time.fromisoformat(period["end"]), zone).astimezone(timezone.utc)
-            while cursor + timedelta(minutes=duration) <= period_end:
-                end = cursor + timedelta(minutes=duration)
-                if cursor >= now + timedelta(minutes=service["minimum_notice_minutes"]) and cursor <= latest:
-                    remaining = self.remaining_capacity(service, page["owner_id"], cursor, end, availability)
-                    if remaining > 0:
-                        result.append({"startAt": cursor.isoformat(), "endAt": end.isoformat(), "remaining": remaining})
-                cursor += step
+        connection = self.repo.connect()
+        try:
+            for period in periods:
+                cursor = datetime.combine(day, time.fromisoformat(period["start"]), zone).astimezone(timezone.utc)
+                period_end = datetime.combine(day, time.fromisoformat(period["end"]), zone).astimezone(timezone.utc)
+                while cursor + timedelta(minutes=duration) <= period_end:
+                    end = cursor + timedelta(minutes=duration)
+                    if cursor >= now + timedelta(minutes=service["minimum_notice_minutes"]) and cursor <= latest:
+                        remaining = self.remaining_capacity(service, page["owner_id"], cursor, end, availability, db=connection)
+                        if remaining > 0:
+                            result.append({"startAt": cursor.isoformat(), "endAt": end.isoformat(), "remaining": remaining})
+                    cursor += step
+        finally:
+            connection.close()
         return {"date": day.isoformat(), "timezone": availability["timezone"], "slots": result}
 
     def remaining_capacity(self, service: dict[str, Any], responsible_id: str, start: datetime, end: datetime, availability: dict[str, Any], *, db: sqlite3.Connection | None = None, exclude_booking_id: str | None = None) -> int:
@@ -344,6 +348,11 @@ class SchedulingService:
             if field["type"] == "cpf":
                 try: value = validate_cpf(str(value))
                 except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+            elif field["type"] == "phone":
+                digits = re.sub(r"\D", "", str(value))
+                if not 8 <= len(digits) <= 15:
+                    raise HTTPException(422, "Telefone invalido.")
+                value = digits
             elif field["type"] == "email":
                 value = str(value).strip().lower()
                 if len(value) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value): raise HTTPException(422, "Email invalido.")

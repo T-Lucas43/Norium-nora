@@ -1883,6 +1883,7 @@ def _whatsapp_connection_shape(
 @router.get("/api/chat/status-canais")
 async def obter_status_canais(
     user_id: str | None = Query(default=None, deprecated=True),
+    live: bool = Query(default=False),
     user: dict[str, Any] = Depends(current_user),
 ):
     resolved_user_id = tenant_id(user)
@@ -1890,7 +1891,7 @@ async def obter_status_canais(
     user_status = connection_status(resolved_user_id)
     user_status["whatsapp"] = {"conectado": False, "qrcode": None}
     try:
-        resultado = await wapi_connect.status(resolved_user_id)
+        resultado = await wapi_connect.status(resolved_user_id) if live else wapi_connect.cached_status(resolved_user_id)
         user_status["whatsapp"] = _whatsapp_connection_shape(
             resultado, wapi_connect.current_plan(resolved_user_id)
         )
@@ -1917,6 +1918,14 @@ async def obter_sincronizacao_whatsapp(user: dict[str, Any] = Depends(current_us
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
     state = contact_sync_state(resolved_user_id)
+    running = whatsapp_contact_sync_tasks.get(resolved_user_id)
+    if state.get("status") == "syncing" and (running is None or running.done()):
+        state = update_contact_sync_state(
+            resolved_user_id,
+            status="idle",
+            phase="idle",
+            message="Dados locais disponíveis; uma nova atualização pode ser iniciada.",
+        )
     if state.get("status") == "idle":
         cache = await load_whatsapp_catalog_cache(resolved_user_id)
         contacts = [item for item in (cache.get("contacts") or []) if isinstance(item, dict)]
@@ -1959,7 +1968,7 @@ async def obter_sincronizacao_whatsapp(user: dict[str, Any] = Depends(current_us
 async def iniciar_sincronizacao_whatsapp(user: dict[str, Any] = Depends(current_user)):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
-    status = await wapi_connect.status(resolved_user_id)
+    status = wapi_connect.cached_status(resolved_user_id)
     if status.get("status") != "conectado":
         raise HTTPException(status_code=409, detail="WhatsApp nao esta conectado nesta conta.")
     return schedule_contact_sync(resolved_user_id, force=True)
@@ -2076,12 +2085,28 @@ async def visualizar_status_whatsapp(
 
 
 @router.get("/api/chat/perfil-whatsapp")
-async def obter_perfil_whatsapp(user: dict[str, Any] = Depends(current_user)):
+async def obter_perfil_whatsapp(
+    user: dict[str, Any] = Depends(current_user),
+    live: bool = False,
+):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
-    connection = await wapi_connect.status(resolved_user_id)
+    connection = (
+        await wapi_connect.status(resolved_user_id)
+        if live
+        else wapi_connect.cached_status(resolved_user_id)
+    )
     if connection.get("status") != "conectado":
         return {"connected": False, "status": connection.get("status")}
+    if not live:
+        return {
+            "connected": True,
+            "status": "conectado",
+            "phone": connection.get("numero"),
+            "name": connection.get("numero") or "WhatsApp",
+            "connectedAt": connection.get("conectadoEm"),
+            "cached": True,
+        }
     creds = wapi_creds(resolved_user_id)
     device: Dict[str, Any] = {}
     if creds:
@@ -2106,6 +2131,7 @@ async def obter_perfil_whatsapp(user: dict[str, Any] = Depends(current_user)):
         "photoUrl": photo_url,
         "photoFetchedAt": time.time() if photo_url else None,
         "connectedAt": connection.get("conectadoEm"),
+        "cached": False,
     }
 
 
@@ -2840,7 +2866,7 @@ async def obter_conversas(
     # A conectividade é consultada somente quando o snapshot local realmente
     # precisa de atualização. Polling incremental e cache fresco não podem
     # ficar bloqueados por tentativas/retries da API externa.
-    whatsapp_status = await wapi_connect.status(resolved_user_id)
+    whatsapp_status = wapi_connect.cached_status(resolved_user_id)
     if whatsapp_status.get("status") != "conectado":
         if db and catalog_cache.get("authenticatedAt"):
             return sorted_conversations(conversation_list_db)
@@ -3786,18 +3812,40 @@ async def listar_canais_whatsapp(user: dict[str, Any] = Depends(current_user)):
 
 
 @router.get("/api/chat/grupos")
-async def listar_grupos(user: dict[str, Any] = Depends(current_user)):
+async def listar_grupos(
+    user: dict[str, Any] = Depends(current_user),
+    live: bool = False,
+):
     resolved_user_id = tenant_id(user)
     assert_channel_permission(user, "whatsapp")
     creds = wapi_creds(resolved_user_id)
     if not creds:
         raise HTTPException(status_code=409, detail="WhatsApp nao esta conectado nesta conta.")
+    catalog = await load_whatsapp_catalog_cache(resolved_user_id)
+    if not live:
+        if (
+            not catalog_cache_is_fresh(catalog)
+            and contact_sync_retry_due(catalog)
+        ):
+            schedule_contact_sync(resolved_user_id, force=True)
+        db = await load_conversations(resolved_user_id)
+        items = [
+            normalize_conversation(conversation_id, conversation)
+            for conversation_id, conversation in db.items()
+            if isinstance(conversation, dict)
+            and is_group_chat(conversation_id, conversation)
+        ]
+        items.sort(
+            key=lambda item: int(item.get("timestampUltimaMsg") or 0),
+            reverse=True,
+        )
+        remember_remote_media_references(resolved_user_id, items)
+        return {"items": items}
     try:
         payload = await wapi_client.get_all_groups(creds[0], creds[1])
     except WapiError as exc:
         raise _messaging_http_error(exc, "A API do WhatsApp nao conseguiu listar os grupos.") from exc
     raw_groups = parse_whatsapp_collection(payload)
-    catalog = await load_whatsapp_catalog_cache(resolved_user_id)
     contact_names, contact_photos, _contact_metadata = build_contact_indexes(
         [
             *[item for item in (catalog.get("contacts") or []) if isinstance(item, dict)],

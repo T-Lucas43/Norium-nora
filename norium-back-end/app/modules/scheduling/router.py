@@ -4,10 +4,11 @@ import asyncio
 import logging
 import re
 from threading import Lock
+from time import monotonic
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import Field
 
@@ -29,6 +30,14 @@ public_router = APIRouter(prefix="/api/public/scheduling", tags=["Agendamentos p
 
 _service_instance: SchedulingService | None = None
 _service_lock = Lock()
+
+CALENDAR_BUSY_CACHE_TTL_SECONDS = 45.0
+INTERACTIVE_CALENDAR_TIMEOUT_SECONDS = 0.75
+_calendar_busy_cache: dict[
+    tuple[str, str, str, str],
+    tuple[float, list[tuple[datetime, datetime]]],
+] = {}
+_calendar_busy_refreshing: set[tuple[str, str, str, str]] = set()
 
 
 def service() -> SchedulingService:
@@ -65,6 +74,60 @@ async def calendar_busy(owner_id: str, start_at: str, end_at: str, *, exclude_ev
 
 async def calendar_conflicts(owner_id: str, start_at: str, end_at: str, *, exclude_event_id: str | None = None) -> bool:
     return bool(await calendar_busy(owner_id, start_at, end_at, exclude_event_id=exclude_event_id))
+
+
+def _calendar_cache_key(owner_id: str, start_at: str, end_at: str, exclude_event_id: str | None = None) -> tuple[str, str, str, str]:
+    return owner_id, start_at, end_at, exclude_event_id or ""
+
+
+def _cached_calendar_busy(owner_id: str, start_at: str, end_at: str, *, exclude_event_id: str | None = None) -> list[tuple[datetime, datetime]] | None:
+    key = _calendar_cache_key(owner_id, start_at, end_at, exclude_event_id)
+    cached = _calendar_busy_cache.get(key)
+    if not cached:
+        return None
+    stored_at, busy = cached
+    if monotonic() - stored_at > CALENDAR_BUSY_CACHE_TTL_SECONDS:
+        _calendar_busy_cache.pop(key, None)
+        return None
+    return list(busy)
+
+
+def _cache_calendar_busy(owner_id: str, start_at: str, end_at: str, busy: list[tuple[datetime, datetime]], *, exclude_event_id: str | None = None) -> None:
+    if len(_calendar_busy_cache) > 256:
+        cutoff = monotonic() - CALENDAR_BUSY_CACHE_TTL_SECONDS
+        for key, (stored_at, _items) in list(_calendar_busy_cache.items()):
+            if stored_at < cutoff:
+                _calendar_busy_cache.pop(key, None)
+    _calendar_busy_cache[_calendar_cache_key(owner_id, start_at, end_at, exclude_event_id)] = (monotonic(), list(busy))
+
+
+async def _refresh_calendar_busy_cache(owner_id: str, start_at: str, end_at: str, exclude_event_id: str | None = None) -> None:
+    key = _calendar_cache_key(owner_id, start_at, end_at, exclude_event_id)
+    if key in _calendar_busy_refreshing:
+        return
+    _calendar_busy_refreshing.add(key)
+    try:
+        busy = await calendar_busy(owner_id, start_at, end_at, exclude_event_id=exclude_event_id)
+        _cache_calendar_busy(owner_id, start_at, end_at, busy, exclude_event_id=exclude_event_id)
+    except HTTPException:
+        logger.info("Calendario externo indisponivel para atualizar cache de horarios.")
+    finally:
+        _calendar_busy_refreshing.discard(key)
+
+
+async def _calendar_conflict_fast(owner_id: str, start_at: str, end_at: str, *, exclude_event_id: str | None = None) -> tuple[bool, bool]:
+    cached = _cached_calendar_busy(owner_id, start_at, end_at, exclude_event_id=exclude_event_id)
+    if cached is not None:
+        return bool(cached), True
+    try:
+        busy = await asyncio.wait_for(
+            calendar_busy(owner_id, start_at, end_at, exclude_event_id=exclude_event_id),
+            timeout=INTERACTIVE_CALENDAR_TIMEOUT_SECONDS,
+        )
+    except (HTTPException, TimeoutError):
+        return False, False
+    _cache_calendar_busy(owner_id, start_at, end_at, busy, exclude_event_id=exclude_event_id)
+    return bool(busy), True
 
 
 def authorized_scope(user: dict[str, Any]) -> tuple[str, str, str]:
@@ -148,14 +211,14 @@ def update_booking_status(booking_id: str, payload: BookingStatusPayload, user: 
 
 def _gmail_connected(owner_id: str) -> bool:
     try:
-        return bool(GmailService(owner_id).status().get("connected"))
+        return bool(GmailService(owner_id).connection_snapshot().get("connected"))
     except Exception:
         return False
 
 
-async def _whatsapp_connected(owner_id: str) -> bool:
+def _whatsapp_connected(owner_id: str) -> bool:
     try:
-        return (await WapiConnectService().status(owner_id)).get("status") == "conectado"
+        return WapiConnectService().cached_status(owner_id).get("status") == "conectado"
     except Exception:
         return False
 
@@ -198,10 +261,8 @@ async def reschedule_notify_preview(
         timezone_name=timezone_name,
     )
     owner_id = str(booking.get("owner_id") or scope[2])
-    gmail_ok, whatsapp_ok = await asyncio.gather(
-        asyncio.to_thread(_gmail_connected, owner_id),
-        _whatsapp_connected(owner_id),
-    )
+    gmail_ok = _gmail_connected(owner_id)
+    whatsapp_ok = _whatsapp_connected(owner_id)
     phone_digits = re.sub(r"\D", "", str(booking.get("attendee_phone") or ""))
     return {
         "bookingId": booking["id"],
@@ -332,8 +393,67 @@ async def _send_reschedule_whatsapp(
         return {"sent": False, "uncertain": True, "error": "O resultado do WhatsApp e incerto. Confira a conversa antes de tentar novamente."}
 
 
+def _sync_reschedule_calendar(owner_id: str, service_name: str, booking_before: dict[str, Any], booking: dict[str, Any]) -> None:
+    try:
+        calendar_service = CalendarService(owner_id)
+        external_event_id = str(booking_before.get("external_event_id") or "")
+        if external_event_id:
+            calendar_service.update_event(
+                external_event_id,
+                {"inicio": booking["start_at"], "fim": booking["end_at"]},
+            )
+            return
+        created = calendar_service.create_event(
+            titulo=service_name,
+            inicio=booking["start_at"],
+            fim=booking["end_at"],
+            descricao="Agendamento reagendado pelo Norium.",
+            participantes=[str(booking.get("attendee_email") or "")],
+            operation_id=f"scheduling:{booking.get('public_id')}",
+        )
+        event_id = str(created.get("evento", {}).get("id") or "")
+        if event_id:
+            service().attach_external_event(str(booking.get("public_id") or ""), event_id)
+    except Exception:
+        logger.exception("Falha ao sincronizar reagendamento no calendario externo.")
+
+
+async def _deliver_reschedule_notifications(
+    scheduling: SchedulingService,
+    scope: tuple[str, str, str],
+    user: dict[str, Any],
+    booking: dict[str, Any],
+    service_name: str,
+    operation_key: str,
+    *,
+    notify_gmail: bool,
+    notify_whatsapp: bool,
+    gmail_subject: str,
+    gmail_body: str,
+    whatsapp_message: str,
+) -> None:
+    jobs = []
+    if notify_gmail:
+        jobs.append(_send_reschedule_gmail(
+            scheduling, scope, user, booking, service_name, operation_key,
+            gmail_subject, gmail_body,
+        ))
+    if notify_whatsapp:
+        jobs.append(_send_reschedule_whatsapp(
+            scheduling, scope, user, booking, service_name, operation_key,
+            whatsapp_message,
+        ))
+    if jobs:
+        await asyncio.gather(*jobs, return_exceptions=True)
+
+
 @router.post("/bookings/{booking_id}/reschedule")
-async def reschedule_booking_admin(booking_id: str, payload: AdminReschedulePayload, user: dict[str, Any] = Depends(current_user)):
+async def reschedule_booking_admin(
+    booking_id: str,
+    payload: AdminReschedulePayload,
+    background_tasks: BackgroundTasks,
+    user: dict[str, Any] = Depends(current_user),
+):
     scope = authorized_scope(user)
     scheduling = service()
     context = scheduling.booking_context(scope, booking_id)
@@ -342,68 +462,68 @@ async def reschedule_booking_admin(booking_id: str, payload: AdminReschedulePayl
     new_start = parse_utc(payload.startAt)
     new_end = new_start + timedelta(minutes=payload.duration)
     owner_id = str(booking_before.get("owner_id") or scope[2])
-    if await calendar_conflicts(
+    conflict, calendar_verified = await _calendar_conflict_fast(
         owner_id,
         new_start.isoformat(),
         new_end.isoformat(),
         exclude_event_id=str(booking_before.get("external_event_id") or "") or None,
-    ):
+    )
+    if conflict:
         raise HTTPException(409, "Novo horario ocupado no calendario conectado.")
+    if not calendar_verified:
+        logger.info("Calendario externo nao respondeu a tempo; reagendamento segue com validacao local.")
     result = scheduling.admin_reschedule(scope, booking_id, payload.startAt, payload.duration)
     booking = result["booking"]
-    calendar_sync: dict[str, Any] = {"synced": True}
-    try:
-        calendar_service = CalendarService(owner_id)
-        external_event_id = str(booking_before.get("external_event_id") or "")
-        if external_event_id:
-            await asyncio.to_thread(
-                calendar_service.update_event,
-                external_event_id,
-                {"inicio": booking["start_at"], "fim": booking["end_at"]},
-            )
-        else:
-            created = await asyncio.to_thread(
-                calendar_service.create_event,
-                titulo=service_name,
-                inicio=booking["start_at"],
-                fim=booking["end_at"],
-                descricao="Agendamento reagendado pelo Norium.",
-                participantes=[str(booking.get("attendee_email") or "")],
-                operation_id=f"scheduling:{booking.get('public_id')}",
-            )
-            event_id = str(created.get("evento", {}).get("id") or "")
-            if event_id:
-                scheduling.attach_external_event(str(booking.get("public_id") or ""), event_id)
-    except Exception:
-        logger.exception("Falha ao sincronizar reagendamento no calendario externo.")
-        calendar_sync = {"synced": False, "error": "Reagendamento salvo, mas a agenda externa ainda precisa ser conciliada."}
+    background_tasks.add_task(
+        _sync_reschedule_calendar,
+        owner_id,
+        service_name,
+        dict(booking_before),
+        dict(booking),
+    )
     timezone_name = str(booking.get("timezone") or "America/Sao_Paulo")
     attendee_name = str(booking.get("attendee_name") or "")
     receipts: dict[str, Any] = {"gmail": None, "whatsapp": None}
     if payload.notifyGmail or payload.notifyWhatsapp:
         operation_key = str(payload.operationKey or "")
         defaults_email = scheduling.render_reschedule_email(
-            service_name=service_name, attendee_name=attendee_name,
-            old_start=str(booking_before.get("start_at") or ""), new_start=str(booking.get("start_at") or ""),
+            service_name=service_name,
+            attendee_name=attendee_name,
+            old_start=str(booking_before.get("start_at") or ""),
+            new_start=str(booking.get("start_at") or ""),
             timezone_name=timezone_name,
         )
         defaults_whatsapp = scheduling.render_reschedule_whatsapp(
-            service_name=service_name, attendee_name=attendee_name,
-            old_start=str(booking_before.get("start_at") or ""), new_start=str(booking.get("start_at") or ""),
+            service_name=service_name,
+            attendee_name=attendee_name,
+            old_start=str(booking_before.get("start_at") or ""),
+            new_start=str(booking.get("start_at") or ""),
             timezone_name=timezone_name,
         )
+        background_tasks.add_task(
+            _deliver_reschedule_notifications,
+            scheduling,
+            scope,
+            dict(user),
+            dict(booking),
+            service_name,
+            operation_key,
+            notify_gmail=payload.notifyGmail,
+            notify_whatsapp=payload.notifyWhatsapp,
+            gmail_subject=payload.gmailSubject.strip() or defaults_email["subject"],
+            gmail_body=payload.gmailBody.strip() or defaults_email["body"],
+            whatsapp_message=payload.whatsappMessage.strip() or defaults_whatsapp,
+        )
         if payload.notifyGmail:
-            receipts["gmail"] = await _send_reschedule_gmail(
-                scheduling, scope, user, booking, service_name, operation_key,
-                payload.gmailSubject.strip() or defaults_email["subject"],
-                payload.gmailBody.strip() or defaults_email["body"],
-            )
+            receipts["gmail"] = {"sent": False, "queued": True}
         if payload.notifyWhatsapp:
-            receipts["whatsapp"] = await _send_reschedule_whatsapp(
-                scheduling, scope, user, booking, service_name, operation_key,
-                payload.whatsappMessage.strip() or defaults_whatsapp,
-            )
-    return {"booking": booking, "replay": result["replay"], "calendarSync": calendar_sync, "receipts": receipts}
+            receipts["whatsapp"] = {"sent": False, "queued": True}
+    return {
+        "booking": booking,
+        "replay": result["replay"],
+        "calendarSync": {"synced": False, "queued": True, "verifiedBeforeSave": calendar_verified},
+        "receipts": receipts,
+    }
 
 
 @public_router.get("/pages/{identifier}")
@@ -418,56 +538,94 @@ def get_public_logo(identifier: str):
 
 
 @public_router.get("/pages/{identifier}/slots")
-async def get_slots(identifier: str, day: date = Query(), duration: int = Query(ge=5, le=1440)):
+async def get_slots(
+    identifier: str,
+    background_tasks: BackgroundTasks,
+    day: date = Query(),
+    duration: int = Query(ge=5, le=1440),
+):
     scheduling = service()
     bundle = scheduling.public_page(identifier)
     result = scheduling.available_slots(identifier, day, duration, bundle=bundle)
     calendar_verified = True
     if result["slots"]:
-        try:
-            busy = await calendar_busy(bundle["page"]["owner_id"], result["slots"][0]["startAt"], result["slots"][-1]["endAt"])
-        except HTTPException:
-            # Listagem degrada com aviso: a reserva continua revalidando o
-            # calendario conectado no momento do booking/hold.
-            logger.warning("Calendario indisponivel na listagem publica de horarios.")
+        owner_id = str(bundle["page"]["owner_id"])
+        start_at = result["slots"][0]["startAt"]
+        end_at = result["slots"][-1]["endAt"]
+        busy = _cached_calendar_busy(owner_id, start_at, end_at)
+        if busy is None:
             calendar_verified = False
+            background_tasks.add_task(_refresh_calendar_busy_cache, owner_id, start_at, end_at)
             busy = []
-        if calendar_verified:
-            result["slots"] = [slot for slot in result["slots"] if not any(datetime.fromisoformat(slot["startAt"]) < end and datetime.fromisoformat(slot["endAt"]) > start for start, end in busy)]
+        else:
+            result["slots"] = [
+                slot for slot in result["slots"]
+                if not any(
+                    datetime.fromisoformat(slot["startAt"]) < end
+                    and datetime.fromisoformat(slot["endAt"]) > start
+                    for start, end in busy
+                )
+            ]
     result["calendarVerified"] = calendar_verified
     return result
 
 
 @public_router.post("/pages/{identifier}/holds", status_code=201)
 async def create_hold(identifier: str, payload: HoldPayload):
-    scheduling = service(); bundle = scheduling.public_page(identifier)
-    start = datetime.fromisoformat(payload.startAt.replace("Z", "+00:00")); end = start + timedelta(minutes=payload.duration)
-    if await calendar_conflicts(bundle["page"]["owner_id"], start.isoformat(), end.isoformat()): raise HTTPException(409, "Horario ocupado no calendario conectado.")
+    scheduling = service()
+    bundle = scheduling.public_page(identifier)
+    start = datetime.fromisoformat(payload.startAt.replace("Z", "+00:00"))
+    end = start + timedelta(minutes=payload.duration)
+    conflict, verified = await _calendar_conflict_fast(
+        str(bundle["page"]["owner_id"]), start.isoformat(), end.isoformat()
+    )
+    if not verified:
+        logger.info("Calendario externo nao respondeu a tempo ao criar hold; validacao local preservada.")
+    if conflict:
+        raise HTTPException(409, "Horario ocupado no calendario conectado.")
     return scheduling.create_hold(identifier, payload)
 
 
+def _sync_public_booking_calendar(owner_id: str, service_name: str, booking: dict[str, Any], attendee_email: str) -> None:
+    try:
+        calendar_result = CalendarService(owner_id).create_event(
+            titulo=service_name,
+            inicio=booking["start_at"],
+            fim=booking["end_at"],
+            descricao="Agendamento criado pela pagina publica do Norium.",
+            participantes=[attendee_email],
+            operation_id=f"scheduling:{booking['public_id']}",
+        )
+        event_id = str(calendar_result.get("evento", {}).get("id") or "")
+        if event_id:
+            service().attach_external_event(booking["public_id"], event_id)
+    except Exception:
+        logger.exception("Falha ao sincronizar agendamento publico no calendario externo.")
+
+
 @public_router.post("/pages/{identifier}/bookings", status_code=201)
-async def create_booking(identifier: str, payload: BookingPayload):
+async def create_booking(identifier: str, payload: BookingPayload, background_tasks: BackgroundTasks):
     scheduling = service()
     bundle = scheduling.public_page(identifier)
-    start = datetime.fromisoformat(payload.startAt.replace("Z", "+00:00")); end = start + timedelta(minutes=payload.duration)
-    if await calendar_conflicts(bundle["page"]["owner_id"], start.isoformat(), end.isoformat()): raise HTTPException(409, "Horario ocupado no calendario conectado.")
+    start = datetime.fromisoformat(payload.startAt.replace("Z", "+00:00"))
+    end = start + timedelta(minutes=payload.duration)
+    conflict, verified = await _calendar_conflict_fast(
+        str(bundle["page"]["owner_id"]), start.isoformat(), end.isoformat()
+    )
+    if not verified:
+        logger.info("Calendario externo nao respondeu a tempo na confirmacao; validacao local preservada.")
+    if conflict:
+        raise HTTPException(409, "Horario ocupado no calendario conectado.")
     result = scheduling.create_booking(identifier, payload)
     booking = result.get("booking", {})
     if not result.get("idempotentReplay") and booking:
-        try:
-            calendar_result = await asyncio.to_thread(
-                CalendarService(bundle["page"]["owner_id"]).create_event,
-                titulo=bundle["service"]["name"], inicio=booking["start_at"], fim=booking["end_at"],
-                descricao="Agendamento criado pela pagina publica do Norium.", participantes=[payload.email],
-                operation_id=f"scheduling:{booking['public_id']}",
-            )
-            event_id = str(calendar_result.get("evento", {}).get("id") or "")
-            if event_id: scheduling.attach_external_event(booking["public_id"], event_id)
-        except Exception:
-            # A reserva local e a fonte de verdade. A sincronizacao pode ser
-            # conciliada posteriormente sem criar outro booking.
-            pass
+        background_tasks.add_task(
+            _sync_public_booking_calendar,
+            str(bundle["page"]["owner_id"]),
+            str(bundle["service"]["name"]),
+            dict(booking),
+            payload.email,
+        )
     return result
 
 

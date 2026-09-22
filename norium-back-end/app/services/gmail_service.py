@@ -132,6 +132,18 @@ class GmailService:
             "detail": detail,
         }
 
+    def connection_snapshot(self) -> dict[str, Any]:
+        """Retorna o estado persistido sem renovar token nem chamar o Google."""
+        configured = bool(self._client_config())
+        connected = False
+        if configured:
+            try:
+                creds = self._credentials(refresh=False)
+                connected = bool(creds and (creds.valid or creds.refresh_token))
+            except Exception:
+                logger.exception("Falha ao ler o estado local da conexao do Gmail.")
+        return {"configured": configured, "connected": connected}
+
     def authorization_url(self) -> dict[str, str]:
         oauth_user_id = str(self.user_id or "").strip()
         if len(oauth_user_id) > MAX_OAUTH_USER_ID_LENGTH or not OAUTH_USER_ID_PATTERN.fullmatch(oauth_user_id):

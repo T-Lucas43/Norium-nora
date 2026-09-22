@@ -145,14 +145,14 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
         throw new ApiError("Operacao cancelada.", 499);
       }
       if (timeoutController.signal.aborted) {
-        throw new ApiError("A operacao demorou mais que o esperado.", 408);
+        throw new ApiError("Não foi possível concluir agora. Tente novamente.", 408);
       }
       if (attempt + 1 < maxAttempts) {
         await waitForRetry(300, signal);
         continue;
       }
       throw new ApiError(
-        `Nao foi possivel conectar ao backend do Norium em ${apiBaseUrl()}. Verifique se o servidor local esta ativo.`,
+        "Não foi possível conectar ao Norium. Verifique sua conexão e tente novamente.",
         0,
         error instanceof Error ? { cause: error.message } : null,
       );
@@ -203,9 +203,9 @@ export async function apiBlobRequest(path: string, options: ApiRequestOptions = 
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (signal?.aborted) throw new ApiError("Operacao cancelada.", 499);
-    if (timeoutController.signal.aborted) throw new ApiError("A geracao do arquivo demorou mais que o esperado.", 408);
+    if (timeoutController.signal.aborted) throw new ApiError("O arquivo ainda não ficou pronto. Tente novamente.", 408);
     throw new ApiError(
-      `Nao foi possivel conectar ao backend do Norium em ${apiBaseUrl()}.`,
+      "Não foi possível conectar ao Norium. Verifique sua conexão e tente novamente.",
       0,
       error instanceof Error ? { cause: error.message } : null,
     );

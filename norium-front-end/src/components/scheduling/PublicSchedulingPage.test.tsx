@@ -5,6 +5,7 @@ import PublicSchedulingPage from "./PublicSchedulingPage";
 import { schedulingApi, type SlotsResponse } from "../../features/scheduling/api";
 
 vi.mock("../../features/scheduling/api", () => ({
+  clearSlotsCache: vi.fn(),
   schedulingApi: { publicPage: vi.fn(), slotsCached: vi.fn(), book: vi.fn() },
 }));
 vi.mock("../../core/api/config", () => ({ apiBaseUrl: () => "http://test" }));
@@ -81,5 +82,67 @@ describe("PublicSchedulingPage", () => {
     await waitFor(() => expect(schedulingApi.book).toHaveBeenCalledOnce());
     expect(await screen.findByText("Agendamento confirmado")).toBeInTheDocument();
     expect(screen.getByText("bk-1")).toBeInTheDocument();
+  });
+
+  it("masks phone and CPF and blocks an invalid CPF before sending", async () => {
+    vi.mocked(schedulingApi.publicPage).mockResolvedValue({
+      page: {
+        ...page,
+        fields: [{ id: "cpf", type: "cpf", label: "CPF", required: true, maxLength: 14 }],
+      },
+      service,
+    });
+    vi.mocked(schedulingApi.book).mockResolvedValue({
+      booking: { public_id: "bk-valid", status: "CONFIRMED" },
+      cancelToken: "c",
+      rescheduleToken: "r",
+    });
+    const user = userEvent.setup();
+    render(<PublicSchedulingPage identifier="public-1" />);
+
+    const labelA = new Date(slotA.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    await user.click(await screen.findByRole("button", { name: new RegExp(labelA.replace(":", "\\:")) }));
+    await user.type(screen.getByLabelText(/Nome completo/), "Maria");
+    await user.type(screen.getByLabelText(/E-mail/), "maria@x.com");
+    await user.type(screen.getByLabelText(/WhatsApp/), "11987654321");
+    expect(screen.getByLabelText(/WhatsApp/)).toHaveValue("(11) 98765-4321");
+
+    await user.type(screen.getByLabelText(/CPF/), "11111111111");
+    expect(screen.getByLabelText(/CPF/)).toHaveValue("111.111.111-11");
+    await user.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    expect(await screen.findByText("Informe um CPF válido.")).toBeInTheDocument();
+    expect(schedulingApi.book).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByLabelText(/CPF/));
+    await user.type(screen.getByLabelText(/CPF/), "52998224725");
+    expect(screen.getByLabelText(/CPF/)).toHaveValue("529.982.247-25");
+    await user.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    await waitFor(() => expect(schedulingApi.book).toHaveBeenCalledOnce());
+  });
+
+  it("reuses the booking idempotency key when a retry follows a temporary failure", async () => {
+    vi.mocked(schedulingApi.book)
+      .mockRejectedValueOnce(new Error("Falha temporária."))
+      .mockResolvedValueOnce({
+        booking: { public_id: "bk-retry", status: "CONFIRMED" },
+        cancelToken: "c",
+        rescheduleToken: "r",
+      });
+    const user = userEvent.setup();
+    render(<PublicSchedulingPage identifier="public-1" />);
+
+    const labelA = new Date(slotA.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    await user.click(await screen.findByRole("button", { name: new RegExp(labelA.replace(":", "\\:")) }));
+    await user.type(screen.getByLabelText(/Nome completo/), "Maria");
+    await user.type(screen.getByLabelText(/E-mail/), "maria@x.com");
+
+    await user.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Falha temporária.");
+    const firstKey = (vi.mocked(schedulingApi.book).mock.calls[0][1] as { idempotencyKey: string }).idempotencyKey;
+
+    await user.click(screen.getByRole("button", { name: "Confirmar agendamento" }));
+    await waitFor(() => expect(schedulingApi.book).toHaveBeenCalledTimes(2));
+    const secondKey = (vi.mocked(schedulingApi.book).mock.calls[1][1] as { idempotencyKey: string }).idempotencyKey;
+    expect(secondKey).toBe(firstKey);
   });
 });

@@ -1,9 +1,29 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { CalendarDays, CheckCircle2, Clock3, ShieldCheck } from "lucide-react";
 import { apiBaseUrl } from "../../core/api/config";
-import { schedulingApi, type SchedulingPage, type SchedulingService } from "../../features/scheduling/api";
+import { clearSlotsCache, schedulingApi, type BookingField, type SchedulingPage, type SchedulingService } from "../../features/scheduling/api";
+import { formatCpf, formatPhone, validateSchedulingField } from "../../features/scheduling/fieldValidation";
 
 type Slot = { startAt: string; endAt: string; remaining: number };
+
+function newOperationKey() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `booking-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function inputType(fieldType: string) {
+  if (fieldType === "date") return "date";
+  if (fieldType === "email") return "email";
+  if (fieldType === "phone") return "tel";
+  if (fieldType === "number") return "number";
+  return "text";
+}
+
+function formatFieldValue(fieldType: string, value: string) {
+  if (fieldType === "cpf") return formatCpf(value);
+  if (fieldType === "phone") return formatPhone(value);
+  return value;
+}
 
 export default function PublicSchedulingPage({ identifier }: { identifier: string }) {
   const [page, setPage] = useState<SchedulingPage | null>(null);
@@ -21,7 +41,10 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   const [slotsError, setSlotsError] = useState("");
   const [success, setSuccess] = useState("");
   const [slotsRetry, setSlotsRetry] = useState(0);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const slotsRequestRef = useRef(0);
+  const bookingOperationKeyRef = useRef(newOperationKey());
+  const calendarRefreshAttemptRef = useRef("");
 
   useEffect(() => {
     schedulingApi.publicPage(identifier).then((data) => {
@@ -33,17 +56,26 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
     if (!service) return;
     const requestId = ++slotsRequestRef.current;
     const controller = new AbortController();
+    let refreshTimer: number | null = null;
+    const cacheKey = `${identifier}::${day}::${duration}`;
     setSlot(null); setSlotsError(""); setSlotsLoading(true);
     schedulingApi.slotsCached(identifier, day, duration, controller.signal).then((data) => {
       if (slotsRequestRef.current !== requestId) return;
       setSlots(data.slots); setCalendarVerified(data.calendarVerified !== false);
+      if (data.calendarVerified === false && calendarRefreshAttemptRef.current !== cacheKey) {
+        calendarRefreshAttemptRef.current = cacheKey;
+        refreshTimer = window.setTimeout(() => {
+          clearSlotsCache(identifier);
+          setSlotsRetry((value) => value + 1);
+        }, 1200);
+      }
     }).catch((reason) => {
       if (slotsRequestRef.current !== requestId || controller.signal.aborted) return;
       setSlotsError(reason instanceof Error ? reason.message : "Não foi possível carregar os horários.");
     }).finally(() => {
       if (slotsRequestRef.current === requestId) setSlotsLoading(false);
     });
-    return () => { controller.abort(); };
+    return () => { controller.abort(); if (refreshTimer !== null) window.clearTimeout(refreshTimer); };
   }, [identifier, day, duration, service, slotsRetry]);
 
   const theme = useMemo(() => ({
@@ -52,15 +84,46 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
     "--booking-text": page?.theme?.text || "#171722",
   }) as CSSProperties, [page]);
 
+  const bookingFields = useMemo<BookingField[]>(() => {
+    const configured = page?.fields || [];
+    const configuredById = new Map(configured.map((field) => [field.id, field]));
+    return [
+      configuredById.get("full_name") || { id: "full_name", type: "full_name", label: "Nome completo", required: true, maxLength: 160 },
+      configuredById.get("email") || { id: "email", type: "email", label: "E-mail", required: true, maxLength: 254 },
+      configuredById.get("phone") || { id: "phone", type: "phone", label: "WhatsApp", required: false, maxLength: 32 },
+      ...configured.filter((field) => !["full_name", "email", "phone"].includes(field.id)),
+    ];
+  }, [page]);
+
+  function setFieldValue(field: BookingField, rawValue: string) {
+    const value = formatFieldValue(field.type, rawValue);
+    bookingOperationKeyRef.current = newOperationKey();
+    setForm((current) => ({ ...current, [field.id]: value }));
+    setFieldErrors((current) => ({
+      ...current,
+      [field.id]: validateSchedulingField(field.type, value, Boolean(field.required), field.maxLength || 500),
+    }));
+  }
+
   async function confirm() {
-    if (!slot || !form.full_name || !form.email) return;
+    if (!slot) return;
+    const nextErrors = Object.fromEntries(
+      bookingFields
+        .map((field) => [field.id, validateSchedulingField(field.type, form[field.id] || "", Boolean(field.required), field.maxLength || 500)])
+        .filter(([, message]) => Boolean(message)),
+    );
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      setError("Revise os campos destacados antes de confirmar.");
+      return;
+    }
     setSending(true); setError("");
     const responses = Object.fromEntries((page?.fields || []).filter((field) => !["full_name", "email", "phone"].includes(field.id)).map((field) => [field.id, form[field.id] || ""]));
     try {
       const result = await schedulingApi.book(identifier, {
-        startAt: slot.startAt, duration, name: form.full_name, email: form.email, phone: form.phone || null,
+        startAt: slot.startAt, duration, name: form.full_name.trim(), email: form.email.trim(), phone: form.phone || null,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo",
-        responses, idempotencyKey: crypto.randomUUID(), honeypot: "",
+        responses, idempotencyKey: bookingOperationKeyRef.current, honeypot: "",
       });
       setSuccess(result.booking.public_id);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível confirmar."); }
@@ -94,15 +157,21 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
               : slotsError
                 ? <div role="alert" className="rounded-xl bg-red-50 p-4 text-center text-sm font-semibold text-red-600">{slotsError} <button className="underline" onClick={() => setSlotsRetry((value) => value + 1)}>Tentar novamente</button></div>
                 : <div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-              {slots.map((item) => <button key={item.startAt} onClick={() => setSlot(item)} className={`rounded-xl border p-3 text-sm font-black ${slot?.startAt === item.startAt ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{new Date(item.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}<small className="block font-semibold opacity-75">{item.remaining} vaga(s)</small></button>)}
+              {slots.map((item) => <button key={item.startAt} onClick={() => { bookingOperationKeyRef.current = newOperationKey(); setSlot(item); setFieldErrors({}); setError(""); }} className={`rounded-xl border p-3 text-sm font-black ${slot?.startAt === item.startAt ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{new Date(item.startAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}<small className="block font-semibold opacity-75">{item.remaining} vaga(s)</small></button>)}
               {!slots.length && <p className="col-span-full rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Nenhum horário disponível nesta data.</p>}
             </div>}
           </div>
           {slot && <div className="mt-6 grid gap-3">
-            <Input label="Nome completo" required value={form.full_name} maxLength={160} onChange={(value) => setForm({...form, full_name: value})}/>
-            <Input label="E-mail" required type="email" value={form.email} maxLength={254} onChange={(value) => setForm({...form, email: value})}/>
-            <Input label="WhatsApp" type="tel" value={form.phone} maxLength={32} onChange={(value) => setForm({...form, phone: value})}/>
-            {page?.fields.filter((field) => !["full_name", "email", "phone"].includes(field.id)).map((field) => <Input key={field.id} label={field.label} required={field.required} type={field.type === "date" ? "date" : "text"} value={form[field.id] || ""} maxLength={field.maxLength || 500} onChange={(value) => setForm({...form, [field.id]: value})}/>)}
+            {bookingFields.map((field) => <Input
+              key={field.id}
+              label={field.label}
+              required={field.required}
+              type={inputType(field.type)}
+              value={form[field.id] || ""}
+              maxLength={field.maxLength || 500}
+              error={fieldErrors[field.id]}
+              onChange={(value) => setFieldValue(field, value)}
+            />)}
             {error && <p role="alert" className="text-sm font-bold text-red-600">{error}</p>}
             <button disabled={sending || !form.full_name || !form.email} onClick={() => void confirm()} className="mt-2 h-12 rounded-xl bg-[var(--booking-primary)] font-black text-white disabled:opacity-50">{sending ? "Confirmando..." : "Confirmar agendamento"}</button>
           </div>}
@@ -112,6 +181,6 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
   </main>;
 }
 
-function Input({label, value, onChange, type="text", required, maxLength}: {label:string; value:string; onChange:(value:string)=>void; type?:string; required?:boolean; maxLength:number}) {
-  return <label className="grid gap-1 text-sm font-bold">{label}{required && <span className="sr-only">obrigatório</span>}<input aria-required={required} required={required} type={type} value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3 outline-none focus:border-[var(--booking-primary)]"/></label>;
+function Input({label, value, onChange, type="text", required, maxLength, error}: {label:string; value:string; onChange:(value:string)=>void; type?:string; required?:boolean; maxLength:number; error?:string}) {
+  return <label className="grid gap-1 text-sm font-bold">{label}{required && <span className="sr-only">obrigatório</span>}<input aria-required={required} aria-invalid={Boolean(error)} required={required} type={type} value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} className={`h-11 rounded-xl border px-3 outline-none focus:border-[var(--booking-primary)] ${error ? "border-red-400" : "border-slate-200"}`}/>{error && <span className="text-xs font-semibold text-red-600">{error}</span>}</label>;
 }

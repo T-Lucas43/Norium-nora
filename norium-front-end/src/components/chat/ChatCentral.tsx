@@ -691,7 +691,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       inFlight = true;
       const requestGeneration = connectionStatusRequestGenerationRef.current;
       try {
-        const whatsapp = await whatsappApi.status();
+        const whatsapp = await whatsappApi.status(undefined, true);
         if (!active || requestGeneration !== connectionStatusRequestGenerationRef.current) return;
         setErroLogin(null);
         setCanaisStatus({ whatsapp });
@@ -1581,7 +1581,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
   const paginaHistoricoAtiva = conversaSelecionada ? historicoRef.current.get(conversaSelecionada) : undefined;
   const nenhumConectado = !canaisStatus.whatsapp?.conectado;
 
-  if (loadingStatus) return <div className="w-full h-full flex items-center justify-center text-xs font-semibold opacity-50 text-[var(--text)]">Sincronizando...</div>;
+  if (loadingStatus) return <div className="w-full h-full flex items-center justify-center text-xs font-semibold opacity-50 text-[var(--text)]">Abrindo conversas...</div>;
 
   if (nenhumConectado && !canalSelecionadoLogin) {
     return (

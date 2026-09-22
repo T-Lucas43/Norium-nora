@@ -35,6 +35,7 @@ Comportamento positivo a preservar: quando o ambiente impediu testes, o Muse reg
 | E7 | Suíte `unittest -q` pareceu travar; stack mostrou `NamedTemporaryFile` repetindo após negação de escrita no `TEMP` do sandbox Codex. | Ambiente de teste, não produto. | Capturar stack/CPU; executar suíte sintética fora desse sandbox com autorização. | 167 testes passaram em 23,281 s. |
 | E8 | Antivírus bloqueou/segurou binário do Muse durante instalação e execução inicial. | Ambiente local: heurística/arquivo em uso. | Verificar assinatura, hash e fonte; encerrar processo antes de reinstalar; criar exceção somente após validação. | Não reduziu controles do projeto; registrar se reincidir. |
 | E9 | `muse-acp` 0.4.5 iniciou com Muse 1.3.0 sem decisão de compatibilidade registrada; o self-test lista hosts 1.0.2 e 1.2.1. | Integração: combinação atual não validada pelo adaptador. A relação causal com replay/deadlock é plausível, mas não comprovada. | Tratar como risco, anexar bundle ao reporte e preferir uma combinação testada ou Muse CLI quando houver reincidência. | Pendente de correção upstream. |
+| E10 | Na [execução de `main` 35764542603](https://github.com/T-Lucas43/Norium-nora/actions/runs/35764542603), `validate` e `publish-image` passaram, mas `team-call-quality` falhou: p95 de controle de chamada 778,478 ms acima do limite de 750 ms; o deploy foi pulado. | Gate de qualidade: regressão de desempenho ou variação do runner ainda não distinguida por evidência suficiente. Não há prova de que a tarefa 3 ou o Muse causaram a falha. | Examinar o artefato da execução, repetir a medição em condições equivalentes e corrigir a causa antes de promover a imagem; manter o limite de 750 ms até haver decisão técnica baseada em dados. | Falha confirmada; causa e correção de produto pendentes em investigação separada. |
 
 ## Regras de prompt resultantes
 
@@ -62,6 +63,7 @@ Comportamento positivo a preservar: quando o ambiente impediu testes, o Muse reg
 - [x] Preparar o pacote documental correto sobre `origin/main` em PR separada.
 - [ ] Restringir/recriar os arquivos antigos da credencial local e rotacionar o token após a release.
 - [ ] Conferir no Azure a credencial federada efetiva e seu `subject` para `refs/heads/main`.
+- [ ] Diagnosticar o p95 do gate `team-call-quality` na execução 35764542603 antes de declarar o último commit de `main` publicado.
 - [ ] Usar um handoff por resultado na próxima rodada do piloto.
 - [ ] Reportar o replay de aprovação e o deadlock ao mantenedor do `muse-acp` com logs redigidos.
 - [ ] Medir, nas próximas tarefas, rodadas de correção, intervenção humana, duração e uso observado.

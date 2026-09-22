@@ -30,6 +30,7 @@ from app.modules.commercial.schemas import (
     ProposalBriefRequest,
     ProposalCreate,
     ProposalPdfUpload,
+    ProposalFromPdfRequest,
     ProposalApprovalDecision,
     ProposalStatusChange,
     ProposalSubmit,
@@ -65,6 +66,10 @@ from app.modules.commercial.service import (
     create_contract,
     create_proposal,
     upload_proposal_pdf,
+    audit_proposal_created_from_pdf,
+    can_view_proposal,
+    create_proposal_from_knowledge_pdf,
+    ensure_proposal_visible,
     create_template,
     get_template,
     change_proposal_status,
@@ -182,6 +187,12 @@ async def share_document(
     store = await asyncio.to_thread(read_store, tenant_id)
     if document_type == "proposal":
         _, document = proposal_or_404(store, document_id)
+        ensure_proposal_visible(user, document)
+        if document_type == "proposal" and str(document.get("visibility") or "team") == "private":
+            raise HTTPException(
+                status_code=409,
+                detail="Proposta privada nao pode ser compartilhada. Torne-a visivel a equipe antes de compartilhar.",
+            )
     else:
         _, document = contract_or_404(store, document_id)
     require_document_access(document, user, "owner")
@@ -444,9 +455,26 @@ async def post_generate_document(
     return {"document": document_for_response(document), "file": artifact}
 
 
+@router.post("/proposals/from-knowledge-pdf")
+async def post_proposal_from_pdf(
+    payload: ProposalFromPdfRequest,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    """Nova proposta em rascunho privado a partir de um PDF autorizado.
+
+    Mantém os demais dados/cláusulas da fonte e altera só os campos pedidos.
+    Nunca sobrescreve o original nem publica, envia ou encaminha para
+    assinatura: o fluxo de aprovação existente continua valendo.
+    """
+    result = await create_proposal_from_knowledge_pdf(user, payload.documentId, payload)
+    await audit_proposal_created_from_pdf(user, result)
+    return result
+
+
 @router.get("/proposals/{proposal_id}")
 async def get_proposal(proposal_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     _, _, _, proposal = await find_accessible_document(user, "proposal", proposal_id, "view")
+    ensure_proposal_visible(user, proposal)
     return {"proposal": document_for_response(proposal)}
 
 
@@ -454,6 +482,7 @@ async def get_proposal(proposal_id: str, user: dict[str, Any] = Depends(current_
 async def export_proposal_pdf(proposal_id: str, user: dict[str, Any] = Depends(current_user), include_edits: bool = True) -> StreamingResponse:
     store_id, _, _, proposal = await find_accessible_document(user, "proposal", proposal_id, "view")
     pdf_bytes, filename = await asyncio.to_thread(build_commercial_pdf, proposal, "proposal", include_edits, store_id)
+    ensure_proposal_visible(user, proposal)
     await audit(user, "proposal_pdf_exported", f'PDF da proposta "{proposal["title"]}" gerado.', "proposal", proposal_id, "success")
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
@@ -466,7 +495,8 @@ async def export_proposal_pdf(proposal_id: str, user: dict[str, Any] = Depends(c
 async def remove_proposal(proposal_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     proposal = await delete_proposal(user, proposal_id)
     await audit(user, "proposal_deleted", f'Proposta "{proposal["title"]}" excluida.', "proposal", proposal_id, "warning")
-    await notify(user, "Proposta excluida", proposal["title"], "proposal_deleted", proposal_id)
+    if str(proposal.get("visibility") or "team") != "private":
+        await notify(user, "Proposta excluida", proposal["title"], "proposal_deleted", proposal_id)
     return {"ok": True, "proposal": document_for_response(proposal)}
 
 
@@ -478,11 +508,12 @@ async def patch_proposal(
 ) -> dict[str, Any]:
     proposal = await update_proposal(user, proposal_id, payload)
     response_proposal = document_for_response(proposal)
-    await manager.broadcast(
-        collaboration_tenant_id(user),
-        proposal_id,
+    if str(proposal.get("visibility") or "team") != "private":
+        await manager.broadcast(
+            collaboration_tenant_id(user),
+            proposal_id,
         {"type": "DOCUMENT_UPDATED", "documentType": "proposal", "document": response_proposal, "actorId": str(user.get("id") or "")},
-    )
+        )
     return {"proposal": response_proposal}
 
 
@@ -578,11 +609,12 @@ async def post_suggestion_decision(
 ) -> dict[str, Any]:
     proposal = await decide_suggestion(user, proposal_id, suggestion_id, payload.decision)
     response_proposal = document_for_response(proposal)
-    await manager.broadcast(
-        collaboration_tenant_id(user),
-        proposal_id,
+    if str(proposal.get("visibility") or "team") != "private":
+        await manager.broadcast(
+            collaboration_tenant_id(user),
+            proposal_id,
         {"type": "DOCUMENT_UPDATED", "documentType": "proposal", "document": response_proposal, "actorId": str(user.get("id") or "")},
-    )
+        )
     return {"proposal": response_proposal}
 
 
@@ -887,6 +919,9 @@ async def commercial_socket(document_id: str, websocket: WebSocket, ticket: str 
         None,
     )
     if not document:
+        await websocket.close(code=4404)
+        return
+    if not can_view_proposal(user, document):
         await websocket.close(code=4404)
         return
     participant = {

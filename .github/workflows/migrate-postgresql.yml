@@ -67,12 +67,14 @@ jobs:
           suffix="$(printf '%s' "$resource_id" | sha256sum | cut -c1-20)"
           echo "POSTGRES_SERVER_NAME=pgnorium${suffix}" >> "$GITHUB_ENV"
 
-      - name: Register the PostgreSQL resource provider
+      - name: Verify the PostgreSQL resource provider is registered
         shell: bash
         run: |
-          az provider register --namespace Microsoft.DBforPostgreSQL --wait --output none
           state="$(az provider show --namespace Microsoft.DBforPostgreSQL --query registrationState -o tsv)"
-          test "$state" = Registered
+          if [[ "$state" != Registered ]]; then
+            echo "The subscription owner must register Microsoft.DBforPostgreSQL before cutover (current state: $state)." >&2
+            exit 1
+          fi
 
       - name: Provision managed PostgreSQL with 35-day backups
         shell: bash

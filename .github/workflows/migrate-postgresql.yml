@@ -23,6 +23,7 @@ jobs:
       APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
       AZURE_PUBLIC_URL: ${{ vars.AZURE_PUBLIC_URL }}
       POSTGRES_DATABASE: norium
+      POSTGRES_LOCATION: centralus
       POSTGRES_ADMIN_LOGIN: noriumbootstrap
       POSTGRES_APP_LOGIN: norium_app
       MIGRATION_SOURCE: /tmp/norium-postgres-source
@@ -81,7 +82,7 @@ jobs:
         run: |
           az deployment group create -g "$RESOURCE_GROUP" -n norium-postgresql \
             --template-file infra/azure/postgresql.bicep \
-            --parameters serverName="$POSTGRES_SERVER_NAME" administratorLogin="$POSTGRES_ADMIN_LOGIN" \
+            --parameters location="$POSTGRES_LOCATION" serverName="$POSTGRES_SERVER_NAME" administratorLogin="$POSTGRES_ADMIN_LOGIN" \
               administratorPassword="$POSTGRES_ADMIN_PASSWORD" databaseName="$POSTGRES_DATABASE" \
             --output none
           host="$(az postgres flexible-server show -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" --query fullyQualifiedDomainName -o tsv)"

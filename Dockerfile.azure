@@ -36,6 +36,9 @@ COPY norium-back-end/app ./app
 COPY norium-back-end/main.py ./main.py
 COPY --from=frontend-build /build/frontend/dist ./static
 
+# Fail the build if the trusted PostgreSQL CA bundle is missing or malformed.
+RUN python -c "import ssl; ssl.create_default_context(cafile='/app/app/infrastructure/persistence/azure_postgres_roots.pem')"
+
 # Full Chromium needs writable configuration directories for Crashpad at startup.
 RUN mkdir -p /app/data /home/norium/.config /home/norium/.cache \
     && chown -R norium:norium /app /home/norium
@@ -54,3 +57,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
 
 CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --ws-max-size 120000 --ws-max-queue 8 --proxy-headers"]
+

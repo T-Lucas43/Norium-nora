@@ -10,6 +10,31 @@ from app.infrastructure.persistence.json_repository import PersistenceError, rea
 
 
 class JsonRepositoryTest(unittest.TestCase):
+    def test_postgres_read_has_priority_over_local_file(self) -> None:
+        path = Path("/local-must-not-be-read/store.json")
+        with (
+            patch("app.infrastructure.persistence.postgres_store.configured", return_value=True),
+            patch("app.infrastructure.persistence.postgres_store.required", return_value=False),
+            patch("app.infrastructure.persistence.postgres_store.canonical_key", return_value="store.json"),
+            patch("app.infrastructure.persistence.postgres_store.read_document", return_value=(True, {"source": "postgres"})) as read_document,
+            patch.object(Path, "read_text", side_effect=AssertionError("local file must not be read")),
+        ):
+            self.assertEqual({"source": "postgres"}, read_json(path, {}))
+        read_document.assert_called_once_with("store.json")
+
+    def test_postgres_write_has_priority_over_local_file(self) -> None:
+        path = Path("/local-must-not-be-written/store.json")
+        payload = {"source": "postgres"}
+        with (
+            patch("app.infrastructure.persistence.postgres_store.configured", return_value=True),
+            patch("app.infrastructure.persistence.postgres_store.required", return_value=False),
+            patch("app.infrastructure.persistence.postgres_store.canonical_key", return_value="store.json"),
+            patch("app.infrastructure.persistence.postgres_store.write_document") as write_document,
+            patch.object(Path, "mkdir", side_effect=AssertionError("local directory must not be created")),
+        ):
+            write_json(path, payload)
+        write_document.assert_called_once_with("store.json", payload)
+
     def test_repeated_reads_do_not_reparse_and_return_independent_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "store.json"

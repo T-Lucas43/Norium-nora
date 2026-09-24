@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -57,6 +58,28 @@ class AuthStoreFailClosedTests(unittest.IsolatedAsyncioTestCase):
             await auth.read_user_store()
         self.path.write_bytes(healthy)
         self.assertEqual(store, await auth.read_user_store())
+
+    async def test_postgres_store_is_read_before_local_path_existence_check(self):
+        stored = {
+            "users": [{
+                "id": "persisted-owner",
+                "email": "owner@example.invalid",
+                "role": "owner",
+                "plan": "individual",
+                "status": "ativo",
+                "passwordHash": "synthetic-hash",
+            }]
+        }
+        with (
+            patch.dict(os.environ, {"NORIUM_DATABASE_URL": "postgresql://example.invalid/database"}),
+            patch.object(auth, "read_json_file", return_value=stored) as read_store,
+            patch.object(auth, "write_json_file") as write_store,
+            patch.object(Path, "stat", side_effect=AssertionError("local stat must not gate PostgreSQL")),
+        ):
+            loaded = await auth.read_user_store()
+        self.assertEqual("persisted-owner", loaded["users"][0]["id"])
+        read_store.assert_called_once_with(self.path, None)
+        write_store.assert_not_called()
 
     async def test_derived_capability_cannot_be_forged_in_store_and_is_not_persisted(self):
         store = {"users": [{"id": "synthetic", "role": "member", "plan": "individual", "status": "ativo",

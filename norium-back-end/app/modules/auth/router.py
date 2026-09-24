@@ -621,6 +621,18 @@ def refresh_team_capabilities(store: dict[str, Any]) -> dict[str, Any]:
 
 async def read_user_store() -> dict[str, Any]:
     def load() -> dict[str, Any]:
+        postgres_enabled = bool(
+            os.getenv("NORIUM_DATABASE_URL", "").strip()
+            or os.getenv("NORIUM_POSTGRES_REQUIRED", "").strip().lower() in {"1", "true", "yes"}
+        )
+        if postgres_enabled:
+            payload = read_json_file(USERS_DB_PATH, None)
+            if payload is None:
+                store = create_initial_user_store()
+                write_json_file(USERS_DB_PATH, store)
+                return store
+            validate_user_store(payload)
+            return normalize_user_store(payload)
         try:
             USERS_DB_PATH.stat()
         except FileNotFoundError:

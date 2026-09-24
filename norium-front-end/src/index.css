@@ -2981,13 +2981,14 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 
 .norium-topbar-menu{
   display:none;
-  width:42px;
   height:42px;
-  flex:0 0 42px;
-  place-items:center;
-  border:1px solid var(--border);
-  border-radius:8px;
-  background:var(--surface);
+  flex:0 0 98px;
+  align-items:center;
+  justify-content:flex-start;
+  overflow:hidden;
+  border:0;
+  background:transparent;
+  padding:0;
 }
 
 .norium-command-search{
@@ -4280,11 +4281,11 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   }
 
   .norium-topbar-menu{
-    display:grid;
+    display:flex;
   }
 
   .norium-topbar-brand-logo{
-    display:none!important;
+    display:block!important;
   }
 
   .norium-command-search{
@@ -4725,17 +4726,15 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   background-size:36px 36px!important;
 }
 
-.norium-topbar-brand-logo{display:none;flex:0 0 98px;}
+.norium-topbar-brand-logo{display:block;flex:0 0 98px;}
 
 .app-shell.is-focus-mode .norium-topbar{
   justify-content:space-between;
 }
 
 .app-shell.is-focus-mode .norium-topbar-menu{
-  display:grid;
+  display:flex;
 }
-
-.app-shell.is-focus-mode .norium-topbar-brand-logo{display:inline-block;}
 
 .norium-modern-shell.norium-auth-shell.norium-auth-dark .norium-auth-feature{
   color:#f6f8fb;
@@ -7294,7 +7293,6 @@ body,
   }
 
   .norium-topbar-icon,
-  .norium-topbar-menu,
   .norium-topbar-profile{
     width:44px;
     height:44px;
@@ -7957,7 +7955,7 @@ html.mail-fullscreen-open body{
 @media (max-width:640px){
   .norium-topbar{
     display:grid;
-    grid-template-columns:44px minmax(0,1fr);
+    grid-template-columns:76px minmax(0,1fr);
     grid-template-rows:44px 44px;
     gap:8px 10px;
     min-height:112px;
@@ -7972,7 +7970,12 @@ html.mail-fullscreen-open body{
   .norium-topbar-menu{
     grid-column:1;
     grid-row:1;
+    width:76px;
+    min-height:44px;
+    flex-basis:76px;
   }
+
+  .norium-topbar-brand-logo{width:76px;flex-basis:76px;}
 
   .norium-topbar-actions{
     grid-column:2;

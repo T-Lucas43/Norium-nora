@@ -43,12 +43,13 @@ type SidebarProps = {
 };
 
 const NORA_ENTRY = "Nora";
+const PRIMARY_ENTRIES = ["Dashboard", NORA_ENTRY];
 
 const NAVIGATION_GROUPS: NavigationGroup[] = [
-  { label: "Início", icon: House, items: ["Dashboard", "Controle", "Central"] },
+  { label: "Início", icon: House, items: ["Controle", "Central"] },
   { label: "Comunicação", icon: MessagesSquare, items: ["E-mails", "Agenda", "Agendamentos", "Chat", "Chat da Equipe"] },
   { label: "Trabalho", icon: BriefcaseBusiness, items: ["Tarefas", "Financeiro", "Documentos", "PDF Studio", "Clientes"] },
-  { label: "Inteligência", icon: BrainCircuit, items: [NORA_ENTRY, "Automações", "Relatórios", "Agente Navegador", "Conhecimento", "Marketplace", "IA e Modelos", "Estúdio"] },
+  { label: "Inteligência", icon: BrainCircuit, items: ["Automações", "Relatórios", "Agente Navegador", "Conhecimento", "Marketplace", "IA e Modelos", "Estúdio"] },
   { label: "Equipe", icon: UsersRound, items: ["Equipe", "Governanca", "Mais"] },
 ];
 
@@ -150,9 +151,11 @@ export default function Sidebar({
         </div>
 
         <nav className="norium-sidebar-navigation">
-          {navigationStyle === "classic" && isAllowed(NORA_ENTRY) && renderItem({ title: NORA_ENTRY })}
+          <div className="norium-sidebar-primary">
+            {PRIMARY_ENTRIES.filter(isAllowed).map((title) => renderItem({ title }))}
+          </div>
           {NAVIGATION_GROUPS.map((group) => {
-            const visible = group.items.filter((title) => isAllowed(title) && !(navigationStyle === "classic" && title === NORA_ENTRY));
+            const visible = group.items.filter(isAllowed);
             if (!visible.length) return null;
             if (navigationStyle === "classic") {
               return (

@@ -18,6 +18,12 @@ describe("Sidebar", () => {
       />,
     );
 
+    const dashboard = screen.getByRole("button", { name: "Dashboard" });
+    const nora = screen.getByRole("button", { name: "Nora" });
+    const start = screen.getByRole("button", { name: "Início" });
+    expect(dashboard.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(nora.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
     const groupNames = ["Início", "Comunicação", "Trabalho", "Inteligência", "Equipe"];
     for (const groupName of groupNames) {
       const group = screen.getByRole("button", { name: groupName });
@@ -27,6 +33,7 @@ describe("Sidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Inteligência" }));
     expect(screen.getByRole("button", { name: "Inteligência" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: "Nora" })).toBe(nora);
     const knowledge = screen.getByRole("button", { name: "Conhecimento" });
     expect(knowledge.querySelector(".norium-sidebar-item-icon svg")).toHaveClass("norium-sidebar-channel-icon");
     fireEvent.click(screen.getByRole("button", { name: "Conhecimento" }));

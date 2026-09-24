@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import Header from "./Header";
 
 function renderHeader(onOpenNora = vi.fn()) {
-  render(
+  return render(
     <Header
       activeTab="Dashboard"
       setActiveTab={vi.fn()}
@@ -23,6 +23,12 @@ function renderHeader(onOpenNora = vi.fn()) {
 }
 
 describe("Header Nora", () => {
+  it("usa a marca do Norium no lugar do botao hamburguer", () => {
+    const { container } = renderHeader();
+    expect(container.querySelector('[data-lucide="menu"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "Abrir navegação pelo logo do Norium" })).toBeInTheDocument();
+  });
+
   it("usa o mesmo assistente principal em vez de manter um segundo chat", () => {
     const onOpenNora = vi.fn();
     renderHeader(onOpenNora);

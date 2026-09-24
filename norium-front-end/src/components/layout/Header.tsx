@@ -15,7 +15,6 @@ import {
   LoaderCircle,
   LogOut,
   Mail,
-  Menu,
   MessageSquare,
   Moon,
   Search,
@@ -225,12 +224,10 @@ export default function Header({
           type="button"
           className="norium-topbar-menu"
           onClick={onToggleSidebar}
-          aria-label="Abrir ou recolher navegação"
+          aria-label="Abrir navegação pelo logo do Norium"
         >
-          <Menu size={20} />
+          <BrandLogo className="norium-topbar-brand-logo h-9 w-[98px]" />
         </button>
-
-        <BrandLogo className="norium-topbar-brand-logo h-9 w-[98px]" />
 
         <div className="norium-command-search">
           <Search size={18} />

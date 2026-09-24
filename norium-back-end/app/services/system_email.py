@@ -20,7 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.security import auth_secret
 from app.core.tenant import get_system_db_path, read_json_file, write_json_file
@@ -56,6 +56,10 @@ WELCOME_DESCRIPTION = "Aqui quem fala é a Nora. Boas-vindas ao Norium! Estou aq
 NORA_SIGNATURE_PATH = Path(__file__).resolve().parents[1] / "assets" / "nora_email_signature.html"
 
 
+class SmtpCredentialUnavailable(RuntimeError):
+    """A credencial SMTP esta ausente ou pertence a outra chave de criptografia."""
+
+
 def cipher() -> Fernet:
     return Fernet(base64.urlsafe_b64encode(hashlib.sha256(auth_secret() + b":system-email:v1").digest()))
 
@@ -65,9 +69,33 @@ def configuration() -> dict:
     return raw if isinstance(raw, dict) else {}
 
 
+def smtp_password(config: dict | None = None) -> str:
+    environment_password = os.getenv("NORIUM_SMTP_PASSWORD", "")
+    if environment_password:
+        return environment_password
+    encrypted = (config or configuration()).get("passwordEncrypted")
+    if not encrypted:
+        raise SmtpCredentialUnavailable("missing")
+    try:
+        password = cipher().decrypt(str(encrypted).encode()).decode()
+    except (InvalidToken, ValueError, TypeError, UnicodeError) as error:
+        raise SmtpCredentialUnavailable("invalid") from error
+    if not password:
+        raise SmtpCredentialUnavailable("missing")
+    return password
+
+
+def credential_status(config: dict | None = None) -> str:
+    try:
+        smtp_password(config)
+    except SmtpCredentialUnavailable as error:
+        return str(error)
+    return "ok"
+
+
 def ready() -> bool:
     config = configuration()
-    return bool(config.get("enabled") and (config.get("passwordEncrypted") or os.getenv("NORIUM_SMTP_PASSWORD")) and config.get("publicUrl"))
+    return bool(config.get("enabled") and config.get("publicUrl") and credential_status(config) == "ok")
 
 
 def save_configuration(password: str, enabled: bool, public_url: str) -> dict:
@@ -78,14 +106,17 @@ def save_configuration(password: str, enabled: bool, public_url: str) -> dict:
     if password:
         config["passwordEncrypted"] = cipher().encrypt(password.encode()).decode()
     config.update(enabled=enabled, publicUrl=public_url.rstrip("/"))
-    if enabled and not (config.get("passwordEncrypted") or os.getenv("NORIUM_SMTP_PASSWORD")):
+    status = credential_status(config)
+    if enabled and status == "missing":
         raise ValueError("Informe a senha da caixa de suporte para ativar os envios.")
+    if enabled and status == "invalid":
+        raise ValueError("A senha SMTP salva pertence a outra chave. Informe-a novamente para reativar os envios.")
     write_json_file(get_system_db_path("system_email_config"), config)
     if enabled and password:
         with store_lock:
             store = read_store()
             for job in store["outbox"]:
-                if job.get("state") == "failed" and job.get("expires", 0) > time.time():
+                if job.get("state") in {"pending", "failed", "sending"} and job.get("expires", 0) > time.time():
                     job.update(state="pending", attempts=0, next_attempt=0, error=None)
             write_store(store)
     return configuration_status()
@@ -93,9 +124,11 @@ def save_configuration(password: str, enabled: bool, public_url: str) -> dict:
 
 def configuration_status() -> dict:
     config = configuration()
+    status = credential_status(config)
     return {"sender": SENDER, "host": "smtp.hostinger.com", "port": 465, "enabled": bool(config.get("enabled")),
             "passwordConfigured": bool(config.get("passwordEncrypted") or os.getenv("NORIUM_SMTP_PASSWORD")),
-            "publicUrl": config.get("publicUrl", ""), "ready": ready()}
+            "credentialStatus": status, "publicUrl": config.get("publicUrl", ""),
+            "ready": bool(config.get("enabled") and config.get("publicUrl") and status == "ok")}
 
 
 def read_store() -> dict:
@@ -382,7 +415,7 @@ def finish_delivery(job: dict, state: str, error: str = "") -> None:
 
 def send_smtp(job: dict) -> None:
     config = configuration()
-    password = os.getenv("NORIUM_SMTP_PASSWORD") or cipher().decrypt(config["passwordEncrypted"].encode()).decode()
+    password = smtp_password(config)
     payload = json.loads(cipher().decrypt(job["payload"].encode()))
     message = EmailMessage()
     message["From"] = formataddr(("Norium", SENDER))
@@ -429,7 +462,12 @@ async def deliver_one() -> bool:
     try:
         await asyncio.get_running_loop().run_in_executor(smtp_executor, send_smtp, job)
     except Exception as error:
-        code = "authentication" if isinstance(error, smtplib.SMTPAuthenticationError) else "delivery"
+        if isinstance(error, SmtpCredentialUnavailable):
+            code = "credential"
+        elif isinstance(error, smtplib.SMTPAuthenticationError):
+            code = "authentication"
+        else:
+            code = "delivery"
         await asyncio.to_thread(finish_delivery, job, "pending" if job["attempts"] < 5 else "failed", code)
         logger.warning("system_email_delivery_failed kind=%s code=%s", job["kind"], code)
     else:

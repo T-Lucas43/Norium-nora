@@ -28,6 +28,9 @@ criticos forem verificados no endereco publicado.
 
 - Confirmar que o checkout esta no commit esperado e registrar o SHA completo.
 - Preservar alteracoes preexistentes e impedir arquivos locais/secrets no commit.
+- Preservar a mesma `NORIUM_AUTH_SECRET` entre revisoes. Se uma configuracao SMTP
+  criptografada vier de outro ambiente, regravar a senha no painel administrativo
+  do ShardCloud antes de aceitar o deploy; nunca copiar a senha para o repositorio.
 - Executar `git diff --check`.
 - Executar os testes backend afetados e a suite de regressao de persistencia.
 - Executar os testes frontend afetados e `npm.cmd run build`.
@@ -83,6 +86,9 @@ Antes do upload, conferir que o ZIP contem `Dockerfile`,
 - `GET /health/ready` retorna `200`, `ready=true` e
   `persistence.driver=postgresql`.
 - O login real funciona e `/api/auth/me` devolve o usuario correto.
+- O painel administrativo de e-mail mostra `credentialStatus=ok`, sem fila em
+  falha por credencial; um envio de teste deve ser aceito pelo SMTP antes de
+  considerar recuperacao de senha e notificacoes funcionais.
 - A equipe do usuario continua com os mesmos membros e vinculos.
 - Tarefas, documentos e clientes carregam sem criar stores vazios.
 

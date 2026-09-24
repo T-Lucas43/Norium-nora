@@ -3,7 +3,7 @@ import { Mail, RefreshCw } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
 
 type Delivery = { available?: boolean; error?: string; counts: Record<string, number>; recent: Array<{ kind: string; state: string; attempts: number; error: string | null; created: number }>; welcome: { title: string; description: string } };
-type Configuration = { sender: string; enabled: boolean; passwordConfigured: boolean; publicUrl: string; ready: boolean; delivery?: Delivery };
+type Configuration = { sender: string; enabled: boolean; passwordConfigured: boolean; credentialStatus?: "ok" | "missing" | "invalid"; publicUrl: string; ready: boolean; delivery?: Delivery };
 const states: Record<string, string> = { pending: "Na fila", sending: "Enviando", sent: "Aceitos pelo servidor de e-mail", failed: "Falharam", skipped: "Ignorados", expired: "Expirados" };
 
 export default function SystemEmailSettings({ token }: { token: string }) {
@@ -37,6 +37,7 @@ export default function SystemEmailSettings({ token }: { token: string }) {
     <h2 className="flex items-center gap-2 text-lg font-bold"><Mail size={21} className="text-cyan-400" /> E-mail do sistema</h2>
     <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">Notificações individuais, confirmação de conta e recuperação de senha pelo suporte do Norium.</p>
     {config?.delivery?.error && <p role="alert" className="mt-4 rounded-lg border border-amber-500/30 p-4 text-sm text-amber-300">{config.delivery.error}</p>}
+    {config?.credentialStatus === "invalid" && <p role="alert" className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm leading-6 text-red-200">A senha SMTP salva foi criptografada com outra chave e não pode ser usada neste ambiente. Digite novamente a senha da caixa <strong>suporte@norium-ai.com</strong> e salve para liberar a fila.</p>}
     {config && <><div className="mt-5 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4 text-sm"><p className="break-all font-bold">{config.sender}</p><p className="mt-1 text-[var(--text-secondary)]">Hostinger · smtp.hostinger.com · TLS, porta 465</p></div>
       <form onSubmit={(event) => { event.preventDefault(); void action("save"); }} className="mt-5 space-y-4">
         <div className="grid gap-4 md:grid-cols-2"><label className="text-sm font-semibold">Endereço público do Norium<input type="url" required value={config.publicUrl} onChange={(event) => setConfig({ ...config, publicUrl: event.target.value })} className={field} placeholder="https://seu-norium.com" /></label>

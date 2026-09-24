@@ -63,6 +63,35 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(b"fake-smtp-password", raw)
         self.assertEqual("fake-smtp-password", mail.cipher().decrypt(config["passwordEncrypted"].encode()).decode())
 
+    async def test_invalid_migrated_credential_blocks_false_success_and_can_be_reconfigured(self):
+        config = mail.configuration()
+        config["passwordEncrypted"] = "encrypted-with-another-key"
+        mail.write_json_file(mail.get_system_db_path("system_email_config"), config)
+        self.assertFalse(mail.ready())
+        self.assertEqual("invalid", mail.configuration_status()["credentialStatus"])
+
+        app = FastAPI()
+        app.include_router(routes.router)
+        with patch.object(routes.limiter, "check", new=AsyncMock()):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                response = await client.post("/api/auth/forgot-password", json={"email": self.user["email"]})
+        self.assertEqual(503, response.status_code)
+        self.assertIn("Nenhum e-mail foi enviado", response.json()["detail"])
+        self.assertEqual([], mail.read_store()["tokens"])
+
+        self.assertTrue(mail.save_configuration("replacement-password", True, "https://norium.example.invalid")["ready"])
+        self.assertEqual("ok", mail.configuration_status()["credentialStatus"])
+
+    async def test_reconfigured_credential_releases_unexpired_pending_jobs(self):
+        self.assertTrue(mail.issue_action(self.user, "reset"))
+        self.update_store(lambda store: [job.update(state="pending", attempts=3, next_attempt=time.time() + 3600, error="delivery") for job in store["outbox"]])
+        mail.save_configuration("replacement-password", True, "https://norium.example.invalid")
+        row = mail.read_store()["outbox"][0]
+        self.assertEqual("pending", row["state"])
+        self.assertEqual(0, row["attempts"])
+        self.assertEqual(0, row["next_attempt"])
+        self.assertIsNone(row["error"])
+
     async def test_tokens_expire_and_reject_wrong_purpose_and_replay(self):
         token, _ = self.token()
         self.assertIsNone(mail.consume_action(token, "verify"))

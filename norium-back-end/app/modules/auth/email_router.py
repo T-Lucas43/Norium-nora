@@ -108,6 +108,9 @@ async def forgot_password(payload: EmailRequest, request: Request, background: B
     host = request.client.host if request.client else "unknown"
     await limiter.check("reset:" + host)
     if not await asyncio.to_thread(mail.ready):
+        status = await asyncio.to_thread(mail.configuration_status)
+        if status.get("credentialStatus") == "invalid":
+            raise HTTPException(503, "O envio de recuperação precisa ser reconfigurado pelo administrador. Nenhum e-mail foi enviado.")
         raise HTTPException(503, "O envio de recuperação ainda não foi ativado. Entre em contato com o suporte.")
     # The same response and asynchronous work for existing and unknown accounts.
     background.add_task(request_action, payload.email, "reset")

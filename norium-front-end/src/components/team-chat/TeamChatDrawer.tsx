@@ -327,18 +327,17 @@ function NoraMessageContent({ message }: { message: TeamMessage }) {
   );
 }
 
-function MessageAvatar({ name, avatar }: { name: string; avatar?: string }) {
+function MessageAvatar({ name, avatar, onClick }: { name: string; avatar?: string; onClick?: () => void }) {
   const [failed, setFailed] = useState(false);
   if (avatar === "nora") return <NoraAvatar className="h-9 w-9 shrink-0" />;
-  return (
-    <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] text-xs font-bold text-[var(--text)]">
+  const avatarNode = <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-hover)] text-xs font-bold text-[var(--text)]">
       {avatar && !failed ? (
         <img src={avatar} alt={name} className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : (
         initials(name)
       )}
-    </span>
-  );
+    </span>;
+  return onClick ? <button type="button" onClick={onClick} aria-label={`Abrir perfil de ${name}`} className="shrink-0 rounded-xl transition hover:ring-2 hover:ring-cyan-400/50">{avatarNode}</button> : avatarNode;
 }
 
 function useAttachmentObjectUrl(attachment: Attachment | null, token?: string) {
@@ -1025,7 +1024,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               const reactions = reactionsFor(message);
               return (
                 <div key={message.id} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
-                  {!mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} />}
+                  {!mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} onClick={member ? () => setSelectedMemberId(member.id) : undefined} />}
                   <div className={`team-chat-message ${isNora ? "team-chat-message-nora max-w-[94%]" : "max-w-[78%]"} ${Array.isArray(message.metadata?.mentionedUserIds) && message.metadata.mentionedUserIds.includes(session.user.id) ? "mentions-me" : ""} rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "team-chat-message-mine" : "team-chat-message-other"}`}>
                     <div className={`mb-1 flex items-center justify-between gap-3 text-xs font-bold ${mine ? "team-chat-message-meta-mine" : "team-chat-message-meta-other"}`}>
                       <span className="min-w-0 truncate">{message.senderName}</span>
@@ -1058,7 +1057,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                     </div>
                     {mine && <button type="button" onClick={() => setReadReceiptsMessageId(message.id)} className="mt-2 flex items-center gap-1 text-[11px] font-bold text-blue-100/75 transition hover:text-white" aria-label={`Ver confirmações de leitura: ${readReceipts.length} pessoa(s) viram`}><CheckCheck size={14} /> {readReceipts.length ? `${readReceipts.length} viram` : "Ninguém viu ainda"}</button>}
                   </div>
-                  {mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} />}
+                  {mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} onClick={member ? () => setSelectedMemberId(member.id) : undefined} />}
                 </div>
               );
             })}
@@ -1174,6 +1173,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             member={selectedMember}
             online={actualOnlineUserIdSet.has(selectedMember.id)}
             isCurrentUser={selectedMember.id === session.user.id}
+            token={session.token}
             onClose={() => setSelectedMemberId(null)}
             onMessage={() => { selectConversation({ scope: "direct", recipientId: selectedMember.id }); setSelectedMemberId(null); }}
             onCall={() => { selectConversation({ scope: "direct", recipientId: selectedMember.id }); setSelectedMemberId(null); void startCall({ scope: "direct", title: selectedMember.nome, recipientId: selectedMember.id, subteamId: null }); }}

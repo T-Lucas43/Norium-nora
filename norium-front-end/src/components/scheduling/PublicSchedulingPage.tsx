@@ -28,6 +28,10 @@ function formatFieldValue(fieldType: string, value: string) {
 export default function PublicSchedulingPage({ identifier }: { identifier: string }) {
   const [page, setPage] = useState<SchedulingPage | null>(null);
   const [service, setService] = useState<SchedulingService | null>(null);
+  const [services, setServices] = useState<SchedulingService[]>([]);
+  const [professionals, setProfessionals] = useState<Array<{id:string;name:string;avatarUrl?:string;profession:string;position:string;color:string}>>([]);
+  const [teamMode, setTeamMode] = useState(false);
+  const [responsibleId, setResponsibleId] = useState("");
   const [duration, setDuration] = useState(30);
   const [day, setDay] = useState(() => { const value = new Date(); value.setDate(value.getDate() + 1); return value.toISOString().slice(0, 10); });
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -48,18 +52,18 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
 
   useEffect(() => {
     schedulingApi.publicPage(identifier).then((data) => {
-      setPage(data.page); setService(data.service); setDuration(data.service.durations[0]);
+      setPage(data.page); setService(data.service); setServices(data.services || [data.service]); setProfessionals(data.professionals || []); setTeamMode(Boolean(data.teamMode)); setDuration(data.service.durations[0]);
     }).catch((reason) => setError(reason.message)).finally(() => setLoading(false));
   }, [identifier]);
 
   useEffect(() => {
-    if (!service) return;
+    if (!service || (teamMode && !responsibleId)) return;
     const requestId = ++slotsRequestRef.current;
     const controller = new AbortController();
     let refreshTimer: number | null = null;
-    const cacheKey = `${identifier}::${day}::${duration}`;
+    const cacheKey = `${identifier}::${day}::${duration}::${responsibleId}::${service.id}`;
     setSlot(null); setSlotsError(""); setSlotsLoading(true);
-    schedulingApi.slotsCached(identifier, day, duration, controller.signal).then((data) => {
+    schedulingApi.slotsCached(identifier, day, duration, controller.signal, responsibleId, service.id).then((data) => {
       if (slotsRequestRef.current !== requestId) return;
       setSlots(data.slots); setCalendarVerified(data.calendarVerified !== false);
       if (data.calendarVerified === false && calendarRefreshAttemptRef.current !== cacheKey) {
@@ -76,7 +80,15 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
       if (slotsRequestRef.current === requestId) setSlotsLoading(false);
     });
     return () => { controller.abort(); if (refreshTimer !== null) window.clearTimeout(refreshTimer); };
-  }, [identifier, day, duration, service, slotsRetry]);
+  }, [identifier, day, duration, service, responsibleId, teamMode, slotsRetry]);
+
+  const availableServices = useMemo(() => teamMode && responsibleId ? services.filter((item) => item.professionalIds?.includes(responsibleId)) : services, [responsibleId, services, teamMode]);
+
+  function selectProfessional(userId: string) {
+    setResponsibleId(userId); setSlot(null); setSlots([]);
+    const first = services.find((item) => item.professionalIds?.includes(userId)) || null;
+    setService(first); if (first) setDuration(first.durations[0]);
+  }
 
   const theme = useMemo(() => ({
     "--booking-primary": page?.theme?.primary || "#6d5dfc",
@@ -122,6 +134,7 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
     try {
       const result = await schedulingApi.book(identifier, {
         startAt: slot.startAt, duration, name: form.full_name.trim(), email: form.email.trim(), phone: form.phone || null,
+        responsibleId: responsibleId || null, serviceId: service?.id || null,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo",
         responses, idempotencyKey: bookingOperationKeyRef.current, honeypot: "",
       });
@@ -142,13 +155,15 @@ export default function PublicSchedulingPage({ identifier }: { identifier: strin
       </header>
       <div className="grid overflow-hidden rounded-3xl bg-white shadow-2xl lg:grid-cols-[.8fr_1.2fr]">
         <aside className="border-b border-slate-200 p-6 lg:border-b-0 lg:border-r">
-          <h2 className="text-2xl font-black">{service?.name}</h2><p className="mt-2 text-sm text-slate-600">{page?.description || service?.description}</p>
+          <h2 className="text-2xl font-black">{service?.name || "Escolha o atendimento"}</h2><p className="mt-2 text-sm text-slate-600">{page?.description || service?.description}</p>
+          {teamMode && <><p className="mt-5 text-sm font-black">1. Escolha o profissional</p><div className="mt-2 grid gap-2">{professionals.map((item) => <button key={item.id} type="button" onClick={() => selectProfessional(item.id)} className={`flex items-center gap-3 rounded-xl border p-3 text-left ${responsibleId===item.id?"border-transparent bg-[var(--booking-primary)] text-white":"border-slate-200"}`}>{item.avatarUrl?<img src={item.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover"/>:<span className="grid h-10 w-10 place-items-center rounded-full bg-slate-100 font-black text-slate-700">{item.name.slice(0,2).toUpperCase()}</span>}<span><strong className="block text-sm">{item.name}</strong><small>{item.profession || item.position || "Profissional"}</small></span></button>)}</div>
+          <label className="mt-5 grid gap-1 text-sm font-black">2. Escolha o serviço<select disabled={!responsibleId} value={service?.id || ""} onChange={(event)=>{const next=availableServices.find(item=>item.id===event.target.value)||null;setService(next);if(next)setDuration(next.durations[0]);}} className="h-11 rounded-xl border border-slate-200 px-3"><option value="">Selecione</option>{availableServices.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label></>}
           <div className="mt-5 flex items-center gap-2 text-sm font-bold"><Clock3 size={18} className="text-[var(--booking-primary)]"/> Duração</div>
           <div className="mt-2 flex flex-wrap gap-2">{service?.durations.map((item) => <button key={item} onClick={() => setDuration(item)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${duration === item ? "border-transparent bg-[var(--booking-primary)] text-white" : "border-slate-200"}`}>{item} min</button>)}</div>
           <p className="mt-6 flex items-center gap-2 text-xs text-slate-500"><ShieldCheck size={16}/> Seus dados são usados somente para este agendamento.</p>
         </aside>
         <section className="p-6">
-          <label className="grid gap-1 text-sm font-bold">Escolha a data<input type="date" min={new Date().toISOString().slice(0, 10)} value={day} onChange={(event) => setDay(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3"/></label>
+          <label className="grid gap-1 text-sm font-bold">{teamMode ? "3. Escolha a data" : "Escolha a data"}<input type="date" disabled={teamMode && (!responsibleId || !service)} min={new Date().toISOString().slice(0, 10)} value={day} onChange={(event) => setDay(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3"/></label>
           <div className="mt-5"><p className="mb-2 text-sm font-bold">Horários disponíveis</p>
             {!calendarVerified && <p role="status" className="mb-2 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-700">Calendário externo indisponível — os horários podem estar desatualizados. A reserva será validada na confirmação.</p>}
             {slotsLoading

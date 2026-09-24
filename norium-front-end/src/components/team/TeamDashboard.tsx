@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Badge, BarChart3, Lock, MessageCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound } from "lucide-react";
+import { CheckCircle2, Badge, BarChart3, Eye, Lock, MessageCircle, Plus, RefreshCw, Settings2, ShieldCheck, Target, Trash2, UserPlus, UsersRound } from "lucide-react";
 import type { AuthSession, NoriumTeam, NoriumUser, PermissionKey, PermissionMap } from "../../types/auth";
 import { defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
 import TeamProductivity from "./TeamProductivity";
 import TeamRoles, { type TeamRole } from "./TeamRoles";
 import Button from "../shared/Button";
+import TeamMemberPresenceDialog from "../team-chat/TeamMemberPresenceDialog";
 
 interface TeamDashboardProps {
   session: AuthSession;
@@ -75,11 +76,15 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
   const [teamName, setTeamName] = useState("");
   const memberProfiles = useRef(new Map<string, NoriumUser>());
   const [detailsRevision, setDetailsRevision] = useState(0);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [jobTitleDraft, setJobTitleDraft] = useState("");
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) || users[0] || session.user,
     [selectedUserId, session.user, users],
   );
+
+  useEffect(() => { setJobTitleDraft(selectedUser.jobTitle || "Membro"); }, [selectedUser.id, selectedUser.jobTitle]);
 
   const refresh = useCallback(async () => {
     setDetailsRevision((current) => current + 1);
@@ -325,19 +330,24 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
                 <p className="mt-1 text-sm font-semibold text-[var(--text-secondary)]">{selectedUser.email}</p>
                 </div>
               </div>
-              <Button
+              <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => setProfileOpen(true)} icon={<Eye size={16}/>}>Visualizar perfil</Button><Button
                 onClick={() => void patchUser(selectedUser, { status: selectedUser.status === "ativo" ? "inativo" : "ativo" }, "Status atualizado.")}
                 disabled={selectedUser.id === session.user.id || saving === selectedUser.id}
                 className="bg-[var(--background)]"
               >
                 {selectedUser.status === "ativo" ? "Bloquear acesso" : "Ativar acesso"}
-              </Button>
+              </Button></div>
             </div>
 
             <div className="mb-5 grid gap-3 md:grid-cols-3">
               <div className="team-role-assignment"><label>Cargo e acessos<select aria-label="Atribuir cargo" value={selectedUser.jobRoleId || ''} disabled={selectedUser.systemAdmin || selectedUser.id === session.user.id || saving === selectedUser.id} onChange={event=>{if(event.target.value) void patchUser(selectedUser,{jobRoleId:event.target.value},'Cargo e permissões aplicados.');}}><option value="">{selectedUser.jobTitle || 'Acessos personalizados'}</option>{roles.map(role=><option key={role.id} value={role.id}>{role.name}</option>)}</select></label>{selectedUser.jobRoleId && <Button size="sm" disabled={selectedUser.systemAdmin || selectedUser.id===session.user.id || saving===selectedUser.id} onClick={()=>void patchUser(selectedUser,{jobRoleId:selectedUser.jobRoleId},'Permissões do cargo reaplicadas.')}>Reaplicar acessos</Button>}<small>{selectedUser.systemAdmin ? 'Administrador do sistema mantém seus acessos próprios.' : 'Selecionar um cargo substitui os acessos deste membro.'}</small></div>
               <Info label="Perfil" value={selectedUser.role === "owner" ? "Principal" : "Membro"} />
               <Info label="Status" value={selectedUser.status} />
+            </div>
+
+            <div className="mb-5 flex flex-wrap items-end gap-2 rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
+              <label className="min-w-[240px] flex-1 text-xs font-bold text-[var(--text-secondary)]">Profissão e posição na equipe<input aria-label="Profissão e posição" value={jobTitleDraft} maxLength={120} onChange={(event) => setJobTitleDraft(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm text-[var(--text)]" /></label>
+              <Button size="sm" disabled={saving === selectedUser.id || !jobTitleDraft.trim() || jobTitleDraft.trim() === selectedUser.jobTitle} onClick={() => void patchUser(selectedUser, { jobTitle: jobTitleDraft.trim() }, "Profissão e posição atualizadas.")}>Salvar posição</Button>
             </div>
 
             <details className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
@@ -360,6 +370,7 @@ export default function TeamDashboard({ session, onSessionUpdate, onOpenTeamChat
           <TeamRoles roles={roles} users={users} token={session.token} onSaved={role=>setRoles(current=>current.some(r=>r.id===role.id)?current.map(r=>r.id===role.id?role:r):[...current,role])}/>
         </div>
       )}
+      {profileOpen && <TeamMemberPresenceDialog member={selectedUser} online={Boolean(selectedUser.online)} isCurrentUser={selectedUser.id === session.user.id} token={session.token} onClose={() => setProfileOpen(false)} onMessage={() => { setProfileOpen(false); onOpenTeamChat(); }} onCall={() => { setProfileOpen(false); onOpenTeamChat(); }} />}
     </section>
   );
 }

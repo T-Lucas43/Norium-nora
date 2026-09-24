@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 
 from app.modules.scheduling.repository import SchedulingRepository, now_iso, opaque_id, public_id, token_hash, token_pair
-from app.modules.scheduling.schemas import AvailabilityPayload, BookingField, BookingPayload, HoldPayload, PagePayload, ServicePayload
+from app.modules.scheduling.schemas import AvailabilityPayload, BookingField, BookingPayload, HoldPayload, PagePayload, ServicePayload, TeamSettingsPayload
 from app.core.tenant import get_user_dir
 
 ACTIVE = ("PENDING", "CONFIRMED")
@@ -46,9 +46,11 @@ def scope_from_user(user: dict[str, Any], workspace_id: str) -> tuple[str, str, 
     user_id = str(user.get("id") or "").strip()
     if not user_id:
         raise HTTPException(401, "Sessao invalida.")
-    # A conta autenticada e o tenant oficial dos stores atuais; workspaces sao
-    # uma subdivisao obrigatoria desse tenant.
-    return user_id, workspace_id, user_id
+    # Recursos de agenda pertencem ao tenant da equipe. O terceiro campo
+    # continua sendo o owner persistido; dentro de uma equipe ele e estavel e
+    # impede que cada membro crie uma agenda paralela invisivel aos demais.
+    team_owner_id = str(user.get("teamOwnerId") or user_id).strip()
+    return team_owner_id, workspace_id, team_owner_id
 
 
 class SchedulingService:
@@ -60,10 +62,93 @@ class SchedulingService:
         return scope
 
     def list_services(self, scope: tuple[str, str, str]) -> list[dict[str, Any]]:
-        return self.repo.all(
+        items = self.repo.all(
             "SELECT * FROM scheduling_services WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND archived_at IS NULL ORDER BY created_at DESC",
             scope,
         )
+        for item in items:
+            item["professionalIds"] = self.service_professional_ids(scope, item["id"])
+        return items
+
+    def service_professional_ids(self, scope: tuple[str, str, str], service_id: str) -> list[str]:
+        return [
+            str(item["user_id"])
+            for item in self.repo.all(
+                "SELECT user_id FROM scheduling_service_professionals WHERE tenant_id=? AND workspace_id=? AND service_id=? ORDER BY user_id",
+                (scope[0], scope[1], service_id),
+            )
+        ]
+
+    def _replace_service_professionals(self, db, scope: tuple[str, str, str], service_id: str, user_ids: list[str]) -> None:
+        db.execute(
+            "DELETE FROM scheduling_service_professionals WHERE tenant_id=? AND workspace_id=? AND service_id=?",
+            (scope[0], scope[1], service_id),
+        )
+        for user_id in user_ids:
+            active = db.execute(
+                "SELECT 1 FROM scheduling_professionals WHERE tenant_id=? AND workspace_id=? AND user_id=? AND active=1",
+                (scope[0], scope[1], user_id),
+            ).fetchone()
+            if not active:
+                raise HTTPException(422, "Profissional nao esta ativo no modo equipe.")
+            db.execute(
+                "INSERT INTO scheduling_service_professionals (tenant_id,workspace_id,service_id,user_id,created_at) VALUES (?,?,?,?,?)",
+                (scope[0], scope[1], service_id, user_id, now_iso()),
+            )
+
+    def team_settings(self, scope: tuple[str, str, str]) -> dict[str, Any]:
+        row = self.repo.one(
+            "SELECT * FROM scheduling_team_settings WHERE tenant_id=? AND workspace_id=?",
+            (scope[0], scope[1]),
+        )
+        professionals = self.repo.all(
+            "SELECT * FROM scheduling_professionals WHERE tenant_id=? AND workspace_id=? ORDER BY display_name",
+            (scope[0], scope[1]),
+        )
+        return {"enabled": bool(row and row.get("enabled")), "professionals": professionals}
+
+    def save_team_settings(self, scope: tuple[str, str, str], payload: TeamSettingsPayload, members: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        stamp = now_iso()
+        requested = {item.userId: item for item in payload.professionals}
+        if set(requested) - set(members):
+            raise HTTPException(422, "Um profissional nao pertence a esta equipe.")
+        with self.repo.transaction() as db:
+            current = db.execute(
+                "SELECT 1 FROM scheduling_team_settings WHERE tenant_id=? AND workspace_id=?",
+                (scope[0], scope[1]),
+            ).fetchone()
+            if current:
+                db.execute(
+                    "UPDATE scheduling_team_settings SET enabled=?,updated_at=? WHERE tenant_id=? AND workspace_id=?",
+                    (int(payload.enabled), stamp, scope[0], scope[1]),
+                )
+            else:
+                db.execute(
+                    "INSERT INTO scheduling_team_settings VALUES (?,?,?,?,?)",
+                    (scope[0], scope[1], int(payload.enabled), stamp, stamp),
+                )
+            db.execute(
+                "DELETE FROM scheduling_professionals WHERE tenant_id=? AND workspace_id=?",
+                (scope[0], scope[1]),
+            )
+            for user_id, item in requested.items():
+                member = members[user_id]
+                db.execute(
+                    "INSERT INTO scheduling_professionals VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        scope[0], scope[1], user_id,
+                        str(member.get("nome") or member.get("email") or "Profissional"),
+                        str(member.get("fotoUrl") or ""), item.profession.strip(),
+                        item.position.strip() or str(member.get("jobTitle") or "Membro"),
+                        item.color, int(item.active), stamp, stamp,
+                    ),
+                )
+            db.execute(
+                "DELETE FROM scheduling_service_professionals WHERE tenant_id=? AND workspace_id=? AND user_id NOT IN (SELECT user_id FROM scheduling_professionals WHERE tenant_id=? AND workspace_id=? AND active=1)",
+                (scope[0], scope[1], scope[0], scope[1]),
+            )
+            self.repo.audit(db, scope, "team_scheduling_updated", "team_settings", scope[0], {"enabled": payload.enabled})
+        return self.team_settings(scope)
 
     def create_service(self, scope: tuple[str, str, str], payload: ServicePayload) -> dict[str, Any]:
         stamp, entity_id = now_iso(), opaque_id("svc")
@@ -76,6 +161,7 @@ class SchedulingService:
                 data["locationType"], data["location"].strip(), data["instructions"].strip(), data["bufferBefore"], data["bufferAfter"],
                 data["capacity"], data["minimumNoticeMinutes"], data["maximumDays"], data["slotInterval"], int(data["active"]), stamp, stamp,
             ))
+            self._replace_service_professionals(db, scope, entity_id, data["professionalIds"])
             self.repo.audit(db, scope, "service_created", "service", entity_id, {"name": data["name"]})
         return self.get_service(scope, entity_id)
 
@@ -83,6 +169,7 @@ class SchedulingService:
         item = self.repo.one("SELECT * FROM scheduling_services WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=? AND archived_at IS NULL", (entity_id, *scope))
         if not item:
             raise HTTPException(404, "Servico nao encontrado.")
+        item["professionalIds"] = self.service_professional_ids(scope, entity_id)
         return item
 
     def update_service(self, scope: tuple[str, str, str], entity_id: str, payload: ServicePayload) -> dict[str, Any]:
@@ -92,6 +179,7 @@ class SchedulingService:
             db.execute("""UPDATE scheduling_services SET name=?,description=?,durations_json=?,color=?,location_type=?,location=?,instructions=?,buffer_before=?,buffer_after=?,capacity=?,minimum_notice_minutes=?,maximum_days=?,slot_interval=?,active=?,updated_at=? WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?""", (
                 data["name"].strip(), data["description"].strip(), json.dumps(data["durations"]), data["color"], data["locationType"], data["location"].strip(), data["instructions"].strip(), data["bufferBefore"], data["bufferAfter"], data["capacity"], data["minimumNoticeMinutes"], data["maximumDays"], data["slotInterval"], int(data["active"]), now_iso(), entity_id, *scope,
             ))
+            self._replace_service_professionals(db, scope, entity_id, data["professionalIds"])
             self.repo.audit(db, scope, "service_updated", "service", entity_id)
         return self.get_service(scope, entity_id)
 
@@ -120,21 +208,25 @@ class SchedulingService:
     def set_availability(self, scope: tuple[str, str, str], payload: AvailabilityPayload) -> dict[str, Any]:
         if payload.serviceId:
             self.get_service(scope, payload.serviceId)
+        availability_owner = payload.responsibleId or scope[2]
+        if payload.responsibleId:
+            self._validate_professional(scope[0], scope[1], payload.serviceId, availability_owner)
         item_id, stamp = opaque_id("avail"), now_iso()
         with self.repo.transaction() as db:
-            existing = db.execute("SELECT id FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id IS ?", (*scope, payload.serviceId)).fetchone()
+            existing = db.execute("SELECT id FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id IS ?", (scope[0], scope[1], availability_owner, payload.serviceId)).fetchone()
             if existing:
                 item_id = existing["id"]
                 db.execute("UPDATE scheduling_availability SET timezone=?,weekly_json=?,exceptions_json=?,blocked_json=?,updated_at=? WHERE id=?", (payload.timezone, json.dumps({k:[p.model_dump() for p in v] for k,v in payload.weekly.items()}), json.dumps({k:[p.model_dump() for p in v] for k,v in payload.exceptions.items()}), json.dumps([p.model_dump() for p in payload.blocked]), stamp, item_id))
             else:
-                db.execute("INSERT INTO scheduling_availability VALUES (?,?,?,?,?,?,?,?,?,?,?)", (item_id, *scope, payload.serviceId, payload.timezone, json.dumps({k:[p.model_dump() for p in v] for k,v in payload.weekly.items()}), json.dumps({k:[p.model_dump() for p in v] for k,v in payload.exceptions.items()}), json.dumps([p.model_dump() for p in payload.blocked]), stamp, stamp))
+                db.execute("INSERT INTO scheduling_availability VALUES (?,?,?,?,?,?,?,?,?,?,?)", (item_id, scope[0], scope[1], availability_owner, payload.serviceId, payload.timezone, json.dumps({k:[p.model_dump() for p in v] for k,v in payload.weekly.items()}), json.dumps({k:[p.model_dump() for p in v] for k,v in payload.exceptions.items()}), json.dumps([p.model_dump() for p in payload.blocked]), stamp, stamp))
             self.repo.audit(db, scope, "availability_updated", "availability", item_id, {"serviceId": payload.serviceId})
-        return self.get_availability(scope, payload.serviceId)
+        return self.get_availability(scope, payload.serviceId, availability_owner)
 
-    def get_availability(self, scope: tuple[str, str, str], service_id: str | None) -> dict[str, Any]:
-        item = self.repo.one("SELECT * FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id IS ?", (*scope, service_id))
+    def get_availability(self, scope: tuple[str, str, str], service_id: str | None, responsible_id: str | None = None) -> dict[str, Any]:
+        owner_id = responsible_id or scope[2]
+        item = self.repo.one("SELECT * FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id IS ?", (scope[0], scope[1], owner_id, service_id))
         if not item:
-            return {"service_id": service_id, "timezone": "America/Sao_Paulo", "weekly": {}, "exceptions": {}, "blocked": []}
+            return {"service_id": service_id, "responsible_id": owner_id, "timezone": "America/Sao_Paulo", "weekly": {}, "exceptions": {}, "blocked": []}
         return item
 
     def create_page(self, scope: tuple[str, str, str], payload: PagePayload) -> dict[str, Any]:
@@ -228,13 +320,86 @@ class SchedulingService:
         service = self.repo.one("SELECT * FROM scheduling_services WHERE id=? AND active=1 AND archived_at IS NULL", (page["service_id"],))
         if not service:
             raise HTTPException(404, "Servico indisponivel.")
-        return {"page": page, "service": service}
+        setting = self.repo.one(
+            "SELECT enabled FROM scheduling_team_settings WHERE tenant_id=? AND workspace_id=?",
+            (page["tenant_id"], page["workspace_id"]),
+        )
+        team_enabled = bool(setting and setting.get("enabled"))
+        services = [service]
+        professionals: list[dict[str, Any]] = []
+        if team_enabled:
+            services = self.repo.all(
+                "SELECT * FROM scheduling_services WHERE tenant_id=? AND workspace_id=? AND active=1 AND archived_at IS NULL ORDER BY name",
+                (page["tenant_id"], page["workspace_id"]),
+            )
+            for item in services:
+                item["professionalIds"] = [
+                    str(link["user_id"])
+                    for link in self.repo.all(
+                        "SELECT user_id FROM scheduling_service_professionals WHERE tenant_id=? AND workspace_id=? AND service_id=? ORDER BY user_id",
+                        (page["tenant_id"], page["workspace_id"], item["id"]),
+                    )
+                ]
+            valid_ids = {user_id for item in services for user_id in item.get("professionalIds", [])}
+            professionals = [
+                {
+                    "id": item["user_id"], "name": item["display_name"],
+                    "avatarUrl": item.get("avatar_url") or "", "profession": item.get("profession") or "",
+                    "position": item.get("position") or "", "color": item.get("color") or "#6d5dfc",
+                }
+                for item in self.repo.all(
+                    "SELECT * FROM scheduling_professionals WHERE tenant_id=? AND workspace_id=? AND active=1 ORDER BY display_name",
+                    (page["tenant_id"], page["workspace_id"]),
+                )
+                if str(item["user_id"]) in valid_ids
+            ]
+        return {"page": page, "service": service, "services": services, "professionals": professionals, "teamMode": team_enabled}
 
-    def _availability_for_page(self, page: dict[str, Any]) -> dict[str, Any]:
-        specific = self.repo.one("SELECT * FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id=?", (page["tenant_id"], page["workspace_id"], page["owner_id"], page["service_id"]))
+    def _availability_for_page(self, page: dict[str, Any], service_id: str | None = None, responsible_id: str | None = None) -> dict[str, Any]:
+        resolved_service = service_id or page["service_id"]
+        resolved_owner = responsible_id or page["owner_id"]
+        specific = self.repo.one("SELECT * FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id=?", (page["tenant_id"], page["workspace_id"], resolved_owner, resolved_service))
         if specific:
             return specific
-        return self.repo.one("SELECT * FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id IS NULL", (page["tenant_id"], page["workspace_id"], page["owner_id"])) or {"timezone":"America/Sao_Paulo","weekly":{},"exceptions":{},"blocked":[]}
+        return self.repo.one("SELECT * FROM scheduling_availability WHERE tenant_id=? AND workspace_id=? AND owner_id=? AND service_id IS NULL", (page["tenant_id"], page["workspace_id"], resolved_owner)) or {"timezone":"America/Sao_Paulo","weekly":{},"exceptions":{},"blocked":[]}
+
+    def _validate_professional(self, tenant_id: str, workspace_id: str, service_id: str | None, user_id: str) -> None:
+        professional = self.repo.one(
+            "SELECT 1 AS ok FROM scheduling_professionals WHERE tenant_id=? AND workspace_id=? AND user_id=? AND active=1",
+            (tenant_id, workspace_id, user_id),
+        )
+        if not professional:
+            raise HTTPException(422, "Profissional nao pertence a esta agenda.")
+        if service_id:
+            linked = self.repo.one(
+                "SELECT 1 AS ok FROM scheduling_service_professionals WHERE tenant_id=? AND workspace_id=? AND service_id=? AND user_id=?",
+                (tenant_id, workspace_id, service_id, user_id),
+            )
+            if not linked:
+                raise HTTPException(422, "Profissional nao presta este servico.")
+
+    def _resolve_public_selection(self, page: dict[str, Any], service_id: str | None, responsible_id: str | None) -> tuple[dict[str, Any], str]:
+        setting = self.repo.one(
+            "SELECT enabled FROM scheduling_team_settings WHERE tenant_id=? AND workspace_id=?",
+            (page["tenant_id"], page["workspace_id"]),
+        )
+        team_enabled = bool(setting and setting.get("enabled"))
+        resolved_service_id = service_id or page["service_id"]
+        service = self.repo.one(
+            "SELECT * FROM scheduling_services WHERE id=? AND tenant_id=? AND workspace_id=? AND active=1 AND archived_at IS NULL",
+            (resolved_service_id, page["tenant_id"], page["workspace_id"]),
+        )
+        if not service:
+            raise HTTPException(404, "Servico indisponivel.")
+        if team_enabled:
+            if not responsible_id:
+                raise HTTPException(422, "Selecione um profissional.")
+            self._validate_professional(page["tenant_id"], page["workspace_id"], service["id"], responsible_id)
+            return service, responsible_id
+        responsible = responsible_id or page["owner_id"]
+        if responsible != page["owner_id"] or resolved_service_id != page["service_id"]:
+            raise HTTPException(422, "Selecao nao pertence a esta pagina.")
+        return service, responsible
 
     @staticmethod
     def _overlap(start: datetime, end: datetime, item_start: str, item_end: str) -> bool:
@@ -257,12 +422,13 @@ class SchedulingService:
         now = datetime.now(timezone.utc)
         return inside and start >= now + timedelta(minutes=service["minimum_notice_minutes"]) and start <= now + timedelta(days=service["maximum_days"])
 
-    def available_slots(self, identifier: str, day: date, duration: int, *, bundle: dict[str, Any] | None = None) -> dict[str, Any]:
+    def available_slots(self, identifier: str, day: date, duration: int, *, bundle: dict[str, Any] | None = None, responsible_id: str | None = None, service_id: str | None = None) -> dict[str, Any]:
         resolved = bundle or self.public_page(identifier)
-        page, service = resolved["page"], resolved["service"]
+        page = resolved["page"]
+        service, responsible = self._resolve_public_selection(page, service_id, responsible_id)
         if duration not in service["durations"]:
             raise HTTPException(422, "Duracao nao permitida.")
-        availability = self._availability_for_page(page)
+        availability = self._availability_for_page(page, service["id"], responsible)
         zone = ZoneInfo(availability["timezone"])
         periods = availability.get("exceptions", {}).get(day.isoformat())
         if periods is None:
@@ -279,13 +445,13 @@ class SchedulingService:
                 while cursor + timedelta(minutes=duration) <= period_end:
                     end = cursor + timedelta(minutes=duration)
                     if cursor >= now + timedelta(minutes=service["minimum_notice_minutes"]) and cursor <= latest:
-                        remaining = self.remaining_capacity(service, page["owner_id"], cursor, end, availability, db=connection)
+                        remaining = self.remaining_capacity(service, responsible, cursor, end, availability, db=connection)
                         if remaining > 0:
                             result.append({"startAt": cursor.isoformat(), "endAt": end.isoformat(), "remaining": remaining})
                     cursor += step
         finally:
             connection.close()
-        return {"date": day.isoformat(), "timezone": availability["timezone"], "slots": result}
+        return {"date": day.isoformat(), "timezone": availability["timezone"], "slots": result, "responsibleId": responsible, "serviceId": service["id"]}
 
     def remaining_capacity(self, service: dict[str, Any], responsible_id: str, start: datetime, end: datetime, availability: dict[str, Any], *, db: sqlite3.Connection | None = None, exclude_booking_id: str | None = None) -> int:
         blocked_start = start - timedelta(minutes=service["buffer_before"])
@@ -332,12 +498,10 @@ class SchedulingService:
 
     def create_hold(self, identifier: str, payload: HoldPayload) -> dict[str, Any]:
         bundle = self.public_page(identifier)
-        page, service = bundle["page"], bundle["service"]
+        page = bundle["page"]
+        service, responsible = self._resolve_public_selection(page, payload.serviceId, payload.responsibleId)
         start = parse_utc(payload.startAt); end = start + timedelta(minutes=payload.duration)
-        responsible = payload.responsibleId or page["owner_id"]
-        if responsible != page["owner_id"]:
-            raise HTTPException(422, "Responsavel nao pertence a esta pagina.")
-        availability = self._availability_for_page(page)
+        availability = self._availability_for_page(page, service["id"], responsible)
         if not self._fits_availability(start, end, availability, service):
             raise HTTPException(409, "Horario fora da disponibilidade.")
         raw, hashed = token_pair(); hold_id = opaque_id("hold")
@@ -379,16 +543,14 @@ class SchedulingService:
         return cleaned
 
     def create_booking(self, identifier: str, payload: BookingPayload) -> dict[str, Any]:
-        bundle = self.public_page(identifier); page, service = bundle["page"], bundle["service"]
+        bundle = self.public_page(identifier); page = bundle["page"]
+        service, responsible = self._resolve_public_selection(page, payload.serviceId, payload.responsibleId)
         if payload.duration not in service["durations"]: raise HTTPException(422, "Duracao nao permitida.")
         start = parse_utc(payload.startAt); end = start + timedelta(minutes=payload.duration)
-        responsible = payload.responsibleId or page["owner_id"]
-        if responsible != page["owner_id"]:
-            raise HTTPException(422, "Responsavel nao pertence a esta pagina.")
         responses = self._validate_responses(page["fields"], payload.responses)
         cancel_raw, cancel_hash = token_pair(); reschedule_raw, reschedule_hash = token_pair()
         booking_id, booking_public = opaque_id("book"), public_id(); stamp = now_iso()
-        availability = self._availability_for_page(page)
+        availability = self._availability_for_page(page, service["id"], responsible)
         if not self._fits_availability(start, end, availability, service):
             raise HTTPException(409, "Horario fora da disponibilidade.")
         try:
@@ -417,10 +579,29 @@ class SchedulingService:
 
     @staticmethod
     def _public_booking(item: dict[str, Any]) -> dict[str, Any]:
-        return {key: item.get(key) for key in ("public_id", "start_at", "end_at", "timezone", "status")}
+        return {key: item.get(key) for key in ("id", "public_id", "owner_id", "responsible_id", "service_id", "page_id", "start_at", "end_at", "timezone", "status")}
 
     def list_bookings(self, scope: tuple[str, str, str]) -> list[dict[str, Any]]:
-        return self.repo.all("SELECT * FROM scheduling_bookings WHERE tenant_id=? AND workspace_id=? AND owner_id=? ORDER BY start_at DESC", scope)
+        return self.repo.all("""SELECT b.*, s.name AS service_name, p.display_name AS professional_name, p.color AS professional_color
+          FROM scheduling_bookings b JOIN scheduling_services s ON s.id=b.service_id
+          LEFT JOIN scheduling_professionals p ON p.tenant_id=b.tenant_id AND p.workspace_id=b.workspace_id AND p.user_id=b.responsible_id
+          WHERE b.tenant_id=? AND b.workspace_id=? AND b.owner_id=? ORDER BY b.start_at DESC""", scope)
+
+    def team_calendar(self, scope: tuple[str, str, str], start_at: str | None = None, end_at: str | None = None) -> list[dict[str, Any]]:
+        query = """SELECT b.*, s.name AS service_name, s.color AS service_color,
+          p.display_name AS professional_name, p.color AS professional_color, p.position AS professional_position
+          FROM scheduling_bookings b JOIN scheduling_services s ON s.id=b.service_id
+          LEFT JOIN scheduling_professionals p ON p.tenant_id=b.tenant_id AND p.workspace_id=b.workspace_id AND p.user_id=b.responsible_id
+          WHERE b.tenant_id=? AND b.workspace_id=? AND b.owner_id=?"""
+        params: list[Any] = list(scope)
+        if start_at:
+            query += " AND b.end_at>=?"
+            params.append(parse_utc(start_at).isoformat())
+        if end_at:
+            query += " AND b.start_at<=?"
+            params.append(parse_utc(end_at).isoformat())
+        query += " ORDER BY b.start_at"
+        return self.repo.all(query, tuple(params))
 
     def update_booking_status(self, scope: tuple[str, str, str], booking_id: str, status: str) -> dict[str, Any]:
         allowed = {"PENDING", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"}
@@ -468,7 +649,7 @@ class SchedulingService:
                 raise HTTPException(422, "Duracao nao permitida.")
             if booking["start_at"] == start.isoformat() and booking["end_at"] == end.isoformat():
                 return {"booking": booking, "replay": True}
-            availability = self._availability_for_page(page)
+            availability = self._availability_for_page(page, booking["service_id"], booking["responsible_id"])
             if not self._fits_availability(start, end, availability, service):
                 raise HTTPException(409, "Novo horario fora da disponibilidade.")
             if self.remaining_capacity(service, booking["responsible_id"], start, end, availability, db=db, exclude_booking_id=booking["id"]) <= 0:
@@ -590,7 +771,7 @@ class SchedulingService:
             service = self.repo.decode(db.execute("SELECT * FROM scheduling_services WHERE id=?", (row["service_id"],)).fetchone()) or {}
             page = self.repo.decode(db.execute("SELECT * FROM scheduling_pages WHERE id=?", (row["page_id"],)).fetchone()) or {}
             if duration not in service.get("durations", []): raise HTTPException(422, "Duracao nao permitida.")
-            availability = self._availability_for_page(page)
+            availability = self._availability_for_page(page, row["service_id"], row["responsible_id"])
             if not self._fits_availability(start, end, availability, service):
                 raise HTTPException(409, "Novo horario fora da disponibilidade.")
             db.execute("UPDATE scheduling_bookings SET status='RESCHEDULED' WHERE id=?", (row["id"],))

@@ -769,6 +769,74 @@ async def list_members(user: dict[str, Any] = Depends(current_user)) -> dict[str
     return {"teamId": team_id_for(user), "members": members, "onlineUserIds": online_user_ids}
 
 
+def _shared_with_member(item: dict[str, Any], member_id: str) -> bool:
+    if str(item.get("createdBy") or item.get("ownerId") or "") == member_id:
+        return True
+    access = item.get("access") if isinstance(item.get("access"), dict) else {}
+    return any(
+        isinstance(person, dict) and str(person.get("userId") or "") == member_id
+        for person in access.get("people", [])
+    )
+
+
+@router.get("/members/{member_id}/profile")
+async def member_profile(member_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    """Perfil colaborativo limitado ao que o solicitante ja pode visualizar."""
+    members = await visible_team_members(user)
+    member = next((item for item in members if str(item.get("id") or "") == member_id), None)
+    if not member:
+        raise HTTPException(404, "Membro nao encontrado nesta equipe.")
+
+    from app.modules.auth.router import find_team, sanitize_team, team_id_for_user
+    from app.modules.clients.access import list_accessible_clients
+    from app.modules.commercial.service import list_commercial_data
+    from app.modules.tasks.router import member_matches_task, tenant_id
+    from app.services.task_store import list_tasks
+
+    store = await read_user_store()
+    team = find_team(store, team_id_for_user(user))
+    tasks = list_tasks(tenant_id(user), status="todas").get("tasks", [])
+    pending_tasks = [
+        {
+            "id": item.get("id"), "title": item.get("title") or "Tarefa",
+            "status": item.get("status") or "pendente", "priority": item.get("priority") or "media",
+            "dueDate": item.get("dueDate"), "projectId": item.get("projectId"),
+        }
+        for item in tasks
+        if item.get("status") != "concluida" and member_matches_task(member, item)
+    ][:20]
+
+    accessible_clients = await list_accessible_clients(user)
+    clients = [
+        {
+            "id": item.get("id"), "name": item.get("name") or item.get("company") or "Cliente",
+            "company": item.get("company") or "", "access": item.get("access") or {},
+        }
+        for _store_id, item in accessible_clients
+        if _shared_with_member(item, member_id)
+    ][:20]
+
+    commercial = await list_commercial_data(user)
+    proposals = [item for item in commercial.get("proposals", []) if _shared_with_member(item, member_id)][:20]
+    documents = [
+        item for item in [*commercial.get("contracts", []), *commercial.get("uploadedDocuments", [])]
+        if _shared_with_member(item, member_id)
+    ][:20]
+
+    return {
+        "member": member,
+        "team": sanitize_team(store, team) if team else None,
+        "pendingTasks": pending_tasks,
+        "sharedClients": clients,
+        "sharedProposals": proposals,
+        "sharedDocuments": documents,
+        "counts": {
+            "pendingTasks": len(pending_tasks), "clients": len(clients),
+            "proposals": len(proposals), "documents": len(documents),
+        },
+    }
+
+
 async def _call_active_member_ids(actor: CallActor) -> set[str]:
     store = await read_user_store()
     return {

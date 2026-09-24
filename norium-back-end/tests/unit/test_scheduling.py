@@ -12,7 +12,7 @@ from fastapi import HTTPException
 
 from app.modules.scheduling.repository import SchedulingRepository
 from app.modules.scheduling.router import _booking_calendar_details
-from app.modules.scheduling.schemas import AvailabilityPayload, BookingField, BookingPayload, PagePayload, Period, ServicePayload
+from app.modules.scheduling.schemas import AvailabilityPayload, BookingField, BookingPayload, PagePayload, Period, ServicePayload, TeamProfessionalPayload, TeamSettingsPayload
 from app.modules.scheduling.service import SchedulingService, validate_cpf
 
 
@@ -115,6 +115,49 @@ class SchedulingTests(unittest.TestCase):
     def test_public_cannot_inject_responsible_id(self):
         _item, page = self.configured()
         payload = self.booking_payload(self.next_monday_at(8), "owner-injection").model_copy(update={"responsibleId": "other-user"})
+        with self.assertRaises(HTTPException) as error:
+            self.scheduling.create_booking(page["public_id"], payload)
+        self.assertEqual(error.exception.status_code, 422)
+
+    def test_team_mode_links_professionals_services_and_isolates_conflicts(self):
+        scope = ("team-a", "primary", "team-a")
+        members = {
+            "pro-a": {"id": "pro-a", "nome": "Ana", "email": "ana@example.com", "jobTitle": "Advogada"},
+            "pro-b": {"id": "pro-b", "nome": "Bruno", "email": "bruno@example.com", "jobTitle": "Consultor"},
+        }
+        self.scheduling.save_team_settings(
+            scope,
+            TeamSettingsPayload(enabled=True, professionals=[
+                TeamProfessionalPayload(userId="pro-a", active=True, profession="Direito", position="Sócia", color="#2563eb"),
+                TeamProfessionalPayload(userId="pro-b", active=True, profession="Consultoria", position="Especialista", color="#16a34a"),
+            ]),
+            members,
+        )
+        item = self.scheduling.create_service(scope, ServicePayload(name="Consulta", durations=[60], professionalIds=["pro-a", "pro-b"]))
+        weekly = {"0": [Period(start="08:00", end="12:00")]}
+        self.scheduling.set_availability(scope, AvailabilityPayload(serviceId=item["id"], responsibleId="pro-a", weekly=weekly))
+        self.scheduling.set_availability(scope, AvailabilityPayload(serviceId=item["id"], responsibleId="pro-b", weekly=weekly))
+        page = self.scheduling.create_page(scope, PagePayload(serviceId=item["id"], title="Equipe", slug="equipe"))
+        public = self.scheduling.public_page(page["public_id"])
+        self.assertTrue(public["teamMode"])
+        self.assertEqual({value["id"] for value in public["professionals"]}, {"pro-a", "pro-b"})
+
+        start = self.next_monday_at(8)
+        first = self.booking_payload(start, "team-a-booking").model_copy(update={"serviceId": item["id"], "responsibleId": "pro-a", "responses": {}})
+        second = self.booking_payload(start, "team-b-booking").model_copy(update={"serviceId": item["id"], "responsibleId": "pro-b", "responses": {}})
+        self.scheduling.create_booking(page["public_id"], first)
+        self.scheduling.create_booking(page["public_id"], second)
+        bookings = self.scheduling.team_calendar(scope)
+        self.assertEqual(len(bookings), 2)
+        self.assertEqual({value["responsible_id"] for value in bookings}, {"pro-a", "pro-b"})
+
+    def test_team_mode_rejects_unlinked_professional(self):
+        scope = ("team-a", "primary", "team-a")
+        members = {"pro-a": {"id": "pro-a", "nome": "Ana"}, "pro-b": {"id": "pro-b", "nome": "Bruno"}}
+        self.scheduling.save_team_settings(scope, TeamSettingsPayload(enabled=True, professionals=[TeamProfessionalPayload(userId="pro-a"), TeamProfessionalPayload(userId="pro-b")]), members)
+        item = self.scheduling.create_service(scope, ServicePayload(name="Consulta", durations=[60], professionalIds=["pro-a"]))
+        page = self.scheduling.create_page(scope, PagePayload(serviceId=item["id"], title="Equipe", slug="equipe-restrita"))
+        payload = self.booking_payload(self.next_monday_at(8), "unlinked").model_copy(update={"serviceId": item["id"], "responsibleId": "pro-b", "responses": {}})
         with self.assertRaises(HTTPException) as error:
             self.scheduling.create_booking(page["public_id"], payload)
         self.assertEqual(error.exception.status_code, 422)

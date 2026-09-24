@@ -49,6 +49,7 @@ class BlockedPeriod(StrictModel):
 
 class AvailabilityPayload(StrictModel):
     serviceId: str | None = Field(default=None, max_length=80)
+    responsibleId: str | None = Field(default=None, max_length=80)
     timezone: str = "America/Sao_Paulo"
     weekly: dict[str, list[Period]] = Field(default_factory=dict)
     exceptions: dict[str, list[Period]] = Field(default_factory=dict)
@@ -92,6 +93,7 @@ class ServicePayload(StrictModel):
     maximumDays: int = Field(default=60, ge=1, le=730)
     slotInterval: int = Field(default=15, ge=5, le=1440)
     active: bool = True
+    professionalIds: list[str] = Field(default_factory=list, max_length=100)
 
     @field_validator("durations")
     @classmethod
@@ -107,6 +109,11 @@ class ServicePayload(StrictModel):
         if not HEX_COLOR.fullmatch(value):
             raise ValueError("Cor hexadecimal invalida.")
         return value.lower()
+
+    @field_validator("professionalIds")
+    @classmethod
+    def unique_professionals(cls, value: list[str]):
+        return list(dict.fromkeys(item.strip() for item in value if item.strip()))
 
 
 FieldType = Literal["full_name", "first_name", "last_name", "email", "phone", "cpf", "cnpj", "date", "datetime", "time", "address", "text", "textarea", "number", "select", "multiselect", "checkbox", "radio", "boolean"]
@@ -162,6 +169,27 @@ class HoldPayload(StrictModel):
     startAt: str
     duration: int = Field(ge=5, le=1440)
     responsibleId: str | None = Field(default=None, max_length=80)
+    serviceId: str | None = Field(default=None, max_length=80)
+
+
+class TeamProfessionalPayload(StrictModel):
+    userId: str = Field(min_length=1, max_length=80)
+    active: bool = True
+    profession: str = Field(default="", max_length=120)
+    position: str = Field(default="", max_length=120)
+    color: str = "#6d5dfc"
+
+    @field_validator("color")
+    @classmethod
+    def valid_color(cls, value: str):
+        if not HEX_COLOR.fullmatch(value):
+            raise ValueError("Cor hexadecimal invalida.")
+        return value.lower()
+
+
+class TeamSettingsPayload(StrictModel):
+    enabled: bool = False
+    professionals: list[TeamProfessionalPayload] = Field(default_factory=list, max_length=100)
 
 
 class BookingPayload(HoldPayload):

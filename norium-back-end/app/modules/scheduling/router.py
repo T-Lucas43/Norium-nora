@@ -15,7 +15,7 @@ from pydantic import Field
 from app.core.request_context import current_workspace_id
 from app.modules.auth.router import current_user, effective_permissions
 from app.modules.inbox.router import record_event
-from app.modules.scheduling.schemas import AdminReschedulePayload, AvailabilityPayload, BookingPayload, CancelPayload, HoldPayload, LogoPayload, PagePayload, ReschedulePayload, ServicePayload
+from app.modules.scheduling.schemas import AdminReschedulePayload, AvailabilityPayload, BookingPayload, CancelPayload, HoldPayload, LogoPayload, PagePayload, ReschedulePayload, ServicePayload, TeamSettingsPayload
 from app.modules.scheduling.service import SchedulingService, parse_utc, scope_from_user
 from app.services.calendar_service import CalendarService
 from app.services.gmail_service import GmailConfigError, GmailService
@@ -161,8 +161,8 @@ def archive_service(service_id: str, user: dict[str, Any] = Depends(current_user
 
 
 @router.get("/availability")
-def get_availability(serviceId: str | None = None, user: dict[str, Any] = Depends(current_user)):
-    return service().get_availability(authorized_scope(user), serviceId)
+def get_availability(serviceId: str | None = None, responsibleId: str | None = None, user: dict[str, Any] = Depends(current_user)):
+    return service().get_availability(authorized_scope(user), serviceId, responsibleId)
 
 
 @router.put("/availability")
@@ -199,6 +199,40 @@ def upload_page_logo(page_id: str, payload: LogoPayload, user: dict[str, Any] = 
 @router.get("/bookings")
 def list_bookings(user: dict[str, Any] = Depends(current_user)):
     return {"bookings": service().list_bookings(authorized_scope(user))}
+
+
+@router.get("/team-settings")
+async def get_team_settings(user: dict[str, Any] = Depends(current_user)):
+    from app.modules.team.router import visible_team_members
+    settings = service().team_settings(authorized_scope(user))
+    members = {str(item.get("id") or ""): item for item in await visible_team_members(user)}
+    configured = {str(item.get("user_id") or ""): item for item in settings["professionals"]}
+    settings["professionals"] = [
+        {
+            "userId": member_id, "name": member.get("nome") or member.get("email") or "Membro",
+            "email": member.get("email") or "", "avatarUrl": member.get("fotoUrl") or "",
+            "jobTitle": member.get("jobTitle") or "Membro",
+            "active": bool(configured.get(member_id, {}).get("active")),
+            "profession": configured.get(member_id, {}).get("profession") or "",
+            "position": configured.get(member_id, {}).get("position") or member.get("jobTitle") or "Membro",
+            "color": configured.get(member_id, {}).get("color") or "#6d5dfc",
+        }
+        for member_id, member in members.items()
+    ]
+    return settings
+
+
+@router.put("/team-settings")
+async def update_team_settings(payload: TeamSettingsPayload, user: dict[str, Any] = Depends(current_user)):
+    from app.modules.team.router import visible_team_members
+    members = {str(item.get("id") or ""): item for item in await visible_team_members(user)}
+    service().save_team_settings(authorized_scope(user), payload, members)
+    return await get_team_settings(user)
+
+
+@router.get("/team-calendar")
+def team_calendar(startAt: str | None = None, endAt: str | None = None, user: dict[str, Any] = Depends(current_user)):
+    return {"events": service().team_calendar(authorized_scope(user), startAt, endAt)}
 
 
 class BookingStatusPayload(StrictModel):
@@ -557,13 +591,15 @@ async def get_slots(
     background_tasks: BackgroundTasks,
     day: date = Query(),
     duration: int = Query(ge=5, le=1440),
+    responsibleId: str | None = Query(default=None, max_length=80),
+    serviceId: str | None = Query(default=None, max_length=80),
 ):
     scheduling = service()
     bundle = scheduling.public_page(identifier)
-    result = scheduling.available_slots(identifier, day, duration, bundle=bundle)
+    result = scheduling.available_slots(identifier, day, duration, bundle=bundle, responsible_id=responsibleId, service_id=serviceId)
     calendar_verified = True
     if result["slots"]:
-        owner_id = str(bundle["page"]["owner_id"])
+        owner_id = str(result.get("responsibleId") or bundle["page"]["owner_id"])
         start_at = result["slots"][0]["startAt"]
         end_at = result["slots"][-1]["endAt"]
         busy = _cached_calendar_busy(owner_id, start_at, end_at)
@@ -590,9 +626,8 @@ async def create_hold(identifier: str, payload: HoldPayload):
     bundle = scheduling.public_page(identifier)
     start = datetime.fromisoformat(payload.startAt.replace("Z", "+00:00"))
     end = start + timedelta(minutes=payload.duration)
-    conflict, verified = await _calendar_conflict_fast(
-        str(bundle["page"]["owner_id"]), start.isoformat(), end.isoformat()
-    )
+    _selected_service, responsible = scheduling._resolve_public_selection(bundle["page"], payload.serviceId, payload.responsibleId)
+    conflict, verified = await _calendar_conflict_fast(responsible, start.isoformat(), end.isoformat())
     if not verified:
         logger.info("Calendario externo nao respondeu a tempo ao criar hold; validacao local preservada.")
     if conflict:
@@ -667,9 +702,8 @@ async def create_booking(identifier: str, payload: BookingPayload, background_ta
     bundle = scheduling.public_page(identifier)
     start = datetime.fromisoformat(payload.startAt.replace("Z", "+00:00"))
     end = start + timedelta(minutes=payload.duration)
-    conflict, verified = await _calendar_conflict_fast(
-        str(bundle["page"]["owner_id"]), start.isoformat(), end.isoformat()
-    )
+    selected_service, responsible = scheduling._resolve_public_selection(bundle["page"], payload.serviceId, payload.responsibleId)
+    conflict, verified = await _calendar_conflict_fast(responsible, start.isoformat(), end.isoformat())
     if not verified:
         logger.info("Calendario externo nao respondeu a tempo na confirmacao; validacao local preservada.")
     if conflict:
@@ -680,10 +714,10 @@ async def create_booking(identifier: str, payload: BookingPayload, background_ta
         await record_event(
             source="calendar",
             title="Novo agendamento recebido",
-            description=str(bundle["service"].get("name") or "Reunião agendada"),
+            description=str(selected_service.get("name") or "Reunião agendada"),
             event_id=f"scheduling_{booking['id']}_created",
             metadata={
-                "userId": str(booking.get("owner_id") or ""),
+                "userId": str(booking.get("responsible_id") or booking.get("owner_id") or ""),
                 "bookingId": booking.get("id"),
                 "inicio": booking.get("start_at"),
                 "fim": booking.get("end_at"),
@@ -693,12 +727,12 @@ async def create_booking(identifier: str, payload: BookingPayload, background_ta
         description, location = _booking_calendar_details(
             payload,
             list(bundle["page"].get("fields") or []),
-            dict(bundle["service"]),
+            dict(selected_service),
         )
         background_tasks.add_task(
             _sync_public_booking_calendar,
-            str(bundle["page"]["owner_id"]),
-            str(bundle["service"]["name"]),
+            responsible,
+            str(selected_service["name"]),
             dict(booking),
             payload.email,
             description,

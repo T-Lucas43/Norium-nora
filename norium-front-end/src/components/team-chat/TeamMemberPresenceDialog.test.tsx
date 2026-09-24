@@ -19,7 +19,7 @@ const member = {
 
 describe("TeamMemberPresenceDialog", () => {
   it("mostra somente presença ativa quando o membro está online", () => {
-    render(<TeamMemberPresenceDialog member={member} online isCurrentUser={false} onClose={vi.fn()} onMessage={vi.fn()} onCall={vi.fn()} />);
+    render(<TeamMemberPresenceDialog member={member} online isCurrentUser={false} token="token" onClose={vi.fn()} onMessage={vi.fn()} onCall={vi.fn()} />);
 
     expect(screen.getByRole("dialog", { name: "Detalhes de Maria Silva" })).toBeInTheDocument();
     expect(screen.getByText("Online agora")).toBeInTheDocument();
@@ -27,7 +27,7 @@ describe("TeamMemberPresenceDialog", () => {
   });
 
   it("mostra data e hora do último acesso quando o membro está offline", () => {
-    render(<TeamMemberPresenceDialog member={member} online={false} isCurrentUser={false} onClose={vi.fn()} onMessage={vi.fn()} onCall={vi.fn()} />);
+    render(<TeamMemberPresenceDialog member={member} online={false} isCurrentUser={false} token="token" onClose={vi.fn()} onMessage={vi.fn()} onCall={vi.fn()} />);
 
     expect(screen.getByText("Offline")).toBeInTheDocument();
     expect(screen.getByText(/Último acesso em 30\/08\/2026 às 14:35/)).toBeInTheDocument();

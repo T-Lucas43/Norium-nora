@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CalendarCheck, Clock3, Copy, Link2, Pencil, Plus, Trash2, Users, type LucideIcon } from "lucide-react";
 import Button from "../shared/Button";
 import { apiBaseUrl } from "../../core/api/config";
-import { schedulingApi, type AvailabilityPeriod, type Booking, type SchedulingPage, type SchedulingService } from "../../features/scheduling/api";
+import { schedulingApi, type AvailabilityPeriod, type Booking, type SchedulingPage, type SchedulingProfessional, type SchedulingService, type TeamSchedulingSettings } from "../../features/scheduling/api";
 import { WEEKDAYS, defaultPeriods, periodsFromWeekly, weeklyFromPeriods, type DayPeriod } from "../../features/scheduling/availability";
 import PagePreview from "./PagePreview";
 import RescheduleDialog from "./RescheduleDialog";
@@ -12,7 +12,7 @@ const BUILTIN_FIELDS = [
   { id: "email", type: "email", label: "E-mail", required: true, maxLength: 254 },
   { id: "phone", type: "phone", label: "WhatsApp", required: false, maxLength: 32 },
 ];
-const EMPTY_SERVICE_FORM = { name: "", description: "", durations: "30", capacity: 1, bufferBefore: 0, bufferAfter: 0 };
+const EMPTY_SERVICE_FORM = { name: "", description: "", durations: "30", capacity: 1, bufferBefore: 0, bufferAfter: 0, professionalIds: [] as string[] };
 const EMPTY_PAGE_FORM = { serviceId: "", title: "", slug: "", description: "", primary: "#6d5dfc", secondary: "#4338ca", accent: "#14b8a6", background: "#f7f7fb", text: "#171722", mode: "auto" };
 
 function customFieldMaxLength(type: string) {
@@ -28,6 +28,8 @@ export default function SchedulingDashboard() {
   const [services, setServices] = useState<SchedulingService[]>([]);
   const [pages, setPages] = useState<SchedulingPage[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [teamCalendar, setTeamCalendar] = useState<Booking[]>([]);
+  const [teamSettings, setTeamSettings] = useState<TeamSchedulingSettings>({ enabled: false, professionals: [] });
   const [section, setSection] = useState("Agendamentos");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -41,6 +43,7 @@ export default function SchedulingDashboard() {
   const [customField, setCustomField] = useState({ label: "CPF", type: "cpf", required: true });
   const [pageFields, setPageFields] = useState<Array<{id:string;type:string;label:string;required:boolean;maxLength:number}>>([]);
   const [availabilityService, setAvailabilityService] = useState("");
+  const [availabilityResponsible, setAvailabilityResponsible] = useState("");
   const [periods, setPeriods] = useState<Record<string, DayPeriod>>(defaultPeriods);
   const [lunch, setLunch] = useState({ enabled: true, start: "12:00", end: "14:00" });
   const [availLoading, setAvailLoading] = useState(false);
@@ -52,18 +55,19 @@ export default function SchedulingDashboard() {
 
   const reload = async () => {
     setLoading(true); setError("");
-    try { const data = await schedulingApi.dashboard(); setServices(data.services); setPages(data.pages); setBookings(data.bookings); }
+    try { const data = await schedulingApi.dashboard(); setServices(data.services); setPages(data.pages); setBookings(data.bookings); if (data.teamSettings) setTeamSettings(data.teamSettings); setTeamCalendar(data.teamCalendar || data.bookings); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao carregar."); }
     finally { setLoading(false); }
   };
   useEffect(() => { void reload(); }, []);
   useEffect(() => { if (!pageForm.serviceId && services[0]) setPageForm((v) => ({ ...v, serviceId: services[0].id })); if (!availabilityService && services[0]) setAvailabilityService(services[0].id); }, [services, pageForm.serviceId, availabilityService]);
+  useEffect(() => { if (teamSettings.enabled && !availabilityResponsible) setAvailabilityResponsible(teamSettings.professionals.find((item) => item.active)?.userId || ""); }, [availabilityResponsible, teamSettings]);
 
   useEffect(() => {
     if (!availabilityService) return;
     let cancelled = false;
     setAvailLoading(true); setAvailNotice(""); setError("");
-    schedulingApi.getAvailability(availabilityService).then((data) => {
+    (teamSettings.enabled ? schedulingApi.getAvailability(availabilityService, availabilityResponsible) : schedulingApi.getAvailability(availabilityService)).then((data) => {
       if (cancelled) return;
       setPeriods(periodsFromWeekly(data.weekly));
       setLunch((current) => ({ ...current, enabled: false }));
@@ -72,7 +76,7 @@ export default function SchedulingDashboard() {
     }).catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Falha ao carregar disponibilidade."); })
       .finally(() => { if (!cancelled) setAvailLoading(false); });
     return () => { cancelled = true; };
-  }, [availabilityService]);
+  }, [availabilityResponsible, availabilityService, teamSettings.enabled]);
 
   const today = new Date().toISOString().slice(0, 10);
   const counters = useMemo(() => ({ today: bookings.filter((item) => item.start_at.startsWith(today)).length, confirmed: bookings.filter((item) => item.status === "CONFIRMED").length, pending: bookings.filter((item) => item.status === "PENDING").length, cancelled: bookings.filter((item) => item.status === "CANCELLED").length }), [bookings, today]);
@@ -95,10 +99,11 @@ export default function SchedulingDashboard() {
           instructions: current.instructions || "", bufferBefore: serviceForm.bufferBefore, bufferAfter: serviceForm.bufferAfter,
           capacity: serviceForm.capacity, minimumNoticeMinutes: current.minimum_notice_minutes ?? 60,
           maximumDays: current.maximum_days ?? 60, slotInterval: current.slot_interval, active: current.active,
+          professionalIds: serviceForm.professionalIds,
         });
         setNotice("Serviço atualizado.");
       } else {
-        await schedulingApi.createService({ ...serviceForm, name: serviceForm.name.trim(), description: serviceForm.description.trim(), durations, color: "#6d5dfc", locationType: "online", location: "", instructions: "", minimumNoticeMinutes: 60, maximumDays: 60, slotInterval: 15, active: true });
+        await schedulingApi.createService({ ...serviceForm, name: serviceForm.name.trim(), description: serviceForm.description.trim(), durations, color: "#6d5dfc", locationType: "online", location: "", instructions: "", minimumNoticeMinutes: 60, maximumDays: 60, slotInterval: 15, active: true, professionalIds: serviceForm.professionalIds });
         setNotice("Serviço criado.");
       }
       setServiceForm(EMPTY_SERVICE_FORM); setEditingServiceId(""); setError(""); await reload();
@@ -107,7 +112,7 @@ export default function SchedulingDashboard() {
 
   function startEditService(item: SchedulingService) {
     setEditingServiceId(item.id);
-    setServiceForm({ name: item.name, description: item.description || "", durations: item.durations.join(", "), capacity: item.capacity, bufferBefore: item.buffer_before, bufferAfter: item.buffer_after });
+    setServiceForm({ name: item.name, description: item.description || "", durations: item.durations.join(", "), capacity: item.capacity, bufferBefore: item.buffer_before, bufferAfter: item.buffer_after, professionalIds: item.professionalIds || [] });
     setNotice(""); setError("");
   }
 
@@ -125,6 +130,7 @@ export default function SchedulingDashboard() {
     try {
       const saved = await schedulingApi.setAvailability({
         serviceId: availabilityService || null,
+        responsibleId: teamSettings.enabled ? availabilityResponsible || null : null,
         timezone: availTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo",
         weekly: weeklyFromPeriods(periods, lunch), exceptions: advanced.exceptions, blocked: advanced.blocked,
       });
@@ -212,28 +218,49 @@ export default function SchedulingDashboard() {
     catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao cancelar agendamento."); }
   }
 
+  async function saveTeamMode() {
+    try {
+      await schedulingApi.saveTeamSettings({ enabled: teamSettings.enabled, professionals: teamSettings.professionals.map(({userId,active,profession,position,color}) => ({userId,active,profession,position,color})) });
+      const saved = await schedulingApi.teamSettings();
+      setTeamSettings(saved);
+      setAvailabilityResponsible(saved.professionals.find((item) => item.active)?.userId || "");
+      setNotice("Modo equipe e profissionais atualizados."); setError(""); await reload();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Falha ao salvar modo equipe."); }
+  }
+
+  function updateProfessional(userId: string, patch: Partial<SchedulingProfessional>) {
+    setTeamSettings((current) => ({ ...current, professionals: current.professionals.map((item) => item.userId === userId ? { ...item, ...patch } : item) }));
+  }
+
   const previewService = services.find((item) => item.id === pageForm.serviceId);
   const previewFields = [...BUILTIN_FIELDS.map((field) => ({ id: field.id, type: field.type, label: field.label, required: field.required })), ...pageFields];
 
   return <div className="min-h-full bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
     <header className="mb-5 flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.18em] text-[var(--primary)]">Norium</p><h1 className="text-2xl font-black">Agendamentos</h1><p className="text-sm text-[var(--text-secondary)]">Serviços, disponibilidade, páginas públicas e reservas.</p></div><Button variant="primary" icon={<Plus size={16}/>} onClick={() => setSection("Serviços")}>Novo serviço</Button></header>
-    <nav className="mb-5 flex gap-2 overflow-x-auto" aria-label="Seções de agendamentos">{["Agendamentos","Serviços","Disponibilidade","Páginas"].map((item) => <button key={item} onClick={() => setSection(item)} className={`rounded-lg px-4 py-2 text-sm font-bold ${section===item ? "bg-[var(--primary)] text-white" : "border border-[var(--border)] bg-[var(--surface)]"}`}>{item}</button>)}</nav>
+    <nav className="mb-5 flex gap-2 overflow-x-auto" aria-label="Seções de agendamentos">{["Agendamentos","Calendário da equipe","Serviços","Disponibilidade","Páginas","Modo equipe"].map((item) => <button key={item} onClick={() => setSection(item)} className={`whitespace-nowrap rounded-lg px-4 py-2 text-sm font-bold ${section===item ? "bg-[var(--primary)] text-white" : "border border-[var(--border)] bg-[var(--surface)]"}`}>{item}</button>)}</nav>
     {error && <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-400/40 bg-red-500/10 p-3 text-sm font-semibold text-red-500"><span>{error}</span><Button size="sm" onClick={() => void reload()}>Tentar novamente</Button></div>}
     {notice && !error && <div role="status" className="mb-4 rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-3 text-sm font-semibold text-emerald-600">{notice}</div>}
     {loading ? <p className="p-8 text-center text-sm text-[var(--text-secondary)]">Carregando agendamentos...</p> : section === "Agendamentos" ? <>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.map(({label,value,Icon}) => <article key={label} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"><Icon size={20} className="text-[var(--primary)]"/><p className="mt-3 text-2xl font-black">{value}</p><p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p></article>)}</div>
-      <div className="mt-5 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface)]"><table className="w-full min-w-[860px] text-left text-sm"><thead><tr className="border-b border-[var(--border)] text-xs uppercase text-[var(--text-secondary)]"><th className="p-4">Cliente</th><th>Data</th><th>Status</th><th>E-mail</th><th>Telefone</th><th>Ações</th></tr></thead><tbody>{bookings.map((item) => <tr key={item.id} className="border-b border-[var(--border)]"><td className="p-4 font-bold">{item.attendee_name}</td><td>{new Date(item.start_at).toLocaleString("pt-BR")}</td><td>{item.status}</td><td>{item.attendee_email}</td><td>{item.attendee_phone || "—"}</td><td><div className="flex flex-wrap gap-2 py-2 pr-4">{item.status !== "CANCELLED" && <><Button size="sm" icon={<Pencil size={14}/>} onClick={() => setRescheduling(item)}>Reagendar</Button><Button size="sm" icon={<Trash2 size={14}/>} onClick={() => void cancelBooking(item.id)}>{pendingConfirm?.kind === "booking" && pendingConfirm.id === item.id ? "Confirmar cancelamento" : "Cancelar"}</Button></>}</div></td></tr>)}{!bookings.length && <tr><td colSpan={6} className="p-8 text-center text-[var(--text-secondary)]">Nenhum agendamento ainda.</td></tr>}</tbody></table></div>
+      <div className="mt-5 overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--surface)]"><table className="w-full min-w-[940px] text-left text-sm"><thead><tr className="border-b border-[var(--border)] text-xs uppercase text-[var(--text-secondary)]"><th className="p-4">Cliente</th><th>Profissional</th><th>Data</th><th>Status</th><th>E-mail</th><th>Telefone</th><th>Ações</th></tr></thead><tbody>{bookings.map((item) => <tr key={item.id} className="border-b border-[var(--border)]"><td className="p-4 font-bold">{item.attendee_name}</td><td><span className="inline-flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-full" style={{background:item.professional_color||"#6d5dfc"}}/>{item.professional_name||"Responsável"}</span></td><td>{new Date(item.start_at).toLocaleString("pt-BR")}</td><td>{item.status}</td><td>{item.attendee_email}</td><td>{item.attendee_phone || "—"}</td><td><div className="flex flex-wrap gap-2 py-2 pr-4">{item.status !== "CANCELLED" && <><Button size="sm" icon={<Pencil size={14}/>} onClick={() => setRescheduling(item)}>Reagendar</Button><Button size="sm" icon={<Trash2 size={14}/>} onClick={() => void cancelBooking(item.id)}>{pendingConfirm?.kind === "booking" && pendingConfirm.id === item.id ? "Confirmar cancelamento" : "Cancelar"}</Button></>}</div></td></tr>)}{!bookings.length && <tr><td colSpan={7} className="p-8 text-center text-[var(--text-secondary)]">Nenhum agendamento ainda.</td></tr>}</tbody></table></div>
       {rescheduling && <RescheduleDialog key={rescheduling.id} booking={rescheduling} services={services} onClose={() => setRescheduling(null)} onSaved={() => void reload()} />}
-    </> : section === "Serviços" ? <div className="grid gap-5 lg:grid-cols-[380px_1fr]"><FormCard title={editingServiceId ? "Editar serviço" : "Novo serviço"}><Field label="Nome"><input value={serviceForm.name} maxLength={120} onChange={(e)=>setServiceForm({...serviceForm,name:e.target.value})}/></Field><Field label="Descrição"><textarea value={serviceForm.description} maxLength={2000} onChange={(e)=>setServiceForm({...serviceForm,description:e.target.value})}/></Field><Field label="Durações em minutos, separadas por vírgula"><input value={serviceForm.durations} onChange={(e)=>setServiceForm({...serviceForm,durations:e.target.value})}/></Field><div className="grid grid-cols-3 gap-2"><Field label="Capacidade"><input type="number" min={1} max={500} value={serviceForm.capacity} onChange={(e)=>setServiceForm({...serviceForm,capacity:Number(e.target.value)})}/></Field><Field label="Buffer antes"><input type="number" min={0} value={serviceForm.bufferBefore} onChange={(e)=>setServiceForm({...serviceForm,bufferBefore:Number(e.target.value)})}/></Field><Field label="Buffer depois"><input type="number" min={0} value={serviceForm.bufferAfter} onChange={(e)=>setServiceForm({...serviceForm,bufferAfter:Number(e.target.value)})}/></Field></div><div className="flex gap-2"><Button variant="primary" disabled={!serviceForm.name} onClick={() => void saveService()}>{editingServiceId ? "Atualizar serviço" : "Criar serviço"}</Button>{editingServiceId && <Button onClick={() => { setEditingServiceId(""); setServiceForm(EMPTY_SERVICE_FORM); }}>Cancelar</Button>}</div></FormCard><div className="grid content-start gap-3">{services.map((item)=><article key={item.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"><div className="flex items-start justify-between"><div><h3 className="font-black">{item.name}</h3><p className="text-sm text-[var(--text-secondary)]">{item.description || "Sem descrição"}</p></div><span className="rounded-full bg-[var(--background)] px-3 py-1 text-xs font-bold">{item.capacity} vaga(s)</span></div><p className="mt-3 text-xs font-bold">{item.durations.join(" / ")} min · buffers {item.buffer_before}/{item.buffer_after} min</p><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" icon={<Pencil size={14}/>} onClick={() => startEditService(item)}>Editar</Button><Button size="sm" icon={<Trash2 size={14}/>} onClick={() => void archiveService(item.id)}>{pendingConfirm?.kind === "service" && pendingConfirm.id === item.id ? "Confirmar arquivamento" : "Arquivar"}</Button></div></article>)}</div></div>
+    </> : section === "Calendário da equipe" ? <TeamCalendar events={teamCalendar} professionals={teamSettings.professionals}/>
+    : section === "Serviços" ? <div className="grid gap-5 lg:grid-cols-[380px_1fr]"><FormCard title={editingServiceId ? "Editar serviço" : "Novo serviço"}><Field label="Nome"><input value={serviceForm.name} maxLength={120} onChange={(e)=>setServiceForm({...serviceForm,name:e.target.value})}/></Field><Field label="Descrição"><textarea value={serviceForm.description} maxLength={2000} onChange={(e)=>setServiceForm({...serviceForm,description:e.target.value})}/></Field><Field label="Durações em minutos, separadas por vírgula"><input value={serviceForm.durations} onChange={(e)=>setServiceForm({...serviceForm,durations:e.target.value})}/></Field><div className="grid grid-cols-3 gap-2"><Field label="Capacidade"><input type="number" min={1} max={500} value={serviceForm.capacity} onChange={(e)=>setServiceForm({...serviceForm,capacity:Number(e.target.value)})}/></Field><Field label="Buffer antes"><input type="number" min={0} value={serviceForm.bufferBefore} onChange={(e)=>setServiceForm({...serviceForm,bufferBefore:Number(e.target.value)})}/></Field><Field label="Buffer depois"><input type="number" min={0} value={serviceForm.bufferAfter} onChange={(e)=>setServiceForm({...serviceForm,bufferAfter:Number(e.target.value)})}/></Field></div>{teamSettings.enabled&&<div className="rounded-xl border border-[var(--border)] p-3"><p className="text-xs font-black uppercase text-[var(--text-secondary)]">Profissionais que prestam este serviço</p><div className="mt-2 grid gap-2">{teamSettings.professionals.filter(item=>item.active).map(item=><label key={item.userId} className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={serviceForm.professionalIds.includes(item.userId)} onChange={(event)=>setServiceForm({...serviceForm,professionalIds:event.target.checked?[...serviceForm.professionalIds,item.userId]:serviceForm.professionalIds.filter(id=>id!==item.userId)})}/><i className="h-3 w-3 rounded-full" style={{background:item.color}}/>{item.name} · {item.profession||item.position}</label>)}</div></div>}<div className="flex gap-2"><Button variant="primary" disabled={!serviceForm.name} onClick={() => void saveService()}>{editingServiceId ? "Atualizar serviço" : "Criar serviço"}</Button>{editingServiceId && <Button onClick={() => { setEditingServiceId(""); setServiceForm(EMPTY_SERVICE_FORM); }}>Cancelar</Button>}</div></FormCard><div className="grid content-start gap-3">{services.map((item)=><article key={item.id} className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"><div className="flex items-start justify-between"><div><h3 className="font-black">{item.name}</h3><p className="text-sm text-[var(--text-secondary)]">{item.description || "Sem descrição"}</p></div><span className="rounded-full bg-[var(--background)] px-3 py-1 text-xs font-bold">{item.capacity} vaga(s)</span></div><p className="mt-3 text-xs font-bold">{item.durations.join(" / ")} min · buffers {item.buffer_before}/{item.buffer_after} min</p>{teamSettings.enabled&&<p className="mt-2 text-xs text-[var(--text-secondary)]">{item.professionalIds?.length||0} profissional(is) vinculado(s)</p>}<div className="mt-3 flex flex-wrap gap-2"><Button size="sm" icon={<Pencil size={14}/>} onClick={() => startEditService(item)}>Editar</Button><Button size="sm" icon={<Trash2 size={14}/>} onClick={() => void archiveService(item.id)}>{pendingConfirm?.kind === "service" && pendingConfirm.id === item.id ? "Confirmar arquivamento" : "Arquivar"}</Button></div></article>)}</div></div>
     : section === "Disponibilidade" ? <FormCard title="Disponibilidade semanal">
       <Field label="Serviço"><select value={availabilityService} onChange={(e)=>setAvailabilityService(e.target.value)}>{services.map((item)=><option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+      {teamSettings.enabled&&<Field label="Profissional"><select value={availabilityResponsible} onChange={(e)=>setAvailabilityResponsible(e.target.value)}><option value="">Selecione</option>{teamSettings.professionals.filter(item=>item.active&&services.find(service=>service.id===availabilityService)?.professionalIds?.includes(item.userId)).map(item=><option key={item.userId} value={item.userId}>{item.name} · {item.profession||item.position}</option>)}</select></Field>}
       {availLoading
         ? <p className="rounded-lg bg-[var(--background)] p-4 text-center text-sm text-[var(--text-secondary)]">Carregando disponibilidade salva…</p>
         : <><div className="grid gap-3">{WEEKDAYS.map((label,index)=>{const key=String(index);const item=periods[key];return <div key={label} className="rounded-lg border border-[var(--border)] p-3"><label className="flex gap-2 text-sm font-bold"><input type="checkbox" checked={item.enabled} onChange={(e)=>setPeriods({...periods,[key]:{...item,enabled:e.target.checked}})}/>{label}</label>{item.enabled && <div className="mt-2 grid gap-2">{item.slots.map((slot, position) => <div key={position} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2"><input aria-label={`${label} início ${position + 1}`} type="time" value={slot.start} onChange={(e)=>updateSlot(key,position,{start:e.target.value})}/><input aria-label={`${label} fim ${position + 1}`} type="time" value={slot.end} onChange={(e)=>updateSlot(key,position,{end:e.target.value})}/>{item.slots.length > 1 ? <Button size="sm" onClick={() => removeSlot(key, position)}>Remover</Button> : <span />}</div>)}<div><Button size="sm" disabled={item.slots.length >= 8} onClick={() => addSlot(key)}>Adicionar período</Button></div></div>}</div>})}</div>
       <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={lunch.enabled} onChange={(e)=>setLunch({...lunch,enabled:e.target.checked})}/> Intervalo aplicado ao salvar</label>{lunch.enabled && <div className="grid grid-cols-2 gap-2"><input aria-label="Início do intervalo" type="time" value={lunch.start} onChange={(e)=>setLunch({...lunch,start:e.target.value})}/><input aria-label="Fim do intervalo" type="time" value={lunch.end} onChange={(e)=>setLunch({...lunch,end:e.target.value})}/></div>}
       <p className="text-xs font-semibold text-[var(--text-secondary)]">Fuso horário: {availTimezone || "carregando…"}</p>
-      <div><Button variant="primary" disabled={!availabilityService} onClick={() => void saveAvailability()}>Salvar disponibilidade</Button></div>
+      <div><Button variant="primary" disabled={!availabilityService||(teamSettings.enabled&&!availabilityResponsible)} onClick={() => void saveAvailability()}>Salvar disponibilidade</Button></div>
       {availNotice && <p role="status" className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 p-3 text-sm font-semibold text-emerald-600">{availNotice}</p>}</>}
+    </FormCard>
+    : section === "Modo equipe" ? <FormCard title="Modo equipe nos agendamentos">
+      <label className="flex items-center justify-between gap-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4"><span><strong className="block text-sm">Ativar agenda compartilhada</strong><small className="text-[var(--text-secondary)]">Serviços, horários e reservas continuam separados por profissional dentro da mesma equipe.</small></span><input type="checkbox" checked={teamSettings.enabled} onChange={(event)=>setTeamSettings({...teamSettings,enabled:event.target.checked})} className="h-5 w-5"/></label>
+      <div className="grid gap-3 md:grid-cols-2">{teamSettings.professionals.map((item)=><article key={item.userId} className={`rounded-xl border p-4 ${item.active?"border-cyan-400/35 bg-cyan-400/5":"border-[var(--border)] bg-[var(--background)]"}`}><div className="flex items-center gap-3">{item.avatarUrl?<img src={item.avatarUrl} alt="" className="h-11 w-11 rounded-full object-cover"/>:<span className="grid h-11 w-11 place-items-center rounded-full bg-[var(--surface)] text-xs font-black">{item.name.slice(0,2).toUpperCase()}</span>}<div className="min-w-0 flex-1"><strong className="block truncate text-sm">{item.name}</strong><small className="block truncate text-[var(--text-secondary)]">{item.email}</small></div><input aria-label={`Ativar ${item.name} como profissional`} type="checkbox" checked={item.active} onChange={(event)=>updateProfessional(item.userId,{active:event.target.checked})}/></div><div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input aria-label={`Profissão de ${item.name}`} value={item.profession} placeholder="Profissão" maxLength={120} onChange={(event)=>updateProfessional(item.userId,{profession:event.target.value})} className="h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"/><input aria-label={`Posição de ${item.name}`} value={item.position} placeholder={item.jobTitle||"Posição"} maxLength={120} onChange={(event)=>updateProfessional(item.userId,{position:event.target.value})} className="h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-sm"/><input aria-label={`Cor de ${item.name}`} type="color" value={item.color} onChange={(event)=>updateProfessional(item.userId,{color:event.target.value})} className="h-10 w-12 rounded-lg border border-[var(--border)] bg-transparent p-1"/></div></article>)}</div>
+      <div><Button variant="primary" onClick={() => void saveTeamMode()}>Salvar modo equipe</Button></div>
     </FormCard>
     : <div className="grid gap-5 lg:grid-cols-[420px_1fr]">
       <FormCard title={editingPageId ? "Editar página" : "Nova página"}>
@@ -268,3 +295,9 @@ export default function SchedulingDashboard() {
 
 function FormCard({title,children}:{title:string;children:ReactNode}) { return <section className="grid content-start gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5"><h2 className="text-lg font-black">{title}</h2>{children}</section>; }
 function Field({label,children}:{label:string;children:ReactNode}) { return <label className="grid gap-1 text-xs font-bold text-[var(--text-secondary)]">{label}<div className="[&_input]:h-10 [&_input]:w-full [&_input]:rounded-lg [&_input]:border [&_input]:border-[var(--border)] [&_input]:bg-[var(--background)] [&_input]:px-3 [&_select]:h-10 [&_select]:w-full [&_select]:rounded-lg [&_select]:border [&_select]:border-[var(--border)] [&_select]:bg-[var(--background)] [&_select]:px-3 [&_textarea]:min-h-20 [&_textarea]:w-full [&_textarea]:rounded-lg [&_textarea]:border [&_textarea]:border-[var(--border)] [&_textarea]:bg-[var(--background)] [&_textarea]:p-3">{children}</div></label>; }
+
+function TeamCalendar({events,professionals}:{events:Booking[];professionals:SchedulingProfessional[]}) {
+  const start = new Date(); start.setHours(0,0,0,0); start.setDate(start.getDate()-((start.getDay()+6)%7));
+  const days = Array.from({length:7},(_,index)=>{const value=new Date(start);value.setDate(start.getDate()+index);return value;});
+  return <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]"><header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] p-4"><div><h2 className="text-lg font-black">Calendário da equipe</h2><p className="text-xs text-[var(--text-secondary)]">Semana de {start.toLocaleDateString("pt-BR")} · cores personalizadas por profissional</p></div><div className="flex flex-wrap gap-2">{professionals.filter(item=>item.active).map(item=><span key={item.userId} className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-3 py-1 text-xs font-bold"><i className="h-2.5 w-2.5 rounded-full" style={{background:item.color}}/>{item.name}</span>)}</div></header><div className="grid min-w-[980px] grid-cols-7 divide-x divide-[var(--border)] overflow-x-auto">{days.map(day=>{const key=day.toISOString().slice(0,10);const dayEvents=events.filter(item=>item.start_at.slice(0,10)===key&&item.status!=="CANCELLED");return <div key={key} className="min-h-[520px] p-2"><div className="mb-3 border-b border-[var(--border)] pb-2 text-center"><strong className="block text-xs uppercase text-[var(--text-secondary)]">{day.toLocaleDateString("pt-BR",{weekday:"short"})}</strong><span className="text-xl font-black">{day.getDate()}</span></div><div className="grid gap-2">{dayEvents.map(item=><article key={item.id} className="rounded-lg border-l-4 bg-[var(--background)] p-2 shadow-sm" style={{borderLeftColor:item.professional_color||"#6d5dfc"}}><strong className="block text-xs">{new Date(item.start_at).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})} · {item.attendee_name}</strong><small className="mt-1 block text-[var(--text-secondary)]">{item.service_name||"Serviço"}</small><small className="block font-bold" style={{color:item.professional_color||"#6d5dfc"}}>{item.professional_name||"Responsável"}</small></article>)}</div></div>})}</div></section>;
+}

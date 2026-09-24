@@ -49,8 +49,8 @@ const NAVIGATION_GROUPS: NavigationGroup[] = [
   { label: "Início", icon: House, items: ["Controle", "Central"] },
   { label: "Comunicação", icon: MessagesSquare, items: ["E-mails", "Agenda", "Agendamentos", "Chat", "Chat da Equipe"] },
   { label: "Trabalho", icon: BriefcaseBusiness, items: ["Tarefas", "Financeiro", "Documentos", "PDF Studio", "Clientes"] },
-  { label: "Inteligência", icon: BrainCircuit, items: ["Automações", "Relatórios", "Agente Navegador", "Conhecimento", "Marketplace", "IA e Modelos", "Estúdio"] },
-  { label: "Equipe", icon: UsersRound, items: ["Equipe", "Governanca", "Mais"] },
+  { label: "Inteligência", icon: BrainCircuit, items: ["Automações", "Relatórios", "Agente Navegador", "Conhecimento", "Marketplace", "IA e Modelos"] },
+  { label: "Equipe", icon: UsersRound, items: ["Equipe", "Estúdio", "Governanca", "Mais"] },
 ];
 
 function initials(name: string) {

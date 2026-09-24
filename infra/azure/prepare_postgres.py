@@ -15,8 +15,9 @@ def main() -> None:
     admin_password = os.environ["POSTGRES_ADMIN_PASSWORD"]
     app_login = os.environ.get("POSTGRES_APP_LOGIN", "norium_app")
     app_password = os.environ["POSTGRES_APP_PASSWORD"]
+    ca_bundle = os.environ["NORIUM_DATABASE_SSLROOTCERT"]
     with psycopg.connect(host=host, dbname=database, user=admin, password=admin_password,
-                         sslmode="verify-full", sslrootcert="system", connect_timeout=15, autocommit=True) as db:
+                         sslmode="verify-full", sslrootcert=ca_bundle, connect_timeout=15, autocommit=True) as db:
         exists = db.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (app_login,)).fetchone()
         if exists:
             db.execute(sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(app_login), sql.Literal(app_password)))
@@ -32,3 +33,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

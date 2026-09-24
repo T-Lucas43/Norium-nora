@@ -27,6 +27,8 @@ jobs:
       POSTGRES_ADMIN_LOGIN: noriumbootstrap
       POSTGRES_APP_LOGIN: norium_app
       MIGRATION_SOURCE: /tmp/norium-postgres-source
+      NORIUM_DATABASE_SSLROOTCERT: norium-back-end/app/infrastructure/persistence/azure_postgres_roots.pem
+      NORA_BRAIN_DB_SSLROOTCERT: norium-back-end/app/infrastructure/persistence/azure_postgres_roots.pem
     steps:
       - name: Require exact cutover confirmation
         env:
@@ -85,6 +87,9 @@ jobs:
             --parameters location="$POSTGRES_LOCATION" serverName="$POSTGRES_SERVER_NAME" administratorLogin="$POSTGRES_ADMIN_LOGIN" \
               administratorPassword="$POSTGRES_ADMIN_PASSWORD" databaseName="$POSTGRES_DATABASE" \
             --output none
+          # A previous failed attempt may have created the server with a different one-time password.
+          az postgres flexible-server update -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" \
+            --admin-password "$POSTGRES_ADMIN_PASSWORD" --output none
           host="$(az postgres flexible-server show -g "$RESOURCE_GROUP" -n "$POSTGRES_SERVER_NAME" --query fullyQualifiedDomainName -o tsv)"
           test -n "$host"
           echo "POSTGRES_HOST=$host" >> "$GITHUB_ENV"
@@ -99,6 +104,10 @@ jobs:
 
       - name: Install migration dependencies
         run: pip install -r norium-back-end/requirements.lock.txt azure-storage-file-share==12.23.1
+
+      - name: Validate trusted PostgreSQL root certificates
+        shell: bash
+        run: python infra/azure/verify_postgres_ca.py
 
       - name: Create the application database role
         shell: bash
@@ -148,8 +157,9 @@ jobs:
             --secrets "norium-database-url=$NORIUM_DATABASE_URL" --output none
           az containerapp update -g "$RESOURCE_GROUP" -n "$APP_NAME" --min-replicas 1 --max-replicas 1 \
             --set-env-vars NORIUM_DATABASE_URL=secretref:norium-database-url NORIUM_POSTGRES_REQUIRED=1 \
-              NORIUM_DATABASE_SSLMODE=verify-full NORA_BRAIN_DATABASE_URL=secretref:norium-database-url \
-              NORA_BRAIN_DB_SSLMODE=verify-full --output none
+              NORIUM_DATABASE_SSLMODE=verify-full NORIUM_DATABASE_SSLROOTCERT=/app/app/infrastructure/persistence/azure_postgres_roots.pem \
+              NORA_BRAIN_DATABASE_URL=secretref:norium-database-url NORA_BRAIN_DB_SSLMODE=verify-full \
+              NORA_BRAIN_DB_SSLROOTCERT=/app/app/infrastructure/persistence/azure_postgres_roots.pem --output none
 
       - name: Verify PostgreSQL readiness and authenticated business modules
         env:
@@ -207,3 +217,4 @@ jobs:
         if: ${{ always() }}
         shell: bash
         run: az postgres flexible-server firewall-rule delete -g "$RESOURCE_GROUP" --server-name "$POSTGRES_SERVER_NAME" --name "github-${GITHUB_RUN_ID}" --yes --output none 2>/dev/null || true
+

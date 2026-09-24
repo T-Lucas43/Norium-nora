@@ -83,7 +83,15 @@ function DraggableScreenPreview({ stream }: { stream: MediaStream }) {
   </section>;
 }
 
-function RemoteParticipantMedia({ stream, participantName, sharing, videoEnabled }: { stream: MediaStream; participantName: string; sharing: boolean; videoEnabled: boolean }) {
+function ParticipantAvatar({ name, photoUrl }: { name: string; photoUrl?: string }) {
+  const [photoFailed, setPhotoFailed] = useState(false);
+  if (photoUrl && !photoFailed) {
+    return <img src={photoUrl} alt={`Foto de ${name}`} className="h-full w-full rounded-full object-cover" onError={() => setPhotoFailed(true)} />;
+  }
+  return <>{initials(name)}</>;
+}
+
+function RemoteParticipantMedia({ stream, participantName, profilePhoto, sharing, videoEnabled }: { stream: MediaStream; participantName: string; profilePhoto?: string; sharing: boolean; videoEnabled: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoActive, setVideoActive] = useState(false);
@@ -113,7 +121,7 @@ function RemoteParticipantMedia({ stream, participantName, sharing, videoEnabled
   };
   return <div ref={containerRef} className="relative h-full min-h-0 w-full bg-black">
     <video key={sharing ? "screen" : "camera"} ref={videoRef} autoPlay playsInline muted aria-label={sharing ? `Tela compartilhada por ${participantName}` : `Câmera de ${participantName}`} className={`h-full w-full bg-black ${sharing ? "object-contain" : "object-cover"} ${videoEnabled && videoActive ? "" : "invisible"}`} />
-    {(!videoEnabled || !videoActive) && <div className="absolute inset-0 grid place-items-center bg-[#050709] p-3 text-center"><div><span className="team-call-primary-button mx-auto grid h-16 w-16 place-items-center rounded-full text-xl font-black text-white">{initials(participantName)}</span><p className="mt-3 text-sm font-black">{sharing ? "Recebendo a transmissão de tela..." : `${participantName} está sem câmera`}</p></div></div>}
+    {(!videoEnabled || !videoActive) && <div className="absolute inset-0 grid place-items-center bg-[#050709] p-3 text-center"><div><span className="team-call-primary-button mx-auto grid h-16 w-16 place-items-center overflow-hidden rounded-full text-xl font-black text-white">{sharing ? <MonitorUp size={24} /> : <ParticipantAvatar name={participantName} photoUrl={profilePhoto} />}</span><p className="mt-3 text-sm font-black">{sharing ? "Recebendo a transmissão de tela..." : `${participantName} está sem câmera`}</p></div></div>}
     {sharing && <button type="button" onClick={() => void toggleFullscreen()} className="team-call-screen-label absolute right-3 top-3 z-20 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-black" aria-label={`Ver tela de ${participantName} em tela cheia`}><Maximize2 size={15} /> Tela cheia</button>}
   </div>;
 }
@@ -333,13 +341,14 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
           {call.recording && <div role="status" aria-live="polite" className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /><span>REC {durationLabel(call.recordingElapsedSeconds)}</span><span className="font-semibold text-rose-100">Todos foram avisados</span>{call.isHost && call.recordingUploadState !== "idle" && <span className="font-semibold text-rose-100">{call.recordingUploadState === "retrying" ? "Tentando envio novamente" : call.recordingUploadState === "finalizing" ? "Finalizando" : `Upload ${call.recordingUploadProgress}% · ${bytesLabel(call.recordingUploadedBytes)} enviados${call.recordingPendingBytes ? ` · ${bytesLabel(call.recordingPendingBytes)} pendentes` : ""}`}</span>}</div>}
           {streams.length ? streams.flatMap((item) => {
             const sharing = call.remoteScreenSharingIds.includes(item.userId);
-            const participantName = memberById.get(item.userId)?.nome || "Participante";
+            const participant = memberById.get(item.userId);
+            const participantName = participant?.nome || "Participante";
             const settings = audioSettings[item.userId] || { volume: 100, microphoneMuted: false, screenMuted: false };
             const memberPinned = pinned?.userId === item.userId && pinned.type === "member";
             const screenPinned = pinned?.userId === item.userId && pinned.type === "screen";
             const memberTile = <section key={`${item.userId}:member`} data-participant={item.userId} data-tile="member" data-pinned={memberPinned || undefined} className={`team-call-remote-tile relative flex min-h-56 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] ${memberPinned ? "team-call-pinned-tile" : ""}`}>
               <ParticipantAudio stream={item.stream} name={participantName} volume={settings.volume} microphoneMuted={settings.microphoneMuted} screenMuted={settings.screenMuted} outputMuted={outputMuted} sinkId={call.selectedSpeakerId} />
-              <div className="relative min-h-36 flex-1 overflow-hidden"><RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing={false} videoEnabled={!sharing && call.remoteCameraEnabled?.[item.userId] === true} /></div>
+              <div className="relative min-h-36 flex-1 overflow-hidden"><RemoteParticipantMedia stream={item.stream} participantName={participantName} profilePhoto={participant?.fotoUrl} sharing={false} videoEnabled={!sharing && call.remoteCameraEnabled?.[item.userId] === true} /></div>
               <div className="team-call-participant-controls flex flex-wrap items-center gap-2 border-t p-2">
                 <strong className="mr-auto max-w-36 truncate text-xs">{participantName}</strong>
                 <button type="button" aria-label={`${settings.microphoneMuted ? "Ouvir" : "Silenciar"} microfone de ${participantName} para mim`} aria-pressed={settings.microphoneMuted} onClick={() => updateAudio(item.userId, { microphoneMuted: !settings.microphoneMuted })} className="rounded-lg p-2 hover:bg-white/10">{settings.microphoneMuted ? <MicOff size={17} /> : <Mic size={17} />}</button>

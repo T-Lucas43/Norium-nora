@@ -146,7 +146,23 @@
   .documents-workspace .documents-metrics {grid-template-columns:repeat(2,minmax(0,1fr));}
   .documents-workspace .documents-toolbar input {width:100%;}
   .documents-workspace .documents-toolbar label {min-width:0;}
-  .documents-workspace .documents-toolbar>div:last-child>label:first-child {flex:1 1 100%;}
+  .documents-workspace .documents-toolbar .documents-toolbar-controls {
+    display:grid!important;
+    width:100%;
+    grid-template-columns:repeat(3,40px) minmax(0,1fr);
+    align-items:center;
+    gap:8px;
+  }
+  .documents-workspace .documents-toolbar .documents-toolbar-controls>label,
+  .documents-workspace .documents-toolbar .documents-toolbar-controls>.commercial-field {
+    grid-column:1 / -1;
+    width:100%!important;
+    min-width:0!important;
+    min-height:40px;
+    height:40px!important;
+    flex:none!important;
+  }
+  .documents-workspace .documents-toolbar .documents-toolbar-controls>button {min-height:40px!important;height:40px!important;}
   .finance-workspace .finance-metric>span {display:none;}
   .finance-workspace .finance-metric>p:last-child {margin-right:0;}
   .finance-workspace .finance-metric>p {font-size:20px;}

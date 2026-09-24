@@ -952,7 +952,7 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
                   <ViewTab active={view === "templates"} label="Modelos" count={data.templates.length} onClick={() => setView("templates")} />
                   <ViewTab active={view === "brands"} label="Marcas" count={data.brandProfiles.length} onClick={() => setView("brands")} />
                 </div>
-                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                <div className="documents-toolbar-controls flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                   <label className="flex h-10 min-w-64 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Search size={15} className="text-[var(--text-secondary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Buscar documentos" placeholder="Buscar por documento ou cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
                   {(view === "all" || view === "mine" || view === "shared" || view === "documents" || view === "proposals" || view === "contracts" || view === "files") && (
                     <>

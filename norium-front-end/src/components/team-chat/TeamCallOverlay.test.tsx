@@ -461,7 +461,7 @@ describe("tela da reuniao do Modo Equipe", () => {
       isHost: true,
     } as unknown as ReturnTypeOfTeamCall;
 
-    const props = { members: [{ id: "member", nome: "Fernando" }], currentUserId: "owner", onDownloadAttachment: vi.fn() };
+    const props = { members: [{ id: "member", nome: "Fernando", fotoUrl: "/fernando.jpg" }], currentUserId: "owner", onDownloadAttachment: vi.fn() };
     const { rerender } = render(<TeamCallOverlay {...sessionProps(call)} {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Ver tela de Fernando em tela cheia" }));
     expect(requestFullscreen).toHaveBeenCalledOnce();
@@ -502,6 +502,11 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(oldVideo).toHaveProperty("srcObject", null);
     expect(screen.getByLabelText("Câmera de Fernando")).toHaveProperty("srcObject", null);
     expect(screen.getByText("Fernando está sem câmera")).toBeInTheDocument();
+    const profilePhoto = screen.getByRole("img", { name: "Foto de Fernando" });
+    expect(profilePhoto).toHaveAttribute("src", "/fernando.jpg");
+    fireEvent.error(profilePhoto);
+    expect(screen.queryByRole("img", { name: "Foto de Fernando" })).toBeNull();
+    expect(screen.getByText("F")).toBeInTheDocument();
     expect(document.querySelector('[data-participant="member"]')).not.toHaveAttribute("data-pinned");
     expect(screen.getByText("175%")).toBeInTheDocument();
     expect(screen.getByLabelText("Microfone de Fernando")).toHaveProperty("muted", true);

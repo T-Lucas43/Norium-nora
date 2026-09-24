@@ -205,7 +205,7 @@ const DEFAULT_ENTRY_OPTIONS: CallEntryOptions = {
   cameraEnabled: false,
 };
 
-type CallSound = "connecting" | "joined" | "left" | "ended" | "screen";
+type CallSound = "joined" | "left" | "screen";
 type CameraPermission = "unknown" | "requesting" | "granted" | "denied" | "unavailable";
 export type { IceTelemetrySnapshot } from "./media/MediaTransport";
 export type ScreenShareQuality = "720p" | "1080p" | "1440p";
@@ -273,21 +273,21 @@ function playCallSound(sound: CallSound) {
   const context = callAudioContext;
   if (!context || context.state !== "running") return false;
   const notes: Record<CallSound, Array<[number, number, number]>> = {
-    connecting: [[440, 0, 0.12], [540, 0.18, 0.12]],
     joined: [[520, 0, 0.1], [660, 0.12, 0.1], [820, 0.24, 0.16]],
     left: [[520, 0, 0.12], [390, 0.16, 0.18]],
-    ended: [[480, 0, 0.12], [360, 0.15, 0.14], [250, 0.32, 0.2]],
     screen: [[660, 0, 0.12], [990, 0.16, 0.22]],
   };
+  const peakGain: Record<CallSound, number> = { joined: 0.2, left: 0.2, screen: 0.24 };
+  const wave: Record<CallSound, OscillatorType> = { joined: "sine", left: "triangle", screen: "square" };
   try {
     const baseTime = context.currentTime + 0.01;
     for (const [frequency, offset, duration] of notes[sound]) {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
-      oscillator.type = "sine";
+      oscillator.type = wave[sound];
       oscillator.frequency.value = frequency;
       gain.gain.setValueAtTime(0.0001, baseTime + offset);
-      gain.gain.exponentialRampToValueAtTime(0.075, baseTime + offset + 0.015);
+      gain.gain.exponentialRampToValueAtTime(peakGain[sound], baseTime + offset + 0.015);
       gain.gain.exponentialRampToValueAtTime(0.0001, baseTime + offset + duration);
       oscillator.connect(gain).connect(context.destination);
       oscillator.start(baseTime + offset);
@@ -400,6 +400,7 @@ export function useTeamCallRuntime({
   const handRevisionRef = useRef(-1);
   const [meetingMessages, setMeetingMessages] = useState<MeetingMessage[]>([]);
   const announcedScreensRef = useRef(new Set<string>());
+  const announcedParticipantSessionsRef = useRef(new Set<string>());
   const screenChangePendingRef = useRef(false);
   const [screenChangePending, setScreenChangePending] = useState(false);
   const remoteMediaRef = useRef({ screenIds: remoteScreenSharingIds, cameras: remoteCameraEnabled });
@@ -452,7 +453,6 @@ export function useTeamCallRuntime({
   const screenShareQualityRef = useRef<ScreenShareQuality>("1080p");
   const screenShareFpsRef = useRef<ScreenShareFps>(30);
   const remoteStreamsRef = useRef<Array<{ userId: string; stream: MediaStream }>>([]);
-  const connectingSoundTimerRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingStartPendingRef = useRef(false);
   const recordingIdRef = useRef("");
@@ -620,8 +620,6 @@ export function useTeamCallRuntime({
   }, []);
 
   const stopConnectingSound = useCallback(() => {
-    if (connectingSoundTimerRef.current !== null) window.clearInterval(connectingSoundTimerRef.current);
-    connectingSoundTimerRef.current = null;
     setRingtoneAudible(false);
   }, []);
 
@@ -632,11 +630,9 @@ export function useTeamCallRuntime({
   }, []);
 
   const startConnectingSound = useCallback(() => {
+    // Chamadas não reproduzem toque contínuo. Alertas sonoros são reservados
+    // a eventos curtos: entrada, saída e início de compartilhamento de tela.
     stopConnectingSound();
-    setRingtoneAudible(playCallSound("connecting"));
-    connectingSoundTimerRef.current = window.setInterval(() => {
-      if (playCallSound("connecting")) setRingtoneAudible(true);
-    }, 1500);
   }, [stopConnectingSound]);
 
   const callPayload = useCallback((call: ActiveCall) => ({
@@ -899,6 +895,7 @@ export function useTeamCallRuntime({
     setRaisedHands({});
     handRevisionRef.current = -1;
     announcedScreensRef.current.clear();
+    announcedParticipantSessionsRef.current.clear();
     if (notify && call) sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
     stopConnectingSound();
     closeMediaTransport();
@@ -1027,6 +1024,16 @@ export function useTeamCallRuntime({
       screenSharing: sharingScreen,
     });
   }, [active, cameraOff, listenOnly, muted, sharingScreen, session.user.id]);
+
+  useEffect(() => {
+    if (!active || !sharingScreen) return undefined;
+    const protectActiveScreenShare = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", protectActiveScreenShare);
+    return () => window.removeEventListener("beforeunload", protectActiveScreenShare);
+  }, [active, sharingScreen]);
 
   useEffect(() => {
     const preserveOnReload = () => {
@@ -1778,7 +1785,7 @@ export function useTeamCallRuntime({
       setAvailableCalls(availableCallsRef.current);
       if (incomingRef.current?.callId === event.callId || activeRef.current?.callId === event.callId) {
         void stopRecording();
-        finishCall(false, "ended");
+        finishCall(false);
       }
       return;
     }
@@ -1878,7 +1885,11 @@ export function useTeamCallRuntime({
     if (event.type === "CALL_ACCEPT") {
       publishMediaState();
       stopConnectingSound();
-      playCallSound("joined");
+      const participantSession = `${event.fromUserId || "participante"}:${event.clientId || "principal"}`;
+      if (!announcedParticipantSessionsRef.current.has(participantSession)) {
+        announcedParticipantSessionsRef.current.add(participantSession);
+        playCallSound("joined");
+      }
       setStatus("Na chamada");
       await (await ensureMediaTransport(call)).receive({
         type: "participant-joined", callId: call.callId, userId: event.fromUserId, clientId: event.clientId,
@@ -1905,7 +1916,10 @@ export function useTeamCallRuntime({
       });
       setRemoteCameraEnabled((current) => { const next = { ...current }; delete next[event.fromUserId!]; return next; });
       setRemoteScreenSharingIds((current) => current.filter((item) => item !== event.fromUserId));
-      playCallSound("left");
+      const participantPrefix = `${event.fromUserId || "participante"}:`;
+      const participantSessions = [...announcedParticipantSessionsRef.current].filter((item) => item.startsWith(participantPrefix));
+      participantSessions.forEach((item) => announcedParticipantSessionsRef.current.delete(item));
+      if (participantSessions.length) playCallSound("left");
       setStatus(`${event.fromUserName || "Um participante"} saiu da reuniao.`);
       return;
     }
@@ -2132,7 +2146,7 @@ export function useTeamCallRuntime({
     availableCallsRef.current = availableCallsRef.current.filter((item) => item.callId !== call.callId);
     setAvailableCalls(availableCallsRef.current);
     sendSocketEvent({ type: "CALL_END", ...callPayload(call) });
-    finishCall(false, "ended");
+    finishCall(false);
     let endedByServer = false;
     if (call) {
       try {
@@ -2156,7 +2170,7 @@ export function useTeamCallRuntime({
     const call = activeRef.current;
     await stopRecording();
     if (call) sendSocketEvent({ type: "CALL_LEAVE", ...callPayload(call) });
-    finishCall(false, "left");
+    finishCall(false);
   }, [callPayload, finishCall, sendSocketEvent, stopRecording]);
 
   const sendReaction = useCallback((emoji: string) => {

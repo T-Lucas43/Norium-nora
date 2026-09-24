@@ -810,6 +810,9 @@ describe("chamadas do Modo Equipe", () => {
     expect(audioTrack.enabled).toBe(false);
     expect(screenAudioTrack.enabled).toBe(true);
     expect(sendSocketEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "CALL_SCREEN_STARTED" }));
+    const reloadProtection = new Event("beforeunload", { cancelable: true });
+    act(() => window.dispatchEvent(reloadProtection));
+    expect(reloadProtection.defaultPrevented).toBe(true);
     expect(peer.createOffer).toHaveBeenCalledTimes(3);
 
     await act(async () => result.current.selectScreenShareQuality("720p"));
@@ -1071,26 +1074,44 @@ describe("chamadas do Modo Equipe", () => {
     unmount();
   });
 
-  it("libera o toque depois de uma interacao e mantem o alerta visual como fallback", async () => {
+  it("mantem convite silencioso e reserva sons para eventos dentro da chamada", async () => {
     const resume = vi.fn();
+    const createOscillator = vi.fn(() => ({ type: "sine", frequency: { value: 0 }, connect: vi.fn((target) => target), start: vi.fn(), stop: vi.fn() } as unknown as OscillatorNode));
     class FakeAudioContext {
       state: AudioContextState = "suspended";
       currentTime = 0;
       destination = {} as AudioDestinationNode;
       async resume() { resume(); this.state = "running"; }
-      createOscillator() {
-        return { type: "sine", frequency: { value: 0 }, connect: vi.fn((target) => target), start: vi.fn(), stop: vi.fn() } as unknown as OscillatorNode;
-      }
+      createOscillator() { return createOscillator(); }
       createGain() {
         return { gain: { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() }, connect: vi.fn() } as unknown as GainNode;
       }
     }
     vi.stubGlobal("AudioContext", FakeAudioContext);
     const sendSocketEvent = vi.fn().mockReturnValue(true);
+    const transportSnapshot: MediaTransportSnapshot = {
+      state: "connected", failure: null, remoteStreams: [], connectionQuality: "good",
+      iceTelemetry: { lastState: "unknown", stateCounts: {}, pathTypeCounts: {}, lastSelectedPath: null, relayObserved: false },
+    };
+    const mesh: MediaTransportFactory = {
+      kind: "mesh",
+      create: () => ({
+        kind: "mesh",
+        open: vi.fn().mockResolvedValue(undefined),
+        receive: vi.fn().mockResolvedValue(undefined),
+        updateLocalMedia: vi.fn().mockResolvedValue(undefined),
+        updateIce: vi.fn(),
+        updateScreenProfile: vi.fn().mockResolvedValue(undefined),
+        snapshot: () => transportSnapshot,
+        subscribe: (listener) => { listener(transportSnapshot); return vi.fn(); },
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+    };
     const { result, unmount } = renderHook(() => useTeamCallRuntime({
       session,
       thread: { scope: "team", title: "Time todo" },
       sendSocketEvent,
+      mediaTransports: [mesh],
     }));
 
     let ready = false;
@@ -1106,9 +1127,23 @@ describe("chamadas do Modo Equipe", () => {
       scope: "team",
       threadId: "team",
     }));
-    expect(result.current.ringtoneAudible).toBe(true);
+    expect(result.current.ringtoneAudible).toBe(false);
+    expect(createOscillator).not.toHaveBeenCalled();
 
     act(() => result.current.rejectIncoming());
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_END", callId: "call_audio_ready", fromUserId: "member" }));
+    await act(async () => result.current.startCall(undefined, { microphoneMode: "listen-only", cameraEnabled: false }));
+    const callId = result.current.active?.callId;
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_ACK", callId, event: "CALL_INVITE", mediaTransport: "mesh" }));
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_ACCEPT", callId, fromUserId: "member", fromUserName: "Member", clientId: "member-tab" }));
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_ACCEPT", callId, fromUserId: "member", fromUserName: "Member", clientId: "member-tab" }));
+    expect(createOscillator).toHaveBeenCalledTimes(3);
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_SCREEN_STARTED", callId, fromUserId: "member", fromUserName: "Member", clientId: "member-tab" }));
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_SCREEN_STARTED", callId, fromUserId: "member", fromUserName: "Member", clientId: "member-tab" }));
+    expect(createOscillator).toHaveBeenCalledTimes(5);
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_LEAVE", callId, fromUserId: "member", fromUserName: "Member", clientId: "member-tab" }));
+    await act(async () => result.current.handleSocketEvent({ type: "CALL_LEAVE", callId, fromUserId: "member", fromUserName: "Member", clientId: "member-tab" }));
+    expect(createOscillator).toHaveBeenCalledTimes(7);
     unmount();
   });
 });

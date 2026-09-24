@@ -31,6 +31,7 @@ import WorkspaceHeader from "../shared/WorkspaceHeader";
 import Button from "../shared/Button";
 import { showConfirm } from "../shared/AppDialogProvider";
 import ClientAvatar from "./ClientAvatar";
+import ClientAccessDialog from "./ClientAccessDialog";
 import ClientEditor from "./ClientEditor";
 import { ClientContracts, ClientDocuments } from "./ClientAssets";
 import {
@@ -58,6 +59,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
   const [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [editor, setEditor] = useState<{ client: Client | null } | null>(null),
+    [accessClient, setAccessClient] = useState<Client | null>(null),
     [photoBusy, setPhotoBusy] = useState(false);
   const [tab, setTab] = useState<DetailTab>("overview");
   const photoRef = useRef<HTMLInputElement>(null);
@@ -115,6 +117,8 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
     return () => window.removeEventListener("norium:deep-link", consume);
   }, [clients, loading]);
   const selected = clients.find((item) => item.id === selectedId) || null;
+  const canEditSelected = selected?.accessRole !== "view";
+  const canShareSelected = selected?.accessRole === "owner";
   const filtered = useMemo(() => {
     const simplify = (value: string) =>
       value
@@ -477,31 +481,45 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                   <span>Clientes</span>
                 </Button>
                 <div>
-                  <Button
-                    size="sm"
-                    disabled={photoBusy}
-                    onClick={() => setEditor({ client: selected })}
-                  >
-                    <Pencil size={14} />
-                    Editar
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    iconOnly
-                    disabled={photoBusy}
-                    aria-label="Excluir cliente"
-                    title="Excluir cliente"
-                    onClick={() => void remove(selected)}
-                  >
-                    <Trash2 size={15} />
-                  </Button>
+                  {canShareSelected && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setAccessClient(selected)}
+                    >
+                      <UsersRound size={14} />
+                      Compartilhar
+                    </Button>
+                  )}
+                  {canEditSelected && (
+                    <Button
+                      size="sm"
+                      disabled={photoBusy}
+                      onClick={() => setEditor({ client: selected })}
+                    >
+                      <Pencil size={14} />
+                      Editar
+                    </Button>
+                  )}
+                  {canShareSelected && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      iconOnly
+                      disabled={photoBusy}
+                      aria-label="Excluir cliente"
+                      title="Excluir cliente"
+                      onClick={() => void remove(selected)}
+                    >
+                      <Trash2 size={15} />
+                    </Button>
+                  )}
                 </div>
               </div>
               <header className="client-profile">
                 <div className="client-photo-control">
                   <button
-                    disabled={photoBusy}
+                    disabled={photoBusy || !canEditSelected}
                     className="client-photo-button"
                     aria-label={
                       selected.avatarId
@@ -516,7 +534,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                       <Camera size={14} />
                     </span>
                   </button>
-                  {selected.avatarId && (
+                  {selected.avatarId && canEditSelected && (
                     <button
                       className="client-remove-photo"
                       disabled={photoBusy}
@@ -542,6 +560,9 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                       {statusLabels[selected.status]}
                     </span>
                     <span>{stageLabels[selected.stage]}</span>
+                    {selected.accessRole && selected.accessRole !== "owner" && (
+                      <span>Compartilhado por {selected.createdByName || "membro da equipe"}</span>
+                    )}
                   </div>
                   <h2>{selected.name}</h2>
                   <p>
@@ -654,6 +675,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                       <Button
                         size="sm"
                         variant="ghost"
+                        disabled={!canEditSelected}
                         onClick={() => setEditor({ client: selected })}
                       >
                         {selected.nextActionAt ? "Alterar" : "Agendar"}
@@ -687,6 +709,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                 {tab === "documents" && (
                   <ClientDocuments
                     clientId={selected.id}
+                    canEdit={canEditSelected}
                     onCountChange={(count) =>
                       setClients((current) =>
                         current.map((item) =>
@@ -699,7 +722,7 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                   />
                 )}
                 {tab === "contracts" && (
-                  <ClientContracts clientId={selected.id} />
+                  <ClientContracts clientId={selected.id} canEdit={canEditSelected} />
                 )}
                 {tab === "history" && <ClientHistory clientId={selected.id} />}
               </div>
@@ -746,6 +769,13 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
           client={editor.client}
           onSave={updateClient}
           onClose={() => setEditor(null)}
+        />
+      )}
+      {accessClient && (
+        <ClientAccessDialog
+          client={accessClient}
+          onClose={() => setAccessClient(null)}
+          onSaved={updateClient}
         />
       )}
     </main>

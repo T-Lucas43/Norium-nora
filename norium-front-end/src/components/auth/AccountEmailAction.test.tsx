@@ -32,13 +32,13 @@ describe("Account email actions", () => {
     await waitFor(() => expect(reset).toHaveBeenCalledOnce());
   });
   it("saves individual preferences without WhatsApp or Gmail categories", async () => {
-    const prefs = { email: "alice@example.invalid", enabled: true, verified: true, sources: { kanban: true, calendar: true }, deliveryConfigured: true };
+    const prefs = { email: "alice@example.invalid", enabled: true, verified: true, sources: { kanban: true, calendar: true }, events: { task_due: true, chat_mention: true }, deliveryConfigured: true };
     request.mockResolvedValue(prefs);
     render(<EmailPreferences />);
-    fireEvent.click(await screen.findByLabelText("Tarefas"));
+    fireEvent.click(await screen.findByLabelText("Tarefas prestes a vencer"));
     fireEvent.click(screen.getByRole("button", { name: "Salvar notificações" }));
     await screen.findByRole("status");
-    expect(request).toHaveBeenLastCalledWith("/api/auth/email-preferences", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ enabled: true, sources: { kanban: false, calendar: true } }) }));
+    expect(request).toHaveBeenLastCalledWith("/api/auth/email-preferences", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ enabled: true, sources: { kanban: true, calendar: true }, events: { task_due: false, chat_mention: true } }) }));
     expect(screen.queryByRole("checkbox", { name: /whatsapp|gmail/i })).not.toBeInTheDocument();
   });
   it("does not send the welcome campaign automatically when opening settings", async () => {

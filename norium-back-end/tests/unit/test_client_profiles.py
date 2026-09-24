@@ -94,7 +94,7 @@ class ClientProfileTests(unittest.IsolatedAsyncioTestCase):
     async def test_contract_links_preserve_original_parties(self):
         original = {"id":"primary-contract","title":"Contrato original","client":{"id":self.client["id"],"name":"Cliente de teste"},"status":"signed"}
         external = {"id":"linked-contract","title":"Contrato relacionado","client":{"id":"another-client","name":"Outra empresa"},"status":"active"}
-        with patch("app.modules.commercial.repository.read_store", return_value={"contracts":[original,external]}):
+        with patch("app.modules.commercial.service.list_commercial_data", new=AsyncMock(return_value={"contracts":[original,external]})):
             listed = (await router.list_client_contracts(self.client["id"],self.user))["items"]
             self.assertTrue(next(item for item in listed if item["id"]==original["id"])["primary"])
             await router.link_client_contract(self.client["id"],external["id"],self.user)
@@ -118,3 +118,45 @@ class ClientProfileTests(unittest.IsolatedAsyncioTestCase):
         await router.update_client(self.client["id"],router.ClientUpdate(nextActionAt="2026-09-10T14:00"),self.user)
         result=await router.update_client(self.client["id"],router.ClientUpdate(nextActionAt=None),self.user)
         self.assertIsNone(result["item"]["nextActionAt"])
+
+    async def test_client_sharing_is_explicit_and_enforces_view_or_edit(self):
+        member = {"id": "client-member", "role": "member", "plan": "enterprise", "status": "ativo"}
+        visible = [
+            {"id": self.user["id"], "nome": "Owner", "email": "owner@example.com", "status": "ativo"},
+            {"id": member["id"], "nome": "Member", "email": "member@example.com", "status": "ativo"},
+        ]
+        with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible)):
+            private = await router.list_clients(q=None, status=None, stage=None, user=member)
+            self.assertEqual([], private["items"])
+            shared = await router.update_client_access(
+                self.client["id"],
+                router.ClientAccessUpdate(
+                    teamPermission="none",
+                    people=[{"userId": member["id"], "permission": "view"}],
+                ),
+                self.user,
+            )
+            self.assertEqual("owner", shared["item"]["accessRole"])
+            listed = await router.list_clients(q=None, status=None, stage=None, user=member)
+            self.assertEqual("view", listed["items"][0]["accessRole"])
+            with self.assertRaises(HTTPException) as denied:
+                await router.update_client(
+                    self.client["id"],
+                    router.ClientUpdate(notes="não permitido"),
+                    member,
+                )
+            self.assertEqual(403, denied.exception.status_code)
+            await router.update_client_access(
+                self.client["id"],
+                router.ClientAccessUpdate(teamPermission="edit", people=[]),
+                self.user,
+            )
+            updated = await router.update_client(
+                self.client["id"],
+                router.ClientUpdate(notes="edição permitida"),
+                member,
+            )
+            self.assertEqual("edição permitida", updated["item"]["notes"])
+            with self.assertRaises(HTTPException) as owner_only:
+                await router.delete_client(self.client["id"], member)
+            self.assertEqual(403, owner_only.exception.status_code)

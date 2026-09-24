@@ -1267,8 +1267,6 @@ async def persist_message(
              "recipientId": recipient_id, "subteamId": subteam_id, "mentionedUserIds": sorted(mentioned_ids)},
             user_ids=mentioned_ids,
         )
-    from app.services.system_email import notify_team_participants
-    await notify_team_participants(participant_ids - {user_id}, message["id"], "Nova mensagem no chat da equipe")
     if nora_triggered:
         asyncio.create_task(
             respond_to_nora_mention(

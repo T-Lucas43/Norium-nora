@@ -14,6 +14,7 @@ from pydantic import Field
 
 from app.core.request_context import current_workspace_id
 from app.modules.auth.router import current_user, effective_permissions
+from app.modules.inbox.router import record_event
 from app.modules.scheduling.schemas import AdminReschedulePayload, AvailabilityPayload, BookingPayload, CancelPayload, HoldPayload, LogoPayload, PagePayload, ReschedulePayload, ServicePayload
 from app.modules.scheduling.service import SchedulingService, parse_utc, scope_from_user
 from app.services.calendar_service import CalendarService
@@ -676,6 +677,19 @@ async def create_booking(identifier: str, payload: BookingPayload, background_ta
     result = scheduling.create_booking(identifier, payload)
     booking = result.get("booking", {})
     if not result.get("idempotentReplay") and booking:
+        await record_event(
+            source="calendar",
+            title="Novo agendamento recebido",
+            description=str(bundle["service"].get("name") or "Reunião agendada"),
+            event_id=f"scheduling_{booking['id']}_created",
+            metadata={
+                "userId": str(booking.get("owner_id") or ""),
+                "bookingId": booking.get("id"),
+                "inicio": booking.get("start_at"),
+                "fim": booking.get("end_at"),
+                "emailCategory": "meeting_scheduled",
+            },
+        )
         description, location = _booking_calendar_details(
             payload,
             list(bundle["page"].get("fields") or []),

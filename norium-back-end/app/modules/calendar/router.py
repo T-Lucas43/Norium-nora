@@ -227,6 +227,7 @@ async def criar_evento(payload: CriarEventoPayload, user: dict[str, Any] = Depen
                 "inicio": payload.inicio,
                 "fim": payload.fim,
                 "participantes": payload.participantes,
+                "emailCategory": "meeting_scheduled",
             },
         )
         return result

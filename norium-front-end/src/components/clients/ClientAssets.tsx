@@ -58,9 +58,11 @@ const contractLabels: Record<string, string> = {
 export function ClientDocuments({
   clientId,
   onCountChange,
+  canEdit = true,
 }: {
   clientId: string;
   onCountChange: (count: number) => void;
+  canEdit?: boolean;
 }) {
   const [items, setItems] = useState<Attachment[]>([]),
     [loading, setLoading] = useState(true),
@@ -174,18 +176,22 @@ export function ClientDocuments({
           <h3>Documentos do cliente</h3>
           <p>Arquivos organizados e disponíveis nesta ficha.</p>
         </div>
-        <Button loading={busy} onClick={() => fileRef.current?.click()}>
-          <Upload size={15} />
-          Anexar documento
-        </Button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".pdf,.docx,.xlsx,.txt,.csv,.png,.jpg,.jpeg,.webp"
-          hidden
-          aria-label="Anexar documento do cliente"
-          onChange={(event) => void upload(event.target.files?.[0])}
-        />
+        {canEdit && (
+          <>
+            <Button loading={busy} onClick={() => fileRef.current?.click()}>
+              <Upload size={15} />
+              Anexar documento
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf,.docx,.xlsx,.txt,.csv,.png,.jpg,.jpeg,.webp"
+              hidden
+              aria-label="Anexar documento do cliente"
+              onChange={(event) => void upload(event.target.files?.[0])}
+            />
+          </>
+        )}
       </header>
       <p className="client-hint">
         PDF, Word, Excel, texto e imagens · até 15 MB por arquivo
@@ -250,17 +256,19 @@ export function ClientDocuments({
                 >
                   <Download size={16} />
                 </Button>
-                <Button
-                  size="sm"
-                  iconOnly
-                  variant="ghost"
-                  disabled={busy}
-                  aria-label={`Remover ${item.fileName}`}
-                  title="Remover"
-                  onClick={() => void remove(item)}
-                >
-                  <Trash2 size={15} />
-                </Button>
+                {canEdit && (
+                  <Button
+                    size="sm"
+                    iconOnly
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`Remover ${item.fileName}`}
+                    title="Remover"
+                    onClick={() => void remove(item)}
+                  >
+                    <Trash2 size={15} />
+                  </Button>
+                )}
               </div>
             </article>
           ))}
@@ -290,7 +298,7 @@ export function ClientDocuments({
   );
 }
 
-export function ClientContracts({ clientId }: { clientId: string }) {
+export function ClientContracts({ clientId, canEdit = true }: { clientId: string; canEdit?: boolean }) {
   const [items, setItems] = useState<Contract[]>([]),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false),
@@ -387,10 +395,12 @@ export function ClientContracts({ clientId }: { clientId: string }) {
           <h3>Contratos vinculados</h3>
           <p>Consulte os documentos e acompanhe cada situação.</p>
         </div>
-        <Button disabled={loading || busy} onClick={() => setPicker(!picker)}>
-          <Link2 size={15} />
-          Vincular contrato
-        </Button>
+        {canEdit && (
+          <Button disabled={loading || busy} onClick={() => setPicker(!picker)}>
+            <Link2 size={15} />
+            Vincular contrato
+          </Button>
+        )}
       </header>
       {error && (
         <p role="alert" className="client-error">
@@ -484,7 +494,7 @@ export function ClientContracts({ clientId }: { clientId: string }) {
                   <ExternalLink size={15} />
                   Abrir
                 </Button>
-                {!item.primary && (
+                {!item.primary && canEdit && (
                   <Button
                     size="sm"
                     variant="ghost"

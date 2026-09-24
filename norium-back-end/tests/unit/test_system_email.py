@@ -111,6 +111,19 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(mail.queue_notification({**self.user, "emailVerifiedAt": None}, self.event()))
         self.assertFalse(mail.queue_notification({**self.user, "emailNotifications": {"enabled": False}}, self.event()))
         self.assertFalse(mail.queue_notification({**self.user, "emailNotifications": {"sources": {"kanban": False}}}, self.event()))
+        categorized = {
+            **self.event(event_id="task-due-category"),
+            "metadata": {"userId": "alice", "emailCategory": "task_due"},
+        }
+        self.assertFalse(
+            mail.queue_notification(
+                {**self.user, "emailNotifications": {"events": {"task_due": False}}},
+                categorized,
+            )
+        )
+        self.assertTrue(mail.queue_notification(self.user, categorized))
+        categorized_job = next(job for job in mail.read_store()["outbox"] if job["id"] != "")
+        self.assertIn(categorized_job["kind"], {"event:task_due", "kanban"})
         self.assertTrue(mail.queue_notification(self.user, self.event(), "primary"))
         self.assertFalse(mail.queue_notification(self.user, self.event(), "primary"))
         self.assertTrue(mail.queue_notification(self.user, self.event(), "workspace-2"))
@@ -260,11 +273,13 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         try:
             write_json_file(get_user_db_path("alice", "tarefas"), {"tasks": [{"id": "due", "dueDate": "2026-09-05", "status": "pendente"}, {"id": "done", "dueDate": "2026-09-05", "status": "concluida"}]})
             write_json_file(get_user_db_path("alice", "perfil"), {"calendarLocalEvents": [{"id": "meeting", "inicio": "2026-09-05T13:05:00Z"}]})
+            write_json_file(get_user_db_path("alice", "financeiro"), {"lancamentos": [{"id": "invoice", "type": "saida", "status": "pendente", "dueDate": "2026-09-06"}], "programados": [], "boletos": []})
+            write_json_file(get_user_db_path("alice", "clientes"), [{"id": "client-follow-up", "name": "Cliente", "nextActionAt": "2026-09-05T13:30:00Z"}])
         finally:
             reset_request_context(ctx)
         self.assertEqual(0, reminders.queue_due(self.other, "workspace-2", now))
         self.assertEqual(0, reminders.queue_due(self.user, "primary", now))
-        self.assertEqual(2, reminders.queue_due(self.user, "workspace-2", now))
+        self.assertEqual(4, reminders.queue_due(self.user, "workspace-2", now))
         self.assertEqual(0, reminders.queue_due(self.user, "workspace-2", now))
 
     async def test_manual_email_uses_registered_recipients_and_dispatch_deduplication(self):

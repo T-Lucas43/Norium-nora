@@ -30,6 +30,10 @@ const client = {
   notes: "Projeto de identidade visual.",
   updatedAt: "2026-09-08T12:00:00Z",
   attachmentCount: 0,
+  createdBy: "owner",
+  createdByName: "Lucas",
+  accessRole: "owner",
+  access: { teamPermission: "none", people: [] },
 };
 
 describe("Client workspace", () => {
@@ -48,6 +52,20 @@ describe("Client workspace", () => {
     api.apiRequest.mockImplementation(
       async (path: string, options?: { method?: string; body?: string }) => {
         if (path === "/api/clientes") return { items: [client] };
+        if (path === "/api/team-chat/members")
+          return {
+            members: [
+              { id: "owner", nome: "Lucas", email: "lucas@example.com", status: "ativo" },
+              { id: "member", nome: "Fernanda", email: "fernanda@example.com", status: "ativo" },
+            ],
+          };
+        if (path.endsWith("/access") && options?.method === "PUT")
+          return {
+            item: {
+              ...client,
+              access: JSON.parse(options.body || "{}"),
+            },
+          };
         if (path.endsWith("/files") && options?.method === "POST")
           return {
             item: {
@@ -193,6 +211,28 @@ describe("Client workspace", () => {
       nextActionAt: null,
       name: "Marina Costa",
     });
+  });
+
+  it("shares a client with a specific team member", async () => {
+    const user = userEvent.setup();
+    render(<ClientsDashboard />);
+    await user.click(await screen.findByRole("button", { name: /Marina Costa/ }));
+    await user.click(screen.getByRole("button", { name: "Compartilhar" }));
+    expect(await screen.findByRole("dialog", { name: /Compartilhar “Marina Costa”/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ver" }));
+    await user.click(screen.getByRole("button", { name: "Salvar acesso" }));
+    await waitFor(() =>
+      expect(api.apiRequest).toHaveBeenCalledWith(
+        "/api/clientes/client-1/access",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({
+            teamPermission: "none",
+            people: [{ userId: "member", permission: "view" }],
+          }),
+        }),
+      ),
+    );
   });
 
   it("keeps keyboard focus inside the editor and closes with Escape", async () => {

@@ -1,5 +1,15 @@
 export type ClientStage = "new" | "contacted" | "proposal" | "won" | "lost";
 export type ClientStatus = "lead" | "active" | "inactive";
+export type ClientAccessPermission = "view" | "edit";
+export type ClientAccess = {
+  teamPermission: "none" | ClientAccessPermission;
+  people: Array<{
+    userId: string;
+    name?: string;
+    email?: string;
+    permission: ClientAccessPermission;
+  }>;
+};
 export type Client = {
   id: string;
   name: string;
@@ -17,6 +27,10 @@ export type Client = {
   updatedAt: string;
   avatarId?: string;
   attachmentCount?: number;
+  createdBy?: string;
+  createdByName?: string;
+  accessRole?: "owner" | "edit" | "view" | null;
+  access?: ClientAccess;
 };
 export type Client360 = {
   summary: Record<

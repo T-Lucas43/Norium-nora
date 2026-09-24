@@ -9,11 +9,14 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from fastapi import HTTPException
+
 from app.core.tenant import get_user_dir, read_user_db, write_user_db
 from app.core.tenant import safe_tenant_id
 from app.infrastructure.persistence import postgres_store
 from app.infrastructure.storage_quota import directory_bytes
 from app.modules.auth.router import read_user_store, sanitize_user
+from app.modules.clients.access import find_accessible_client
 from app.modules.clients.repository import list_clients, save_clients
 from app.modules.inbox.router import read_events
 from app.modules.operations.repository import (
@@ -514,8 +517,12 @@ def _client_matches(client: dict[str, Any], item: dict[str, Any]) -> bool:
 
 async def client_360(user: dict[str, Any], client_id: str) -> dict[str, Any] | None:
     user_id = tenant_id(user)
-    clients = list_clients(user_id)
-    client = next((item for item in clients if str(item.get("id") or "") == client_id), None)
+    try:
+        _, _, _, client = await find_accessible_client(user, client_id)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return None
+        raise
     if client is None:
         return None
     events, followups, receipts, audits = await asyncio.gather(

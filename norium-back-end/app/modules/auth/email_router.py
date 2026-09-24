@@ -39,6 +39,7 @@ class ResetRequest(TokenRequest):
 class PreferencesRequest(StrictModel):
     enabled: bool
     sources: dict[str, bool] = Field(default_factory=dict)
+    events: dict[str, bool] = Field(default_factory=dict)
 
 
 class ConfigRequest(StrictModel):
@@ -168,12 +169,18 @@ async def email_preferences(user: dict = Depends(auth.current_user)):
 async def update_preferences(payload: PreferencesRequest, user: dict = Depends(auth.current_user)):
     if set(payload.sources) - mail.SOURCES:
         raise HTTPException(422, "WhatsApp e e-mails recebidos não fazem parte das notificações por e-mail.")
+    if set(payload.events) - mail.EVENT_TYPES:
+        raise HTTPException(422, "Existe uma categoria de notificação por e-mail inválida.")
     async with auth.auth_lock:
         store = await auth.read_user_store()
         target = auth.find_user(store, user["id"])
         if not target:
             raise HTTPException(401, "Conta não encontrada.")
-        target["emailNotifications"] = {"enabled": payload.enabled, "sources": payload.sources}
+        target["emailNotifications"] = {
+            "enabled": payload.enabled,
+            "sources": payload.sources,
+            "events": payload.events,
+        }
         await auth.write_user_store(store)
     return await email_preferences(target)
 

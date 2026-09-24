@@ -29,6 +29,22 @@ SENDER = "suporte@norium-ai.com"
 SOURCES = {"calendar", "kanban", "financeiro", "equipe", "automacoes", "brainstorm", "relatorios", "sistema", "clientes"}
 SOURCE_NAMES = {"calendar": "Agenda", "kanban": "Tarefas", "financeiro": "Financeiro", "equipe": "Equipe", "automacoes": "Automações", "brainstorm": "Estúdio", "relatorios": "Relatórios", "sistema": "Sistema", "clientes": "Clientes"}
 SOURCE_PATHS = {"calendar": "agenda", "kanban": "tarefas", "financeiro": "financeiro", "equipe": "chat-equipe", "automacoes": "automacoes", "brainstorm": "estudio", "relatorios": "relatorios", "clientes": "clientes"}
+EVENT_TYPES = {
+    "meeting_scheduled",
+    "meeting_reminder",
+    "task_due",
+    "chat_mention",
+    "finance_due",
+    "client_follow_up",
+}
+EVENT_NAMES = {
+    "meeting_scheduled": "Reuniões agendadas",
+    "meeting_reminder": "Lembretes de reunião",
+    "task_due": "Tarefas prestes a vencer",
+    "chat_mention": "Menções no chat",
+    "finance_due": "Contas a pagar",
+    "client_follow_up": "Acompanhamentos de clientes",
+}
 logger = logging.getLogger(__name__)
 smtp_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="system-smtp")
 store_lock = threading.RLock()
@@ -243,23 +259,53 @@ def delivery_status() -> dict:
 
 def preferences(user: dict) -> dict:
     raw = user.get("emailNotifications") or {}
-    return {"enabled": raw.get("enabled", True), "sources": {key: (raw.get("sources") or {}).get(key, True) for key in sorted(SOURCES)}}
+    return {
+        "enabled": raw.get("enabled", True),
+        "sources": {
+            key: (raw.get("sources") or {}).get(key, True)
+            for key in sorted(SOURCES)
+        },
+        "events": {
+            key: (raw.get("events") or {}).get(key, True)
+            for key in sorted(EVENT_TYPES)
+        },
+    }
+
+
+def notification_event_type(event: dict) -> str | None:
+    metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+    requested = str(metadata.get("emailCategory") or "")
+    if requested in EVENT_TYPES:
+        return requested
+    return {
+        "team_meeting_scheduled": "meeting_scheduled",
+        "team_meeting_reminder": "meeting_reminder",
+        "team_member_mentioned": "chat_mention",
+    }.get(str(metadata.get("action") or ""))
 
 
 def queue_notification(user: dict, event: dict, workspace: str = "primary", lifetime: float = 86400) -> bool:
     source = event.get("source")
     pref = preferences(user)
-    if source not in SOURCES or not ready() or not user.get("emailVerifiedAt") or not pref["enabled"] or not pref["sources"].get(source):
+    event_type = notification_event_type(event)
+    if (
+        source not in SOURCES
+        or not ready()
+        or not user.get("emailVerifiedAt")
+        or not pref["enabled"]
+        or (event_type and not pref["events"].get(event_type))
+        or (not event_type and not pref["sources"].get(source))
+    ):
         return False
     if str((event.get("metadata") or {}).get("userId") or "") != str(user["id"]):
         return False
-    title = str(event.get("title") or SOURCE_NAMES[source])[:180]
+    title = str(event.get("title") or (EVENT_NAMES.get(event_type) if event_type else SOURCE_NAMES[source]))[:180]
     # Avoid copying private email/WhatsApp content or arbitrary event metadata.
     description = f"Há uma atualização em {SOURCE_NAMES[source]} na sua conta. Abra o Norium para consultar os detalhes com segurança."
     link = configuration()["publicUrl"] + "/app/" + SOURCE_PATHS.get(source, "central")
     payload = render_message(user.get("nome", ""), title, description, link, "Abrir no Norium")
     key = hashlib.sha256(f'{user["id"]}:{workspace}:{event["id"]}'.encode()).hexdigest()
-    return enqueue_direct(user, source, payload, key, time.time() + lifetime)
+    return enqueue_direct(user, f"event:{event_type}" if event_type else source, payload, key, time.time() + lifetime)
 
 
 async def notify_event(event: dict, workspace: str) -> None:
@@ -366,6 +412,9 @@ async def deliver_one() -> bool:
         allowed = allowed and pref["enabled"]
     if job["kind"] in SOURCES:
         allowed = allowed and user.get("emailVerifiedAt") and pref["enabled"] and pref["sources"].get(job["kind"])
+    if str(job["kind"]).startswith("event:"):
+        event_type = str(job["kind"]).split(":", 1)[1]
+        allowed = allowed and user.get("emailVerifiedAt") and pref["enabled"] and event_type in EVENT_TYPES and pref["events"].get(event_type)
     if job["kind"] in {"reset", "verify"} and allowed:
         def action_is_current():
             with store_lock:

@@ -29,6 +29,10 @@ def queue_due(user: dict, workspace: str, now: datetime) -> int:
         user_id = user["id"]
         tasks = read_user_db(user_id, "tarefas", {})
         tasks = tasks.get(user_id, tasks)
+        finance = read_user_db(user_id, "financeiro", {})
+        finance = finance.get(user_id, finance)
+        from app.modules.clients.repository import list_clients
+        clients = list_clients(user_id)
         local_events = read_profile_db(user_id).get("calendarLocalEvents", [])
         queued = 0
         today = now.astimezone(timezone(timedelta(hours=-3))).date()
@@ -36,14 +40,60 @@ def queue_due(user: dict, workspace: str, now: datetime) -> int:
             if not isinstance(task, dict) or task.get("status") == "concluida" or task.get("archived") or not task.get("id"):
                 continue
             due = parse_date(task.get("dueDate"))
-            if due and due.date() == today:
-                queued += mail.queue_notification(user, {"id": f'email_due_{task["id"]}_{today}', "source": "kanban", "title": "Você tem uma tarefa com vencimento hoje", "metadata": {"userId": user_id}}, workspace)
+            days = (due.date() - today).days if due else -1
+            if days in {0, 1}:
+                when = "hoje" if days == 0 else "amanhã"
+                queued += mail.queue_notification(
+                    user,
+                    {
+                        "id": f'email_due_{task["id"]}_{due.date()}',
+                        "source": "kanban",
+                        "title": f"Você tem uma tarefa com vencimento {when}",
+                        "metadata": {"userId": user_id, "emailCategory": "task_due"},
+                    },
+                    workspace,
+                    2 * 86400,
+                )
         for event in local_events:
             if not isinstance(event, dict) or not event.get("id"):
                 continue
             start = parse_date(event.get("inicio"))
             if start and 0 <= (start - now).total_seconds() <= 600:
-                queued += mail.queue_notification(user, {"id": f'email_agenda_{event["id"]}_{start.isoformat()}', "source": "calendar", "title": "Seu compromisso começa em até 10 minutos", "metadata": {"userId": user_id}}, workspace, max(1, (start - now).total_seconds()))
+                queued += mail.queue_notification(user, {"id": f'email_agenda_{event["id"]}_{start.isoformat()}', "source": "calendar", "title": "Seu compromisso começa em até 10 minutos", "metadata": {"userId": user_id, "emailCategory": "meeting_reminder"}}, workspace, max(1, (start - now).total_seconds()))
+        for entry in finance.get("lancamentos", []) if isinstance(finance, dict) else []:
+            if not isinstance(entry, dict) or entry.get("type") != "saida" or entry.get("status") != "pendente" or not entry.get("id"):
+                continue
+            due = parse_date(entry.get("dueDate"))
+            days = (due.date() - today).days if due else -1
+            if days in {0, 1}:
+                when = "hoje" if days == 0 else "amanhã"
+                queued += mail.queue_notification(
+                    user,
+                    {
+                        "id": f'email_finance_due_{entry["id"]}_{due.date()}',
+                        "source": "financeiro",
+                        "title": f"Você tem uma conta a pagar com vencimento {when}",
+                        "metadata": {"userId": user_id, "emailCategory": "finance_due"},
+                    },
+                    workspace,
+                    2 * 86400,
+                )
+        for client in clients:
+            if not isinstance(client, dict) or not client.get("id"):
+                continue
+            follow_up = parse_date(client.get("nextActionAt"))
+            if follow_up and 0 <= (follow_up - now).total_seconds() <= 86400:
+                queued += mail.queue_notification(
+                    user,
+                    {
+                        "id": f'email_client_follow_up_{client["id"]}_{follow_up.isoformat()}',
+                        "source": "clientes",
+                        "title": "Você tem um acompanhamento de cliente nas próximas 24 horas",
+                        "metadata": {"userId": user_id, "emailCategory": "client_follow_up"},
+                    },
+                    workspace,
+                    max(1, (follow_up - now).total_seconds()),
+                )
         return queued
     finally:
         reset_request_context(context)

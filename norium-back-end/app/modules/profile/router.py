@@ -13,6 +13,7 @@ from pydantic import Field
 from app.shared.schemas import StrictModel
 
 from app.core.tenant import get_user_db_path, read_json_file, write_json_file
+from app.infrastructure.persistence import postgres_store
 from app.routers.auth_router import auth_lock, current_user, find_user, now_iso, read_user_store, write_user_store
 
 BASE_DIR = Path(__file__).resolve().parents[3]
@@ -145,6 +146,9 @@ def read_user_profile_sync(user_id: str) -> dict[str, Any]:
     payload = read_json_file(path, None)
     if isinstance(payload, dict) and payload:
         return payload
+
+    if postgres_store.configured() or postgres_store.required():
+        return dict(DEFAULT_PROFILE)
 
     legacy_store = read_json_file(PROFILE_DB_PATH, {})
     if isinstance(legacy_store, dict):

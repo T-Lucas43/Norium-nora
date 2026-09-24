@@ -70,3 +70,54 @@ class StoreLoadingTests(unittest.TestCase):
         with patch.object(task_store, "write_json_file", wraps=task_store.write_json_file) as write:
             task_store.update_task("member", task["id"], {"title": "Updated"})
             self.assertEqual([get_user_db_path("owner", "tarefas")], [call.args[0] for call in write.call_args_list])
+
+    def test_postgres_task_loading_enumerates_documents_without_touching_legacy_files(self):
+        owner_workspace = {
+            "columns": [],
+            "labels": [],
+            "projects": [{
+                "id": "shared",
+                "name": "Shared",
+                "ownerUserId": "owner",
+                "sharedUserIds": ["member"],
+            }],
+            "tasks": [{"id": "task-1", "title": "Postgres task", "projectId": "shared"}],
+        }
+        member_workspace = {"columns": [], "labels": [], "projects": [], "tasks": []}
+
+        def read_document(path, fallback):
+            return owner_workspace if "user_owner" in str(path) else member_workspace
+
+        with (
+            patch.object(task_store.postgres_store, "configured", return_value=True),
+            patch.object(task_store.postgres_store, "required", return_value=False),
+            patch.object(
+                task_store.postgres_store,
+                "list_document_keys",
+                return_value=[
+                    "user_owner/tarefas_db.json",
+                    "user_owner/perfil_db.json",
+                    "user_member/tarefas_db.json",
+                ],
+            ),
+            patch.object(task_store, "read_json_file", side_effect=read_document) as read_store,
+        ):
+            result = task_store.list_tasks("member")
+
+        self.assertEqual(["task-1"], [item["id"] for item in result["tasks"]])
+        self.assertEqual(2, read_store.call_count)
+        read_store.assert_any_call(Path(self.directory.name) / "user_owner" / "tarefas_db.json", {})
+        read_store.assert_any_call(Path(self.directory.name) / "user_member" / "tarefas_db.json", {})
+
+    def test_postgres_missing_finance_store_does_not_fall_back_to_legacy_file(self):
+        with (
+            patch.object(finance_store.postgres_store, "configured", return_value=True),
+            patch.object(finance_store.postgres_store, "required", return_value=False),
+            patch.object(finance_store, "read_json_file", return_value=None) as read_store,
+            patch.object(finance_store, "write_json_file") as write_store,
+        ):
+            result = finance_store.list_finance("owner")
+
+        self.assertEqual([], result["lancamentos"])
+        read_store.assert_called_once_with(Path(get_user_db_path("owner", "financeiro")), None)
+        write_store.assert_called_once()

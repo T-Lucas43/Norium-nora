@@ -726,6 +726,36 @@ def _local_today() -> datetime:
 
 def _read_db() -> dict[str, Any]:
     db: dict[str, Any] = {}
+
+    # PostgreSQL is authoritative in shared runtimes. Besides avoiding any
+    # dependency on the container filesystem, enumerating its document keys is
+    # required here because shared projects may belong to another account.
+    if postgres_store.configured() or postgres_store.required():
+        workspace_id = current_workspace_id()
+        if workspace_id == "primary":
+            pattern = re.compile(r"^user_([^/]+)/tarefas_db\.json$")
+        else:
+            pattern = re.compile(
+                rf"^user_([^/]+)/workspace_{re.escape(workspace_id)}/tarefas_db\.json$"
+            )
+
+        for store_key in postgres_store.list_document_keys("user_"):
+            match = pattern.fullmatch(store_key)
+            if not match:
+                continue
+            user_id = match.group(1)
+            path = get_data_root() / store_key
+            payload = read_json_file(path, {})
+            if "tasks" in payload or "projects" in payload or "columns" in payload or "labels" in payload:
+                _validate_workspace(payload, path)
+                db[user_id] = payload
+            elif user_id in payload:
+                _validate_workspace(payload[user_id], path)
+                db[user_id] = payload[user_id]
+            elif payload:
+                raise PersistenceError(path, "schema")
+        return db
+
     legacy_payload = read_json_file(TASKS_PATH, {}) if current_workspace_id() == "primary" else {}
     for key, value in legacy_payload.items():
         _validate_workspace(value, TASKS_PATH)

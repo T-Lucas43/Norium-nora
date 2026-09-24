@@ -502,7 +502,7 @@ def _read_db(user_id: str) -> dict[str, Any]:
             payload = payload[user_id]
         _validate_workspace(payload, path)
         return {user_id: payload}
-    if current_workspace_id() == "primary":
+    if current_workspace_id() == "primary" and not (postgres_store.configured() or postgres_store.required()):
         legacy = read_json_file(FINANCE_PATH, {})
         if user_id in legacy:
             _validate_workspace(legacy[user_id], FINANCE_PATH)

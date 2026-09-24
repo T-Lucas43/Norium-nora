@@ -29,6 +29,7 @@ import {
 import type { NoriumUser } from "../../types/auth";
 import type { PerfilOperador } from "../../types/omnichannel";
 import NoraAvatar from "./NoraAvatar";
+import BrandLogo from "./BrandLogo";
 import ThemeToggle from "./ThemeToggle";
 import { apiBaseUrl, authToken } from "../../utils/api";
 
@@ -228,6 +229,8 @@ export default function Header({
         >
           <Menu size={20} />
         </button>
+
+        <BrandLogo className="norium-topbar-brand-logo h-9 w-[98px]" />
 
         <div className="norium-command-search">
           <Search size={18} />

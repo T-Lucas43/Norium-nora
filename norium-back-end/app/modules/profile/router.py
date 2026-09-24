@@ -74,6 +74,7 @@ class TemaPersonalizado(StrictModel):
 
 
 class InterfacePreferences(StrictModel):
+    navigationStyle: Literal["classic", "grouped"] = "grouped"
     textSize: Literal["normal", "large", "extra"] = "normal"
     reducedMotion: bool = False
     strongFocus: bool = False

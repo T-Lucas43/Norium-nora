@@ -1,4 +1,5 @@
 export type InterfacePreferences = {
+  navigationStyle: "classic" | "grouped";
   textSize: "normal" | "large" | "extra";
   reducedMotion: boolean;
   strongFocus: boolean;
@@ -10,6 +11,7 @@ export type InterfacePreferences = {
 };
 
 export const defaultInterfacePreferences: InterfacePreferences = {
+  navigationStyle: "grouped",
   textSize: "normal",
   reducedMotion: false,
   strongFocus: false,

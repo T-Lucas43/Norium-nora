@@ -253,6 +253,13 @@ export default function SettingsDashboard({
             <h2 className="text-sm font-bold">Leitura e acessibilidade</h2>
             <p className="mt-1 mb-4 text-xs text-[var(--text-secondary)]">As preferências abaixo são aplicadas ao salvar e ficam vinculadas ao seu perfil.</p>
             <div className="grid gap-4 md:grid-cols-2">
+              <label className="block text-sm font-bold">Estilo do menu
+                <select className="norium-platform-input mt-2" value={preferences.navigationStyle} onChange={event => updatePreference("navigationStyle", event.target.value as InterfacePreferences["navigationStyle"])}>
+                  <option value="grouped">Menu atual · categorias recolhíveis</option>
+                  <option value="classic">Menu antigo · lista completa</option>
+                </select>
+                <small className="mt-2 block font-normal text-[var(--text-secondary)]">Escolha entre os grupos atuais ou a navegação clássica do Norium.</small>
+              </label>
               <label className="block text-sm font-bold">Tamanho do texto
                 <select className="norium-platform-input mt-2" value={preferences.textSize} onChange={event => updatePreference("textSize", event.target.value as InterfacePreferences["textSize"])}>
                   <option value="normal">Padrão</option><option value="large">Grande</option><option value="extra">Extra grande</option>

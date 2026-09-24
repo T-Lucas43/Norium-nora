@@ -14,12 +14,13 @@ it("persists interface preferences and applies text accessibility on save", asyn
   const onSaved = vi.fn();
   render(<SettingsDashboard userId="u1" onSaved={onSaved} />);
   await waitFor(() => expect(onSaved).toHaveBeenCalled());
+  fireEvent.change(screen.getByLabelText(/Estilo do menu/), { target: { value: "classic" } });
   fireEvent.change(screen.getByLabelText(/Tamanho do texto/), { target: { value: "large" } });
   fireEvent.click(screen.getByLabelText(/Reduzir animações/));
   fireEvent.click(screen.getByLabelText(/Mostrar prévia dos alertas/));
   fireEvent.click(screen.getByRole("button", { name: "Salvar configurações" }));
   await screen.findByRole("status");
-  expect(saveOperatorProfile).toHaveBeenCalledWith("u1", expect.objectContaining({ interface_preferences: expect.objectContaining({ textSize: "large", reducedMotion: true, toastPreview: false }) }));
+  expect(saveOperatorProfile).toHaveBeenCalledWith("u1", expect.objectContaining({ interface_preferences: expect.objectContaining({ navigationStyle: "classic", textSize: "large", reducedMotion: true, toastPreview: false }) }));
   expect(document.documentElement.style.fontSize).toBe("18px");
   expect(document.documentElement.dataset.reducedMotion).toBe("true");
 });

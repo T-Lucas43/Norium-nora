@@ -35,4 +35,41 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Inteligência" }));
     expect(screen.queryByRole("button", { name: "Conhecimento" })).toBeNull();
   });
+
+  it("keeps the classic navigation available by profile preference", () => {
+    render(
+      <Sidebar
+        activeTab="Dashboard"
+        collapsed={false}
+        mobileOpen={false}
+        profile={null}
+        navigationStyle="classic"
+        onCloseMobile={vi.fn()}
+        onNavigate={vi.fn()}
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Nora" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Comunicação" })).toBeNull();
+  });
+
+  it("keeps a compact icon rail and expands a grouped category", () => {
+    const onToggleCollapsed = vi.fn();
+    render(
+      <Sidebar
+        activeTab="Dashboard"
+        collapsed
+        mobileOpen={false}
+        profile={null}
+        onCloseMobile={vi.fn()}
+        onNavigate={vi.fn()}
+        onToggleCollapsed={onToggleCollapsed}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Comunicação" }));
+    expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
+  });
 });

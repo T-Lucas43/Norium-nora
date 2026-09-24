@@ -373,6 +373,7 @@ export default function NoriumApp() {
         mobileOpen={mobileSidebarOpen}
         currentUser={currentUser}
         profile={profile}
+        navigationStyle={profile?.interface_preferences?.navigationStyle ?? "grouped"}
         onCloseMobile={() => setMobileSidebarOpen(false)}
         onNavigate={navigateTab}
         onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}

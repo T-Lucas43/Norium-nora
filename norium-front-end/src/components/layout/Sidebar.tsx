@@ -17,6 +17,7 @@ import BrandLogo from "./BrandLogo";
 import IntegrationLogo from "../shared/IntegrationLogo";
 import NoraAvatar from "./NoraAvatar";
 import { preloadPanel } from "../../app/navigation/panelModules";
+import type { InterfacePreferences } from "../../utils/interfacePreferences";
 
 type NavigationItem = {
   title: string;
@@ -38,6 +39,7 @@ type SidebarProps = {
   onCloseMobile: () => void;
   onNavigate: (tab: string) => void;
   onToggleCollapsed: () => void;
+  navigationStyle?: InterfacePreferences["navigationStyle"];
 };
 
 const NORA_ENTRY = "Nora";
@@ -70,6 +72,7 @@ export default function Sidebar({
   onCloseMobile,
   onNavigate,
   onToggleCollapsed,
+  navigationStyle = "grouped",
 }: SidebarProps) {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const isAllowed = (title: string) => !allowedTabs || allowedTabs.includes(title);
@@ -133,7 +136,7 @@ export default function Sidebar({
             onClick={() => navigate("Dashboard")}
             aria-label="Abrir Dashboard"
           >
-            <BrandLogo className="h-12 w-[126px] object-left" />
+            <BrandLogo className={compact ? "h-10 w-10 object-left" : "h-12 w-[126px] object-left"} />
           </button>
 
           <button
@@ -147,9 +150,18 @@ export default function Sidebar({
         </div>
 
         <nav className="norium-sidebar-navigation">
+          {navigationStyle === "classic" && isAllowed(NORA_ENTRY) && renderItem({ title: NORA_ENTRY })}
           {NAVIGATION_GROUPS.map((group) => {
-            const visible = group.items.filter(isAllowed);
+            const visible = group.items.filter((title) => isAllowed(title) && !(navigationStyle === "classic" && title === NORA_ENTRY));
             if (!visible.length) return null;
+            if (navigationStyle === "classic") {
+              return (
+                <div key={group.label} className="norium-sidebar-group">
+                  {!compact && <p className="norium-sidebar-group-label" aria-hidden="true">{group.label}</p>}
+                  {visible.map((title) => renderItem({ title }))}
+                </div>
+              );
+            }
             const Icon = group.icon;
             const expanded = expandedGroup === group.label;
             const groupActive = visible.some((title) => activeTab === title || (activeTab === "Inbox" && title === "Central"));
@@ -158,15 +170,20 @@ export default function Sidebar({
                 <button
                   type="button"
                   className={`norium-sidebar-group-toggle ${groupActive ? "has-active-item" : ""}`}
-                  onClick={() => setExpandedGroup((current) => current === group.label ? null : group.label)}
+                  onClick={() => {
+                    setExpandedGroup((current) => current === group.label ? null : group.label);
+                    if (compact) onToggleCollapsed();
+                  }}
                   aria-expanded={expanded}
                   aria-controls={`norium-sidebar-group-${group.label}`}
+                  aria-label={compact ? group.label : undefined}
+                  title={compact ? group.label : undefined}
                 >
                   <span className="norium-sidebar-group-icon"><Icon size={20} /></span>
-                  <span>{group.label}</span>
-                  {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  {!compact && <span>{group.label}</span>}
+                  {!compact && (expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
                 </button>
-                {expanded && <div id={`norium-sidebar-group-${group.label}`} className="norium-sidebar-group-items">{visible.map((title) => renderItem({ title }))}</div>}
+                {expanded && !compact && <div id={`norium-sidebar-group-${group.label}`} className="norium-sidebar-group-items">{visible.map((title) => renderItem({ title }))}</div>}
               </div>
             );
           })}
@@ -181,7 +198,7 @@ export default function Sidebar({
             <span className="norium-sidebar-item-icon">
               <IntegrationLogo name="Configurações" size={20} className="norium-sidebar-channel-icon" monochrome />
             </span>
-            <span className="norium-sidebar-item-label">Configurações</span>
+            {!compact && <span className="norium-sidebar-item-label">Configurações</span>}
           </button>
           <button
             type="button"
@@ -193,7 +210,7 @@ export default function Sidebar({
             <span className="norium-sidebar-item-icon">
               <IntegrationLogo name="Ajuda" size={20} className="norium-sidebar-channel-icon" monochrome />
             </span>
-            <span className="norium-sidebar-item-label">Ajuda</span>
+            {!compact && <span className="norium-sidebar-item-label">Ajuda</span>}
           </button>
         </div>
 
@@ -209,10 +226,12 @@ export default function Sidebar({
               initials(profileName)
             )}
           </span>
-          <span className="norium-sidebar-profile-copy">
-            <strong>{profileName}</strong>
-            <small>{planLabel}</small>
-          </span>
+          {!compact && (
+            <span className="norium-sidebar-profile-copy">
+              <strong>{profileName}</strong>
+              <small>{planLabel}</small>
+            </span>
+          )}
         </button>
 
         <button

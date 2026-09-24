@@ -2552,12 +2552,8 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-sidebar.is-collapsed{
-  width:0;
-  flex-basis:0;
-  border-right:0;
-  overflow:hidden;
-  opacity:0;
-  pointer-events:none;
+  width:78px;
+  flex-basis:78px;
 }
 
 .norium-sidebar-brand{
@@ -2601,6 +2597,18 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   gap:3px;
 }
 
+.norium-sidebar-group-label{
+  margin:14px 12px 4px;
+  color:var(--text-secondary);
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.norium-sidebar-group-label:first-of-type{margin-top:2px;}
+.norium-sidebar.is-collapsed .norium-sidebar-group-label{display:none;}
+
 .norium-sidebar-group-toggle{
   display:grid;
   min-height:44px;
@@ -2613,6 +2621,13 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   color:var(--text-secondary);
   text-align:left;
   transition:background .18s ease, border-color .18s ease, color .18s ease;
+}
+
+.norium-sidebar.is-collapsed .norium-sidebar-group-toggle{
+  display:grid;
+  grid-template-columns:1fr;
+  justify-items:center;
+  padding-inline:0;
 }
 
 .norium-sidebar-group-toggle:hover,
@@ -4268,6 +4283,10 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
     display:grid;
   }
 
+  .norium-topbar-brand-logo{
+    display:none!important;
+  }
+
   .norium-command-search{
     width:min(420px, calc(100vw - 260px));
   }
@@ -4706,35 +4725,17 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   background-size:36px 36px!important;
 }
 
+.norium-topbar-brand-logo{display:none;flex:0 0 98px;}
+
 .app-shell.is-focus-mode .norium-topbar{
-  min-height:58px;
-  justify-content:flex-end;
-  padding-block:8px;
+  justify-content:space-between;
 }
 
 .app-shell.is-focus-mode .norium-topbar-menu{
   display:grid;
 }
 
-.app-shell.is-focus-mode .norium-command-search,
-.app-shell.is-focus-mode .norium-topbar-actions > :not(.norium-profile-menu){
-  display:none;
-}
-
-.app-shell.is-focus-mode .norium-topbar-search-group{
-  flex:0 0 auto;
-}
-
-.app-shell.is-focus-mode .norium-topbar-profile{
-  width:42px;
-  min-width:42px;
-  padding:4px;
-}
-
-.app-shell.is-focus-mode .norium-topbar-profile-name,
-.app-shell.is-focus-mode .norium-topbar-profile > svg{
-  display:none;
-}
+.app-shell.is-focus-mode .norium-topbar-brand-logo{display:inline-block;}
 
 .norium-modern-shell.norium-auth-shell.norium-auth-dark .norium-auth-feature{
   color:#f6f8fb;

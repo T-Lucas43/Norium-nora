@@ -375,13 +375,16 @@ def empty_store() -> dict[str, Any]:
 
 def read_chat_store(team_id: str) -> dict[str, Any]:
     path = Path(team_chat_path(team_id))
-    try:
-        path.stat()
-    except FileNotFoundError:
+    # read_json_file is the persistence boundary: in production it consults
+    # PostgreSQL first and only uses the filesystem when PostgreSQL is not the
+    # configured backend.  Checking Path.stat() here used to short-circuit that
+    # boundary on ShardCloud, making every read look empty even after a
+    # successful PostgreSQL write.
+    payload = read_json_file(path, None)
+    if payload is None:
         return empty_store()
     # The general repository falls back on read errors. Destructive retention
     # must distinguish a missing new store from an unreadable existing store.
-    payload = read_json_file(path, None)
     if not isinstance(payload, dict):
         raise OSError("Armazenamento de chamadas ilegivel; limpeza suspensa.")
     for field in ("messages", "subteams", "recordings", "activeCalls", "scheduledMeetings"):
@@ -1631,20 +1634,41 @@ async def _recording_team_ids() -> list[str]:
         for user in store.get("users", [])
         if isinstance(user, dict) and str(user.get("id") or "")
     }
-    # Retention must continue after the last account of a team is removed.
-    persisted = await asyncio.to_thread(lambda: {
-        path.parent.name.removeprefix("user_")
-        for path in get_data_root().glob("user_*/team_chat_db.json")
-        if path.is_file() and not path.is_symlink() and not path.parent.is_symlink()
-    })
+    # Retention must continue after the last account of a team is removed. The
+    # inventory must use the same authoritative backend as the document store.
+    if postgres_store.configured() or postgres_store.required():
+        keys = await asyncio.to_thread(postgres_store.list_document_keys, "user_")
+        persisted = {
+            parts[0].removeprefix("user_")
+            for key in keys
+            if (parts := Path(key).parts) and len(parts) == 2 and parts[1] == "team_chat_db.json"
+        }
+    else:
+        persisted = await asyncio.to_thread(lambda: {
+            path.parent.name.removeprefix("user_")
+            for path in get_data_root().glob("user_*/team_chat_db.json")
+            if path.is_file() and not path.is_symlink() and not path.parent.is_symlink()
+        })
     return sorted(teams | persisted)
+
+
+async def _recording_inventory_complete() -> bool:
+    if postgres_store.configured() or postgres_store.required():
+        keys = await asyncio.to_thread(postgres_store.list_document_keys, "user_")
+        return not any(
+            len(parts := Path(key).parts) == 3
+            and parts[1].startswith("workspace_")
+            and parts[2] == "team_chat_db.json"
+            for key in keys
+        )
+    return not await asyncio.to_thread(lambda: any(
+        get_data_root().glob("user_*/workspace_*/team_chat_db.json")))
 
 
 async def _recording_maintenance_loop() -> None:
     while True:
         try:
-            inventory_complete = not await asyncio.to_thread(lambda: any(
-                get_data_root().glob("user_*/workspace_*/team_chat_db.json")))
+            inventory_complete = await _recording_inventory_complete()
             result = await recording_coordinator().maintain(
                 await _recording_team_ids(), inventory_complete=inventory_complete)
             call_metrics.increment("cleanup_runs")

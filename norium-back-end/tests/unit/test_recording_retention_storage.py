@@ -19,6 +19,27 @@ from tests.unit.test_recording_coordinator import FixedClock, MemoryCallAccess, 
 
 
 class RecordingRetentionStorageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_team_store_reads_repository_before_local_filesystem(self):
+        persisted = {
+            "messages": [{"id": "postgres-message"}],
+            "subteams": [],
+            "recordings": [],
+            "activeCalls": [{"callId": "postgres-call"}],
+            "scheduledMeetings": [],
+        }
+        missing_local_path = Path(tempfile.gettempdir()) / "norium-missing-team-store.json"
+
+        with (
+            patch.object(router, "team_chat_path", return_value=str(missing_local_path)),
+            patch.object(router, "read_json_file", return_value=copy.deepcopy(persisted)) as read_repository,
+            patch.object(Path, "stat", side_effect=AssertionError("filesystem bypassed persistence boundary")),
+        ):
+            loaded = router.read_chat_store("owner")
+
+        read_repository.assert_called_once_with(missing_local_path, None)
+        self.assertEqual("postgres-message", loaded["messages"][0]["id"])
+        self.assertEqual("postgres-call", loaded["activeCalls"][0]["callId"])
+
     async def test_orphan_final_media_is_removed_but_referenced_recording_and_chat_file_survive(self):
         with tempfile.TemporaryDirectory(prefix="norium_retention_") as directory:
             root = Path(directory)

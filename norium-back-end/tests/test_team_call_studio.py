@@ -47,6 +47,17 @@ class CallStudioTests(unittest.IsolatedAsyncioTestCase):
             item.stop()
         self.temp.cleanup()
 
+    async def test_studio_reads_repository_before_local_filesystem(self):
+        persisted = {"id": "studio-postgres", "board": {"nodes": [], "edges": []}}
+        with (
+            patch.object(studio, "read_json_file", return_value=persisted) as read_repository,
+            patch.object(Path, "exists", side_effect=AssertionError("filesystem bypassed persistence boundary")),
+        ):
+            loaded = studio.read_studio("owner", self.call_id)
+
+        read_repository.assert_called_once()
+        self.assertEqual("studio-postgres", loaded["id"])
+
     async def event(self, kind, user):
         await team.handle_call_event(self.socket, user, {"type": kind, "callId": self.call_id,
                                                         "scope": "team", "clientId": f"{user['id']}-tab"})

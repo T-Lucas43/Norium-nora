@@ -68,9 +68,9 @@ def studio_path(team_id: str, call_id: str) -> Path:
 
 def read_studio(team_id: str, call_id: str) -> dict | None:
     path = studio_path(team_id, call_id)
-    if not path.exists():
-        return None
     session = read_json_file(path, None)
+    if session is None:
+        return None
     if not isinstance(session, dict) or not isinstance(session.get("board"), dict):
         raise OSError("Armazenamento do estúdio ilegível; gravação suspensa.")
     return session

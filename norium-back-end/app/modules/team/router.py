@@ -146,6 +146,10 @@ class MarkMessagesReadPayload(StrictModel):
     messageIds: list[str] = Field(default_factory=list, max_length=100)
 
 
+class MessageReactionPayload(StrictModel):
+    emoji: str = Field(min_length=1, max_length=24)
+
+
 class SubteamCreatePayload(StrictModel):
     name: str = Field(min_length=2, max_length=80)
     description: str = Field(default="", max_length=500)
@@ -1187,6 +1191,70 @@ async def mark_messages_read(payload: MarkMessagesReadPayload, user: dict[str, A
             {"type": "TEAM_MESSAGE_READ", "messageId": message_id, "readBy": read_by},
         )
     return {"updated": [{"messageId": message_id, "readBy": read_by} for message_id, read_by, _ in changed]}
+
+
+@router.post("/messages/{message_id}/reactions")
+async def toggle_message_reaction(
+    message_id: str,
+    payload: MessageReactionPayload,
+    user: dict[str, Any] = Depends(current_user),
+) -> dict[str, Any]:
+    require_team_chat(user)
+    user_id = str(user.get("id") or "")
+    emoji = payload.emoji.strip()
+    if not emoji or any(character.isalnum() for character in emoji):
+        raise HTTPException(status_code=400, detail="Selecione um emoji valido.")
+
+    team_id = team_id_for(user)
+    reactions: list[dict[str, Any]] = []
+    recipients: set[str] = set()
+    async with chat_lock:
+        store = await asyncio.to_thread(read_chat_store, team_id)
+        message = next(
+            (
+                item for item in store.get("messages", [])
+                if isinstance(item, dict) and str(item.get("id") or "") == message_id
+            ),
+            None,
+        )
+        if not message or not message_visible(message, user_id):
+            raise HTTPException(status_code=404, detail="Mensagem nao encontrada.")
+        recipients = await message_participant_ids(message, user, store)
+        if user_id not in recipients:
+            raise HTTPException(status_code=403, detail="Voce nao participa desta conversa.")
+
+        metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
+        stored_reactions = metadata.get("reactions") if isinstance(metadata.get("reactions"), list) else []
+        normalized: list[dict[str, Any]] = []
+        target_found = False
+        for item in stored_reactions:
+            if not isinstance(item, dict):
+                continue
+            item_emoji = str(item.get("emoji") or "").strip()
+            user_ids = sorted({str(value) for value in item.get("userIds", []) if str(value) in recipients})
+            if not item_emoji:
+                continue
+            if item_emoji == emoji:
+                target_found = True
+                if user_id in user_ids:
+                    user_ids.remove(user_id)
+                else:
+                    user_ids.append(user_id)
+                    user_ids.sort()
+            if user_ids:
+                normalized.append({"emoji": item_emoji, "userIds": user_ids})
+        if not target_found:
+            normalized.append({"emoji": emoji, "userIds": [user_id]})
+        reactions = normalized
+        message["metadata"] = {**metadata, "reactions": reactions}
+        await asyncio.to_thread(write_chat_store, team_id, store)
+
+    await manager.send_to_users(
+        team_id,
+        recipients,
+        {"type": "TEAM_MESSAGE_REACTION", "messageId": message_id, "reactions": reactions},
+    )
+    return {"messageId": message_id, "reactions": reactions}
 
 
 async def persist_message(

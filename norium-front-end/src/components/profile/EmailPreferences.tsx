@@ -9,6 +9,7 @@ const events: Record<string, string> = {
   chat_mention: "Menções no chat da equipe",
   finance_due: "Contas a pagar",
   client_follow_up: "Acompanhamentos de clientes",
+  client_shared: "Clientes compartilhados comigo",
 };
 const sources: Record<string, string> = {
   calendar: "Outras atualizações da agenda",

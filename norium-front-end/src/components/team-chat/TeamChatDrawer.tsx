@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, AtSign, CalendarDays, CalendarPlus, CheckCheck, Download, FileText, FolderOpen, Hash, ImageIcon, Images, Paperclip, Phone, PlayCircle, Send, Settings2, MessageSquare, PanelRight, Pin, PinOff, Users, UserRound, Video, Volume2, X } from "lucide-react";
+import { ArrowLeft, AtSign, CalendarDays, CalendarPlus, CheckCheck, Download, FileText, FolderOpen, Hash, ImageIcon, Images, Paperclip, Phone, PlayCircle, Send, Settings2, MessageSquare, PanelRight, Pin, PinOff, SmilePlus, Users, UserRound, Video, Volume2, X } from "lucide-react";
 import { canUse, type AuthSession, type NoriumUser } from "../../types/auth";
 import { apiBaseUrl, authToken } from "../../utils/api";
 import { downloadWithAuth } from "../../utils/download";
@@ -17,6 +17,10 @@ import TeamMemberPresenceDialog from "./TeamMemberPresenceDialog";
 import TeamMeetingMessageCard from "./TeamMeetingMessageCard";
 import TeamMeetingSchedulerDialog, { type TeamMeetingScheduleInput } from "./TeamMeetingSchedulerDialog";
 import { prepareChatAttachments } from "./chatAttachments";
+import TeamAudioControls from "./TeamAudioControls";
+import TeamEmojiPicker from "./TeamEmojiPicker";
+import TeamVoiceRecorder from "./TeamVoiceRecorder";
+import { QUICK_REACTIONS } from "./emojiCatalog";
 import {
   useCallSession,
   useTeamSocketEvents,
@@ -47,6 +51,8 @@ type TeamMessage = {
   metadata?: Record<string, unknown>;
   createdAt: string;
 };
+
+type MessageReaction = { emoji: string; userIds: string[] };
 
 type Subteam = {
   id: string;
@@ -82,6 +88,18 @@ function readReceiptsFor(message: TeamMessage) {
       return { userId, userName: String(receipt.userName || "Membro"), viewedAt: String(receipt.viewedAt || "") };
     })
     .filter((receipt): receipt is { userId: string; userName: string; viewedAt: string } => Boolean(receipt));
+}
+
+function reactionsFor(message: TeamMessage): MessageReaction[] {
+  const raw = message.metadata?.reactions;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const item = value as Record<string, unknown>;
+    const emoji = String(item.emoji || "");
+    const userIds = Array.isArray(item.userIds) ? item.userIds.map(String).filter(Boolean) : [];
+    return emoji && userIds.length ? [{ emoji, userIds }] : [];
+  });
 }
 
 function formatMessageDateTime(value: string) {
@@ -362,29 +380,25 @@ function TeamAttachmentCard({ attachment, onPreview, token }: { attachment: Atta
 
   return (
     <div className="overflow-hidden rounded-xl border border-white/10 bg-black/12 text-xs font-bold">
-      <button
-        type="button"
-        onClick={() => (previewable ? onPreview(attachment) : void downloadWithAuth(attachment.url, attachment.name, token))}
-        className="block w-full text-left"
-      >
+      <div className="block w-full text-left">
         {isImageAttachment(attachment) && objectUrl ? (
-          <img src={objectUrl} alt={attachment.name} className="h-28 w-full object-cover" />
+          <button type="button" className="block w-full" onClick={() => onPreview(attachment)}><img src={objectUrl} alt={attachment.name} className="h-28 w-full object-cover" /></button>
         ) : isVideoAttachment(attachment) && objectUrl ? (
-          <video src={objectUrl} className="h-28 w-full bg-black object-cover" muted />
+          <button type="button" className="block w-full" onClick={() => onPreview(attachment)}><video src={objectUrl} className="h-28 w-full bg-black object-cover" muted /></button>
         ) : isAudioAttachment(attachment) && objectUrl ? (
           <div className="p-2">
-            <audio src={objectUrl} controls className="w-full" />
+            <TeamAudioControls src={objectUrl} label={`Áudio ${attachment.name}`} />
           </div>
         ) : (
-          <div className="flex min-h-16 items-center gap-2 px-3 py-2">
+          <button type="button" onClick={() => (previewable ? onPreview(attachment) : void downloadWithAuth(attachment.url, attachment.name, token))} className="flex min-h-16 w-full items-center gap-2 px-3 py-2 text-left">
             <Icon size={16} />
             <span className="min-w-0 flex-1">
               <span className="block truncate">{attachment.name}</span>
               <span className="block text-xs opacity-70">{formatBytes(attachment.size)}</span>
             </span>
-          </div>
+          </button>
         )}
-      </button>
+      </div>
       <button
         type="button"
         onClick={() => void downloadWithAuth(attachment.url, attachment.name, token)}
@@ -420,7 +434,7 @@ function AttachmentPreviewModal({ attachment, onClose, token }: { attachment: At
           ) : isVideoAttachment(attachment) ? (
             <video src={objectUrl} controls className="mx-auto max-h-[70dvh] w-full rounded-xl bg-black" />
           ) : (
-            <audio src={objectUrl} controls className="w-full" />
+            <TeamAudioControls src={objectUrl} label={`Áudio ${attachment.name}`} />
           )}
         </div>
       </div>
@@ -528,6 +542,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
   const [error, setError] = useState("");
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [mentionDismissed, setMentionDismissed] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [reactionMessageId, setReactionMessageId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastScrolledThreadRef = useRef("");
@@ -773,6 +789,10 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       const readBy = payload.readBy && typeof payload.readBy === "object" ? payload.readBy : {};
       setMessages((current) => current.map((message) => message.id === payload.messageId ? { ...message, metadata: { ...(message.metadata || {}), readBy } } : message));
     }
+    if (payload.type === "TEAM_MESSAGE_REACTION" && payload.messageId) {
+      const reactions = Array.isArray(payload.reactions) ? payload.reactions : [];
+      setMessages((current) => current.map((message) => message.id === payload.messageId ? { ...message, metadata: { ...(message.metadata || {}), reactions } } : message));
+    }
   });
 
   useEffect(() => {
@@ -830,6 +850,34 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
       setError(sendError instanceof Error ? sendError.message : "Falha ao enviar mensagem.");
     } finally {
       setSending(false);
+    }
+  }
+
+  function insertEmoji(emoji: string) {
+    const position = inputRef.current?.selectionStart ?? text.length;
+    const next = `${text.slice(0, position)}${emoji}${text.slice(position)}`;
+    setText(next);
+    setCursor(position + emoji.length);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(position + emoji.length, position + emoji.length);
+    });
+  }
+
+  async function toggleReaction(messageId: string, emoji: string) {
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/messages/${messageId}/reactions`, {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }, session.token),
+        body: JSON.stringify({ emoji }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.detail || "Falha ao reagir à mensagem.");
+      setMessages((current) => current.map((message) => message.id === messageId ? { ...message, metadata: { ...(message.metadata || {}), reactions: data.reactions || [] } } : message));
+      setReactionMessageId(null);
+    } catch (reactionError) {
+      setError(reactionError instanceof Error ? reactionError.message : "Falha ao reagir à mensagem.");
     }
   }
 
@@ -974,6 +1022,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
               const senderAvatar = message.senderAvatar || member?.fotoUrl || (message.senderId === "nora" ? "nora" : "");
               const isNora = message.senderId === "nora";
               const readReceipts = mine ? readReceiptsFor(message) : [];
+              const reactions = reactionsFor(message);
               return (
                 <div key={message.id} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                   {!mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} />}
@@ -991,6 +1040,22 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
                         ))}
                       </div>
                     )}
+                    <div className="team-message-reactions">
+                      {reactions.map((reaction) => (
+                        <button key={reaction.emoji} type="button" className={reaction.userIds.includes(session.user.id) ? "is-mine" : ""} onClick={() => void toggleReaction(message.id, reaction.emoji)} aria-label={`${reaction.userIds.length} reação ${reaction.emoji}`} title={`${reaction.userIds.length} pessoa(s)`}>
+                          <span>{reaction.emoji}</span><strong>{reaction.userIds.length}</strong>
+                        </button>
+                      ))}
+                      <button type="button" className="team-reaction-add" onClick={() => setReactionMessageId((current) => current === message.id ? null : message.id)} aria-label="Reagir com emoji" title="Reagir"><SmilePlus size={15} /></button>
+                      {reactionMessageId === message.id && (
+                        <div className="team-reaction-menu">
+                          <div className="team-quick-reactions">
+                            {QUICK_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => void toggleReaction(message.id, emoji)} aria-label={`Reagir com ${emoji}`}>{emoji}</button>)}
+                          </div>
+                          <TeamEmojiPicker title="Reagir à mensagem" onSelect={(emoji) => void toggleReaction(message.id, emoji)} onClose={() => setReactionMessageId(null)} />
+                        </div>
+                      )}
+                    </div>
                     {mine && <button type="button" onClick={() => setReadReceiptsMessageId(message.id)} className="mt-2 flex items-center gap-1 text-[11px] font-bold text-blue-100/75 transition hover:text-white" aria-label={`Ver confirmações de leitura: ${readReceipts.length} pessoa(s) viram`}><CheckCheck size={14} /> {readReceipts.length ? `${readReceipts.length} viram` : "Ninguém viu ainda"}</button>}
                   </div>
                   {mine && <MessageAvatar name={message.senderName} avatar={senderAvatar} />}
@@ -1031,6 +1096,7 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
           )}
 
           {contentTab === "chat" && <footer className="team-chat-footer">
+            {emojiPickerOpen && <div className="team-composer-emoji-picker"><TeamEmojiPicker onSelect={insertEmoji} onClose={() => setEmojiPickerOpen(false)} /></div>}
             <div className="team-chat-composer">
             <textarea ref={inputRef} value={text} rows={2} maxLength={2000} aria-label="Mensagem para a conversa" aria-autocomplete="list" aria-controls={showMentionSuggestions ? "team-mention-options" : undefined} aria-activedescendant={showMentionSuggestions ? `team-mention-${Math.min(mentionIndex, mentionOptions.length - 1)}` : undefined}
               onChange={(event) => { setText(event.target.value); setCursor(event.target.selectionStart); setMentionDismissed(false); setMentionIndex(0); }}
@@ -1045,6 +1111,8 @@ export default function TeamChatDrawer({ open, onClose, session, onUnread, onOpe
             <div className="team-chat-composer-actions"><div>
               <label className="team-icon-button" aria-label="Anexar imagem ou arquivo" title="Anexar imagem ou arquivo"><Paperclip size={18} /><input type="file" multiple className="sr-only" aria-label="Anexar arquivos" onChange={(event) => { const next = [...files, ...Array.from(event.target.files || [])]; if (next.length > 8) setError("Envie até 8 arquivos por mensagem."); else setFiles(next); event.currentTarget.value = ""; }} /></label>
               <button type="button" className="team-icon-button" aria-label="Mencionar membro" title="Mencionar membro" onClick={() => { const pos = inputRef.current?.selectionStart ?? text.length; const prefix = pos > 0 && !/\s/.test(text[pos - 1]) ? " @" : "@"; setText(text.slice(0, pos) + prefix + text.slice(pos)); setCursor(pos + prefix.length); setMentionIndex(0); setMentionDismissed(false); requestAnimationFrame(() => { inputRef.current?.focus(); inputRef.current?.setSelectionRange(pos + prefix.length, pos + prefix.length); }); }}><AtSign size={18} /></button>
+              <button type="button" className="team-icon-button" aria-label="Escolher emoji" title="Emojis" aria-expanded={emojiPickerOpen} onClick={() => setEmojiPickerOpen((current) => !current)}><SmilePlus size={18} /></button>
+              <TeamVoiceRecorder disabled={sending} onSend={(file) => void sendMessage("", [file])} onError={setError} />
             </div><Button variant="primary" size="sm" onClick={() => void sendMessage()} disabled={sending || (!text.trim() && !files.length)} icon={<Send size={15} />} className="team-chat-send">{sending ? "Enviando..." : "Enviar"}</Button></div>
             </div><p className="team-chat-composer-hint"><span>Enter envia · Shift + Enter quebra a linha</span><span>{text.length}/2000</span></p>
           </footer>}

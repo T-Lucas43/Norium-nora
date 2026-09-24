@@ -23,6 +23,7 @@ from app.modules.clients.repository import save_clients
 from app.modules.operations.schemas import AuditCreate
 from app.modules.operations.service import record_audit
 from app.infrastructure.persistence import postgres_store
+from app.core.request_context import current_workspace_id
 from app.shared.schemas import StrictModel
 
 
@@ -413,6 +414,12 @@ async def update_client_access(
         if current is None or index is None:
             raise HTTPException(404, "Cliente não encontrado.")
         require_client_access(current, user, user_id, "owner")
+        current_access = current.get("access") if isinstance(current.get("access"), dict) else {}
+        previous_permissions = {
+            str(item.get("userId") or ""): str(item.get("permission") or "")
+            for item in current_access.get("people", [])
+            if isinstance(item, dict) and item.get("userId")
+        }
         updated = {
             **current,
             "access": {"teamPermission": payload.teamPermission, "people": people},
@@ -432,4 +439,21 @@ async def update_client_access(
             metadata={"teamPermission": payload.teamPermission, "peopleCount": len(people)},
         ),
     )
+    changed_people = [
+        item for item in people
+        if previous_permissions.get(str(item["userId"])) != str(item["permission"])
+    ]
+    if changed_people:
+        from app.services import system_email as mail
+
+        workspace = current_workspace_id()
+        for person in changed_people:
+            member = members[str(person["userId"])]
+            event = {
+                "id": f'client_shared_{client_id}_{updated["updatedAt"]}_{person["userId"]}',
+                "source": "clientes",
+                "title": f'{user.get("nome") or "Um membro da equipe"} compartilhou o cliente "{updated.get("name") or client_id}" com você',
+                "metadata": {"userId": person["userId"], "emailCategory": "client_shared"},
+            }
+            await asyncio.to_thread(mail.queue_notification, member, event, workspace)
     return {"item": client_summary(updated, user, user_id)}

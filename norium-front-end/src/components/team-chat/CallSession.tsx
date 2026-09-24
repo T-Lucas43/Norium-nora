@@ -112,6 +112,7 @@ export type TeamSocketEvent = TeamCallSocketEvent & {
   onlineUserIds?: string[];
   messageId?: string;
   readBy?: Record<string, unknown>;
+  reactions?: Array<{ emoji: string; userIds: string[] }>;
   message?: {
     id?: string;
     threadId?: string;

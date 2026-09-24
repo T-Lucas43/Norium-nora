@@ -36,6 +36,7 @@ EVENT_TYPES = {
     "chat_mention",
     "finance_due",
     "client_follow_up",
+    "client_shared",
 }
 EVENT_NAMES = {
     "meeting_scheduled": "Reuniões agendadas",
@@ -44,6 +45,7 @@ EVENT_NAMES = {
     "chat_mention": "Menções no chat",
     "finance_due": "Contas a pagar",
     "client_follow_up": "Acompanhamentos de clientes",
+    "client_shared": "Clientes compartilhados comigo",
 }
 logger = logging.getLogger(__name__)
 smtp_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="system-smtp")

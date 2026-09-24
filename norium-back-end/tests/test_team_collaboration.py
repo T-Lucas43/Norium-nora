@@ -169,6 +169,47 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"owner", "member"}, recipients)
         self.assertNotIn("other", recipients)
 
+    async def test_message_reactions_toggle_and_are_broadcast_only_to_thread_participants(self) -> None:
+        manager = team_router.PresenceManager()
+        manager.send_to_users = AsyncMock()
+        with (
+            patch.object(team_router, "team_chat_path", return_value=str(self.chat_path)),
+            patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)),
+            patch.object(team_router, "read_profile_db", return_value={}),
+            patch.object(team_router, "record_team_event", AsyncMock()),
+            patch.object(team_router, "manager", manager),
+        ):
+            sent = await team_router.send_message(
+                team_router.SendTeamMessagePayload(scope="direct", recipientId="member", text="Pode revisar?"),
+                self.owner,
+            )
+            message_id = sent["message"]["id"]
+            manager.send_to_users.reset_mock()
+
+            added = await team_router.toggle_message_reaction(
+                message_id,
+                team_router.MessageReactionPayload(emoji="👍"),
+                self.member,
+            )
+            self.assertEqual([{"emoji": "👍", "userIds": ["member"]}], added["reactions"])
+            self.assertEqual({"owner", "member"}, manager.send_to_users.await_args.args[1])
+            self.assertEqual("TEAM_MESSAGE_REACTION", manager.send_to_users.await_args.args[2]["type"])
+
+            removed = await team_router.toggle_message_reaction(
+                message_id,
+                team_router.MessageReactionPayload(emoji="👍"),
+                self.member,
+            )
+            self.assertEqual([], removed["reactions"])
+
+            with self.assertRaises(HTTPException) as error:
+                await team_router.toggle_message_reaction(
+                    message_id,
+                    team_router.MessageReactionPayload(emoji="❤️"),
+                    self.other_member,
+                )
+            self.assertEqual(404, error.exception.status_code)
+
     async def test_call_end_reaches_other_tabs_but_not_the_origin_socket(self) -> None:
         manager = team_router.PresenceManager()
         origin_socket = MagicMock()

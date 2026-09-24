@@ -154,6 +154,8 @@ export default function NoriumApp() {
     preloadPanel(nextTab);
     if (nextTab !== "Chat da Equipe") setTeamChatOpen(false);
     setActiveTab(nextTab);
+    setSidebarCollapsed(true);
+    setMobileSidebarOpen(false);
     navigateNoriumTab(nextTab, options);
   }, []);
 
@@ -335,7 +337,7 @@ export default function NoriumApp() {
         if (activeTab !== "Chat da Equipe") setTeamChatOpen(true);
       }}
     >
-    <div className="app-shell norium-modern-shell flex overflow-hidden bg-[var(--background)] font-sans antialiased">
+    <div className={`app-shell norium-modern-shell ${sidebarCollapsed ? "is-focus-mode" : ""} flex overflow-hidden bg-[var(--background)] font-sans antialiased`}>
       <a className="norium-skip-link" href="#norium-main">Pular para o conteudo</a>
       {canAccessPermission("nora") && isNoraOpen && (
         <Suspense fallback={null}>

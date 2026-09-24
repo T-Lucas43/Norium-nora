@@ -125,7 +125,10 @@ class ClientProfileTests(unittest.IsolatedAsyncioTestCase):
             {"id": self.user["id"], "nome": "Owner", "email": "owner@example.com", "status": "ativo"},
             {"id": member["id"], "nome": "Member", "email": "member@example.com", "status": "ativo"},
         ]
-        with patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible)):
+        with (
+            patch("app.modules.team.router.visible_team_members", new=AsyncMock(return_value=visible)),
+            patch("app.services.system_email.queue_notification", return_value=True) as queue_notification,
+        ):
             private = await router.list_clients(q=None, status=None, stage=None, user=member)
             self.assertEqual([], private["items"])
             shared = await router.update_client_access(
@@ -137,6 +140,9 @@ class ClientProfileTests(unittest.IsolatedAsyncioTestCase):
                 self.user,
             )
             self.assertEqual("owner", shared["item"]["accessRole"])
+            queued_event = queue_notification.call_args.args[1]
+            self.assertEqual("client_shared", queued_event["metadata"]["emailCategory"])
+            self.assertEqual(member["id"], queued_event["metadata"]["userId"])
             listed = await router.list_clients(q=None, status=None, stage=None, user=member)
             self.assertEqual("view", listed["items"][0]["accessRole"])
             with self.assertRaises(HTTPException) as denied:

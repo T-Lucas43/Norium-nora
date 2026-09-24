@@ -2,32 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import Sidebar from "./Sidebar";
 
-const vectorTabs = [
-  "Dashboard",
-  "Controle",
-  "Central",
-  "Tarefas",
-  "Financeiro",
-  "Automações",
-  "Relatórios",
-  "Documentos",
-  "PDF Studio",
-  "Agente Navegador",
-  "Conhecimento",
-  "Marketplace",
-  "IA e Modelos",
-  "Equipe",
-  "Chat da Equipe",
-  "Clientes",
-  "Governanca",
-  "Estúdio",
-  "Mais",
-  "Configurações",
-  "Ajuda",
-];
-
 describe("Sidebar", () => {
-  it("uses compact transparent blue vectors for every module in the navigation", () => {
+  it("shows icon-led collapsible groups and navigates from an expanded group", () => {
     const onNavigate = vi.fn();
 
     render(
@@ -42,15 +18,21 @@ describe("Sidebar", () => {
       />,
     );
 
-    for (const tab of [...vectorTabs, "E-mails", "Agenda", "Chat"]) {
-      const button = screen.getByRole("button", { name: tab });
-      expect(button.querySelector("img.norium-sidebar-channel-icon")).toBeNull();
-      const icon = button.querySelector(".norium-sidebar-item-icon svg");
-      expect(icon).not.toBeNull();
-      expect(icon).toHaveClass("norium-sidebar-channel-icon");
+    const groupNames = ["Início", "Comunicação", "Trabalho", "Inteligência", "Equipe"];
+    for (const groupName of groupNames) {
+      const group = screen.getByRole("button", { name: groupName });
+      expect(group.querySelector(".norium-sidebar-group-icon svg")).not.toBeNull();
+      expect(group).toHaveAttribute("aria-expanded", "false");
     }
 
+    fireEvent.click(screen.getByRole("button", { name: "Inteligência" }));
+    expect(screen.getByRole("button", { name: "Inteligência" })).toHaveAttribute("aria-expanded", "true");
+    const knowledge = screen.getByRole("button", { name: "Conhecimento" });
+    expect(knowledge.querySelector(".norium-sidebar-item-icon svg")).toHaveClass("norium-sidebar-channel-icon");
     fireEvent.click(screen.getByRole("button", { name: "Conhecimento" }));
     expect(onNavigate).toHaveBeenCalledWith("Conhecimento");
+
+    fireEvent.click(screen.getByRole("button", { name: "Inteligência" }));
+    expect(screen.queryByRole("button", { name: "Conhecimento" })).toBeNull();
   });
 });

@@ -124,6 +124,11 @@ class SystemEmailTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(mail.queue_notification(self.user, categorized))
         categorized_job = next(job for job in mail.read_store()["outbox"] if job["id"] != "")
         self.assertIn(categorized_job["kind"], {"event:task_due", "kanban"})
+        client_shared = {
+            **self.event(event_id="client-shared-category", source="clientes"),
+            "metadata": {"userId": "alice", "emailCategory": "client_shared"},
+        }
+        self.assertTrue(mail.queue_notification(self.user, client_shared))
         self.assertTrue(mail.queue_notification(self.user, self.event(), "primary"))
         self.assertFalse(mail.queue_notification(self.user, self.event(), "primary"))
         self.assertTrue(mail.queue_notification(self.user, self.event(), "workspace-2"))

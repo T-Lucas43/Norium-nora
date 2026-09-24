@@ -4614,8 +4614,8 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 
 /* A autenticação é sempre escura, independentemente do tema salvo na conta. */
 .norium-modern-shell.norium-auth-shell.norium-auth-dark{
-  --background:#07090c;
-  --surface:#0d1117;
+  --background:#01040c;
+  --surface:#081020;
   --surface-hover:#141a22;
   --border:#29323d;
   --text:#f6f8fb;
@@ -4624,25 +4624,25 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   color:#f6f8fb;
   color-scheme:dark;
   background:
-    linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
-    #07090c!important;
+    radial-gradient(circle at 50% 42%, rgba(8,42,105,.3), transparent 48%),
+    linear-gradient(145deg, #01040c 0%, #020817 54%, #01030a 100%)!important;
   background-size:36px 36px!important;
 }
 
 .norium-modern-shell.norium-auth-shell.norium-auth-dark .norium-auth-feature{
   color:#f6f8fb;
   background:
-    radial-gradient(circle at 84% 18%, rgba(37,139,255,.23), transparent 34%),
-    linear-gradient(145deg, #0a0d12 0%, #0b1624 58%, #0b2137 100%)!important;
-  border-color:#334154!important;
+    radial-gradient(circle at 84% 18%, rgba(25,120,255,.26), transparent 35%),
+    linear-gradient(145deg, rgba(5,12,28,.91) 0%, rgba(5,21,48,.88) 58%, rgba(4,31,65,.86) 100%)!important;
+  border-color:rgba(76,132,255,.62)!important;
+  box-shadow:0 24px 80px rgba(0,0,0,.48), inset 0 1px 0 rgba(255,255,255,.08), 0 0 42px rgba(28,103,255,.1)!important;
 }
 
 .norium-modern-shell.norium-auth-shell.norium-auth-dark .norium-auth-form{
   color:#f6f8fb;
-  background:rgba(13,17,23,.96)!important;
-  border-color:#334154!important;
-  box-shadow:0 26px 72px rgba(0,0,0,.52)!important;
+  background:linear-gradient(155deg, rgba(10,18,39,.94), rgba(5,11,25,.96))!important;
+  border-color:rgba(86,128,232,.62)!important;
+  box-shadow:0 26px 82px rgba(0,0,0,.58), inset 0 1px 0 rgba(255,255,255,.07), 0 0 38px rgba(33,99,235,.08)!important;
 }
 
 .norium-modern-shell.norium-auth-shell.norium-auth-dark .norium-auth-form input{
@@ -4667,6 +4667,242 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
   border-color:#465568!important;
 }
 
+.norium-auth-cosmos{
+  position:absolute;
+  inset:0;
+  z-index:0;
+  overflow:hidden;
+  pointer-events:none;
+  background:
+    radial-gradient(circle at 73% 56%, rgba(12,75,190,.14), transparent 23%),
+    radial-gradient(circle at 18% 20%, rgba(12,64,150,.1), transparent 28%);
+}
+
+.norium-auth-cosmos::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  opacity:.33;
+  background-image:
+    radial-gradient(circle, rgba(115,169,255,.75) 0 1px, transparent 1.5px),
+    radial-gradient(circle, rgba(72,126,255,.52) 0 1px, transparent 1.4px);
+  background-position:0 0, 38px 51px;
+  background-size:97px 83px, 143px 121px;
+  animation:norium-auth-stars-drift 20s linear infinite;
+}
+
+.norium-auth-cosmos::after{
+  content:"";
+  position:absolute;
+  inset:-12%;
+  opacity:.34;
+  background-image:
+    radial-gradient(circle, rgba(154,203,255,.9) 0 1.2px, transparent 1.8px),
+    radial-gradient(circle, rgba(40,101,255,.7) 0 1px, transparent 1.7px);
+  background-position:17px 24px, 72px 11px;
+  background-size:181px 157px, 113px 137px;
+  animation:norium-auth-stars-counter-drift 27s linear infinite;
+}
+
+.norium-auth-planet{
+  position:absolute;
+  display:block;
+  border-radius:50%;
+  filter:saturate(1.2);
+  opacity:.78;
+  animation:norium-auth-planet-float 6.5s ease-in-out infinite alternate;
+}
+
+.norium-auth-planet-left{
+  width:410px;
+  height:410px;
+  left:-260px;
+  bottom:-190px;
+  background:radial-gradient(circle at 67% 30%, rgba(45,112,255,.95), rgba(17,58,177,.5) 20%, rgba(3,15,56,.22) 55%, transparent 69%);
+  box-shadow:80px -50px 95px rgba(37,99,235,.34), inset -45px 24px 62px rgba(1,4,18,.88);
+}
+
+.norium-auth-planet-top{
+  width:265px;
+  height:265px;
+  right:-128px;
+  top:-142px;
+  background:radial-gradient(circle at 31% 69%, rgba(47,109,255,.9), rgba(14,48,154,.5) 30%, rgba(2,9,34,.1) 67%, transparent 70%);
+  box-shadow:-38px 46px 90px rgba(50,99,255,.28), inset 32px -20px 58px rgba(2,4,19,.88);
+  animation-name:norium-auth-planet-top-float;
+  animation-delay:-3s;
+}
+
+.norium-auth-orbit{
+  --orbit-rotate:13deg;
+  position:absolute;
+  display:block;
+  width:125vw;
+  height:31vw;
+  left:-13vw;
+  top:29%;
+  border:1px solid rgba(45,105,255,.55);
+  border-radius:50%;
+  box-shadow:0 0 10px rgba(44,111,255,.15);
+  transform:rotate(var(--orbit-rotate));
+  animation:norium-auth-orbit-drift 8s ease-in-out infinite alternate;
+}
+
+.norium-auth-orbit-two{
+  --orbit-rotate:-15deg;
+  top:8%;
+  left:-19vw;
+  opacity:.62;
+  animation-delay:-2.2s;
+}
+
+.norium-auth-orbit-three{
+  --orbit-rotate:-5deg;
+  top:61%;
+  left:4vw;
+  width:111vw;
+  height:22vw;
+  opacity:.5;
+  animation-delay:-4s;
+}
+
+.norium-auth-horizon{
+  position:absolute;
+  left:-10%;
+  right:-10%;
+  bottom:-29%;
+  height:62%;
+  opacity:.3;
+  transform:perspective(450px) rotateX(61deg);
+  transform-origin:center top;
+  background-image:
+    linear-gradient(rgba(48,112,255,.34) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(48,112,255,.34) 1px, transparent 1px);
+  background-size:54px 54px;
+  -webkit-mask-image:linear-gradient(to bottom, transparent, #000 22%, transparent 88%);
+  mask-image:linear-gradient(to bottom, transparent, #000 22%, transparent 88%);
+  animation:norium-auth-horizon-flow 8s linear infinite;
+}
+
+.norium-auth-particle{
+  --particle-left:50%;
+  --particle-top:50%;
+  --particle-size:3px;
+  --particle-delay:0s;
+  --particle-duration:7s;
+  position:absolute;
+  left:var(--particle-left);
+  top:var(--particle-top);
+  width:var(--particle-size);
+  height:var(--particle-size);
+  border-radius:50%;
+  background:#4f8cff;
+  box-shadow:0 0 8px #2874ff, 0 0 18px rgba(45,113,255,.88);
+  animation:norium-auth-particle-float var(--particle-duration) ease-in-out var(--particle-delay) infinite alternate;
+}
+
+.norium-auth-particle.is-large{
+  background:#6ec8ff;
+  box-shadow:0 0 10px #3b82f6, 0 0 26px rgba(37,99,235,.85);
+}
+
+.norium-auth-title-accent{
+  color:#6f97ff;
+  background:none;
+  -webkit-text-fill-color:currentColor;
+  text-shadow:0 0 24px rgba(63,114,255,.28);
+}
+
+.norium-auth-feature-card{
+  background:linear-gradient(145deg, rgba(46,86,158,.28), rgba(15,37,78,.45))!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08), 0 10px 28px rgba(0,0,0,.18);
+}
+
+.norium-auth-input-wrap{
+  position:relative;
+  display:block;
+}
+
+.norium-auth-input-wrap > svg:first-child{
+  position:absolute;
+  z-index:1;
+  left:14px;
+  top:50%;
+  color:#88a8df;
+  transform:translateY(-50%);
+  pointer-events:none;
+}
+
+.norium-auth-form .norium-auth-password-toggle{
+  position:absolute;
+  z-index:2;
+  right:6px;
+  top:50%;
+  display:grid;
+  width:36px;
+  height:36px;
+  place-items:center;
+  padding:0!important;
+  border:0!important;
+  border-radius:10px!important;
+  color:#9ab3dc!important;
+  background:transparent!important;
+  transform:translateY(-50%);
+}
+
+.norium-auth-form .norium-auth-password-toggle:hover{
+  color:#fff!important;
+  background:rgba(59,130,246,.14)!important;
+}
+
+@keyframes norium-auth-stars-drift{
+  0%{ transform:translate3d(-24px, 20px, 0) scale(1); }
+  50%{ opacity:.55; transform:translate3d(62px, -46px, 0) scale(1.045); }
+  100%{ transform:translate3d(132px, -82px, 0) scale(1.08); }
+}
+
+@keyframes norium-auth-stars-counter-drift{
+  0%{ transform:translate3d(54px, -32px, 0) rotate(0deg); }
+  100%{ transform:translate3d(-118px, 76px, 0) rotate(2.5deg); }
+}
+
+@keyframes norium-auth-particle-float{
+  0%{ opacity:.2; transform:translate3d(-12px, 18px, 0) scale(.62); }
+  48%{ opacity:1; transform:translate3d(12px, -10px, 0) scale(1.35); }
+  100%{ opacity:.42; transform:translate3d(31px, -38px, 0) scale(.9); }
+}
+
+@keyframes norium-auth-orbit-drift{
+  from{ border-color:rgba(38,91,232,.25); filter:brightness(.75); transform:rotate(var(--orbit-rotate)) translate3d(-28px, 12px, 0) scale(.98); }
+  to{ border-color:rgba(60,129,255,.72); filter:brightness(1.28); transform:rotate(calc(var(--orbit-rotate) + 2deg)) translate3d(34px, -20px, 0) scale(1.035); }
+}
+
+@keyframes norium-auth-planet-float{
+  from{ transform:translate3d(-18px, 15px, 0) scale(.98); filter:saturate(1.05) brightness(.88); }
+  to{ transform:translate3d(34px, -28px, 0) scale(1.07); filter:saturate(1.35) brightness(1.16); }
+}
+
+@keyframes norium-auth-planet-top-float{
+  from{ transform:translate3d(16px, -18px, 0) scale(.96); filter:saturate(1.05) brightness(.9); }
+  to{ transform:translate3d(-35px, 34px, 0) scale(1.08); filter:saturate(1.4) brightness(1.18); }
+}
+
+@keyframes norium-auth-horizon-flow{
+  from{ background-position:0 0, 0 0; transform:perspective(450px) rotateX(61deg) translate3d(0, 0, 0); }
+  to{ background-position:0 108px, 108px 0; transform:perspective(450px) rotateX(61deg) translate3d(0, 20px, 0); }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .norium-auth-cosmos::before,
+  .norium-auth-cosmos::after,
+  .norium-auth-planet,
+  .norium-auth-orbit,
+  .norium-auth-horizon,
+  .norium-auth-particle{
+    animation:none!important;
+  }
+}
+
 @media (max-width:640px){
   .norium-auth-dark .norium-auth-layout{
     display:flex!important;
@@ -4687,6 +4923,17 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
     min-height:0;
     width:100%;
     padding:22px!important;
+  }
+
+  .norium-auth-planet-left{
+    left:-315px;
+    opacity:.5;
+  }
+
+  .norium-auth-orbit{
+    width:190vw;
+    height:70vw;
+    left:-48vw;
   }
 
   .norium-auth-dark .norium-auth-layout .norium-auth-feature h1{

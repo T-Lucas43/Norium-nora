@@ -1,0 +1,67 @@
+FROM node:24-alpine AS frontend-build
+
+WORKDIR /build/frontend
+COPY norium-front-end/package.json norium-front-end/package-lock.json ./
+RUN npm ci
+COPY norium-front-end/ ./
+RUN npm run build
+
+FROM python:3.14-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV ENVIRONMENT=production
+ENV NORIUM_DATA_DIR=/app/data
+ENV NORIUM_SPA_DIR=/opt/norium/static
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV HOME=/home/norium
+ENV XDG_CONFIG_HOME=/home/norium/.config
+ENV XDG_CACHE_HOME=/home/norium/.cache
+ENV PORT=8000
+
+# ShardCloud mounts the persistent application data under /app. Keep the
+# immutable runtime elsewhere so the mount cannot hide main.py or app/.
+WORKDIR /opt/norium
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 norium \
+    && useradd --uid 10001 --gid norium --no-create-home --shell /usr/sbin/nologin norium
+
+COPY norium-back-end/requirements.lock.txt ./requirements.lock.txt
+RUN pip install --no-cache-dir -r requirements.lock.txt
+RUN mkdir -p /ms-playwright \
+    && python -m playwright install --with-deps chromium \
+    && chmod -R a+rX /ms-playwright
+
+COPY norium-back-end/app ./app
+COPY norium-back-end/main.py ./main.py
+COPY --from=frontend-build /build/frontend/dist ./static
+
+# Fail the build if the trusted PostgreSQL CA bundle is missing or malformed.
+RUN python -c "import ssl; ssl.create_default_context(cafile='/opt/norium/app/infrastructure/persistence/azure_postgres_roots.pem')"
+
+# Full Chromium needs writable configuration directories for Crashpad at startup.
+RUN mkdir -p /app/data /home/norium/.config /home/norium/.cache \
+    && chown -R norium:norium /opt/norium /app /home/norium
+USER norium
+
+# Fail the build if the bundled browser cannot open a page and execute a real
+# DOM interaction under the same identity used by the application code.
+RUN python -m app.infrastructure.browser_runtime_smoke
+
+# ShardCloud injects PORT=80 and drops capabilities required by setuid proxies.
+# Validate Chromium once more under the exact root identity used at runtime.
+USER root
+RUN python -m app.infrastructure.browser_runtime_smoke
+
+ARG NORIUM_RELEASE_SHA=""
+ENV NORIUM_RELEASE_SHA=${NORIUM_RELEASE_SHA}
+
+EXPOSE 80 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
+
+CMD ["sh", "-c", "exec uvicorn --app-dir /opt/norium main:app --host 0.0.0.0 --port ${PORT:-80} --workers 1 --ws-max-size 120000 --ws-max-queue 8 --proxy-headers"]

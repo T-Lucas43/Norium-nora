@@ -17,6 +17,7 @@ Data: 2026-09-24
 - Preferências de e-mail são persistidas por usuário e verificadas novamente no momento da entrega.
 - A fila automática cobre reuniões criadas na Agenda, reuniões da equipe e agendamentos públicos, lembretes de reunião, tarefas vencendo hoje ou amanhã, menções no chat, contas a pagar vencendo hoje ou amanhã e acompanhamentos de clientes nas próximas 24 horas.
 - Mensagens comuns do chat não geram e-mail; somente menções geram o alerta específico.
+- `Dockerfile.shard` mantém o runtime imutável em `/opt/norium`, separado do mount persistente `/app/data`, para que o deploy no ShardCloud não oculte `main.py`.
 
 ## Evidências locais
 

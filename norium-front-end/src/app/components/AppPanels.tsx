@@ -19,6 +19,7 @@ const ClientsDashboard = lazy(() => import("../../components/clients/ClientsDash
 const CommercialDashboard = lazy(() => import("../../components/commercial/CommercialDashboard"));
 const Dashboard = lazy(() => import("../../components/dashboard/Dashboard"));
 const EmailDashboard = lazy(() => import("../../components/emails/EmailDashboard"));
+const MessageTemplatesDashboard = lazy(() => import("../../components/message-templates/MessageTemplatesDashboard"));
 const FinanceDashboard = lazy(() => import("../../components/finance/FinanceDashboard"));
 const HelpDashboard = lazy(() => import("../../components/help/HelpDashboard"));
 const IntelligenceHubDashboard = lazy(() => import("../../components/intelligence/IntelligenceHubDashboard"));
@@ -142,6 +143,11 @@ export default function AppPanels({
             selectedEmailId={emailToOpenId}
             onSelectedEmailHandled={onEmailHandled}
           />
+        </section>
+      )}
+      {isPanelMounted("Modelos de mensagens") && (
+        <section className={activePanelClass("Modelos de mensagens")}>
+          <MessageTemplatesDashboard />
         </section>
       )}
       {isPanelMounted("Agenda") && (

@@ -3,6 +3,7 @@ import { Loader2, Paperclip, Reply, Sparkles } from "lucide-react";
 import Button from "../shared/Button";
 import AttachmentPreview from "./AttachmentPreview";
 import type { ComposeAttachment } from "../../features/mail/types";
+import MessageTemplatePicker from "../message-templates/MessageTemplatePicker";
 
 type MailReplyBoxProps = {
   text: string;
@@ -49,6 +50,7 @@ export default function MailReplyBox({
             <span className="sr-only">Anexar arquivo a resposta</span>
             <input type="file" multiple className="hidden" onChange={(event) => onAddFiles(event.target.files)} />
           </label>
+          <MessageTemplatePicker channel="email" onApply={({ body }) => onTextChange(body)} />
           {canUseNora && (
             <Button
               size="sm"

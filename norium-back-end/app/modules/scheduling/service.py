@@ -678,28 +678,41 @@ class SchedulingService:
         return parse_utc(value_iso).astimezone(ZoneInfo(timezone_name)).strftime("%d/%m/%Y as %H:%M")
 
     @classmethod
-    def render_reschedule_email(cls, *, service_name: str, attendee_name: str, old_start: str, new_start: str, timezone_name: str) -> dict[str, str]:
+    def render_reschedule_email(cls, *, service_name: str, attendee_name: str, old_start: str, new_start: str, timezone_name: str, previous_professional_name: str = "", new_professional_name: str = "", signature: str = "Equipe Norium") -> dict[str, str]:
         old_label = cls.format_local(old_start, timezone_name)
         new_label = cls.format_local(new_start, timezone_name)
         subject = f"Reagendamento: {service_name} em {new_label}"
+        professional_changed = bool(previous_professional_name and new_professional_name and previous_professional_name != new_professional_name)
+        professional_note = (
+            f"O profissional responsavel tambem foi alterado de {previous_professional_name} para {new_professional_name}.\n\n"
+            if professional_changed else (f"Profissional responsavel: {new_professional_name}.\n\n" if new_professional_name else "")
+        )
         body = (
             f"Ola {attendee_name},\n\n"
-            f"Seu agendamento de {service_name} foi reagendado.\n\n"
-            f"Antes: {old_label} ({timezone_name})\n"
-            f"Agora: {new_label} ({timezone_name})\n\n"
-            "Se esse horario nao funcionar para voce, responda esta mensagem.\n\n"
-            "Atenciosamente."
+            f"Entramos em contato para informar uma atualizacao importante no seu agendamento de {service_name}. "
+            "Por uma necessidade de reorganizacao da agenda, precisamos realizar o reagendamento abaixo.\n\n"
+            "Pedimos desculpas por qualquer inconveniente que essa mudanca possa causar e contamos com a sua compreensao.\n\n"
+            f"Data e horario anteriores: {old_label} ({timezone_name})\n"
+            f"Nova data e horario: {new_label} ({timezone_name})\n\n"
+            f"{professional_note}"
+            "Caso o novo horario ou a alteracao de profissional nao seja conveniente, responda esta mensagem para que possamos encontrar a melhor alternativa.\n\n"
+            "Agradecemos pela compreensao e permanecemos a disposicao.\n\n"
+            f"Atenciosamente,\n{signature}"
         )
         return {"subject": subject, "body": body}
 
     @classmethod
-    def render_reschedule_whatsapp(cls, *, service_name: str, attendee_name: str, old_start: str, new_start: str, timezone_name: str) -> str:
+    def render_reschedule_whatsapp(cls, *, service_name: str, attendee_name: str, old_start: str, new_start: str, timezone_name: str, previous_professional_name: str = "", new_professional_name: str = "", signature: str = "Equipe Norium") -> str:
         old_label = cls.format_local(old_start, timezone_name)
         new_label = cls.format_local(new_start, timezone_name)
+        professional_changed = bool(previous_professional_name and new_professional_name and previous_professional_name != new_professional_name)
+        professional_note = f" O profissional responsavel mudou de {previous_professional_name} para {new_professional_name}." if professional_changed else (f" Profissional: {new_professional_name}." if new_professional_name else "")
         return (
-            f"Ola {attendee_name}! Seu agendamento de {service_name} foi reagendado: "
-            f"de {old_label} para {new_label} ({timezone_name}). "
-            "Se esse horario nao funcionar, responda esta mensagem."
+            f"Ola {attendee_name}! Precisamos atualizar o seu agendamento de {service_name}. "
+            "Pedimos desculpas por qualquer inconveniente e contamos com a sua compreensao. "
+            f"Horario anterior: {old_label}. Novo horario: {new_label} ({timezone_name})."
+            f"{professional_note} Se a mudanca nao for conveniente, responda esta mensagem para buscarmos outra alternativa. "
+            f"Atenciosamente, {signature}."
         )
 
     def get_notification_attempt(self, scope: tuple[str, str, str], operation_key: str, channel: str) -> dict[str, Any] | None:

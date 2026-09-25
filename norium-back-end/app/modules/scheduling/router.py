@@ -6,7 +6,7 @@ import re
 from threading import Lock
 from time import monotonic
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
@@ -282,6 +282,8 @@ async def reschedule_notify_preview(
     booking_id: str,
     startAt: str,
     duration: int = Query(ge=5, le=1440),
+    responsibleId: str | None = Query(default=None, max_length=80),
+    signoff: Literal["team", "professional"] = Query(default="team"),
     user: dict[str, Any] = Depends(current_user),
 ):
     scope = authorized_scope(user)
@@ -293,12 +295,22 @@ async def reschedule_notify_preview(
     start = parse_utc(startAt)
     end = start + timedelta(minutes=duration)
     timezone_name = str(booking.get("timezone") or "America/Sao_Paulo")
+    professionals = scheduling.team_settings(scope).get("professionals") or []
+    names = {str(item.get("user_id") or ""): str(item.get("display_name") or "Profissional") for item in professionals}
+    previous_professional_id = str(booking.get("responsible_id") or booking.get("owner_id") or "")
+    new_professional_id = str(responsibleId or previous_professional_id)
+    previous_professional_name = names.get(previous_professional_id, "")
+    new_professional_name = names.get(new_professional_id, previous_professional_name)
+    signature = new_professional_name if signoff == "professional" and new_professional_name else "Equipe Norium"
     email = scheduling.render_reschedule_email(
         service_name=str(svc.get("name") or "Agendamento"),
         attendee_name=str(booking.get("attendee_name") or ""),
         old_start=str(booking.get("start_at") or ""),
         new_start=start.isoformat(),
         timezone_name=timezone_name,
+        previous_professional_name=previous_professional_name,
+        new_professional_name=new_professional_name,
+        signature=signature,
     )
     whatsapp_message = scheduling.render_reschedule_whatsapp(
         service_name=str(svc.get("name") or "Agendamento"),
@@ -306,6 +318,9 @@ async def reschedule_notify_preview(
         old_start=str(booking.get("start_at") or ""),
         new_start=start.isoformat(),
         timezone_name=timezone_name,
+        previous_professional_name=previous_professional_name,
+        new_professional_name=new_professional_name,
+        signature=signature,
     )
     owner_id = str(booking.get("owner_id") or scope[2])
     gmail_ok, whatsapp_ok = await _channel_connections(owner_id)
@@ -327,6 +342,10 @@ async def reschedule_notify_preview(
         "gmailSubject": email["subject"],
         "gmailBody": email["body"],
         "whatsappMessage": whatsapp_message,
+        "professionalChanged": previous_professional_id != new_professional_id,
+        "previousProfessionalName": previous_professional_name,
+        "newProfessionalName": new_professional_name,
+        "signature": signature,
     }
 
 
@@ -536,6 +555,11 @@ async def reschedule_booking_admin(
     )
     timezone_name = str(booking.get("timezone") or "America/Sao_Paulo")
     attendee_name = str(booking.get("attendee_name") or "")
+    professionals = scheduling.team_settings(scope).get("professionals") or []
+    names = {str(item.get("user_id") or ""): str(item.get("display_name") or "Profissional") for item in professionals}
+    previous_professional_name = names.get(previous_owner_id, "")
+    new_professional_name = names.get(owner_id, previous_professional_name)
+    signature = new_professional_name if payload.signoff == "professional" and new_professional_name else "Equipe Norium"
     receipts: dict[str, Any] = {"gmail": None, "whatsapp": None}
     if payload.notifyGmail or payload.notifyWhatsapp:
         operation_key = str(payload.operationKey or "")
@@ -545,6 +569,9 @@ async def reschedule_booking_admin(
             old_start=str(booking_before.get("start_at") or ""),
             new_start=str(booking.get("start_at") or ""),
             timezone_name=timezone_name,
+            previous_professional_name=previous_professional_name,
+            new_professional_name=new_professional_name,
+            signature=signature,
         )
         defaults_whatsapp = scheduling.render_reschedule_whatsapp(
             service_name=service_name,
@@ -552,6 +579,9 @@ async def reschedule_booking_admin(
             old_start=str(booking_before.get("start_at") or ""),
             new_start=str(booking.get("start_at") or ""),
             timezone_name=timezone_name,
+            previous_professional_name=previous_professional_name,
+            new_professional_name=new_professional_name,
+            signature=signature,
         )
         background_tasks.add_task(
             _deliver_reschedule_notifications,

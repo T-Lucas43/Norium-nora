@@ -31,16 +31,18 @@
 .team-call-professional .team-call-side-panel input,.team-call-professional .team-call-side-panel textarea {color:#f3f4f6;background:transparent;}
 .team-call-professional .team-call-remote-tile {min-height:0;border-color:#30323c;border-radius:14px;background:#111216;}
 .team-call-professional .team-call-remote-tile>div:first-of-type {min-height:0;}
-.team-call-professional .team-call-stage-pinned {grid-template-columns:minmax(0,3fr) minmax(200px,1fr);grid-template-rows:repeat(var(--team-call-side-rows,1),minmax(0,1fr));}
-.team-call-professional .team-call-stage-pinned .team-call-pinned-tile {grid-column:1;grid-row:1/-1;}
-.team-call-professional .team-call-stage-pinned .team-call-remote-tile:not(.team-call-pinned-tile) {grid-column:2;}
+.team-call-professional .team-call-stage-pinned {grid-template-columns:repeat(auto-fit,minmax(180px,220px));grid-auto-rows:180px;align-content:center;justify-content:center;overflow:auto;}
+.team-call-professional .team-call-stage-pinned .team-call-pinned-tile {grid-column:auto;grid-row:auto;}
 .team-call-professional .team-call-pinned-tile {border-color:#4c75b8;}
-.team-call-professional .team-call-stage-single-screen {grid-template-columns:minmax(0,3fr) minmax(200px,1fr);grid-template-rows:repeat(var(--team-call-side-rows,1),minmax(0,1fr));}
-.team-call-professional .team-call-stage-single-screen .team-call-remote-screen {grid-column:1;grid-row:1/-1;}
-.team-call-professional .team-call-stage-single-screen .team-call-remote-tile:not(.team-call-remote-screen) {grid-column:2;}
-.team-call-professional .team-call-stage-multi-screen {grid-template-columns:repeat(var(--team-call-screen-columns,2),minmax(0,1fr));grid-template-rows:minmax(0,3fr) repeat(var(--team-call-member-rows,1),minmax(0,1fr));}
-.team-call-professional .team-call-stage-multi-screen .team-call-remote-screen {order:-1;grid-row:1;}
-.team-call-professional .team-call-stage-multi-screen .team-call-remote-tile:not(.team-call-remote-screen) {grid-row:auto;}
+.team-call-professional .team-call-stage-single-screen,.team-call-professional .team-call-stage-multi-screen {grid-template-columns:repeat(var(--team-call-screen-columns,1),minmax(0,1fr));grid-template-rows:minmax(260px,1fr) 190px;overflow:auto;}
+.team-call-professional .team-call-stage-single-screen .team-call-remote-screen,.team-call-professional .team-call-stage-multi-screen .team-call-remote-screen {order:-1;grid-row:1;}
+.team-call-professional .team-call-stage-single-screen .team-call-remote-screen {grid-column:1/-1;}
+.team-call-professional .team-call-stage-single-screen .team-call-member-tile,.team-call-professional .team-call-stage-multi-screen .team-call-member-tile {grid-row:2;width:min(220px,100%);min-height:0!important;aspect-ratio:4/3;align-self:center;justify-self:center;}
+.team-call-professional .team-call-stage-screen-pinned {grid-template-columns:minmax(0,3fr) minmax(240px,1fr);}
+.team-call-professional .team-call-stage-screen-pinned .team-call-remote-screen.team-call-pinned-tile {grid-column:1;grid-row:1;}
+.team-call-professional .team-call-stage-screen-pinned .team-call-remote-screen:not(.team-call-pinned-tile) {grid-column:2;grid-row:1;}
+.team-call-professional .team-call-stage-screen-pinned .team-call-member-tile {grid-row:2;width:190px;}
+.team-call-professional .team-call-screen-optin {background:radial-gradient(circle at 50% 40%,rgba(37,99,235,.18),transparent 38%),#080b10;}
 .team-call-professional .team-call-participant-controls {background:#16171c;border-color:#30323c;padding:10px 12px;}
 .team-call-professional .team-call-participant-controls button[aria-pressed="true"] {background:#243655;color:#bfd4ff;}
 .team-call-professional .team-call-local-previews {bottom:20px;right:24px;}

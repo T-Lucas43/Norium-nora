@@ -3,6 +3,7 @@ import { Loader2, Paperclip, Send, Sparkles, X } from "lucide-react";
 import Button from "../../shared/Button";
 import AttachmentPreview from "../AttachmentPreview";
 import type { ComposeState } from "../../../features/mail/types";
+import MessageTemplatePicker from "../../message-templates/MessageTemplatePicker";
 
 type ComposeModalProps = {
   compose: ComposeState;
@@ -96,6 +97,7 @@ export default function ComposeModal({
               <span className="sr-only">Anexar arquivo</span>
               <input type="file" multiple className="hidden" onChange={(event) => onAddFiles(event.target.files)} />
             </label>
+            <MessageTemplatePicker channel="email" onApply={({ subject, body }) => onChange({ ...compose, subject: subject || compose.subject, body })} />
             {canUseNora && (
               <Button
                 onClick={onAskNora}

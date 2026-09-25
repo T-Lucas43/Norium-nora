@@ -48,6 +48,7 @@ import type {
   ProjectAction,
   ProjectCategory,
   ProjectStatus,
+  ProjectTemplate,
   TaskColumn,
   TaskForm,
   TaskItem,
@@ -70,6 +71,13 @@ const emptyForm: TaskForm = {
   assigneeId: "",
 };
 
+const standardWorkflow: TaskColumn[] = [
+  { id: "pendente", title: "Pendentes", limit: null },
+  { id: "andamento", title: "Em andamento", limit: 5 },
+  { id: "revisao", title: "Em revisão", limit: 4 },
+  { id: "concluida", title: "Concluídas", limit: null },
+];
+
 const emptyWorkspaceForm: WorkspaceForm = {
   name: "",
   category: "operacao",
@@ -85,6 +93,8 @@ const emptyWorkspaceForm: WorkspaceForm = {
   dueDate: "",
   defaultStartTime: "09:00",
   calendarDurationMinutes: 60,
+  templateId: "standard",
+  workflowColumns: standardWorkflow,
 };
 
 const projectCategoryLabels: Record<ProjectCategory, string> = {
@@ -133,7 +143,7 @@ const taskCategoryVisual: Record<string, { icon: LucideIcon; className: string }
 
 const projectColorOptions = ["#0EA5E9", "#06B6D4", "#2563EB", "#14B8A6", "#22C55E", "#F59E0B", "#F43F5E"];
 
-const statusIcon: Record<TaskStatus, typeof Circle> = {
+const statusIcon: Record<string, typeof Circle> = {
   pendente: Circle,
   andamento: CircleDot,
   revisao: ScanEye,
@@ -197,6 +207,8 @@ function workspaceToForm(workspace: TaskWorkspace): WorkspaceForm {
     dueDate: workspace.dueDate,
     defaultStartTime: workspace.defaultStartTime,
     calendarDurationMinutes: workspace.calendarDurationMinutes,
+    templateId: workspace.templateId || "standard",
+    workflowColumns: workspace.workflowColumns?.length ? workspace.workflowColumns : standardWorkflow,
   };
 }
 
@@ -205,6 +217,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   const userName = session.user.nome || "Operador";
   const [workspaces, setWorkspaces] = useState<TaskWorkspace[]>([]);
   const [teamMembers, setTeamMembers] = useState<NoriumUser[]>([session.user]);
+  const [projectTemplates, setProjectTemplates] = useState<ProjectTemplate[]>([]);
   const [activeWorkspace, setActiveWorkspace] = useState<TaskWorkspace | null>(null);
   const [workspaceForm, setWorkspaceForm] = useState<WorkspaceForm>({
     ...emptyWorkspaceForm,
@@ -303,6 +316,12 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   }, [loadProjects]);
 
   useEffect(() => {
+    tasksApiRequest<{ templates?: ProjectTemplate[] }>("/modelos-projeto", { cache: "no-store" })
+      .then((data) => setProjectTemplates(data.templates || []))
+      .catch(() => setProjectTemplates([]));
+  }, []);
+
+  useEffect(() => {
     async function loadTeamMembers() {
       try {
         const data = await authJson<{ users: NoriumUser[] }>("/api/auth/users", session.token);
@@ -370,6 +389,45 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao criar projeto.");
     }
+  }
+
+  function selectProjectTemplate(templateId: string) {
+    if (templateId === "custom") {
+      setWorkspaceForm((current) => ({
+        ...current,
+        templateId,
+        workflowColumns: [
+          { id: "pendente", title: "Primeira etapa", limit: null },
+          { id: "etapa_2", title: "Em andamento", limit: null },
+          { id: "concluida", title: "Etapa final", limit: null },
+        ],
+      }));
+      return;
+    }
+    const template = projectTemplates.find((item) => item.id === templateId);
+    setWorkspaceForm((current) => ({
+      ...current,
+      templateId,
+      workflowColumns: template?.columns?.map((column) => ({ ...column })) || standardWorkflow,
+    }));
+  }
+
+  function resizeCustomWorkflow(quantity: number) {
+    const size = Math.max(2, Math.min(12, quantity || 2));
+    setWorkspaceForm((current) => {
+      const workflowColumns = Array.from({ length: size }, (_, index) => {
+        const existing = current.workflowColumns[index];
+        return existing || {
+          id: index === 0 ? "pendente" : index === size - 1 ? "concluida" : `etapa_${index + 1}`,
+          title: `Etapa ${index + 1}`,
+          limit: null,
+        };
+      }).map((column, index) => ({
+        ...column,
+        id: index === 0 ? "pendente" : index === size - 1 ? "concluida" : `etapa_${index + 1}`,
+      }));
+      return { ...current, workflowColumns };
+    });
   }
 
   function openProjectSettings(workspace: TaskWorkspace) {
@@ -535,13 +593,8 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   }, [loadTasks]);
 
   const tasksByColumn = useMemo(() => {
-    const grouped: Record<TaskStatus, TaskItem[]> = {
-      pendente: [],
-      andamento: [],
-      revisao: [],
-      concluida: [],
-    };
-    tasks.forEach((task) => grouped[task.status]?.push(task));
+    const grouped: Record<string, TaskItem[]> = Object.fromEntries(columns.map((column) => [column.id, []]));
+    tasks.forEach((task) => (grouped[task.status] ||= []).push(task));
     Object.values(grouped).forEach((items) => items.sort((a, b) => a.order - b.order));
     return grouped;
   }, [tasks]);
@@ -563,7 +616,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           assigneeId: form.assigneeId || activeWorkspace.responsibleUserId || userId,
           assigneeName: memberName(form.assigneeId || activeWorkspace.responsibleUserId || userId),
           labels: form.labels,
-          status: "pendente",
+          status: columns[0]?.id || "pendente",
         }),
       });
       setForm({
@@ -933,6 +986,52 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
                   rows={3}
                   className="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm font-semibold outline-none focus:border-blue-400"
                 />
+                <div className="rounded-lg border border-blue-500/25 bg-blue-500/5 p-3">
+                  <Select label="Modelo do Kanban" value={workspaceForm.templateId} onChange={selectProjectTemplate}>
+                    {(projectTemplates.length ? projectTemplates : [{ id: "standard", name: "Projeto padrão", description: "", columns: standardWorkflow }]).map((template) => (
+                      <option key={template.id} value={template.id}>{template.name}</option>
+                    ))}
+                    <option value="custom">Criar do zero</option>
+                  </Select>
+                  {workspaceForm.templateId === "custom" ? (
+                    <div className="mt-3 space-y-2">
+                      <label className="block text-xs font-bold text-[var(--text-secondary)]">
+                        Quantidade de etapas
+                        <input
+                          type="number"
+                          min={2}
+                          max={12}
+                          value={workspaceForm.workflowColumns.length}
+                          onChange={(event) => resizeCustomWorkflow(Number(event.target.value))}
+                          className="mt-1 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold outline-none focus:border-blue-400"
+                        />
+                      </label>
+                      {workspaceForm.workflowColumns.map((column, index) => (
+                        <label key={`${column.id}-${index}`} className="block text-xs font-bold text-[var(--text-secondary)]">
+                          Etapa {index + 1}
+                          <input
+                            value={column.title}
+                            maxLength={80}
+                            onChange={(event) => setWorkspaceForm((current) => ({
+                              ...current,
+                              workflowColumns: current.workflowColumns.map((item, itemIndex) => itemIndex === index ? { ...item, title: event.target.value } : item),
+                            }))}
+                            placeholder={`Nome da etapa ${index + 1}`}
+                            className="mt-1 h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm font-bold text-[var(--text-primary)] outline-none focus:border-blue-400"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {workspaceForm.workflowColumns.map((column) => (
+                        <span key={column.id} className="rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-[11px] font-bold text-[var(--text-secondary)]">
+                          {column.title}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <Select value={workspaceForm.category} onChange={(value) => setWorkspaceForm({ ...workspaceForm, category: value as ProjectCategory })}>
                   {Object.entries(projectCategoryLabels).map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
@@ -1178,7 +1277,10 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
 
         {loading && <p role="status" className="tasks-loading"><LoaderCircle size={13} className="animate-spin" /> Atualizando tarefas…</p>}
         {view === "board" ? <div className="tasks-kanban-scroll flex-1 overflow-x-auto overflow-y-hidden p-4">
-          <div className="tasks-kanban-grid grid h-full min-w-[1060px] grid-cols-4 gap-4">
+          <div
+            className="tasks-kanban-grid grid h-full gap-4"
+            style={{ minWidth: `${Math.max(columns.length, 1) * 270}px`, gridTemplateColumns: `repeat(${Math.max(columns.length, 1)}, minmax(250px, 1fr))` }}
+          >
             {columns.map((column) => (
               <KanbanColumn
                 key={column.id}
@@ -1193,7 +1295,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
             ))}
           </div>
         </div> : <div className="tasks-list-scroll"><div className="tasks-list-heading"><span>Tarefa</span><span>Etapa</span><span>Prioridade</span><span>Prazo</span><span>Responsável</span></div>{tasks.map(task => {
-          const Icon = statusIcon[task.status];
+          const Icon = statusIcon[task.status] || CircleDot;
           return <button className="tasks-list-row" key={task.id} onClick={() => setSelectedTask(task)}><span className="tasks-list-title"><Icon size={17} /><strong>{task.title}</strong></span><span>{columns.find(column => column.id === task.status)?.title || task.status}</span><span className={"tasks-priority priority-" + task.priority}>{task.priority === "media" ? "Média" : task.priority}</span><span className={isOverdue(task) ? "tasks-overdue" : ""}>{dateLabel(task.dueDate)}</span><span>{task.assigneeName || "Sem responsável"}</span></button>;
         })}{!tasks.length && <div className="tasks-empty"><ListTodo size={28} /><p>{loading ? "Carregando tarefas…" : "Nenhuma tarefa nesta seleção."}</p></div>}</div>}
       </main>
@@ -1201,6 +1303,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
       {selectedTask && (
         <TaskDetails
           task={selectedTask}
+          columns={columns}
           labels={labels}
           teamMembers={teamMembers}
           comment={comment}
@@ -1343,7 +1446,7 @@ function KanbanColumn({
   onDragStart: (id: string) => void;
   onDrop: (status: TaskStatus) => void;
 }) {
-  const Icon = statusIcon[column.id];
+  const Icon = statusIcon[column.id] || CircleDot;
   return (
     <section
       onDragOver={(event) => event.preventDefault()}
@@ -1447,6 +1550,7 @@ function TaskCard({
 
 function TaskDetails({
   task,
+  columns,
   labels,
   teamMembers,
   comment,
@@ -1461,6 +1565,7 @@ function TaskDetails({
   onUpload,
 }: {
   task: TaskItem;
+  columns: TaskColumn[];
   labels: TaskLabel[];
   teamMembers: NoriumUser[];
   comment: string;
@@ -1503,10 +1608,7 @@ function TaskDetails({
           />
           <div className="grid grid-cols-2 gap-2">
             <Select label="Etapa" value={task.status} onChange={(value) => onPatch({ status: value as TaskStatus } as Partial<TaskItem>)}>
-              <option value="pendente">Pendente</option>
-              <option value="andamento">Em andamento</option>
-              <option value="revisao">Em revisão</option>
-              <option value="concluida">Concluída</option>
+              {columns.map((column) => <option key={column.id} value={column.id}>{column.title}</option>)}
             </Select>
             <Select label="Prioridade" value={task.priority} onChange={(value) => onPatch({ priority: value as TaskPriority } as Partial<TaskItem>)}>
               <option value="baixa">Baixa</option>

@@ -32,6 +32,7 @@ export interface Evento {
   htmlLink?: string;
   meetLink?: string;
   participants: string[];
+  personName?: string;
   calendar: string;
   source: "google" | "local";
   colorClass: string;
@@ -135,6 +136,7 @@ function normalizeEvent(raw: any, index: number): Evento {
     htmlLink: raw.htmlLink,
     meetLink: raw.link_reuniao,
     participants,
+    personName: String(raw.attendee_name || raw.cliente || raw.professional_name || participants[0] || "").trim() || undefined,
     calendar: raw.calendar || "Google Agenda",
     source,
     colorClass: colorClass(raw.titulo || "", source),

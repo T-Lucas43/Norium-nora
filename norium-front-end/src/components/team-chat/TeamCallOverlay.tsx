@@ -177,13 +177,14 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   const [messageText, setMessageText] = useState("");
   const [messageFiles, setMessageFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
-  const [audioSettings, setAudioSettings] = useState<Record<string, { volume: number; microphoneMuted: boolean; screenMuted: boolean }>>({});
+  const [audioSettings, setAudioSettings] = useState<Record<string, { volume: number; screenVolume: number; microphoneMuted: boolean; screenMuted: boolean }>>({});
+  const [watchedScreens, setWatchedScreens] = useState<Record<string, boolean>>({});
   const [outputMuted, setOutputMuted] = useState(false);
   const [mirrorLocalVideo, setMirrorLocalVideo] = useState(true);
   const [pinned, setPinned] = useState<{ userId: string; type: "member" | "screen" } | null>(null);
   const incomingDialogRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    setAudioSettings({}); setPinned(null); setMinimized(storedMinimizedCall() === call.active?.callId); setOutputMuted(false); setMessageText(""); setMessageFiles([]); setMessageError("");
+    setAudioSettings({}); setWatchedScreens({}); setPinned(null); setMinimized(storedMinimizedCall() === call.active?.callId); setOutputMuted(false); setMessageText(""); setMessageFiles([]); setMessageError("");
     setStudioOpen(false); setChatOpen(false); setPeopleOpen(false); setQualityOpen(false); setDevicesOpen(false); setReactionsOpen(false);
   }, [call.active?.callId]);
   function updateMinimized(value: boolean) {
@@ -265,8 +266,13 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   if (!call.active) return null;
 
   const streams = call.remoteStreams;
-  const updateAudio = (userId: string, patch: Partial<{ volume: number; microphoneMuted: boolean; screenMuted: boolean }>) =>
-    setAudioSettings((current) => ({ ...current, [userId]: { ...(current[userId] || { volume: 100, microphoneMuted: false, screenMuted: false }), ...patch } }));
+  const updateAudio = (userId: string, patch: Partial<{ volume: number; screenVolume: number; microphoneMuted: boolean; screenMuted: boolean }>) =>
+    setAudioSettings((current) => ({ ...current, [userId]: { ...(current[userId] || { volume: 100, screenVolume: 100, microphoneMuted: false, screenMuted: false }), ...patch } }));
+  const toggleWatchingScreen = (userId: string) => setWatchedScreens((current) => {
+    const nextValue = !current[userId];
+    if (!nextValue && pinned?.userId === userId && pinned.type === "screen") setPinned(null);
+    return { ...current, [userId]: nextValue };
+  });
   const togglePin = (userId: string, type: "member" | "screen") =>
     setPinned((current) => current?.userId === userId && current.type === type ? null : { userId, type });
   const participantIds = Array.from(new Set([
@@ -281,7 +287,7 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
   const stageStyle = {
     "--team-call-rows": Math.max(1, Math.ceil(tileCount / 2)),
     "--team-call-side-rows": Math.max(1, tileCount - 1),
-    "--team-call-screen-columns": Math.max(1, screenCount),
+    "--team-call-screen-columns": Math.max(1, screenCount, streams.length),
     "--team-call-member-rows": Math.max(1, Math.ceil(streams.length / Math.max(1, screenCount))),
   } as CSSProperties;
   const togglePanel = (panel: "chat" | "people" | "devices") => {
@@ -337,17 +343,18 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
       {Object.keys(raisedHands).length > 0 && <div className="team-call-hands flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs" role="status" aria-label="Mãos levantadas"><Hand size={16} />{Object.entries(raisedHands).sort((a, b) => a[1].localeCompare(b[1])).map(([id], index) => <span key={id}>{index + 1}. {id === currentUserId ? "Você" : memberById.get(id)?.nome || "Participante"}</span>)}</div>}
       <div className={`team-call-content flex min-h-0 flex-1 ${studioOpen ? "team-call-content-studio" : ""}`}>
         {snapshot.clientId && <TeamCallStudio beforeEndRef={beforeStudioEndRef} key={call.active.callId} callId={call.active.callId!} clientId={snapshot.clientId} currentUserId={currentUserId} isHost={call.isHost} visible={studioOpen} onOpen={() => { setStudioOpen(true); setChatOpen(false); setPeopleOpen(false); }} onClose={() => setStudioOpen(false)} />}
-        <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 p-3 ${stageLayout} ${!stageLayout && tileCount > 1 ? "md:grid-cols-2" : ""}`} style={stageStyle} data-screen-count={screenCount}>
+        <main className={`team-call-stage relative grid min-h-0 min-w-0 flex-1 gap-3 p-3 ${stageLayout} ${pinned?.type === "screen" ? "team-call-stage-screen-pinned" : ""} ${!stageLayout && tileCount > 1 ? "md:grid-cols-2" : ""}`} style={stageStyle} data-screen-count={screenCount}>
           {call.recording && <div role="status" aria-live="polite" className="team-call-recording-badge absolute left-5 top-5 z-10 flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black text-rose-300"><span className="h-2 w-2 animate-pulse rounded-full bg-rose-500" /><span>REC {durationLabel(call.recordingElapsedSeconds)}</span><span className="font-semibold text-rose-100">Todos foram avisados</span>{call.isHost && call.recordingUploadState !== "idle" && <span className="font-semibold text-rose-100">{call.recordingUploadState === "retrying" ? "Tentando envio novamente" : call.recordingUploadState === "finalizing" ? "Finalizando" : `Upload ${call.recordingUploadProgress}% · ${bytesLabel(call.recordingUploadedBytes)} enviados${call.recordingPendingBytes ? ` · ${bytesLabel(call.recordingPendingBytes)} pendentes` : ""}`}</span>}</div>}
           {streams.length ? streams.flatMap((item) => {
             const sharing = call.remoteScreenSharingIds.includes(item.userId);
             const participant = memberById.get(item.userId);
             const participantName = participant?.nome || "Participante";
-            const settings = audioSettings[item.userId] || { volume: 100, microphoneMuted: false, screenMuted: false };
+            const settings = audioSettings[item.userId] || { volume: 100, screenVolume: 100, microphoneMuted: false, screenMuted: false };
+            const watchingScreen = Boolean(watchedScreens[item.userId]);
             const memberPinned = pinned?.userId === item.userId && pinned.type === "member";
             const screenPinned = pinned?.userId === item.userId && pinned.type === "screen";
-            const memberTile = <section key={`${item.userId}:member`} data-participant={item.userId} data-tile="member" data-pinned={memberPinned || undefined} className={`team-call-remote-tile relative flex min-h-56 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] ${memberPinned ? "team-call-pinned-tile" : ""}`}>
-              <ParticipantAudio stream={item.stream} name={participantName} volume={settings.volume} microphoneMuted={settings.microphoneMuted} screenMuted={settings.screenMuted} outputMuted={outputMuted} sinkId={call.selectedSpeakerId} />
+            const memberTile = <section key={`${item.userId}:member`} data-participant={item.userId} data-tile="member" data-pinned={memberPinned || undefined} className={`team-call-remote-tile team-call-member-tile relative flex min-h-56 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] ${memberPinned ? "team-call-pinned-tile" : ""}`}>
+              <ParticipantAudio stream={item.stream} name={participantName} volume={settings.volume} screenVolume={settings.screenVolume} microphoneMuted={settings.microphoneMuted} screenMuted={settings.screenMuted || !watchingScreen} outputMuted={outputMuted} sinkId={call.selectedSpeakerId} />
               <div className="relative min-h-36 flex-1 overflow-hidden"><RemoteParticipantMedia stream={item.stream} participantName={participantName} profilePhoto={participant?.fotoUrl} sharing={false} videoEnabled={!sharing && call.remoteCameraEnabled?.[item.userId] === true} /></div>
               <div className="team-call-participant-controls flex flex-wrap items-center gap-2 border-t p-2">
                 <strong className="mr-auto max-w-36 truncate text-xs">{participantName}</strong>
@@ -357,9 +364,9 @@ export default function TeamCallOverlay({ snapshot, commands, members, currentUs
               </div>
             </section>;
             if (!sharing) return [memberTile];
-            const screenTile = <section key={`${item.userId}:screen`} data-participant={item.userId} data-tile="screen" data-pinned={screenPinned || undefined} className={`team-call-remote-tile team-call-remote-screen relative flex min-h-56 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] ${screenPinned ? "team-call-pinned-tile" : ""}`}>
-              <div className="relative min-h-36 flex-1 overflow-hidden"><RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing videoEnabled /><span className="team-call-screen-label absolute left-3 top-3 rounded-lg px-3 py-1.5 text-xs font-black"><MonitorUp size={14} /> Tela de {participantName}</span></div>
-              <div className="team-call-participant-controls flex flex-wrap items-center gap-2 border-t p-2"><strong className="mr-auto max-w-44 truncate text-xs">Transmissão de {participantName}</strong><button type="button" aria-label={`${settings.screenMuted ? "Ouvir" : "Silenciar"} áudio da transmissão de ${participantName} para mim`} aria-pressed={settings.screenMuted} onClick={() => updateAudio(item.userId, { screenMuted: !settings.screenMuted })} className="rounded-lg p-2 hover:bg-white/10">{settings.screenMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button><button type="button" onClick={() => togglePin(item.userId, "screen")} aria-pressed={screenPinned} aria-label={`${screenPinned ? "Desafixar" : "Fixar"} transmissão de ${participantName}`} className="flex items-center gap-1 rounded-lg p-2 text-xs hover:bg-white/10">{screenPinned ? <PinOff size={15} /> : <Pin size={15} />} Transmissão</button></div>
+            const screenTile = <section key={`${item.userId}:screen`} data-participant={item.userId} data-tile="screen" data-pinned={screenPinned || undefined} data-watching={watchingScreen || undefined} className={`team-call-remote-tile team-call-remote-screen relative flex min-h-56 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] ${screenPinned ? "team-call-pinned-tile" : ""}`}>
+              <div className="relative min-h-36 flex-1 overflow-hidden">{watchingScreen ? <RemoteParticipantMedia stream={item.stream} participantName={participantName} sharing videoEnabled /> : <div className="team-call-screen-optin grid h-full place-content-center gap-3 p-6 text-center"><MonitorUp className="mx-auto text-blue-300" size={34} /><strong className="text-sm">{participantName} está transmitindo</strong><p className="text-xs text-[var(--text-secondary)]">A transmissão só será reproduzida quando você escolher assistir.</p><button type="button" onClick={() => toggleWatchingScreen(item.userId)} className="team-call-primary-button mx-auto rounded-lg px-4 py-2 text-xs font-black">Assistir transmissão</button></div>}<span className="team-call-screen-label absolute left-3 top-3 rounded-lg px-3 py-1.5 text-xs font-black"><MonitorUp size={14} /> Tela de {participantName}</span></div>
+              <div className="team-call-participant-controls flex flex-wrap items-center gap-2 border-t p-2"><strong className="mr-auto max-w-44 truncate text-xs">Transmissão de {participantName}</strong>{watchingScreen && <><button type="button" aria-label={`${settings.screenMuted ? "Ouvir" : "Silenciar"} áudio da transmissão de ${participantName} para mim`} aria-pressed={settings.screenMuted} onClick={() => updateAudio(item.userId, { screenMuted: !settings.screenMuted })} className="rounded-lg p-2 hover:bg-white/10">{settings.screenMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}</button><label className="flex items-center gap-2 text-xs"><span className="sr-only">Volume da transmissão de {participantName}</span><input aria-label={`Volume da transmissão de ${participantName}`} type="range" min="0" max="200" step="5" value={settings.screenVolume} onChange={(event) => updateAudio(item.userId, { screenVolume: Number(event.target.value) })} className="w-24 accent-blue-500" /><span className="w-9">{settings.screenVolume}%</span></label><button type="button" onClick={() => togglePin(item.userId, "screen")} aria-pressed={screenPinned} aria-label={`${screenPinned ? "Desafixar" : "Fixar"} transmissão de ${participantName}`} className="flex items-center gap-1 rounded-lg p-2 text-xs hover:bg-white/10">{screenPinned ? <PinOff size={15} /> : <Pin size={15} />} Transmissão</button><button type="button" onClick={() => toggleWatchingScreen(item.userId)} className="rounded-lg px-2 py-1.5 text-xs font-bold hover:bg-white/10">Parar de assistir</button></>}</div>
             </section>;
             return [screenTile, memberTile];
           }) : <WaitingStage title={call.active.title} />}

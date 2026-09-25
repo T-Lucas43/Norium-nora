@@ -23,6 +23,7 @@ export type NotifyPreview = {
   attendeeName: string; attendeeEmail: string; attendeePhone?: string | null; phoneValid: boolean;
   gmailConnected: boolean; whatsappConnected: boolean;
   gmailSubject: string; gmailBody: string; whatsappMessage: string;
+  professionalChanged?: boolean; previousProfessionalName?: string; newProfessionalName?: string; signature?: string;
 };
 export type RescheduleResult = { booking: Booking; replay: boolean; calendarSync?: { synced: boolean; queued?: boolean; verifiedBeforeSave?: boolean; error?: string }; receipts: { gmail: ChannelReceipt; whatsapp: ChannelReceipt } };
 
@@ -66,8 +67,8 @@ export const schedulingApi = {
   archivePage: (id: string) => request<void>(`/api/scheduling/pages/${encodeURIComponent(id)}`, { method: "DELETE" }),
   uploadLogo: (pageId: string, dataBase64: string) => request<{logoUrl:string}>(`/api/scheduling/pages/${encodeURIComponent(pageId)}/logo`, { method: "POST", body: JSON.stringify({dataBase64}) }),
   updateBookingStatus: (id: string, status: string) => request<Booking>(`/api/scheduling/bookings/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify({status}) }),
-  notifyPreview: (id: string, startAt: string, duration: number) => request<NotifyPreview>(`/api/scheduling/bookings/${encodeURIComponent(id)}/notify-preview?startAt=${encodeURIComponent(startAt)}&duration=${duration}`, { timeoutMs: 6_000 }),
-  adminReschedule: (id: string, body: {startAt:string;duration:number;responsibleId?:string|null;notifyGmail:boolean;notifyWhatsapp:boolean;gmailSubject:string;gmailBody:string;whatsappMessage:string;operationKey:string}) => request<RescheduleResult>(`/api/scheduling/bookings/${encodeURIComponent(id)}/reschedule`, { method: "POST", body: JSON.stringify(body), timeoutMs: 8_000 }),
+  notifyPreview: (id: string, startAt: string, duration: number, responsibleId = "", signoff: "team" | "professional" = "team") => request<NotifyPreview>(`/api/scheduling/bookings/${encodeURIComponent(id)}/notify-preview?${new URLSearchParams({startAt,duration:String(duration),...(responsibleId?{responsibleId}:{}),signoff})}`, { timeoutMs: 6_000 }),
+  adminReschedule: (id: string, body: {startAt:string;duration:number;responsibleId?:string|null;notifyGmail:boolean;notifyWhatsapp:boolean;gmailSubject:string;gmailBody:string;whatsappMessage:string;operationKey:string;signoff:"team"|"professional"}) => request<RescheduleResult>(`/api/scheduling/bookings/${encodeURIComponent(id)}/reschedule`, { method: "POST", body: JSON.stringify(body), timeoutMs: 8_000 }),
   teamSettings: () => request<TeamSchedulingSettings>("/api/scheduling/team-settings"),
   saveTeamSettings: (body: {enabled:boolean;professionals:Array<{userId:string;active:boolean;profession:string;position:string;color:string}>}) => request<TeamSchedulingSettings>("/api/scheduling/team-settings", {method:"PUT",body:JSON.stringify(body)}),
   teamCalendar: (startAt?: string, endAt?: string) => request<{events:Booking[]}>(`/api/scheduling/team-calendar?${new URLSearchParams({...(startAt?{startAt}:{}),...(endAt?{endAt}:{})})}`),

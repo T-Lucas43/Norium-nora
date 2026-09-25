@@ -32,6 +32,113 @@ DEFAULT_COLUMNS = [
     {"id": "concluida", "title": "Concluídas", "limit": None},
 ]
 
+PROJECT_TEMPLATES: dict[str, dict[str, Any]] = {
+    "standard": {
+        "id": "standard",
+        "name": "Projeto padrao",
+        "description": "Fluxo geral para planejar, executar, revisar e concluir entregas.",
+        "columns": DEFAULT_COLUMNS,
+    },
+    "sales_crm": {
+        "id": "sales_crm",
+        "name": "Clientes e vendas",
+        "description": "Pipeline comercial do novo lead ao cliente conquistado.",
+        "columns": [
+            {"id": "pendente", "title": "Novos leads", "limit": None},
+            {"id": "qualificacao", "title": "Qualificacao", "limit": None},
+            {"id": "proposta", "title": "Proposta enviada", "limit": None},
+            {"id": "negociacao", "title": "Negociacao", "limit": None},
+            {"id": "concluida", "title": "Cliente conquistado", "limit": None},
+        ],
+    },
+    "system_lifecycle": {
+        "id": "system_lifecycle",
+        "name": "Sistemas e assinaturas",
+        "description": "Da proposta comercial a implantacao e assinatura ativa.",
+        "columns": [
+            {"id": "pendente", "title": "Proposta", "limit": None},
+            {"id": "contrato", "title": "Contrato", "limit": None},
+            {"id": "implantacao", "title": "Implantacao", "limit": None},
+            {"id": "validacao", "title": "Validacao", "limit": None},
+            {"id": "concluida", "title": "Assinatura ativa", "limit": None},
+        ],
+    },
+    "customer_onboarding": {
+        "id": "customer_onboarding",
+        "name": "Onboarding de clientes",
+        "description": "Organiza kickoff, configuracao, treinamento e entrada em operacao.",
+        "columns": [
+            {"id": "pendente", "title": "Kickoff", "limit": None},
+            {"id": "configuracao", "title": "Configuracao", "limit": None},
+            {"id": "treinamento", "title": "Treinamento", "limit": None},
+            {"id": "go_live", "title": "Entrada em operacao", "limit": None},
+            {"id": "concluida", "title": "Acompanhamento", "limit": None},
+        ],
+    },
+    "content_marketing": {
+        "id": "content_marketing",
+        "name": "Conteudo e marketing",
+        "description": "Fluxo editorial da ideia ate a publicacao e analise.",
+        "columns": [
+            {"id": "pendente", "title": "Ideias", "limit": None},
+            {"id": "producao", "title": "Em producao", "limit": None},
+            {"id": "aprovacao", "title": "Aprovacao", "limit": None},
+            {"id": "agendado", "title": "Agendado", "limit": None},
+            {"id": "concluida", "title": "Publicado", "limit": None},
+        ],
+    },
+    "support": {
+        "id": "support",
+        "name": "Atendimento e suporte",
+        "description": "Triagem, atendimento, espera do cliente e resolucao de chamados.",
+        "columns": [
+            {"id": "pendente", "title": "Novos chamados", "limit": None},
+            {"id": "triagem", "title": "Triagem", "limit": None},
+            {"id": "andamento", "title": "Em atendimento", "limit": 8},
+            {"id": "aguardando_cliente", "title": "Aguardando cliente", "limit": None},
+            {"id": "concluida", "title": "Resolvidos", "limit": None},
+        ],
+    },
+}
+
+
+def project_templates() -> list[dict[str, Any]]:
+    return [copy.deepcopy(template) for template in PROJECT_TEMPLATES.values()]
+
+
+def normalize_workflow_columns(value: Any, template_id: str = "standard") -> list[dict[str, Any]]:
+    source = value if isinstance(value, list) else PROJECT_TEMPLATES.get(template_id, PROJECT_TEMPLATES["standard"])["columns"]
+    titles = [str(item.get("title") or "").strip()[:80] for item in source if isinstance(item, dict)]
+    titles = [title for title in titles if title]
+    if len(titles) < 2:
+        titles = [column["title"] for column in DEFAULT_COLUMNS]
+    titles = titles[:12]
+    normalized: list[dict[str, Any]] = []
+    used: set[str] = set()
+    for index, title in enumerate(titles):
+        if index == 0:
+            column_id = "pendente"
+        elif index == len(titles) - 1:
+            column_id = "concluida"
+        else:
+            raw_id = ""
+            if isinstance(source, list) and index < len(source) and isinstance(source[index], dict):
+                raw_id = str(source[index].get("id") or "")
+            column_id = re.sub(r"[^a-z0-9_-]+", "_", raw_id.lower()).strip("_") or f"etapa_{index + 1}"
+            if column_id in {"pendente", "concluida"} or column_id in used:
+                column_id = f"etapa_{index + 1}"
+        used.add(column_id)
+        limit = None
+        if isinstance(source, list) and index < len(source) and isinstance(source[index], dict):
+            raw_limit = source[index].get("limit")
+            if raw_limit not in (None, ""):
+                try:
+                    limit = max(1, min(int(raw_limit), 999))
+                except (TypeError, ValueError):
+                    limit = None
+        normalized.append({"id": column_id, "title": title, "limit": limit})
+    return normalized
+
 DEFAULT_LABELS = [
     {"id": "produto", "name": "Produto", "color": "#60A5FA"},
     {"id": "cliente", "name": "Cliente", "color": "#34D399"},
@@ -78,6 +185,8 @@ def default_project(user_id: str = "lucas123") -> dict[str, Any]:
         "dueDate": "",
         "defaultStartTime": "09:00",
         "calendarDurationMinutes": 60,
+        "templateId": "standard",
+        "workflowColumns": copy.deepcopy(DEFAULT_COLUMNS),
         "archived": False,
         "archivedAt": None,
         "createdAt": now_iso(),
@@ -221,6 +330,8 @@ def update_project(user_id: str, project_id: str, updates: dict[str, Any]) -> di
             "dueDate",
             "defaultStartTime",
             "calendarDurationMinutes",
+            "templateId",
+            "workflowColumns",
             "archived",
             "archivedAt",
         ):
@@ -298,8 +409,10 @@ def list_tasks(
         tasks = [task for task in tasks if _matches_due_filter(task.get("dueDate"), due, today)]
 
     tasks.sort(key=lambda task: (task.get("status", ""), int(task.get("order") or 0), task.get("createdAt", "")))
+    resolved_project = resolve_project_workspace(db, user_id, project_id) if project_id else None
+    selected_project = resolved_project[2] if resolved_project else None
     return {
-        "columns": workspace.get("columns", DEFAULT_COLUMNS),
+        "columns": (selected_project or {}).get("workflowColumns") or workspace.get("columns", DEFAULT_COLUMNS),
         "labels": workspace.get("labels", DEFAULT_LABELS),
         "tasks": tasks,
         "stats": build_stats(all_tasks),
@@ -531,7 +644,7 @@ def normalize_task(task: dict[str, Any]) -> dict[str, Any]:
         "title": title[:160],
         "description": str(task.get("description") or "")[:4000],
         "category": category[:80],
-        "status": status if status in {column["id"] for column in DEFAULT_COLUMNS} else "pendente",
+        "status": status if re.fullmatch(r"[a-z0-9_-]{1,64}", status) else "pendente",
         "priority": priority if priority in PRIORITIES else "media",
         "labels": [str(label) for label in task.get("labels", []) if str(label).strip()],
         "assigneeId": str(task.get("assigneeId") or "").strip()[:120],
@@ -553,6 +666,10 @@ def normalize_project(project: dict[str, Any], owner_id: str) -> dict[str, Any]:
         for item in project.get("sharedUserIds", [])
         if str(item).strip() and str(item).strip() != owner_id
     ]
+    template_id = str(project.get("templateId") or "standard").strip().lower()
+    if template_id != "custom" and template_id not in PROJECT_TEMPLATES:
+        template_id = "standard"
+    workflow_columns = normalize_workflow_columns(project.get("workflowColumns"), template_id)
     return {
         **project,
         "id": project_id[:120],
@@ -571,6 +688,8 @@ def normalize_project(project: dict[str, Any], owner_id: str) -> dict[str, Any]:
         "dueDate": _date_or_blank(project.get("dueDate")),
         "defaultStartTime": str(project.get("defaultStartTime") or "09:00")[:5],
         "calendarDurationMinutes": max(15, min(int(project.get("calendarDurationMinutes") or 60), 480)),
+        "templateId": template_id,
+        "workflowColumns": workflow_columns,
         "archived": bool(project.get("archived")),
         "archivedAt": project.get("archivedAt"),
         "createdAt": project.get("createdAt") or now_iso(),

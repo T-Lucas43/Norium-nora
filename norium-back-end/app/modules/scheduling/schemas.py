@@ -255,6 +255,7 @@ class AdminReschedulePayload(StrictModel):
     gmailBody: str = Field(default="", max_length=20000)
     whatsappMessage: str = Field(default="", max_length=4000)
     operationKey: str | None = Field(default=None, min_length=8, max_length=128)
+    signoff: Literal["team", "professional"] = "team"
 
     @model_validator(mode="after")
     def notification_requires_operation_key(self):

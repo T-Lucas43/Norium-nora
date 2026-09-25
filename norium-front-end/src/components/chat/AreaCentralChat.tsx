@@ -31,6 +31,7 @@ import { useAuthenticatedMedia } from "./useAuthenticatedMedia";
 import { conversationDisplayName, formatWhatsAppPhone, isTechnicalWhatsAppLabel } from "./contactPicker";
 import NoraChatComposer from "./NoraChatComposer";
 import MessageNoraActions, { type MessageNoraRequest } from "./MessageNoraActions";
+import MessageTemplatePicker from "../message-templates/MessageTemplatePicker";
 
 interface AreaCentralProps {
   conversaAtiva: ChatConversa | undefined;
@@ -1033,6 +1034,7 @@ export default function AreaCentralChat({
           <button data-emoji-panel-root onClick={() => setMostrarPainelEmojis(!mostrarPainelEmojis)} title="Emoji" className={`h-11 w-11 border rounded-lg flex items-center justify-center transition ${mostrarPainelEmojis ? "bg-[var(--primary)] text-white border-transparent" : "border-[var(--border)] hover:bg-[var(--surface-hover)] text-[var(--text)]"}`} aria-label="Emoji">
             <Smile size={19} />
           </button>
+          <MessageTemplatePicker channel="whatsapp" clientName={displayName} onApply={({ body }) => setResposta(body)} />
           <input
             type="text"
             value={resposta}

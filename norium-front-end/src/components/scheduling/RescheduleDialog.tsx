@@ -32,6 +32,7 @@ export default function RescheduleDialog({ booking, services, professionals = []
     return durations.includes(minutes) ? minutes : durations[0];
   });
   const [responsibleId, setResponsibleId] = useState(booking.responsible_id || eligibleProfessionals[0]?.userId || "");
+  const [signoff, setSignoff] = useState<"team" | "professional">("team");
   const [preview, setPreview] = useState<NotifyPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [notifyGmail, setNotifyGmail] = useState(false);
@@ -55,7 +56,7 @@ export default function RescheduleDialog({ booking, services, professionals = []
     if (!startIso) { setError("Escolha a nova data e hora."); return; }
     setPreviewLoading(true); setError(""); setReceipts(null);
     try {
-      const data = await schedulingApi.notifyPreview(booking.id, startIso, duration);
+      const data = await schedulingApi.notifyPreview(booking.id, startIso, duration, responsibleId, signoff);
       setPreview(data);
       setNotifyGmail(false);
       setNotifyWhatsapp(false);
@@ -75,6 +76,7 @@ export default function RescheduleDialog({ booking, services, professionals = []
         startAt: startIso, duration, responsibleId: responsibleId || null, notifyGmail, notifyWhatsapp,
         gmailSubject: subject, gmailBody: body, whatsappMessage: waMessage,
         operationKey: operationKey.current,
+        signoff,
       });
       setReceipts(result.receipts);
       setCalendarWarning(result.calendarSync?.synced === false && !result.calendarSync.queued ? (result.calendarSync.error || "A agenda externa ainda precisa ser conciliada.") : "");
@@ -121,6 +123,12 @@ export default function RescheduleDialog({ booking, services, professionals = []
             </label>}
           </div>
           <div><Button size="sm" variant="primary" disabled={previewLoading || !startIso} onClick={() => void loadPreview()}>{previewLoading ? "Gerando prévia…" : "Gerar prévia e canais"}</Button></div>
+          <label className="grid max-w-sm gap-1 text-xs font-bold text-[var(--text-secondary)]">Assinatura da mensagem
+            <select aria-label="Assinatura da mensagem" value={signoff} onChange={(e) => { operationKey.current = newOperationKey(); setSignoff(e.target.value as "team" | "professional"); setPreview(null); setReceipts(null); setDone(false); }} className="h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3">
+              <option value="team">Atenciosamente, Equipe Norium</option>
+              <option value="professional">Atenciosamente, profissional selecionado</option>
+            </select>
+          </label>
         </div>
 
         {preview && (
@@ -128,6 +136,8 @@ export default function RescheduleDialog({ booking, services, professionals = []
             <div className="grid gap-1 rounded-xl border border-[var(--border)] p-4 text-sm">
               <p><strong>De:</strong> {formatDateTime(preview.oldStartAt)}</p>
               <p><strong>Para:</strong> {formatDateTime(preview.newStartAt)} <span className="text-xs text-[var(--text-secondary)]">({preview.timezone})</span></p>
+              {preview.professionalChanged && <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-2 font-semibold text-amber-600"><strong>Profissional alterado:</strong> {preview.previousProfessionalName || "anterior"} → {preview.newProfessionalName || "novo profissional"}</p>}
+              <p><strong>Assinatura:</strong> {preview.signature || "Equipe Norium"}</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex items-start gap-2 rounded-xl border border-[var(--border)] p-3 text-sm font-bold">

@@ -121,9 +121,10 @@ function EventChip({ evento, dense = false, onOpenEvent }: { evento: Evento; den
         {evento.meetLink && <Video size={13} className="shrink-0" />}
         <span className={`${dense ? "text-sm" : "text-sm"} truncate font-bold leading-4`}>{evento.title}</span>
       </div>
-      {!dense && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs font-bold opacity-85">
+      <div className={`mt-1 flex ${dense ? "flex-col gap-0.5" : "flex-wrap items-center gap-2"} text-[11px] font-bold opacity-85`}>
           <span>{evento.allDay ? "Dia todo" : `${evento.timeStart} - ${evento.timeEnd}`}</span>
+          {evento.personName && <span className="inline-flex min-w-0 items-center gap-1"><Users size={11} className="shrink-0"/><span className="truncate">{evento.personName}</span></span>}
+          {!dense && <>
           {evento.location && (
             <span className="inline-flex items-center gap-1">
               <MapPin size={11} />
@@ -135,9 +136,8 @@ function EventChip({ evento, dense = false, onOpenEvent }: { evento: Evento; den
               <Users size={11} />
               {evento.participants.length}
             </span>
-          )}
+          )}</>}
         </div>
-      )}
     </div>
   );
 

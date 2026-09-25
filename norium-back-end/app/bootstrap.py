@@ -60,6 +60,7 @@ from app.modules.intelligence.router import (
 )
 from app.modules.auth.email_router import router as account_email_router
 from app.modules.mail.router import router as gmail_router
+from app.modules.message_templates.router import router as message_templates_router
 from app.modules.nora.router import router as nora_router
 from app.modules.operations.router import router as operations_router
 from app.modules.platform.router import router as platform_router
@@ -471,6 +472,7 @@ def create_app() -> FastAPI:
     app.include_router(scheduling_public_router)
     app.include_router(integracoes_google_router)
     app.include_router(gmail_router)
+    app.include_router(message_templates_router)
     app.include_router(inbox_router)
     app.include_router(operations_router)
     app.include_router(workhub_router)

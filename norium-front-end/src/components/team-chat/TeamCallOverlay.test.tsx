@@ -463,6 +463,8 @@ describe("tela da reuniao do Modo Equipe", () => {
 
     const props = { members: [{ id: "member", nome: "Fernando", fotoUrl: "/fernando.jpg" }], currentUserId: "owner", onDownloadAttachment: vi.fn() };
     const { rerender } = render(<TeamCallOverlay {...sessionProps(call)} {...props} />);
+    expect(screen.queryByLabelText("Tela compartilhada por Fernando")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Assistir transmissão" }));
     fireEvent.click(screen.getByRole("button", { name: "Ver tela de Fernando em tela cheia" }));
     expect(requestFullscreen).toHaveBeenCalledOnce();
     fireEvent.change(screen.getByRole("slider", { name: "Volume de Fernando" }), { target: { value: "175" } });
@@ -475,6 +477,8 @@ describe("tela da reuniao do Modo Equipe", () => {
     expect(screen.getByLabelText("Microfone de Fernando")).toHaveProperty("muted", true);
     fireEvent.click(screen.getByRole("button", { name: "Silenciar áudio da transmissão de Fernando para mim" }));
     expect(screen.getByLabelText("Áudio da transmissão de Fernando")).toHaveProperty("muted", true);
+    fireEvent.change(screen.getByRole("slider", { name: "Volume da transmissão de Fernando" }), { target: { value: "65" } });
+    expect(screen.getByText("65%")).toBeInTheDocument();
     const audioElement = screen.getByLabelText("Microfone de Fernando");
     fireEvent.click(screen.getByRole("button", { name: "Minimizar chamada" }));
     expect(document.querySelector('audio[aria-label="Microfone de Fernando"]')).toBe(audioElement);

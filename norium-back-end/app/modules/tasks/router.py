@@ -34,6 +34,7 @@ from app.services.task_store import (
     list_projects,
     list_tasks,
     now_iso,
+    project_templates,
     update_project,
     update_task,
 )
@@ -49,7 +50,7 @@ class CriarTarefaPayload(StrictModel):
     title: str = Field(min_length=1, max_length=160)
     description: str = ""
     category: str = "geral"
-    status: Literal["pendente", "andamento", "revisao", "concluida"] = "pendente"
+    status: str = Field(default="pendente", pattern=r"^[a-z0-9_-]{1,64}$")
     priority: Literal["baixa", "media", "alta", "urgente"] = "media"
     labels: list[str] = []
     dueDate: str | None = None
@@ -63,7 +64,7 @@ class AtualizarTarefaPayload(StrictModel):
     title: str | None = None
     description: str | None = None
     category: str | None = None
-    status: Literal["pendente", "andamento", "revisao", "concluida"] | None = None
+    status: str | None = Field(default=None, pattern=r"^[a-z0-9_-]{1,64}$")
     priority: Literal["baixa", "media", "alta", "urgente"] | None = None
     labels: list[str] | None = None
     dueDate: str | None = None
@@ -122,6 +123,8 @@ class ProjetoPayload(StrictModel):
     dueDate: str = ""
     defaultStartTime: str = "09:00"
     calendarDurationMinutes: int = 60
+    templateId: str = Field(default="standard", max_length=80)
+    workflowColumns: list[dict[str, Any]] | None = None
 
 
 class AtualizarProjetoPayload(StrictModel):
@@ -140,6 +143,8 @@ class AtualizarProjetoPayload(StrictModel):
     dueDate: str | None = None
     defaultStartTime: str | None = None
     calendarDurationMinutes: int | None = None
+    templateId: str | None = Field(default=None, max_length=80)
+    workflowColumns: list[dict[str, Any]] | None = None
     archived: bool | None = None
     archivedAt: str | None = None
 
@@ -492,6 +497,11 @@ async def obter_tarefas(
 @router.get("/projetos")
 async def listar_projetos(user_id: str = "lucas123", user: dict[str, Any] = Depends(current_user)):
     return {"projects": await accessible_team_projects(user), "updatedAt": now_iso()}
+
+
+@router.get("/modelos-projeto")
+async def listar_modelos_projeto(_user: dict[str, Any] = Depends(current_user)):
+    return {"templates": project_templates()}
 
 
 @router.get("/relatorio-equipe")

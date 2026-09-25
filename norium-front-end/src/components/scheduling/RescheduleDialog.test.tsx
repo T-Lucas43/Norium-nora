@@ -47,7 +47,7 @@ describe("RescheduleDialog", () => {
   it("shows old and new times with editable channel previews", async () => {
     const user = await openWithPreview();
     const expectedIso = new Date("2026-10-05T10:00").toISOString();
-    expect(schedulingApi.notifyPreview).toHaveBeenCalledWith("book-1", expectedIso, 60);
+    expect(schedulingApi.notifyPreview).toHaveBeenCalledWith("book-1", expectedIso, 60, "", "team");
     const gmail = screen.getByRole("checkbox", { name: /Avisar por Gmail/ });
     const whatsapp = screen.getByRole("checkbox", { name: /Avisar por WhatsApp/ });
     expect(gmail).not.toBeChecked();

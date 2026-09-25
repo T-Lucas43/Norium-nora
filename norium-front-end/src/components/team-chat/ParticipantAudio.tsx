@@ -97,8 +97,8 @@ function TrackAudio({ tracks, label, volume, muted, sinkId }: {
 }
 
 /** O primeiro canal recebido é o microfone; os demais são o áudio da tela. */
-export default function ParticipantAudio({ stream, name, volume, microphoneMuted, screenMuted, outputMuted, sinkId }: {
-  stream: MediaStream; name: string; volume: number; microphoneMuted: boolean; screenMuted: boolean; outputMuted: boolean; sinkId: string;
+export default function ParticipantAudio({ stream, name, volume, screenVolume, microphoneMuted, screenMuted, outputMuted, sinkId }: {
+  stream: MediaStream; name: string; volume: number; screenVolume?: number; microphoneMuted: boolean; screenMuted: boolean; outputMuted: boolean; sinkId: string;
 }) {
   const tracks = useMemo(() => stream.getAudioTracks(), [stream]);
   const screenTracks = useMemo(() => {
@@ -111,6 +111,6 @@ export default function ParticipantAudio({ stream, name, volume, microphoneMuted
   }, [screenTracks, tracks]);
   return <>
     <TrackAudio tracks={microphoneTracks} label={`Microfone de ${name}`} volume={volume} muted={outputMuted || microphoneMuted} sinkId={sinkId} />
-    <TrackAudio tracks={screenTracks} label={`Áudio da transmissão de ${name}`} volume={volume} muted={outputMuted || screenMuted} sinkId={sinkId} />
+    <TrackAudio tracks={screenTracks} label={`Áudio da transmissão de ${name}`} volume={screenVolume ?? volume} muted={outputMuted || screenMuted} sinkId={sinkId} />
   </>;
 }

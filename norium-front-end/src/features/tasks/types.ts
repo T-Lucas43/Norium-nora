@@ -1,5 +1,5 @@
 // Contratos do Kanban compartilhados entre projetos, cards e formularios.
-export type TaskStatus = "pendente" | "andamento" | "revisao" | "concluida";
+export type TaskStatus = string;
 export type TaskPriority = "baixa" | "media" | "alta" | "urgente";
 export type ProjectCategory = "operacao" | "cliente" | "produto" | "financeiro" | "suporte" | "pessoal";
 export type ProjectStatus = "planejamento" | "ativo" | "pausado" | "concluido";
@@ -9,6 +9,13 @@ export interface TaskColumn {
   id: TaskStatus;
   title: string;
   limit?: number | null;
+}
+
+export interface ProjectTemplate {
+  id: string;
+  name: string;
+  description: string;
+  columns: TaskColumn[];
 }
 
 export interface TaskLabel {
@@ -90,6 +97,8 @@ export interface TaskWorkspace {
   dueDate: string;
   defaultStartTime: string;
   calendarDurationMinutes: number;
+  templateId: string;
+  workflowColumns: TaskColumn[];
   archived: boolean;
   archivedAt?: string | null;
   createdAt: string;
@@ -110,4 +119,6 @@ export interface WorkspaceForm {
   dueDate: string;
   defaultStartTime: string;
   calendarDurationMinutes: number;
+  templateId: string;
+  workflowColumns: TaskColumn[];
 }

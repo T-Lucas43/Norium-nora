@@ -630,7 +630,7 @@ class SchedulingService:
             raise HTTPException(404, "Servico do agendamento nao encontrado.")
         return {"booking": booking, "service": service}
 
-    def admin_reschedule(self, scope: tuple[str, str, str], booking_id: str, start_at: str, duration: int) -> dict[str, Any]:
+    def admin_reschedule(self, scope: tuple[str, str, str], booking_id: str, start_at: str, duration: int, responsible_id: str | None = None) -> dict[str, Any]:
         start = parse_utc(start_at); end = start + timedelta(minutes=duration); stamp = now_iso()
         with self.repo.transaction() as db:
             row = db.execute("SELECT * FROM scheduling_bookings WHERE id=? AND tenant_id=? AND workspace_id=? AND owner_id=?", (booking_id, *scope)).fetchone()
@@ -647,15 +647,30 @@ class SchedulingService:
                 raise HTTPException(409, "Pagina do agendamento nao encontrada.")
             if duration not in service.get("durations", []):
                 raise HTTPException(422, "Duracao nao permitida.")
-            if booking["start_at"] == start.isoformat() and booking["end_at"] == end.isoformat():
+            target_responsible = str(responsible_id or booking.get("responsible_id") or booking.get("owner_id") or "").strip()
+            current_responsible = str(booking.get("responsible_id") or booking.get("owner_id") or "").strip()
+            if target_responsible != current_responsible:
+                professional = db.execute(
+                    "SELECT 1 AS ok FROM scheduling_professionals WHERE tenant_id=? AND workspace_id=? AND user_id=? AND active=1",
+                    (booking["tenant_id"], booking["workspace_id"], target_responsible),
+                ).fetchone()
+                linked = db.execute(
+                    "SELECT 1 AS ok FROM scheduling_service_professionals WHERE tenant_id=? AND workspace_id=? AND service_id=? AND user_id=?",
+                    (booking["tenant_id"], booking["workspace_id"], booking["service_id"], target_responsible),
+                ).fetchone()
+                if not professional:
+                    raise HTTPException(422, "Profissional nao pertence a esta agenda.")
+                if not linked:
+                    raise HTTPException(422, "Profissional nao presta este servico.")
+            if booking["start_at"] == start.isoformat() and booking["end_at"] == end.isoformat() and target_responsible == current_responsible:
                 return {"booking": booking, "replay": True}
-            availability = self._availability_for_page(page, booking["service_id"], booking["responsible_id"])
+            availability = self._availability_for_page(page, booking["service_id"], target_responsible)
             if not self._fits_availability(start, end, availability, service):
                 raise HTTPException(409, "Novo horario fora da disponibilidade.")
-            if self.remaining_capacity(service, booking["responsible_id"], start, end, availability, db=db, exclude_booking_id=booking["id"]) <= 0:
+            if self.remaining_capacity(service, target_responsible, start, end, availability, db=db, exclude_booking_id=booking["id"]) <= 0:
                 raise HTTPException(409, "Novo horario indisponivel.")
-            db.execute("UPDATE scheduling_bookings SET start_at=?,end_at=?,status='CONFIRMED',updated_at=? WHERE id=?", (start.isoformat(), end.isoformat(), stamp, booking["id"]))
-            self.repo.audit(db, scope, "booking_rescheduled", "booking", booking["id"], {"previousStart": booking["start_at"], "startAt": start.isoformat(), "duration": duration})
+            db.execute("UPDATE scheduling_bookings SET start_at=?,end_at=?,responsible_id=?,status='CONFIRMED',updated_at=? WHERE id=?", (start.isoformat(), end.isoformat(), target_responsible, stamp, booking["id"]))
+            self.repo.audit(db, scope, "booking_rescheduled", "booking", booking["id"], {"previousStart": booking["start_at"], "startAt": start.isoformat(), "duration": duration, "previousResponsibleId": current_responsible, "responsibleId": target_responsible})
         return {"booking": self.get_booking(scope, booking_id), "replay": False}
 
     @staticmethod

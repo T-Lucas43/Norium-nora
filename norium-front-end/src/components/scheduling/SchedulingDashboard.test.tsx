@@ -19,6 +19,8 @@ vi.mock("../../features/scheduling/api", () => ({
     updateBookingStatus: vi.fn(),
     notifyPreview: vi.fn(),
     adminReschedule: vi.fn(),
+    teamSettings: vi.fn(),
+    saveTeamSettings: vi.fn(),
   },
 }));
 
@@ -34,6 +36,7 @@ const dashboard = {
   ],
 };
 const emptyAvailability = { service_id: "service-1", timezone: "America/Sao_Paulo", weekly: {}, exceptions: {}, blocked: [] };
+const professional = { userId: "pro-1", name: "Ana", email: "ana@x.com", active: true, profession: "Advogada", position: "Sócia", color: "#2563eb" };
 
 describe("SchedulingDashboard", () => {
   beforeEach(() => {
@@ -49,6 +52,7 @@ describe("SchedulingDashboard", () => {
     }));
     vi.mocked(schedulingApi.createPage).mockResolvedValue({ id: "page-1", public_id: "public-1", service_id: "service-1", title: "Consultoria", description: "", fields: [], theme: {}, active: true });
     vi.mocked(schedulingApi.uploadLogo).mockResolvedValue({ logoUrl: "/logo" });
+    vi.mocked(schedulingApi.saveTeamSettings).mockImplementation(async (body) => ({ enabled: body.enabled, professionals: [{ ...professional, ...body.professionals[0] }] }));
   });
 
   it("stops loading on an API error and offers a working retry", async () => {
@@ -181,5 +185,55 @@ describe("SchedulingDashboard", () => {
     await user.click(screen.getByRole("button", { name: "Reagendar" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Gerar prévia e canais" })).toBeInTheDocument();
+  });
+
+  it("persists team mode immediately and restores it after a fresh load", async () => {
+    vi.mocked(schedulingApi.dashboard).mockResolvedValue({ ...dashboard, teamSettings: { enabled: false, professionals: [professional] }, teamCalendar: dashboard.bookings });
+    const user = userEvent.setup();
+    const view = render(<SchedulingDashboard />);
+    await screen.findByText("Maria");
+    await user.click(screen.getByRole("button", { name: "Modo equipe" }));
+    await user.click(screen.getByRole("checkbox", { name: "Ativar agenda compartilhada" }));
+
+    await waitFor(() => expect(schedulingApi.saveTeamSettings).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
+    expect(await screen.findByRole("status")).toHaveTextContent("Modo equipe ativado e salvo");
+
+    vi.mocked(schedulingApi.dashboard).mockResolvedValue({ ...dashboard, teamSettings: { enabled: true, professionals: [professional] }, teamCalendar: dashboard.bookings });
+    view.unmount();
+    render(<SchedulingDashboard />);
+    await screen.findByText("Maria");
+    await user.click(screen.getByRole("button", { name: "Modo equipe" }));
+    expect(screen.getByRole("checkbox", { name: "Ativar agenda compartilhada" })).toBeChecked();
+  });
+
+  it("saves the selected professionals on a service", async () => {
+    vi.mocked(schedulingApi.dashboard).mockResolvedValue({ ...dashboard, services: [{ ...services[0], professionalIds: [] }], teamSettings: { enabled: true, professionals: [professional] }, teamCalendar: dashboard.bookings });
+    const user = userEvent.setup();
+    render(<SchedulingDashboard />);
+    await screen.findByText("Maria");
+    await user.click(screen.getByRole("button", { name: "Serviços" }));
+    await user.click(screen.getByRole("button", { name: "Editar" }));
+    await user.click(screen.getByRole("checkbox", { name: /Ana · Advogada/ }));
+    await user.click(screen.getByRole("button", { name: "Atualizar serviço" }));
+
+    await waitFor(() => expect(schedulingApi.updateService).toHaveBeenCalledWith("service-1", expect.objectContaining({ professionalIds: ["pro-1"] })));
+  });
+
+  it("shows the hourly rail and opens booking details from the team calendar", async () => {
+    const calendarStart = new Date();
+    calendarStart.setHours(11, 0, 0, 0);
+    calendarStart.setDate(calendarStart.getDate() - ((calendarStart.getDay() + 6) % 7));
+    const calendarEnd = new Date(calendarStart.getTime() + 60 * 60 * 1000);
+    vi.mocked(schedulingApi.dashboard).mockResolvedValue({ ...dashboard, teamSettings: { enabled: true, professionals: [professional] }, teamCalendar: [{ ...dashboard.bookings[0], start_at: calendarStart.toISOString(), end_at: calendarEnd.toISOString(), responsible_id: "pro-1", professional_name: "Ana", professional_color: "#2563eb", service_name: "Consultoria" }] });
+    const user = userEvent.setup();
+    render(<SchedulingDashboard />);
+    await screen.findByText("Maria");
+    await user.click(screen.getByRole("button", { name: "Calendário da equipe" }));
+
+    expect(screen.getByText("07:00")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Abrir agendamento de Maria" }));
+    expect(await screen.findByRole("dialog", { name: "Detalhes do agendamento de Maria" })).toBeInTheDocument();
+    expect(screen.getAllByText("Ana").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("button", { name: "Reagendar ou trocar profissional" })).toBeInTheDocument();
   });
 });

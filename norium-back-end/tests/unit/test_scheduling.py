@@ -162,6 +162,24 @@ class SchedulingTests(unittest.TestCase):
             self.scheduling.create_booking(page["public_id"], payload)
         self.assertEqual(error.exception.status_code, 422)
 
+    def test_team_mode_and_service_links_survive_repository_reload(self):
+        scope = ("team-a", "primary", "team-a")
+        members = {"pro-a": {"id": "pro-a", "nome": "Ana", "email": "ana@example.com"}}
+        self.scheduling.save_team_settings(
+            scope,
+            TeamSettingsPayload(enabled=True, professionals=[TeamProfessionalPayload(userId="pro-a", active=True, profession="Direito")]),
+            members,
+        )
+        item = self.scheduling.create_service(scope, ServicePayload(name="Consulta", durations=[60], professionalIds=["pro-a"]))
+
+        reloaded = SchedulingService(SchedulingRepository(self.scheduling.repo.path))
+        settings = reloaded.team_settings(scope)
+        service = reloaded.get_service(scope, item["id"])
+
+        self.assertTrue(settings["enabled"])
+        self.assertTrue(settings["professionals"][0]["active"])
+        self.assertEqual(service["professionalIds"], ["pro-a"])
+
     def test_cancel_and_transactional_reschedule(self):
         _item, page = self.configured()
         result = self.scheduling.create_booking(page["public_id"], self.booking_payload(self.next_monday_at(8), "move-one"))
@@ -235,6 +253,40 @@ class SchedulingTests(unittest.TestCase):
         self.assertEqual(result["booking"]["status"], "CONFIRMED")
         self.assertEqual(self.scheduling.repo.one("SELECT COUNT(*) AS total FROM scheduling_bookings")["total"], 1)
         self.assertIsNotNone(self.scheduling.repo.one("SELECT * FROM scheduling_audit WHERE action='booking_rescheduled'"))
+
+    def test_admin_reschedule_can_change_to_linked_professional(self):
+        scope = ("team-a", "primary", "team-a")
+        members = {"pro-a": {"id": "pro-a", "nome": "Ana"}, "pro-b": {"id": "pro-b", "nome": "Bruno"}}
+        self.scheduling.save_team_settings(scope, TeamSettingsPayload(enabled=True, professionals=[TeamProfessionalPayload(userId="pro-a"), TeamProfessionalPayload(userId="pro-b")]), members)
+        item = self.scheduling.create_service(scope, ServicePayload(name="Consulta", durations=[60], professionalIds=["pro-a", "pro-b"]))
+        weekly = {"0": [Period(start="08:00", end="12:00")]}
+        self.scheduling.set_availability(scope, AvailabilityPayload(serviceId=item["id"], responsibleId="pro-a", weekly=weekly))
+        self.scheduling.set_availability(scope, AvailabilityPayload(serviceId=item["id"], responsibleId="pro-b", weekly=weekly))
+        page = self.scheduling.create_page(scope, PagePayload(serviceId=item["id"], title="Equipe", slug="equipe-reagendar"))
+        payload = self.booking_payload(self.next_monday_at(8), "team-reschedule").model_copy(update={"serviceId": item["id"], "responsibleId": "pro-a", "responses": {}})
+        booking = self.scheduling.create_booking(page["public_id"], payload)["booking"]
+        stored = self.scheduling.repo.one("SELECT * FROM scheduling_bookings WHERE public_id=?", (booking["public_id"],))
+
+        result = self.scheduling.admin_reschedule(scope, stored["id"], self.next_monday_at(9).isoformat(), 60, "pro-b")
+
+        self.assertFalse(result["replay"])
+        self.assertEqual(result["booking"]["responsible_id"], "pro-b")
+
+    def test_admin_reschedule_rejects_unlinked_professional(self):
+        scope = ("team-a", "primary", "team-a")
+        members = {"pro-a": {"id": "pro-a", "nome": "Ana"}, "pro-b": {"id": "pro-b", "nome": "Bruno"}}
+        self.scheduling.save_team_settings(scope, TeamSettingsPayload(enabled=True, professionals=[TeamProfessionalPayload(userId="pro-a"), TeamProfessionalPayload(userId="pro-b")]), members)
+        item = self.scheduling.create_service(scope, ServicePayload(name="Consulta", durations=[60], professionalIds=["pro-a"]))
+        weekly = {"0": [Period(start="08:00", end="12:00")]}
+        self.scheduling.set_availability(scope, AvailabilityPayload(serviceId=item["id"], responsibleId="pro-a", weekly=weekly))
+        page = self.scheduling.create_page(scope, PagePayload(serviceId=item["id"], title="Equipe", slug="equipe-reagendar-restrita"))
+        payload = self.booking_payload(self.next_monday_at(8), "team-reschedule-restricted").model_copy(update={"serviceId": item["id"], "responsibleId": "pro-a", "responses": {}})
+        booking = self.scheduling.create_booking(page["public_id"], payload)["booking"]
+        stored = self.scheduling.repo.one("SELECT * FROM scheduling_bookings WHERE public_id=?", (booking["public_id"],))
+
+        with self.assertRaises(HTTPException) as error:
+            self.scheduling.admin_reschedule(scope, stored["id"], self.next_monday_at(9).isoformat(), 60, "pro-b")
+        self.assertEqual(error.exception.status_code, 422)
 
     def test_admin_reschedule_ignores_self_overlap(self):
         scope = ("tenant-a", "primary", "user-a")

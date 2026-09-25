@@ -65,6 +65,36 @@ class LocalUpdateRoutingTests(unittest.TestCase):
         google_update.assert_not_called()
         self.assertEqual("local_xyz", result["evento"]["id"])
 
+    def test_local_id_deletes_locally_even_when_google_connected(self) -> None:
+        service = CalendarService("teste-local-delete")
+        with (
+            patch.object(CalendarService, "status", return_value={"connected": True}),
+            patch.object(CalendarService, "_delete_local_event") as local_delete,
+            patch.object(CalendarService, "_service") as google_service,
+        ):
+            result = service.delete_event("local_abc")
+
+        local_delete.assert_called_once_with("local_abc")
+        google_service.assert_not_called()
+        self.assertTrue(result["deleted"])
+
+    def test_google_id_deletes_from_google_when_connected(self) -> None:
+        service = CalendarService("teste-google-delete")
+        google = MagicMock()
+        with (
+            patch.object(CalendarService, "status", side_effect=[{"connected": True}, {"connected": True}]),
+            patch.object(CalendarService, "_service", return_value=google),
+            patch.object(CalendarService, "_mark_sync") as mark_sync,
+            patch.object(CalendarService, "_delete_local_event") as local_delete,
+        ):
+            result = service.delete_event("google123")
+
+        google.events.return_value.delete.assert_called_once_with(calendarId="primary", eventId="google123", sendUpdates="all")
+        google.events.return_value.delete.return_value.execute.assert_called_once_with()
+        mark_sync.assert_called_once_with()
+        local_delete.assert_not_called()
+        self.assertTrue(result["deleted"])
+
 
 if __name__ == "__main__":
     unittest.main()

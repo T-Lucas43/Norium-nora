@@ -283,6 +283,26 @@ class CalendarService:
         evento = self._update_local_event(event_id, updates)
         return {"evento": evento, **current_status}
 
+    @serialized_calendar_mutation
+    def delete_event(self, event_id: str) -> dict[str, Any]:
+        current_status = self.status()
+        if str(event_id).startswith("local_"):
+            self._delete_local_event(event_id)
+            return {"deleted": True, **current_status}
+        if current_status["connected"]:
+            try:
+                self._service().events().delete(calendarId="primary", eventId=event_id, sendUpdates="all").execute()
+                self._mark_sync()
+                return {"deleted": True, **self.status()}
+            except Exception as exc:
+                if not self._is_invalid_grant(exc):
+                    raise
+                self._clear_google_auth()
+                current_status = self.status()
+                current_status["detail"] = "Conexao com Google Agenda expirada ou revogada. Usando agenda local."
+        self._delete_local_event(event_id)
+        return {"deleted": True, **current_status}
+
     def _service(self):
         creds = self._credentials(refresh=True)
         if not creds or not creds.valid:
@@ -607,6 +627,15 @@ class CalendarService:
             self._write_profile_section("calendarLocalEvents", eventos)
             return changed
         raise CalendarConfigError("Evento nao encontrado na agenda local.")
+
+    def _delete_local_event(self, event_id: str) -> None:
+        eventos = self._read_profile_section("calendarLocalEvents", [])
+        if not isinstance(eventos, list):
+            eventos = []
+        remaining = [evento for evento in eventos if str(evento.get("id")) != str(event_id)]
+        if len(remaining) == len(eventos):
+            raise CalendarConfigError("Evento nao encontrado na agenda local.")
+        self._write_profile_section("calendarLocalEvents", remaining)
 
     def _normalize_event(self, event: dict[str, Any], source: str) -> dict[str, Any]:
         start = (event.get("start") or {}).get("dateTime") or (event.get("start") or {}).get("date")

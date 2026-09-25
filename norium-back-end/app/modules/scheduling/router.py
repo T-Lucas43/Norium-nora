@@ -439,16 +439,21 @@ async def _send_reschedule_whatsapp(
         return {"sent": False, "uncertain": True, "error": "O resultado do WhatsApp e incerto. Confira a conversa antes de tentar novamente."}
 
 
-def _sync_reschedule_calendar(owner_id: str, service_name: str, booking_before: dict[str, Any], booking: dict[str, Any]) -> None:
+def _sync_reschedule_calendar(previous_owner_id: str, owner_id: str, service_name: str, booking_before: dict[str, Any], booking: dict[str, Any]) -> None:
     try:
         calendar_service = CalendarService(owner_id)
         external_event_id = str(booking_before.get("external_event_id") or "")
-        if external_event_id:
+        if external_event_id and previous_owner_id == owner_id:
             calendar_service.update_event(
                 external_event_id,
                 {"inicio": booking["start_at"], "fim": booking["end_at"]},
             )
             return
+        if external_event_id and previous_owner_id != owner_id:
+            try:
+                CalendarService(previous_owner_id).delete_event(external_event_id)
+            except Exception:
+                logger.warning("Nao foi possivel remover o evento do profissional anterior; criando no novo calendario para conciliacao.", exc_info=True)
         created = calendar_service.create_event(
             titulo=service_name,
             inicio=booking["start_at"],
@@ -507,21 +512,23 @@ async def reschedule_booking_admin(
     service_name = str(svc.get("name") or "Agendamento")
     new_start = parse_utc(payload.startAt)
     new_end = new_start + timedelta(minutes=payload.duration)
-    owner_id = str(booking_before.get("owner_id") or scope[2])
+    previous_owner_id = str(booking_before.get("responsible_id") or booking_before.get("owner_id") or scope[2])
+    owner_id = str(payload.responsibleId or previous_owner_id)
     conflict, calendar_verified = await _calendar_conflict_fast(
         owner_id,
         new_start.isoformat(),
         new_end.isoformat(),
-        exclude_event_id=str(booking_before.get("external_event_id") or "") or None,
+        exclude_event_id=(str(booking_before.get("external_event_id") or "") or None) if owner_id == previous_owner_id else None,
     )
     if conflict:
         raise HTTPException(409, "Novo horario ocupado no calendario conectado.")
     if not calendar_verified:
         logger.info("Calendario externo nao respondeu a tempo; reagendamento segue com validacao local.")
-    result = scheduling.admin_reschedule(scope, booking_id, payload.startAt, payload.duration)
+    result = scheduling.admin_reschedule(scope, booking_id, payload.startAt, payload.duration, payload.responsibleId)
     booking = result["booking"]
     background_tasks.add_task(
         _sync_reschedule_calendar,
+        previous_owner_id,
         owner_id,
         service_name,
         dict(booking_before),

@@ -248,6 +248,7 @@ NotifyChannel = Literal["gmail", "whatsapp"]
 class AdminReschedulePayload(StrictModel):
     startAt: str
     duration: int = Field(ge=5, le=1440)
+    responsibleId: str | None = Field(default=None, max_length=80)
     notifyGmail: bool = False
     notifyWhatsapp: bool = False
     gmailSubject: str = Field(default="", max_length=200)

@@ -14,7 +14,11 @@ const booking = {
   timezone: "America/Sao_Paulo", status: "CONFIRMED",
 };
 const services = [
-  { id: "service-1", name: "Consultoria", description: "", durations: [30, 60], color: "#6d5dfc", buffer_before: 0, buffer_after: 0, capacity: 1, slot_interval: 15, active: true },
+  { id: "service-1", name: "Consultoria", description: "", durations: [30, 60], color: "#6d5dfc", buffer_before: 0, buffer_after: 0, capacity: 1, slot_interval: 15, active: true, professionalIds: ["pro-1", "pro-2"] },
+];
+const professionals = [
+  { userId: "pro-1", name: "Ana", email: "ana@x.com", active: true, profession: "Advogada", position: "Sócia", color: "#2563eb" },
+  { userId: "pro-2", name: "Bruno", email: "bruno@x.com", active: true, profession: "Consultor", position: "Especialista", color: "#16a34a" },
 ];
 const preview = {
   bookingId: "book-1", serviceName: "Consultoria", timezone: "America/Sao_Paulo",
@@ -142,5 +146,18 @@ describe("RescheduleDialog", () => {
     await user.click(screen.getByRole("button", { name: "Confirmar reagendamento" }));
     await waitFor(() => expect(schedulingApi.adminReschedule).toHaveBeenCalledTimes(2));
     expect(vi.mocked(schedulingApi.adminReschedule).mock.calls[1][1].operationKey).not.toBe(firstKey);
+  });
+
+  it("allows changing the linked professional while rescheduling", async () => {
+    vi.mocked(schedulingApi.adminReschedule).mockResolvedValue({ booking, replay: false, receipts: { gmail: null, whatsapp: null } });
+    const user = userEvent.setup();
+    render(<RescheduleDialog booking={{ ...booking, responsible_id: "pro-1" }} services={services} professionals={professionals} onClose={() => {}} onSaved={() => {}} />);
+
+    await user.selectOptions(screen.getByLabelText("Profissional"), "pro-2");
+    await user.click(screen.getByRole("button", { name: "Gerar prévia e canais" }));
+    await screen.findByText(/Para:/);
+    await user.click(screen.getByRole("button", { name: "Confirmar reagendamento" }));
+
+    await waitFor(() => expect(schedulingApi.adminReschedule).toHaveBeenCalledWith("book-1", expect.objectContaining({ responsibleId: "pro-2" })));
   });
 });

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import Button from "../shared/Button";
-import { schedulingApi, type Booking, type ChannelReceipt, type NotifyPreview, type SchedulingService } from "../../features/scheduling/api";
+import { schedulingApi, type Booking, type ChannelReceipt, type NotifyPreview, type SchedulingProfessional, type SchedulingService } from "../../features/scheduling/api";
 
 function newOperationKey() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -19,17 +19,19 @@ function toLocalInput(value: string) {
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
 }
 
-export default function RescheduleDialog({ booking, services, onClose, onSaved }: {
-  booking: Booking; services: SchedulingService[]; onClose: () => void; onSaved: () => void;
+export default function RescheduleDialog({ booking, services, professionals = [], onClose, onSaved }: {
+  booking: Booking; services: SchedulingService[]; professionals?: SchedulingProfessional[]; onClose: () => void; onSaved: () => void;
 }) {
   const service = services.find((item) => item.id === booking.service_id);
   const durations = service?.durations?.length ? service.durations : [15, 30, 45, 60];
+  const eligibleProfessionals = professionals.filter((item) => item.active && (service?.professionalIds || []).includes(item.userId));
   const operationKey = useRef(newOperationKey());
   const [dateTime, setDateTime] = useState(() => toLocalInput(booking.start_at));
   const [duration, setDuration] = useState(() => {
     const minutes = Math.round((new Date(booking.end_at).getTime() - new Date(booking.start_at).getTime()) / 60000);
     return durations.includes(minutes) ? minutes : durations[0];
   });
+  const [responsibleId, setResponsibleId] = useState(booking.responsible_id || eligibleProfessionals[0]?.userId || "");
   const [preview, setPreview] = useState<NotifyPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [notifyGmail, setNotifyGmail] = useState(false);
@@ -70,7 +72,7 @@ export default function RescheduleDialog({ booking, services, onClose, onSaved }
     setSaving(true); setError("");
     try {
       const result = await schedulingApi.adminReschedule(booking.id, {
-        startAt: startIso, duration, notifyGmail, notifyWhatsapp,
+        startAt: startIso, duration, responsibleId: responsibleId || null, notifyGmail, notifyWhatsapp,
         gmailSubject: subject, gmailBody: body, whatsappMessage: waMessage,
         operationKey: operationKey.current,
       });
@@ -103,7 +105,7 @@ export default function RescheduleDialog({ booking, services, onClose, onSaved }
 
         <div className="grid gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4 text-sm">
           <p><strong>Atual:</strong> {formatDateTime(booking.start_at)}</p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className={`grid gap-3 ${eligibleProfessionals.length ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
             <label className="grid gap-1 text-xs font-bold text-[var(--text-secondary)]">Nova data e hora
               <input type="datetime-local" value={dateTime} onChange={(e) => { operationKey.current = newOperationKey(); setDateTime(e.target.value); setPreview(null); setReceipts(null); setDone(false); }} className="h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3" />
             </label>
@@ -112,6 +114,11 @@ export default function RescheduleDialog({ booking, services, onClose, onSaved }
                 {durations.map((item) => <option key={item} value={item}>{item} min</option>)}
               </select>
             </label>
+            {eligibleProfessionals.length > 0 && <label className="grid gap-1 text-xs font-bold text-[var(--text-secondary)]">Profissional
+              <select aria-label="Profissional" value={responsibleId} onChange={(e) => { operationKey.current = newOperationKey(); setResponsibleId(e.target.value); setPreview(null); setReceipts(null); setDone(false); }} className="h-10 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3">
+                {eligibleProfessionals.map((item) => <option key={item.userId} value={item.userId}>{item.name} · {item.profession || item.position || "Profissional"}</option>)}
+              </select>
+            </label>}
           </div>
           <div><Button size="sm" variant="primary" disabled={previewLoading || !startIso} onClick={() => void loadPreview()}>{previewLoading ? "Gerando prévia…" : "Gerar prévia e canais"}</Button></div>
         </div>

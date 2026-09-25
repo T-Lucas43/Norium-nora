@@ -20,8 +20,8 @@ import {
   canAccessModule,
   initialTab,
   navigateNoriumTab,
+  normalizeNoriumTabPath,
   PRIMARY_TABS,
-  tabFromPath,
   TAB_PERMISSIONS,
 } from "./navigation/tabs";
 import {
@@ -121,7 +121,7 @@ export default function NoriumApp() {
     const syncView = (event: Event) => setCurrentView((event as CustomEvent<NoriumView>).detail);
     const syncHistory = () => {
       setCurrentView(currentNoriumView());
-      const routedTab = tabFromPath();
+      const routedTab = normalizeNoriumTabPath();
       if (routedTab) setActiveTab(routedTab);
     };
     window.addEventListener("hashchange", syncHash);
@@ -129,6 +129,8 @@ export default function NoriumApp() {
     window.addEventListener("popstate", syncHistory);
     const legacyView = legacyViewFromHash();
     if (legacyView) navigateNoriumView(legacyView);
+    const routedTab = normalizeNoriumTabPath();
+    if (routedTab) setActiveTab(routedTab);
     return () => {
       window.removeEventListener("hashchange", syncHash);
       window.removeEventListener(NORIUM_VIEW_EVENT, syncView);

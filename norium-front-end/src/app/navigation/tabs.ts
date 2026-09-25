@@ -93,7 +93,42 @@ export function canAccessModule(user: NoriumUser | null | undefined, tab: string
   return !permission || canUse(user, permission);
 }
 
+// Identificadores opacos e URL-safe, derivados uma unica vez com SHA-256 e
+// mantidos estaveis para preservar favoritos e links internos. Eles escondem os
+// nomes dos modulos na barra de endereco; autorizacao continua sendo validada
+// pelas permissoes do usuario e pelas APIs do backend.
 export const TAB_ROUTES: Record<string, string> = {
+  Dashboard: "exrNGzzgnOk0lYO3BYgt",
+  Controle: "jfxYjHMnHwHBjSbINCdM",
+  Central: "kwdnrV6CNYF5O4g7S10v",
+  "Notificações": "9kFx3XKmTCFQkxAC5ay7",
+  "E-mails": "JKN2Ao2FEOCj2RkjEPpH",
+  Agenda: "2JmCCrXr4UkP7niJzS_c",
+  Agendamentos: "2SZ5TBMsipUWdiU0F1XR",
+  Chat: "dSlgZL0DMGQm5JjdLMrs",
+  Tarefas: "VVmtt4GQBMGjMOuNiSKO",
+  Financeiro: "ys87LpNel5w6xYGCVbIf",
+  "Automações": "lp0o-NInK2OC0mKzfmFn",
+  "Relatórios": "3cJFfwt2cAzPvEuDRHES",
+  Documentos: "Dg0lq0vU62BoSxh9kL-8",
+  "PDF Studio": "dprD0Dro2ucZ75g3P1nl",
+  "Agente Navegador": "AARiyfLZK5fNF9M0Gvxq",
+  Conhecimento: "0Ft7l1c9zvMbx_CcmLO3",
+  Marketplace: "j8h-EllyyxZtlMcOZx1J",
+  "IA e Modelos": "-kxWBFn1A67cb8Evxw8z",
+  Equipe: "Xwv19qjfPOj9px_vx0iB",
+  "Chat da Equipe": "mWUGDR9WnHA2zM0AvIOv",
+  Clientes: "WvuuIjoboC60OWXjOQUY",
+  Governanca: "x8j96NfSqKs0GJ7sKISt",
+  "Estúdio": "4UXAqQ7JdDt88e6Js6_f",
+  Nora: "khW_OrvF3ZYPq5Io7Lf_",
+  Mais: "0TeJT8GQTU6jtJUgVxol",
+  Perfil: "-wsdJB_o7sZC7jWPw8XT",
+  "Configurações": "yIH5s7vdXPjuecFkMSNJ",
+  Ajuda: "6iwSNyjEDdb4gPjPQMoL",
+};
+
+const LEGACY_TAB_ROUTES: Record<string, string> = {
   Dashboard: "dashboard",
   Controle: "controle",
   Central: "central",
@@ -124,10 +159,11 @@ export const TAB_ROUTES: Record<string, string> = {
   Ajuda: "ajuda",
 };
 
-const ROUTE_TABS = new Map(Object.entries(TAB_ROUTES).map(([tab, route]) => [route, tab]));
+const ROUTE_TABS = new Map(Object.entries(TAB_ROUTES).map(([tab, route]) => [route.toLowerCase(), tab]));
+const LEGACY_ROUTE_TABS = new Map(Object.entries(LEGACY_TAB_ROUTES).map(([tab, route]) => [route, tab]));
 
-ROUTE_TABS.set("brainstorm", "Estúdio");
-ROUTE_TABS.set("pendencias", "Central");
+LEGACY_ROUTE_TABS.set("brainstorm", "Estúdio");
+LEGACY_ROUTE_TABS.set("pendencias", "Central");
 
 export function canonicalTab(tab: string) {
   return TAB_ALIASES[tab] || tab;
@@ -140,7 +176,20 @@ export function tabPath(tab: string) {
 
 export function tabFromPath(pathname = window.location.pathname) {
   const match = pathname.match(/^\/app\/([^/]+)\/?$/i);
-  return match ? ROUTE_TABS.get(match[1].toLowerCase()) || null : null;
+  if (!match) return null;
+  const route = match[1].toLowerCase();
+  return ROUTE_TABS.get(route) || LEGACY_ROUTE_TABS.get(route) || null;
+}
+
+export function normalizeNoriumTabPath() {
+  const tab = tabFromPath();
+  if (!tab) return null;
+  const path = tabPath(tab);
+  if (window.location.pathname !== path) {
+    const state = { ...(window.history.state || {}), noriumView: "app", noriumTab: canonicalTab(tab) };
+    window.history.replaceState(state, "", `${path}${window.location.search}`);
+  }
+  return tab;
 }
 
 export function navigateNoriumTab(tab: string, options: { replace?: boolean } = {}) {

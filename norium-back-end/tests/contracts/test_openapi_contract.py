@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import unittest
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,10 @@ INTENTIONAL_SCHEMA_CHANGES = {
     # proposal/contract aceitos pelos consumidores existentes.
     "components.schemas.TemplateCreate.properties.documentType.enum",
 }
+TASK_STATUS_SCHEMA_MIGRATIONS = {
+    "components.schemas.CriarTarefaPayload.properties.status",
+    "components.schemas.AtualizarTarefaPayload.properties.status",
+}
 
 
 def _public_contract(specification: dict[str, Any]) -> dict[str, Any]:
@@ -82,6 +87,26 @@ def _assert_schema_backward_compatible(
     path: str,
 ) -> None:
     """Aceita campos opcionais novos sem afrouxar o contrato historico."""
+    if path in TASK_STATUS_SCHEMA_MIGRATIONS:
+        old_options = baseline.get("anyOf", [baseline])
+        new_options = current.get("anyOf", [current])
+        old_strings = [option for option in old_options if option.get("type") == "string"]
+        new_strings = [option for option in new_options if option.get("type") == "string"]
+        test_case.assertEqual(1, len(old_strings), path)
+        test_case.assertEqual(1, len(new_strings), path)
+        pattern = new_strings[0].get("pattern")
+        test_case.assertIsInstance(pattern, str, path)
+        for value in old_strings[0]["enum"]:
+            test_case.assertIsNotNone(re.fullmatch(pattern, value), f"Status historico rejeitado: {value}")
+        test_case.assertEqual(
+            any(option.get("type") == "null" for option in old_options),
+            any(option.get("type") == "null" for option in new_options),
+            path,
+        )
+        for field in ("title", "default"):
+            if field in baseline:
+                test_case.assertEqual(baseline[field], current.get(field), f"{path}.{field}")
+        return
     if path in INTENTIONAL_SCHEMA_CHANGES:
         return
     if isinstance(baseline, dict):

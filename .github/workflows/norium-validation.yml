@@ -1,0 +1,275 @@
+name: Norium validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: norium-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Committed secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install verified Gitleaks CLI
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          archive="$RUNNER_TEMP/gitleaks/gitleaks.tar.gz"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            --output "$archive"
+          printf '%s  %s\n' "$GITLEAKS_SHA256" "$archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP/gitleaks" gitleaks
+          echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
+
+      - name: Scan history and versioned snapshot
+        run: |
+          gitleaks git --log-opts='--all --full-history' --redact=100 --no-banner --exit-code=1 --timeout=300 .
+          snapshot="$RUNNER_TEMP/norium-snapshot"
+          mkdir -p "$snapshot"
+          git archive HEAD | tar -x -C "$snapshot"
+          gitleaks dir --redact=100 --no-banner --exit-code=1 --timeout=300 "$snapshot"
+
+  backend:
+    name: Backend validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: norium-back-end
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: norium-back-end/requirements.lock.txt
+
+      - name: Install Docker runtime dependencies
+        run: python -m pip install -r requirements.lock.txt
+
+      - name: Verify installed runtime inventory
+        run: |
+          python scripts/check_runtime_lock.py
+          python -m pip check
+
+      - name: Compile backend and test runner
+        run: python -m compileall -q app main.py scripts ../scripts/run_backend_audit_tests.py
+
+      - name: Run backend regressions with synthetic data
+        run: |
+          if ! python ../scripts/run_backend_audit_tests.py --label ci-backend; then
+            cat ../output/pos-correcao/ci-backend.log
+            exit 1
+          fi
+
+      - name: Install scanners outside the runtime environment
+        run: |
+          python -m venv "$RUNNER_TEMP/norium-scanners"
+          "$RUNNER_TEMP/norium-scanners/bin/python" -m pip install bandit==1.9.4 pip-audit==2.10.1
+
+      - name: Audit runtime lock and Python source
+        run: |
+          # The inventory step proves the lock equals the runtime packages;
+          # scan the lock so the base image's pip bootstrap is not mistaken for app code.
+          "$RUNNER_TEMP/norium-scanners/bin/pip-audit" -r requirements.lock.txt --no-deps --disable-pip
+          "$RUNNER_TEMP/norium-scanners/bin/bandit" -q -r app main.py -ll
+
+  frontend:
+    name: Frontend validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: norium-front-end
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: norium-front-end/package-lock.json
+
+      - name: Install locked frontend dependencies
+        id: install
+        run: npm ci
+
+      - name: Lint frontend
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint
+
+      - name: Test frontend
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test
+
+      - name: Build frontend
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run build
+
+      - name: Audit all npm dependencies
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm audit --audit-level=low
+
+      - name: Check compiled frontend for call secrets and test harnesses
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: python ../norium-back-end/scripts/team_call_frontend_security.py .
+
+  postgres_persistence:
+    name: PostgreSQL persistence regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: norium
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d norium"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ENVIRONMENT: test
+      APP_ENV: test
+      PYTHON_DOTENV_DISABLED: "1"
+      # The ephemeral CI service has no TLS certificate. Production enforces
+      # verified TLS through Dockerfile.shard and separate fail-closed tests.
+      NORIUM_POSTGRES_REQUIRED: "0"
+      NORIUM_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/norium
+      NORIUM_DATABASE_SSLMODE: disable
+      NORA_BRAIN_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/norium
+      NORA_BRAIN_DB_SSLMODE: disable
+      NORIUM_DATA_DIR: /tmp/norium-postgres-test-data
+      PYTHONPATH: norium-back-end
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: norium-back-end/requirements.lock.txt
+
+      - name: Install and verify Docker runtime dependencies
+        run: |
+          python -m pip install -r norium-back-end/requirements.lock.txt
+          python norium-back-end/scripts/check_runtime_lock.py
+          python -m pip check
+
+      - name: Prove PostgreSQL documents, binary objects and idempotent import
+        run: python infra/azure/test_postgres_persistence.py
+
+  team_call_quality:
+    name: Team call browser and load regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      APP_ENV: test
+      ENVIRONMENT: test
+      CI: "true"
+      PYTHON_DOTENV_DISABLED: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: norium-back-end/requirements.lock.txt
+
+      - name: Install and verify Docker runtime dependencies
+        run: |
+          python -m pip install -r norium-back-end/requirements.lock.txt
+          python norium-back-end/scripts/check_runtime_lock.py
+          python -m pip check
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: norium-front-end/package-lock.json
+
+      - name: Install frontend dependencies and browser
+        run: |
+          npm ci --prefix norium-front-end
+          python -m playwright install --with-deps chromium
+
+      - name: Exercise browser media, signaling and load three times
+        run: |
+          set +e
+          python norium-front-end/tests/browser/team_call_e2e.py \
+            --repeat 3 \
+            --artifacts-dir output/team-call-quality/browser
+          browser_status=$?
+          python norium-back-end/tests/team_call_load.py \
+            --repeat 3 \
+            --artifacts-dir output/team-call-quality/load
+          load_status=$?
+          if [[ "$browser_status" -ne 0 || "$load_status" -ne 0 ]]; then
+            echo "Team-call quality gate failed (browser=$browser_status, load=$load_status)." >&2
+            exit 1
+          fi
+
+      - name: Preserve team-call quality evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: team-call-quality-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/team-call-quality/**
+          if-no-files-found: ignore
+          retention-days: 5
+
+  security-gate:
+    name: Security gate
+    needs: [secrets, backend, frontend, postgres_persistence, team_call_quality]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every validation job to succeed
+        env:
+          SECRETS_RESULT: ${{ needs.secrets.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          POSTGRES_RESULT: ${{ needs.postgres_persistence.result }}
+          TEAM_CALL_RESULT: ${{ needs.team_call_quality.result }}
+        run: |
+          printf 'secrets=%s backend=%s frontend=%s postgres=%s team_call=%s\n' \
+            "$SECRETS_RESULT" "$BACKEND_RESULT" "$FRONTEND_RESULT" "$POSTGRES_RESULT" "$TEAM_CALL_RESULT"
+          test "$SECRETS_RESULT" = success
+          test "$BACKEND_RESULT" = success
+          test "$FRONTEND_RESULT" = success
+          test "$POSTGRES_RESULT" = success
+          test "$TEAM_CALL_RESULT" = success

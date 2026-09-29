@@ -2,7 +2,7 @@
 
 ## Estado
 
-Preparado em 28/09/2026 na branch `codex/shardcloud-readiness-contract-2026-09-28`, a partir de `56ece8e102144a4ad9777d374f471a7199824dff`. Nenhum commit foi enviado, nenhuma imagem foi construída ou publicada e nenhum dado de produção foi alterado. O checkout principal, que contém alterações preexistentes, não recebeu esta correção.
+Preparado em 28/09/2026 na branch `codex/shardcloud-readiness-contract-2026-09-28`, a partir de `56ece8e102144a4ad9777d374f471a7199824dff`. O commit `ce0152c942300766386317a3a81b7d6d7841056f` já foi enviado ao `origin`; nenhuma imagem foi construída ou publicada e nenhum dado de produção foi alterado. O checkout principal, que contém alterações preexistentes, não recebeu esta correção.
 
 ## Causa e mudança
 

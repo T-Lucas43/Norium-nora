@@ -34,7 +34,7 @@
   PDF/persistência aprovados. PR #43: 20 testes direcionados de readiness e
   persistência aprovados com banco simulado. Esses números não substituem o
   teste remoto integrado.
-- [GitHub Actions no commit mais recente do PR #41](https://github.com/T-Lucas43/Norium-nora/actions/runs/36601513709)
+- [Exemplo de execução bloqueada no GitHub Actions](https://github.com/T-Lucas43/Norium-nora/actions/runs/36601513709)
   não iniciou nenhum dos seis jobs porque o GitHub reportou problema de cobrança
   recente ou limite de gastos. Não há resultado de CI Linux, PostgreSQL ou TURN
   TLS. PRs #42 e #43 não disparam o workflow enquanto sua base não for `main`.

@@ -34,7 +34,7 @@
   PDF/persistência aprovados. PR #43: 20 testes direcionados de readiness e
   persistência aprovados com banco simulado. Esses números não substituem o
   teste remoto integrado.
-- [Exemplo de execução bloqueada no GitHub Actions](https://github.com/T-Lucas43/Norium-nora/actions/runs/36601513709)
+- [Execução mais recente bloqueada no GitHub Actions](https://github.com/T-Lucas43/Norium-nora/actions/runs/36628501190)
   não iniciou nenhum dos seis jobs porque o GitHub reportou problema de cobrança
   recente ou limite de gastos. Não há resultado de CI Linux, PostgreSQL ou TURN
   TLS. PRs #42 e #43 não disparam o workflow enquanto sua base não for `main`.
@@ -44,6 +44,25 @@
   com achados HIGH/CRITICAL de vulnerabilidade. Não é candidata a publicação.
 - Não houve merge em `main`, build de release, deploy no ShardCloud ou smoke
   autenticado no endereço publicado.
+
+## Incidente observado no ambiente publicado em 29/09/2026
+
+- Às 21:08–21:11 UTC, `https://norium.shardweb.app/health` respondeu 200,
+  enquanto `/health/ready` respondeu 503 duas vezes com
+  `{"detail":{"status":"not_ready","reason":"PostgresStoreError"}}`.
+  A instância de rollback respondeu 200 e 503, respectivamente, com o mesmo
+  erro de prontidão. O painel do workspace Norium mostrou a única database
+  `norium-postgresql` como **Offline**, inclusive após atualizar a página.
+- O estado Offline é compatível com o erro de prontidão, mas a causa da queda
+  e a configuração efetiva das duas aplicações não foram comprovadas. O painel
+  de eventos só mostrou restarts antigos; logs brutos de produção, dados e
+  credenciais não foram lidos, conforme `docs/AI_GOVERNANCE.md`.
+- Este é um gate de disponibilidade reprovado no ambiente já publicado, não
+  resultado do PR #41, que não foi implantado. Não reiniciar aplicações nem
+  trocar imagens como suposta correção do banco. Antes de qualquer novo deploy,
+  o operador responsável deve apurar por que o PostgreSQL está Offline,
+  preservar evidência/backup e restabelecer o serviço sem recriar documentos.
+  Depois, repetir readiness, login, dados e WebSocket nas instâncias aplicáveis.
 
 ## Próximos gates
 

@@ -148,7 +148,7 @@ Esta execução **não comprova TURN/TLS externo**. O servidor local suporta con
 
 ## Integração no CI
 
-O job `team-call-quality` do workflow `.github/workflows/azure-container-apps.yml` instala dependências bloqueadas, Chromium, executa navegador e carga três vezes e falha se qualquer runner falhar. `publish-image` depende de `validate` e desse gate. O segredo do TURN local nasce dentro do runner, dura somente o processo e nunca é escrito no bundle ou nos artefatos.
+Historicamente, o job `team-call-quality` do workflow Azure instalava dependências bloqueadas e Chromium, executava navegador e carga três vezes e bloqueava o `publish-image` em caso de falha. Esse workflow foi retirado com o abandono da Azure. Para publicação atual, os gates locais e os smokes no endereço público são os de [DEPLOY_SHARDCLOUD.md](../../DEPLOY_SHARDCLOUD.md); esta evidência anterior não substitui a validação do commit a publicar.
 
 O workflow foi validado por parse e invariantes locais, mas não foi executado remotamente nesta etapa. Nenhuma imagem foi publicada e nenhum deploy foi feito.
 

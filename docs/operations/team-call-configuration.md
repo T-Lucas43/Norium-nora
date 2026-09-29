@@ -1,6 +1,6 @@
-# Matriz operacional das chamadas de equipe
+# Matriz de configuração das chamadas de equipe
 
-Fonte de verdade: `app/modules/team/{call_configuration,call_release,turn_credentials,sfu_tokens,recording_coordinator}.py` e `.github/workflows/azure-container-apps.yml`. Nenhuma variável desta matriz usa prefixo `VITE_`, build arg ou armazenamento do navegador.
+Este documento conserva a configuração e os testes do período Azure. As instruções de Azure e GitHub Actions abaixo são históricas; a publicação atual segue [o procedimento obrigatório do ShardCloud](../../DEPLOY_SHARDCLOUD.md). Os defaults do módulo estão em `app/modules/team/{call_configuration,call_release,turn_credentials,sfu_tokens,recording_coordinator}.py`. Nenhuma variável desta matriz usa prefixo `VITE_`, build arg ou armazenamento do navegador.
 
 ## Flags e capacidade
 

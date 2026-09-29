@@ -159,9 +159,11 @@ As seams escolhidas para a correção são uma interface única de política/cic
 - `norium-front-end/src/hooks/useWebSockets.test.tsx`: ciclo de notificações e convite/encerramento no mesmo lote sem depender de socket ou `CustomEvent` próprio.
 - `norium-front-end/tests/browser/calls.tsx` reutiliza `CallSessionProvider`, overlay e peers reais com mídia sintética, mas `vitest.config.ts:12` inclui apenas testes sob `src/`; portanto esse harness é manual e não roda em `npm test`.
 
-## Fluxo de deploy atual
+## Fluxo de deploy histórico na Azure
 
-O fluxo principal versionado é Azure Container Apps:
+Esta seção registra o fluxo Azure descontinuado. Para preparar, publicar ou validar o Norium hoje, siga [DEPLOY_SHARDCLOUD.md](../DEPLOY_SHARDCLOUD.md).
+
+O fluxo principal versionado na época era Azure Container Apps:
 
 1. Em push/PR para `main`, o job `validate` usa Python 3.14 e Node 24, executa toda a suíte backend, lint/test/build frontend e verificações de dependências (`.github/workflows/azure-container-apps.yml:3-80`).
 2. Fora de PR, o workflow cria uma imagem imutável e `latest` no GHCR usando `Dockerfile.azure` (`.github/workflows/azure-container-apps.yml:82-120`).

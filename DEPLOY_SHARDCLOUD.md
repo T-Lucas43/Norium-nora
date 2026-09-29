@@ -5,6 +5,9 @@ ShardCloud. Um deploy nao esta concluido quando a imagem termina de compilar: el
 so esta concluido depois que dados, autenticacao, APIs, WebSockets e fluxos
 criticos forem verificados no endereco publicado.
 
+O deploy na Azure foi abandonado. Seus arquivos sao historicos e nao fazem
+parte do caminho de publicacao do Norium.
+
 ## Regras que nao podem ser quebradas
 
 1. O PostgreSQL e a fonte autoritativa em producao. Nenhum modulo pode testar a

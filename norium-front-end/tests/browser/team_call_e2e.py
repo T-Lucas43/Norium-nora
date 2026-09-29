@@ -339,9 +339,12 @@ async def start_services(args: argparse.Namespace, temporary: Path) -> Services:
     await wait_http(f"http://{BACKEND_HOST}:{api_port}/openapi.json", backend)
 
     vite_entry = FRONTEND_DIR / "node_modules" / "vite" / "bin" / "vite.js"
+    vite_command = [args.node, str(vite_entry), "--host", "0.0.0.0", "--port", str(frontend_port), "--strictPort"]
+    if os.name == "nt":
+        vite_command.extend(["--configLoader", "native"])
     frontend = ManagedProcess(
         "frontend",
-        [args.node, str(vite_entry), "--host", "0.0.0.0", "--port", str(frontend_port), "--strictPort"],
+        vite_command,
         FRONTEND_DIR,
         os.environ.copy(),
         temporary / "services" / "frontend.log",
@@ -1117,6 +1120,9 @@ async def scenario_screen_share(runtime: ScenarioRuntime) -> dict[str, Any]:
     await owner.page.get_by_role("button", name="Transmitir tela", exact=True).click()
     await wait_diagnostic(owner.page, "value.sharingScreen === true && value.displayRequests === 1")
     screen_rtp = await wait_rtp(member.page, "inbound", "video")
+    watch_button = member.page.get_by_role("button", name="Assistir transmissão", exact=True)
+    await expect(watch_button).to_be_visible()
+    await watch_button.click()
     await wait_video(member.page, "Tela compartilhada por Owner")
     await owner.page.get_by_role("button", name="Parar transmissão de tela", exact=True).click()
     await wait_diagnostic(owner.page, "value.sharingScreen === false")

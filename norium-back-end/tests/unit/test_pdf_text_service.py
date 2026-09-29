@@ -80,26 +80,26 @@ class ExtractPdfPagesTests(unittest.TestCase):
         self.assertEqual(413, ctx.exception.status_code)
 
     def test_missing_reader_is_unavailable(self) -> None:
-        original = pdf_text.PdfReader
-        pdf_text.PdfReader = None
+        original = pdf_text.PYPDF_AVAILABLE
+        pdf_text.PYPDF_AVAILABLE = False
         try:
             with self.assertRaises(HTTPException) as ctx:
                 extract_pdf_pages(b"%PDF-1.4 fake")
         finally:
-            pdf_text.PdfReader = original
+            pdf_text.PYPDF_AVAILABLE = original
         self.assertEqual(503, ctx.exception.status_code)
 
     def test_rejects_extracted_text_over_total_cap(self) -> None:
         pdf = make_pdf(["conteudo sintetico para o teto de caracteres"])
-        original = pdf_text.PDF_MAX_TOTAL_CHARS
-        pdf_text.PDF_MAX_TOTAL_CHARS = 10
+        original = pdf_text.PDF_MAX_TEXT_CHARS
+        pdf_text.PDF_MAX_TEXT_CHARS = 10
         try:
             with self.assertRaises(HTTPException) as ctx:
                 extract_pdf_pages(pdf)
         finally:
-            pdf_text.PDF_MAX_TOTAL_CHARS = original
+            pdf_text.PDF_MAX_TEXT_CHARS = original
         self.assertEqual(413, ctx.exception.status_code)
-        self.assertIn("2.000.000", str(ctx.exception.detail))
+        self.assertIn("texto", str(ctx.exception.detail))
 
 
 class ExtractPdfPagesAsyncTests(unittest.IsolatedAsyncioTestCase):

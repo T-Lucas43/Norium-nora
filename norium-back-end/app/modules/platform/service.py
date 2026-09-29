@@ -19,7 +19,7 @@ from cryptography.fernet import Fernet
 
 from app.core.security import auth_secret
 from app.core.tenant import get_user_db_path, read_user_db
-from app.modules.platform.pdf_text import detect_value_conflicts, extract_pdf_pages_async, search_pdf_pages
+from app.modules.platform.pdf_text import PDF_MAX_BYTES, detect_value_conflicts, extract_pdf_pages_async, search_pdf_pages
 from app.modules.platform.repository import load_store, mutate_store, now_iso
 from app.services.finance_store import create_lancamento, list_finance
 from app.services.task_store import list_tasks
@@ -589,6 +589,8 @@ def _examine_pdf_file(
     info = persistent_files.info(path)
     if info is None:
         raise HTTPException(status_code=404, detail="Arquivo do PDF nao encontrado.")
+    if int(info["size"]) > PDF_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="O PDF deve ter no maximo 12 MB.")
     version = int(info.get("revision") or 0)
     if not version:
         try:
@@ -602,7 +604,10 @@ def _read_pdf_file_bytes(path: Path) -> bytes:
     """Fase 5 do acesso ao arquivo, síncrona (cache miss; fora do event loop)."""
     try:
         from app.infrastructure.persistence import files as persistent_files
-        return persistent_files.read(path)
+        content = persistent_files.read(path)
+        if len(content) > PDF_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="O PDF deve ter no maximo 12 MB.")
+        return content
     except (OSError, FileNotFoundError) as exc:
         raise HTTPException(
             status_code=422,

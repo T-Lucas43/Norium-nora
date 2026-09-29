@@ -9,13 +9,18 @@ para PDFs. Tudo com dados sintéticos.
 from __future__ import annotations
 
 import base64
+import asyncio
 import os
 import shutil
+import threading
 import tempfile
 import unittest
 from io import BytesIO
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
-from fastapi import HTTPException
+import httpx
+from fastapi import FastAPI, HTTPException
 
 
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="norium_pdf_query_")
@@ -62,6 +67,39 @@ class KnowledgePdfQueryTests(unittest.IsolatedAsyncioTestCase):
             user,
         )
         return response["item"]
+
+    async def test_expensive_upload_keeps_api_available_without_saving_failed_pdf(self) -> None:
+        from app.modules.platform import pdf_text, router as platform_router
+
+        user = user_for(self._testMethodName)
+        app = FastAPI()
+        app.include_router(platform_router.router)
+        app.dependency_overrides[platform_router.current_user] = lambda: user
+        started = threading.Event()
+        original_popen = pdf_text.subprocess.Popen
+
+        def track_process(*args, **kwargs):
+            process = original_popen(*args, **kwargs)
+            started.set()
+            return process
+
+        fixture = Path(__file__).resolve().parents[1] / "fixtures/pdf_resource_worker.py"
+        with patch.object(pdf_text, "_PDF_WORKER", fixture), patch.object(pdf_text, "PDF_TIMEOUT_SECONDS", 1), \
+                patch.object(pdf_text.subprocess, "Popen", side_effect=track_process), \
+                patch.object(platform_router.persistent_files, "write") as write_file, \
+                patch.object(platform_router, "create_collection_item", new_callable=AsyncMock) as save_item:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                request = asyncio.create_task(client.post(
+                    "/api/plataforma/conhecimento/pdf",
+                    json={"fileName": "caro-sintetico.pdf", "dataUrl": data_url(b"%PDF-block")},
+                ))
+                self.assertTrue(await asyncio.to_thread(started.wait, 2))
+                response = await asyncio.wait_for(client.get("/api/plataforma/conhecimento"), timeout=0.5)
+                self.assertEqual(200, response.status_code)
+                self.assertEqual([], response.json()["items"])
+                self.assertEqual(422, (await request).status_code)
+                write_file.assert_not_called()
+                save_item.assert_not_awaited()
 
     async def test_specific_field_returns_page_evidence(self) -> None:
         user = user_for(self._testMethodName)

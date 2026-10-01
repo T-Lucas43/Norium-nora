@@ -462,7 +462,7 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
                     }.get(user_id),
                 ),
                 patch.object(chat_router.wapi_connect, "status", AsyncMock(return_value={"status": "conectado"})),
-                patch.object(chat_router.wapi_client, "fetch_chats", side_effect=fetch_chats),
+                patch.object(chat_router.wapi_client, "fetch_chats", side_effect=fetch_chats) as chats_request,
                 patch.object(chat_router.wapi_client, "fetch_contacts", side_effect=fetch_contacts),
                 patch.object(chat_router, "load_conversations", side_effect=load),
                 patch.object(chat_router, "save_conversations", side_effect=save),
@@ -477,9 +477,17 @@ class ChatSecurityTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual("complete", sync_b["status"], sync_b)
                 self.assertIn("chat-inst-a@c.us", stores["user-a"], stores["user-a"])
                 self.assertIn("chat-inst-b@c.us", stores["user-b"], stores["user-b"])
-                catalog_a = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-a"))
-                catalog_b = await chat_router.obter_conversas(since=None, limit=100, user=chat_user("user-b"))
+                catalog_a = await chat_router.obter_conversas(
+                    user_id="user-b", since=None, limit=100, refresh=False, user=chat_user("user-a")
+                )
+                catalog_b = await chat_router.obter_conversas(
+                    user_id="user-a", since=None, limit=100, refresh=False, user=chat_user("user-b")
+                )
 
+        self.assertEqual(
+            [("inst-a", "t-a"), ("inst-b", "t-b")],
+            [request.args for request in chats_request.await_args_list],
+        )
         self.assertEqual({"chat-inst-a@c.us"}, {item["id"] for item in catalog_a})
         self.assertEqual({"chat-inst-b@c.us"}, {item["id"] for item in catalog_b})
         self.assertNotIn("chat-inst-b@c.us", stores["user-a"])

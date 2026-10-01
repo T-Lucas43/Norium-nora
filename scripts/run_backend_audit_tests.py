@@ -93,6 +93,8 @@ def main() -> int:
                 loader = unittest.TestLoader()
                 suite = (loader.loadTestsFromNames(args.tests) if args.tests else
                          loader.discover("tests", pattern="test*.py"))
+                if suite.countTestCases() == 0:
+                    raise RuntimeError("No backend tests discovered; validation failed")
                 result = unittest.TextTestRunner(stream=log, verbosity=2).run(suite)
         code = 0 if result.wasSuccessful() else 1
         summary = {

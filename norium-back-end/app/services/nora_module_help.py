@@ -144,6 +144,19 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         ),
     ),
     ModuleHelp(
+        module="modelos de mensagens",
+        aliases=("modelos de mensagens", "modelo de mensagem", "templates de mensagens"),
+        response=(
+            "A tela Modelos de mensagens organiza textos reutilizáveis para e-mail e WhatsApp. "
+            "Escolha o canal, busque pelo nome ou categoria e abra Novo modelo para informar nome, "
+            "categoria e mensagem; modelos de e-mail também podem ter assunto. "
+            "Você pode editar, duplicar e excluir os modelos personalizados. Os modelos do Norium "
+            "podem ser duplicados, mas não alterados ou excluídos nesta tela. "
+            "Revise os campos do cliente e o texto antes de usar o modelo em um atendimento; "
+            "salvar um modelo não envia mensagem."
+        ),
+    ),
+    ModuleHelp(
         module="tarefas",
         aliases=("tela de tarefas", "projetos e tarefas", "tarefas", "kanban"),
         response=(

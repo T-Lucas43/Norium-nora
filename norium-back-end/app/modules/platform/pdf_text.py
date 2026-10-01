@@ -11,28 +11,35 @@ encaminhe a ferramentas.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
+import asyncio
+import importlib.util
+import json
+import os
 import re
+import subprocess
+import sys
+import threading
+import time
 import unicodedata
-from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 
-try:
-    from pypdf import PdfReader
-except ImportError:  # Mantém o backend inicializável até a dependência ser instalada.
-    PdfReader = None
+PYPDF_AVAILABLE = importlib.util.find_spec("pypdf") is not None
 
 PDF_MAX_BYTES = 12 * 1024 * 1024
 PDF_MAX_PAGES = 200
-# Teto total de caracteres extraídos em todas as páginas somadas: limita o
-# custo de memória do primeiro processamento além dos tetos de 12 MB e
-# 200 páginas.
-PDF_MAX_TOTAL_CHARS = 2_000_000
 PDF_MIN_CHARS = 2
+PDF_MAX_TEXT_CHARS = 2_000_000
+PDF_MEMORY_BYTES = 384 * 1024 * 1024
+PDF_CPU_SECONDS = 10
+PDF_TIMEOUT_SECONDS = 15.0
+_PDF_SLOTS = threading.BoundedSemaphore(1)
+_PDF_WORKER = Path(__file__).with_name("pdf_worker.py")
+_WORKER_ENV_NAMES = {"SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL"}
 EXCERPT_CHARS = 420
 # Distância máxima (em caracteres normalizados) entre o primeiro e o último
 # termo da consulta para que a página conte como evidência da expressão.
@@ -66,16 +73,8 @@ def decode_pdf_data_url(data_url: str) -> bytes:
         ) from exc
 
 
-def extract_pdf_pages(pdf_bytes: bytes) -> list[str]:
-    """Valida e extrai o texto de cada página, preservando a ordem.
-
-    Função síncrona pura (CPU + descompressão): fluxos assíncronos devem usar
-    `extract_pdf_pages_async` para não bloquear o event loop. Mantém os
-    limites e mensagens do endpoint de conhecimento: 12 MB, 200 páginas,
-    teto total de caracteres extraídos e erro claro para PDF sem texto
-    pesquisável.
-    """
-    if PdfReader is None:
+def _reserve_pdf_slot(pdf_bytes: bytes) -> None:
+    if not PYPDF_AVAILABLE:
         raise HTTPException(
             status_code=503,
             detail="Leitor de PDF indisponivel. Instale a dependencia pypdf.",
@@ -84,42 +83,109 @@ def extract_pdf_pages(pdf_bytes: bytes) -> list[str]:
         raise HTTPException(status_code=413, detail="O PDF deve ter no maximo 12 MB.")
     if not pdf_bytes.startswith(b"%PDF"):
         raise HTTPException(status_code=422, detail="O arquivo enviado nao e um PDF valido.")
-    try:
-        reader = PdfReader(BytesIO(pdf_bytes))
-        if len(reader.pages) > PDF_MAX_PAGES:
-            raise HTTPException(status_code=413, detail="O PDF deve ter no maximo 200 paginas.")
-        pages: list[str] = []
-        total_chars = 0
-        for page in reader.pages:
-            text = (page.extract_text() or "").strip()
-            total_chars += len(text)
-            if total_chars > PDF_MAX_TOTAL_CHARS:
-                raise HTTPException(
-                    status_code=413,
-                    detail="O texto extraido do PDF excede o limite de 2.000.000 caracteres.",
-                )
-            pages.append(text)
-    except HTTPException:
-        raise
-    except Exception as exc:
+    if not _PDF_SLOTS.acquire(blocking=False):
         raise HTTPException(
-            status_code=422,
-            detail="Nao foi possivel ler o conteudo deste PDF.",
-        ) from exc
-    if len("\n\n".join(pages).strip()) < PDF_MIN_CHARS:
-        raise HTTPException(
-            status_code=422,
-            detail="Este PDF nao possui texto pesquisavel. Envie uma versao com OCR para indexacao.",
+            status_code=503, detail="Leitura de PDF ocupada. Tente novamente em instantes.",
+            headers={"Retry-After": "2"},
         )
-    return pages
+
+
+_WORKER_ERRORS = {
+    "limits": (503, "Nao foi possivel ativar os limites seguros de leitura de PDF."),
+    "unavailable": (503, "Leitor de PDF indisponivel. Instale a dependencia pypdf."),
+    "size": (413, "O PDF deve ter no maximo 12 MB."),
+    "pages": (413, "O PDF deve ter no maximo 200 paginas."),
+    "text": (413, "O texto deste PDF excede o limite seguro de extracao."),
+    "resources": (413, "Este PDF excede os limites seguros de processamento."),
+    "invalid": (422, "O arquivo enviado nao e um PDF valido."),
+    "no_text": (422, "Este PDF nao possui texto pesquisavel. Envie uma versao com OCR para indexacao."),
+    "read": (422, "Nao foi possivel ler o conteudo deste PDF."),
+}
+
+
+def _extract_reserved(pdf_bytes: bytes, cancelled: threading.Event) -> list[str]:
+    """Slot já adquirido. O supervisor sempre encerra/recolhe o worker."""
+    try:
+        if cancelled.is_set():
+            raise HTTPException(status_code=422, detail="Leitura de PDF cancelada.")
+        environment = {
+            name: value for name, value in os.environ.items()
+            if name.upper() in _WORKER_ENV_NAMES
+        }
+        started = time.monotonic()
+        with subprocess.Popen(
+            [sys.executable, "-I", str(_PDF_WORKER), str(PDF_MEMORY_BYTES),
+             str(PDF_CPU_SECONDS), str(PDF_MAX_PAGES), str(PDF_MAX_TEXT_CHARS),
+             str(PDF_MIN_CHARS), str(PDF_MAX_BYTES)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=environment, cwd=str(_PDF_WORKER.parent), close_fds=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        ) as process:
+            try:
+                pending_input: bytes | None = pdf_bytes
+                while True:
+                    remaining = PDF_TIMEOUT_SECONDS - (time.monotonic() - started)
+                    if cancelled.is_set() or remaining <= 0:
+                        raise HTTPException(
+                            status_code=422, detail="Este PDF excede o tempo seguro de leitura.",
+                        )
+                    try:
+                        output, _stderr = process.communicate(pending_input, timeout=min(0.1, remaining))
+                        break
+                    except subprocess.TimeoutExpired:
+                        pending_input = None
+                if process.returncode:
+                    raise HTTPException(
+                        status_code=422, detail="Nao foi possivel ler este PDF dentro dos limites seguros.",
+                    )
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate()
+        # O worker limita o texto antes de serializar; também validar o protocolo no pai.
+        if len(output) > PDF_MAX_TEXT_CHARS * 12 + 4096:
+            raise ValueError("PDF worker output too large")
+        result = json.loads(output)
+        if (isinstance(result, dict) and isinstance(result.get("error"), str)
+                and result["error"] in _WORKER_ERRORS):
+            status, detail = _WORKER_ERRORS[result["error"]]
+            raise HTTPException(status_code=status, detail=detail)
+        pages = result.get("pages") if isinstance(result, dict) else None
+        if (not isinstance(pages, list) or len(pages) > PDF_MAX_PAGES
+                or not all(isinstance(page, str) for page in pages)
+                or sum(len(page) for page in pages) > PDF_MAX_TEXT_CHARS):
+            raise ValueError("Invalid PDF worker response")
+        return pages
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=503, detail="Leitor de PDF indisponivel.") from exc
+    finally:
+        _PDF_SLOTS.release()
+
+
+def extract_pdf_pages(pdf_bytes: bytes) -> list[str]:
+    """API síncrona: parser isolado com memória, CPU, prazo e concorrência limitados."""
+    _reserve_pdf_slot(pdf_bytes)
+    return _extract_reserved(pdf_bytes, threading.Event())
 
 
 async def extract_pdf_pages_async(pdf_bytes: bytes) -> list[str]:
-    """Extrai páginas fora do event loop (thread), com os mesmos limites.
-
-    Mecanismo padrão do projeto (`asyncio.to_thread`, sem dependência nova).
-    """
-    return await asyncio.to_thread(extract_pdf_pages, pdf_bytes)
+    """Não bloqueia o event loop nem enfileira extrações; cancelamento mata o filho."""
+    _reserve_pdf_slot(pdf_bytes)
+    cancelled = threading.Event()
+    try:
+        future = asyncio.get_running_loop().run_in_executor(None, _extract_reserved, pdf_bytes, cancelled)
+    except Exception:
+        _PDF_SLOTS.release()
+        raise
+    # Consumir erro de um supervisor que termine depois do cancelamento do chamador.
+    future.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+    try:
+        # wait não cancela o futuro do supervisor quando o chamador é cancelado.
+        await asyncio.wait((future,))
+        return future.result()
+    except asyncio.CancelledError:
+        cancelled.set()
+        raise
 
 
 def _normalize_term(value: str) -> str:

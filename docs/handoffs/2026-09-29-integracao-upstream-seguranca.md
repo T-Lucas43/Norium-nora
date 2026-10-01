@@ -34,10 +34,11 @@
   PDF/persistência aprovados. PR #43: 20 testes direcionados de readiness e
   persistência aprovados com banco simulado. Esses números não substituem o
   teste remoto integrado.
-- [Execução mais recente bloqueada no GitHub Actions](https://github.com/T-Lucas43/Norium-nora/actions/runs/36628501190)
-  não iniciou nenhum dos seis jobs porque o GitHub reportou problema de cobrança
-  recente ou limite de gastos. Não há resultado de CI Linux, PostgreSQL ou TURN
-  TLS. PRs #42 e #43 não disparam o workflow enquanto sua base não for `main`.
+- As primeiras execuções do GitHub Actions não iniciaram os jobs por restrição
+  de cobrança. A [tentativa 2 de 01/10](https://github.com/T-Lucas43/Norium-nora/actions/runs/36631738886/attempts/2)
+  iniciou normalmente: segredos, regressão real de PostgreSQL e chamadas
+  passaram; backend e frontend falharam pelos motivos registrados abaixo.
+  PRs #42 e #43 não disparam o workflow enquanto sua base não for `main`.
 - Este Windows não tem PostgreSQL/Docker/Podman local. O teste de persistência
   sintético escreve esquemas e IDs fixos; não apontar para um banco existente.
 - A preparação experimental do container da tarefa 7 permanece sem commit e
@@ -64,10 +65,35 @@
   preservar evidência/backup e restabelecer o serviço sem recriar documentos.
   Depois, repetir readiness, login, dados e WebSocket nas instâncias aplicáveis.
 
+## Reavaliação em 01/10/2026
+
+- O painel mostrou `norium-postgresql` **Online**. A instância principal
+  respondeu duas vezes a `/health/ready` com HTTP 200 e
+  `checks.persistence.driver=postgresql`; o formato publicado ainda não contém
+  o `ready=true` exigido no procedimento. A instância de rollback continuou a
+  responder HTTP 503 com `PostgresStoreError` em ambas as consultas. Não foi
+  investigada a causa da indisponibilidade nem verificados documentos, backup,
+  login ou WebSocket de produção.
+- No CI Linux, a tentativa 2 passou o gate de chamadas em 45/45 cenários de
+  navegador e 100/100 conexões sintéticas. O p95 de heartbeat foi 217,015 ms
+  contra limite de 750 ms. A execução usou TURN UDP local; não validou TURN/TLS
+  externo nem chamadas no endereço publicado.
+- O CI reprovou a auditoria Python por `oauthlib==3.3.1` e `urllib3==2.7.0`,
+  e o frontend por `dompurify==3.4.14` e um teste financeiro que pressupunha
+  setembro. Correções nos locks e no teste passaram localmente: backend
+  1.121/1.121, OAuth 21/21, frontend 780/780, build, lint, `pip-audit` e
+  `npm audit`. Em 01/10, o usuário aprovou o envio do diff ao PR #41 após
+  revisão da atualização de `oauthlib` 4.0.0. O fluxo OAuth com provedor real
+  ainda precisa de validação antes de publicação no ShardCloud; o CI precisa
+  rodar novamente no commit corrigido.
+
 ## Próximos gates
 
-Regularizar o GitHub Actions; repetir os jobs do PR #41; revisar e integrar os
-PRs em ordem, retargetando #42 e #43 para `main` e exigindo CI verde no commit
-integrado. A publicação exige o SHA exato enviado a `origin/main` e todas as
-verificações de `DEPLOY_SHARDCLOUD.md`, inclusive dados existentes, login,
-WebSocket, chamadas e módulos. Autenticação continua em revisão local separada.
+Exigir todos os jobs verdes no novo commit do PR #41 e validar o fluxo OAuth
+real antes do deploy. Revisar e integrar os PRs em ordem, retargetando #42 e #43 para `main`
+e exigindo CI verde no commit integrado. A publicação exige o SHA exato enviado
+a `origin/main` e todas as verificações de `DEPLOY_SHARDCLOUD.md`, inclusive
+dados existentes, login, WebSocket, chamadas e módulos. A causa do limite de
+rede do PostgreSQL e a falha da instância de rollback ainda precisam de
+avaliação operacional. A mudança de autenticação/cofre segue em revisão local
+separada.

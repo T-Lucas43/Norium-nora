@@ -17,10 +17,15 @@ const financeData = {
   resumo: { entradas: 10000, saidas: 300, saldo: 9700, pendente: 0, vencidos: 0, programadosAtivos: 0, boletosEncontrados: 2 },
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe("FinanceDashboard", () => {
   it("filtra os dados atuais por mês e separa boletos abertos dos pagos sem consulta de CPF", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-15T12:00:00Z"));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => financeData }));
     render(<FinanceDashboard userId="owner" />);
 

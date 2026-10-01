@@ -92,6 +92,8 @@ def _readiness_snapshot() -> dict[str, Any]:
         checks["noraBrain"] = repository().ping()
     return {
         "status": "ready",
+        "ready": True,
+        "persistence": checks["persistence"],
         "checks": checks,
         "latencyMs": round((time.perf_counter() - started) * 1000, 2),
     }

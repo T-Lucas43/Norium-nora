@@ -26,6 +26,7 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.socket = MagicMock()
         self.socket.send_json = AsyncMock()
         self.patches = [
+            patch("app.core.tenant.get_data_root", return_value=Path(self.temp.name)),
             patch.object(team, "UPLOAD_DIR", Path(self.temp.name)),
             patch.object(team, "team_chat_path", return_value=str(Path(self.temp.name) / "team_chat.json")),
             patch.object(team, "read_user_store", AsyncMock(return_value={"users": [self.owner, self.member, self.other]})),

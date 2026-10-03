@@ -29,6 +29,9 @@ def team_user(user_id: str, *, owner_id: str | None = None) -> dict:
 class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory(prefix="norium_team_")
+        root_patch = patch("app.core.tenant.get_data_root", return_value=Path(self.temp_dir.name))
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
         self.chat_path = Path(self.temp_dir.name) / "team_chat.json"
         self.upload_dir = Path(self.temp_dir.name) / "uploads"
         self.upload_dir.mkdir()

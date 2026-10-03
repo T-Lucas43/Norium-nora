@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import mimetypes
+import uuid
+from threading import RLock
 from pathlib import Path
 from typing import Any
 
 from . import postgres_store
+
+_local_binary_lock = RLock()
 
 
 def _postgres() -> bool:
@@ -20,8 +24,38 @@ def write(path: str | Path, content: bytes, *, content_type: str = "", metadata:
             content_type or mimetypes.guess_type(target.name)[0] or "application/octet-stream", metadata,
         )
         return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(content)
+    from app.core.tenant import get_data_root
+    from app.infrastructure.storage_limits import scope_prefixes, enforce_growth
+
+    key = postgres_store.canonical_key(target)
+    prefix, excluded = scope_prefixes(key)
+    root = get_data_root().resolve()
+    # Local/development storage has one process writer. Shared deployments
+    # use the transaction in write_blob instead of this process-local lock.
+    with _local_binary_lock:
+        global_used = workspace_used = 0
+        for stored in root.rglob("*"):
+            if stored.is_symlink():
+                raise OSError("storage_symlink_not_supported")
+            if not stored.is_file() or ".tmp-" in stored.name:
+                continue
+            try:
+                size = stored.stat().st_size
+            except FileNotFoundError:
+                continue
+            global_used += size
+            relative = stored.relative_to(root).as_posix()
+            if prefix and relative.startswith(prefix) and not (excluded and relative.startswith(excluded)):
+                workspace_used += size
+        previous = target.stat().st_size if target.exists() else 0
+        enforce_growth(global_used, workspace_used, previous, len(content), has_workspace=bool(prefix))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f".{target.name}.tmp-{uuid.uuid4().hex}")
+        try:
+            temporary.write_bytes(content)
+            temporary.replace(target)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def read(path: str | Path) -> bytes:

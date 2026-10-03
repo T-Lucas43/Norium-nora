@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+from unittest.mock import patch
 
 from app.modules.team.recording_coordinator import (
     CallRecordingContext,
@@ -143,6 +144,9 @@ class RecordingCoordinatorTests(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="norium_recording_")
+        root_patch = patch("app.core.tenant.get_data_root", return_value=Path(self.temp.name))
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
         self.store = MemoryRecordingStore()
         self.access = MemoryCallAccess()
         self.events = MemoryEvents()

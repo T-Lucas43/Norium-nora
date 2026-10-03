@@ -35,6 +35,7 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
         self._stack = ExitStack()
         temp_dir = self._stack.enter_context(tempfile.TemporaryDirectory())
         self._stack.enter_context(patch.dict(os.environ, {"NORIUM_DATA_DIR": temp_dir}))
+        self._stack.enter_context(patch.object(chat_router, "UPLOAD_DIR", Path(temp_dir) / "uploads"))
         wb.save_binding("user-a", InstanceBinding(instance_id="INST-A", token="tok-a", state="connected"))
         chat_router.whatsapp_contact_sync_states.clear()
         chat_router.whatsapp_contact_sync_tasks.clear()
@@ -799,7 +800,7 @@ class WapiExtendedContractTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         image = b"\xff\xd8\xffflat-status"
-        with tempfile.TemporaryDirectory() as media_directory:
+        with tempfile.TemporaryDirectory(dir=os.environ["NORIUM_DATA_DIR"]) as media_directory:
             artifact_path = Path(media_directory) / "status.jpeg"
             artifact_path.write_bytes(image)
             response_payload = chat_router.DownloadedRemoteMedia(

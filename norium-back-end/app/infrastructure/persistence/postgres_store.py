@@ -159,10 +159,24 @@ def list_document_keys(prefix: str = "") -> list[str]:
 
 def write_blob(object_key: str, content: bytes, content_type: str, metadata: dict[str, Any] | None = None) -> None:
     from psycopg.types.json import Jsonb
+    from app.infrastructure.storage_limits import scope_prefixes, enforce_growth
 
     initialize()
     digest = hashlib.sha256(content).digest()
     with connection() as db:
+        # Check and write on the same connection/transaction. This lock covers
+        # the shared global budget across workers and application replicas.
+        db.execute("SET LOCAL lock_timeout = '5s'")
+        db.execute("SELECT pg_advisory_xact_lock(hashtextextended('norium:blob-quota', 0))")
+        prefix, excluded = scope_prefixes(object_key)
+        usage = db.execute("""SELECT
+            COALESCE(SUM(byte_size),0) AS global_used,
+            COALESCE(SUM(byte_size) FILTER (WHERE starts_with(object_key,%s)
+                AND (%s = '' OR NOT starts_with(object_key,%s))),0) AS workspace_used,
+            COALESCE(MAX(byte_size) FILTER (WHERE object_key=%s),0) AS previous
+            FROM norium_blobs""", (prefix, excluded, excluded, object_key)).fetchone()
+        enforce_growth(int(usage["global_used"]), int(usage["workspace_used"]),
+                       int(usage["previous"]), len(content), has_workspace=bool(prefix))
         db.execute("""INSERT INTO norium_blobs(object_key,content,content_type,byte_size,sha256,metadata)
             VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT (object_key) DO UPDATE SET
             content=EXCLUDED.content,content_type=EXCLUDED.content_type,byte_size=EXCLUDED.byte_size,

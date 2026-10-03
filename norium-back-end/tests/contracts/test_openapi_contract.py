@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import unittest
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,12 @@ INTENTIONAL_SCHEMA_CHANGES = {
     "components.schemas.TemplateCreate.properties.documentType.enum",
 }
 
+KANBAN_STATUS_SCHEMAS = {
+    "components.schemas.CriarTarefaPayload.properties.status",
+    "components.schemas.AtualizarTarefaPayload.properties.status.anyOf[0]",
+}
+KANBAN_NULLABLE_STATUS = "components.schemas.AtualizarTarefaPayload.properties.status.anyOf"
+
 
 def _public_contract(specification: dict[str, Any]) -> dict[str, Any]:
     """Mantém somente dados capazes de quebrar consumidores HTTP existentes."""
@@ -84,14 +91,48 @@ def _assert_schema_backward_compatible(
     """Aceita campos opcionais novos sem afrouxar o contrato historico."""
     if path in INTENTIONAL_SCHEMA_CHANGES:
         return
+    if path == KANBAN_NULLABLE_STATUS and isinstance(baseline, list):
+        test_case.assertIsInstance(current, list, path)
+        test_case.assertEqual(len(baseline), len(current), path)
+        for index, (old, new) in enumerate(zip(baseline, current)):
+            _assert_schema_backward_compatible(test_case, old, new, f"{path}[{index}]")
+        return
     if isinstance(baseline, dict):
         test_case.assertIsInstance(current, dict, path)
         for key, value in baseline.items():
+            if path in KANBAN_STATUS_SCHEMAS and key == "enum" and "enum" not in current:
+                # Custom Kanban column IDs widen the historical status enum.
+                # Every historical value must still satisfy the real pattern.
+                pattern = current.get("pattern")
+                test_case.assertIsInstance(pattern, str, path)
+                for legacy in value:
+                    test_case.assertIsNotNone(re.fullmatch(pattern, legacy), f"Status removido: {legacy}")
+                continue
             test_case.assertIn(key, current, f"Campo removido do schema: {path}.{key}")
             _assert_schema_backward_compatible(test_case, value, current[key], f"{path}.{key}")
         return
 
     test_case.assertEqual(baseline, current, path)
+
+
+class KanbanStatusCompatibilityTests(unittest.TestCase):
+    def test_wider_pattern_preserves_every_legacy_status(self):
+        old = {"type": "string", "enum": ["pendente", "andamento", "revisao", "concluida"]}
+        new = {"type": "string", "pattern": "^[a-z0-9_-]{1,64}$"}
+        _assert_schema_backward_compatible(self, old, new, next(iter(KANBAN_STATUS_SCHEMAS)))
+
+    def test_narrower_pattern_and_missing_pattern_are_rejected(self):
+        old = {"type": "string", "enum": ["pendente", "andamento"]}
+        for new in ({"type": "string", "pattern": "^pendente$"}, {"type": "string"}):
+            with self.assertRaises(AssertionError):
+                _assert_schema_backward_compatible(self, old, new, next(iter(KANBAN_STATUS_SCHEMAS)))
+
+    def test_other_enums_and_nullable_branch_remain_protected(self):
+        with self.assertRaises(AssertionError):
+            _assert_schema_backward_compatible(self, {"enum": ["ativo"]}, {"pattern": ".*"}, "other.status")
+        with self.assertRaises(AssertionError):
+            _assert_schema_backward_compatible(self, [{"type": "string"}, {"type": "null"}],
+                                              [{"type": "string"}], KANBAN_NULLABLE_STATUS)
 
 
 def _assert_operation_backward_compatible(

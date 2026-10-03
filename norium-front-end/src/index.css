@@ -1,4 +1,7 @@
-@import "tailwindcss";
+@import "tailwindcss" source("./");
+@source not "./**/*.test.{ts,tsx}";
+@source not "./**/*.spec.{ts,tsx}";
+@source not "./test";
 @import "./components/workhub/workhub.css";
 
 @layer components {

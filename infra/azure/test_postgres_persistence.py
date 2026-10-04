@@ -255,6 +255,13 @@ def verify_auth_sessions() -> None:
             raise RuntimeError("global revocation must fence a pending password proof")
         sessions.revoke(account, sid=foreign["id"])
         sessions.validate(foreign["id"], other, 0)
+        permitted = (foreign["id"], other, 0)
+        bindings = [permitted, (foreign["id"], account, 0), (foreign["id"], other, 1)]
+        if sessions.valid_bindings(bindings) != {permitted}:
+            raise RuntimeError("batch session validation must bind the complete identity and version")
+        sessions.revoke(other, sid=foreign["id"])
+        if sessions.valid_bindings(bindings):
+            raise RuntimeError("batch validation must recheck committed revocation")
         with sessions.transaction(read_only=True) as db:
             hashes = db.execute("""SELECT c.hash,s.csrf_hash FROM norium_auth_credentials c
                 JOIN norium_auth_sessions s ON s.id=c.session_id WHERE s.user_id=%s""", (account,)).fetchall()
@@ -267,7 +274,7 @@ def verify_auth_sessions() -> None:
                 db.execute("DELETE FROM norium_auth_sessions WHERE user_id=%s", (user_id,))
                 db.execute("DELETE FROM norium_auth_events WHERE user_id=%s", (user_id,))
                 db.execute("DELETE FROM norium_auth_accounts WHERE user_id=%s", (user_id,))
-    print("postgres_auth_sessions_ci_passed: two connections; rotation, replay, revocation fence, isolation, hashes")
+    print("postgres_auth_sessions_ci_passed: two connections; rotation, replay, revocation fence, batch isolation, hashes")
 
 
 def verify_oauth_migration() -> None:

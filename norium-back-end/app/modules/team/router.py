@@ -256,6 +256,21 @@ class PresenceManager:
         except (sessions.SessionError, postgres_store.PostgresStoreError):
             return False
 
+    def session_binding(self, websocket: WebSocket, user: dict[str, Any]) -> tuple[str, str, int]:
+        return (self.socket_session_id.get(websocket, ""), str(user["id"]), int(user.get("sessionVersion") or 0))
+
+    async def authorized_sockets(self, sockets: list[WebSocket], users: dict[str, dict], team_id: str) -> set[WebSocket]:
+        candidates = {websocket: self.session_binding(websocket, users[self.socket_user[websocket]])
+                      for websocket in sockets
+                      if self.socket_authorized(websocket, users.get(self.socket_user.get(websocket, "")), team_id)}
+        try:
+            # One fresh database snapshot for this send, with full sub/SID/SV
+            # binding; permission checks remain mandatory for every transport.
+            valid = await asyncio.to_thread(sessions.valid_bindings, list(candidates.values()))
+        except (sessions.SessionError, postgres_store.PostgresStoreError):
+            return set()
+        return {websocket for websocket, binding in candidates.items() if binding in valid}
+
     async def broadcast(self, team_id: str, payload: dict[str, Any]) -> None:
         disconnected: list[WebSocket] = []
         store = await read_user_store()
@@ -264,10 +279,10 @@ class PresenceManager:
             for item in store.get("users", [])
             if isinstance(item, dict)
         }
-        for websocket in list(self.connections.get(team_id, [])):
-            connected_user_id = self.socket_user.get(websocket, "")
-            connected_user = users_by_id.get(connected_user_id)
-            if not await self.session_authorized(websocket, connected_user, team_id):
+        transports = list(self.connections.get(team_id, []))
+        authorized = await self.authorized_sockets(transports, users_by_id, team_id)
+        for websocket in transports:
+            if websocket not in authorized:
                 try:
                     await websocket.close(code=4403)
                 except Exception:
@@ -290,23 +305,13 @@ class PresenceManager:
         exclude_websocket: WebSocket | None = None,
     ) -> None:
         disconnected: list[WebSocket] = []
-        validate_directory = True
-        users_by_id: dict[str, dict[str, Any]] = {}
-        if validate_directory:
-            store = await read_user_store()
-            users_by_id = {
-                str(item.get("id") or ""): item
-                for item in store.get("users", [])
-                if isinstance(item, dict)
-            }
-        for websocket in list(self.connections.get(team_id, [])):
-            if websocket is exclude_websocket:
-                continue
-            connected_user_id = self.socket_user.get(websocket, "")
-            if connected_user_id not in user_ids:
-                continue
-            connected_user = users_by_id.get(connected_user_id)
-            if validate_directory and not await self.session_authorized(websocket, connected_user, team_id):
+        store = await read_user_store()
+        users_by_id = {str(item.get("id") or ""): item for item in store.get("users", []) if isinstance(item, dict)}
+        transports = [websocket for websocket in list(self.connections.get(team_id, []))
+                      if websocket is not exclude_websocket and self.socket_user.get(websocket, "") in user_ids]
+        authorized = await self.authorized_sockets(transports, users_by_id, team_id)
+        for websocket in transports:
+            if websocket not in authorized:
                 try:
                     await websocket.close(code=4403)
                 except Exception:

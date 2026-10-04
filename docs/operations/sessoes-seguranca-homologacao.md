@@ -45,12 +45,12 @@ Os paths de app/scripts acima são relativos a `norium-back-end`; frontend em `n
 | Gate | Evidência exigida antes da promoção | Situação |
 | --- | --- | --- |
 | Revisão humana crítica | Aceite do diff/SHA, prazos/retencão e riscos residuais pelo responsável | Pendente |
-| CI exato | Backend/frontend/lint/build/SCA/scanner, PG real concorrente e chamadas verdes no SHA candidato | Nova rodada necessária |
+| CI exato | Backend/frontend/lint/build/SCA/scanner, PG real concorrente e chamadas verdes no SHA candidato | 38423c2 aprovou código/PG/chamadas; imagem runtime falhou; nova rodada para ajuste necessário |
 | Imagem | Build `Dockerfile.shard`, SHA/digest, SBOM e proveniência; app UID 10001 e smoke DOM com sandbox | Pendente |
 | Shard | Sandbox funcional e bind do PORT injetado com UID sem privilégio; volume gravável sem dar privilégio ao app | Pendente; não usar no-sandbox/SYS_ADMIN/seccomp unconfined |
 | Chave de assinatura | `NORIUM_AUTH_SECRET` presente no secret manager, >=32 bytes, **mesmo valor atual** | Nome listado no painel Shard em 04/10; valor/tamanho/origem não lidos; compatibilidade precisa ser comprovada |
 | Chave OAuth | `NORIUM_OAUTH_CREDENTIAL_ENCRYPTION_KEY` Fernet dedicada, mantida em secret manager e backup protegido | Nome ausente no painel Shard em 04/10; entrada deve ser feita pelo responsável, nunca pelo chat |
-| Dados | Backup PostgreSQL e volume completos, restauração em destino isolado e contagens/recibo de preservação | Pendente |
+| Dados | Backup PostgreSQL e volume completos, restauração em destino isolado e contagens/recibo de preservação | Backup gerenciado Shard pre-sessoes-2026-10-04 confirmado; completude PG externo/restore/contagens ainda pendentes |
 | Migração OAuth | Inventário offline de JSONB e arquivos legados; aplicação e repetição idempotente com writers parados | Pendente; nenhuma execução remota feita |
 | Conta B | Segunda conta de homologação sem dados reais, designada pelo usuário, prova A/B | Pendente |
 | Aceite remoto | Login/reabertura, sessões, revoke, senha/reset, sockets, Gmail consent/callback e arquivos na imagem exata | Pendente |
@@ -92,3 +92,6 @@ Não trocar inadvertidamente `NORIUM_AUTH_SECRET`: integrações/configurações
 - [CI 37198209959](https://github.com/T-Lucas43/Norium-nora/actions/runs/37198209959), commit 2cea5bd: validate aprovado com **1.224 backend** sem falhas/erros/skips e **804 frontend**, lint com 20 avisos/zero erros, build/budget/SCA/scanner/canário/histórico aprovados. PG real aprovou quota mista, duas conexões de sessão, replay/epoch e migração OAuth idempotente. Chamadas ainda em andamento neste registro.
 - Gate de imagem dessa rodada reprovou: Chromium não encontrou sandbox dentro do ambiente restrito do build. Ajuste preparado: inventário no build e **smoke DOM/namespace/seccomp obrigatório no runtime CI**, com perfil oficial Playwright v1.62.0, cap-drop=ALL, no-new-privileges, rootfs somente leitura e rede desligada. Não há fallback no-sandbox nem mudança do Shard. Nova prova necessária após o commit do ajuste.
 - O browser recebe apenas variáveis de runtime permitidas; chaves/URL de banco/segredos de provedores não são herdados pelo processo Chromium. Código da imagem permanece pertencente a root e legível pelo app; apenas data/home são graváveis. A posse/gravação do volume montado no Shard deve ser comprovada para UID 10001 sem inicializar dados vazios.
+- [CI 37198811332](https://github.com/T-Lucas43/Norium-nora/actions/runs/37198811332), 38423c2: **1.225 backend**, **804 frontend**, PG real, 45/45 cenários de chamadas e 100 conexões aprovados; build da imagem aprovado, mas smoke do zygote/sandbox reprovado. Imagem não promovida. Ajuste específico do perfil descartável de CI para chroot dentro do namespace e prova de capabilities zero preparado; não altera o Shard.
+- Fanout agora usa uma consulta fresca de bindings completos sub/SID/SV por envio (máximo 1.000), sem cache. **79 testes focados** aprovam revogação real, versões/tenancy e falha fechada, além dos contratos do perfil e smoke. CI real desse ajuste ainda necessário.
+- Backup Shard **pre-sessoes-2026-10-04**, 04/10/2026 08:29:55, aparece na lista 1/8; captura privada no diretório de evidências. Esta ação altera somente a lista de backups. Não demonstra restauração nem cobertura do PostgreSQL externo.

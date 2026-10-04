@@ -64,6 +64,35 @@ class SessionStoreTests(TemporarySessionFixture, unittest.TestCase):
             with self.assertRaises(sessions.SessionError):
                 operation()
 
+    def test_batch_binds_full_identity_version_and_rechecks_revocation(self):
+        alice, _, _ = sessions.create("alice", 2)
+        bob, _, _ = sessions.create("bob", 0)
+        permitted = (alice["id"], "alice", 2)
+        other = (bob["id"], "bob", 0)
+        bindings = [permitted, permitted, other, (alice["id"], "bob", 2),
+                    (alice["id"], "alice", 1), ("'; DROP TABLE norium_auth_sessions;--", "alice", 2)]
+        self.assertEqual({permitted, other}, sessions.valid_bindings(bindings))
+        sessions.revoke("alice", sid=alice["id"])
+        self.assertEqual({other}, sessions.valid_bindings(bindings))
+        sessions.validate(bob["id"], "bob", 0)
+
+    def test_batch_expiry_idle_and_bound_fail_closed(self):
+        row, _, _ = sessions.create("alice", 0)
+        binding = (row["id"], "alice", 0)
+        for deadline in (row["expires"], row["created"] + sessions.IDLE_SECONDS):
+            with patch.object(sessions.time, "time", return_value=deadline):
+                self.assertEqual(set(), sessions.valid_bindings([binding]))
+        with patch.object(sessions, "transaction") as transaction:
+            self.assertEqual(set(), sessions.valid_bindings([]))
+            with self.assertRaisesRegex(sessions.SessionError, "session_batch_limit"):
+                sessions.valid_bindings([binding] * 1001)
+            transaction.assert_not_called()
+
+    def test_batch_database_failure_propagates_without_grant(self):
+        with patch.object(sessions, "transaction", side_effect=postgres_store.PostgresStoreError("unavailable")):
+            with self.assertRaises(postgres_store.PostgresStoreError):
+                sessions.valid_bindings([("opaque-session", "alice", 0)])
+
     def test_other_account_cannot_revoke_or_rename(self):
         row, _, _ = sessions.create("alice", 0)
         sessions.revoke("bob", sid=row["id"])

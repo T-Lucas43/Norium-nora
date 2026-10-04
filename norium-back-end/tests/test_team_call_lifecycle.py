@@ -220,7 +220,10 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         socket = MagicMock()
         socket.accept = AsyncMock()
         socket.send_json = AsyncMock()
-        socket.receive_text = AsyncMock(side_effect=asyncio.TimeoutError())
+        async def revoked_receive():
+            team.sessions.revoke(self.member["id"], sid=self.member["_authSession"])
+            raise asyncio.TimeoutError()
+        socket.receive_text = AsyncMock(side_effect=revoked_receive)
         socket.close = AsyncMock(side_effect=RuntimeError('Cannot call "send" once a close message has been sent.'))
         coordinator = MagicMock()
         coordinator.reconcile = AsyncMock()
@@ -230,9 +233,6 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(team, "user_from_websocket_ticket", AsyncMock(return_value=self.member)),
             patch.object(team, "emit_due_meeting_reminders", AsyncMock()),
-            # First authorization occurs during presence publication at connect;
-            # the periodic socket check then observes the revoked session.
-            patch.object(self.manager, "session_authorized", AsyncMock(side_effect=[True, False])),
             patch.object(team, "_reconcile_closed_connection", AsyncMock()),
             patch.object(team, "call_coordinator", return_value=coordinator),
         ):

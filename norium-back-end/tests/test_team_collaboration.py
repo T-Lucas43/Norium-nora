@@ -270,6 +270,61 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         read_users.assert_awaited_once()
         member_socket.send_json.assert_awaited_once_with(signal)
 
+    async def test_fanout_batches_one_fresh_check_and_revoked_socket_receives_nothing(self) -> None:
+        manager = team_router.PresenceManager()
+        owner_socket, member_socket = MagicMock(), MagicMock()
+        for websocket in (owner_socket, member_socket):
+            websocket.send_json, websocket.close = AsyncMock(), AsyncMock()
+        manager.connections["owner"] = [owner_socket, member_socket]
+        manager.socket_user = {owner_socket: "owner", member_socket: "member"}
+        manager.user_team = {"owner": "owner", "member": "owner"}
+        manager.socket_session_id = {owner_socket: self.owner["_authSession"], member_socket: self.member["_authSession"]}
+        signal = {"type": "CALL_SIGNAL", "signal": {"candidate": "synthetic-candidate"}}
+        with patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)), \
+                patch.object(team_router.sessions, "valid_bindings", wraps=team_router.sessions.valid_bindings) as validate:
+            await manager.send_to_users("owner", {"owner", "member"}, signal)
+            self.assertEqual(1, validate.call_count)
+            team_router.sessions.revoke("member", sid=self.member["_authSession"])
+            owner_socket.send_json.reset_mock()
+            member_socket.send_json.reset_mock()
+            await manager.broadcast("owner", signal)
+            self.assertEqual(2, validate.call_count)
+        owner_socket.send_json.assert_awaited_once_with(signal)
+        member_socket.send_json.assert_not_awaited()
+        member_socket.close.assert_awaited_once_with(code=4403)
+        self.assertNotIn(member_socket, manager.connections["owner"])
+
+    async def test_fanout_rejects_foreign_sid_and_changed_version(self) -> None:
+        for invalid_binding in ("foreign_sid", "changed_version"):
+            with self.subTest(binding=invalid_binding):
+                manager = team_router.PresenceManager()
+                websocket = MagicMock()
+                websocket.send_json, websocket.close = AsyncMock(), AsyncMock()
+                manager.connections["owner"] = [websocket]
+                manager.socket_user = {websocket: "member"}
+                manager.user_team = {"member": "owner"}
+                manager.socket_session_id = {websocket: self.owner["_authSession"] if invalid_binding == "foreign_sid" else self.member["_authSession"]}
+                manager.socket_session_version = {websocket: 0}
+                self.member["sessionVersion"] = 1 if invalid_binding == "changed_version" else 0
+                with patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)):
+                    await manager.broadcast("owner", {"type": "CALL_SIGNAL"})
+                websocket.send_json.assert_not_awaited()
+                websocket.close.assert_awaited_once_with(code=4403)
+
+    async def test_fanout_database_failure_closes_without_private_payload(self) -> None:
+        manager = team_router.PresenceManager()
+        websocket = MagicMock()
+        websocket.send_json, websocket.close = AsyncMock(), AsyncMock()
+        manager.connections["owner"] = [websocket]
+        manager.socket_user = {websocket: "member"}
+        manager.user_team = {"member": "owner"}
+        manager.socket_session_id = {websocket: self.member["_authSession"]}
+        with patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)), \
+                patch.object(team_router.sessions, "valid_bindings", side_effect=team_router.postgres_store.PostgresStoreError("unavailable")):
+            await manager.send_to_users("owner", {"member"}, {"type": "CALL_SIGNAL"})
+        websocket.send_json.assert_not_awaited()
+        websocket.close.assert_awaited_once_with(code=4403)
+
     async def test_image_attachment_is_saved_and_returned_in_team_chat(self) -> None:
         image_bytes = b"\x89PNG\r\n\x1a\nteam-image"
         manager = team_router.PresenceManager()

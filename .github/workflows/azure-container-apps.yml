@@ -299,11 +299,12 @@ jobs:
       - name: Verify unprivileged image identity and real sandboxed DOM
         run: |
           test "$(docker image inspect norium-shard-security-ci --format '{{.Config.User}}')" = norium
+          python infra/security/build_browser_seccomp.py "$RUNNER_TEMP/norium-browser-seccomp.json"
           docker run --rm --init --network none --cap-drop=ALL --security-opt no-new-privileges \
-            --security-opt seccomp=infra/security/playwright-seccomp-v1.62.0.json --read-only \
+            --security-opt "seccomp=$RUNNER_TEMP/norium-browser-seccomp.json" --read-only \
             --tmpfs /tmp:rw,nosuid,nodev,size=256m \
             --tmpfs /home/norium:rw,nosuid,nodev,uid=10001,gid=10001,size=128m \
-            --entrypoint python norium-shard-security-ci -m app.infrastructure.browser_runtime_smoke
+            --entrypoint python norium-shard-security-ci -m app.infrastructure.browser_runtime_smoke --require-container-security
           echo 'shard_image_security_ci_passed: unprivileged image; sandbox required; DOM interaction'
 
   publish-image:

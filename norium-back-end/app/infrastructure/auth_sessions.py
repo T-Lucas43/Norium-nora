@@ -7,6 +7,7 @@ documents, audit events or logs. All variable SQL values use bound parameters.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
@@ -238,6 +239,32 @@ def lookup(refresh: str) -> dict | None:
         row = db.execute("""SELECT s.* FROM norium_auth_sessions s JOIN norium_auth_credentials c
             ON c.session_id=s.id WHERE c.hash=%s""", (digest(refresh),)).fetchone()
         return dict(row) if row else None
+
+
+def valid_bindings(bindings: list[tuple[str, str, int]]) -> set[tuple[str, str, int]]:
+    """Fresh bounded validation for one broadcast; never cached across sends."""
+    if not bindings:
+        return set()
+    if len(bindings) > 1000:
+        raise SessionError("session_batch_limit", 503)
+    ids = list({sid for sid, _, _ in bindings})
+    now = int(time.time())
+    with transaction(read_only=True) as db:
+        if db.postgres:
+            rows = db.execute("SELECT * FROM norium_auth_sessions WHERE id=ANY(%s)", (ids,)).fetchall()
+        else:
+            rows = db.execute("SELECT * FROM norium_auth_sessions WHERE id IN (SELECT value FROM json_each(%s))",
+                              (json.dumps(ids),)).fetchall()
+        by_id = {row["id"]: row for row in rows}
+        valid = set()
+        for binding in bindings:
+            sid, user_id, version = binding
+            try:
+                _valid(by_id.get(sid), user_id, version, now)
+            except SessionError:
+                continue
+            valid.add(binding)
+        return valid
 
 
 def rotate(refresh: str, csrf: str, user_id: str, version: int) -> tuple[dict, str]:

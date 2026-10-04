@@ -27,6 +27,23 @@ class JsonCallStateStore:
         self._lock = lock
         self._on_call_removed = on_call_removed
 
+    @staticmethod
+    async def _complete_worker(operation: Callable, *args):
+        # Cancelling to_thread does not stop its thread. Keep the document
+        # lock until that worker really exits, even after repeated cancellation,
+        # so an older merge cannot overwrite a newer mutation after lock release.
+        worker = asyncio.create_task(asyncio.to_thread(operation, *args))
+        try:
+            return await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            while not worker.done():
+                try:
+                    await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    continue
+            worker.result()
+            raise
+
     async def load(self, team_id: str) -> CallState:
         async with self._lock:
             document = await asyncio.to_thread(self._read_document, team_id)
@@ -51,7 +68,7 @@ class JsonCallStateStore:
             # The same shared document lock covers read, merge and write.
             # Normal updates need one worker dispatch, rather than handing
             # the lock back to the event loop between two I/O dispatches.
-            pending = await asyncio.to_thread(self._save_document, team_id, state, append_messages)
+            pending = await self._complete_worker(self._save_document, team_id, state, append_messages)
             if pending is None:
                 return
             document, removed_calls = pending
@@ -59,7 +76,7 @@ class JsonCallStateStore:
                 result = self._on_call_removed(call)
                 if inspect.isawaitable(result):
                     await result
-            await asyncio.to_thread(self._write_document, team_id, document)
+            await self._complete_worker(self._write_document, team_id, document)
 
     def _save_document(
         self,

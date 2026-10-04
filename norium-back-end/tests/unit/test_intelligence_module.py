@@ -62,9 +62,16 @@ class IntelligenceModuleTests(unittest.IsolatedAsyncioTestCase):
                 next(item for item in next(entry for entry in store["browserRuns"] if entry["id"] == run["id"])["plan"] if item["id"] == action["id"]).update({"status": "awaiting_approval"}),
             ),
         )
-        from app.modules.intelligence.browser_runtime import decide_browser_action
+        from app.modules.intelligence import browser_runtime
 
-        approved = await decide_browser_action(account, run["id"], action["id"], True, "Aprovado no teste")
+        # This test proves the approval transition and dispatch contract.
+        # Starting Chromium here would leave an unrelated background worker
+        # writing the store while the fixture removes its temporary root.
+        async def queued(user, run_id):
+            return browser_runtime.sanitize_run(browser_runtime._fresh_run(user["id"], run_id))
+        with patch.object(browser_runtime, "queue_browser_run", AsyncMock(side_effect=queued)) as enqueue:
+            approved = await browser_runtime.decide_browser_action(account, run["id"], action["id"], True, "Aprovado no teste")
+        enqueue.assert_awaited_once_with(account, run["id"])
         approved_action = next(item for item in approved["plan"] if item["id"] == action["id"])
         self.assertTrue(approved_action["approved"])
         self.assertEqual("pending", approved_action["status"])

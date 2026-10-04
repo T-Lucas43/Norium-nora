@@ -104,6 +104,106 @@ class CallStateAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, self.document["messages"][0]["id"])
         self.assertEqual(2001, self.document["messages"][-1]["id"])
 
+    async def test_repeated_cancellation_keeps_lock_until_worker_finishes(self):
+        entered, release = threading.Event(), threading.Event()
+        original_read = self.read
+        def blocked_read(team_id):
+            snapshot = original_read(team_id)
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError('synthetic worker not released')
+            return snapshot
+        adapter = self.adapter()
+        adapter._read_document = blocked_read
+        mutation = asyncio.create_task(adapter.save('team-a', CallState([{'callId': 'keep'}], {})))
+        changed = asyncio.Event()
+        async def concurrent_change():
+            async with self.lock:
+                self.document['messages'].append({'id': 'concurrent'})
+                changed.set()
+        next_writer = None
+        try:
+            for _ in range(1000):
+                if entered.is_set():
+                    break
+                await asyncio.sleep(.001)
+            self.assertTrue(entered.is_set())
+            mutation.cancel()
+            await asyncio.sleep(0)
+            next_writer = asyncio.create_task(concurrent_change())
+            mutation.cancel()
+            await asyncio.sleep(0)
+            self.assertTrue(self.lock.locked())
+            self.assertFalse(mutation.done())
+            self.assertFalse(changed.is_set())
+        finally:
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await mutation
+            if next_writer is not None:
+                await next_writer
+        self.assertFalse(self.lock.locked())
+        self.assertEqual([{'id': 'old'}, {'id': 'concurrent'}], self.document['messages'])
+        self.assertEqual(['read', 'write'], self.order)
+
+    async def test_cancellation_during_cleanup_write_keeps_lock_until_write_finishes(self):
+        entered, release = threading.Event(), threading.Event()
+        original_write = self.write
+        def blocked_write(team_id, document):
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError('synthetic write not released')
+            original_write(team_id, document)
+        adapter = self.adapter(AsyncMock())
+        adapter._write_document = blocked_write
+        mutation = asyncio.create_task(adapter.save('team-a', CallState([], {})))
+        try:
+            for _ in range(1000):
+                if entered.is_set():
+                    break
+                await asyncio.sleep(.001)
+            self.assertTrue(entered.is_set())
+            mutation.cancel()
+            await asyncio.sleep(0)
+            self.assertTrue(self.lock.locked())
+            self.assertFalse(mutation.done())
+        finally:
+            release.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await mutation
+        self.assertEqual([], self.document['activeCalls'])
+        self.assertFalse(self.lock.locked())
+
+    async def test_worker_failure_after_cancellation_is_reported_without_releasing_early(self):
+        entered, release = threading.Event(), threading.Event()
+        before = copy.deepcopy(self.document)
+        def failed_write(team_id, document):
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError('synthetic write not released')
+            raise OSError('synthetic storage failure')
+        adapter = self.adapter()
+        adapter._write_document = failed_write
+        mutation = asyncio.create_task(adapter.save('team-a', CallState([{'callId': 'keep'}], {})))
+        try:
+            for _ in range(1000):
+                if entered.is_set():
+                    break
+                await asyncio.sleep(.001)
+            self.assertTrue(entered.is_set())
+            mutation.cancel()
+            await asyncio.sleep(0)
+            self.assertTrue(self.lock.locked())
+            self.assertFalse(mutation.done())
+        finally:
+            release.set()
+            # A real storage error takes precedence over cancellation: the
+            # caller must not treat an unsuccessful write as a completed one.
+            with self.assertRaisesRegex(OSError, 'synthetic storage failure'):
+                await mutation
+        self.assertFalse(self.lock.locked())
+        self.assertEqual(before, self.document)
+
 
 if __name__ == "__main__":
     unittest.main()

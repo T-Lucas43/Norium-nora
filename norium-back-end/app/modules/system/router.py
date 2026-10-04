@@ -64,6 +64,9 @@ def _readiness_snapshot() -> dict[str, Any]:
     from app.infrastructure.persistence import postgres_store
 
     uses_postgres = postgres_store.configured() or postgres_store.required()
+    from app.infrastructure import auth_sessions
+    auth_sessions.readiness()
+    checks["sessions"] = {"status": "ready"}
     if uses_postgres:
         checks["persistence"] = postgres_store.ping()
     else:

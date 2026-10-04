@@ -37,6 +37,7 @@ RUN mkdir -p /ms-playwright \
 
 COPY norium-back-end/app ./app
 COPY norium-back-end/main.py ./main.py
+COPY norium-back-end/scripts/migrate_oauth_credentials.py ./scripts/migrate_oauth_credentials.py
 COPY --from=frontend-build /build/frontend/dist ./static
 
 # Fail the build if the trusted PostgreSQL CA bundle is missing or malformed.
@@ -51,10 +52,8 @@ USER norium
 # DOM interaction under the same identity used by the application code.
 RUN python -m app.infrastructure.browser_runtime_smoke
 
-# ShardCloud injects PORT=80 and drops capabilities required by setuid proxies.
-# Validate Chromium once more under the exact root identity used at runtime.
-USER root
-RUN python -m app.infrastructure.browser_runtime_smoke
+# Keep the unprivileged identity for the final runtime. Sandbox and binding to
+# the injected port must pass on the platform before this image is promoted.
 
 ARG NORIUM_RELEASE_SHA=""
 ENV NORIUM_RELEASE_SHA=${NORIUM_RELEASE_SHA}

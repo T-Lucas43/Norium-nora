@@ -34,6 +34,7 @@ RUN mkdir -p /ms-playwright \
 
 COPY norium-back-end/app ./app
 COPY norium-back-end/main.py ./main.py
+COPY norium-back-end/scripts/migrate_oauth_credentials.py ./scripts/migrate_oauth_credentials.py
 COPY --from=frontend-build /build/frontend/dist ./static
 
 # Full Chromium needs writable configuration directories for Crashpad at startup.

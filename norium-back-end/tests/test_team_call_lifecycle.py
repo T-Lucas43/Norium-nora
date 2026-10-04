@@ -35,6 +35,12 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         ]
         for item in self.patches:
             item.start()
+        self.session_root_patch = patch.object(team.sessions, "get_data_root", return_value=Path(self.temp.name))
+        self.session_root_patch.start()
+        self.patches.append(self.session_root_patch)
+        for actor in (self.owner, self.member, self.other):
+            row, _, _ = team.sessions.create(actor["id"], 0)
+            actor["_authSession"] = row["id"]
         self.invite = {"type": "CALL_INVITE", "callId": "call_0123456789abcdef",
                        "scope": "team", "clientId": "owner-tab"}
 
@@ -226,7 +232,7 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
             patch.object(team, "emit_due_meeting_reminders", AsyncMock()),
             # First authorization occurs during presence publication at connect;
             # the periodic socket check then observes the revoked session.
-            patch.object(self.manager, "socket_authorized", side_effect=[True, False]),
+            patch.object(self.manager, "session_authorized", AsyncMock(side_effect=[True, False])),
             patch.object(team, "_reconcile_closed_connection", AsyncMock()),
             patch.object(team, "call_coordinator", return_value=coordinator),
         ):

@@ -1,4 +1,5 @@
 import { authToken } from "./config";
+import { accessClaims } from "./cookieSession";
 
 export function workspaceScope() {
   return localStorage.getItem("norium-workspace-id") || "primary";
@@ -6,5 +7,8 @@ export function workspaceScope() {
 
 /** Memory-only identity for rejecting responses from a previous login/workspace. */
 export function requestScope() {
-  return JSON.stringify([authToken(), workspaceScope()]);
+  const token = authToken();
+  const claims = token ? accessClaims(token) : null;
+  const identity = claims?.sid ? [claims.sub, claims.sid] : token;
+  return JSON.stringify([identity, workspaceScope()]);
 }

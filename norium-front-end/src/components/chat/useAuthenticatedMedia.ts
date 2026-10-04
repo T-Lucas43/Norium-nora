@@ -29,6 +29,7 @@ function mediaSourcePlan(source: string): MediaSourcePlan {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return { kind: "invalid" };
   }
+  if (url.username || url.password) return { kind: "invalid" };
 
   const isPrivateChatMedia = isChatApiPath(url.pathname);
   if (url.origin === window.location.origin) {
@@ -46,7 +47,9 @@ function mediaSourcePlan(source: string): MediaSourcePlan {
   } catch {
     // Uma configuracao de backend invalida nao torna a origem da midia confiavel.
   }
-  if (isPrivateChatMedia && url.origin === backendOrigin) {
+  const localFrontend = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  const legacyLocalBackend = localFrontend && ["http://127.0.0.1:8000", "http://localhost:8000"].includes(url.origin);
+  if (isPrivateChatMedia && (url.origin === backendOrigin || legacyLocalBackend)) {
     return { kind: "fetch", requestUrl: `${url.pathname}${url.search}` };
   }
 

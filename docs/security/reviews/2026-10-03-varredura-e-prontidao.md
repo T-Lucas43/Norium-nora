@@ -244,3 +244,33 @@ Estado detalhado: [handoff de implementação](../../handoffs/2026-10-03-seguran
 - Correção: carregar regras padrão explicitamente, manter somente as exceções preexistentes e acrescentar gate que exige detecção e redação integral de canário sintético, além de scan do histórico ancestral HEAD. Não usar baseline nova, desabilitar regras ou mascarar falhas do scanner.
 - Provas locais: canário detectado, exit 1, REDACTED integral; cinco regressões do gate e 12 testes focados aprovados. Histórico candidato b607501 não shallow: 393 ancestrais, 363 commits com patches examinados, 12.958.506 bytes, **zero alertas**, exit 0. Não abrange outros refs, commits não alcançáveis, arquivos ignorados ou segredos do ambiente remoto.
 - Aceite remanescente: CI com configuração corrigida, prova de detecção e SARIF redigido vinculados ao candidato. Se surgirem credenciais reais, a rotação depende do responsável e não será substituída pela simples remoção do arquivo.
+
+## Progresso de 04/10/2026 — candidato crítico
+
+O diagnóstico inicial acima é histórico. O usuário indicou a si próprio como responsável pela revisão e aprovou a exceção específica de cookie persistente registrada em SECURITY.md. Isso resolve a decisão de desenho; não representa revisão/aceite do código crítico ou validação da versão remota.
+
+| Item | Correção preparada | Evidência e limite atual |
+| --- | --- | --- |
+| Sessões/dispositivos | Registro transacional, cookie opaco 7 dias, acesso 15 min, CSRF/Origin, replay, epoch, lista/rótulos/revokes/reautenticação | Testes isolados aprovados; nova rodada CI e prova HTTPS de fechar/reabrir pendentes |
+| SEC-WS-01 | Registro/SID/SV/status/permissões conferidos em Inbox/Brainstorm/Equipe, broadcasts e idle | Regressões de revogação aprovadas; não prova duas réplicas nem sockets da homologação |
+| SEC-SECRET-01 | Fernet de token/state Gmail/Agenda com chave dedicada e vínculo conta/finalidade, migração offline JSONB | Chave, inventário de arquivos/backups, restore e migração remota pendentes |
+| SEC-RUNTIME-01/SEC-SSRF-01 | Final Docker Shard sem root, sandbox obrigatório, CONNECT 443 com allowlist e DNS público fixado no TCP | Testes de composição/limites; build/runtime/sandbox do Shard ainda não comprovados |
+| SEC-FILE-01 | Orçamento compartilhado JSON+binário local/PG, transação/lock, substituição | Quatro testes novos e regressões focadas passaram; novo gate PG misto pendente; não mede todo disco/WAL/tabelas |
+| SEC-CI-01 | Regras padrão, canário, histórico redigido | CI 37169870359 aprovado no candidato 4069fda; nova revisão precisa do próprio resultado |
+| HOM-OAUTH-01 | Callback HTTPS salvo no cliente Google efetivo | Configuração confirmada; consentimento/callback real ainda pendente |
+
+### SEC-AUTH-02 — input sensível em erros de validação
+
+Confirmado por regressão local: o formato padrão de validação podia devolver input rejeitado de campos, inclusive senha, em HTTP 422. Handler do candidato agora preserva somente `loc/msg/type`, com no-store, sem `input/ctx`. Cadastro/troca/reset e respostas públicas usam hashes PBKDF2 e projeções sem hash/senha; testes sintéticos exercitam os contratos. Isso não é prova de todos os logs/armazenamentos remotos.
+
+### SEC-AUTH-03 — origem da chave de assinatura em ambiente compartilhado
+
+O candidato exige `NORIUM_AUTH_SECRET` do ambiente/secret manager com tamanho mínimo; não utiliza arquivo gerado/persistido como fallback compartilhado. Transferir o valor atual exato sem expor ou regenerar: outros dados criptografados podem depender dessa chave. Presença/origem e compatibilidade no Shard são gate operacional pendente.
+
+### SEC-UI-01 — invalidação e renovação entre identidades
+
+Revisão identificou que comparar Bearer bruto invalidava respostas após uma renovação da mesma sessão, inclusive depois de uma mutação já executada; aviso 401 atrasado também podia limpar o login posterior. O candidato compara sub/SID/workspace, envia invalidação com SID e rejeita identidade explícita divergente antes do envio. Novos testes aprovados; mutações não repetem após resposta incerta. Jornadas de duas contas/abas reais continuam pendentes.
+
+Suíte completa isolada mais recente: **1.220 backend** sem falhas/erros/skips e **793 frontend**; depois foram adicionadas regressões e **83 backend focados, 22 frontend focados e 4 dispositivos** passaram. Build e lint passaram localmente. Esses snapshots não são o SHA final de CI nem a imagem ativa. [Runbook de promoção e revisão](../../operations/sessoes-seguranca-homologacao.md).
+
+Parecer continua **NO-GO**: revisão humana crítica, CI exato, imagem/sandbox, chaves/migração/backup/restore/rollback, conta B, jornadas remotas, operação/privacidade e ambiente de produção ainda precisam de evidência. Não houve deploy desse candidato.

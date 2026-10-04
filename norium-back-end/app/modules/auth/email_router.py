@@ -144,6 +144,8 @@ async def apply_token(token: str, purpose: str, password: str = "") -> dict:
             user["emailVerifiedAt"] = auth.now_iso()
         user["updatedAt"] = auth.now_iso()
         await auth.write_user_store(store)
+        if purpose == "reset":
+            await asyncio.to_thread(auth.sessions.revoke, str(user["id"]))
     return user
 
 

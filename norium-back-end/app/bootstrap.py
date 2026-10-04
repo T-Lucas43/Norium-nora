@@ -12,6 +12,7 @@ import time
 import uuid
 
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, Response
@@ -24,6 +25,8 @@ from app.core.settings import settings, validate_wapi_webhook_configuration
 from app.core.tenant import is_shared_environment
 from app.infrastructure.observability.diagnostics import record_request
 from app.infrastructure.persistence.json_repository import PersistenceError
+from app.infrastructure.persistence.postgres_store import PostgresStoreError
+from app.infrastructure.auth_sessions import SessionError
 from app.infrastructure.http.spa import configure_spa
 from app.infrastructure.reliability.idempotency import (
     begin_request,
@@ -35,6 +38,7 @@ from app.services.system_logs import record_system_log
 from app.services.wapi_credentials import (
     validate_wapi_credential_encryption_configuration,
 )
+from app.services.oauth_credentials import validate_configuration as validate_oauth_encryption_configuration
 from app.modules.auth.router import (
     assert_route_permissions,
     assert_workspace_access,
@@ -212,9 +216,16 @@ def cors_origins() -> list[str]:
     return list(dict.fromkeys((*local_origins, *configured, *vercel_origins)))
 
 
+async def safe_validation_error(request: Request, exc: RequestValidationError):
+    # Default validation errors include rejected input, possibly a password.
+    errors = [{key: error[key] for key in ("loc", "msg", "type") if key in error} for error in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors}, headers={"Cache-Control": "no-store"})
+
+
 def create_app() -> FastAPI:
     validate_runtime_topology()
     validate_wapi_credential_encryption_configuration()
+    validate_oauth_encryption_configuration()
     validate_wapi_test_configuration()
     validate_wapi_webhook_configuration()
     validate_team_call_configuration()
@@ -252,6 +263,15 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Norium Engine Chat Central Unificado API", lifespan=lifespan)
 
+    app.add_exception_handler(RequestValidationError, safe_validation_error)
+
+    @app.exception_handler(SessionError)
+    async def invalid_session(request: Request, exc: SessionError):
+        from app.modules.auth.session_http import session_error
+        error = session_error(exc)
+        return JSONResponse(status_code=error.status_code, headers=error.headers, content={"detail": error.detail})
+
+    @app.exception_handler(PostgresStoreError)
     @app.exception_handler(PersistenceError)
     async def persistence_unavailable(request: Request, exc: PersistenceError):
         return JSONResponse(status_code=503, headers={"Retry-After": "30"}, content={

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import Field, field_validator
 
@@ -33,12 +33,15 @@ from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.request_context import normalize_workspace_id, set_ai_user_id
 from app.core.tenant import get_system_db_path, read_account_db, read_json_file, write_json_file
 from app.infrastructure.persistence.json_repository import PersistenceError
+from app.infrastructure.persistence.postgres_store import PostgresStoreError
+from app.infrastructure import auth_sessions as sessions
+from app.modules.auth import session_http
 from app.shared.plan_catalog import public_plan_catalog, seat_limit
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 USERS_DB_PATH = Path(get_system_db_path("usuarios"))
 AUTH_SECRET = auth_secret()
-TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7
+TOKEN_TTL_SECONDS = sessions.ACCESS_SECONDS
 logger = logging.getLogger(__name__)
 
 OWNER_EMAIL = os.getenv("NORIUM_BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
@@ -48,6 +51,13 @@ OWNER_BOOTSTRAP_PASSWORD = os.getenv("NORIUM_BOOTSTRAP_ADMIN_PASSWORD", "").stri
 LEGAL_VERSION = "2026-09-20"
 
 router = APIRouter(prefix="/api/auth", tags=["Usuarios"])
+
+
+async def auth_response_headers(response: Response) -> None:
+    session_http.no_store(response)
+
+
+router.dependencies.append(Depends(auth_response_headers))
 auth_lock = asyncio.Lock()
 bearer_scheme = HTTPBearer(auto_error=False)
 login_limiter = SlidingWindowRateLimiter(limit=8, window_seconds=15 * 60)
@@ -145,6 +155,7 @@ PLAN_CATALOG = public_plan_catalog()
 class LoginPayload(StrictModel):
     email: str = Field(min_length=3, max_length=180)
     password: str = Field(min_length=1, max_length=180)
+    persistent: bool = True
 
     @field_validator("email")
     @classmethod
@@ -158,6 +169,7 @@ class RegisterPayload(StrictModel):
     password: str = Field(min_length=6, max_length=180)
     acceptedTerms: bool = False
     acceptedPrivacy: bool = False
+    persistent: bool = True
 
     @field_validator("email")
     @classmethod
@@ -241,6 +253,14 @@ class ChangePasswordPayload(StrictModel):
     newPassword: str = Field(min_length=10, max_length=180)
 
 
+class SessionLabelPayload(StrictModel):
+    label: str = Field(max_length=80)
+
+
+class ReauthenticatePayload(StrictModel):
+    password: str = Field(min_length=1, max_length=180)
+
+
 def normalize_email(email: str) -> str:
     normalized = email.strip().lower()
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", normalized):
@@ -252,15 +272,20 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def create_token(user: dict[str, Any]) -> str:
-    return create_signed_token(user, secret=AUTH_SECRET, ttl_seconds=TOKEN_TTL_SECONDS)
+def create_token(user: dict[str, Any], session_id: str | None = None) -> str:
+    if not session_id:
+        row, _, _ = sessions.create(str(user["id"]), int(user.get("sessionVersion") or 0))
+        session_id = row["id"]
+    return create_signed_token(user, secret=AUTH_SECRET, ttl_seconds=TOKEN_TTL_SECONDS, session_id=session_id)
 
 
 def decode_token(token: str) -> dict[str, Any]:
     try:
         return decode_signed_token(token, secret=AUTH_SECRET)
     except TokenValidationError as exc:
-        raise HTTPException(status_code=401, detail="Sessao invalida. Entre novamente.") from exc
+        code = "access_expired" if str(exc) == "Sessão expirada." else "access_invalid"
+        raise HTTPException(status_code=401, detail="Sessao invalida. Entre novamente.",
+                            headers={"X-Norium-Auth-Error": code, "Cache-Control": "no-store"}) from exc
 
 
 def sanitize_permissions(permissions: dict[str, Any] | None, fallback: dict[str, bool] | None = None) -> dict[str, bool]:
@@ -364,7 +389,9 @@ async def assert_workspace_access(user: dict[str, Any], request: Request) -> Non
 
 
 def sanitize_user(user: dict[str, Any]) -> dict[str, Any]:
-    safe = {key: value for key, value in user.items() if key != "passwordHash"}
+    protected = ("password", "senha", "secret", "token", "credential")
+    safe = {key: value for key, value in user.items()
+            if not key.startswith("_") and not any(term in key.casefold() for term in protected)}
     safe["jobTitle"] = str(safe.get("jobTitle") or ("Lider" if safe.get("role") == "owner" else "Membro"))
     safe["systemAdminRole"] = system_admin_role(safe)
     safe["systemAdmin"] = is_system_admin(safe)
@@ -759,10 +786,20 @@ async def user_from_token(token: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Usuario inativo ou inexistente.")
     if int(payload.get("sv", -1)) != int(user.get("sessionVersion") or 0):
         raise HTTPException(status_code=401, detail="Sessao revogada. Entre novamente.")
-    return user
+    try:
+        row = await asyncio.to_thread(sessions.validate, str(payload.get("sid") or ""), str(user["id"]), int(user.get("sessionVersion") or 0))
+    except sessions.SessionError as exc:
+        raise session_http.session_error(exc) from None
+    except PostgresStoreError:
+        raise HTTPException(503, "Validação da sessão temporariamente indisponível.") from None
+    return {**user, "_authSession": row["id"]}
 
 
 async def issue_websocket_ticket(user: dict[str, Any]) -> str:
+    sid = user.get("_authSession")
+    if not sid:
+        row, _, _ = await asyncio.to_thread(sessions.create, str(user["id"]), int(user.get("sessionVersion") or 0))
+        sid = row["id"]
     ticket = secrets.token_urlsafe(32)
     now = time.monotonic()
     async with websocket_ticket_lock:
@@ -772,6 +809,7 @@ async def issue_websocket_ticket(user: dict[str, Any]) -> str:
         websocket_tickets[ticket] = {
             "userId": str(user.get("id") or ""),
             "sessionVersion": int(user.get("sessionVersion") or 0),
+            "sessionId": sid,
             "expiresAt": now + WEBSOCKET_TICKET_TTL_SECONDS,
         }
     return ticket
@@ -789,7 +827,66 @@ async def user_from_websocket_ticket(ticket: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Usuario inativo ou inexistente.")
     if int(record.get("sessionVersion") or 0) != int(user.get("sessionVersion") or 0):
         raise HTTPException(status_code=401, detail="Sessao revogada. Entre novamente.")
-    return user
+    bound = {**user, "_authSession": str(record.get("sessionId") or "")}
+    return await revalidate_socket_user(bound)
+
+
+async def revalidate_socket_user(bound: dict[str, Any]) -> dict[str, Any]:
+    store = await read_user_store()
+    user = find_user(store, str(bound.get("id") or ""))
+    if (not user or user.get("status") != "ativo"
+            or int(user.get("sessionVersion") or 0) != int(bound.get("sessionVersion") or 0)):
+        raise HTTPException(401, "Sessão encerrada.")
+    try:
+        await asyncio.to_thread(sessions.validate, str(bound.get("_authSession") or ""), str(user["id"]), int(user.get("sessionVersion") or 0))
+    except sessions.SessionError as exc:
+        raise session_http.session_error(exc) from None
+    return {**user, "_authSession": bound.get("_authSession")}
+
+
+async def guarded_socket_receive(websocket, bound: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    # One receive task, never simultaneous reads. Idle sockets close within five
+    # seconds; heartbeats do not extend the server-side inactivity deadline.
+    receive = asyncio.create_task(websocket.receive_text())
+    try:
+        while True:
+            live = await revalidate_socket_user(bound)
+            done, _ = await asyncio.wait({receive}, timeout=5)
+            if done:
+                return receive.result(), await revalidate_socket_user(live)
+    except Exception:
+        try:
+            await websocket.close(code=4401)
+        except RuntimeError:
+            pass
+        raise
+    finally:
+        if not receive.done():
+            receive.cancel()
+            try:
+                await receive
+            except asyncio.CancelledError:
+                pass
+
+
+async def new_session(user: dict[str, Any], request: Request, response: Response, *, persistent: bool,
+                      expected_epoch: int | None = None) -> dict[str, Any]:
+    persistent = persistent and sessions.persistence_enabled()
+    try:
+        row, refresh, csrf = await asyncio.to_thread(sessions.create, str(user["id"]), int(user.get("sessionVersion") or 0),
+            persistent=persistent, agent=request.headers.get("user-agent", ""), expected_epoch=expected_epoch)
+    except sessions.SessionError as exc:
+        raise session_http.session_error(exc) from None
+    except PostgresStoreError:
+        raise HTTPException(503, "Criação da sessão temporariamente indisponível.") from None
+    session_http.set_cookies(response, row, refresh, csrf)
+    return session_result(user, row["id"])
+
+
+def session_result(user: dict[str, Any], sid: str) -> dict[str, Any]:
+    return {"token": create_token(user, sid), "user": sanitize_user(user),
+            "availableModes": ["app", "admin"] if can_manage_system(user) else ["app"],
+            "requiresPlanSelection": bool(user.get("requiresPlanSelection")), "expiresIn": sessions.ACCESS_SECONDS}
 
 
 def visible_users_for(current: dict[str, Any], users: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -854,12 +951,16 @@ def append_admin_audit(
 
 
 @router.post("/login")
-async def login(payload: LoginPayload, request: Request) -> dict[str, Any]:
+async def login(payload: LoginPayload, request: Request, response: Response) -> dict[str, Any]:
+    session_http.require_csrf(request, password_login=True)
+    if payload.persistent and not sessions.persistence_enabled():
+        raise HTTPException(400, "Login persistente ainda não ativado. Desmarque Manter conectado para entrar.")
     client_host = request.client.host if request.client else "unknown"
     await login_limiter.check(f"{client_host}:{payload.email}")
     async with auth_lock:
         store = await read_user_store()
         user = find_user_by_email(store, payload.email)
+        login_epoch = await asyncio.to_thread(sessions.epoch, str(user["id"])) if user else None
         if not user or user.get("status") != "ativo" or not verify_password(payload.password, str(user.get("passwordHash", ""))):
             raise HTTPException(status_code=401, detail="E-mail ou senha invalidos.")
         if password_needs_rehash(str(user.get("passwordHash", ""))):
@@ -867,16 +968,14 @@ async def login(payload: LoginPayload, request: Request) -> dict[str, Any]:
         user["lastLoginAt"] = now_iso()
         user["updatedAt"] = now_iso()
         await write_user_store(store)
-    safe_user = sanitize_user(user)
-    return {
-        "token": create_token(user),
-        "user": safe_user,
-        "availableModes": ["app", "admin"] if can_manage_system(user) else ["app"],
-    }
+    return await new_session(user, request, response, persistent=payload.persistent, expected_epoch=login_epoch)
 
 
 @router.post("/register")
-async def register(payload: RegisterPayload, request: Request, background: BackgroundTasks = None) -> dict[str, Any]:
+async def register(payload: RegisterPayload, request: Request, response: Response, background: BackgroundTasks = None) -> dict[str, Any]:
+    session_http.require_csrf(request, password_login=True)
+    if payload.persistent and not sessions.persistence_enabled():
+        raise HTTPException(400, "Login persistente ainda não ativado. Desmarque Manter conectado para cadastrar.")
     client_host = request.client.host if request.client else "unknown"
     await register_limiter.check(client_host)
     if not payload.acceptedTerms or not payload.acceptedPrivacy:
@@ -916,12 +1015,7 @@ async def register(payload: RegisterPayload, request: Request, background: Backg
     if background is not None:
         from app.modules.auth.email_router import request_action
         background.add_task(request_action, user["email"], "verify")
-    return {
-        "token": create_token(user),
-        "user": sanitize_user(user),
-        "availableModes": ["app"],
-        "requiresPlanSelection": True,
-    }
+    return await new_session(user, request, response, persistent=payload.persistent)
 
 
 @router.post("/select-plan")
@@ -945,7 +1039,7 @@ async def select_plan(payload: SelectPlanPayload, user: dict[str, Any] = Depends
         await write_user_store(store)
     safe_user = sanitize_user(target)
     return {
-        "token": create_token(target),
+        "token": create_token(target, str(user.get("_authSession") or "")),
         "user": safe_user,
         "availableModes": ["app", "admin"] if can_manage_system(target) else ["app"],
     }
@@ -954,8 +1048,11 @@ async def select_plan(payload: SelectPlanPayload, user: dict[str, Any] = Depends
 @router.post("/change-password")
 async def change_password(
     payload: ChangePasswordPayload,
+    request: Request,
+    response: Response,
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, Any]:
+    previous_session = await asyncio.to_thread(sessions.validate, str(user["_authSession"]), str(user["id"]), int(user.get("sessionVersion") or 0))
     async with auth_lock:
         store = await read_user_store()
         target = find_user(store, user["id"])
@@ -965,24 +1062,158 @@ async def change_password(
         target["sessionVersion"] = int(target.get("sessionVersion") or 0) + 1
         target["updatedAt"] = now_iso()
         await write_user_store(store)
-    return {
-        "token": create_token(target),
-        "user": sanitize_user(target),
-        "availableModes": ["app", "admin"] if can_manage_system(target) else ["app"],
-    }
+    await asyncio.to_thread(sessions.revoke, str(target["id"]))
+    # Password proof creates a new session, with a new absolute deadline.
+    return await new_session(target, request, response, persistent=bool(previous_session["persistent"]))
+
+
+async def clear_matching_cookies(request: Request, response: Response, user_id: str, sid: str | None = None) -> None:
+    row = await asyncio.to_thread(sessions.lookup, request.cookies.get(session_http.REFRESH_COOKIE, ""))
+    if row is None or (row["user_id"] == user_id and (sid is None or row["id"] == sid)):
+        session_http.clear_cookies(response)
 
 
 @router.post("/logout")
-async def logout(user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
-    async with auth_lock:
-        store = await read_user_store()
-        target = find_user(store, user["id"])
-        if not target:
-            raise HTTPException(status_code=401, detail="Usuario inexistente.")
-        target["sessionVersion"] = int(target.get("sessionVersion") or 0) + 1
-        target["updatedAt"] = now_iso()
-        await write_user_store(store)
+async def logout(request: Request, response: Response, user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
+    await asyncio.to_thread(sessions.revoke, str(user["id"]), sid=str(user["_authSession"]))
+    await clear_matching_cookies(request, response, str(user["id"]), str(user["_authSession"]))
     return {"loggedOut": True}
+
+
+@router.get("/session-context")
+async def session_context(request: Request, response: Response) -> dict[str, str]:
+    # Same-origin GET may omit Origin. Fetch Metadata plus Referer prevents a
+    # cross-site requester from receiving context; mutations still require Origin.
+    expected = session_http.public_origin(request)
+    origin = request.headers.get("origin")
+    site = request.headers.get("sec-fetch-site")
+    referer = request.headers.get("referer", "")
+    if (origin is not None and origin != expected) or site in {"cross-site", "same-site"}:
+        raise HTTPException(403, "Origem de autenticação não autorizada.")
+    if not origin and site != "same-origin" and not referer.startswith(expected + "/"):
+        raise HTTPException(403, "Contexto exige uma solicitação de mesma origem.")
+    csrf = request.cookies.get(session_http.CSRF_COOKIE, "")
+    if not 40 <= len(csrf) <= 100 or not csrf.isascii():
+        csrf = sessions.credential()
+        response.set_cookie(session_http.CSRF_COOKIE, csrf, secure=True, httponly=True, samesite="lax", path="/")
+    session_http.no_store(response)
+    return {"csrf": csrf}
+
+
+@router.post("/refresh")
+async def refresh_session(request: Request, response: Response) -> dict[str, Any]:
+    csrf = session_http.require_csrf(request)
+    cookie = request.cookies.get(session_http.REFRESH_COOKIE, "")
+    row = await asyncio.to_thread(sessions.lookup, cookie)
+    if not row:
+        raise session_http.session_error(sessions.SessionError("session_invalid"))
+    if row["persistent"] and not sessions.persistence_enabled():
+        raise HTTPException(503, "Renovação persistente suspensa. Entre novamente com sua senha.")
+    await login_limiter.check("refresh:" + row["id"])
+    store = await read_user_store()
+    user = find_user(store, row["user_id"])
+    if not user or user.get("status") != "ativo":
+        raise session_http.session_error(sessions.SessionError("session_invalid"))
+    try:
+        row, replacement = await asyncio.to_thread(sessions.rotate, cookie, csrf, str(user["id"]), int(user.get("sessionVersion") or 0))
+    except sessions.SessionError as exc:
+        raise session_http.session_error(exc) from None
+    session_http.set_cookies(response, row, replacement)
+    return session_result(user, row["id"])
+
+
+@router.post("/cookie-logout")
+async def cookie_logout(request: Request, response: Response) -> dict[str, bool]:
+    csrf = session_http.require_csrf(request)
+    row = await asyncio.to_thread(sessions.lookup, request.cookies.get(session_http.REFRESH_COOKIE, ""))
+    if row and not secrets.compare_digest(row["csrf_hash"], sessions.digest(csrf)):
+        raise HTTPException(403, "Proteção CSRF inválida.")
+    authorization = request.headers.get("authorization", "")
+    target = None
+    if authorization:
+        if not authorization.lower().startswith("bearer "):
+            raise HTTPException(401, "Identificação da sessão inválida.")
+        try:
+            # An expired, signed access token grants only revocation of its own
+            # session. It cannot restore authentication or access private data.
+            target = decode_signed_token(authorization.split(" ", 1)[1], secret=AUTH_SECRET,
+                                         allow_expired_for_revocation=True)
+            if not target.get("sid"):
+                raise TokenValidationError("Token inválido.")
+        except TokenValidationError:
+            raise HTTPException(401, "Identificação da sessão inválida.") from None
+        await asyncio.to_thread(sessions.revoke, target["sub"], sid=target["sid"])
+    if row:
+        if target is None:
+            await asyncio.to_thread(sessions.revoke, row["user_id"], sid=row["id"])
+    # Tabs share cookies, but may hold distinct sessionStorage access tokens.
+    # Signing out an older tab must not revoke or erase another tab's login.
+    if row is None or target is None or (row["id"] == target["sid"] and row["user_id"] == target["sub"]):
+        session_http.clear_cookies(response)
+    return {"loggedOut": True}
+
+
+@router.get("/sessions")
+async def connected_sessions(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    rows = await asyncio.to_thread(sessions.list_sessions, str(user["id"]), int(user.get("sessionVersion") or 0))
+    return {"sessions": [{"id": row["id"], "label": row["label"], "browser": row["browser"],
+        "system": row["system"], "kind": row["kind"], "createdAt": row["created"],
+        "lastUsedAt": row["last_activity"], "expiresAt": row["expires"], "persistent": bool(row["persistent"]),
+        "current": row["id"] == user["_authSession"]} for row in rows]}
+
+
+@router.patch("/sessions/{session_id}")
+async def rename_session(session_id: str, payload: SessionLabelPayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
+    try:
+        await asyncio.to_thread(sessions.rename, session_id, str(user["id"]), int(user.get("sessionVersion") or 0), payload.label.strip())
+    except sessions.SessionError:
+        raise HTTPException(404, "Sessão não encontrada.") from None
+    return {"updated": True}
+
+
+@router.delete("/sessions/{session_id}")
+async def revoke_session(session_id: str, request: Request, response: Response, user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
+    # Bound ownership in SQL; identical idempotent result conceals foreign IDs.
+    await asyncio.to_thread(sessions.revoke, str(user["id"]), sid=session_id)
+    if session_id == user["_authSession"]:
+        await clear_matching_cookies(request, response, str(user["id"]), session_id)
+    return {"revoked": True}
+
+
+async def require_recent_session(user: dict[str, Any]) -> None:
+    row = await asyncio.to_thread(sessions.validate, str(user["_authSession"]), str(user["id"]), int(user.get("sessionVersion") or 0))
+    if int(time.time()) - row["authenticated"] > sessions.RECENT_SECONDS:
+        raise HTTPException(403, "Confirme sua senha para continuar.", headers={"X-Norium-Auth-Error": "reauthentication_required"})
+
+
+@router.post("/sessions/revoke-others")
+async def revoke_other_sessions(user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
+    await require_recent_session(user)
+    await asyncio.to_thread(sessions.revoke, str(user["id"]), except_sid=str(user["_authSession"]))
+    return {"revoked": True}
+
+
+@router.post("/sessions/revoke-all")
+async def revoke_all_sessions(request: Request, response: Response, user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
+    await require_recent_session(user)
+    await asyncio.to_thread(sessions.revoke, str(user["id"]))
+    await clear_matching_cookies(request, response, str(user["id"]))
+    return {"revoked": True}
+
+
+@router.post("/reauthenticate")
+async def reauthenticate(payload: ReauthenticatePayload, user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
+    await login_limiter.check("reauth:" + str(user["id"]))
+    if not verify_password(payload.password, str(user.get("passwordHash", ""))):
+        raise HTTPException(401, "Senha atual inválida.")
+    await asyncio.to_thread(sessions.reauthenticate, str(user["_authSession"]), str(user["id"]), int(user.get("sessionVersion") or 0))
+    return {"authenticated": True}
+
+
+@router.post("/session-activity")
+async def session_activity(user: dict[str, Any] = Depends(current_user)) -> dict[str, bool]:
+    await asyncio.to_thread(sessions.validate, str(user["_authSession"]), str(user["id"]), int(user.get("sessionVersion") or 0), touch=True)
+    return {"active": True}
 
 
 @router.get("/me")
@@ -1181,6 +1412,7 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
                 status_code=403,
                 detail="Use a troca de senha com a senha atual para alterar a propria senha.",
             )
+        previous_version = int(target.get("sessionVersion") or 0)
         target = copy.deepcopy(target)
 
         if payload.nome is not None:
@@ -1244,6 +1476,8 @@ async def update_user(user_id: str, payload: UpdateUserPayload, user: dict[str, 
             detail=f"Campos alterados: {', '.join(changed_fields) or 'nenhum'}.",
         )
         await write_user_store(store)
+        if int(target.get("sessionVersion") or 0) != previous_version:
+            await asyncio.to_thread(sessions.revoke, str(target["id"]))
     return {"user": sanitize_user(target)}
 
 
@@ -1264,6 +1498,7 @@ async def deactivate_user(user_id: str, user: dict[str, Any] = Depends(current_u
         target["updatedAt"] = now_iso()
         append_admin_audit(store, user, "user_deactivated", target=target, detail="Acesso administrativo desativado.")
         await write_user_store(store)
+        await asyncio.to_thread(sessions.revoke, str(target["id"]))
     return {"user": sanitize_user(target)}
 
 

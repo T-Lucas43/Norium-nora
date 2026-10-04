@@ -28,6 +28,7 @@ from app.core.request_context import current_workspace_id
 from app.core.tenant import get_data_root, get_user_db_path, public_api_url, read_json_file, read_profile_db, write_json_file
 from app.infrastructure.persistence import files as persistent_files
 from app.infrastructure.persistence import postgres_store
+from app.infrastructure import auth_sessions as sessions
 from app.modules.team.call_adapters import CallbackCallPublisher, CallbackTeamDirectory, JsonCallStateStore
 from app.modules.team.call_configuration import mesh_max_participants_from_environment
 from app.modules.team.call_release import CallReleasePolicy
@@ -190,6 +191,7 @@ class PresenceManager:
         self.socket_user: dict[WebSocket, str] = {}
         self.socket_connection: dict[WebSocket, str] = {}
         self.socket_session_version: dict[WebSocket, int | None] = {}
+        self.socket_session_id: dict[WebSocket, str] = {}
         self._connect_lock = asyncio.Lock()
 
     async def connect(
@@ -199,6 +201,7 @@ class PresenceManager:
         websocket: WebSocket,
         connection_id: str | None = None,
         session_version: int | None = None,
+        session_id: str = "",
     ) -> str:
         async with self._connect_lock:
             policy = CallReleasePolicy.from_env()
@@ -214,6 +217,7 @@ class PresenceManager:
             resolved_connection_id = connection_id or uuid.uuid4().hex
             self.socket_connection[websocket] = resolved_connection_id
             self.socket_session_version[websocket] = session_version
+            self.socket_session_id[websocket] = session_id
         await self.broadcast(team_id, {"type": "PRESENCE", "onlineUserIds": self.online_users(team_id)})
         return resolved_connection_id
 
@@ -221,6 +225,7 @@ class PresenceManager:
         connected_user_id = self.socket_user.pop(websocket, user_id)
         self.socket_connection.pop(websocket, None)
         self.socket_session_version.pop(websocket, None)
+        self.socket_session_id.pop(websocket, None)
         team_id = self.user_team.get(connected_user_id)
         if team_id:
             connections = self.connections.get(team_id, [])
@@ -241,6 +246,16 @@ class PresenceManager:
                     and has_team_chat_access(user)
                     and (version is None or int(user.get("sessionVersion") or 0) == version))
 
+    async def session_authorized(self, websocket: WebSocket, user: dict[str, Any] | None, team_id: str) -> bool:
+        if not self.socket_authorized(websocket, user, team_id):
+            return False
+        try:
+            await asyncio.to_thread(sessions.validate, self.socket_session_id.get(websocket, ""),
+                                    str(user["id"]), int(user.get("sessionVersion") or 0))
+            return True
+        except (sessions.SessionError, postgres_store.PostgresStoreError):
+            return False
+
     async def broadcast(self, team_id: str, payload: dict[str, Any]) -> None:
         disconnected: list[WebSocket] = []
         store = await read_user_store()
@@ -252,7 +267,7 @@ class PresenceManager:
         for websocket in list(self.connections.get(team_id, [])):
             connected_user_id = self.socket_user.get(websocket, "")
             connected_user = users_by_id.get(connected_user_id)
-            if not self.socket_authorized(websocket, connected_user, team_id):
+            if not await self.session_authorized(websocket, connected_user, team_id):
                 try:
                     await websocket.close(code=4403)
                 except Exception:
@@ -275,7 +290,7 @@ class PresenceManager:
         exclude_websocket: WebSocket | None = None,
     ) -> None:
         disconnected: list[WebSocket] = []
-        validate_directory = str(payload.get("type") or "") != "CALL_SIGNAL"
+        validate_directory = True
         users_by_id: dict[str, dict[str, Any]] = {}
         if validate_directory:
             store = await read_user_store()
@@ -291,7 +306,7 @@ class PresenceManager:
             if connected_user_id not in user_ids:
                 continue
             connected_user = users_by_id.get(connected_user_id)
-            if validate_directory and not self.socket_authorized(websocket, connected_user, team_id):
+            if validate_directory and not await self.session_authorized(websocket, connected_user, team_id):
                 try:
                     await websocket.close(code=4403)
                 except Exception:
@@ -2024,7 +2039,8 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
         return
     try:
         connection_id = await manager.connect(team_id, user_id, websocket,
-                                              session_version=int(user.get("sessionVersion") or 0))
+                                              session_version=int(user.get("sessionVersion") or 0),
+                                              session_id=str(user.get("_authSession") or ""))
     except HTTPException:
         await websocket.close(code=1013)
         return
@@ -2051,14 +2067,14 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
             try:
                 raw = await asyncio.wait_for(
                     websocket.receive_text(),
-                    timeout=max(0.01, next_reconcile - time.monotonic()),
+                    timeout=min(5, max(0.01, next_reconcile - time.monotonic())),
                 )
             except asyncio.TimeoutError:
                 next_reconcile = time.monotonic() + CALL_RECONCILE_INTERVAL_SECONDS
                 await emit_due_meeting_reminders(team_id)
                 live_directory = await read_user_store()
                 live_user = next((item for item in live_directory.get("users", []) if str(item.get("id")) == user_id), None)
-                if not manager.socket_authorized(websocket, live_user, team_id):
+                if not await manager.session_authorized(websocket, live_user, team_id):
                     # A broadcast may already have closed this transport after
                     # revocation. Closing again must not turn normal cleanup
                     # into an ASGI application error.
@@ -2082,7 +2098,7 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                 continue
             live_directory = await read_user_store()
             live_user = next((item for item in live_directory.get("users", []) if str(item.get("id")) == user_id), None)
-            if not manager.socket_authorized(websocket, live_user, team_id):
+            if not await manager.session_authorized(websocket, live_user, team_id):
                 with contextlib.suppress(RuntimeError):
                     await websocket.close(code=4403)
                 return

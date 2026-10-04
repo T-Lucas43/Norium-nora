@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { ArrowRight, Eye, EyeOff, LockKeyhole, Mail, Settings2, ShieldCheck, Sparkles, UserPlus, UsersRound } from "lucide-react";
 import type { AppMode, AuthSession, PlanInfo, UserPlan } from "../../types/auth";
 import { authJson } from "../../utils/authApi";
+import { passwordSession } from "../../core/api/cookieSession";
 import BrandLogo from "../layout/BrandLogo";
 import AccountEmailAction from "./AccountEmailAction";
 import { navigateNoriumView } from "../../app/navigation/view";
@@ -43,6 +44,7 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [persistent, setPersistent] = useState(true);
   const [legalAccepted, setLegalAccepted] = useState(false);
   const [pendingSession, setPendingSession] = useState<AuthSession | null>(null);
   const [planSession, setPlanSession] = useState<AuthSession | null>(null);
@@ -80,12 +82,9 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
     try {
       const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
       const payload = mode === "login"
-        ? { email, password }
-        : { nome, email, password, acceptedTerms: true, acceptedPrivacy: true };
-      const session = ensureAuthSession(await authJson<unknown>(endpoint, undefined, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      }));
+        ? { email, password, persistent }
+        : { nome, email, password, persistent, acceptedTerms: true, acceptedPrivacy: true };
+      const session = ensureAuthSession(await passwordSession(endpoint, payload));
       if (session.user.requiresPlanSelection) {
         setPlanSession(session);
       } else if (session.availableModes.includes("admin")) {
@@ -347,6 +346,10 @@ export default function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             )}
           </div>
 
+          <label className="mt-4 flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+            <input type="checkbox" checked={persistent} onChange={(event) => setPersistent(event.target.checked)} />
+            Manter conectado neste navegador por até 7 dias
+          </label>
           {error && (
             <div className="mt-4 rounded-xl border border-red-400/30 bg-red-500/12 px-4 py-3 text-sm font-bold text-red-100">
               {error}

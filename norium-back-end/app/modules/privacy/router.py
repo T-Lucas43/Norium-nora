@@ -27,7 +27,7 @@ from app.shared.schemas import StrictModel
 
 router = APIRouter(prefix="/api/auth/privacy", tags=["Privacidade"])
 logger = logging.getLogger(__name__)
-PROTECTED_TERMS = ("password", "senha", "secret", "token", "credential", "api_key", "apikey")
+PROTECTED_TERMS = ("password", "senha", "secret", "token", "credential", "api_key", "apikey", "oauthstate", "codeverifier", "code_verifier", "csrf")
 
 
 class DeleteAccountPayload(StrictModel):
@@ -276,6 +276,8 @@ def _purge_due_workspace_directories(now: datetime | None = None) -> int:
 
 
 async def run_data_lifecycle_maintenance() -> dict[str, int]:
+    from app.infrastructure.auth_sessions import purge_expired
+    await asyncio.to_thread(purge_expired)
     accounts = 0
     async with auth.auth_lock:
         store = await auth.read_user_store()
@@ -287,6 +289,8 @@ async def run_data_lifecycle_maintenance() -> dict[str, int]:
     for user_id in pending_ids:
         try:
             await asyncio.to_thread(_purge_personal_files, user_id)
+            from app.infrastructure.auth_sessions import erase_personal_sessions
+            await asyncio.to_thread(erase_personal_sessions, user_id)
         except OSError:
             logger.exception("Personal data purge failed for a pending tombstone")
             continue

@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.modules.team import router as team
 from app.modules.team.studio_router import router as studio_router
 from app.modules.team import studio_router as studio
+from app.infrastructure import auth_sessions as fixture_sessions
 from app.services import brainstorm_store as studio_library
 
 
@@ -86,6 +87,17 @@ def _base_users() -> list[dict[str, Any]]:
 
 
 _users = _base_users()
+_fixture_session_ids: dict[str, str] = {}
+
+
+def _bind_fixture_session(user: dict[str, Any]) -> dict[str, Any]:
+    sid = _fixture_session_ids.get(user["id"])
+    if not sid:
+        row, _, _ = fixture_sessions.create(user["id"], int(user.get("sessionVersion") or 0))
+        sid = row["id"]
+        _fixture_session_ids[user["id"]] = sid
+    user["_authSession"] = sid
+    return user
 
 
 def _find_user(user_id: str) -> dict[str, Any] | None:
@@ -96,14 +108,14 @@ async def fixture_user(authorization: str = Header(default="")) -> dict[str, Any
     user = _find_user(authorization.removeprefix("Bearer ").strip())
     if user is None:
         raise HTTPException(status_code=401, detail="Usuario de teste desconhecido.")
-    return user
+    return _bind_fixture_session(user)
 
 
 async def fixture_ticket(ticket: str) -> dict[str, Any]:
     user = _find_user(str(ticket or "").strip())
     if user is None:
         raise ValueError("Ticket de teste desconhecido.")
-    return user
+    return _bind_fixture_session(user)
 
 
 async def fixture_user_store() -> dict[str, Any]:
@@ -121,6 +133,7 @@ _patches = [
     # The real binary adapter must see the same temporary root as UPLOAD_DIR.
     # Keep its traversal/quota checks enabled in browser and load fixtures.
     patch("app.core.tenant.get_data_root", return_value=_data_root),
+    patch.object(fixture_sessions, "get_data_root", return_value=_data_root),
     patch.object(studio.nora_service, "perguntar_nora", AsyncMock(return_value="Plano sugerido pela Nora: validar as decisões e definir os próximos passos.")),
     patch.object(studio_library, "read_user_db", side_effect=lambda tenant, _db, fallback: team.read_json_file(_data_root / f"studio_library_{tenant}.json", fallback)),
     patch.object(studio_library, "write_user_db", side_effect=lambda tenant, _db, value: team.write_json_file(_data_root / f"studio_library_{tenant}.json", value)),

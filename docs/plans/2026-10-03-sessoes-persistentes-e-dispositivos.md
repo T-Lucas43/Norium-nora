@@ -1,6 +1,6 @@
 # Plano de ação: sessões persistentes e dispositivos conectados
 
-Data: 03/10/2026. Estado: correções independentes em implementação e validação; sessões e publicação completa pendentes dos requisitos abaixo. O usuário autorizou corrigir os achados, implementar o recurso e publicar em homologação.
+Data inicial: 03/10/2026. Atualizado em 04/10/2026. Estado: sessões, dispositivos e correções críticas implementados no candidato; revisão humana, CI do candidato exato e gates operacionais ainda pendentes. O usuário autorizou corrigir os achados, implementar o recurso e publicar em homologação.
 
 ## 0. Plano integrado de correção e homologação
 
@@ -13,11 +13,11 @@ Os achados de [varredura e prontidão](../security/reviews/2026-10-03-varredura-
 | 3 | SEC-DEP-01: requirements e lockfiles | Atualizar dependências afetadas com regressões; SCA/SBOM da imagem candidata | pypdf 6.19.0, urllib3 2.8.0, DOMPurify 3.4.16 e oauthlib 4.0.0 aplicados; SCA frontend e 67 dependências travadas backend sem alertas conhecidos; imagem/revisão de release pendentes |
 | 3a | SEC-CI-01: `.gitleaks.toml`, workflow e `check_secret_scanner.py` | Carregar regras padrão, provar detecção/redação de canário sintético e examinar histórico | Configuração antiga não detectava canário; correção e histórico ancestral aprovados localmente, gate CI atualizado para impedir regressão |
 | 4 | SEC-FILE-01: `persistence/files.py`, `postgres_store.py`, `storage_limits.py` | Quota cumulativa de binários por workspace/global, substituições sem dupla contagem, verificar antes de gravar | 9 regressões e PostgreSQL 16 real descartável no CI aprovados, incluindo duas conexões concorrentes; caminhos restantes/volume remoto pendentes |
-| 5 | SEC-WS-01: Inbox/Brainstorm e consumidores de sessões | Revogação/expiração em leitura, broadcasts e escritas, também entre réplicas | Aguarda participação especializada em autenticação |
-| 6 | SEC-SECRET-01: Gmail e persistência de tokens | Segredo do cliente no secret manager; tokens recuperáveis protegidos e migração segura | Aguarda especialista em criptografia e acesso de configuração |
+| 5 | SEC-WS-01: Inbox/Brainstorm/Equipe e consumidores de sessões | Revogação/expiração em leitura, broadcasts e escritas, também entre conexões | SID/SV e registro compartilhado implementados; regressões isoladas aprovadas; jornadas remotas e revisão pendentes |
+| 6 | SEC-SECRET-01: Gmail/Agenda e persistência de tokens/state | Chave dedicada no secret manager; criptografia autenticada e migração segura | Envelopes vinculados à conta/finalidade e ferramenta offline implementados; configuração, inventário/migração remotos e revisão pendentes |
 | 7 | HOM-OAUTH-01: `_redirect_uri`, Google Cloud | Comparar URI efetiva e cliente correto; callback HTTPS autorizado, state/scopes preservados | Cliente correto localizado; callback HTTPS salvo no Google Cloud após confirmação específica, persistência verificada; consentimento/callback real pendentes |
-| 8 | SEC-RUNTIME-01/SEC-SSRF-01: Dockerfile/runtime/fetch | Identidade sem privilégio, browser isolado, conexão ao IP validado, sem abrir rede privada | Transporte HTTP corrigido para páginas, gateway de modelos e mídia WhatsApp; testes sintéticos aprovados. Browser e imagem/topologia real ainda pendentes |
-| 9 | Sessões e dispositivos: etapas 1–8 deste documento | Modelo transacional, cookie protegido, CSRF, rotação, revogação e UI próprios | Política de persistência e participação especializada precisam ser resolvidas |
+| 8 | SEC-RUNTIME-01/SEC-SSRF-01: Dockerfile/runtime/fetch | Identidade sem privilégio, browser isolado, conexão ao IP validado, sem abrir rede privada | Proxy CONNECT autenticado, DNS fixado no TCP e sandbox obrigatório implementados; compatibilidade/build/runtime Shard ainda não comprovados |
+| 9 | Sessões e dispositivos: etapas 1–8 deste documento | Modelo transacional, cookie protegido, CSRF, rotação, revogação e UI próprios | Exceção específica aprovada e responsável humano definido; implementação no candidato com testes; aceite do diff e jornadas remotas pendentes |
 | 10 | Validação de homologação e lançamento | Duas contas de teste, restore PostgreSQL, rollback, integrações, revisão legal e evidências | Conta B/acessos/aceites externos pendentes |
 | 11 | Publicação autorizada em homologação | Um candidato conhecido, backup quando houver migração, readiness, login, dados, sockets e recurso autenticados | Não publicar pacote parcial ou atribuir testes locais à versão remota |
 
@@ -31,7 +31,7 @@ Permitir que o usuário reabra o Norium e recupere o login enquanto sua sessão 
 
 Introduzir o recurso preservando autorização por usuário/workspace, hierarquia administrativa, validação de senha, rate limits, CSP, TLS, CORS restritivo, proteção dos WebSockets e regras de governança. Uma sessão persistente necessariamente muda o ciclo de autenticação; não é possível prometer ausência de qualquer impacto. O requisito deste plano é não enfraquecer controles ou alterar indiscriminadamente configurações globais.
 
-A regra de `SECURITY.md` hoje proíbe armazenamento persistente de tokens de sessão. O pedido posterior do usuário exige preservar as políticas existentes. Portanto, este plano não autoriza criar uma exceção nem alterar essa regra: a arquitetura de cookie persistente permanece uma proposta bloqueada até avaliação humana especializada da sua compatibilidade com a política. O token de acesso continuará temporário; não se propõe gravá-lo em `localStorage`.
+O responsável humano indicado pelo usuário é o próprio usuário. Após a proposta exata, ele aprovou formalizar em `SECURITY.md` uma exceção específica: somente credencial opaca de renovação em cookie `__Host-` HttpOnly/Secure/SameSite, com prazo absoluto de sete dias, hash/revogação no servidor e CSRF/Origin. Bearer continua somente em `sessionStorage`. Essa aprovação autoriza o desenho implementado; o aceite humano do diff crítico concreto permanece obrigatório antes do deploy, conforme `docs/AI_GOVERNANCE.md`. Não existe autorização para ampliar CORS, scopes ou permissões.
 
 Sequência solicitada: primeiro varredura, diagnóstico e plano priorizado; depois implementação compatível com as políticas. Implementação de autenticação exige revisão humana especializada, conforme `docs/AI_GOVERNANCE.md`, que proíbe implementá-la ou aprová-la sozinho sem especialista. Publicação em homologação foi autorizada no pedido posterior; seus gates de segurança e aceite continuam obrigatórios. A varredura e os bloqueios atuais estão em [varredura e prontidão](../security/reviews/2026-10-03-varredura-e-prontidao.md).
 
@@ -87,7 +87,7 @@ O desenvolvimento atual utiliza `127.0.0.1:8000`. Planejar proxy Vite para `/api
 | Atualização de último acesso | No máximo uma gravação por minuto por sessão | Reduz carga; horário exibido será aproximado |
 | Encerramento de socket ocioso revogado | Até cinco segundos em condição saudável | Antes de cada envio/escrita também conferir autorização |
 
-Prazos são propostas de política, não controles já implementados. Não prolongar a sessão somente porque uma aba está aberta ou um heartbeat automático está ativo. Definir quais requisições autenticadas contam como atividade; leituras automáticas em segundo plano não devem renovar indefinidamente a inatividade. Reautenticação e prazos no servidor são medidas recomendadas pela [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
+Esses prazos estão implementados no candidato e aguardam revisão humana de produto/segurança. O frontend informa atividade por interação visível (teclado/ponteiro), limitada a uma vez por minuto; leitura automática, heartbeat e rotação não prolongam a inatividade. Reautenticação e prazos no servidor são medidas recomendadas pela [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
 
 Persistência será o comportamento padrão dos novos logins. Incluir a opção visível “Não manter conectado neste navegador” para computadores compartilhados. Sem persistência, usar cookie sem `Max-Age`/`Expires` e aplicar os mesmos prazos no servidor; restauração de abas pelo navegador pode preservar cookies de sessão, portanto fechar o navegador não será apresentado como garantia de logout.
 
@@ -210,7 +210,7 @@ Estimativa preliminar de planejamento: 8–12 dias úteis de engenharia e revis�
 2. Criar migrações compatíveis com a versão anterior, sem apagar dados de usuários ou sessões antigas.
 3. Instalar o código e o schema inicialmente com emissão persistente desativada. Validar em homologação e contas controladas.
 4. Planejar uma reautenticação dos usuários na ativação completa. Tokens legados não contêm metadados suficientes para uma lista fiel de dispositivos; não inferir dispositivos nem converter Bearers existentes em cookies persistentes.
-5. Durante uma janela de transição limitada, caso seja necessária, indicar que sessões legadas não estão listadas e continuar aplicando as revogações existentes. A entrega completa só estará aceita após encerrar a aceitação de tokens legados e registrar todos os novos logins.
+5. A implementação rejeita tokens legados sem SID. A promoção exige comunicar reautenticação e inventariar consumidores internos/externos. Não existe janela automática de aceitação permissiva.
 6. Inventariar consumidores não browser antes de exigir `sid`; não interromper integrações silenciosamente nem criar exceção geral de segurança para elas.
 7. Adotar chave de ativação específica para emissão/restauração persistente. Desativar o recurso não poderá desativar a validação de `sid`/revogação em tokens já emitidos.
 8. No rollback, suspender novas renovações, invalidar sessões atingidas e limpar cookies quando o navegador retornar. Manter a camada de validação de revogação; não voltar diretamente a um binário que aceite tokens revogados. Se for necessário voltar a versão anterior, preparar uma invalidação por versão da conta antes da troca e comprovar rejeição dos tokens emitidos.
@@ -246,7 +246,15 @@ Aceite final: login persistente recuperado somente dentro dos prazos; lista corr
 
 Registrar métricas agregadas de restauração, renovação, conflito, CSRF rejeitado, revogação, indisponibilidade do banco e latência. Não usar usuário, cookie, token, IP ou rótulo de dispositivo como dimensão das métricas. Logs terão códigos e IDs de correlação seguros, sem headers de autenticação.
 
-Proposta de retenção: remover material de renovação no fim da validade; manter registros mínimos de sessões encerradas por até 30 dias e eventos minimizados por até 90 dias, sujeitos à política de privacidade aprovada. Limpeza será paginada, idempotente e integrada ao ciclo operacional existente. Excluir conta deve remover metadados conforme as obrigações de retenção aplicáveis.
+Retenção implementada no candidato, sujeita ao aceite de privacidade: sessões/material de renovação até o fim do prazo absoluto de sete dias; eventos minimizados por até 30 dias e no máximo 500 por conta. Limpeza paginada e idempotente integrada ao ciclo existente. A exclusão remove sessões, hashes, rótulos e eventos; permanece somente ID opaco com epoch para impedir que login concorrente recrie uma sessão após a exclusão, conforme tombstone da conta. Não são guardados IP, User-Agent bruto, senha ou cookie.
+
+## 15. Candidato de 04/10/2026 e revisão
+
+- Implementação e gates operacionais detalhados: [runbook e registro de decisão](../operations/sessoes-seguranca-homologacao.md).
+- Senhas permanecem em PBKDF2-HMAC-SHA256 com sal aleatório e 600.000 iterações; parsing limitado, rehash legado e nenhum texto original/hash na resposta. Cadastro/troca/reset foram exercitados em dados sintéticos. Erros 422 também deixam de incluir o input rejeitado.
+- Quota compartilhada passou a incluir JSON e binários na mesma transação/lock. Não mede índices/WAL, tabelas especializadas nem todos os escritores diretos; limite de bytes lógicos não equivale a limite físico do disco.
+- Última suíte completa isolada: 1.220 backend e 793 frontend aprovados. Quatro testes de quota JSON e novas regressões frontend foram adicionados depois, com validação focada; resultado do CI do SHA exato deverá substituir esses números para promover.
+- Sem deploy, migração remota ou prova de produção. Produção continua inexistente. Parecer de lançamento permanece NO-GO até as evidências do runbook.
 
 Criar runbook para encerramento em massa, suspeita de replay, falha do banco, perda de cookie, retorno de backup e regressão após deploy. Não interpretar mudança de IP/navegador como prova automática de ataque.
 

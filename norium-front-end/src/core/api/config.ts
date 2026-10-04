@@ -19,7 +19,7 @@ function isLocalFrontend() {
 }
 
 export function apiBaseUrl() {
-  if (isLocalFrontend()) return LOCAL_API_URL;
+  if (isLocalFrontend()) return trimTrailingSlash(window.location.origin);
 
   const runtimeConfigured = window.__NORIUM_CONFIG__?.API_URL?.trim();
   if (runtimeConfigured) return trimTrailingSlash(runtimeConfigured);

@@ -19,6 +19,7 @@ import {
 } from "./profileService";
 import Button from "../shared/Button";
 import EmailPreferences from "./EmailPreferences";
+import SessionDevices from "./SessionDevices";
 
 type ProfileSettingsProps = {
   userId?: string;
@@ -261,6 +262,7 @@ export default function ProfileSettings({
             </section>
 
             <EmailPreferences key={userId} />
+            <SessionDevices key={`sessions:${userId}`} />
             {error && <p className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm font-bold text-red-300">{error}</p>}
             {message && <p className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm font-bold text-emerald-300">{message}</p>}
           </div>

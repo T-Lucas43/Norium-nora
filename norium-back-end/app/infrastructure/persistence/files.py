@@ -6,6 +6,7 @@ import uuid
 from threading import RLock
 from pathlib import Path
 from typing import Any
+from contextlib import contextmanager
 
 from . import postgres_store
 
@@ -16,22 +17,13 @@ def _postgres() -> bool:
     return postgres_store.configured() or postgres_store.required()
 
 
-def write(path: str | Path, content: bytes, *, content_type: str = "", metadata: dict[str, Any] | None = None) -> None:
-    target = Path(path)
-    if _postgres():
-        postgres_store.write_blob(
-            postgres_store.canonical_key(target), content,
-            content_type or mimetypes.guess_type(target.name)[0] or "application/octet-stream", metadata,
-        )
-        return
+@contextmanager
+def local_write_budget(target: Path, incoming: int):
     from app.core.tenant import get_data_root
     from app.infrastructure.storage_limits import scope_prefixes, enforce_growth
-
     key = postgres_store.canonical_key(target)
     prefix, excluded = scope_prefixes(key)
     root = get_data_root().resolve()
-    # Local/development storage has one process writer. Shared deployments
-    # use the transaction in write_blob instead of this process-local lock.
     with _local_binary_lock:
         global_used = workspace_used = 0
         for stored in root.rglob("*"):
@@ -48,7 +40,21 @@ def write(path: str | Path, content: bytes, *, content_type: str = "", metadata:
             if prefix and relative.startswith(prefix) and not (excluded and relative.startswith(excluded)):
                 workspace_used += size
         previous = target.stat().st_size if target.exists() else 0
-        enforce_growth(global_used, workspace_used, previous, len(content), has_workspace=bool(prefix))
+        enforce_growth(global_used, workspace_used, previous, incoming, has_workspace=bool(prefix))
+        yield
+
+
+def write(path: str | Path, content: bytes, *, content_type: str = "", metadata: dict[str, Any] | None = None) -> None:
+    target = Path(path)
+    if _postgres():
+        postgres_store.write_blob(
+            postgres_store.canonical_key(target), content,
+            content_type or mimetypes.guess_type(target.name)[0] or "application/octet-stream", metadata,
+        )
+        return
+    # Local/development storage has one process writer. Shared deployments
+    # use the transaction in write_blob instead of this process-local lock.
+    with local_write_budget(target, len(content)):
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(f".{target.name}.tmp-{uuid.uuid4().hex}")
         try:

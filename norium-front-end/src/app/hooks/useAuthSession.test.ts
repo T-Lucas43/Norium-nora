@@ -5,15 +5,27 @@ import { useAuthSession } from "./useAuthSession";
 import { mailboxSessionCache } from "../../features/mail/mailboxCache";
 
 const authJson = vi.hoisted(() => vi.fn());
+const renewCookieSession = vi.hoisted(() => vi.fn());
 vi.mock("../../utils/authApi", () => ({ authJson }));
+vi.mock("../../core/api/cookieSession", async (original) => ({ ...await original<typeof import("../../core/api/cookieSession")>(), renewCookieSession }));
 
 beforeEach(() => {
   authJson.mockReset();
+  renewCookieSession.mockReset().mockRejectedValue(new Error("Sem sessão no servidor"));
   localStorage.clear();
   sessionStorage.clear();
 });
 
 describe("useAuthSession", () => {
+  it("restaura pelo cookie sem copiar um Bearer legado persistente", async () => {
+    localStorage.setItem(AUTH_TOKEN_STORAGE, "legacy");
+    renewCookieSession.mockResolvedValue({ token: "short-access", user: { id: "restored" }, availableModes: ["app"] });
+    const { result } = renderHook(() => useAuthSession());
+    await waitFor(() => expect(result.current.authLoading).toBe(false));
+    expect(renewCookieSession).toHaveBeenCalledOnce();
+    expect(result.current.authSession?.token).toBe("short-access");
+    expect(localStorage.getItem(AUTH_TOKEN_STORAGE)).toBeNull();
+  });
   it("restaura a sessao dentro da mesma sessao do navegador", async () => {
     sessionStorage.setItem(AUTH_TOKEN_STORAGE, "token-persistente");
     authJson.mockResolvedValue({

@@ -138,9 +138,46 @@ def write_document(store_key: str, payload: Any) -> None:
 
     initialize()
     with connection() as db:
+        check_document_growth(db, store_key, payload)
         db.execute("""INSERT INTO norium_documents(store_key,payload) VALUES (%s,%s)
             ON CONFLICT (store_key) DO UPDATE SET payload=EXCLUDED.payload,
             revision=norium_documents.revision+1,updated_at=clock_timestamp()""", (store_key, Jsonb(payload)))
+
+
+def _storage_usage(db, key: str, kind: str) -> dict:
+    from app.infrastructure.storage_limits import scope_prefixes
+    prefix, excluded = scope_prefixes(key)
+    return db.execute("""WITH objects AS (
+        SELECT object_key AS key,byte_size AS size,'blob' AS kind FROM norium_blobs
+        UNION ALL SELECT store_key,octet_length(convert_to(payload::text,'UTF8')),'document' FROM norium_documents)
+        SELECT COALESCE(SUM(size),0) AS global_used,
+            COALESCE(SUM(size) FILTER (WHERE starts_with(key,%s)
+                AND (%s = '' OR NOT starts_with(key,%s))),0) AS workspace_used,
+            COALESCE(MAX(size) FILTER (WHERE key=%s AND kind=%s),0) AS previous
+        FROM objects""", (prefix, excluded, excluded, key, kind)).fetchone()
+
+
+def _quota_lock(db) -> None:
+    db.execute("SET LOCAL lock_timeout = '5s'")
+    db.execute("SELECT pg_advisory_xact_lock(hashtextextended('norium:storage-quota', 0))")
+
+
+def check_document_growth(db, key: str, payload: Any) -> None:
+    from psycopg.types.json import Jsonb
+    from app.infrastructure.storage_limits import scope_prefixes, enforce_growth
+    _quota_lock(db)
+    # Measure PostgreSQL's JSONB representation rather than guessing whitespace
+    # or encoding overhead; checking and updating use the same transaction.
+    incoming = db.execute("SELECT octet_length(convert_to(%s::jsonb::text,'UTF8')) AS size", (Jsonb(payload),)).fetchone()["size"]
+    usage = _storage_usage(db, key, "document")
+    enforce_growth(int(usage["global_used"]), int(usage["workspace_used"]), int(usage["previous"]),
+                   int(incoming), has_workspace=bool(scope_prefixes(key)[0]))
+
+
+def storage_bytes() -> int:
+    initialize()
+    with connection() as db:
+        return int(_storage_usage(db, "", "document")["global_used"])
 
 
 def delete_document(store_key: str) -> bool:
@@ -166,15 +203,9 @@ def write_blob(object_key: str, content: bytes, content_type: str, metadata: dic
     with connection() as db:
         # Check and write on the same connection/transaction. This lock covers
         # the shared global budget across workers and application replicas.
-        db.execute("SET LOCAL lock_timeout = '5s'")
-        db.execute("SELECT pg_advisory_xact_lock(hashtextextended('norium:blob-quota', 0))")
+        _quota_lock(db)
         prefix, excluded = scope_prefixes(object_key)
-        usage = db.execute("""SELECT
-            COALESCE(SUM(byte_size),0) AS global_used,
-            COALESCE(SUM(byte_size) FILTER (WHERE starts_with(object_key,%s)
-                AND (%s = '' OR NOT starts_with(object_key,%s))),0) AS workspace_used,
-            COALESCE(MAX(byte_size) FILTER (WHERE object_key=%s),0) AS previous
-            FROM norium_blobs""", (prefix, excluded, excluded, object_key)).fetchone()
+        usage = _storage_usage(db, object_key, "blob")
         enforce_growth(int(usage["global_used"]), int(usage["workspace_used"]),
                        int(usage["previous"]), len(content), has_workspace=bool(prefix))
         db.execute("""INSERT INTO norium_blobs(object_key,content,content_type,byte_size,sha256,metadata)

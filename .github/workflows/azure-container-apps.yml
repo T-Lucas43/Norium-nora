@@ -285,6 +285,24 @@ jobs:
             output/team-call-release/external-turn/summary.json
           retention-days: 14
 
+  shard-image-security:
+    # Prova de build do candidato Shard no PR, sem publicar nem promover.
+    # O smoke da imagem exige identidade sem root e sandbox Chromium.
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Build exact Shard candidate with mandatory browser sandbox
+        run: docker build --file Dockerfile.shard --build-arg "NORIUM_RELEASE_SHA=${GITHUB_SHA}" --tag norium-shard-security-ci .
+      - name: Verify unprivileged image identity and real sandboxed DOM
+        run: |
+          test "$(docker image inspect norium-shard-security-ci --format '{{.Config.User}}')" = norium
+          docker run --rm --network none --entrypoint python norium-shard-security-ci -m app.infrastructure.browser_runtime_smoke
+          echo 'shard_image_security_ci_passed: unprivileged image; sandbox required; DOM interaction'
+
   publish-image:
     # Publica a imagem assim que a validação de código termina. Os gates longos
     # de chamada continuam obrigatórios para promover a imagem no job deploy,

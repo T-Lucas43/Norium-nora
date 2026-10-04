@@ -10,6 +10,7 @@ import os
 import tempfile
 import threading
 import time
+from contextlib import nullcontext
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
@@ -155,8 +156,14 @@ def write_json(path: str | Path, payload: Any) -> None:
             raise PersistenceError(path, exc.args[0]) from exc
     file_path = Path(path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
+    from app.core.tenant import get_data_root
+    from app.infrastructure.persistence.files import local_write_budget
+    # Shared mode uses canonical PostgreSQL keys above. Local configuration and
+    # disposable fixtures outside the managed data root retain the existing writer.
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    budget = local_write_budget(file_path, len(encoded.encode("utf-8"))) if file_path.resolve().is_relative_to(get_data_root().resolve()) else nullcontext()
 
-    with _lock_for(file_path):
+    with budget, _lock_for(file_path):
         temporary_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -167,7 +174,7 @@ def write_json(path: str | Path, payload: Any) -> None:
                 suffix=".tmp",
                 delete=False,
             ) as temporary_file:
-                json.dump(payload, temporary_file, ensure_ascii=False, separators=(",", ":"))
+                temporary_file.write(encoded)
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
                 temporary_path = Path(temporary_file.name)

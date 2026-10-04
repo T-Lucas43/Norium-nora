@@ -19,6 +19,26 @@ function mockSuccessfulBlobFetch(blob = new Blob(["media"], { type: "image/png" 
 }
 
 describe("response isolation", () => {
+  it("accepts access-token renewal for the same server session", async () => {
+    const token = (exp: number) => btoa(JSON.stringify({ sub: "alice", sid: "session-a", exp })) + ".synthetic";
+    sessionStorage.setItem(AUTH_TOKEN_STORAGE, token(1000));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      sessionStorage.setItem(AUTH_TOKEN_STORAGE, token(1900));
+      return { ok: true, json: async () => ({ saved: true }) } as Response;
+    });
+    await expect(apiRequest("/api/clientes", { method: "POST", body: "{}" })).resolves.toEqual({ saved: true });
+  });
+
+  it("rejects a different login of the same account", async () => {
+    const token = (sid: string) => btoa(JSON.stringify({ sub: "alice", sid, exp: 1000 })) + ".synthetic";
+    sessionStorage.setItem(AUTH_TOKEN_STORAGE, token("first"));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      sessionStorage.setItem(AUTH_TOKEN_STORAGE, token("second"));
+      return { ok: true, json: async () => ({ private: "old-session" }) } as Response;
+    });
+    await expect(apiRequest("/api/clientes")).rejects.toMatchObject({ status: 499 });
+  });
+
   it.each(["token", "workspace"])("rejects a late JSON response after changing %s", async (change) => {
     sessionStorage.setItem(AUTH_TOKEN_STORAGE, "session-a");
     let finish!: (value: unknown) => void;

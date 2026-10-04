@@ -8,7 +8,7 @@ import { useWebSockets } from "../hooks/useWebSockets";
 import type { AppMode, AuthSession, PermissionKey } from "../types/auth";
 import { canParticipateInTeamChat, canUse } from "../types/auth";
 import { applyNoriumTheme } from "../utils/theme";
-import { authJson } from "../utils/authApi";
+import { closeCookieSession } from "../core/api/cookieSession";
 import { CallSessionProvider } from "../components/team-chat/CallSession";
 import AppPanels from "./components/AppPanels";
 import { preloadPanel } from "./navigation/panelModules";
@@ -173,9 +173,11 @@ export default function NoriumApp() {
     navigateNoriumView(nextMode);
   }, [profile?.tema, profile?.tema_personalizado, setAppMode, updateSession]);
 
-  const handleLogout = useCallback(() => {
-    if (authSession) {
-      void authJson("/api/auth/logout", authSession.token, { method: "POST" }).catch(() => undefined);
+  const handleLogout = useCallback(async () => {
+    try { await closeCookieSession(); }
+    catch {
+      window.alert("Não foi possível confirmar a saída no servidor. Verifique a conexão e tente novamente.");
+      return;
     }
     sessionStorage.removeItem(SIMULATION_BACKUP_STORAGE);
     localStorage.removeItem(SIMULATION_BACKUP_STORAGE);
@@ -184,7 +186,7 @@ export default function NoriumApp() {
     setTeamChatOpen(false);
     setTeamThreadToOpen(null);
     navigateNoriumView("login");
-  }, [authSession, clearSession]);
+  }, [clearSession]);
 
   const useSystemMode = useCallback(() => {
     setAppMode("app");

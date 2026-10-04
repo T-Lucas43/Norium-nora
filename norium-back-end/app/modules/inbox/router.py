@@ -16,7 +16,7 @@ from app.shared.schemas import StrictModel
 
 from app.core.tenant import get_user_db_path, read_json_file, write_json_file
 from app.infrastructure.persistence import postgres_store
-from app.routers.auth_router import current_user, user_from_websocket_ticket
+from app.routers.auth_router import current_user, user_from_websocket_ticket, revalidate_socket_user, guarded_socket_receive
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 EVENTS_DB_PATH = BASE_DIR / "eventos_db.json"
@@ -83,12 +83,16 @@ class SocketEnvelope(StrictModel):
 class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: dict[str, list[WebSocket]] = {}
+        self.identities: dict[WebSocket, dict[str, Any]] = {}
 
-    async def connect(self, user_id: str, websocket: WebSocket) -> None:
+    async def connect(self, user_id: str, websocket: WebSocket, user: dict[str, Any] | None = None) -> None:
         await websocket.accept()
         self.active_connections.setdefault(user_id, []).append(websocket)
+        if user is not None:
+            self.identities[websocket] = user
 
     def disconnect(self, websocket: WebSocket) -> None:
+        self.identities.pop(websocket, None)
         for user_id, connections in list(self.active_connections.items()):
             if websocket in connections:
                 connections.remove(websocket)
@@ -99,8 +103,13 @@ class ConnectionManager:
         disconnected: list[WebSocket] = []
         for connection in list(self.active_connections.get(user_id, [])):
             try:
+                await revalidate_socket_user(self.identities.get(connection, {}))
                 await connection.send_json(message)
             except Exception:
+                try:
+                    await connection.close(code=4401)
+                except RuntimeError:
+                    pass
                 disconnected.append(connection)
 
         for connection in disconnected:
@@ -323,11 +332,14 @@ async def omnichannel_websocket(websocket: WebSocket, ticket: str | None = Query
     except Exception:
         await websocket.close(code=4401)
         return
-    await manager.connect(user_id, websocket)
+    await manager.connect(user_id, websocket, user)
     try:
         await websocket.send_json({"type": "CONNECTED", "timestamp": utc_now_iso()})
         while True:
-            raw_message = await websocket.receive_text()
+            raw_message, user = await guarded_socket_receive(websocket, user)
+            if len(raw_message) > 120_000:
+                await websocket.close(code=1009)
+                return
             try:
                 payload = json.loads(raw_message)
             except json.JSONDecodeError:
@@ -350,4 +362,6 @@ async def omnichannel_websocket(websocket: WebSocket, ticket: str | None = Query
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception:
+        manager.disconnect(websocket)
+    finally:
         manager.disconnect(websocket)

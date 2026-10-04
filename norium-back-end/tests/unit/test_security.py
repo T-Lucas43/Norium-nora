@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import os
+from unittest.mock import patch
 
 from app.core.security import (
     TokenValidationError,
@@ -9,10 +11,24 @@ from app.core.security import (
     hash_password,
     password_needs_rehash,
     verify_password,
+    auth_secret,
 )
 
 
 class SecurityTest(unittest.TestCase):
+    def test_shared_runtime_requires_secret_manager_and_sufficient_key_length(self):
+        with patch("app.core.security.is_shared_environment", return_value=True):
+            for configured in ("", "short"):
+                with patch.dict(os.environ, {"NORIUM_AUTH_SECRET": configured}), self.assertRaises(RuntimeError):
+                    auth_secret()
+            with patch.dict(os.environ, {"NORIUM_AUTH_SECRET": "s" * 64}):
+                self.assertEqual(b"s" * 64, auth_secret())
+
+    def test_invalid_token_types_and_oversize_are_rejected(self):
+        for token in (None, [], "x" * 5000, "invalid.invalid"):
+            with self.assertRaises(TokenValidationError):
+                decode_signed_token(token, secret=b"synthetic" * 8)
+
     def test_password_hash_is_salted_and_verifiable(self) -> None:
         first = hash_password("senha-forte")
         second = hash_password("senha-forte")

@@ -48,7 +48,7 @@ describe("useAuthenticatedMediaState", () => {
     expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(source, { cache: "no-store" });
   });
 
-  it("normaliza uma URL publicada pelo backend local antes do download autenticado", async () => {
+  it("baixa pela mesma origem do proxy local com autenticação", async () => {
     const source = new URL("/api/chat/midia/message-backend", apiBaseUrl()).href;
     mediaApi.apiBlobRequest.mockResolvedValue(new Blob(["image"], { type: "image/png" }));
 
@@ -56,7 +56,7 @@ describe("useAuthenticatedMediaState", () => {
 
     await waitFor(() => expect(result.current.source).toBe("blob:image/png"));
     expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(
-      "/api/chat/midia/message-backend",
+      source,
       { cache: "no-store" },
     );
   });

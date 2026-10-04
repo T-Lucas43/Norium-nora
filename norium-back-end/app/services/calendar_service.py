@@ -20,7 +20,9 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
-from app.core.tenant import get_data_root, is_production, public_api_url, read_profile_db, write_profile_db
+from app.core.tenant import get_data_root, is_production, public_api_url, read_profile_db, write_profile_db, read_account_db, write_account_db
+from app.core.credentials import CredentialConfigurationError, CredentialRecoveryError
+from app.services import oauth_credentials
 from app.services.oauth_state import active_oauth_attempts, find_oauth_attempt, oauth_attempts_payload
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -777,10 +779,19 @@ class CalendarService:
         write_profile_db(self.user_id, profile)
 
     def _read_profile_section(self, section: str, fallback: Any) -> Any:
+        if section in oauth_credentials.SECTIONS:
+            integration = read_account_db(self.user_id, "calendar_integration", {})
+            if section in integration:
+                return self._recover_section(section, integration[section])
         profile = self._read_profile()
         value = profile.get(section)
         if value is not None:
-            return value
+            recovered = self._recover_section(section, value)
+            if section in oauth_credentials.SECTIONS:
+                self._write_profile_section(section, recovered)
+                profile[section] = self._protected_section(section, recovered)
+                self._write_profile(profile)
+            return recovered
         if self.user_id != "lucas123":
             return fallback
         legacy_map = {
@@ -790,9 +801,33 @@ class CalendarService:
             "calendarLocalEvents": LOCAL_EVENTS_PATH,
         }
         legacy_path = legacy_map.get(section)
-        return self._read_json(legacy_path, fallback) if legacy_path else fallback
+        return self._recover_section(section, self._read_json(legacy_path, fallback) if legacy_path else fallback)
+
+    def _protected_section(self, section: str, value: Any) -> Any:
+        if section not in oauth_credentials.SECTIONS:
+            return value
+        try:
+            return oauth_credentials.protect(self.user_id, section, value)
+        except (CredentialConfigurationError, CredentialRecoveryError):
+            raise CalendarConfigError("A proteção das credenciais Google precisa ser configurada pelo administrador.") from None
+
+    def _recover_section(self, section: str, value: Any) -> Any:
+        if section not in oauth_credentials.SECTIONS:
+            return value
+        try:
+            recovered, rewrite = oauth_credentials.recover(self.user_id, section, value)
+            if rewrite:
+                self._write_profile_section(section, recovered)
+            return recovered
+        except (CredentialConfigurationError, CredentialRecoveryError):
+            raise CalendarConfigError("Não foi possível validar as credenciais Google protegidas. Consulte o administrador.") from None
 
     def _write_profile_section(self, section: str, value: Any) -> None:
+        if section in oauth_credentials.SECTIONS:
+            integration = read_account_db(self.user_id, "calendar_integration", {})
+            integration[section] = self._protected_section(section, value)
+            write_account_db(self.user_id, "calendar_integration", integration)
+            return
         profile = self._read_profile()
         profile[section] = value
         self._write_profile(profile)

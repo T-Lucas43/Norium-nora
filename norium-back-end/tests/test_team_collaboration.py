@@ -40,6 +40,12 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         self.member["lastLoginAt"] = "2026-09-01T14:35:00+00:00"
         self.other_member = team_user("other", owner_id="owner")
         self.users = {"users": [self.owner, self.member, self.other_member]}
+        session_root = patch.object(team_router.sessions, "get_data_root", return_value=Path(self.temp_dir.name))
+        session_root.start()
+        self.addCleanup(session_root.stop)
+        for actor in self.users["users"]:
+            row, _, _ = team_router.sessions.create(actor["id"], 0)
+            actor["_authSession"] = row["id"]
 
     async def asyncTearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -228,6 +234,7 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
             member_socket: "member",
         }
         manager.user_team = {"owner": "owner", "member": "owner"}
+        manager.socket_session_id = {origin_socket: self.owner["_authSession"], other_owner_tab: self.owner["_authSession"], member_socket: self.member["_authSession"]}
         event = {"type": "CALL_END", "callId": "call_0123456789abcdef"}
 
         with patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)):
@@ -242,7 +249,7 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         other_owner_tab.send_json.assert_awaited_once_with(event)
         member_socket.send_json.assert_awaited_once_with(event)
 
-    async def test_call_signal_fanout_does_not_read_user_directory_per_ice_event(self) -> None:
+    async def test_call_signal_fanout_revalidates_recipient_before_ice_event(self) -> None:
         manager = team_router.PresenceManager()
         member_socket = MagicMock()
         member_socket.send_json = AsyncMock()
@@ -250,16 +257,17 @@ class TeamCollaborationTests(unittest.IsolatedAsyncioTestCase):
         manager.socket_user = {member_socket: "member"}
         manager.socket_connection = {member_socket: "member-connection"}
         manager.user_team = {"member": "owner"}
+        manager.socket_session_id = {member_socket: self.member["_authSession"]}
         signal = {
             "type": "CALL_SIGNAL",
             "callId": "call_0123456789abcdef",
             "signal": {"candidate": "candidate-1"},
         }
 
-        with patch.object(team_router, "read_user_store", AsyncMock()) as read_users:
+        with patch.object(team_router, "read_user_store", AsyncMock(return_value=self.users)) as read_users:
             await manager.send_to_users("owner", {"member"}, signal)
 
-        read_users.assert_not_awaited()
+        read_users.assert_awaited_once()
         member_socket.send_json.assert_awaited_once_with(signal)
 
     async def test_image_attachment_is_saved_and_returned_in_team_chat(self) -> None:

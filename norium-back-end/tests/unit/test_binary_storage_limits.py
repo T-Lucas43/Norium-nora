@@ -103,7 +103,7 @@ class BinaryStorageLimitsTests(unittest.TestCase):
         self.assertIn('pg_advisory_xact_lock', calls[1][0])
         self.assertIn('global_used', calls[2][0])
         self.assertIn('INSERT INTO norium_blobs', calls[3][0])
-        self.assertEqual(('user_a/', 'user_a/workspace_', 'user_a/workspace_', 'user_a/clients/a.pdf'), calls[2][1])
+        self.assertEqual(('user_a/', 'user_a/workspace_', 'user_a/workspace_', 'user_a/clients/a.pdf', 'blob'), calls[2][1])
 
     def test_postgres_exhaustion_prevents_insert(self):
         calls = []

@@ -1,6 +1,7 @@
 // Cliente HTTP unico: autenticacao, timeout e erros nao se repetem nas telas.
 import { apiBaseUrl, authToken } from "./config";
 import { requestScope } from "./sessionScope";
+import { CookieSessionError } from "./cookieSession";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -140,6 +141,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       }
       return payload as T;
     } catch (error) {
+      if (error instanceof CookieSessionError) throw new ApiError(error.message, error.status);
       if (error instanceof ApiError) throw error;
       if (signal?.aborted) {
         throw new ApiError("Operacao cancelada.", 499);
@@ -201,6 +203,7 @@ export async function apiBlobRequest(path: string, options: ApiRequestOptions = 
     if (scope !== requestScope()) throw new ApiError("A sessão ou o ambiente mudou. Atualize a página.", 499);
     return blob;
   } catch (error) {
+    if (error instanceof CookieSessionError) throw new ApiError(error.message, error.status);
     if (error instanceof ApiError) throw error;
     if (signal?.aborted) throw new ApiError("Operacao cancelada.", 499);
     if (timeoutController.signal.aborted) throw new ApiError("O arquivo ainda não ficou pronto. Tente novamente.", 408);

@@ -11,7 +11,7 @@ from pydantic import Field
 
 from app.shared.schemas import StrictModel
 
-from app.routers.auth_router import current_user, user_from_websocket_ticket
+from app.routers.auth_router import current_user, user_from_websocket_ticket, revalidate_socket_user, guarded_socket_receive
 from app.routers.inbox_router import record_event
 from app.services.brainstorm_store import (
     BrainstormLockedError,
@@ -94,12 +94,16 @@ def can_manage_session(user: dict[str, Any], session: dict[str, Any]) -> bool:
 class BrainstormConnectionManager:
     def __init__(self) -> None:
         self.connections: dict[str, dict[str, list[WebSocket]]] = defaultdict(lambda: defaultdict(list))
+        self.identities: dict[WebSocket, dict[str, Any]] = {}
 
-    async def connect(self, tenant_id: str, session_id: str, websocket: WebSocket) -> None:
+    async def connect(self, tenant_id: str, session_id: str, websocket: WebSocket, user: dict[str, Any] | None = None) -> None:
         await websocket.accept()
         self.connections[tenant_id][session_id].append(websocket)
+        if user is not None:
+            self.identities[websocket] = user
 
     def disconnect(self, tenant_id: str, session_id: str, websocket: WebSocket) -> None:
+        self.identities.pop(websocket, None)
         sockets = self.connections.get(tenant_id, {}).get(session_id, [])
         if websocket in sockets:
             sockets.remove(websocket)
@@ -112,8 +116,16 @@ class BrainstormConnectionManager:
         stale: list[WebSocket] = []
         for socket in list(self.connections.get(tenant_id, {}).get(session_id, [])):
             try:
+                live = await revalidate_socket_user(self.identities.get(socket, {}))
+                require_brainstorm_access(live)
+                if collaboration_tenant_id(live) != tenant_id:
+                    raise HTTPException(403, "Equipe alterada.")
                 await socket.send_json(payload)
             except Exception:
+                try:
+                    await socket.close(code=4401)
+                except RuntimeError:
+                    pass
                 stale.append(socket)
         for socket in stale:
             self.disconnect(tenant_id, session_id, socket)
@@ -277,13 +289,17 @@ async def brainstorm_socket(session_id: str, websocket: WebSocket, ticket: str |
     if not session:
         await websocket.close(code=4404)
         return
-    await manager.connect(tenant_id, session_id, websocket)
+    await manager.connect(tenant_id, session_id, websocket, user)
     presence = {"id": str(user.get("id") or ""), "name": str(user.get("nome") or user.get("email") or "Membro"), "photoUrl": str(user.get("fotoUrl") or "")}
     await websocket.send_json({"type": "CONNECTED", "session": session, "timestamp": now_iso()})
     await manager.broadcast(tenant_id, session_id, {"type": "PRESENCE_JOIN", "participant": presence})
     try:
         while True:
-            raw = await websocket.receive_text()
+            raw, user = await guarded_socket_receive(websocket, user)
+            require_brainstorm_access(user)
+            if collaboration_tenant_id(user) != tenant_id or len(raw) > 120_000:
+                await websocket.close(code=4403)
+                return
             try:
                 message = json.loads(raw)
             except json.JSONDecodeError:
@@ -312,4 +328,6 @@ async def brainstorm_socket(session_id: str, websocket: WebSocket, ticket: str |
         manager.disconnect(tenant_id, session_id, websocket)
         await manager.broadcast(tenant_id, session_id, {"type": "PRESENCE_LEAVE", "participant": presence})
     except Exception:
+        manager.disconnect(tenant_id, session_id, websocket)
+    finally:
         manager.disconnect(tenant_id, session_id, websocket)

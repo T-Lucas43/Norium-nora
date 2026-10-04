@@ -53,17 +53,30 @@ Data: 03/10/2026. Execução direta Codex, sem Muse. O usuário autorizou incorp
 
 ## Requisitos pendentes
 
-1. Participação especializada: `docs/AI_GOVERNANCE.md` proíbe implementar/aprovar sozinho autenticação, criptografia e infraestrutura crítica. A pergunta sobre responsável foi enviada ao usuário; ainda sem resposta.
-2. Política de sessão: `SECURITY.md` proíbe persistência de tokens. Cookie persistente não será introduzido como exceção silenciosa. Resolver compatibilidade com responsável habilitado antes de implementar.
+1. Participação especializada: o usuário indicou **a si próprio** como responsável pela revisão técnica em resposta à solicitação específica. `docs/AI_GOVERNANCE.md` exige participação especializada e aprovação humana de código crítico; os próximos diffs críticos serão preparados para essa revisão, e o deploy requer o aceite concreto.
+2. Política de sessão: após receber a proposta exata, o usuário/responsável respondeu **"Aprovar essa regra específica de cookie"**. Regra formalizada em SECURITY.md: Bearer somente em sessionStorage; somente cookie opaco de renovação pode persistir com HttpOnly/Secure/SameSite, teto absoluto de sete dias, hash/revogação no servidor e CSRF/Origin, mantendo CORS/TLS/isolamento. Implementação crítica autorizada no candidato; revisão humana do diff concreto permanece obrigatória antes do deploy. Não ampliar essa autorização para outros cookies, credenciais, scopes ou controles.
 3. Git, Shard e cliente Google efetivo recuperados. Callback Gmail salvo com autorização específica e persistência confirmada; consentimento/callback real ainda pendentes. Login manual anterior no Shard ficou dispensado.
 4. Segunda conta designada para isolamento A/B e smokes de equipe; provas locais não substituem jornadas remotas.
 5. Gates operacionais: imagem identificada, backup/restauração PostgreSQL, preservação de dados, rollback, alertas, privacidade e verificação pós-deploy.
 
-Nenhum deploy foi executado até este registro. O PR #45 contém correções parciais; mudanças críticas de sessão/criptografia e configuração remota permanecem pendentes. Não comunicar tudo corrigido nem homologação atualizada sem evidências.
+Nenhum deploy foi executado até este registro. O PR #45 e o candidato contêm correções; mudanças críticas de sessão/criptografia estão implementadas localmente e aguardam revisão do diff, validação exata e gates operacionais. Não comunicar tudo corrigido nem homologação atualizada sem evidências.
 
 ## Próxima retomada
 
 - Continuar pelo candidato `output/security-remediation-2026-10-03/candidate`, não fazer merge/reset da pasta original suja.
 - A configuração temporária Vitest da cópia de validação foi removida após o teste; dependências estão num junction local ignorado. Artefatos do frontend ficam na pasta `output/security-remediation-2026-10-03/`, fora do candidato versionado.
-- Obter as respostas pendentes sobre especialista e sessões dos painéis Shard/Google; não solicitar senhas no chat e não tratar tempo sem resposta como aprovação.
+- Participação humana e exceção de cookie já foram respondidas/aprovadas pelo usuário. Não repetir essas perguntas; solicitar somente aceite do diff concreto antes da promoção, segundo governança.
 - Antes do deploy completo, resolver todos os gates críticos listados. Os commits atuais são correções parciais e **não** um release aprovado de sessões persistentes.
+
+## Implementação crítica de 04/10/2026
+
+- Registro de sessões PostgreSQL/SQLite local, cookie opaco sete dias, CSRF/Origin, rotação e replay, SID obrigatório, epoch, revogação individual/global, dispositivos próprios e limpeza implementados no candidato. Cadastro/login/plano/senha/reset/admin usam os controles; logout de uma aba antiga preserva o cookie da nova sessão.
+- Inbox/Brainstorm/Equipe verificam sessão/status/SV/permissões ao receber/enviar e no idle. Rotação frontend não troca identidade; resposta tardia de uma sessão não limpa outra; mutação não repete após resposta perdida. Bearer permanece somente em sessionStorage.
+- Senha já usava PBKDF2-HMAC-SHA256 com 600.000 iterações e sal aleatório. Parser limitado e regressões de cadastro/troca/reset acrescentadas; 422 deixa de devolver input/ctx. Não foi introduzida criptografia reversível de senha.
+- Gmail/Agenda agora protegem token/state com Fernet, chave dedicada, vínculo de conta/finalidade e rotação. Ferramenta offline JSONB implementada com dry-run, lock/transação, roundtrip e flags de janela/restore. Chaves, backup/restore e inventário/migração remotos ainda pendentes; não alegar ausência universal de plaintext no volume/backups.
+- Browser: CONNECT 443 por execução, credencial interna, allowlist de todos os hosts, DNS validado no TCP e TLS original. Sandbox Chromium obrigatório e Docker Shard final sem root; não comprovado no runtime Shard. Nenhuma configuração de privilégios do provedor foi relaxada.
+- Quotas incluem JSON e binários na mesma transação/lock. CI ampliado com concorrência mista em duas conexões, substituição/global; não inclui bytes físicos de índices/WAL/tabelas especializadas nem todos os escritores diretos.
+- Última suíte completa isolada: **1.220 backend**, zero falhas/erros/skips, 463,538s (`security-sessions-current-complete.json`); **793 frontend** em 130 arquivos, 172,38s. Depois: **83 backend focados** aprovados (quota JSON/JSON repository/auth/OAuth/bootstrap/hierarquia), **22 frontend focados** e **4 UI dispositivos** aprovados. Nova rodada integral do SHA final exigida.
+- Build TypeScript/Vite/orçamento aprovado; lint sem erros e com avisos herdados. Scanner do código atual sem alertas e canário sintético detectado/mascarado. Alerta Bandit B608 na concatenação de duas cláusulas fixas foi removido usando queries literais separadas, preservando bind de user_id; scan final pendente.
+- [Runbook/decisão/revisão](../operations/sessoes-seguranca-homologacao.md) registra arquivos críticos, configuração, reautenticação, retenção, migração, backup e rollback. Responsável humano permanece o usuário. Aceite do diff ainda não solicitado/concluído; sem deploy/produção.
+- Painel Shard reaberto: imagem ativa continua `norium-fullstack-a7d339e`; runtime gerenciado pela imagem. Somente nomes de variáveis conferidos, valores não expostos: `NORIUM_AUTH_SECRET` listado, `NORIUM_OAUTH_CREDENTIAL_ENCRYPTION_KEY` e `NORIUM_PERSISTENT_SESSIONS_ENABLED` ausentes. Inserção da nova chave requer participação do responsável, sem segredo em IA/chat. Novo job PR `shard-image-security` prepara prova de build/UID/sandbox, sem publicação/deploy.

@@ -34,6 +34,7 @@ from app.infrastructure.storage_quota import (
 )
 from app.infrastructure.persistence import files as persistent_files
 from app.infrastructure.persistence import postgres_store
+from app.infrastructure.browser_egress import BrowserEgress, IsolatedBrowser, chromium_launch_options
 from app.modules.intelligence.browser_live import FEEDS, live_key, start_live
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store
 from app.modules.platform.service import decrypt_secret, encrypt_secret, list_collection, update_collection_item
@@ -533,7 +534,7 @@ async def _network_guard(route: Route, allowed_domains: list[str], blocked_domai
     try:
         _, host = validate_public_url(
             url,
-            allowed_domains if route.request.resource_type == "document" else None,
+            allowed_domains,
             blocked_domains,
         )
         if host not in dns_cache:
@@ -546,7 +547,15 @@ async def _network_guard(route: Route, allowed_domains: list[str], blocked_domai
 
 
 async def _browser_context(playwright: Playwright, run: dict[str, Any], profile: dict[str, Any]) -> tuple[Any, BrowserContext]:
-    browser = await playwright.chromium.launch(channel="chromium", headless=True, args=["--disable-dev-shm-usage"])
+    options = chromium_launch_options()
+    policy = run.get("policySnapshot") if isinstance(run.get("policySnapshot"), dict) else {}
+    proxy = BrowserEgress(list(policy.get("allowedDomains", [])), list(policy.get("blockedDomains", [])))
+    proxy_config = await proxy.start()
+    try:
+        browser = IsolatedBrowser(await playwright.chromium.launch(**options, proxy=proxy_config), proxy)
+    except BaseException:
+        await proxy.close()
+        raise
     storage_state: dict[str, Any] | None = None
     encrypted_state = str(profile.get("encryptedStorageState") or "")
     if profile.get("retainSession") and encrypted_state:
@@ -556,20 +565,23 @@ async def _browser_context(playwright: Playwright, run: dict[str, Any], profile:
                 storage_state = decoded
         except Exception:
             storage_state = None
-    context = await browser.new_context(
-        accept_downloads=bool(profile.get("allowDownloads")),
-        viewport={"width": 1440, "height": 900},
-        locale="pt-BR", timezone_id="America/Sao_Paulo", service_workers="block",
-        storage_state=storage_state,
-    )
-    policy = run.get("policySnapshot") if isinstance(run.get("policySnapshot"), dict) else {}
-    dns_cache: set[str] = set()
-    await context.route(
-        "**/*",
-        lambda route: _network_guard(
-            route, list(policy.get("allowedDomains", [])), list(policy.get("blockedDomains", [])), dns_cache,
-        ),
-    )
+    try:
+        context = await browser.new_context(
+            accept_downloads=bool(profile.get("allowDownloads")),
+            viewport={"width": 1440, "height": 900},
+            locale="pt-BR", timezone_id="America/Sao_Paulo", service_workers="block",
+            storage_state=storage_state,
+        )
+        dns_cache: set[str] = set()
+        await context.route(
+            "**/*",
+            lambda route: _network_guard(
+                route, list(policy.get("allowedDomains", [])), list(policy.get("blockedDomains", [])), dns_cache,
+            ),
+        )
+    except BaseException:
+        await browser.close()
+        raise
     return browser, context
 
 
@@ -815,7 +827,7 @@ async def browser_runtime_health() -> dict[str, Any]:
 </html>"""
     health_url = "data:text/html;base64," + base64.b64encode(health_document.encode("utf-8")).decode("ascii")
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(channel="chromium", headless=True, args=["--disable-dev-shm-usage"])
+        browser = await playwright.chromium.launch(**chromium_launch_options())
         try:
             page = await browser.new_page(viewport={"width": 1024, "height": 768})
             await page.goto(health_url, wait_until="domcontentloaded", timeout=8_000)

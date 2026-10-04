@@ -30,7 +30,10 @@ from app.core.tenant import (
     read_account_db,
     read_profile_db,
     write_account_db,
+    write_profile_db,
 )
+from app.core.credentials import CredentialConfigurationError, CredentialRecoveryError
+from app.services import oauth_credentials
 from app.services.oauth_state import active_oauth_attempts, find_oauth_attempt, oauth_attempts_payload
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -1056,15 +1059,20 @@ class GmailService:
         # workspace fazia contas secundarias falharem ao retornar do consentimento.
         integration = self._read_integration_store()
         if section in integration:
-            return integration[section]
+            return self._recover_section(section, integration[section])
 
         # Migra de forma transparente os dados gravados antes da separacao.
         profile = self._read_profile()
         value = profile.get(section)
         if value is not None:
-            integration[section] = value
-            self._write_integration_store(integration)
-            return value
+            recovered = self._recover_section(section, value)
+            self._write_profile_section(section, recovered)
+            if section in oauth_credentials.SECTIONS:
+                # Replace the legacy profile copy only after encrypted account
+                # storage succeeded. Both copies remain recoverable by the key.
+                profile[section] = self._protected_section(section, recovered)
+                write_profile_db(self.user_id, profile)
+            return recovered
         if self.user_id != "lucas123":
             return fallback
         legacy_map = {
@@ -1074,11 +1082,31 @@ class GmailService:
             "gmailProfileCache": PROFILE_CACHE_PATH,
         }
         legacy_path = legacy_map.get(section)
-        return self._read_json(legacy_path, fallback) if legacy_path else fallback
+        value = self._read_json(legacy_path, fallback) if legacy_path else fallback
+        return self._recover_section(section, value)
+
+    def _protected_section(self, section: str, value: Any) -> Any:
+        if section not in oauth_credentials.SECTIONS:
+            return value
+        try:
+            return oauth_credentials.protect(self.user_id, section, value)
+        except (CredentialConfigurationError, CredentialRecoveryError):
+            raise GmailConfigError("A proteção das credenciais Gmail precisa ser configurada pelo administrador.") from None
+
+    def _recover_section(self, section: str, value: Any) -> Any:
+        if section not in oauth_credentials.SECTIONS:
+            return value
+        try:
+            recovered, rewrite = oauth_credentials.recover(self.user_id, section, value)
+            if rewrite:
+                self._write_profile_section(section, recovered)
+            return recovered
+        except (CredentialConfigurationError, CredentialRecoveryError):
+            raise GmailConfigError("Não foi possível validar as credenciais Gmail protegidas. Consulte o administrador.") from None
 
     def _write_profile_section(self, section: str, value: Any) -> None:
         integration = self._read_integration_store()
-        integration[section] = value
+        integration[section] = self._protected_section(section, value)
         self._write_integration_store(integration)
 
     def _safe_user_id(self) -> str:

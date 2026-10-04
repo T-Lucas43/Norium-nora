@@ -48,22 +48,40 @@ class JsonCallStateStore:
         append_messages: tuple[dict[str, Any], ...] = (),
     ) -> None:
         async with self._lock:
-            document = await asyncio.to_thread(self._read_document, team_id)
-            if self._on_call_removed:
-                retained_ids = {
-                    str(call.get("callId") or "") for call in state.active_calls if isinstance(call, dict)
-                }
-                for call in document.get("activeCalls", []):
-                    if isinstance(call, dict) and str(call.get("callId") or "") not in retained_ids:
-                        result = self._on_call_removed(call)
-                        if inspect.isawaitable(result):
-                            await result
-            document["activeCalls"] = copy.deepcopy(state.active_calls)
-            document["endedCallIds"] = dict(state.ended_call_ids)
-            if append_messages:
-                document.setdefault("messages", []).extend(copy.deepcopy(list(append_messages)))
-                document["messages"] = document["messages"][-2000:]
+            # The same shared document lock covers read, merge and write.
+            # Normal updates need one worker dispatch, rather than handing
+            # the lock back to the event loop between two I/O dispatches.
+            pending = await asyncio.to_thread(self._save_document, team_id, state, append_messages)
+            if pending is None:
+                return
+            document, removed_calls = pending
+            for call in removed_calls:
+                result = self._on_call_removed(call)
+                if inspect.isawaitable(result):
+                    await result
             await asyncio.to_thread(self._write_document, team_id, document)
+
+    def _save_document(
+        self,
+        team_id: str,
+        state: CallState,
+        append_messages: tuple[dict[str, Any], ...],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+        document = self._read_document(team_id)
+        retained_ids = {str(call.get("callId") or "") for call in state.active_calls if isinstance(call, dict)}
+        removed_calls = [call for call in document.get("activeCalls", [])
+                         if isinstance(call, dict) and str(call.get("callId") or "") not in retained_ids]
+        document["activeCalls"] = copy.deepcopy(state.active_calls)
+        document["endedCallIds"] = dict(state.ended_call_ids)
+        if append_messages:
+            document.setdefault("messages", []).extend(copy.deepcopy(list(append_messages)))
+            document["messages"] = document["messages"][-2000:]
+        # Awaitable cleanup retains its original ordering before the write;
+        # no document or authorization snapshot is cached across operations.
+        if self._on_call_removed and removed_calls:
+            return document, removed_calls
+        self._write_document(team_id, document)
+        return None
 
 
 class CallbackTeamDirectory:

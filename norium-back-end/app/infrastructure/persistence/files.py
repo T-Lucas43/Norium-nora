@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import mimetypes
+import stat
 import uuid
 from threading import RLock
 from pathlib import Path
@@ -27,14 +28,18 @@ def local_write_budget(target: Path, incoming: int):
     with _local_binary_lock:
         global_used = workspace_used = 0
         for stored in root.rglob("*"):
-            if stored.is_symlink():
-                raise OSError("storage_symlink_not_supported")
-            if not stored.is_file() or ".tmp-" in stored.name:
-                continue
             try:
-                size = stored.stat().st_size
+                metadata = stored.lstat()
             except FileNotFoundError:
                 continue
+            # One uncached metadata lookup per entry preserves the complete
+            # scan under the same writer lock. Never follow a symlink while
+            # accounting, including dangling links and temporary names.
+            if stat.S_ISLNK(metadata.st_mode):
+                raise OSError("storage_symlink_not_supported")
+            if not stat.S_ISREG(metadata.st_mode) or ".tmp-" in stored.name:
+                continue
+            size = metadata.st_size
             global_used += size
             relative = stored.relative_to(root).as_posix()
             if prefix and relative.startswith(prefix) and not (excluded and relative.startswith(excluded)):

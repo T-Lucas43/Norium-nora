@@ -4,6 +4,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+import stat
+from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -82,6 +84,53 @@ class BinaryStorageLimitsTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as executor:
             outcomes = list(executor.map(write_one, (1, 2)))
         self.assertEqual(1, sum(outcomes))
+
+    def test_quota_scan_reads_fresh_metadata_once_for_each_entry(self):
+        stored = self.root / 'user_a/documents/previous.pdf'
+        files.write(stored, b'123456')
+        original = Path.lstat
+        reads = {}
+        def lstat(path, *args, **kwargs):
+            reads[path] = reads.get(path, 0) + 1
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'lstat', lstat):
+            with files.local_write_budget(self.root / 'user_a/documents/new.pdf', 4):
+                pass
+        self.assertEqual({self.root / 'user_a': 1, self.root / 'user_a/documents': 1, stored: 1}, reads)
+        with self.assertRaises(HTTPException):
+            with files.local_write_budget(self.root / 'user_a/documents/new.pdf', 5):
+                pass
+
+    def test_quota_scan_rejects_links_before_temporary_name_exclusion(self):
+        # Model lstat without requiring Windows symlink privileges. The
+        # scanner must reject both a normal entry and a dangling temporary
+        # link before considering its type or excluding a temporary file.
+        original = Path.lstat
+        for name in ('synthetic-link', '.synthetic.tmp-link'):
+            with self.subTest(name=name):
+                entry = self.root / name
+                entry.write_bytes(b'x')
+                def lstat(path, *args, **kwargs):
+                    return SimpleNamespace(st_mode=stat.S_IFLNK, st_size=0) if path == entry else original(path, *args, **kwargs)
+                with patch.object(Path, 'lstat', lstat):
+                    with self.assertRaisesRegex(OSError, 'storage_symlink_not_supported'):
+                        with files.local_write_budget(self.root / 'user_b/new.pdf', 1):
+                            pass
+                entry.unlink()
+
+    def test_quota_scan_fails_closed_when_metadata_is_unreadable(self):
+        entry = self.root / 'unreadable.pdf'
+        entry.write_bytes(b'x')
+        original = Path.lstat
+        def lstat(path, *args, **kwargs):
+            if path == entry:
+                raise PermissionError('synthetic unreadable metadata')
+            return original(path, *args, **kwargs)
+        target = self.root / 'user_b/new.pdf'
+        with patch.object(Path, 'lstat', lstat):
+            with self.assertRaises(PermissionError):
+                files.write(target, b'x')
+        self.assertFalse(target.exists())
 
     def test_postgres_lock_usage_and_write_share_transaction(self):
         calls = []

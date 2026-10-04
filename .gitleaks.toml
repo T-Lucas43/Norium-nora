@@ -3,6 +3,9 @@
 # the application runtime. Keep the paths narrow so real source/configuration
 # secrets remain covered by the repository scan.
 
+[extend]
+useDefault = true
+
 [allowlist]
 description = "Synthetic HMAC test vectors"
 paths = [

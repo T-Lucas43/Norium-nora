@@ -90,6 +90,20 @@ jobs:
         uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.24.3
+
+      - name: Prove secret scanner detects a synthetic canary
+        run: |
+          python scripts/check_secret_scanner.py --gitleaks /tmp/gitleaks-8.24.3/gitleaks
+          /tmp/gitleaks-8.24.3/gitleaks git . --config .gitleaks.toml --log-opts=HEAD --redact=100 --no-banner --no-color --report-format=sarif --report-path output/gitleaks-history.sarif
+
+      - name: Preserve redacted candidate history scan
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: secret-history-${{ github.sha }}
+          path: output/gitleaks-history.sarif
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Check production frontend for permanent call secrets and test harnesses
         run: python norium-back-end/scripts/team_call_frontend_security.py norium-front-end

@@ -11,6 +11,7 @@ import base64
 import os
 import secrets
 from contextlib import suppress
+from pathlib import Path
 
 from fastapi import HTTPException
 
@@ -19,19 +20,37 @@ from app.infrastructure.public_http import PublicNetworkBackend, validate_public
 MAX_CONNECTIONS = 32
 MAX_TRAFFIC_BYTES = 128 * 1024 * 1024
 MAX_TUNNEL_SECONDS = 20 * 60
+CHROME_EXECUTABLE = Path("/opt/google/chrome/chrome")
 
 
 def chromium_launch_options() -> dict:
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         raise HTTPException(503, "O navegador exige execução sem privilégios de root.")
+    channel = os.environ.get("NORIUM_BROWSER_CHANNEL", "chromium")
+    if channel not in {"chrome", "chromium"}:
+        raise HTTPException(503, "O canal do navegador não está autorizado.")
+    if channel == "chrome" and (not CHROME_EXECUTABLE.is_file() or not os.access(CHROME_EXECUTABLE, os.X_OK)):
+        raise HTTPException(503, "O Google Chrome aprovado não está disponível.")
     browser_environment = {key: os.environ[key] for key in (
         "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "LANG", "LC_ALL", "TZ",
         "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LOCALAPPDATA", "USERPROFILE",
     ) if key in os.environ}
-    return {"channel": "chromium", "headless": True, "chromium_sandbox": True, "env": browser_environment, "args": [
+    options = {"channel": channel, "headless": True, "chromium_sandbox": True, "env": browser_environment, "args": [
         "--disable-dev-shm-usage", "--disable-quic", "--proxy-bypass-list=<-loopback>",
         "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", "--dns-prefetch-disable",
     ]}
+    if channel == "chrome":
+        options["executable_path"] = CHROME_EXECUTABLE.as_posix()
+    return options
+
+
+def browser_executable_path(browser_type) -> Path:
+    """Resolve the same executable selected for launch, without a fallback."""
+    options = chromium_launch_options()
+    binary = Path(options.get("executable_path") or browser_type.executable_path)
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise HTTPException(503, "O binário do navegador aprovado não está disponível.")
+    return binary
 
 
 class BrowserEgress:

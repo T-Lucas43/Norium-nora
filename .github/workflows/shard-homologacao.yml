@@ -285,26 +285,14 @@ jobs:
             --tmpfs /tmp:rw,nosuid,nodev,size=256m \
             --tmpfs /home/norium:rw,nosuid,nodev,uid=10001,gid=10001,size=128m \
             --entrypoint python "$NORIUM_AUDIT_IMAGE_ID" - > "$evidence/chromium-inventory.json" <<'PY'
-          import hashlib, importlib.metadata, json, pathlib, re, subprocess
-          import playwright
+          import json
           from playwright.sync_api import sync_playwright
+          from app.infrastructure.browser_runtime_smoke import browser_inventory
           with sync_playwright() as runtime:
-              binary = pathlib.Path(runtime.chromium.executable_path)
-              version = subprocess.run([str(binary), "--version"], check=True, capture_output=True, text=True, timeout=15).stdout.strip()
-              with binary.open("rb") as stream:
-                  binary_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
-          manifest = json.loads((pathlib.Path(playwright.__file__).parent / "driver/package/browsers.json").read_text())
-          expected = next(item for item in manifest["browsers"] if item["name"] == "chromium")
-          numeric_version = re.search(r"\b(\d+\.\d+\.\d+\.\d+)\b", version)
-          if numeric_version is None or numeric_version.group(1) != expected["browserVersion"]:
-              raise SystemExit("Chromium binary version differs from the installed Playwright manifest")
-          print(json.dumps({
-              "playwrightVersion": importlib.metadata.version("playwright"),
-              "chromiumVersion": numeric_version.group(1), "chromiumVersionOutput": version,
-              "chromiumBinarySha256": binary_sha256,
-              "playwrightRevision": expected["revision"], "expectedChromiumVersion": expected["browserVersion"],
-              "coverage": "Version/hash inventory only; not a complete Chromium vulnerability assessment",
-          }, indent=2))
+              inventory = browser_inventory(runtime.chromium)
+          if inventory["browserChannel"] != "chrome":
+              raise SystemExit("The Shard image must use the pinned Google Chrome release")
+          print(json.dumps(inventory, indent=2))
           PY
           : > "$evidence/empty-trivyignore"
           scanner="$RUNNER_TEMP/trivy-bin/trivy"

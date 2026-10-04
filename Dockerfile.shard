@@ -14,6 +14,7 @@ ENV ENVIRONMENT=production
 ENV NORIUM_DATA_DIR=/app/data
 ENV NORIUM_SPA_DIR=/opt/norium/static
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV NORIUM_BROWSER_CHANNEL=chrome
 ENV HOME=/home/norium
 ENV XDG_CONFIG_HOME=/home/norium/.config
 ENV XDG_CACHE_HOME=/home/norium/.cache
@@ -24,6 +25,7 @@ ENV PORT=8000
 WORKDIR /opt/norium
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 norium \
@@ -31,9 +33,60 @@ RUN apt-get update \
 
 COPY norium-back-end/requirements.lock.txt ./requirements.lock.txt
 RUN pip install --no-cache-dir -r requirements.lock.txt
-RUN mkdir -p /ms-playwright \
-    && python -m playwright install --with-deps chromium \
-    && chmod -R a+rX /ms-playwright
+
+# Use the official, patched stable Chrome package. The bundled Playwright
+# Chromium is older than the current vendor security fixes. Verify the exact
+# official package bytes before installation; keep the application sandbox.
+RUN python - <<'PY'
+import hashlib
+import pathlib
+import urllib.request
+
+version = "154.0.8037.97-1"
+expected_bytes = 142172388
+expected_sha256 = "a4edbe95e9b01db6c9b97d7a1323121eda18362b5620df06abac1b59bee80053"
+target = pathlib.Path("/tmp/norium-google-chrome-stable.deb")
+url = "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_" + version + "_amd64.deb"
+digest = hashlib.sha256()
+received = 0
+with urllib.request.urlopen(url, timeout=120) as response, target.open("xb") as stream:
+    while chunk := response.read(1024 * 1024):
+        received += len(chunk)
+        if received > expected_bytes:
+            raise SystemExit("Official browser package exceeds its pinned size")
+        digest.update(chunk)
+        stream.write(chunk)
+if received != expected_bytes or digest.hexdigest() != expected_sha256:
+    raise SystemExit("Official browser package integrity check failed")
+print("official_browser_package_sha256_verified:", expected_sha256)
+PY
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends /tmp/norium-google-chrome-stable.deb \
+    && test "$(dpkg-query -W -f='${Version}' google-chrome-stable)" = '154.0.8037.97-1' \
+    && rm /tmp/norium-google-chrome-stable.deb \
+    && rm -rf /var/lib/apt/lists/*
+
+# Installation tools and their vendored dependencies are not used by Norium
+# at runtime. Remove the tools themselves, including ensurepip's bundled
+# installer; do not hide scanner findings by deleting only their metadata.
+RUN python -m pip uninstall --yes pip \
+    && python - <<'PY'
+import importlib.util
+import pathlib
+import shutil
+import sysconfig
+
+stdlib = pathlib.Path(sysconfig.get_path("stdlib")).resolve()
+ensurepip = stdlib / "ensurepip"
+if str(stdlib) != "/usr/local/lib/python3.14" or ensurepip.is_symlink():
+    raise SystemExit("Unexpected runtime installation-tool location")
+if ensurepip.exists():
+    shutil.rmtree(ensurepip)
+for module in ("pip", "ensurepip"):
+    if importlib.util.find_spec(module) is not None:
+        raise SystemExit("Installation tool remains available: " + module)
+print("runtime_installation_tools_removed: pip and ensurepip")
+PY
 
 COPY norium-back-end/app ./app
 COPY norium-back-end/main.py ./main.py

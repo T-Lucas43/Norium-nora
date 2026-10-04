@@ -1,3 +1,4 @@
+import ast
 import unittest
 from pathlib import Path
 
@@ -88,10 +89,20 @@ class ReleaseWorkflowTests(unittest.TestCase):
         job = self.workflow()["jobs"]["shard-image-security"]
         audit = next(step for step in job["steps"] if step.get("name") == "Audit exact image packages and browser inventory")
         for required in ("--network none", "--cap-drop=ALL", "--security-opt no-new-privileges",
-                         "--read-only", "chromiumVersion", "chromiumBinarySha256", "playwrightRevision",
-                         'numeric_version.group(1) != expected["browserVersion"]'):
+                         "--read-only", "browser_inventory(runtime.chromium)",
+                         'inventory["browserChannel"] != "chrome"'):
             with self.subTest(required=required):
                 self.assertIn(required, audit["run"])
+        inventory_source = Path("norium-back-end/app/infrastructure/browser_runtime_smoke.py").read_text(encoding="utf-8")
+        for required in ("browser_executable_path(browser_type)", "chromiumVersion", "chromiumBinarySha256",
+                         "playwrightRevision", "playwrightManifestSha256", "chromePackageVersion",
+                         "expectedChromePackageSha256", 'version != expected["browserVersion"]',
+                         'CHROME_MINIMUM_VERSION = "154.0.8037.97"',
+                         'CHROME_PACKAGE_VERSION = "154.0.8037.97-1"',
+                         "a4edbe95e9b01db6c9b97d7a1323121eda18362b5620df06abac1b59bee80053",
+                         "not a complete browser vulnerability assessment"):
+            with self.subTest(required=required):
+                self.assertIn(required, inventory_source)
         binding = next(step for step in job["steps"] if step.get("name") == "Bind image audit reports to exact image and revision")
         self.assertEqual(binding["if"], "always()")
         self.assertEqual(binding["env"]["AUDIT_STEP_OUTCOME"], "${{ steps.image_audit.outcome }}")
@@ -106,6 +117,40 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(artifact["with"]["name"], "shard-image-audit-${{ github.event.pull_request.head.sha || github.sha }}")
         self.assertEqual(artifact["with"]["path"], "${{ runner.temp }}/shard-image-audit/*")
         self.assertEqual(artifact["with"]["if-no-files-found"], "error")
+
+    def test_runtime_image_pins_the_official_chrome_package_and_removes_installers(self):
+        dockerfile = Path("Dockerfile.shard").read_text(encoding="utf-8")
+        inventory_source = Path("norium-back-end/app/infrastructure/browser_runtime_smoke.py").read_text(encoding="utf-8")
+        constants = {node.targets[0].id: ast.literal_eval(node.value)
+                     for node in ast.parse(inventory_source).body
+                     if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
+                     and node.targets[0].id in {"CHROME_MINIMUM_VERSION", "CHROME_PACKAGE_VERSION", "CHROME_PACKAGE_SHA256"}}
+        self.assertEqual(constants["CHROME_MINIMUM_VERSION"], constants["CHROME_PACKAGE_VERSION"].rsplit("-", 1)[0])
+        for required in (
+            "ENV NORIUM_BROWSER_CHANNEL=chrome", "apt-get upgrade -y",
+            'version = "' + constants["CHROME_PACKAGE_VERSION"] + '"',
+            'expected_sha256 = "' + constants["CHROME_PACKAGE_SHA256"] + '"',
+            "expected_bytes = 142172388",
+            "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_",
+            "received > expected_bytes", "received != expected_bytes or digest.hexdigest() != expected_sha256",
+            "apt-get install -y --no-install-recommends /tmp/norium-google-chrome-stable.deb",
+            "dpkg-query -W -f='${Version}' google-chrome-stable", "python -m pip uninstall --yes pip",
+            'stdlib = pathlib.Path(sysconfig.get_path("stdlib")).resolve()',
+            'str(stdlib) != "/usr/local/lib/python3.14" or ensurepip.is_symlink()',
+            "shutil.rmtree(ensurepip)", 'for module in ("pip", "ensurepip")',
+            "importlib.util.find_spec(module) is not None", "USER norium",
+            "python -m app.infrastructure.browser_runtime_smoke --inventory-only",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, dockerfile)
+        self.assertIn("= '" + constants["CHROME_PACKAGE_VERSION"] + "'", dockerfile)
+        self.assertLess(dockerfile.index("digest.hexdigest() != expected_sha256"),
+                        dockerfile.index("apt-get install -y --no-install-recommends /tmp/norium-google-chrome-stable.deb"))
+        self.assertLess(dockerfile.index("pip install --no-cache-dir"), dockerfile.index("python -m pip uninstall --yes pip"))
+        self.assertNotIn("playwright install", dockerfile)
+        for forbidden in ("--no-sandbox", "--allow-unauthenticated", "trusted=yes", ".dist-info"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, dockerfile)
 
     def test_shard_source_artifact_requires_all_gates_and_has_no_provider_credentials(self):
         workflow = self.workflow()

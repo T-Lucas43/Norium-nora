@@ -289,7 +289,7 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 socket.send_json, socket.close = AsyncMock(), AsyncMock()
                 self.member["teamChatEnabled"] = failure != "permission"
                 if failure == "database":
-                    with patch.object(team.sessions, "validate", side_effect=team.postgres_store.PostgresStoreError("unavailable")):
+                    with patch.object(team.sessions, "valid_bindings", side_effect=team.postgres_store.PostgresStoreError("unavailable")):
                         with self.assertRaises(WebSocketDisconnect):
                             await team.send_actor_payload(socket, self.member, {"type": "CALLS_STATE"})
                 else:

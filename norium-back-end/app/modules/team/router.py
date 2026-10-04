@@ -13,6 +13,7 @@ import secrets
 import time
 import uuid
 import zlib
+from weakref import WeakKeyDictionary
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -29,6 +30,7 @@ from app.core.tenant import get_data_root, get_user_db_path, public_api_url, rea
 from app.infrastructure.persistence import files as persistent_files
 from app.infrastructure.persistence import postgres_store
 from app.infrastructure import auth_sessions as sessions
+from app.infrastructure.async_session_validation import FreshSessionValidator
 from app.modules.team.call_adapters import CallbackCallPublisher, CallbackTeamDirectory, JsonCallStateStore
 from app.modules.team.call_configuration import mesh_max_participants_from_environment
 from app.modules.team.call_release import CallReleasePolicy
@@ -193,6 +195,7 @@ class PresenceManager:
         self.socket_session_version: dict[WebSocket, int | None] = {}
         self.socket_session_id: dict[WebSocket, str] = {}
         self._connect_lock = asyncio.Lock()
+        self._session_validators = WeakKeyDictionary()
 
     async def connect(
         self,
@@ -250,11 +253,18 @@ class PresenceManager:
         if not self.socket_authorized(websocket, user, team_id):
             return False
         try:
-            await asyncio.to_thread(sessions.validate, self.socket_session_id.get(websocket, ""),
-                                    str(user["id"]), int(user.get("sessionVersion") or 0))
-            return True
+            binding = self.session_binding(websocket, user)
+            return binding in await self.fresh_session_bindings([binding])
         except (sessions.SessionError, postgres_store.PostgresStoreError):
             return False
+
+    async def fresh_session_bindings(self, bindings: list[tuple[str, str, int]]) -> set[tuple[str, str, int]]:
+        loop = asyncio.get_running_loop()
+        validator = self._session_validators.get(loop)
+        if validator is None:
+            validator = FreshSessionValidator(lambda requested: sessions.valid_bindings(requested))
+            self._session_validators[loop] = validator
+        return await validator.validate(bindings)
 
     def session_binding(self, websocket: WebSocket, user: dict[str, Any]) -> tuple[str, str, int]:
         return (self.socket_session_id.get(websocket, ""), str(user["id"]), int(user.get("sessionVersion") or 0))
@@ -266,7 +276,7 @@ class PresenceManager:
         try:
             # One fresh database snapshot for this send, with full sub/SID/SV
             # binding; permission checks remain mandatory for every transport.
-            valid = await asyncio.to_thread(sessions.valid_bindings, list(candidates.values()))
+            valid = await self.fresh_session_bindings(list(candidates.values()))
         except (sessions.SessionError, postgres_store.PostgresStoreError):
             return set()
         return {websocket for websocket, binding in candidates.items() if binding in valid}
@@ -2028,8 +2038,9 @@ async def send_actor_payload(websocket: WebSocket, user: dict[str, Any], payload
     permitted = bool(bound_user_id == str(user["id"]) and manager.socket_authorized(websocket, live_user, bound_team))
     if permitted:
         try:
-            await asyncio.to_thread(sessions.validate, manager.socket_session_id.get(websocket, str(user.get("_authSession") or "")),
-                                    str(live_user["id"]), int(live_user.get("sessionVersion") or 0))
+            binding = (manager.socket_session_id.get(websocket, str(user.get("_authSession") or "")),
+                       str(live_user["id"]), int(live_user.get("sessionVersion") or 0))
+            permitted = binding in await manager.fresh_session_bindings([binding])
         except (sessions.SessionError, postgres_store.PostgresStoreError):
             permitted = False
     if not permitted:

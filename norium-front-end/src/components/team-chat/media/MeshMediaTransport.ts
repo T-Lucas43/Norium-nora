@@ -28,6 +28,7 @@ const SCREEN_SHARE_BITRATES: Record<MediaTransportLocalMedia["screenShareQuality
 
 type PeerNegotiationState = {
   makingOffer: boolean;
+  needsNegotiation: boolean;
   ignoreOffer: boolean;
   isSettingRemoteAnswerPending: boolean;
   polite: boolean;
@@ -285,6 +286,7 @@ export class MeshMediaTransport implements MediaTransport {
     if (!state) {
       state = {
         makingOffer: false,
+        needsNegotiation: false,
         ignoreOffer: false,
         isSettingRemoteAnswerPending: false,
         polite: (this.call?.selfUserId || "").localeCompare(userId) > 0,
@@ -311,7 +313,14 @@ export class MeshMediaTransport implements MediaTransport {
     const negotiation = this.negotiationFor(userId);
     await this.serializeSdpOperation(negotiation, async () => {
       const callId = this.call?.callId;
-      if (!callId || negotiation.makingOffer || peer.signalingState !== "stable") return;
+      if (!callId || this.peers.get(userId) !== peer) return;
+      if (negotiation.makingOffer || peer.signalingState !== "stable") {
+        // A media update during an outstanding offer still needs negotiation
+        // when that offer settles. Coalesce requests without dropping them.
+        negotiation.needsNegotiation = true;
+        return;
+      }
+      negotiation.needsNegotiation = false;
       const revision = ++negotiation.revision;
       try {
         negotiation.makingOffer = true;
@@ -368,7 +377,9 @@ export class MeshMediaTransport implements MediaTransport {
         if (this.peers.get(userId) === currentPeer) void this.collectIceTelemetry(currentPeer);
       };
       peer.onnegotiationneeded = () => {
-        if (this.peers.get(userId) === currentPeer) void this.negotiate(userId, currentPeer).catch(() => this.closePeer(userId));
+        if (this.peers.get(userId) === currentPeer) void this.negotiate(userId, currentPeer).catch(() => {
+          if (this.peers.get(userId) === currentPeer) this.closePeer(userId);
+        });
       };
     }
     if (createOffer) await this.negotiate(userId, peer);
@@ -417,7 +428,9 @@ export class MeshMediaTransport implements MediaTransport {
     }
     if (peer.connectionState === "failed") {
       peer.restartIce();
-      void this.negotiate(userId, peer).catch(() => this.closePeer(userId));
+      void this.negotiate(userId, peer).catch(() => {
+        if (this.peers.get(userId) === peer) this.closePeer(userId);
+      });
       return;
     }
     if (peer.connectionState === "disconnected") {
@@ -465,6 +478,10 @@ export class MeshMediaTransport implements MediaTransport {
           this.dependencies.emitSignal(callId, userId, peer.localDescription || answer);
         }
       });
+      if (negotiation.needsNegotiation && peer.signalingState === "stable"
+        && this.peers.get(userId) === peer && this.call?.callId === callId) {
+        await this.negotiate(userId, peer);
+      }
       return;
     }
 

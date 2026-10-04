@@ -806,9 +806,14 @@ class CallCoordinator:
             if payload.get("type") == "CALL_INVITE":
                 # Global admission limit remains atomic across different team locks.
                 async with self._admission_lock:
-                    result = await self._handle_event(actor, payload)
+                    result, effects = await self._handle_event(actor, payload)
             else:
-                result = await self._handle_event(actor, payload)
+                result, effects = await self._handle_event(actor, payload)
+            # Admission and persistence are atomic; network publication must
+            # not hold the global capacity lock across independent teams.
+            # The publisher still performs fresh recipient authorization.
+            if effects is not None:
+                await self._publish(actor.team_id, effects)
         except Exception:
             call_metrics.increment("join_rejected" if admission else "control_errors")
             raise
@@ -817,7 +822,7 @@ class CallCoordinator:
             call_metrics.increment("join_admitted" if admitted else "join_rejected")
         return result
 
-    async def _handle_event(self, actor: CallActor, payload: dict[str, Any]) -> CallEventResult:
+    async def _handle_event(self, actor: CallActor, payload: dict[str, Any]) -> tuple[CallEventResult, _Effects | None]:
         event_type = str(payload.get("type") or "")
         call_id = str(payload.get("callId") or "")
         if event_type not in CALL_EVENT_TYPES:
@@ -825,7 +830,7 @@ class CallCoordinator:
         self._validate_call_id(call_id)
         if event_type == "CALL_END":
             await self.end_call(actor, call_id)
-            return CallEventResult(({"type": "CALL_ACK", "callId": call_id, "event": event_type},))
+            return CallEventResult(({"type": "CALL_ACK", "callId": call_id, "event": event_type},)), None
 
         runtime = self._runtime(actor.team_id)
         direct: list[dict[str, Any]] = []
@@ -852,8 +857,7 @@ class CallCoordinator:
                     event_effects, event_direct = await self._route_existing_locked(actor, runtime, call, payload)
                     effects.extend(event_effects)
                     direct.extend(event_direct)
-        await self._publish(actor.team_id, effects)
-        return CallEventResult(tuple(direct))
+        return CallEventResult(tuple(direct)), effects
 
     async def _invite_locked(
         self,

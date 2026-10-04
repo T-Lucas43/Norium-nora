@@ -5,6 +5,7 @@ import copy
 import unittest
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from types import SimpleNamespace
 
 from app.modules.team.call_coordinator import (
     CallActor,
@@ -133,6 +134,39 @@ class CallCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"owner": ["call-public", "call-private"], "member": ["call-public", "call-private"],
                           "other": ["call-public"], "outsider": []}, delivered)
         self.assertEqual({"owner", "member"}, self.publisher.sent[0][1])
+
+    async def test_slow_publication_does_not_hold_global_admission_and_capacity_stays_atomic(self) -> None:
+        for limit in (1, 2):
+            with self.subTest(global_limit=limit):
+                await self.asyncSetUp()
+                self.coordinator._release_policy = lambda: SimpleNamespace(
+                    allows_new_call=lambda _team: True, max_team_calls=2, max_total_calls=limit)
+                entered, release = asyncio.Event(), asyncio.Event()
+                original_send = self.publisher.send_to_users
+                async def slow_send(team, recipients, payload):
+                    if team == "owner":
+                        entered.set()
+                        await release.wait()
+                    await original_send(team, recipients, payload)
+                self.publisher.send_to_users = slow_send
+                first = asyncio.create_task(self.coordinator.handle_event(self.owner, event("CALL_INVITE")))
+                try:
+                    await asyncio.wait_for(entered.wait(), .5)
+                    self.assertEqual(1, len(self.store.states["owner"].active_calls))
+                    second_actor = CallActor(user_id="member", team_id="second-team", name="Member")
+                    second = self.coordinator.handle_event(second_actor, event("CALL_INVITE", "call_aaaaaaaaaaaaaaaa"))
+                    if limit == 1:
+                        with self.assertRaises(CallError) as denied:
+                            await asyncio.wait_for(second, .5)
+                        self.assertEqual("call_resource_limit", denied.exception.code)
+                        self.assertEqual(1, self.coordinator.resource_counts()["active_calls"])
+                    else:
+                        result = await asyncio.wait_for(second, .5)
+                        self.assertEqual("CALL_ACK", result.direct_messages[0]["type"])
+                        self.assertEqual(2, self.coordinator.resource_counts()["active_calls"])
+                finally:
+                    release.set()
+                    await first
 
     async def test_snapshot_regroups_after_membership_change_without_cached_visibility(self) -> None:
         self.publisher.online["owner"] = ["owner", "member"]

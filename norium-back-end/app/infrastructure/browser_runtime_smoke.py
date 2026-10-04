@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 from app.infrastructure.browser_egress import chromium_launch_options
 
 
@@ -37,6 +37,15 @@ def require_container_security() -> None:
     print("container_security_passed: UID 10001; capabilities zero; no-new-privileges; seccomp; initial namespace chroot denied")
 
 
+def check_chromium_sandbox_status(rows: dict[str, str], evaluation: str) -> None:
+    # Chromium 151's official sandbox_internals.ts reports the namespace as
+    # "Layer 1 Sandbox / Namespace", rather than the obsolete Namespace row.
+    required = {"Layer 1 Sandbox": "Namespace", "PID namespaces": "Yes",
+                "Network namespaces": "Yes", "Seccomp-BPF sandbox": "Yes"}
+    if any(rows.get(name) != value for name, value in required.items()) or evaluation != "You are adequately sandboxed.":
+        raise RuntimeError("O Chromium não confirmou os sandboxes de namespace e seccomp.")
+
+
 async def smoke(*, inventory_only: bool = False, container_security: bool = False) -> None:
     if container_security:
         require_container_security()
@@ -54,9 +63,13 @@ async def smoke(*, inventory_only: bool = False, container_security: bool = Fals
         try:
             page = await browser.new_page()
             await page.goto("chrome://sandbox")
-            sandbox = await page.locator("body").inner_text()
-            if not (re.search(r"Namespace sandbox\s+Yes", sandbox) and re.search(r"Seccomp-BPF sandbox\s+Yes", sandbox)):
-                raise RuntimeError("O Chromium não confirmou os sandboxes de namespace e seccomp.")
+            await expect(page.locator("#evaluation")).to_have_text(re.compile(r"You are (?:NOT )?adequately sandboxed\."), timeout=10_000)
+            rows = {}
+            for row in await page.locator("#sandbox-status tr").all():
+                cells = await row.locator("td").all_inner_texts()
+                if len(cells) == 2:
+                    rows[cells[0].strip()] = cells[1].strip()
+            check_chromium_sandbox_status(rows, (await page.locator("#evaluation").inner_text()).strip())
             await page.goto("about:blank")
             await page.set_content(
                 '<button id="ok">pendente</button>'

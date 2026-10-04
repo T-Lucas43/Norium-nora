@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from app.infrastructure.browser_runtime_smoke import check_container_status
+from app.infrastructure.browser_runtime_smoke import check_container_status, check_chromium_sandbox_status
 
 SECURITY = Path(__file__).resolve().parents[3] / "infra" / "security"
 spec = importlib.util.spec_from_file_location("browser_seccomp_builder", SECURITY / "build_browser_seccomp.py")
@@ -15,6 +15,19 @@ spec.loader.exec_module(builder)
 
 
 class BrowserRuntimeSecurityTests(unittest.TestCase):
+    def test_chromium_151_rows_require_namespace_pid_network_seccomp_and_good_evaluation(self):
+        rows = {"Layer 1 Sandbox": "Namespace", "PID namespaces": "Yes",
+                "Network namespaces": "Yes", "Seccomp-BPF sandbox": "Yes"}
+        check_chromium_sandbox_status(rows, "You are adequately sandboxed.")
+        for name in rows:
+            with self.assertRaises(RuntimeError):
+                check_chromium_sandbox_status({**rows, name: "No"}, "You are adequately sandboxed.")
+        for evaluation in ("", "You are NOT adequately sandboxed."):
+            with self.assertRaises(RuntimeError):
+                check_chromium_sandbox_status(rows, evaluation)
+        with self.assertRaises(RuntimeError):
+            check_chromium_sandbox_status({**rows, "Layer 1 Sandbox": "SUID"}, "You are adequately sandboxed.")
+
     def test_policy_preserves_upstream_and_adds_only_chroot_no_capabilities(self):
         source = SECURITY / "playwright-seccomp-v1.62.0.json"
         base = json.loads(source.read_text())

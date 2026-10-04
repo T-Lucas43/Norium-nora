@@ -24,9 +24,11 @@ def member(user_id, owner="owner"):
 class CallStudioTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
         self.owner, self.member, self.other = member("owner"), member("member"), member("other")
         self.socket = MagicMock(send_json=AsyncMock())
         self.patches = [
+            patch.object(team.sessions, "get_data_root", return_value=Path(self.temp.name)),
             patch.object(library, "brainstorm_lock", asyncio.Lock()),
             patch.object(library, "read_user_db", side_effect=lambda tenant, _db, default: studio.read_json_file(Path(self.temp.name) / f"library-{tenant}.json", default)),
             patch.object(library, "write_user_db", side_effect=lambda tenant, _db, data: studio.write_json_file(Path(self.temp.name) / f"library-{tenant}.json", data)),
@@ -39,6 +41,10 @@ class CallStudioTests(unittest.IsolatedAsyncioTestCase):
         ]
         for item in self.patches:
             item.start()
+            self.addCleanup(item.stop)
+        for actor in (self.owner, self.member, self.other):
+            row, _, _ = team.sessions.create(actor["id"], 0)
+            actor["_authSession"] = row["id"]
         self.call_id = "call_0123456789abcdef"
         await self.event("CALL_INVITE", self.owner)
 

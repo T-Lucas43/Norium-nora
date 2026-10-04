@@ -118,6 +118,9 @@ def fixture_team_chat_path(team_id: str) -> str:
 
 
 _patches = [
+    # The real binary adapter must see the same temporary root as UPLOAD_DIR.
+    # Keep its traversal/quota checks enabled in browser and load fixtures.
+    patch("app.core.tenant.get_data_root", return_value=_data_root),
     patch.object(studio.nora_service, "perguntar_nora", AsyncMock(return_value="Plano sugerido pela Nora: validar as decisões e definir os próximos passos.")),
     patch.object(studio_library, "read_user_db", side_effect=lambda tenant, _db, fallback: team.read_json_file(_data_root / f"studio_library_{tenant}.json", fallback)),
     patch.object(studio_library, "write_user_db", side_effect=lambda tenant, _db, value: team.write_json_file(_data_root / f"studio_library_{tenant}.json", value)),

@@ -237,6 +237,125 @@ jobs:
             --entrypoint python norium-shard-security-ci -m app.infrastructure.browser_runtime_smoke --require-container-security
           echo 'shard_image_security_ci_passed: unprivileged image; sandbox required; DOM interaction'
 
+      - name: Audit exact image packages and browser inventory
+        id: image_audit
+        env:
+          TRIVY_VERSION: '0.75.0'
+          TRIVY_ARCHIVE_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+        run: |
+          evidence="$RUNNER_TEMP/shard-image-audit"
+          mkdir -p "$evidence" "$RUNNER_TEMP/trivy-bin" "$RUNNER_TEMP/trivy-cache"
+          curl --fail --show-error --location \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            --output "$RUNNER_TEMP/trivy.tar.gz"
+          printf '%s  %s\n' "$TRIVY_ARCHIVE_SHA256" "$RUNNER_TEMP/trivy.tar.gz" | sha256sum --check --strict
+          tar --extract --gzip --file "$RUNNER_TEMP/trivy.tar.gz" --directory "$RUNNER_TEMP/trivy-bin" trivy
+          "$RUNNER_TEMP/trivy-bin/trivy" --version > "$evidence/trivy-version.txt"
+          export NORIUM_AUDIT_IMAGE_ID="$(docker image inspect norium-shard-security-ci --format '{{.Id}}')"
+          export NORIUM_AUDIT_COMMIT_SHA="$(git rev-parse HEAD)"
+          python - <<'PY'
+          import hashlib, json, os, pathlib, re, subprocess
+          output = pathlib.Path(os.environ["RUNNER_TEMP"]) / "shard-image-audit"
+          commit = os.environ["NORIUM_AUDIT_COMMIT_SHA"]
+          image_id = os.environ["NORIUM_AUDIT_IMAGE_ID"]
+          if not re.fullmatch(r"[0-9a-f]{40}", commit) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+              raise SystemExit("Invalid exact image/revision identifier")
+          image = json.loads(subprocess.check_output(["docker", "image", "inspect", image_id]))[0]
+          if image["Id"] != image_id or "NORIUM_RELEASE_SHA=" + commit not in image["Config"]["Env"]:
+              raise SystemExit("Image is not bound to the checked out commit")
+          provenance = {
+              "commitSha": commit,
+              "treeSha": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
+              "dockerImageId": image_id,
+              "imageIdKind": "local Docker image identifier; not a hosting registry digest",
+              "hostingRegistryDigest": None,
+              "repoDigestsObserved": image.get("RepoDigests") or [],
+              "imageBytes": image["Size"], "os": image["Os"], "architecture": image["Architecture"],
+              "runtimeUser": image["Config"]["User"],
+              "sourceDockerfileSha256": hashlib.sha256(pathlib.Path("Dockerfile.shard").read_bytes()).hexdigest(),
+              "scannerVersion": os.environ["TRIVY_VERSION"],
+              "scannerArchiveSha256": os.environ["TRIVY_ARCHIVE_SHA256"],
+              "scope": "Detected installed OS/language packages; vendored Chromium requires separate vendor advisory review",
+              "publicationValidation": "This local CI image does not prove the digest of a later Shard rebuild",
+          }
+          (output / "image-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
+          PY
+          docker run --rm --init -i --network none --cap-drop=ALL --security-opt no-new-privileges \
+            --security-opt "seccomp=$RUNNER_TEMP/norium-browser-seccomp.json" --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=256m \
+            --tmpfs /home/norium:rw,nosuid,nodev,uid=10001,gid=10001,size=128m \
+            --entrypoint python "$NORIUM_AUDIT_IMAGE_ID" - > "$evidence/chromium-inventory.json" <<'PY'
+          import hashlib, importlib.metadata, json, pathlib, re, subprocess
+          import playwright
+          from playwright.sync_api import sync_playwright
+          with sync_playwright() as runtime:
+              binary = pathlib.Path(runtime.chromium.executable_path)
+              version = subprocess.run([str(binary), "--version"], check=True, capture_output=True, text=True, timeout=15).stdout.strip()
+              with binary.open("rb") as stream:
+                  binary_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
+          manifest = json.loads((pathlib.Path(playwright.__file__).parent / "driver/package/browsers.json").read_text())
+          expected = next(item for item in manifest["browsers"] if item["name"] == "chromium")
+          numeric_version = re.search(r"\b(\d+\.\d+\.\d+\.\d+)\b", version)
+          if numeric_version is None or numeric_version.group(1) != expected["browserVersion"]:
+              raise SystemExit("Chromium binary version differs from the installed Playwright manifest")
+          print(json.dumps({
+              "playwrightVersion": importlib.metadata.version("playwright"),
+              "chromiumVersion": numeric_version.group(1), "chromiumVersionOutput": version,
+              "chromiumBinarySha256": binary_sha256,
+              "playwrightRevision": expected["revision"], "expectedChromiumVersion": expected["browserVersion"],
+              "coverage": "Version/hash inventory only; not a complete Chromium vulnerability assessment",
+          }, indent=2))
+          PY
+          : > "$evidence/empty-trivyignore"
+          scanner="$RUNNER_TEMP/trivy-bin/trivy"
+          "$scanner" --config= --cache-dir "$RUNNER_TEMP/trivy-cache" --timeout 15m image \
+            --disable-telemetry --offline-scan --image-src docker --scanners vuln --pkg-types os,library \
+            --ignorefile "$evidence/empty-trivyignore" --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --exit-code 0 --format json --output "$evidence/image-vulnerabilities.json" "$NORIUM_AUDIT_IMAGE_ID"
+          "$scanner" --config= --cache-dir "$RUNNER_TEMP/trivy-cache" --timeout 15m image \
+            --disable-telemetry --offline-scan --skip-db-update --image-src docker --scanners vuln --pkg-types os,library \
+            --ignorefile "$evidence/empty-trivyignore" --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --exit-code 0 --format cyclonedx --output "$evidence/image-sbom.cdx.json" "$NORIUM_AUDIT_IMAGE_ID"
+          cp "$RUNNER_TEMP/trivy-cache/db/metadata.json" "$evidence/trivy-db-metadata.json"
+          "$scanner" --config= --cache-dir "$RUNNER_TEMP/trivy-cache" --timeout 15m image \
+            --disable-telemetry --offline-scan --skip-db-update --image-src docker --scanners vuln --pkg-types os,library \
+            --ignorefile "$evidence/empty-trivyignore" --severity HIGH,CRITICAL --exit-code 1 --exit-on-eol 1 \
+            --format json --output "$evidence/image-vulnerability-gate.json" "$NORIUM_AUDIT_IMAGE_ID"
+
+      - name: Bind image audit reports to exact image and revision
+        if: always()
+        env:
+          AUDIT_STEP_OUTCOME: ${{ steps.image_audit.outcome }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, pathlib
+          output = pathlib.Path(os.environ["RUNNER_TEMP"]) / "shard-image-audit"
+          output.mkdir(exist_ok=True)
+          expected = ["image-provenance.json", "chromium-inventory.json", "image-vulnerabilities.json",
+                      "image-sbom.cdx.json", "image-vulnerability-gate.json", "trivy-db-metadata.json", "trivy-version.txt"]
+          provenance_file = output / "image-provenance.json"
+          provenance = json.loads(provenance_file.read_text()) if provenance_file.exists() else {}
+          files = [{"path": name, "sha256": hashlib.sha256((output / name).read_bytes()).hexdigest()}
+                   for name in expected if (output / name).is_file()]
+          missing = [name for name in expected if not (output / name).is_file()]
+          receipt = {"commitSha": provenance.get("commitSha"), "dockerImageId": provenance.get("dockerImageId"),
+                     "hostingRegistryDigest": None, "reports": files, "missingReports": missing,
+                     "auditStepOutcome": os.environ["AUDIT_STEP_OUTCOME"],
+                     "vulnerabilityGatePassed": os.environ["AUDIT_STEP_OUTCOME"] == "success",
+                     "complete": not missing, "scope": provenance.get("scope"),
+                     "publicationValidation": provenance.get("publicationValidation")}
+          (output / "image-audit-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+          PY
+
+      - name: Preserve image SBOM vulnerability reports and browser inventory
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: shard-image-audit-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/shard-image-audit/*
+          if-no-files-found: error
+          retention-days: 90
+
   shard-source-artifact:
     needs: [validate, postgres-persistence, team-call-quality, shard-image-security]
     runs-on: ubuntu-latest

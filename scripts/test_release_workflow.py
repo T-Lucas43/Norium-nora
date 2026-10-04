@@ -45,6 +45,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("backend-sbom-${{ github.event.pull_request.head.sha || github.sha }}", artifact_names)
         self.assertIn("secret-history-${{ github.event.pull_request.head.sha || github.sha }}", artifact_names)
 
+    def test_frontend_audit_covers_development_and_runtime_dependencies(self):
+        job = self.workflow()["jobs"]["validate"]
+        validation = next(step for step in job["steps"] if step.get("name") == "Validate frontend")
+        commands = validation["run"].splitlines()
+        self.assertIn("npm audit --audit-level=moderate", commands)
+        self.assertIn("npm audit --omit=dev --audit-level=moderate", commands)
+        self.assertNotIn("continue-on-error", validation)
+
     def test_shard_source_artifact_requires_all_gates_and_has_no_provider_credentials(self):
         workflow = self.workflow()
         job = workflow["jobs"]["shard-source-artifact"]

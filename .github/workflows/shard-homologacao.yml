@@ -84,7 +84,8 @@ jobs:
           npm run lint
           npm test
           npm run build
-          npm audit --omit=dev --audit-level=high
+          npm audit --audit-level=moderate
+          npm audit --omit=dev --audit-level=moderate
 
       - name: Scan repository for committed secrets
         # Scanner failures (including service/licensing failures) block release.

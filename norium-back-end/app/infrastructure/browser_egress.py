@@ -24,7 +24,11 @@ MAX_TUNNEL_SECONDS = 20 * 60
 def chromium_launch_options() -> dict:
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         raise HTTPException(503, "O navegador exige execução sem privilégios de root.")
-    return {"channel": "chromium", "headless": True, "chromium_sandbox": True, "args": [
+    browser_environment = {key: os.environ[key] for key in (
+        "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "LANG", "LC_ALL", "TZ",
+        "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LOCALAPPDATA", "USERPROFILE",
+    ) if key in os.environ}
+    return {"channel": "chromium", "headless": True, "chromium_sandbox": True, "env": browser_environment, "args": [
         "--disable-dev-shm-usage", "--disable-quic", "--proxy-bypass-list=<-loopback>",
         "--force-webrtc-ip-handling-policy=disable_non_proxied_udp", "--dns-prefetch-disable",
     ]}

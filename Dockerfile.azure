@@ -39,12 +39,11 @@ COPY --from=frontend-build /build/frontend/dist ./static
 
 # Full Chromium needs writable configuration directories for Crashpad at startup.
 RUN mkdir -p /app/data /home/norium/.config /home/norium/.cache \
-    && chown -R norium:norium /app /home/norium
+    && chown -R norium:norium /app/data /home/norium
 USER norium
 
-# Falha o build se o binario empacotado nao conseguir abrir uma pagina e
-# executar uma interacao DOM real sob o mesmo usuario da aplicacao.
-RUN python -m app.infrastructure.browser_runtime_smoke
+# Build inventory is distinct from the mandatory runtime DOM/sandbox smoke.
+RUN python -m app.infrastructure.browser_runtime_smoke --inventory-only
 
 ARG NORIUM_RELEASE_SHA=""
 ENV NORIUM_RELEASE_SHA=${NORIUM_RELEASE_SHA}

@@ -57,6 +57,15 @@ class BrowserEgressTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(HTTPException):
                 self.proxy._count(5)
 
+    def test_browser_environment_does_not_inherit_backend_credentials(self):
+        with patch.dict(egress.os.environ, {"HOME": "/home/synthetic", "NORIUM_AUTH_SECRET": "synthetic-auth",
+                "NORIUM_DATABASE_URL": "synthetic-db", "GMAIL_CLIENT_SECRET": "synthetic-oauth", "GROQ_API_KEY": "synthetic-api"}), \
+                patch.object(egress.os, "geteuid", return_value=10001, create=True):
+            environment = egress.chromium_launch_options()["env"]
+        self.assertEqual("/home/synthetic", environment["HOME"])
+        for key in ("NORIUM_AUTH_SECRET", "NORIUM_DATABASE_URL", "GMAIL_CLIENT_SECRET", "GROQ_API_KEY"):
+            self.assertNotIn(key, environment)
+
     async def test_rejected_connect_does_not_open_upstream(self):
         reader, writer = AsyncMock(), AsyncMock()
         writer.write = lambda _data: None

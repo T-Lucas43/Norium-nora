@@ -266,6 +266,52 @@ class TeamCallLifecycleTests(unittest.IsolatedAsyncioTestCase):
         coordinator.reconcile.assert_awaited_once()
         self.assertEqual([call.keepalive(ANY), call.reconcile(ANY)], order.mock_calls)
 
+    async def test_direct_reply_after_await_checks_actual_revocation(self):
+        async def process_and_revoke(*_args):
+            team.sessions.revoke(self.member["id"], sid=self.member["_authSession"])
+            result = MagicMock()
+            result.direct_messages = [{"type": "CALL_ACTIVE", "calls": [{"callId": "private-call"}]}]
+            return result
+        socket = MagicMock()
+        socket.send_json, socket.close = AsyncMock(), AsyncMock()
+        coordinator = MagicMock()
+        coordinator.handle_event = AsyncMock(side_effect=process_and_revoke)
+        with patch.object(team, "call_coordinator", return_value=coordinator):
+            with self.assertRaises(WebSocketDisconnect):
+                await team.handle_call_event(socket, self.member, self.invite)
+        socket.send_json.assert_not_awaited()
+        socket.close.assert_awaited_once_with(code=4403)
+
+    async def test_direct_reply_checks_live_permission_and_database_failure(self):
+        for failure in ("permission", "database"):
+            with self.subTest(failure=failure):
+                socket = MagicMock()
+                socket.send_json, socket.close = AsyncMock(), AsyncMock()
+                self.member["teamChatEnabled"] = failure != "permission"
+                if failure == "database":
+                    with patch.object(team.sessions, "validate", side_effect=team.postgres_store.PostgresStoreError("unavailable")):
+                        with self.assertRaises(WebSocketDisconnect):
+                            await team.send_actor_payload(socket, self.member, {"type": "CALLS_STATE"})
+                else:
+                    with self.assertRaises(WebSocketDisconnect):
+                        await team.send_actor_payload(socket, self.member, {"type": "CALLS_STATE"})
+                socket.send_json.assert_not_awaited()
+                socket.close.assert_awaited_once_with(code=4403)
+
+    async def test_direct_reply_remains_bound_to_socket_identity_and_team(self):
+        for changed in ("foreign_sid", "different_actor", "moved_team"):
+            with self.subTest(binding=changed):
+                socket = MagicMock()
+                socket.send_json, socket.close = AsyncMock(), AsyncMock()
+                self.manager.socket_user = {socket: "owner" if changed == "different_actor" else "member"}
+                self.manager.socket_session_id = {socket: self.owner["_authSession"] if changed == "foreign_sid" else self.member["_authSession"]}
+                self.manager.user_team = {"member": "owner", "owner": "owner"}
+                self.member["teamOwnerId"] = "new-team" if changed == "moved_team" else "owner"
+                with self.assertRaises(WebSocketDisconnect):
+                    await team.send_actor_payload(socket, self.member, {"type": "CALLS_STATE"})
+                socket.send_json.assert_not_awaited()
+                socket.close.assert_awaited_once_with(code=4403)
+
     async def test_mesh_capacity_error_over_websocket_has_stable_code(self):
         with (
             patch.object(team, "_call_coordinator_instance", None),

@@ -495,10 +495,18 @@ class CallCoordinator:
             await self.broadcast_state(team_id)
 
     async def _broadcast_snapshot(self, team_id: str, calls: list[dict[str, Any]]) -> None:
+        # Group only identical visibility projections. The publisher still
+        # checks every recipient's live directory/session before the send.
+        # No cross-event authorization or call snapshot is cached here.
+        groups: dict[tuple[int, ...], set[str]] = {}
         for user_id in await self._publisher.online_users(team_id):
-            await self._publisher.send_to_users(team_id, {user_id}, {
+            visible = tuple(index for index, call in enumerate(calls) if user_id in call.get("participantIds", []))
+            groups.setdefault(visible, set()).add(user_id)
+        projections = [active_call_invite(call) for call in calls]
+        for visible, recipients in groups.items():
+            await self._publisher.send_to_users(team_id, recipients, {
                 "type": "CALLS_STATE",
-                "calls": [active_call_invite(call) for call in calls if user_id in call.get("participantIds", [])],
+                "calls": [projections[index] for index in visible],
             })
 
     async def snapshot(self, team_id: str, *, refresh: bool = False) -> list[dict[str, Any]]:

@@ -167,18 +167,37 @@ async def fixture_studio_library(authorization: str = Header(default="")) -> dic
     return {"sessions": await studio_library.list_brainstorm_sessions(team.team_id_for(user))}
 
 
-async def _close_matching_connections(user_id: str | None = None) -> int:
+_closing_connections: dict[Any, asyncio.Task] = {}
+
+
+def _start_closing_connections(user_id: str | None = None) -> list[asyncio.Task]:
     sockets = [
         socket
         for socket, connected_user_id in list(team.manager.socket_user.items())
         if user_id is None or connected_user_id == user_id
     ]
-    for socket in sockets:
+    async def close_socket(socket: Any) -> None:
         try:
             await socket.close(code=1012)
         except Exception:
             pass
-    return len(sockets)
+        finally:
+            _closing_connections.pop(socket, None)
+
+    for socket in sockets:
+        if socket not in _closing_connections:
+            _closing_connections[socket] = asyncio.create_task(close_socket(socket))
+    return [_closing_connections[socket] for socket in sockets]
+
+
+async def _close_matching_connections(user_id: str | None = None) -> int:
+    tasks = _start_closing_connections(user_id)
+    if user_id is None:
+        tasks = list(dict.fromkeys([*tasks, *_closing_connections.values()]))
+    # Offline peers can delay the closing handshake. Close in parallel and
+    # retain ownership until reset has waited for every handler/task.
+    await asyncio.gather(*tasks)
+    return len(tasks)
 
 
 async def _wait_for_websocket_handlers() -> None:
@@ -241,6 +260,8 @@ async def reset_fixture() -> dict[str, Any]:
         team.manager.user_team.clear()
         team.manager.socket_user.clear()
         team.manager.socket_connection.clear()
+        team.manager.socket_session_id.clear()
+        team.manager.socket_session_version.clear()
         team._call_coordinator_instance = None
         team._recording_coordinator_instance = None
         _restore_recording_limits()
@@ -285,8 +306,10 @@ async def set_fixture_user_team(
 async def close_fixture_connections(user_id: str) -> dict[str, Any]:
     if _find_user(user_id) is None:
         raise HTTPException(status_code=404, detail="Usuario de teste nao encontrado.")
-    closed = await _close_matching_connections(user_id)
-    return {"userId": user_id, "closedConnections": closed}
+    tasks = _start_closing_connections(user_id)
+    # The browser must be able to leave offline mode before the handshake
+    # completes. Report initiation; scenarios still prove actual reconnect.
+    return {"userId": user_id, "closingConnections": len(tasks)}
 
 
 @app.post("/__test__/recording-limits")

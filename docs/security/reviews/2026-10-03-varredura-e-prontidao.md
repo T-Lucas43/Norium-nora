@@ -274,3 +274,15 @@ Revisão identificou que comparar Bearer bruto invalidava respostas após uma re
 Suíte completa isolada mais recente: **1.220 backend** sem falhas/erros/skips e **793 frontend**; depois foram adicionadas regressões e **83 backend focados, 22 frontend focados e 4 dispositivos** passaram. Build e lint passaram localmente. Esses snapshots não são o SHA final de CI nem a imagem ativa. [Runbook de promoção e revisão](../../operations/sessoes-seguranca-homologacao.md).
 
 Parecer continua **NO-GO**: revisão humana crítica, CI exato, imagem/sandbox, chaves/migração/backup/restore/rollback, conta B, jornadas remotas, operação/privacidade e ambiente de produção ainda precisam de evidência. Não houve deploy desse candidato.
+
+## Atualização de aceite e segurança de respostas — 04/10
+
+O responsável aprovou o código até `ffa4b4a93ae9f54be656b25ea76d262241e39fe9`, condicionado aos gates. [CI desse commit](https://github.com/T-Lucas43/Norium-nora/actions/runs/37200593650) aprovou **1.235 backend, 804 frontend**, scanners/PG e sandbox real da imagem no runner. Chamadas/carga reprovaram; não houve promoção. A aprovação não fecha os controles operacionais nem inclui automaticamente o incremento abaixo.
+
+### SEC-WS-02 — revogação entre processamento e resposta direta
+
+- P1 confirmado por regressão sintética: uma sessão podia ser revogada durante um `await` do coordenador e a resposta privada direta ainda ser enviada. A validação de broadcasts/recepção não cobria esse intervalo de processamento.
+- Correção preparada: revalidar diretório/status/permissão/equipe e sessão sub/SID/SV vinculada ao transporte antes das respostas após await. Revogação, SID estrangeiro, ator diferente, equipe movida e indisponibilidade negam payload e fecham 4403. Novos testes aprovados junto a **104 testes focados**; snapshot anterior ao ajuste posterior de fixture offline.
+- Performance: agrupar apenas destinatários com visibilidade idêntica de chamadas, mantendo validação fresca de todos os transports e sem cache entre envios. Isolamento e mudança de participantes têm regressões próprias. Gate real de carga do incremento e aceite humano específico ainda pendentes.
+
+O callback Google foi corrigido administrativamente, e há backup gerenciado Shard confirmado. Permanecem necessários: chave OAuth privada, cobertura/restauração do PostgreSQL externo, imagem imutável/SBOM, runtime do provedor, migração e recibo de preservação, jornadas remotas A/B e operação/privacidade. Produção continua inexistente. **NO-GO público**.

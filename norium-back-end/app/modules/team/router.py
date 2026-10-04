@@ -2019,6 +2019,26 @@ async def download_attachment(file_name: str, user: dict[str, Any] = Depends(cur
                     headers=headers)
 
 
+async def send_actor_payload(websocket: WebSocket, user: dict[str, Any], payload: dict[str, Any]) -> None:
+    """Check the authoritative identity again after awaited call processing."""
+    directory = await read_user_store()
+    live_user = next((item for item in directory.get("users", []) if str(item.get("id")) == str(user["id"])), None)
+    bound_user_id = manager.socket_user.get(websocket, str(user["id"]))
+    bound_team = manager.user_team.get(bound_user_id, team_id_for(user))
+    permitted = bool(bound_user_id == str(user["id"]) and manager.socket_authorized(websocket, live_user, bound_team))
+    if permitted:
+        try:
+            await asyncio.to_thread(sessions.validate, manager.socket_session_id.get(websocket, str(user.get("_authSession") or "")),
+                                    str(live_user["id"]), int(live_user.get("sessionVersion") or 0))
+        except (sessions.SessionError, postgres_store.PostgresStoreError):
+            permitted = False
+    if not permitted:
+        with contextlib.suppress(RuntimeError):
+            await websocket.close(code=4403)
+        raise WebSocketDisconnect(code=4403)
+    await websocket.send_json(payload)
+
+
 async def handle_call_event(
     websocket: WebSocket,
     user: dict[str, Any],
@@ -2030,7 +2050,7 @@ async def handle_call_event(
     except CallError as exc:
         raise _as_http_error(exc) from exc
     for message in result.direct_messages:
-        await websocket.send_json(message)
+        await send_actor_payload(websocket, user, message)
 
 
 @router.websocket("/ws")
@@ -2060,11 +2080,11 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
     reconcile_phase = (zlib.crc32(connection_id.encode("utf-8")) % reconcile_window_ms) / 1000
     next_reconcile = time.monotonic() + CALL_RECONCILE_INTERVAL_SECONDS + reconcile_phase
     try:
-        await websocket.send_json({"type": "CONNECTED", "onlineUserIds": manager.online_users(team_id)})
+        await send_actor_payload(websocket, user, {"type": "CONNECTED", "onlineUserIds": manager.online_users(team_id)})
         await emit_due_meeting_reminders(team_id)
         # Reconectar sincroniza a lista, nunca dispara novamente o convite/toque.
         calls = await call_coordinator().active_calls_for(actor)
-        await websocket.send_json({
+        await send_actor_payload(websocket, user, {
             "type": "CALLS_STATE",
             "calls": calls,
         })
@@ -2094,7 +2114,7 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                 # Cada conexao reconcilia seu estado; nao multiplica snapshots
                 # para toda a equipe a cada timeout de cada aba aberta.
                 calls = await call_coordinator().active_calls_for(actor)
-                await websocket.send_json({
+                await send_actor_payload(websocket, user, {
                     "type": "CALLS_STATE",
                     "calls": calls,
                 })
@@ -2113,7 +2133,7 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                 await websocket.close(code=1008)
                 return
             if len(raw) > 120_000:
-                await websocket.send_json({
+                await send_actor_payload(websocket, user, {
                     "type": "CALL_ERROR",
                     "code": "call_payload_too_large",
                     "status": 413,
@@ -2143,12 +2163,12 @@ async def team_chat_ws(websocket: WebSocket, ticket: str | None = Query(default=
                     call_metrics.increment("telemetry_rejected")
                 continue
             if event_type not in CALL_EVENT_TYPES:
-                await websocket.send_json({"type": "ACK", "timestamp": now_iso()})
+                await send_actor_payload(websocket, user, {"type": "ACK", "timestamp": now_iso()})
                 continue
             try:
                 await handle_call_event(websocket, user, payload, connection_id)
             except HTTPException as exc:
-                await websocket.send_json({
+                await send_actor_payload(websocket, user, {
                     "type": "CALL_ERROR",
                     "callId": payload.get("callId"),
                     "code": (exc.headers or {}).get("X-Call-Error-Code", "call_error"),

@@ -8,6 +8,50 @@ import unittest
 
 
 class BrowserFixtureStorageTests(unittest.TestCase):
+    def test_offline_close_starts_without_waiting_and_reset_owns_parallel_tasks(self):
+        environment = os.environ.copy()
+        environment.update(ENVIRONMENT="test", APP_ENV="test", PYTHON_DOTENV_DISABLED="1",
+                           NORIUM_DATABASE_URL="", NORA_BRAIN_DATABASE_URL="", DATABASE_URL="")
+        source = """
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+from tests import team_call_browser_app as fixture
+
+async def verify():
+    release, entered = asyncio.Event(), asyncio.Event()
+    count = 0
+    async def close(**kwargs):
+        nonlocal count
+        assert kwargs == {'code': 1012}
+        count += 1
+        if count == 2:
+            entered.set()
+        await release.wait()
+    sockets = [MagicMock(), MagicMock()]
+    for socket in sockets:
+        socket.close = AsyncMock(side_effect=close)
+    fixture.team.manager.socket_user = {socket: 'owner' for socket in sockets}
+    result = await asyncio.wait_for(fixture.close_fixture_connections('owner'), .5)
+    assert result['closingConnections'] == 2 and 'closedConnections' not in result
+    await asyncio.wait_for(entered.wait(), .5)
+    fixture.team.manager.socket_user.clear()
+    reset_close = asyncio.create_task(fixture._close_matching_connections())
+    await asyncio.sleep(0)
+    assert not reset_close.done() and count == 2
+    release.set()
+    assert await asyncio.wait_for(reset_close, .5) == 2
+    assert not fixture._closing_connections
+    for socket in sockets:
+        socket.close.assert_awaited_once()
+asyncio.run(verify())
+print('browser_fixture_offline_close_passed')
+"""
+        result = subprocess.run([sys.executable, "-c", source],
+                                cwd=Path(__file__).resolve().parents[2], env=environment,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("browser_fixture_offline_close_passed", result.stdout)
+
     def test_fixture_aligns_upload_root_and_keeps_traversal_guard(self):
         # Fixture patches are intentionally process-lifetime. Import it in a
         # separate process so they cannot leak into unrelated unit tests.

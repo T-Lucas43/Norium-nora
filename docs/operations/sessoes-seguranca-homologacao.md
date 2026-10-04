@@ -1,6 +1,6 @@
 # Sessões e segurança: decisão, revisão e homologação
 
-Atualizado em 04/10/2026. Candidato do PR #45, branch `codex/security-session-homologacao`. Responsável pela revisão humana: usuário que se designou no diálogo. Execução direta Codex com IA; revisão crítica humana ainda pendente. Este documento não registra aceite ou deploy.
+Atualizado em 04/10/2026. Candidato do PR #45, branch `codex/security-session-homologacao`. Responsável pela revisão humana: usuário que se designou no diálogo. Execução direta Codex com IA. O usuário aprovou o diff até `ffa4b4a93ae9f54be656b25ea76d262241e39fe9`, condicionando a publicação aos gates. O incremento crítico posterior de chamadas requer revisão própria. Este documento não registra deploy.
 
 ## Decisões aprovadas e contrato implementado
 
@@ -44,9 +44,9 @@ Os paths de app/scripts acima são relativos a `norium-back-end`; frontend em `n
 
 | Gate | Evidência exigida antes da promoção | Situação |
 | --- | --- | --- |
-| Revisão humana crítica | Aceite do diff/SHA, prazos/retencão e riscos residuais pelo responsável | Pendente |
-| CI exato | Backend/frontend/lint/build/SCA/scanner, PG real concorrente e chamadas verdes no SHA candidato | 38423c2 aprovou código/PG/chamadas; imagem runtime falhou; nova rodada para ajuste necessário |
-| Imagem | Build `Dockerfile.shard`, SHA/digest, SBOM e proveniência; app UID 10001 e smoke DOM com sandbox | Pendente |
+| Revisão humana crítica | Aceite do diff/SHA, prazos/retencão e riscos residuais pelo responsável | ffa4b4a aprovado condicionalmente; incremento SEC-WS-02 e agrupamento aguardam revisão |
+| CI exato | Backend/frontend/lint/build/SCA/scanner, PG real concorrente e chamadas verdes no SHA candidato | ffa4b4a aprovou código/PG/imagem; chamadas reprovaram; nova rodada para o incremento necessária |
+| Imagem | Build `Dockerfile.shard`, SHA/digest, SBOM e proveniência; app UID 10001 e smoke DOM com sandbox | ffa4b4a aprovado no runtime CI; publicação/SBOM da imagem e comprovação no Shard pendentes |
 | Shard | Sandbox funcional e bind do PORT injetado com UID sem privilégio; volume gravável sem dar privilégio ao app | Pendente; não usar no-sandbox/SYS_ADMIN/seccomp unconfined |
 | Chave de assinatura | `NORIUM_AUTH_SECRET` presente no secret manager, >=32 bytes, **mesmo valor atual** | Nome listado no painel Shard em 04/10; valor/tamanho/origem não lidos; compatibilidade precisa ser comprovada |
 | Chave OAuth | `NORIUM_OAUTH_CREDENTIAL_ENCRYPTION_KEY` Fernet dedicada, mantida em secret manager e backup protegido | Nome ausente no painel Shard em 04/10; entrada deve ser feita pelo responsável, nunca pelo chat |
@@ -95,3 +95,15 @@ Não trocar inadvertidamente `NORIUM_AUTH_SECRET`: integrações/configurações
 - [CI 37198811332](https://github.com/T-Lucas43/Norium-nora/actions/runs/37198811332), 38423c2: **1.225 backend**, **804 frontend**, PG real, 45/45 cenários de chamadas e 100 conexões aprovados; build da imagem aprovado, mas smoke do zygote/sandbox reprovado. Imagem não promovida. Ajuste específico do perfil descartável de CI para chroot dentro do namespace e prova de capabilities zero preparado; não altera o Shard.
 - Fanout agora usa uma consulta fresca de bindings completos sub/SID/SV por envio (máximo 1.000), sem cache. **79 testes focados** aprovam revogação real, versões/tenancy e falha fechada, além dos contratos do perfil e smoke. CI real desse ajuste ainda necessário.
 - Backup Shard **pre-sessoes-2026-10-04**, 04/10/2026 08:29:55, aparece na lista 1/8; captura privada no diretório de evidências. Esta ação altera somente a lista de backups. Não demonstra restauração nem cobertura do PostgreSQL externo.
+
+## Revisão aprovada e incremento de chamadas — 04/10
+
+- Aceite humano recebido: **"Aprovar esse diff, condicionando a publicação aos gates"**, para `ffa4b4a93ae9f54be656b25ea76d262241e39fe9`. Mantém a autorização de homologação; não constitui aceite de diff posterior nem dispensa backup/restore, configuração e comprovação de release.
+- [CI 37200593650](https://github.com/T-Lucas43/Norium-nora/actions/runs/37200593650): **1.235 backend**, zero falhas/erros/skips; **804 frontend/132 arquivos**; lint/build/budget/SCA/scanner/canário/histórico e PostgreSQL real aprovados. Job imagem `111432148074` aprovado: UID 10001, capabilities zero, no-new-privileges, seccomp, namespace PID/rede, avaliação positiva do Chromium e interação DOM real. Imagem descartável CI, não publicada no Shard.
+- Workflow integral **reprovado**: chamadas `temporary_network_loss` reprovaram em 2/3 repetições por timeout do controle HTTP durante offline; `call_studio` falhou em uma repetição; carga p95 controle **1.109,444 ms** e heartbeat **758,826 ms**, ambos acima de 750 ms. Não aumentar limites nem apresentar essa rodada como verde.
+- SEC-WS-02: respostas privadas após `await` do coordenador agora conferem novamente diretório/status/permissões/equipe e binding do transporte sub/SID/SV no registro autoritativo. Revogação durante processamento, SID de outra conta, ator trocado, equipe movida e banco indisponível negam a resposta e fecham 4403. Esta correção é incremento crítico posterior ao aceite ffa4b4a.
+- Snapshots agrupam apenas destinatários com projeção idêntica de chamadas; o publisher continua validando cada transporte numa consulta fresca. Sem cache entre eventos. Testes demonstram chamada privada, destinatário sem participação e mudança de participantes.
+- Fixture de teste: controle offline inicia o fechamento e informa `closingConnections`, permitindo ao navegador sair de offline antes de terminar o handshake; cenários continuam exigindo reconexão e mídia preservada. Reset aguarda todos os fechamentos em paralelo e handlers, mantendo ownership inclusive após saída do manager. Nenhuma rota de teste é incluída na imagem de produção.
+- Windows: carga isolada posterior ao agrupamento também reprovou, com `LoadFailure` em reset; artefato `grouped-call-final-load/team-call-load.json`. Não é aprovação nem prova da causa de latência Linux. Revalidação CI do incremento permanece obrigatória.
+- Snapshot final do incremento/fixture: **112 testes focados aprovados**, zero falhas/erros/skips (`call-group-revocation-offline-final.json`, 27,827s). Não substitui CI completo, carga ou validação remota.
+- Chave OAuth: formulário preparado somente com o nome da variável e valor vazio; entrada/salvamento pelo responsável ainda sem confirmação. Não observar o campo enquanto a credencial estiver em edição. Backup completo externo/restauração e sandbox/volume do provedor seguem pendentes.

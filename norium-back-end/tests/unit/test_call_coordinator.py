@@ -120,6 +120,32 @@ class CallCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         direct_types = {message["type"] for result in (first, second) for message in result.direct_messages}
         self.assertIn("CALL_ACTIVE", direct_types)
 
+    async def test_snapshot_groups_identical_visibility_and_preserves_private_calls(self) -> None:
+        self.publisher.online["owner"] = ["owner", "member", "other", "outsider"]
+        calls = [
+            {"callId": "call-public", "participantIds": ["owner", "member", "other"]},
+            {"callId": "call-private", "participantIds": ["owner", "member"]},
+        ]
+        await self.coordinator._broadcast_snapshot("owner", calls)
+        self.assertEqual(3, len(self.publisher.sent))
+        delivered = {user: [call["callId"] for call in payload["calls"]]
+                     for team, recipients, payload in self.publisher.sent for user in recipients}
+        self.assertEqual({"owner": ["call-public", "call-private"], "member": ["call-public", "call-private"],
+                          "other": ["call-public"], "outsider": []}, delivered)
+        self.assertEqual({"owner", "member"}, self.publisher.sent[0][1])
+
+    async def test_snapshot_regroups_after_membership_change_without_cached_visibility(self) -> None:
+        self.publisher.online["owner"] = ["owner", "member"]
+        calls = [{"callId": "call-private", "participantIds": ["owner", "member"]}]
+        await self.coordinator._broadcast_snapshot("owner", calls)
+        self.assertEqual(1, len(self.publisher.sent))
+        calls[0]["participantIds"] = ["owner"]
+        self.publisher.sent.clear()
+        await self.coordinator._broadcast_snapshot("owner", calls)
+        self.assertEqual(2, len(self.publisher.sent))
+        member_payload = next(payload for _, recipients, payload in self.publisher.sent if "member" in recipients)
+        self.assertEqual([], member_payload["calls"])
+
     async def test_participant_entry_exit_and_host_authorization(self) -> None:
         await self.coordinator.handle_event(self.owner, event("CALL_INVITE"))
         await self.coordinator.handle_event(

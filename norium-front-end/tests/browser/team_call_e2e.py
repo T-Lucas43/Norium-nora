@@ -956,7 +956,7 @@ async def scenario_reconnect(runtime: ScenarioRuntime) -> dict[str, Any]:
     assert await join_call(member.page, "on") == call_id
     baseline = len((await diagnostics(owner.page))["stateHistory"])
     status, response = await http_json("POST", f"{runtime.services.api_url}/__test__/connections/owner/close", {})
-    assert status == 200 and response["closedConnections"] >= 1
+    assert status == 200 and response["closingConnections"] >= 1
     await wait_diagnostic(
         owner.page,
         "value.stateHistory.slice(argument).some(item => item.socketState !== 'open')",
@@ -1001,7 +1001,7 @@ async def scenario_temporary_network_loss(runtime: ScenarioRuntime) -> dict[str,
             f"{runtime.services.api_url}/__test__/connections/owner/close",
             {},
         )
-        assert status == 200 and response["closedConnections"] >= 1
+        assert status == 200 and response["closingConnections"] >= 1
     finally:
         await owner.context.set_offline(False)
     await wait_diagnostic(owner.page, "value.socketState === 'open' && value.callId === argument", call_id, timeout=20_000)

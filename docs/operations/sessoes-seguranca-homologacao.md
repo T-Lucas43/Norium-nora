@@ -1,6 +1,6 @@
 # Sessões e segurança: decisão, revisão e homologação
 
-Atualizado em 04/10/2026. Candidato do PR #45, branch `codex/security-session-homologacao`. Responsável pela revisão humana: usuário que se designou no diálogo. Execução direta Codex com IA. O usuário aprovou os diffs até `ffa4b4a93ae9f54be656b25ea76d262241e39fe9` e `6baffcc0b699d52c04be70b0fed6eb27c9373ed4`, condicionando a publicação aos gates. Os incrementos posteriores de persistência, agrupamento de validação e release requerem revisão própria. Este documento não registra deploy.
+Atualizado em 04/10/2026. Candidato do PR #45, branch `codex/security-session-homologacao`. Responsável pela revisão humana: usuário que se designou no diálogo. Execução direta Codex com IA. O usuário aprovou os diffs até `ffa4b4a93ae9f54be656b25ea76d262241e39fe9`, `6baffcc0b699d52c04be70b0fed6eb27c9373ed4` e `1868f3cef7ed2ff2916b8543e0d82bac82481a1b`, condicionando a publicação aos gates. Depois determinou usar somente Shard Cloud; a remoção/arquivamento de workflows Azure atende a essa instrução e não muda o produto aprovado. Este documento não registra deploy.
 
 ## Decisões aprovadas e contrato implementado
 
@@ -37,7 +37,7 @@ CORS/TLS/permissões e regras de negócio continuam exigidos. Desenvolvimento us
 4. `app/infrastructure/browser_egress.py`, `app/modules/intelligence/browser_runtime.py`, `Dockerfile.shard`: limites de rede, sandbox, UID e compatibilidade com o provedor.
 5. `app/infrastructure/persistence/{postgres_store,files,json_repository}.py`: quota, substituição, concorrência e isolamento.
 6. Frontend `cookieSession.ts`, `fetchAuth.ts`, `sessionScope.ts`, `useAuthSession.ts`, `SessionDevices.tsx`: identidade, renovação, mutações, erro de rede e sessão compartilhada entre abas.
-7. Incrementos posteriores ao aceite 6baffcc: `app/modules/team/call_adapters.py`, `app/infrastructure/persistence/files.py`, `app/infrastructure/async_session_validation.py` e integração `team/router.py`; frontend `MeshMediaTransport.ts`; `.github/workflows/azure-container-apps.yml` e `scripts/build_shard_release.py`. Revisar término de worker sob cancelamento, limite/frescor da consulta, renegociação pendente e derivação/verificação do pacote sem promoção automática.
+7. Incrementos posteriores ao aceite 6baffcc, aprovados até 1868f3c: `app/modules/team/call_adapters.py`, `app/infrastructure/persistence/files.py`, `app/infrastructure/async_session_validation.py` e integração `team/router.py`; frontend `MeshMediaTransport.ts`; workflow de validação e `scripts/build_shard_release.py`. Término de worker sob cancelamento, limite/frescor da consulta, renegociação pendente e derivação/verificação do pacote sem promoção automática foram revisados.
 
 Os paths de app/scripts acima são relativos a `norium-back-end`; frontend em `norium-front-end/src`. A revisão será vinculada ao commit exato do PR, não apenas à aprovação anterior do desenho.
 
@@ -45,9 +45,9 @@ Os paths de app/scripts acima são relativos a `norium-back-end`; frontend em `n
 
 | Gate | Evidência exigida antes da promoção | Situação |
 | --- | --- | --- |
-| Revisão humana crítica | Aceite do diff/SHA, prazos/retencão e riscos residuais pelo responsável | ffa4b4a e 6baffcc aprovados condicionalmente; incrementos posteriores aguardam revisão concreta |
-| CI exato | Backend/frontend/lint/build/SCA/scanner, PG real concorrente e chamadas verdes no SHA candidato | 6baffcc: 1.242 backend/804 frontend e 45 cenários verdes, carga 776,516 >750 ms; 15f23a1 carga 774,830 >750 e ofertas simultâneas reprovadas. Próximo candidato exige CI novo |
-| Imagem | Build `Dockerfile.shard`, SHA/digest, SBOM e proveniência; app UID 10001 e smoke DOM com sandbox | Sandbox real aprovado no CI de 6baffcc e 15f23a1; digest/SBOM da imagem efetivamente publicada e comprovação no Shard pendentes |
+| Revisão humana crítica | Aceite do diff/SHA, prazos/retencão e riscos residuais pelo responsável | ffa4b4a, 6baffcc e 1868f3c aprovados condicionalmente; mudança posterior de workflow somente Shard ordenada pelo usuário |
+| CI exato | Backend/frontend/lint/build/SCA/scanner, PG real concorrente e chamadas verdes no SHA candidato | 1868f3c /37209336835 verde: 1.265 backend/806 frontend, 19 scripts e 45/45 browser; carga 100 conexões aprovada. Rodada exata exigida após arquivamento Azure |
+| Imagem | Build `Dockerfile.shard`, SHA/digest, SBOM e proveniência; app UID 10001 e smoke DOM com sandbox | Sandbox real aprovado no CI de 1868f3c; ZIP Linux/Windows idêntico. Digest/SBOM da imagem efetivamente publicada e comprovação no Shard pendentes |
 | Shard | Sandbox funcional e bind do PORT injetado com UID sem privilégio; volume gravável sem dar privilégio ao app | Pendente; não usar no-sandbox/SYS_ADMIN/seccomp unconfined |
 | Chave de assinatura | `NORIUM_AUTH_SECRET` presente no secret manager, >=32 bytes, **mesmo valor atual** | Nome listado no painel Shard em 04/10; valor/tamanho/origem não lidos; compatibilidade precisa ser comprovada |
 | Chave OAuth | `NORIUM_OAUTH_CREDENTIAL_ENCRYPTION_KEY` Fernet dedicada, mantida em secret manager e backup protegido | Campo preparado sem valor/salvar; entrada/salvamento privados pelo responsável aguardam confirmação |
@@ -84,15 +84,18 @@ Não trocar inadvertidamente `NORIUM_AUTH_SECRET`: integrações/configurações
 
 ## Registro de evidências
 
-### Estado mais recente, antes do próximo CI
+### Estado mais recente
 
 - Suíte completa isolada do incremento de validação fresca: **1.265 backend**, zero falhas/erros/skips, 464,541s (`release-candidate-fresh-session-complete.json`). **137 focados** cobrem limites/cancelamento/recuperação do scheduler e guards de sockets; revisão estática independente confirmou fechamento dos riscos de cancelamento sem encontrar novo bloqueador nessa integração.
 - **59 testes frontend** de chamadas/transportes passaram, incluindo renegociação solicitada durante oferta pendente e rejeição atrasada de peer substituído; TypeScript, build e orçamento passaram. Revisão estática independente não encontrou novo bloqueador no diff final. Ofertas simultâneas em navegador real ainda precisam do CI deste código; não afirmar fechamento pelo teste simulado.
 - **19 testes de workflow/pacote** passaram: ZIP determinístico, SHA/tree/blobs, limites de tamanho, rejeição de links/traversal/credenciais/export filters/overwrite e gates de release. Prova adicional mantém bytes do Git com core.autocrlf=true no Windows, sem mudar a configuração do usuário. O job `shard-source-artifact` só produz fontes depois de validate/PG/chamadas/imagem aprovados; não recebe chave Shard nem reinicia aplicação. Checkout dos gates e pacote usa o HEAD concreto do PR.
-- Azure exige despacho manual, destino `azure`, ref main e opt-in `DEPLOY_AZURE_ENABLED=true`. Push/merge em main não promove automaticamente esse ambiente. O novo pacote fonte não comprova digest/SBOM do rebuild gerenciado no Shard.
+- Por instrução posterior do usuário, o único workflow ativo é `.github/workflows/shard-homologacao.yml`. Jobs de publicação/deploy Azure retirados e 13 workflows manuais movidos para `docs/archives/azure-workflows`, preservando os blobs. Nenhuma configuração ou recurso remoto Azure alterado. A branch main histórica não deve ser despachada. O novo pacote fonte não comprova digest/SBOM do rebuild gerenciado no Shard.
 - `python scripts/build_shard_release.py --repo . --commit SHA40_REVISADO --output-dir output/shard-release/ID_UNICO` gera ZIP, manifesto interno e recibo externo SHA256. O `Dockerfile` derivado copia `Dockerfile.shard` e muda apenas o valor padrão de `NORIUM_RELEASE_SHA`; não há credenciais, arquivos locais não versionados ou dados do ambiente.
 - O Shard documenta rebuild de imagem a partir de contexto ZIP separado do restart. ID de imagem, credencial privada, preservação do digest anterior/rollback e gates operacionais ainda precisam de prova. Não usar `app commit` para promover antes dos gates nem tratar um rebuild como imagem ativa.
 - Restauração sobre a database ativa `database` foi cancelada. Restauração para destino isolado exige confirmar ausência do destino e procedimento do provedor, aprovação concreta da operação e comparação privada agregada; não restaurar sobre a ativa.
+- Inspeção do Visualizer autorizada pelo usuário, restrita a nomes de databases/contagens e permissões existentes, após bloqueio de revisão automática por possível exposição de dados privados. Interface está **desabilitada** e requer **512 MB livres**, com botão indisponível. Não habilitada, nenhum conteúdo privado lido. Restauração/contagens continuam pendentes.
+- [CI 37209336835](https://github.com/T-Lucas43/Norium-nora/actions/runs/37209336835), 1868f3c: todos os quatro gates e artifact aprovados. **1.265 backend, 806 frontend, 19 scripts, 45/45 cenários reais**; simultaneous_offer passou 3/3. Carga manteve **100/100 conexões**, com sinal p95 30,076 ms e heartbeat p95 449,138 ms, demais limiares aprovados sem mudança. O log-resumo não publica controle p95; não inventar seu valor.
+- ZIP de 1868f3c no Linux CI e Windows local: **13.885.454 bytes**, SHA256 **fa8a50097a8480998accb2b511e49ae17acfe8b9ffc0b20070b2dd83557e194a**, manifesto/tree iguais. Essa equivalência é de fontes, não da imagem Shard. O incremento posterior exclusivo de workflow precisa de seu CI/artifact concreto antes de promoção.
 
 As entradas abaixo preservam a evolução histórica; resultados de candidatos antigos não substituem os gates da referência final.
 

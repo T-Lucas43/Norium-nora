@@ -3,11 +3,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import html
-import ipaddress
 import json
 import os
 import re
-import socket
 import uuid
 from collections import Counter
 from datetime import datetime, timezone
@@ -19,6 +17,7 @@ import httpx
 from fastapi import HTTPException
 
 from app.core.tenant import read_user_db, write_user_db
+from app.infrastructure.public_http import PublicHTTPTransport, assert_public_dns, host_matches, validate_public_url
 from app.services.ai_costs import Meter, apply_provider_prices
 from app.modules.intelligence.repository import mutate_store, now_iso, read_store, write_store
 from app.modules.platform.service import decrypt_secret, encrypt_secret, save_vault_secret
@@ -42,48 +41,6 @@ def tenant_id(user: dict[str, Any]) -> str:
 
 def normalize_text(value: Any) -> str:
     return " ".join(str(value or "").lower().split())
-
-
-def host_matches(host: str, rule: str) -> bool:
-    normalized = rule.strip().lower().lstrip(".")
-    return bool(normalized and (host == normalized or host.endswith(f".{normalized}")))
-
-
-def validate_public_url(url: str, allowed_domains: list[str] | None = None, blocked_domains: list[str] | None = None) -> tuple[str, str]:
-    parsed = urlparse(url.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
-        raise HTTPException(status_code=400, detail="Use uma URL HTTP(S) publica, sem credenciais embutidas.")
-    host = parsed.hostname.rstrip(".").lower()
-    if host in {"localhost", "localhost.localdomain"} or host.endswith(".local"):
-        raise HTTPException(status_code=400, detail="Enderecos locais ou privados nao podem ser acessados.")
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        address = None
-    if address and not address.is_global:
-        raise HTTPException(status_code=400, detail="Enderecos locais ou privados nao podem ser acessados.")
-    if any(host_matches(host, rule) for rule in blocked_domains or []):
-        raise HTTPException(status_code=403, detail="O dominio esta bloqueado neste perfil.")
-    if allowed_domains and not any(host_matches(host, rule) for rule in allowed_domains):
-        raise HTTPException(status_code=403, detail="O dominio nao esta na lista permitida deste perfil.")
-    port = parsed.port
-    if port and port not in {80, 443}:
-        raise HTTPException(status_code=400, detail="Somente portas web padrao sao permitidas.")
-    return parsed.geturl(), host
-
-
-async def assert_public_dns(host: str) -> None:
-    try:
-        records = await asyncio.to_thread(socket.getaddrinfo, host, None, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        raise HTTPException(status_code=400, detail="O dominio informado nao pode ser resolvido.") from exc
-    for record in records:
-        try:
-            address = ipaddress.ip_address(record[4][0])
-        except ValueError:
-            continue
-        if not address.is_global:
-            raise HTTPException(status_code=400, detail="O dominio resolve para uma rede local ou privada.")
 
 
 class _TextExtractor(HTMLParser):
@@ -139,7 +96,8 @@ async def safe_fetch(url: str, allowed_domains: list[str] | None = None, blocked
     timeout = httpx.Timeout(20, connect=8)
     headers = {"User-Agent": "NoriumBrowserAgent/1.0 (+safe-read-only)"}
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, headers=headers) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, headers=headers, trust_env=False,
+                                     transport=PublicHTTPTransport(allowed_domains or [host], blocked_domains)) as client:
             async with client.stream("GET", normalized) as response:
                 if 300 <= response.status_code < 400:
                     raise HTTPException(status_code=409, detail="A pagina redirecionou. Revise e autorize a URL final antes de continuar.")
@@ -934,7 +892,8 @@ async def test_provider(user: dict[str, Any], provider_id: str, timeout_seconds:
     await assert_public_dns(host)
     headers = {"x-api-key": secret, "anthropic-version": "2023-06-01"} if provider.get("provider") == "anthropic" else {"x-goog-api-key": secret} if provider.get("provider") == "google" else {"Authorization": f"Bearer {secret}"}
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds, connect=min(8, timeout_seconds)), follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds, connect=min(8, timeout_seconds)),
+                                     follow_redirects=False, trust_env=False, transport=PublicHTTPTransport([host])) as client:
             response = await client.get(f"{base_url}/models", headers=headers)
     except (httpx.HTTPError, OSError):
         return {"ok": False, "providerId": provider_id, "detail": "O endpoint nao respondeu ao teste de conexao."}
@@ -1034,7 +993,7 @@ async def complete_with_provider(
     ]
     timeout = httpx.Timeout(45, connect=8)
     try:
-        async with Meter(provider, [system_prompt, *safe_messages], 1400, user_id=user_id, source="model-gateway") as meter, httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        async with Meter(provider, [system_prompt, *safe_messages], 1400, user_id=user_id, source="model-gateway") as meter, httpx.AsyncClient(timeout=timeout, follow_redirects=False, trust_env=False, transport=PublicHTTPTransport([host])) as client:
             meter.sent()
             if provider_kind == "anthropic":
                 response = await client.post(

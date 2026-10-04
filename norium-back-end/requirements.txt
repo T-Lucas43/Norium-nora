@@ -5,10 +5,12 @@ python-dotenv
 cryptography==50.0.0
 tzdata
 httpx
+httpcore==1.0.9
 playwright==1.62.0
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
+oauthlib==4.0.0
 websockets
 edge-tts
 openai

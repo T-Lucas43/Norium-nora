@@ -35,6 +35,7 @@ from pydantic import Field, model_validator
 from app.shared.schemas import StrictModel
 from app.infrastructure.persistence import files as persistent_files
 from app.infrastructure.persistence import postgres_store
+from app.infrastructure.public_http import PublicHTTPTransport
 from app.modules.whatsapp import (
     ConsentRequired,
     FeatureUnavailable,
@@ -1688,6 +1689,7 @@ async def fetch_external_whatsapp_media(
             follow_redirects=False,
             timeout=timeout_config,
             trust_env=False,
+            transport=PublicHTTPTransport([urlparse(normalized).hostname or ""]),
         ) as media_client:
             async with media_client.stream("GET", normalized) as response:
                 if 300 <= int(response.status_code) < 400 or response.status_code != 200:

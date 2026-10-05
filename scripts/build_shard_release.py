@@ -36,6 +36,7 @@ REQUIRED_FILES = (
 )
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 RELEASE_ARG = b'ARG NORIUM_RELEASE_SHA=""'
+RELEASE_VERSION_ARG = b'ARG NORIUM_RELEASE_VERSION=""'
 _WINDOWS_RESERVED = re.compile(r"(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?\Z", re.I)
 _PRIVATE_NAMES = {
     "credentials.json", "credential.json", "service-account.json",
@@ -185,16 +186,26 @@ def _read_archive(archive_path: Path, entries: dict[str, dict[str, Any]]) -> dic
     return files
 
 
-def derive_dockerfile(source: bytes, commit: str) -> bytes:
+def release_version(commit_timestamp: int) -> str:
+    # CalVer identifies the source revision date in UTC, never the packaging
+    # machine's clock. The SHA distinguishes releases built on the same day.
+    return time.strftime("%Y.%m.%d", time.gmtime(commit_timestamp))
+
+
+def derive_dockerfile(source: bytes, commit: str, commit_timestamp: int) -> bytes:
     if not SHA_RE.fullmatch(commit):
         raise ReleasePackageError("Invalid release SHA for Dockerfile derivation.")
     lines = source.splitlines(keepends=True)
-    positions = [index for index, line in enumerate(lines) if line.rstrip(b"\r\n") == RELEASE_ARG]
-    all_release_arguments = [line for line in lines if re.match(rb"[ \t]*ARG[ \t]+NORIUM_RELEASE_SHA(?:[= \t]|$)", line)]
-    if len(positions) != 1 or len(all_release_arguments) != 1:
-        raise ReleasePackageError("Dockerfile must declare exactly the approved empty release ARG.")
-    index = positions[0]
-    lines[index] = lines[index].replace(RELEASE_ARG, b'ARG NORIUM_RELEASE_SHA="' + commit.encode("ascii") + b'"', 1)
+    for name, marker, value in (
+        (b"NORIUM_RELEASE_SHA", RELEASE_ARG, commit),
+        (b"NORIUM_RELEASE_VERSION", RELEASE_VERSION_ARG, release_version(commit_timestamp)),
+    ):
+        positions = [index for index, line in enumerate(lines) if line.rstrip(b"\r\n") == marker]
+        arguments = [line for line in lines if re.match(rb"[ \t]*ARG[ \t]+" + name + rb"(?:[= \t]|$)", line)]
+        if len(positions) != 1 or len(arguments) != 1:
+            raise ReleasePackageError("Dockerfile must declare exactly the approved empty release ARGs.")
+        index = positions[0]
+        lines[index] = lines[index].replace(marker, b'ARG ' + name + b'="' + value.encode("ascii") + b'"', 1)
     return b"".join(lines)
 
 
@@ -269,7 +280,7 @@ def build_release(repo: Path, commit: str, output_dir: Path) -> dict[str, Any]:
         files = _read_archive(tar_path, entries)
         source_hashes = {path: _sha256(data) for path, data in files.items()}
         source_dockerfile = files["Dockerfile.shard"]
-        derived_dockerfile = derive_dockerfile(source_dockerfile, commit)
+        derived_dockerfile = derive_dockerfile(source_dockerfile, commit, timestamp)
         files["Dockerfile"] = derived_dockerfile
         modes = {path: entry["gitMode"] for path, entry in entries.items()}
         modes["Dockerfile"] = "100644"
@@ -278,13 +289,14 @@ def build_release(repo: Path, commit: str, output_dir: Path) -> dict[str, Any]:
             "commitSha": commit,
             "treeSha": tree_sha,
             "commitTimestamp": timestamp,
+            "releaseVersion": release_version(timestamp),
             "zipTimestampUtc": list(_zip_timestamp(timestamp)),
             "archiveMethod": "git archive; every regular blob verified against Git SHA-1",
             "dockerfileDerivation": {
                 "sourcePath": "Dockerfile.shard", "destinationPath": "Dockerfile",
                 "sourceSha256": _sha256(source_dockerfile),
                 "derivedSha256": _sha256(derived_dockerfile),
-                "replacement": "Only the empty NORIUM_RELEASE_SHA ARG default is set to commitSha.",
+                "replacement": "Only the empty release SHA/version ARG defaults are set from the Git revision and its UTC date.",
             },
             "sourceFiles": [
                 {"path": path, **entries[path], "sha256": source_hashes[path]}
@@ -307,6 +319,7 @@ def build_release(repo: Path, commit: str, output_dir: Path) -> dict[str, Any]:
             zip_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
         receipt = {
             "schemaVersion": 1, "commitSha": commit, "treeSha": tree_sha,
+            "releaseVersion": release_version(timestamp),
             "zipFile": output_zip.name, "zipBytes": zip_size, "zipSha256": zip_sha256,
             "manifestPath": MANIFEST_PATH, "manifestSha256": _sha256(manifest_bytes),
             "dockerfileDerivation": manifest["dockerfileDerivation"],

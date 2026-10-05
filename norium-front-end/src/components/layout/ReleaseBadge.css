@@ -1,0 +1,54 @@
+.norium-release-badge{
+  display:flex;
+  flex:0 0 auto;
+  align-items:center;
+  gap:7px;
+  border:1px solid var(--border);
+  border-radius:7px;
+  background:var(--surface);
+  padding:6px 9px;
+  color:var(--text-secondary);
+  font-size:11px;
+  font-weight:600;
+  font-variant-numeric:tabular-nums;
+  line-height:16px;
+  white-space:nowrap;
+}
+
+.norium-release-dot{
+  width:6px;
+  height:6px;
+  flex:0 0 6px;
+  border-radius:50%;
+  background:var(--text-secondary);
+}
+
+.norium-release-badge.is-homologacao .norium-release-dot{background:#d99020;}
+.norium-release-badge.is-producao .norium-release-dot{background:#279b72;}
+
+@media (max-width:1100px){
+  .norium-topbar.norium-topbar-with-release{flex-wrap:wrap;}
+  .norium-topbar-with-release .norium-release-badge{
+    order:3;
+    flex-basis:100%;
+    justify-content:center;
+    padding:3px 8px;
+  }
+}
+
+@media (max-width:640px){
+  .norium-topbar.norium-topbar-with-release{
+    grid-template-rows:44px 44px auto;
+    min-height:148px;
+  }
+  .norium-topbar-with-release .norium-release-badge{
+    grid-column:1 / -1;
+    grid-row:3;
+    width:100%;
+  }
+  .norium-topbar-with-release ~ .app-main,
+  .norium-topbar-with-release ~ .app-main .app-panel,
+  .norium-topbar-with-release ~ .app-main .app-panel > :last-child{
+    min-height:calc(100dvh - 148px);
+  }
+}

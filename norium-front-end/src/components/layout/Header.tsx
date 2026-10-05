@@ -30,6 +30,7 @@ import type { PerfilOperador } from "../../types/omnichannel";
 import NoraAvatar from "./NoraAvatar";
 import BrandLogo from "./BrandLogo";
 import ThemeToggle from "./ThemeToggle";
+import ReleaseBadge from "./ReleaseBadge";
 import { apiBaseUrl, authToken } from "../../utils/api";
 
 interface HeaderProps {
@@ -218,7 +219,7 @@ export default function Header({
   }
 
   return (
-    <header className="norium-topbar">
+    <header className="norium-topbar norium-topbar-with-release">
       <div className="norium-topbar-search-group">
         <button
           type="button"
@@ -307,6 +308,8 @@ export default function Header({
           )}
         </div>
       </div>
+
+      <ReleaseBadge />
 
       <div className="norium-topbar-actions">
         <button

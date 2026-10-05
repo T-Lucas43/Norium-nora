@@ -47,24 +47,43 @@ criticos forem verificados no endereco publicado.
 
 ## Como gerar o pacote
 
-O pacote precisa conter somente o snapshot versionado do commit aprovado. Na
-raiz temporaria do pacote, copiar `Dockerfile.shard` como `Dockerfile`; manter o
-restante da arvore com `norium-back-end/` e `norium-front-end/`.
+O pacote precisa conter somente o snapshot versionado do commit aprovado,
+mantendo a arvore com `norium-back-end/` e `norium-front-end/`. O empacotador
+gera o `Dockerfile` da raiz a partir de `Dockerfile.shard`.
 
-Exemplo em PowerShell, substituindo o SHA e os caminhos pelos valores reais:
+Usar o empacotador deterministico, substituindo o SHA pelo commit aprovado.
+Ele confere os blobs Git, fixa a revisao e a versao no Dockerfile derivado e
+gera um recibo de integridade. Nao usar copia manual do Dockerfile vazio:
 
 ```powershell
 $releaseSha = git rev-parse HEAD
-git archive --format=zip --output norium-source.zip $releaseSha
-Expand-Archive norium-source.zip norium-release
-Copy-Item norium-release\Dockerfile.shard norium-release\Dockerfile -Force
-Compress-Archive norium-release\* "norium-$releaseSha-shard.zip"
+python scripts/build_shard_release.py --commit $releaseSha --output-dir "output/release-$releaseSha"
 ```
 
 Antes do upload, conferir que o ZIP contem `Dockerfile`,
 `norium-back-end/main.py`, `norium-back-end/app/` e
 `norium-front-end/package-lock.json`. O build deve usar a imagem
 `norium-fullstack` e o arquivo `Dockerfile` da raiz do pacote.
+
+## Identificacao visivel do release
+
+- O topo do aplicativo mostra `Homologação · AAAA.MM.DD · SHA curto`, inclusive
+  em telas pequenas. A versao usa a data UTC da revisao Git; o commit distingue
+  dois releases no mesmo dia. Nao representa a idade/maturidade do produto nem
+  o horario em que o deploy foi concluido.
+- CI e empacotador derivam a mesma versao do timestamp do commit. O build grava
+  `/opt/norium/release.json`, pertencente a root, antes de trocar para UID10001.
+- `GET /api/system/release` retorna somente ambiente, versao e revisao da imagem
+  em execucao, com `Cache-Control: no-store`. Variaveis alteradas no painel nao
+  substituem o identificador gravado na imagem.
+- `NORIUM_DEPLOYMENT_STAGE` e metadado de build (`homologacao` neste Dockerfile).
+  Nao substitui `ENVIRONMENT` nem altera CORS, TLS, cookies, permissoes ou tenancy.
+  Um futuro release de producao precisa declarar seu proprio stage no build.
+- O topo consulta no carregamento, ao voltar a aba e a cada minuto enquanto
+  visivel. Se a imagem nao fornecer metadados validos ou estiver indisponivel,
+  informa isso explicitamente. O build falha se receber SHA/versao invalidos.
+- Apos publicar, conferir os tres valores do endpoint contra o recibo do pacote
+  e verificar o topo autenticado. CI/pacote aprovados nao comprovam publicacao.
 
 ## Publicacao no painel do ShardCloud
 

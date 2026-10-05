@@ -42,9 +42,23 @@ class ReleaseWorkflowTests(unittest.TestCase):
                 self.assertEqual("${{ github.event.pull_request.head.sha || github.sha }}", checkout["with"]["ref"])
         image_build = next(step for step in workflow["jobs"]["shard-image-security"]["steps"] if step.get("name") == "Build exact Shard candidate with mandatory browser sandbox")
         self.assertIn("NORIUM_RELEASE_SHA=$(git rev-parse HEAD)", image_build["run"])
+        self.assertIn("NORIUM_RELEASE_VERSION=$release_version", image_build["run"])
+        self.assertIn("NORIUM_DEPLOYMENT_STAGE=homologacao", image_build["run"])
+        self.assertIn('"--format=%ct"', image_build["run"])
         artifact_names = {step.get("with", {}).get("name", "") for step in workflow["jobs"]["validate"]["steps"]}
         self.assertIn("backend-sbom-${{ github.event.pull_request.head.sha || github.sha }}", artifact_names)
         self.assertIn("secret-history-${{ github.event.pull_request.head.sha || github.sha }}", artifact_names)
+
+    def test_version_badge_is_bound_to_root_owned_image_metadata(self):
+        job = self.workflow()["jobs"]["shard-image-security"]
+        proof = next(step for step in job["steps"] if step.get("name") == "Verify release identity from the running image")
+        for required in ("release_snapshot", "NORIUM_DEPLOYMENT_STAGE=producao", "--read-only",
+                         "--network", "none", "--cap-drop=ALL", "Running image release identity"):
+            self.assertIn(required, proof["run"])
+        self.assertNotIn("continue-on-error", proof)
+        dockerfile = Path("Dockerfile.shard").read_text(encoding="utf-8")
+        self.assertLess(dockerfile.index("RUN python -m app.infrastructure.release_metadata"), dockerfile.index("USER norium"))
+        self.assertEqual(dockerfile.count('ARG NORIUM_RELEASE_VERSION=""'), 1)
 
     def test_frontend_audit_covers_development_and_runtime_dependencies(self):
         job = self.workflow()["jobs"]["validate"]

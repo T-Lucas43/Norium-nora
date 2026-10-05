@@ -47,7 +47,7 @@ class ShardReleasePackageTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             content = b"synthetic\n"
             if path == "Dockerfile.shard":
-                content = b'FROM scratch\nARG NORIUM_RELEASE_SHA=""\nENV NORIUM_RELEASE_SHA=${NORIUM_RELEASE_SHA}\n'
+                content = b'FROM scratch\nARG NORIUM_RELEASE_SHA=""\nARG NORIUM_RELEASE_VERSION=""\nENV NORIUM_RELEASE_SHA=${NORIUM_RELEASE_SHA}\n'
             target.write_bytes(content)
         (self.repo / "Dockerfile").write_bytes(b"old root Dockerfile\n")
         (self.repo / "executable.sh").write_bytes(b"#!/bin/sh\nexit 0\n")
@@ -101,7 +101,11 @@ class ShardReleasePackageTests(unittest.TestCase):
             self.assertEqual(first["manifestSha256"], hashlib.sha256(manifest_data).hexdigest())
             source = archive.read("Dockerfile.shard")
             derived = archive.read("Dockerfile")
-            self.assertEqual(derived, source.replace(release.RELEASE_ARG, b'ARG NORIUM_RELEASE_SHA="' + self.commit.encode() + b'"'))
+            self.assertEqual(derived, source
+                .replace(release.RELEASE_ARG, b'ARG NORIUM_RELEASE_SHA="' + self.commit.encode() + b'"')
+                .replace(release.RELEASE_VERSION_ARG, b'ARG NORIUM_RELEASE_VERSION="2026.10.04"'))
+            self.assertEqual(manifest["releaseVersion"], "2026.10.04")
+            self.assertEqual(first["releaseVersion"], "2026.10.04")
             self.assertEqual(manifest["dockerfileDerivation"]["sourceSha256"], hashlib.sha256(source).hexdigest())
             self.assertEqual(manifest["dockerfileDerivation"]["derivedSha256"], hashlib.sha256(derived).hexdigest())
             source_root = next(row for row in manifest["sourceFiles"] if row["path"] == "Dockerfile")
@@ -223,12 +227,21 @@ class ShardReleasePackageTests(unittest.TestCase):
         self.assertFalse((self.repo / "output/zip-budget").exists())
 
     def test_dockerfile_derivation_preserves_crlf_and_rejects_extra_arg(self) -> None:
-        source = b'FROM scratch\r\nARG NORIUM_RELEASE_SHA=""\r\nENV X=unchanged\r\n'
-        derived = release.derive_dockerfile(source, self.commit)
-        self.assertEqual(derived.replace(self.commit.encode(), b""), source)
-        for bad in (b"FROM scratch\n", source + source, source.replace(release.RELEASE_ARG, b"ARG NORIUM_RELEASE_SHA=other")):
+        source = b'FROM scratch\r\nARG NORIUM_RELEASE_SHA=""\r\nARG NORIUM_RELEASE_VERSION=""\r\nENV X=unchanged\r\n'
+        timestamp = 1791108000
+        derived = release.derive_dockerfile(source, self.commit, timestamp)
+        self.assertEqual(derived.replace(self.commit.encode(), b"").replace(b"2026.10.04", b""), source)
+        for bad in (b"FROM scratch\n", source + source,
+                    source.replace(release.RELEASE_ARG, b"ARG NORIUM_RELEASE_SHA=other"),
+                    source.replace(release.RELEASE_VERSION_ARG, b"ARG NORIUM_RELEASE_VERSION=other"),
+                    source.replace(release.RELEASE_VERSION_ARG, b"")):
             with self.assertRaises(release.ReleasePackageError):
-                release.derive_dockerfile(bad, self.commit)
+                release.derive_dockerfile(bad, self.commit, timestamp)
+
+    def test_release_version_is_utc_and_independent_of_local_packaging_clock(self) -> None:
+        self.assertEqual(release.release_version(1791158400), "2026.10.05")
+        with mock.patch.object(release.time, "time", return_value=0):
+            self.assertEqual(release.release_version(1791108000), "2026.10.04")
 
 
 if __name__ == "__main__":

@@ -101,6 +101,16 @@ COPY norium-back-end/main.py ./main.py
 COPY norium-back-end/scripts/migrate_oauth_credentials.py ./scripts/migrate_oauth_credentials.py
 COPY --from=frontend-build /build/frontend/dist ./static
 
+ARG NORIUM_RELEASE_SHA=""
+ARG NORIUM_RELEASE_VERSION=""
+ARG NORIUM_DEPLOYMENT_STAGE="homologacao"
+ENV NORIUM_RELEASE_SHA=${NORIUM_RELEASE_SHA} \
+    NORIUM_RELEASE_VERSION=${NORIUM_RELEASE_VERSION} \
+    NORIUM_DEPLOYMENT_STAGE=${NORIUM_DEPLOYMENT_STAGE}
+# Root-owned build identity: the UI reads the running image, not package.json
+# or mutable hosting environment variables. Missing/invalid identity fails build.
+RUN python -m app.infrastructure.release_metadata
+
 # Fail the build if the trusted PostgreSQL CA bundle is missing or malformed.
 RUN python -c "import ssl; ssl.create_default_context(cafile='/opt/norium/app/infrastructure/persistence/azure_postgres_roots.pem')"
 
@@ -116,9 +126,6 @@ RUN python -m app.infrastructure.browser_runtime_smoke --inventory-only
 
 # Keep the unprivileged identity for the final runtime. Sandbox and binding to
 # the injected port must pass on the platform before this image is promoted.
-
-ARG NORIUM_RELEASE_SHA=""
-ENV NORIUM_RELEASE_SHA=${NORIUM_RELEASE_SHA}
 
 EXPOSE 80 8000
 

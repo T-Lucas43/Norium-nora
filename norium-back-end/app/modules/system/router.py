@@ -9,10 +9,11 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import Field
 
 from app.shared.schemas import StrictModel
+from app.infrastructure.release_metadata import release_snapshot
 
 from app.infrastructure.http.spa import (
     accepts_html,
@@ -56,6 +57,13 @@ async def health() -> dict[str, Any]:
     if re.fullmatch(r"[0-9a-f]{40}", revision):
         return {"status": "ok", "revision": revision}
     return {"status": "ok"}
+
+
+@router.get("/api/system/release")
+async def release_identity(response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return release_snapshot()
 
 
 def _readiness_snapshot() -> dict[str, Any]:

@@ -27,6 +27,7 @@ describe("Header Nora", () => {
     const { container } = renderHeader();
     expect(container.querySelector('[data-lucide="menu"]')).toBeNull();
     expect(screen.getByRole("button", { name: "Abrir navegação pelo logo do Norium" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Versão em execução" })).toBeInTheDocument();
   });
 
   it("usa o mesmo assistente principal em vez de manter um segundo chat", () => {

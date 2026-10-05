@@ -225,7 +225,29 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Build exact Shard candidate with mandatory browser sandbox
-        run: docker build --file Dockerfile.shard --build-arg "NORIUM_RELEASE_SHA=$(git rev-parse HEAD)" --tag norium-shard-security-ci .
+        run: |
+          release_version="$(python -c 'import subprocess,time; print(time.strftime("%Y.%m.%d", time.gmtime(int(subprocess.check_output(["git","show","-s","--format=%ct","HEAD"],text=True)))))')"
+          docker build --file Dockerfile.shard --build-arg "NORIUM_RELEASE_SHA=$(git rev-parse HEAD)" \
+            --build-arg "NORIUM_RELEASE_VERSION=$release_version" --build-arg NORIUM_DEPLOYMENT_STAGE=homologacao \
+            --tag norium-shard-security-ci .
+      - name: Verify release identity from the running image
+        run: |
+          export NORIUM_EXPECTED_SHA="$(git rev-parse HEAD)"
+          python - <<'PY'
+          import json, os, subprocess, time
+          version = time.strftime("%Y.%m.%d", time.gmtime(int(subprocess.check_output(["git", "show", "-s", "--format=%ct", "HEAD"], text=True))))
+          expected = {"environment": "homologacao", "version": version, "revision": os.environ["NORIUM_EXPECTED_SHA"]}
+          # Deliberately override display env vars: only the root-owned image
+          # metadata may identify the release served by this image.
+          command = ["docker", "run", "--rm", "--network", "none", "--cap-drop=ALL", "--security-opt", "no-new-privileges", "--read-only",
+                     "-e", "NORIUM_RELEASE_SHA=" + "0" * 40, "-e", "NORIUM_DEPLOYMENT_STAGE=producao",
+                     "--entrypoint", "python", "norium-shard-security-ci", "-c",
+                     "import json; from app.infrastructure.release_metadata import release_snapshot; print(json.dumps(release_snapshot()))"]
+          actual = json.loads(subprocess.check_output(command, text=True))
+          if actual != expected:
+              raise SystemExit("Running image release identity does not match the reviewed source")
+          print("running_image_release_identity_verified")
+          PY
       - name: Verify unprivileged image identity and real sandboxed DOM
         run: |
           test "$(docker image inspect norium-shard-security-ci --format '{{.Config.User}}')" = norium

@@ -1,3 +1,5 @@
+ARG NORIUM_RUNTIME_BASE=ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
+
 FROM node:24-alpine AS frontend-build
 
 WORKDIR /build/frontend
@@ -6,7 +8,21 @@ RUN npm ci
 COPY norium-front-end/ ./
 RUN npm run build
 
-FROM python:3.14-slim AS runtime
+# Build the Python environment on the same signed distribution used at runtime.
+# Only the populated venv is copied: pip/ensurepip and build tools stay out of
+# the final image, while installed dependency metadata remains available to SCA.
+FROM ${NORIUM_RUNTIME_BASE} AS backend-build
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends ca-certificates python3.14 python3.14-venv \
+    && rm -rf /var/lib/apt/lists/*
+COPY norium-back-end/requirements.lock.txt /build/requirements.lock.txt
+RUN python3.14 -m venv /opt/norium-venv \
+    && /opt/norium-venv/bin/python -m pip install --no-cache-dir -r /build/requirements.lock.txt \
+    && /opt/norium-venv/bin/python -m pip check \
+    && /opt/norium-venv/bin/python -m pip uninstall --yes pip
+
+FROM ${NORIUM_RUNTIME_BASE} AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -19,6 +35,7 @@ ENV HOME=/home/norium
 ENV XDG_CONFIG_HOME=/home/norium/.config
 ENV XDG_CACHE_HOME=/home/norium/.cache
 ENV PORT=8000
+ENV PATH=/opt/norium-venv/bin:${PATH}
 
 # ShardCloud mounts the persistent application data under /app. Keep the
 # immutable runtime elsewhere so the mount cannot hide main.py or app/.
@@ -26,13 +43,12 @@ WORKDIR /opt/norium
 
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+    && apt-get install -y --no-install-recommends ca-certificates python3.14 ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 norium \
     && useradd --uid 10001 --gid norium --no-create-home --shell /usr/sbin/nologin norium
 
-COPY norium-back-end/requirements.lock.txt ./requirements.lock.txt
-RUN pip install --no-cache-dir -r requirements.lock.txt
+COPY --from=backend-build /opt/norium-venv /opt/norium-venv
 
 # Use the official, patched stable Chrome package. The bundled Playwright
 # Chromium is older than the current vendor security fixes. Verify the exact
@@ -66,22 +82,14 @@ RUN apt-get update \
     && rm /tmp/norium-google-chrome-stable.deb \
     && rm -rf /var/lib/apt/lists/*
 
-# Installation tools and their vendored dependencies are not used by Norium
-# at runtime. Remove the tools themselves, including ensurepip's bundled
-# installer; do not hide scanner findings by deleting only their metadata.
-RUN python -m pip uninstall --yes pip \
-    && python - <<'PY'
+# Fail closed if a future distribution dependency reintroduces installers.
+# The runtime does not install python3.14-venv, python3-pip or wheel packages.
+RUN python - <<'PY'
 import importlib.util
-import pathlib
-import shutil
-import sysconfig
+import sys
 
-stdlib = pathlib.Path(sysconfig.get_path("stdlib")).resolve()
-ensurepip = stdlib / "ensurepip"
-if str(stdlib) != "/usr/local/lib/python3.14" or ensurepip.is_symlink():
-    raise SystemExit("Unexpected runtime installation-tool location")
-if ensurepip.exists():
-    shutil.rmtree(ensurepip)
+if sys.version_info[:2] != (3, 14):
+    raise SystemExit("Unexpected runtime Python version")
 for module in ("pip", "ensurepip"):
     if importlib.util.find_spec(module) is not None:
         raise SystemExit("Installation tool remains available: " + module)

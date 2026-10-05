@@ -135,15 +135,20 @@ class ReleaseWorkflowTests(unittest.TestCase):
             "received > expected_bytes", "received != expected_bytes or digest.hexdigest() != expected_sha256",
             "apt-get install -y --no-install-recommends /tmp/norium-google-chrome-stable.deb",
             "dpkg-query -W -f='${Version}' google-chrome-stable", "python -m pip uninstall --yes pip",
-            'stdlib = pathlib.Path(sysconfig.get_path("stdlib")).resolve()',
-            'str(stdlib) != "/usr/local/lib/python3.14" or ensurepip.is_symlink()',
-            "shutil.rmtree(ensurepip)", 'for module in ("pip", "ensurepip")',
+            "FROM ${NORIUM_RUNTIME_BASE} AS backend-build", "FROM ${NORIUM_RUNTIME_BASE} AS runtime",
+            "COPY --from=backend-build /opt/norium-venv /opt/norium-venv",
+            "ENV PATH=/opt/norium-venv/bin:${PATH}",
+            'sys.version_info[:2] != (3, 14)', 'for module in ("pip", "ensurepip")',
             "importlib.util.find_spec(module) is not None", "USER norium",
             "python -m app.infrastructure.browser_runtime_smoke --inventory-only",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, dockerfile)
         self.assertIn("= '" + constants["CHROME_PACKAGE_VERSION"] + "'", dockerfile)
+        self.assertRegex(dockerfile, r"ARG NORIUM_RUNTIME_BASE=ubuntu:26\.04@sha256:[0-9a-f]{64}\n")
+        runtime = dockerfile.split("FROM ${NORIUM_RUNTIME_BASE} AS runtime", 1)[1]
+        self.assertNotIn("python3.14-venv ", runtime)
+        self.assertNotIn("pip install", runtime)
         self.assertLess(dockerfile.index("digest.hexdigest() != expected_sha256"),
                         dockerfile.index("apt-get install -y --no-install-recommends /tmp/norium-google-chrome-stable.deb"))
         self.assertLess(dockerfile.index("pip install --no-cache-dir"), dockerfile.index("python -m pip uninstall --yes pip"))
@@ -151,6 +156,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         for forbidden in ("--no-sandbox", "--allow-unauthenticated", "trusted=yes", ".dist-info"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, dockerfile)
+
+    def test_final_runtime_checks_native_dependencies_with_network_disabled(self):
+        steps = self.workflow()["jobs"]["shard-image-security"]["steps"]
+        smoke = next(step for step in steps if step.get("name") == "Verify unprivileged image identity and real sandboxed DOM")
+        commands = smoke["run"]
+        self.assertIn("-m app.infrastructure.runtime_dependency_smoke", commands)
+        self.assertEqual(commands.count("--network none"), 2)
+        self.assertEqual(commands.count("--read-only"), 2)
+        self.assertEqual(commands.count("--cap-drop=ALL"), 2)
+        self.assertNotIn("continue-on-error", smoke)
 
     def test_shard_source_artifact_requires_all_gates_and_has_no_provider_credentials(self):
         workflow = self.workflow()

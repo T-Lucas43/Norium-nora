@@ -235,6 +235,9 @@ jobs:
             --tmpfs /tmp:rw,nosuid,nodev,size=256m \
             --tmpfs /home/norium:rw,nosuid,nodev,uid=10001,gid=10001,size=128m \
             --entrypoint python norium-shard-security-ci -m app.infrastructure.browser_runtime_smoke --require-container-security
+          docker run --rm --init --network none --cap-drop=ALL --security-opt no-new-privileges \
+            --read-only --tmpfs /tmp:rw,nosuid,nodev,size=128m \
+            --entrypoint python norium-shard-security-ci -m app.infrastructure.runtime_dependency_smoke
           echo 'shard_image_security_ci_passed: unprivileged image; sandbox required; DOM interaction'
 
       - name: Audit exact image packages and browser inventory

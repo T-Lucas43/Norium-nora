@@ -26,7 +26,7 @@ from app.shared.schemas import StrictModel
 
 from app.routers.agenda_router import agenda_agent
 from app.routers.automacoes_router import handle_automation_agent
-from app.routers.auth_router import current_user, effective_permissions
+from app.routers.auth_router import current_user, read_user_store, effective_permissions
 from app.routers.financeiro_router import handle_finance_agent
 from app.routers.tarefas_router import handle_task_agent
 from app.routers.team_chat_router import append_team_message_for_user
@@ -867,10 +867,23 @@ def resposta_agente(
     }
 
 
-def stats_tarefas_para_equipe(user_id: str) -> str:
+async def stats_tarefas_para_equipe(user_id: str) -> tuple[str, list[dict[str, str]]]:
     data = list_tasks(user_id, status="todas")
-    stats = data.get("stats", {})
-    tasks = data.get("tasks", [])
+    from app.services.task_activity import activity_project, project_visible
+    from app.services.task_store import build_stats
+    users = (await read_user_store()).get("users", [])
+    actor = next((item for item in users if str(item.get("id")) == user_id), {})
+    team_id = str(actor.get("teamOwnerId") or user_id)
+    recipients = {str(item["id"]) for item in users if item.get("status") == "ativo" and str(item.get("teamOwnerId") or item.get("id")) == team_id}
+    tasks = []
+    references = []
+    for task in data.get("tasks", []):
+        reference = activity_project(user_id, {"taskId": task.get("id")})
+        if recipients and all(project_visible(reference, uid) for uid in recipients):
+            tasks.append(task)
+            if reference not in references:
+                references.append(reference)
+    stats = build_stats(tasks)
     responsaveis: dict[str, int] = {}
     for task in tasks:
         name = str(task.get("assigneeName") or task.get("responsibleName") or "Sem responsavel").strip()
@@ -885,7 +898,7 @@ def stats_tarefas_para_equipe(user_id: str) -> str:
         f"- Concluidas: {stats.get('concluidas', 0)}\n"
         f"- Vencidas: {stats.get('vencidas', 0)}\n"
         f"- Responsaveis: {responsavel_linha or 'nenhum responsavel definido'}"
-    )
+    ), references
 
 
 def extrair_texto_para_equipe(texto: str) -> str:
@@ -901,8 +914,10 @@ def extrair_texto_para_equipe(texto: str) -> str:
 
 async def handle_team_agent(user_id: str, texto: str, sender_name: str = "Nora") -> dict[str, Any]:
     normalizado = normalizar_intencao(texto)
+    activity_metadata = {}
     if "tarefa" in normalizado and contem_algum(normalizado, ["status", "resumo", "situacao", "andamento", "pendente", "concluida"]):
-        body = stats_tarefas_para_equipe(user_id)
+        body, references = await stats_tarefas_para_equipe(user_id)
+        activity_metadata["taskProjects"] = references
     else:
         body = extrair_texto_para_equipe(texto)
     if not body:
@@ -917,7 +932,7 @@ async def handle_team_agent(user_id: str, texto: str, sender_name: str = "Nora")
         sender_id="nora",
         sender_name=sender_name or "Nora",
         sender_avatar="nora",
-        metadata={"action": "nora_team_message", "source": "nora"},
+        metadata={"action": "nora_team_message", "source": "nora", **activity_metadata},
     )
     return {
         "session_id": None,

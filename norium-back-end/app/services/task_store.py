@@ -432,6 +432,11 @@ def create_task(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         owner_id = user_id
         workspace = load_workspace(user_id, db=db)
         project = default_project(user_id)
+    assignee_id = str(payload.get("assigneeId") or project.get("responsibleUserId") or owner_id)
+    if not project_accessible(project, assignee_id):
+        if payload.get("assigneeId"):
+            raise ValueError("O responsavel precisa ter acesso ao projeto.")
+        assignee_id = str(project.get("ownerUserId") or owner_id)
     task = normalize_task(
         {
             "id": f"task_{uuid.uuid4().hex}",
@@ -443,7 +448,7 @@ def create_task(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             "priority": payload.get("priority", "media"),
             "labels": payload.get("labels", []),
             "dueDate": payload.get("dueDate"),
-            "assigneeId": payload.get("assigneeId") or project.get("responsibleUserId") or user_id,
+            "assigneeId": assignee_id,
             "assigneeName": payload.get("assigneeName") or project.get("responsibleName") or payload.get("authorName") or "Responsavel",
             "createdBy": user_id,
             "attachments": payload.get("attachments", []),
@@ -468,6 +473,10 @@ def update_task(user_id: str, task_id: str, updates: dict[str, Any]) -> dict[str
     if not resolved:
         return None
     owner_id, workspace, _task = resolved
+    if updates.get("assigneeId"):
+        project = next((item for item in workspace.get("projects", []) if str(item.get("id")) == str(_task.get("projectId") or "default")), None)
+        if not project or not project_accessible(normalize_project(project, owner_id), str(updates["assigneeId"])):
+            raise ValueError("O responsavel precisa ter acesso ao projeto.")
     tasks = workspace.setdefault("tasks", [])
     for index, task in enumerate(tasks):
         if task.get("id") != task_id:

@@ -161,8 +161,15 @@ async def write_notification_state(user_id: str, state: dict[str, str | None]) -
     return payload
 
 
-async def read_events(user_id: str) -> list[dict[str, Any]]:
+async def read_events(user_id: str, *, include_restricted: bool = False) -> list[dict[str, Any]]:
     def load() -> list[dict[str, Any]]:
+        from app.services.task_activity import activity_visibility
+        activity_check = activity_visibility(user_id)
+
+        def visible(item: dict[str, Any]) -> bool:
+            metadata = item.get("metadata") or {}
+            return str(metadata.get("userId") or "") == user_id and (include_restricted or activity_check(metadata))
+
         path = event_db_path(user_id)
         payload = read_json_file(path, None)
         if payload is None:
@@ -172,7 +179,7 @@ async def read_events(user_id: str) -> list[dict[str, Any]]:
                     legacy = json.loads(EVENTS_DB_PATH.read_text(encoding="utf-8"))
                     events = [
                         item for item in legacy
-                        if isinstance(item, dict) and event_visible_for_user(item, user_id)
+                        if isinstance(item, dict) and visible(item)
                     ] if isinstance(legacy, list) else []
                     write_json_file(path, events)
                     return events
@@ -186,7 +193,7 @@ async def read_events(user_id: str) -> list[dict[str, Any]]:
         return [
             item
             for item in payload
-            if isinstance(item, dict) and event_visible_for_user(item, user_id)
+            if isinstance(item, dict) and visible(item)
         ]
 
     return await asyncio.to_thread(load)
@@ -210,7 +217,8 @@ def sort_key(event: dict[str, Any]) -> datetime:
 def event_visible_for_user(event: dict[str, Any], user_id: str) -> bool:
     metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
     event_user_id = str(metadata.get("userId") or "").strip()
-    return bool(event_user_id) and event_user_id == user_id
+    from app.services.task_activity import activity_visible
+    return bool(event_user_id) and event_user_id == user_id and activity_visible(metadata, user_id)
 
 
 async def persist_event(event: OmnichannelEvent, user_id: str | None = None) -> tuple[dict[str, Any], bool]:
@@ -220,7 +228,7 @@ async def persist_event(event: OmnichannelEvent, user_id: str | None = None) -> 
         if not resolved_user_id:
             raise ValueError("Todo evento precisa de um userId autenticado e explicito.")
         event_payload.setdefault("metadata", {})["userId"] = resolved_user_id
-        events = await read_events(resolved_user_id)
+        events = await read_events(resolved_user_id, include_restricted=True)
         previous = next((item for item in events if item.get("id") == event.id), None)
         # Sincronizacao repetida gera timestamp novo; ignorar so timestamp evita reacender lidos.
         if previous is not None:
@@ -248,6 +256,12 @@ async def record_event(
     timestamp: str | None = None,
     broadcast: bool = True,
 ) -> dict[str, Any]:
+    from app.services.task_activity import activity_projects, activity_visible, is_task_activity
+    metadata = dict(metadata or {})
+    if is_task_activity(metadata):
+        metadata["taskProjects"] = activity_projects(str(metadata.get("userId") or ""), metadata)
+        if not activity_visible(metadata, str(metadata.get("userId") or "")):
+            raise ValueError("Atividade sem projeto autorizado.")
     event = OmnichannelEvent(
         id=event_id or f"evt_{uuid.uuid4().hex}",
         source=source,
@@ -264,7 +278,7 @@ async def record_event(
     # the user's original message/task; duplicate deliveries are idempotent.
     from app.modules.automations.events import publish_event
     await publish_event(event_payload)
-    if changed and broadcast:
+    if changed and broadcast and event_visible_for_user(event_payload, resolved_user_id):
         await manager.broadcast(resolved_user_id, {"type": "NEW_EVENT", "event": event_payload})
     if changed:
         from app.services.system_email import notify_event

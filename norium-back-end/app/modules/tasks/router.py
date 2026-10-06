@@ -22,6 +22,7 @@ from app.routers.team_chat_router import append_team_message_for_user
 from app.modules.operations.schemas import ReceiptCreate
 from app.modules.operations.service import record_receipt
 from app.services.nora import NoraIAService
+from app.services.task_activity import activity_project
 from app.services.task_store import (
     add_attachment,
     add_comment,
@@ -185,11 +186,25 @@ async def accessible_team_projects(user: dict[str, Any]) -> list[dict[str, Any]]
 
 
 async def require_task_access(user: dict[str, Any], task_id: str) -> dict[str, Any]:
-    allowed_project_ids = {str(item.get("id") or "") for item in await accessible_team_projects(user)}
+    from app.services.task_activity import project_visible
     task = find_task_snapshot(tenant_id(user), task_id)
-    if not task or str(task.get("projectId") or "default") not in allowed_project_ids:
+    reference = activity_project(tenant_id(user), {"taskId": task_id})
+    if not task or not project_visible(reference, tenant_id(user)):
         raise HTTPException(status_code=404, detail="Tarefa nao encontrada.")
+    task["taskProject"] = reference
     return task
+
+
+async def validate_task_assignee(user: dict[str, Any], project_id: str, assignee_id: Any, *, task_id: str | None = None) -> None:
+    if not assignee_id:
+        return
+    from app.services.task_activity import project_visible
+    reference = activity_project(tenant_id(user), {"taskId": task_id}) if task_id else None
+    if reference is None:
+        project = next((item for item in await accessible_team_projects(user) if item.get("id") == project_id), None)
+        reference = {"ownerId": project.get("ownerUserId"), "projectId": project_id} if project else None
+    if str(assignee_id) not in await team_directory_ids(user) or not project_visible(reference, str(assignee_id)):
+        raise HTTPException(status_code=400, detail="O responsavel precisa ter acesso ao projeto. Compartilhe o projeto explicitamente antes de atribuir a tarefa.")
 
 
 async def safe_project_payload(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -348,6 +363,7 @@ async def record_task_created(task: dict[str, Any], project_name: str | None = N
         title=f"Nova tarefa em {project}",
         description=f'"{task.get("title", "Nova tarefa")}" foi criada no projeto "{project}". {task_state_sentence(task)}',
         metadata={
+            "taskProject": activity_project(str(user_id or ""), {"taskId": task.get("id")}),
             "action": "task_created",
             "userId": user_id,
             "taskId": task.get("id"),
@@ -387,6 +403,7 @@ async def record_task_updated(
             f"Estado atual: {task_state_sentence(task)}"
         ),
         metadata={
+            "taskProject": activity_project(str(user_id or ""), {"taskId": task.get("id")}),
             "action": "task_updated",
             "userId": user_id,
             "taskId": task.get("id"),
@@ -417,6 +434,7 @@ async def record_task_updated(
                 ]
             ),
             metadata={
+                "taskProject": activity_project(str(user_id or ""), {"taskId": task.get("id")}),
                 "action": "task_updated",
                 "taskId": task.get("id"),
                 "taskTitle": task.get("title"),
@@ -428,13 +446,15 @@ async def record_task_updated(
 
 
 async def record_task_deleted(task: dict[str, Any] | None, task_id: str, project_id: str | None, project_name: str | None = None, user_id: str | None = None) -> None:
-    project = clean_project_name(project_id or (task or {}).get("projectId"), project_name)
+    project_id = (task or {}).get("projectId")
+    project = clean_project_name(project_id, project_name)
     title = (task or {}).get("title") or task_id
     await record_event(
         source="kanban",
         title=f"Tarefa removida de {project}",
         description=f'A tarefa "{title}" foi apagada do projeto "{project}". Ultimo estado: {task_state_sentence(task or {})}',
         metadata={
+            "taskProject": (task or {}).get("taskProject"),
             "action": "task_deleted",
             "userId": user_id,
             "taskId": task_id,
@@ -457,6 +477,7 @@ async def record_task_deleted(task: dict[str, Any] | None, task_id: str, project
                 ]
             ),
             metadata={
+                "taskProject": (task or {}).get("taskProject"),
                 "action": "task_deleted",
                 "taskId": task_id,
                 "taskTitle": title,
@@ -657,6 +678,7 @@ async def criar_tarefa(payload: CriarTarefaPayload, user: dict[str, Any] = Depen
     resolved_user_id = tenant_id(user)
     if payload.projectId not in {str(item.get("id") or "") for item in await accessible_team_projects(user)}:
         raise HTTPException(status_code=404, detail="Projeto nao encontrado.")
+    await validate_task_assignee(user, payload.projectId, payload.assigneeId)
     task = create_task(resolved_user_id, payload.model_dump(exclude={"user_id", "projectName"}))
     await record_task_created(task, payload.projectName, resolved_user_id)
     await record_receipt(
@@ -689,6 +711,8 @@ async def atualizar_tarefa(task_id: str, payload: AtualizarTarefaPayload, user: 
         if key not in {"user_id", "projectName"}
     }
     previous = await require_task_access(user, task_id)
+    if "assigneeId" in updates:
+        await validate_task_assignee(user, str(previous.get("projectId")), updates["assigneeId"], task_id=task_id)
     task = update_task(resolved_user_id, task_id, updates)
     if not task:
         raise HTTPException(status_code=404, detail="Tarefa nao encontrada.")
@@ -875,6 +899,7 @@ async def handle_task_agent(user_id: str, message: str) -> dict[str, Any]:
         match = find_task(all_tasks, title)
         if not match:
             return {"status": "nao_encontrada", "response": "Nao achei essa tarefa. Me diga um trecho mais especifico do titulo."}
+        reference = activity_project(user_id, {"taskId": match.get("id")})
         if not delete_task(user_id, str(match.get("id"))):
             return {"status": "nao_executada", "response": "A tarefa foi localizada, mas nao pude exclui-la."}
         await record_event(
@@ -882,6 +907,7 @@ async def handle_task_agent(user_id: str, message: str) -> dict[str, Any]:
             title=f"Tarefa excluida pela Nora: {match.get('title')}",
             description=f'A tarefa "{match.get("title")}" do projeto {match.get("projectName") or "Operacao Norium"} foi excluida apos aprovacao.',
             metadata={
+                "taskProject": reference,
                 "action": "task_deleted_by_nora",
                 "userId": user_id,
                 "taskId": match.get("id"),

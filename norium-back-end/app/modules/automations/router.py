@@ -514,6 +514,8 @@ async def apply_automation_effects(
     text = normalize_text(" ".join(str(item.get("title") or "") for item in action_nodes)) if action_nodes else normalize_text(" ".join(automation.get("actions") or []))
     variables = automation.get("variables") if isinstance(automation.get("variables"), dict) else {}
     effects: list[str] = []
+    task_references: list[dict[str, str]] = []
+    has_task_effect = False
     effect_checkpoints = checkpoints or {}
 
     async def run_effect(
@@ -736,6 +738,7 @@ async def apply_automation_effects(
         project_name = str(variables.get("taskProjectName") or project_id or "Operacao Norium")
         task_category = str(variables.get("taskCategory") or "geral")
         async def create_configured_task() -> dict[str, Any]:
+            from app.services.task_activity import activity_project
             task = create_task(
                 user_id,
                 {
@@ -787,9 +790,15 @@ async def apply_automation_effects(
             return {
                 "description": f'Tarefa "{task.get("title")}" criada no projeto "{project_name}".',
                 "taskId": task.get("id"),
+                "taskProject": activity_project(user_id, {"taskId": task.get("id")}),
             }
 
-        await run_effect("task:create", create_configured_task)
+        task_effect = await run_effect("task:create", create_configured_task)
+        from app.services.task_activity import activity_project
+        reference = task_effect.get("taskProject") or activity_project(user_id, {"taskId": task_effect.get("taskId")})
+        has_task_effect = True
+        if reference is not None:
+            task_references.append(reference)
 
     if "agrupar e-mails" in text or "agrupar emails" in text or "categoria" in text and ("email" in text or "e-mail" in text):
         async def group_email() -> dict[str, Any]:
@@ -838,10 +847,12 @@ async def apply_automation_effects(
             f'Acoes: {", ".join(str(action) for action in automation.get("actions", [])[:4]) or "sem acoes registradas"}.'
         )
         async def notify_team() -> dict[str, Any]:
+            if has_task_effect and not task_references:
+                raise ValueError("A tarefa da automacao nao tem projeto verificavel para notificar a equipe.")
             await append_team_message_for_user(
                 user_id,
                 message,
-                metadata={"action": "automation_team_notification", "automationId": automation.get("id")},
+                metadata={"action": "automation_team_notification", "automationId": automation.get("id"), **({"taskProjects": task_references} if task_references else {})},
             )
             return {"description": "Equipe notificada no chat interno."}
 

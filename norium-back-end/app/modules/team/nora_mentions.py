@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from app.services.nora import NoraIAService
+from app.services.task_activity import is_task_activity
 
 
 NORA_MENTION_PATTERN = re.compile(r"(?<![\w@])@nora\b", flags=re.IGNORECASE)
@@ -40,6 +41,7 @@ def build_team_transcript(messages: list[dict[str, Any]]) -> str:
         message
         for message in messages
         if isinstance(message, dict) and message.get("threadId") == "team" and message.get("scope") == "team"
+        and not is_task_activity(message.get("metadata") or {})
     ][-MAX_CONTEXT_MESSAGES:]
 
     for message in team_messages:

@@ -2,7 +2,7 @@
 
 ## Estado
 
-Preparado para revisão humana. **Não publicado; deploy não aceito.** Nenhum merge, push, upload, restart, migração ou alteração de dados de produção foi executado.
+Código aprovado pelo usuário em 06/10/2026 (mensagem: "codigo aprovado. prossiga"). **Publicação em preparação; deploy não aceito.** Branch enviada para revisão/integração; nenhum upload, restart, migração ou remediação histórica executado até este registro.
 
 - Base consultada com `git fetch origin main`: `56ece8e102144a4ad9777d374f471a7199824dff`.
 - Branch: `codex/shardcloud-smoke-fixes-2026-10-06`.
@@ -55,7 +55,7 @@ Antes de aprovar qualquer remediação em produção:
 
 ## Pendências e riscos
 
-- Revisão humana de autorização, exclusão e fila; decisão sobre remediação histórica e sobre recuperação das atividades legítimas ocultas por falta de referência.
+- Aprovação do código registrada pelo usuário. Decisão sobre remediação histórica, fila legada e recuperação das atividades legítimas ocultas por falta de referência continua separada e pendente.
 - Gates de `DEPLOY_SHARDCLOUD.md`: SHA/imagem imutável, backup, dados PostgreSQL reais, APIs autenticadas, tickets/protocolo WebSocket, TURN, mídia real, sons, foto e logs sanitizados continuam pendentes. Testes locais com PostgreSQL simulado não substituem prova de produção nem a integração contra banco real.
 - A escolha de projeto `default` ainda é ambígua na API existente quando há múltiplos projetos acessíveis com esse ID. A atividade fica vinculada ao dono efetivamente resolvido por taskId; não foi feita migração dos IDs. Próximo smoke deve usar projeto sintético com ID único.
 - Nenhum cancelamento da reunião residual implementado nesta tarefa (fora das quatro correções solicitadas).
@@ -76,3 +76,13 @@ Antes de aprovar qualquer remediação em produção:
 1. Aprovação por pessoa qualificada do controle de acesso, dos destinatários e da revalidação de e-mails; manter os quatro perfis e o caso do dono da equipe sem acesso como critérios de aceite.
 2. Aceite da ocultação conservadora de atividades legadas e aprovação separada do inventário/plano histórico. Nenhuma exclusão de evidência ou limpeza de produção está incluída.
 3. Após revisão e merge, comprovar SHA, construir imagem do snapshot exato, verificar sonda na porta efetiva e realizar todos os gates de `DEPLOY_SHARDCLOUD.md`, incluindo mídia/TURN e dados reais. Revisor não deve confundir estes testes locais com aceite da publicação.
+
+
+## Aprovação e início da integração
+
+- O usuário aprovou o código e solicitou prosseguir em 06/10/2026. A autorização permite integrar e preparar a publicação; não é aceite dos gates de produção nem aprovação para apagar/reclassificar mensagens antigas.
+- `origin/main` conferido novamente e continua em `56ece8e102144a4ad9777d374f471a7199824dff`; quatro commits de código aprovados terminam em `d2d6b2dd552666d1ef9557a5d19aeaef40ddca70`.
+- Branch enviada ao repositório remoto. GitHub informou transferência para `T-Lucas43/Norium-nora`; o checkout original e seu remote foram preservados.
+- Antes da integração, `DEPLOY_AZURE_ENABLED` ainda estava `true`. A variável foi alterada para `false` e o valor reconsultado, evitando promoção para o ambiente abandonado. A validação do PR continua disponível; nenhum workflow manual de Azure foi disparado.
+- Painel ShardCloud aberto sem sessão. Login deve ser feito diretamente pelo usuário, sem senha/token enviados ao chat. Confirmar documentos PostgreSQL essenciais, imagem anterior recuperável e configuração atual antes de qualquer troca.
+- O ZIP só poderá ser gerado após o SHA esperado estar em `origin/main`, e o SHA deverá ser fornecido no build ou na configuração da release e comprovado em `/health`. Preservar `NORIUM_AUTH_SECRET` e todos os dados/configurações existentes.

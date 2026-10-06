@@ -86,3 +86,15 @@ Antes de aprovar qualquer remediação em produção:
 - Antes da integração, `DEPLOY_AZURE_ENABLED` ainda estava `true`. A variável foi alterada para `false` e o valor reconsultado, evitando promoção para o ambiente abandonado. A validação do PR continua disponível; nenhum workflow manual de Azure foi disparado.
 - Painel ShardCloud aberto sem sessão. Login deve ser feito diretamente pelo usuário, sem senha/token enviados ao chat. Confirmar documentos PostgreSQL essenciais, imagem anterior recuperável e configuração atual antes de qualquer troca.
 - O ZIP só poderá ser gerado após o SHA esperado estar em `origin/main`, e o SHA deverá ser fornecido no build ou na configuração da release e comprovado em `/health`. Preservar `NORIUM_AUTH_SECRET` e todos os dados/configurações existentes.
+
+
+## Gates de integração — PR #46
+
+- PR: https://github.com/T-Lucas43/Norium-nora/pull/46. CI inicial: execução `37546684429`, SHA `44d73f1bd10124b367bd0a7268d2f32f479b5d1f`.
+- Job `postgres-persistence` passou com PostgreSQL 16 temporário e Python 3.14; prova de JSONB/BYTEA/tabelas/importação, não dos dados de produção.
+- A suíte completa local executou 1139 testes e encontrou duas falhas. Ambas foram reproduzidas no snapshot original de `origin/main`, em worktree separado: contrato de status do Kanban e aba Modelos de mensagens sem guia da Nora. A versão de CI registrou ainda um erro sem relatório detalhado; não presumir que seja equivalente ao resultado local.
+- Correção dos gates: registrar a ampliação já existente de status do Kanban, com testes de valores legados/default/etapas personalizadas/identificadores inválidos; adicionar guia real de Modelos de mensagens, incluindo limite de envio. Os 16 testes específicos passam.
+- Workflow passa a preservar somente `.json` e `.log` do runner isolado de testes sintéticos para investigar falhas de runtime. Não preserva dumps, credenciais ou logs de produção.
+- Pelo navegador, antes da publicação, `/health` continua sem `revision`, e `/health/ready` continua sem `ready`, com PostgreSQL. SHA publicado não comprovado. A consulta por CLI recebeu 403; isto não comprova indisponibilidade da aplicação, que respondeu pelo navegador.
+- Hashes dos 14 arquivos locais de evidência sintética registrados em `output/release/incident-evidence-hashes.json`. Originais intactos. Provas de base e observações minimizadas estão em `output/release/`.
+- Até os checks passarem, não integrar nem publicar. Login no painel e preflight dos dados de produção continuam pendentes.

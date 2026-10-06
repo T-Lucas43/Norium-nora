@@ -97,6 +97,21 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
         ),
     ),
     ModuleHelp(
+        module="modelos de mensagens",
+        aliases=("tela de modelos de mensagens", "modelos de mensagens", "biblioteca de mensagens"),
+        response=(
+            "Modelos de mensagens organiza textos reutilizaveis para E-mail e WhatsApp.\n\n"
+            "Escolha o canal e use Buscar modelo para localizar um texto por nome, categoria ou mensagem. "
+            "Clique em Novo modelo para definir nome, canal, categoria e mensagem; no E-mail, preencha tambem o assunto. "
+            "Use Duplicar para adaptar um modelo padrao ou criar uma copia de outro texto. "
+            "Os modelos personalizados podem ser editados e excluidos com confirmacao. "
+            "Os campos como {{client_name}}, {{company_name}}, {{sender_name}}, {{date}} e {{time}} "
+            "permitem preparar uma mensagem para o atendimento.\n\n"
+            "Salvar ou duplicar um modelo nao envia mensagens. Revise os campos, o destinatario e o texto "
+            "no fluxo de atendimento antes de confirmar qualquer envio."
+        ),
+    ),
+    ModuleHelp(
         module="agenda",
         aliases=("tela de agenda", "tela agenda", "google agenda", "agenda"),
         response=(

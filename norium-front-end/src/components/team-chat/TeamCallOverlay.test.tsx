@@ -110,6 +110,7 @@ describe("tela da reuniao do Modo Equipe", () => {
         cameraEnabled: false,
         previewEnabled: false,
       },
+      failureNotice: "Não foi possível entrar na chamada. Tente novamente.",
       previewStream: null,
       microphonePermission: "denied",
       cameraPermission: "unavailable",
@@ -147,6 +148,7 @@ describe("tela da reuniao do Modo Equipe", () => {
 
     render(<TeamCallOverlay {...sessionProps(call)} members={[{ id: "owner", nome: "Você", fotoUrl: "/profile.jpg" }, { id: "member", nome: "Member" }]} currentUserId="owner" onDownloadAttachment={vi.fn()} />);
 
+    expect(screen.getByText("Não foi possível entrar na chamada. Tente novamente.")).toHaveAttribute("role", "alert");
     const dialog = screen.getByRole("dialog", { name: "Preparar entrada" });
     expect(dialog).toHaveFocus();
     expect(screen.getByRole("radio", { name: "Entrar com microfone ligado" })).toBeInTheDocument();

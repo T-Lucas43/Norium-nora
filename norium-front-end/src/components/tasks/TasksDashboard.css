@@ -189,3 +189,12 @@
 .tasks-project-navigation select{max-width:280px;min-width:160px;padding:8px 30px 8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;}
 .tasks-project-navigation :is(button,select):focus-visible{outline:2px solid var(--primary);outline-offset:3px;}
 @media(max-width:540px){.tasks-project-navigation{align-items:stretch;}.tasks-project-navigation label{width:100%;}.tasks-project-navigation select{flex:1;min-width:0;max-width:none;}}
+
+/* The mobile shell has automatic height. A percentage panel and a zero flex
+   basis cannot establish the board height; give this scrollable module a size. */
+@media (max-width:900px){
+  .app-panel.app-panel-tasks{
+    height:calc(100dvh - 64px)!important;
+    min-height:calc(100dvh - 64px)!important;
+  }
+}

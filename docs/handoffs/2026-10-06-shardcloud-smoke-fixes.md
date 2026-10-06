@@ -24,12 +24,13 @@ Preparado para revisão humana. **Não publicado; deploy não aceito.** Nenhum m
 8. Tarefas recebe altura definida no painel até 900 px, evitando o filho flexível de altura zero. Em navegador real, quadro e abertura de Nova tarefa passam a 766, 390 e 1440 px.
 9. Preparação de chamada mostra aviso de falha para retorno falso/exceção e para rejeições recebidas por sinalização; mantém opções, permite nova tentativa e cancelamento. A causa da falha original do convite não foi comprovada; esta correção trata o silêncio, não comprova mídia/conectividade real.
 10. Financeiro mostra validação acessível para zero, negativo, valor inválido ou não finito em criação, gasto programado e edição. Nenhuma transação é enviada nessas condições.
+11. Healthcheck do container usa a mesma porta configurada em `PORT` e o mesmo fallback 80 do Uvicorn. Antes a sonda consultava sempre 8000, apesar de o painel poder injetar 80. Teste executa o comando Python real do Dockerfile com HTTP simulado em 80, 8000, 8080, vazio e ausência da variável; falha HTTP continua produzindo erro.
 
 ## Validação local
 
 - Regressões novas foram executadas na base antes dos respectivos fixes: envio geral indevido, atribuição sem acesso, ausência de `ready`, prejoin silencioso e Financeiro silencioso falharam como esperado.
 - Layout reproduzido no componente real, CSS real e shell correspondente, com APIs sintéticas: a 766 × 930, `.tasks-workspace` tinha altura **0** antes do fix. Depois: **826 px** em 766 × 930 e 390 × 930; **818 px** em 1440 × 930. Nova tarefa abre o modal nos três tamanhos, sem erro JS.
-- Backend: **120 testes, zero falhas/erros/skips** no runner oficial `scripts/run_backend_audit_tests.py --label shardcloud-smoke-fixes`, em cópia temporária sem dotenv, credenciais ou sockets externos. Inclui acesso, tarefas, automações, Nora, Central, e-mail, readiness e `test_json_repository`, `test_store_loading`, `test_persistence_fail_closed`.
+- Backend: **141 testes, zero falhas/erros/skips** no runner oficial `scripts/run_backend_audit_tests.py --label shardcloud-review`, em cópia temporária sem dotenv, credenciais ou sockets externos. Inclui acesso, tarefas, automações, Nora, Central, e-mail, readiness e `test_json_repository`, `test_store_loading`, `test_persistence_fail_closed`, além de `tests.test_team_collaboration` e da sonda do container.
 - Regressão de privacidade inclui proprietário, colaborador, membro sem acesso e outra equipe; envio real pelos gerenciadores locais de transporte, leitura posterior, revogação, troca de equipe, IDs de projeto iguais, criação/atualização/exclusão, automação e replay de checkpoint legado, resumo/Nora, comentário/anexo, atribuição e e-mail pendente.
 - Frontend: **47 testes pertinentes** em TasksDashboard, FinanceDashboard, CallSession e TeamCallOverlay.
 - Dependências instaladas em diretório próprio do worktree com `npm.cmd ci --offline --no-audit --no-fund`, usando o lockfile da base; nenhum pacote/dependência adicionado.
@@ -37,7 +38,7 @@ Preparado para revisão humana. **Não publicado; deploy não aceito.** Nenhum m
 - Bandit: scan dos arquivos backend alterados, severidade/confiança altas, sem achados nesse nível. Não equivale a pentest ou auditoria completa.
 - Oxlint: zero erros; um aviso preexistente de dependência `columns` em `TasksDashboard.useMemo`, fora da correção.
 - `git diff --check`: aprovado.
-- Registros sintéticos do runner em `output/pos-correcao/shardcloud-smoke-fixes.json` e `.log`, fora do commit. Sem logs de produção.
+- Registros sintéticos do runner em `output/pos-correcao/shardcloud-review.json` e `.log`, fora do commit. Sem logs de produção.
 
 Reexecução do layout: iniciar Vite em `127.0.0.1:5178` e executar `tests/browser/test_tasks_layout.py` no frontend com Python Playwright. Nesta máquina foi usado `NORIUM_TEST_BROWSER_CHANNEL=msedge` (headless). A fixture não conecta contas ou APIs reais.
 
@@ -59,3 +60,19 @@ Antes de aprovar qualquer remediação em produção:
 - A escolha de projeto `default` ainda é ambígua na API existente quando há múltiplos projetos acessíveis com esse ID. A atividade fica vinculada ao dono efetivamente resolvido por taskId; não foi feita migração dos IDs. Próximo smoke deve usar projeto sintético com ID único.
 - Nenhum cancelamento da reunião residual implementado nesta tarefa (fora das quatro correções solicitadas).
 - Próximo passo: revisar os commits/diff, aprovar código crítico e plano histórico, depois planejar publicação separada conforme procedimento obrigatório. Não considerar este handoff um aceite de deploy.
+
+
+## Retomada: preparação da revisão humana
+
+- Removida uma consulta redundante de autorização em `list_threads`, após o filtro já autorizado. Nova regressão reproduziu **41 leituras para 40 atividades** antes da correção; agora há **um snapshot por requisição**, e a requisição seguinte revalida revogação. Não foi introduzido cache entre requisições.
+- Acrescentada regressão do cenário específico do incidente: projeto privado pertence a membro da equipe e o proprietário da equipe não ganha acesso implícito. Acrescentados testes explícitos de prévia/não lidas, recibos, reações e bloqueio de download antes de consultar o arquivo.
+- A suíte final passou com **141 testes**. Os 47 testes frontend, build e navegador continuam referentes aos mesmos arquivos frontend; esta retomada não os alterou. Bandit foi repetido no backend alterado, sem achados de severidade/confiança altas; `git diff --check` passou.
+- Preflight estático do `Dockerfile.shard`: caminhos do runtime/SPA/dados, worker único, dependências WebSocket fixadas, cópia de fontes e certificados conferidos. O bundle público de CA PostgreSQL foi carregado com sucesso, com duas autoridades. Isto não comprova TLS ou acesso ao banco remoto.
+- A imagem não foi construída: Docker não está disponível nesta máquina. Python local é **3.12.10**, enquanto a imagem usa **3.14**; os testes locais não substituem o build e os smokes da imagem. Relatório sintético: `output/review/shardcloud-preflight-local.json`.
+- `NORIUM_RELEASE_SHA` tem padrão vazio no Dockerfile. A preparação da release deverá fornecer o SHA integral aprovado e comprovar sua presença em `/health`; o padrão vazio não permite identificar a imagem. Nenhum ZIP de deploy foi gerado: o procedimento exige primeiro o commit validado e aprovado em `origin/main`.
+
+### Decisões que a revisão humana precisa registrar
+
+1. Aprovação por pessoa qualificada do controle de acesso, dos destinatários e da revalidação de e-mails; manter os quatro perfis e o caso do dono da equipe sem acesso como critérios de aceite.
+2. Aceite da ocultação conservadora de atividades legadas e aprovação separada do inventário/plano histórico. Nenhuma exclusão de evidência ou limpeza de produção está incluída.
+3. Após revisão e merge, comprovar SHA, construir imagem do snapshot exato, verificar sonda na porta efetiva e realizar todos os gates de `DEPLOY_SHARDCLOUD.md`, incluindo mídia/TURN e dados reais. Revisor não deve confundir estes testes locais com aceite da publicação.

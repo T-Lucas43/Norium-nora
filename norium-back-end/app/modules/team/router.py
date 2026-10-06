@@ -564,7 +564,7 @@ async def list_threads(user: dict[str, Any] = Depends(current_user)) -> dict[str
     visible_counts: dict[str, int] = {}
     for message in reversed(visible_messages(store.get("messages", []), user_id)):
         thread = by_id.get(message.get("threadId"))
-        if not thread or not message_visible(message, user_id):
+        if not thread:
             continue
         # O contador acompanha o mesmo histórico disponível ao abrir a conversa.
         count = visible_counts.get(thread["id"], 0)

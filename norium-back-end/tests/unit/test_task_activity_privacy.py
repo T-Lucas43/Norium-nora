@@ -199,5 +199,62 @@ class TaskActivityPrivacyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(400, error.exception.status_code)
 
 
+    async def test_thread_preview_uses_one_acl_snapshot_and_rechecks_next_request(self):
+        await tasks.atualizar_tarefa(self.task["id"], tasks.AtualizarTarefaPayload(priority="alta"), self.users[0])
+        template = self.chat["messages"][0]
+        self.chat["messages"] = [{**copy.deepcopy(template), "id": f"synthetic-{index}"} for index in range(40)]
+        with patch.object(task_store, "_read_db", side_effect=lambda: copy.deepcopy(self.db)) as read_db:
+            with patch.object(task_activity, "read_directory", return_value={"users": self.users}) as read_directory:
+                response = await team.list_threads(self.users[1])
+                thread = next(item for item in response["threads"] if item["id"] == "team")
+                self.assertEqual(40, thread["unreadCount"])
+                self.assertEqual("synthetic-39", thread["lastMessage"]["id"])
+                self.assertEqual(1, read_db.call_count)
+                self.assertEqual(1, read_directory.call_count)
+                self.db["owner"]["projects"][0]["sharedUserIds"] = []
+                response = await team.list_threads(self.users[1])
+                thread = next(item for item in response["threads"] if item["id"] == "team")
+                self.assertEqual(0, thread["unreadCount"])
+                self.assertIsNone(thread["lastMessage"])
+                self.assertEqual(2, read_db.call_count)
+                self.assertEqual(2, read_directory.call_count)
+
+    async def test_team_owner_has_no_implicit_access_to_members_private_project(self):
+        self.db["collab"] = {"projects": [task_store.normalize_project(
+            {"id": "member-private", "name": "Synthetic member private"}, "collab")],
+            "tasks": [], "columns": [], "labels": []}
+        task = task_store.create_task("collab", {"projectId": "member-private", "title": "Synthetic member secret"})
+        await tasks.atualizar_tarefa(task["id"], tasks.AtualizarTarefaPayload(status="andamento"), self.users[1])
+        await tasks.apagar_tarefa(task["id"], user=self.users[1])
+        for call in self.sent.await_args_list:
+            self.assertEqual({"collab"}, call.args[1])
+        self.assertEqual([], await inbox.read_events("owner"))
+        self.assertEqual([], (await team.list_messages(scope="team", recipientId=None, user=self.users[0]))["messages"])
+
+    async def test_private_activity_receipts_reactions_and_download_authorize_viewer(self):
+        await tasks.atualizar_tarefa(self.task["id"], tasks.AtualizarTarefaPayload(priority="alta"), self.users[0])
+        message_id = self.chat["messages"][0]["id"]
+        self.chat["messages"][0]["attachments"] = [{"storedName": "synthetic-private.txt"}]
+        for user in self.users[2:]:
+            response = await team.mark_messages_read(team.MarkMessagesReadPayload(messageIds=[message_id]), user)
+            self.assertEqual([], response["updated"])
+            with self.assertRaises(Exception) as error:
+                await team.toggle_message_reaction(message_id, team.MessageReactionPayload(emoji="👍"), user)
+            self.assertEqual(404, error.exception.status_code)
+            with patch.object(team, "active_calls_snapshot", AsyncMock(return_value=[])):
+                with patch.object(team, "read_pruned_chat_store", AsyncMock(return_value=copy.deepcopy(self.chat))):
+                    with patch.object(team.persistent_files, "exists") as file_exists:
+                        with self.assertRaises(Exception) as error:
+                            await team.download_attachment("synthetic-private.txt", user)
+                        self.assertEqual(404, error.exception.status_code)
+                        file_exists.assert_not_called()
+        self.sent.reset_mock()
+        response = await team.mark_messages_read(team.MarkMessagesReadPayload(messageIds=[message_id]), self.users[1])
+        self.assertEqual([message_id], [item["messageId"] for item in response["updated"]])
+        self.assertEqual({"owner", "collab"}, self.sent.await_args.args[1])
+        await team.toggle_message_reaction(message_id, team.MessageReactionPayload(emoji="👍"), self.users[1])
+        self.assertEqual({"owner", "collab"}, self.sent.await_args.args[1])
+
+
 if __name__ == "__main__":
     unittest.main()

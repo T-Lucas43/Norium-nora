@@ -210,7 +210,7 @@ jobs:
           retention-days: 5
 
   team-call-release:
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && vars.DEPLOY_AZURE_ENABLED != 'false' }}
     needs: [validate, team-call-quality]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -283,11 +283,12 @@ jobs:
           retention-days: 14
 
   publish-image:
+    # A desativação do ambiente legado também impede publicar sua imagem.
     # Publica a imagem assim que a validação de código termina. Os gates longos
     # de chamada continuam obrigatórios para promover a imagem no job deploy,
     # mas não consomem todo o limite de runner antes de o build começar.
     needs: [validate, postgres-persistence]
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && vars.DEPLOY_AZURE_ENABLED != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

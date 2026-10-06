@@ -127,3 +127,10 @@ Antes de aprovar qualquer remediação em produção:
 - Navegador local Edge headless com fake devices nativos, fixture FastAPI/WebSocket e TURN local: **screen_share e simultaneous_offer passaram nas três repetições**, seis cenários no total. Artefato agregado `output/release/call-gate-regression/summary.json`; mídia e logs brutos descartados conforme política existente. Não comprova TURN TLS nem mídia/sons reais de produção.
 - CI do lockfile corrigido, execução `37548671244`, passou backend Python 3.14, SCA/Bandit e PostgreSQL 16; os demais checks ainda estavam em andamento. Execuções substituídas poderão ser canceladas exclusivamente para evitar testar um smoke já corrigido; nenhuma execução parcial será usada como aceite.
 - A seção Deploy do painel confirma que a imagem personalizada controla a atualização; não oferece uma imagem identificável no runtime. O limite de rollback/documentos/backup continua pendente. Produção intacta.
+
+
+## Impedir publicação automática no ambiente abandonado
+
+- Conferência do workflow identificou que `DEPLOY_AZURE_ENABLED=false` originalmente bloqueava somente a promoção, mas deixava `publish-image` publicar `Dockerfile.azure` no GHCR em push para main, e `team-call-release` executar a preparação legada.
+- Os dois jobs passam a respeitar a mesma variável de desativação. Com `false`, testes backend/frontend, SCA/SAST/secrets, PostgreSQL e qualidade de chamadas continuam obrigatórios; imagem/release/deploy Azure ficam desativados. Isto impede publicação automática durante a integração autorizada e não substitui nenhum gate de aceite ShardCloud.
+- YAML interpretado e condições dos cinco jobs conferidas localmente. Variável remota reconsultada como `false`. Nenhuma credencial/secret alterada e nenhuma publicação disparada.

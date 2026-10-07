@@ -2,7 +2,7 @@
 
 ## Estado
 
-Código aprovado pelo usuário em 06/10/2026 (mensagem: "codigo aprovado. prossiga"). **Integração em preparação; publicação não executada e deploy não aceito.** Branch enviada para revisão/integração; nenhum upload, restart, migração ou remediação histórica executado até este registro.
+Código aprovado pelo usuário em 06/10/2026 (mensagem: "codigo aprovado. prossiga"). **Código e acréscimos aprovados; integração autorizada após os checks. Publicação não executada e deploy não aceito.** Branch enviada para revisão/integração; nenhum upload, restart, migração ou remediação histórica executado até este registro.
 
 - Base consultada com `git fetch origin main`: `56ece8e102144a4ad9777d374f471a7199824dff`.
 - Branch: `codex/shardcloud-smoke-fixes-2026-10-06`.
@@ -143,3 +143,13 @@ Antes de aprovar qualquer remediação em produção:
 - Reinstalação pelo lockfile no worktree, com scripts de instalação desabilitados: audit de produção ficou com **zero vulnerabilidades conhecidas**; **787 testes frontend, lint, build e bundle budget passaram novamente**. Relatórios `output/release/frontend-audit-fixed.json` e `frontend-{tests,lint,build}-final.log`.
 - Gitleaks 8.30.1 oficial, distribuição Windows e SHA-256 verificado contra o digest do release: scan dos dez commits de implementação/CI/docs, com redação integral dos valores, **zero achados**. Não foi alterada a allowlist. Relatório `output/release/gitleaks-review.json`; a CI deve repetir o scan no snapshot enviado.
 - A aprovação inicial continua registrada. Os ajustes posteriores incluem seis atualizações de versões, testes OAuth, correções de gates preexistentes, alinhamento do smoke e prevenção da publicação automática Azure. Manter todos esses acréscimos visíveis na revisão; nenhuma nova aprovação de publicação está implícita.
+
+
+## Aprovação dos acréscimos e entrega para integração
+
+- Após apresentar as seis atualizações de dependências, os testes OAuth e os ajustes dos gates, o usuário respondeu **"Aprovar acréscimos e integrar"**. Autorização explícita para integrar PR #46 em main somente após todos os checks passarem; publicação em produção continua fora da autorização.
+- Snapshot de código apresentado na confirmação: `5f8812671ede9bc5af5702ca07110189099dc11f`. Este registro altera somente o handoff, sem modificar código/lockfiles aprovados. Aprovação humana registrada; não representa auditoria independente de segurança.
+- Secret scan local do intervalo da branch (11 commits na revisão de código) passou com Gitleaks oficial e valores redigidos. O check de fonte/build de chamadas passou em **122 arquivos**, sem segredos permanentes ou harnesses no bundle. Nenhuma allowlist/critério de scan relaxado.
+- Handoff mantém os resultados de cada execução e seus limites. O estado de integração, SHA exato e checks finais devem ser comprovados pelo [PR #46](https://github.com/T-Lucas43/Norium-nora/pull/46) e pelo recibo local em `output/release/`; nenhuma execução parcial/cancelada conta como check aprovado.
+- Antes do merge: conferir novamente `origin/main`, identidade do head e checks verde. Preservar a branch/worktree para revisão; não apagar os artefatos locais nem as alterações preexistentes.
+- Nenhum ZIP gerado ou upload/restart efetuado. A futura publicação exige autorização própria, rollback/imagem recuperável, backup/dados essenciais comprovados e todos os gates do procedimento ShardCloud. Remediação histórica permanece separada e não executada.

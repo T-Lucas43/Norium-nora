@@ -187,10 +187,12 @@ def _enqueue(store: dict, user: dict, kind: str, payload: dict, key: str, expire
     return True
 
 
-def enqueue_direct(user: dict, kind: str, payload: dict, key: str, expires: float) -> bool:
+def enqueue_direct(user: dict, kind: str, payload: dict, key: str, expires: float, *, task_activity: dict | None = None, workspace: str = "primary") -> bool:
     with store_lock:
         store = read_store()
         inserted = _enqueue(store, user, kind, payload, key, expires)
+        if inserted and task_activity is not None:
+            store["outbox"][-1].update(taskActivity=task_activity, workspace=workspace)
         if inserted:
             write_store(store)
         return inserted
@@ -320,6 +322,10 @@ def notification_event_type(event: dict) -> str | None:
 
 
 def queue_notification(user: dict, event: dict, workspace: str = "primary", lifetime: float = 86400) -> bool:
+    from app.services.task_activity import activity_visible, is_task_activity
+    metadata = event.get("metadata") or {}
+    if not activity_visible(metadata, str(user.get("id") or "")):
+        return False
     source = event.get("source")
     pref = preferences(user)
     event_type = notification_event_type(event)
@@ -340,7 +346,7 @@ def queue_notification(user: dict, event: dict, workspace: str = "primary", life
     link = configuration()["publicUrl"] + "/app/" + SOURCE_PATHS.get(source, "central")
     payload = render_message(user.get("nome", ""), title, description, link, "Abrir no Norium")
     key = hashlib.sha256(f'{user["id"]}:{workspace}:{event["id"]}'.encode()).hexdigest()
-    return enqueue_direct(user, f"event:{event_type}" if event_type else source, payload, key, time.time() + lifetime)
+    return enqueue_direct(user, f"event:{event_type}" if event_type else source, payload, key, time.time() + lifetime, task_activity={key: metadata[key] for key in ("taskProject", "taskProjects") if key in metadata} if is_task_activity(metadata) else None, workspace=workspace)
 
 
 async def notify_event(event: dict, workspace: str) -> None:
@@ -456,6 +462,14 @@ async def deliver_one() -> bool:
                 record = next((item for item in read_store()["tokens"] if item.get("digest") == job["id"] and not item.get("used") and item.get("expires", 0) > time.time()), None)
             return record is not None and record["version"] == int(user.get("sessionVersion") or 0)
         allowed = await asyncio.to_thread(action_is_current)
+    if allowed and "taskActivity" in job:
+        from app.core.request_context import set_request_context, reset_request_context
+        from app.services.task_activity import activity_visible
+        context = set_request_context("email-task-authorization", str(job.get("workspace") or "primary"))
+        try:
+            allowed = await asyncio.to_thread(activity_visible, job["taskActivity"], str(user["id"]))
+        finally:
+            reset_request_context(context)
     if not allowed:
         await asyncio.to_thread(finish_delivery, job, "skipped")
         return True

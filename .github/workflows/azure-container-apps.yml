@@ -53,6 +53,17 @@ jobs:
           python ../scripts/run_backend_audit_tests.py --label ci-backend
           python -m pip check
 
+      - name: Preserve isolated backend audit diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-audit-${{ github.sha }}
+          path: |
+            output/pos-correcao/ci-backend.json
+            output/pos-correcao/ci-backend.log
+          if-no-files-found: warn
+          retention-days: 5
+
       - name: Scan backend dependencies and source
         working-directory: norium-back-end
         run: |
@@ -199,7 +210,7 @@ jobs:
           retention-days: 5
 
   team-call-release:
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && vars.DEPLOY_AZURE_ENABLED != 'false' }}
     needs: [validate, team-call-quality]
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -272,11 +283,12 @@ jobs:
           retention-days: 14
 
   publish-image:
+    # A desativação do ambiente legado também impede publicar sua imagem.
     # Publica a imagem assim que a validação de código termina. Os gates longos
     # de chamada continuam obrigatórios para promover a imagem no job deploy,
     # mas não consomem todo o limite de runner antes de o build começar.
     needs: [validate, postgres-persistence]
-    if: ${{ github.event_name != 'pull_request' }}
+    if: ${{ github.event_name != 'pull_request' && vars.DEPLOY_AZURE_ENABLED != 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

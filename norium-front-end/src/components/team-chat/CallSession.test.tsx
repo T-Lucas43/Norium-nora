@@ -191,6 +191,8 @@ function ConversationProbe() {
 function PrejoinProbe() {
   const { snapshot, commands } = useCallSession();
   return <>
+    <output aria-label="entry-failure">{snapshot.failureNotice}</output>
+    <button type="button" onClick={() => void commands.accept()}>Preparar convite</button>
     <output aria-label="prejoin">{snapshot.prejoin
       ? `${snapshot.prejoin.thread.scope}:${snapshot.prejoin.thread.recipientId}:${snapshot.prejoin.microphoneMode}:${snapshot.prejoin.cameraEnabled}`
       : "none"}</output>
@@ -543,6 +545,17 @@ describe("CallSession", () => {
 
     await waitFor(() => expect(mocked.runtime!.startCall).toHaveBeenCalled());
     expect(screen.getByLabelText("prejoin")).toHaveTextContent("direct:member:muted:false");
+  });
+
+  it.each(["false", "throw"])("explica falha de ingresso pelo convite (%s)", async (failure) => {
+    mocked.runtime!.incoming = { callId: "invite", title: "Member", thread: { scope: "direct", title: "Member", recipientId: "member" } };
+    mocked.runtime!.acceptIncoming = failure === "false" ? vi.fn().mockResolvedValue(false) : vi.fn().mockRejectedValue(new Error("synthetic private detail"));
+    render(<CallSessionProvider session={authSession}><PrejoinProbe /></CallSessionProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Preparar convite" }));
+    await waitFor(() => expect(screen.getByLabelText("prejoin")).not.toHaveTextContent("none"));
+    fireEvent.click(screen.getByRole("button", { name: "Entrar agora" }));
+    await waitFor(() => expect(screen.getByLabelText("entry-failure")).toHaveTextContent("Não foi possível entrar"));
+    expect(screen.getByLabelText("prejoin")).not.toHaveTextContent("none");
   });
 
   it("prepara o audio depois de uma interacao valida do teclado", async () => {

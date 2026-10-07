@@ -259,6 +259,9 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
   });
   const taskRequestVersion = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const projectMembers = teamMembers.filter((member) => activeWorkspace && (
+    member.id === (activeWorkspace.ownerUserId || userId) || (activeWorkspace.sharedUserIds || []).includes(member.id)
+  ));
   const activeWorkspaces = useMemo(() => workspaces.filter((workspace) => !workspace.archived), [workspaces]);
   const visibleProjects = activeWorkspaces.filter(workspace => (
     (projectCategory === "todas" || workspace.category === projectCategory)
@@ -1305,7 +1308,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
           task={selectedTask}
           columns={columns}
           labels={labels}
-          teamMembers={teamMembers}
+          teamMembers={projectMembers}
           comment={comment}
           setComment={setComment}
           onClose={() => setSelectedTask(null)}
@@ -1325,7 +1328,7 @@ export default function TasksDashboard({ session }: { session: AuthSession }) {
         <CreateTaskModal
           form={form}
           labels={labels}
-          teamMembers={teamMembers}
+          teamMembers={projectMembers}
           setForm={setForm}
           toggleLabel={toggleFormLabel}
           onDetailWithNora={detailTaskDescription}

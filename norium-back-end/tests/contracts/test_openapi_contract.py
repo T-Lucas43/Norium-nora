@@ -35,6 +35,11 @@ INTENTIONAL_PARAMETER_MIGRATIONS = {
     ("GET /api/chat/media-proxy", ("url", "query")),
 }
 INTENTIONAL_SCHEMA_CHANGES = {
+    # Project workflows accept custom stage IDs. Legacy enum values remain
+    # accepted, the create default is unchanged, and malformed IDs stay invalid
+    # (covered by the status compatibility tests below).
+    "components.schemas.CriarTarefaPayload.properties.status",
+    "components.schemas.AtualizarTarefaPayload.properties.status.anyOf",
     "components.schemas.NoraBoardPayload.properties.action.enum",
     "components.schemas.ComentarioPayload.properties.author.default",
     "components.schemas.PerfilOperador.properties.nome.default",
@@ -180,6 +185,27 @@ class OpenApiContractTest(unittest.TestCase):
                 {"responses": {}, "parameters": [{"name": "scope", "in": "query", "required": True}]},
                 "GET /example",
             )
+
+    def test_task_status_expansion_preserves_legacy_and_custom_stages(self) -> None:
+        from app.modules.tasks.router import CriarTarefaPayload, AtualizarTarefaPayload
+        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        values = baseline["components"]["schemas"]["CriarTarefaPayload"]["properties"]["status"]["enum"]
+        for status in [*values, "qualificacao", "etapa_2"]:
+            with self.subTest(status=status):
+                self.assertEqual(status, CriarTarefaPayload(projectId="default", title="Synthetic", status=status).status)
+                self.assertEqual(status, AtualizarTarefaPayload(status=status).status)
+        self.assertEqual("pendente", CriarTarefaPayload(projectId="default", title="Synthetic").status)
+        self.assertIsNone(AtualizarTarefaPayload(status=None).status)
+
+    def test_task_status_expansion_still_rejects_malformed_identifiers(self) -> None:
+        from pydantic import ValidationError
+        from app.modules.tasks.router import CriarTarefaPayload, AtualizarTarefaPayload
+        for status in ("", "A" * 65, "status com espaco", "../privado", "Etapa"):
+            with self.subTest(status=status):
+                with self.assertRaises(ValidationError):
+                    CriarTarefaPayload(projectId="default", title="Synthetic", status=status)
+                with self.assertRaises(ValidationError):
+                    AtualizarTarefaPayload(status=status)
 
     def test_public_openapi_contract_is_unchanged(self) -> None:
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))

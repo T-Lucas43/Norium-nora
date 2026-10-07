@@ -492,7 +492,7 @@ function ActiveCallSessionProvider({
               setParticipantIds([]);
             }
           }
-          if (event.type === "CALL_ERROR" && event.code === "call_capacity_reached") {
+          if (event.type === "CALL_ERROR") {
             setFailureNotice(event.detail || "Não foi possível concluir a ação na chamada.");
           }
           if (event.type === "CALL_ERROR") {
@@ -594,13 +594,20 @@ function ActiveCallSessionProvider({
       const target = entryTargetRef.current;
       const entry = prejoin;
       if (!target || !entry) return;
+      setFailureNotice("");
       dispatch({ type: "JOIN_REQUESTED" });
       const options = { microphoneMode: entry.microphoneMode, cameraEnabled: entry.cameraEnabled };
       let entered = false;
-      if (target.kind === "start") entered = (await runtime.startCall(target.thread, options)) !== false;
-      else if (target.kind === "incoming") entered = (await runtime.acceptIncoming(options)) !== false;
-      else if (target.call) entered = (await runtime.joinActiveCall(target.call, options)) !== false;
+      try {
+        if (target.kind === "start") entered = (await runtime.startCall(target.thread, options)) !== false;
+        else if (target.kind === "incoming") entered = (await runtime.acceptIncoming(options)) !== false;
+        else if (target.call) entered = (await runtime.joinActiveCall(target.call, options)) !== false;
+      } catch {
+        // Device/transport exceptions must not leave the preparation silent.
+        entered = false;
+      }
       if (!entered) {
+        setFailureNotice((current) => current || "Não foi possível entrar na chamada. Verifique sua conexão e as permissões de áudio e câmera, ou tente abrir a chamada ativa pelo chat.");
         dispatch({ type: "FAILED" });
         return;
       }
@@ -610,6 +617,7 @@ function ActiveCallSessionProvider({
       setPrejoin(null);
     },
     cancelEntry: () => {
+      setFailureNotice("");
       void runtime.prepareCameraPreview(false);
       entryTargetRef.current = null;
       setPrejoin(null);

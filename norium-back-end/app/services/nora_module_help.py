@@ -98,16 +98,17 @@ MODULE_HELP: tuple[ModuleHelp, ...] = (
     ),
     ModuleHelp(
         module="modelos de mensagens",
-        aliases=("modelos de mensagens", "templates de mensagens", "modelos de email", "modelos de whatsapp"),
+        aliases=("tela de modelos de mensagens", "modelos de mensagens", "biblioteca de mensagens", "templates de mensagens", "modelos de email", "modelos de whatsapp"),
         response=(
             "A tela de Modelos de mensagens reúne textos reutilizáveis para e-mail e WhatsApp.\n\n"
             "Como usar:\n"
-            "1. Escolha o canal e filtre por categoria ou pelo texto de busca.\n"
-            "2. Crie um modelo com nome, categoria e mensagem; e-mail também permite assunto.\n"
-            "3. Use campos como {{client_name}}, {{company_name}}, {{date}} e {{time}} quando fizer sentido.\n"
-            "4. Duplique modelos do Norium para personalizar; edite ou exclua apenas seus modelos personalizados.\n"
+            "1. Escolha o canal e use Buscar modelo para filtrar por nome, categoria ou mensagem.\n"
+            "2. Clique em Novo modelo e informe nome, categoria e mensagem; e-mail também permite assunto.\n"
+            "3. Use campos como {{client_name}}, {{company_name}}, {{sender_name}}, {{date}} e {{time}} quando fizer sentido.\n"
+            "4. Use Duplicar para personalizar modelos do Norium; edite ou exclua apenas seus modelos personalizados, com confirmação.\n"
             "5. No atendimento ou na composição de e-mail, selecione o modelo e confira destinatário e conteúdo.\n\n"
-            "Salvar ou selecionar um modelo prepara o texto. O envio usa a ação do canal e precisa de revisão e confirmação."
+            "Salvar, selecionar ou duplicar um modelo não envia mensagens; apenas prepara o texto. "
+            "O envio usa a ação do canal e precisa de revisão e confirmação."
         ),
     ),
     ModuleHelp(

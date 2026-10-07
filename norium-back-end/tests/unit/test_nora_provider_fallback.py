@@ -31,6 +31,29 @@ class FakeAsyncClient:
 
 
 class NoraProviderFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_openai_runtime_uses_responses_api_without_storage(self) -> None:
+        from unittest.mock import AsyncMock, Mock
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "status": "completed",
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "Resposta Astra"}]}],
+            "usage": {"input_tokens": 10, "output_tokens": 3},
+        }
+        with patch.dict(os.environ, {
+            "NORA_PROVIDER": "openai",
+            "OPENAI_API_KEY": "test-openai-key",
+            "NORA_OPENAI_MODEL": "gpt-6-astra",
+        }):
+            service = NoraIAService()
+            service._client = Mock(is_closed=False, post=AsyncMock(return_value=response))
+            answer = await service.perguntar_nora([{"role": "user", "content": "Continue o contexto"}])
+        self.assertEqual("Resposta Astra", answer)
+        self.assertEqual("https://api.openai.com/v1/responses", service._client.post.call_args.args[0])
+        payload = service._client.post.call_args.kwargs["json"]
+        self.assertEqual("gpt-6-astra", payload["model"])
+        self.assertIs(payload["store"], False)
+        self.assertNotIn("messages", payload)
+
     async def test_complete_reports_reject_provider_output_truncation(self) -> None:
         from unittest.mock import AsyncMock, Mock
         response = Mock(status_code=200)

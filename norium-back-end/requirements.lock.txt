@@ -32,7 +32,7 @@ httptools==0.8.0
 httpx==0.28.1
 idna==3.18
 jiter==0.16.0
-multidict==6.7.1
+multidict==6.9.1
 oauthlib==4.0.0
 openai==2.44.0
 openpyxl==3.1.5

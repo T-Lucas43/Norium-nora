@@ -147,8 +147,12 @@ class TeamMemberAccessAuditTests(unittest.TestCase):
         self.assertEqual(200, response.status_code, response.text)
         self.assertEqual(401, self.client.get("/api/team-chat/members", headers=self.headers).status_code)
         self.headers = self.login("member")
+        live_store = json.loads(self.users_path.read_text(encoding="utf-8"))
+        live_member = next(user for user in live_store["users"] if user["id"] == self.member["id"])
+        parallel_headers = {"Authorization": f"Bearer {auth.create_token(live_member)}"}
         self.assertEqual(200, self.client.post("/api/auth/logout", headers=self.headers).status_code)
         self.assertEqual(401, self.client.get("/api/team-chat/members", headers=self.headers).status_code)
+        self.assertEqual(200, self.client.get("/api/team-chat/members", headers=parallel_headers).status_code)
         self.headers = self.login("member")
         self.assertEqual(200, self.client.delete(f"/api/auth/users/{self.member['id']}", headers=self.owner_headers).status_code)
         self.assertEqual(401, self.client.get("/api/team-chat/members", headers=self.headers).status_code)

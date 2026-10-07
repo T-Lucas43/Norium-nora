@@ -103,6 +103,7 @@ def _readiness_snapshot() -> dict[str, Any]:
         checks["noraBrain"] = repository().ping()
     return {
         "status": "ready",
+        "ready": True,
         "checks": checks,
         "latencyMs": round((time.perf_counter() - started) * 1000, 2),
     }
@@ -113,7 +114,7 @@ async def readiness() -> dict[str, Any]:
     try:
         return await asyncio.wait_for(asyncio.to_thread(_readiness_snapshot), timeout=8)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail={"status": "not_ready", "reason": type(exc).__name__}) from exc
+        raise HTTPException(status_code=503, detail={"status": "not_ready", "ready": False, "reason": type(exc).__name__}) from exc
 
 
 @router.get("/health/browser")

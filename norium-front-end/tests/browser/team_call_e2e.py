@@ -1117,17 +1117,18 @@ async def scenario_screen_share(runtime: ScenarioRuntime) -> dict[str, Any]:
     await owner.page.get_by_role("button", name="Transmitir tela", exact=True).click()
     await wait_diagnostic(owner.page, "value.sharingScreen === true && value.displayRequests === 1")
     screen_rtp = await wait_rtp(member.page, "inbound", "video")
-    # Receiving media does not authorize automatic playback. The real UI now
-    # requires each recipient to choose to watch a remote screen explicitly.
+    # Viewing requires each receiver's explicit choice before playback.
+    watch_button = member.page.get_by_role("button", name="Assistir transmissão", exact=True)
+    await expect(watch_button).to_be_visible()
     await expect(member.page.get_by_label("Tela compartilhada por Owner", exact=True)).to_have_count(0)
-    await member.page.get_by_role("button", name="Assistir transmissão", exact=True).click()
+    await watch_button.click()
     await wait_video(member.page, "Tela compartilhada por Owner")
     await expect(member.page.get_by_role("button", name="Parar de assistir", exact=True)).to_be_visible()
-    await owner.page.get_by_role("button", name="Parar transmissão de tela", exact=True).click()
+    await owner.page.get_by_role("button", name="Parar transmissão de tela", exact=True).first.click()
     await wait_diagnostic(owner.page, "value.sharingScreen === false")
     await expect(member.page.get_by_label("Tela compartilhada por Owner", exact=True)).to_have_count(0)
     await end_host_call(owner.page)
-    return {"syntheticSelectionBoundary": True, "recipientOptIn": True, "nativeScreenRtp": True, "rtp": screen_rtp}
+    return {"syntheticSelectionBoundary": True, "recipientOptIn": True, "receiverOptInVerified": True, "nativeScreenRtp": True, "rtp": screen_rtp}
 
 
 async def tracks_ended(page: Page) -> bool:

@@ -346,7 +346,10 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
 
   async function createLancamento() {
     const amount = Number(String(lancamentoForm.amount).replace(",", "."));
-    if (!lancamentoForm.title.trim() || !amount) return;
+    if (!lancamentoForm.title.trim() || !Number.isFinite(amount) || amount <= 0) {
+      setError("Informe um título e um valor maior que zero para salvar o lançamento.");
+      return;
+    }
     try {
       setCreatingLancamento(true);
       setError("");
@@ -388,7 +391,10 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
 
   async function createProgramado() {
     const amount = Number(String(programadoForm.amount).replace(",", "."));
-    if (!programadoForm.title.trim() || !amount) return;
+    if (!programadoForm.title.trim() || !Number.isFinite(amount) || amount <= 0) {
+      setError("Informe um título e um valor maior que zero para programar o gasto.");
+      return;
+    }
     try {
       setCreatingProgramado(true);
       setError("");
@@ -490,8 +496,8 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
   async function saveEditLancamento() {
     if (!selected) return;
     const amount = Number(String(editForm.amount).replace(",", "."));
-    if (!editForm.title.trim() || !amount) {
-      setError("Informe titulo e valor para salvar o lancamento.");
+    if (!editForm.title.trim() || !Number.isFinite(amount) || amount <= 0) {
+      setError("Informe um título e um valor maior que zero para salvar o lançamento.");
       return;
     }
 
@@ -737,7 +743,7 @@ export default function FinanceDashboard({ userId = "primary", onOpenNora }: { u
             )}
 
             {(error || notice) && (
-              <div className={`rounded-lg border px-4 py-3 text-sm font-bold ${error ? "border-amber-400/25 bg-amber-500/10 text-amber-200" : "border-emerald-400/25 bg-emerald-500/10 text-emerald-200"}`}>
+              <div role={error ? "alert" : "status"} className={`rounded-lg border px-4 py-3 text-sm font-bold ${error ? "border-amber-400/25 bg-amber-500/10 text-amber-200" : "border-emerald-400/25 bg-emerald-500/10 text-emerald-200"}`}>
                 {error || notice}
               </div>
             )}

@@ -26,7 +26,7 @@ from app.shared.schemas import StrictModel
 
 from app.routers.agenda_router import agenda_agent
 from app.routers.automacoes_router import handle_automation_agent
-from app.routers.auth_router import current_user, effective_permissions
+from app.routers.auth_router import current_user, read_user_store, effective_permissions
 from app.routers.financeiro_router import handle_finance_agent
 from app.routers.tarefas_router import handle_task_agent
 from app.routers.team_chat_router import append_team_message_for_user
@@ -867,10 +867,23 @@ def resposta_agente(
     }
 
 
-def stats_tarefas_para_equipe(user_id: str) -> str:
+async def stats_tarefas_para_equipe(user_id: str) -> tuple[str, list[dict[str, str]]]:
     data = list_tasks(user_id, status="todas")
-    stats = data.get("stats", {})
-    tasks = data.get("tasks", [])
+    from app.services.task_activity import activity_project, project_visible
+    from app.services.task_store import build_stats
+    users = (await read_user_store()).get("users", [])
+    actor = next((item for item in users if str(item.get("id")) == user_id), {})
+    team_id = str(actor.get("teamOwnerId") or user_id)
+    recipients = {str(item["id"]) for item in users if item.get("status") == "ativo" and str(item.get("teamOwnerId") or item.get("id")) == team_id}
+    tasks = []
+    references = []
+    for task in data.get("tasks", []):
+        reference = activity_project(user_id, {"taskId": task.get("id")})
+        if recipients and all(project_visible(reference, uid) for uid in recipients):
+            tasks.append(task)
+            if reference not in references:
+                references.append(reference)
+    stats = build_stats(tasks)
     responsaveis: dict[str, int] = {}
     for task in tasks:
         name = str(task.get("assigneeName") or task.get("responsibleName") or "Sem responsavel").strip()
@@ -885,7 +898,7 @@ def stats_tarefas_para_equipe(user_id: str) -> str:
         f"- Concluidas: {stats.get('concluidas', 0)}\n"
         f"- Vencidas: {stats.get('vencidas', 0)}\n"
         f"- Responsaveis: {responsavel_linha or 'nenhum responsavel definido'}"
-    )
+    ), references
 
 
 def extrair_texto_para_equipe(texto: str) -> str:
@@ -901,8 +914,10 @@ def extrair_texto_para_equipe(texto: str) -> str:
 
 async def handle_team_agent(user_id: str, texto: str, sender_name: str = "Nora") -> dict[str, Any]:
     normalizado = normalizar_intencao(texto)
+    activity_metadata = {}
     if "tarefa" in normalizado and contem_algum(normalizado, ["status", "resumo", "situacao", "andamento", "pendente", "concluida"]):
-        body = stats_tarefas_para_equipe(user_id)
+        body, references = await stats_tarefas_para_equipe(user_id)
+        activity_metadata["taskProjects"] = references
     else:
         body = extrair_texto_para_equipe(texto)
     if not body:
@@ -917,7 +932,7 @@ async def handle_team_agent(user_id: str, texto: str, sender_name: str = "Nora")
         sender_id="nora",
         sender_name=sender_name or "Nora",
         sender_avatar="nora",
-        metadata={"action": "nora_team_message", "source": "nora"},
+        metadata={"action": "nora_team_message", "source": "nora", **activity_metadata},
     )
     return {
         "session_id": None,
@@ -1076,7 +1091,7 @@ async def gerar_texto_de_envio_whatsapp(payload: NoraWhatsAppPayload, historico:
         f"Fallback seguro caso o modelo fique verboso: {fallback}"
     )
     resposta = limpar_texto_para_envio(await nora_service.perguntar_nora([{"role": "user", "content": prompt}]))
-    if not resposta or resposta.upper() == "BLOQUEAR" or "GROQ_API_KEY" in resposta:
+    if not resposta or resposta.upper() == "BLOQUEAR" or "provedor de IA" in resposta or "servidor de IA" in resposta:
         return fallback
     return resposta[:1200]
 
@@ -1088,23 +1103,71 @@ def context_window(messages: list[MessageItem], tail: int) -> list[MessageItem]:
     return [*pinned, *rest]
 
 
-def restore_natural_context(payload: NoraNaturalPayload, user: dict[str, Any]) -> None:
+def contextual_continuation_intent(
+    snapshot: dict[str, Any] | None,
+    texto: str,
+    resolution: SkillResolution,
+) -> str | None:
+    """Keep the prior domain for short, referential follow-up messages."""
+    if not snapshot or (resolution.skill_id != "chat" and not resolution.needs_semantic_fallback):
+        return None
+    normalized = normalizar_intencao(texto)
+    words = normalized.split()
+    if len(words) > 18:
+        return None
+    referential = bool(re.search(
+        r"^(?:e|mas|entao|agora|tambem|nesse|nessa|neste|nesta|dele|dela|isso|esse|essa|o mesmo|a mesma)\b",
+        normalized,
+    )) or bool(re.search(r"\b(?:anterior|acima|mencionad[oa]|disso|nisso)\b", normalized))
+    if not referential:
+        return None
+    turns = snapshot.get("turns") if isinstance(snapshot, dict) else []
+    previous = str((turns or [{}])[-1].get("intent") or "")
+    return previous if previous in {
+        "agenda", "automacoes", "brainstorm", "comercial", "email", "equipe",
+        "financeiro", "operacoes", "tarefas", "whatsapp",
+    } else None
+
+
+def explicit_context_fact_question(texto: str) -> bool:
+    """Keep user-supplied facts in natural chat instead of treating nouns as commands.
+
+    A sentence such as "o Projeto Atlas tem prazo em setembro; qual e o prazo?"
+    mentions task-domain words, but does not ask Norium to read or mutate the task
+    module.  Routing it to the task dashboard discards the fact the user just gave.
+    """
+    normalized = normalizar_intencao(texto)
+    if not re.search(r"\b(?:qual|quando|quem|onde|o que|quanto)\b", normalized):
+        return False
+    if not re.search(r"\b(?:e|eh|tem|significa|vale|vence|fica|corresponde)\b", normalized):
+        return False
+    if not re.search(r"[.;:]", texto):
+        return False
+    return not bool(re.search(
+        r"\b(?:crie|criar|liste|listar|mostre|mostrar|abra|abrir|mova|mover|conclua|concluir|"
+        r"edite|editar|altere|alterar|exclua|excluir|envie|enviar|agende|agendar|registre|registrar)\b",
+        normalized,
+    ))
+
+
+def restore_natural_context(payload: NoraNaturalPayload, user: dict[str, Any]) -> dict[str, Any] | None:
     """Prepend persisted turns so context survives restarts and thin clients."""
     conversation_id = valid_conversation_id(payload.conversation_id)
     if conversation_id is None:
-        return
+        return None
     try:
         snapshot, _ = load_conversation_context(tenant_id(user), conversation_id)
     except Exception:
         logger.warning("nora_context_restore_failed")
-        return
+        return None
     persisted = context_prompt_messages(snapshot)
     if not persisted:
-        return
+        return snapshot
     merged = merge_histories(persisted, [message.model_dump() for message in payload.messages])
     pinned = [item for item in merged if item.get("role") == "system"][:1]
-    rest = [item for item in merged if item.get("role") != "system"][-12:]
+    rest = [item for item in merged if item.get("role") != "system"][-20:]
     payload.messages = [MessageItem(role=item["role"], content=item["content"]) for item in (*pinned, *rest)]
+    return snapshot
 
 
 async def record_natural_turn(payload: NoraNaturalPayload, user: dict[str, Any], result: Any) -> None:
@@ -1139,13 +1202,17 @@ async def conversar_com_nora_generico(payload: ConversaPayload, _: dict[str, Any
 
 @router.post("/natural")
 async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str, Any] = Depends(require_nora_permission)):
-    restore_natural_context(payload, user)
-    result = await _execute_natural_conversation(payload, user)
+    snapshot = restore_natural_context(payload, user)
+    result = await _execute_natural_conversation(payload, user, snapshot)
     await record_natural_turn(payload, user, result)
     return result
 
 
-async def _execute_natural_conversation(payload: NoraNaturalPayload, user: dict[str, Any]):
+async def _execute_natural_conversation(
+    payload: NoraNaturalPayload,
+    user: dict[str, Any],
+    conversation_snapshot: dict[str, Any] | None = None,
+):
     resolved_user_id = tenant_id(user)
     texto = payload.message.strip()
     resolution = resolve_skill(texto)
@@ -1265,7 +1332,12 @@ async def _execute_natural_conversation(payload: NoraNaturalPayload, user: dict[
             and payload.commercial_session_id is None
             and not is_compound_request(texto)
         ):
-            pdf_request = await maybe_handle_pdf_request(user, texto)
+            pdf_request = await maybe_handle_pdf_request(
+                user,
+                texto,
+                [message.model_dump() for message in payload.messages],
+                nora_service.perguntar_nora,
+            )
             if pdf_request is not None:
                 pdf_intent = str(pdf_request.pop("intent"))
                 return resposta_agente(pdf_intent, pdf_request, resolution=resolution)
@@ -1362,19 +1434,26 @@ async def _execute_natural_conversation(payload: NoraNaturalPayload, user: dict[
             result = await handle_commercial_agent(user, texto, payload.commercial_session_id, attachment_ids=payload.attachment_ids)
             return resposta_agente("comercial", result, "commercial", resolution)
 
-        intent = resolution.skill_id
+        continued_intent = contextual_continuation_intent(conversation_snapshot, texto, resolution)
+        # A single fuzzy/supporting word (for example "responda") is not
+        # enough to seize a natural conversation for a specialist module.
+        # Strong patterns and combinations still route normally.
+        weak_resolution = resolution.score <= 2.5
+        intent = continued_intent or ("chat" if weak_resolution else resolution.skill_id)
         recent_context = "\n".join(
             f"{message.role}: {message.content}" for message in context_window(payload.messages, 4)
         )
         semantic_enabled = os.getenv("NORA_INTENT_LLM", "1").strip() != "0"
-        if resolution.needs_semantic_fallback and semantic_enabled and len(texto.split()) >= 2:
+        if continued_intent is None and resolution.needs_semantic_fallback and semantic_enabled and len(texto.split()) >= 2:
             semantic_intent, semantic_confidence = await classificar_intencao_com_nora(
                 texto,
                 resolution,
                 recent_context,
             )
-            if semantic_confidence >= 0.55:
+            if semantic_confidence >= 0.55 and (semantic_intent == "chat" or not weak_resolution):
                 intent = semantic_intent
+        if explicit_context_fact_question(texto):
+            intent = "chat"
 
         # Uma reunião interna é uma ação de Agenda, ainda que a palavra
         # "equipe" também seja um sinal forte do agente de mensagens.
@@ -1524,7 +1603,7 @@ async def _execute_natural_conversation(payload: NoraNaturalPayload, user: dict[
                     result = await query_knowledge(user, texto, 5)
             return resposta_agente("operacoes", result, resolution=resolution)
 
-        mensagens_dict = [msg.model_dump() for msg in context_window(payload.messages, 6)]
+        mensagens_dict = [msg.model_dump() for msg in context_window(payload.messages, 12)]
         user_message = await message_with_memory(user, texto, {"communication", "client", "project", "process", "general"})
         knowledge_context, knowledge_sources = knowledge_context_for_nora(user, texto)
         mensagens_dict.append({"role": "user", "content": user_message + knowledge_context})
@@ -1571,7 +1650,7 @@ async def conversar_com_nora_natural_stream(
     """
     request_started = time.perf_counter()
     response_id = uuid.uuid4().hex
-    restore_natural_context(payload, user)
+    conversation_snapshot = restore_natural_context(payload, user)
     texto = payload.message.strip()
 
     has_active_session = bool(
@@ -1592,8 +1671,17 @@ async def conversar_com_nora_natural_stream(
     )
 
     resolution = resolve_skill(texto)
-    if not needs_structured_flow and resolution.skill_id == "chat":
-        base_messages = [msg.model_dump() for msg in context_window(payload.messages, 6)]
+    continued_intent = contextual_continuation_intent(conversation_snapshot, texto, resolution)
+    if (
+        not needs_structured_flow
+        and (
+            resolution.skill_id == "chat"
+            or resolution.score <= 2.5
+            or explicit_context_fact_question(texto)
+        )
+        and continued_intent is None
+    ):
+        base_messages = [msg.model_dump() for msg in context_window(payload.messages, 12)]
 
         def encode_event(event_type: str, payload_data: dict[str, Any]) -> str:
             data = {"type": event_type, "response_id": response_id, **payload_data}

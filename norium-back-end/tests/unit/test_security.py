@@ -58,6 +58,7 @@ class SecurityTest(unittest.TestCase):
         )
         payload = decode_signed_token(token, secret=b"a" * 64)
         self.assertEqual("user-1", payload["sub"])
+        self.assertTrue(payload["jti"])
         with self.assertRaises(TokenValidationError):
             decode_signed_token(token, secret=b"b" * 64)
 

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import TasksDashboard from "./TasksDashboard";
+import { authJson } from "../../utils/authApi";
 import { tasksApiRequest } from "../../features/tasks/api";
 import type { AuthSession } from "../../types/auth";
 vi.mock("../../features/tasks/api", () => ({ tasksApiRequest: vi.fn(), calendarApiRequest: vi.fn() }));
@@ -114,4 +115,15 @@ it("switches projects from the header and returns to the project selection", asy
   fireEvent.click(screen.getByRole("button", { name: "Voltar aos projetos" }));
   expect(screen.getByRole("button", { name: "Portal do cliente" })).toBeInTheDocument();
   expect(screen.getAllByRole("button", { name: "Operação" }).length).toBeGreaterThanOrEqual(1);
+});
+
+it("offers only the owner and explicit collaborators as task assignees", async () => {
+  vi.mocked(authJson).mockResolvedValueOnce({ users: [session.user, { id: "allowed", nome: "Autorizado" }, { id: "denied", nome: "Sem acesso" }] });
+  request.mockImplementation(async (path = "") => path.startsWith("/projetos") ? { projects: [{ ...project, sharedUserIds: ["allowed"] }] } : payload);
+  await openProject();
+  fireEvent.click(screen.getByRole("button", { name: "Nova tarefa" }));
+  const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByRole("option", { name: "Ana" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("option", { name: "Autorizado" })).toBeInTheDocument();
+  expect(within(dialog).queryByRole("option", { name: "Sem acesso" })).not.toBeInTheDocument();
 });

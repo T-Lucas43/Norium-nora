@@ -16,7 +16,7 @@ import zlib
 from weakref import WeakKeyDictionary
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
@@ -473,12 +473,24 @@ async def visible_team_members(user: dict[str, Any]) -> list[dict[str, Any]]:
     return members
 
 
-def message_visible(message: dict[str, Any], user_id: str) -> bool:
+def message_visible(message: dict[str, Any], user_id: str, *, activity_check: Callable[[dict[str, Any]], bool] | None = None) -> bool:
+    from app.services.task_activity import activity_visible
+    metadata = message.get("metadata") or {}
+    if not (activity_check(metadata) if activity_check else activity_visible(metadata, user_id)):
+        return False
+    if "activityRecipientIds" in message and user_id not in message["activityRecipientIds"]:
+        return False
     if message.get("scope") == "team":
         return True
     if message.get("scope") == "subteam":
         return user_id in {str(item) for item in message.get("memberIds", [])}
     return user_id in {str(message.get("senderId")), str(message.get("recipientId"))}
+
+
+def visible_messages(messages: list[dict[str, Any]], user_id: str) -> list[dict[str, Any]]:
+    from app.services.task_activity import activity_visibility
+    activity_check = activity_visibility(user_id)
+    return [message for message in messages if isinstance(message, dict) and message_visible(message, user_id, activity_check=activity_check)]
 
 
 def normalize_thread_id(scope: str, user_id: str, recipient_id: str | None, subteam_id: str | None = None) -> str:
@@ -523,6 +535,8 @@ def message_read_by(message: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 async def message_participant_ids(message: dict[str, Any], user: dict[str, Any], store: dict[str, Any]) -> set[str]:
+    if "activityRecipientIds" in message:
+        return {uid for uid in message["activityRecipientIds"] if message_visible(message, uid)} & await valid_team_member_ids(user)
     scope = str(message.get("scope") or "team")
     if scope == "team":
         return await valid_team_member_ids(user)
@@ -578,9 +592,9 @@ async def list_threads(user: dict[str, Any] = Depends(current_user)) -> dict[str
     for thread in threads:
         thread.update(pinned=thread["id"] in pins, unreadCount=0, lastMessage=None)
     visible_counts: dict[str, int] = {}
-    for message in reversed(store.get("messages", [])):
+    for message in reversed(visible_messages(store.get("messages", []), user_id)):
         thread = by_id.get(message.get("threadId"))
-        if not thread or not message_visible(message, user_id):
+        if not thread:
             continue
         # O contador acompanha o mesmo histórico disponível ao abrir a conversa.
         count = visible_counts.get(thread["id"], 0)
@@ -715,6 +729,19 @@ async def append_team_message_for_user(
     attachments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     team_id = await team_id_for_user_id(user_id)
+    from app.services.task_activity import activity_projects, is_task_activity, project_visible
+    metadata = dict(metadata or {})
+    recipients = None
+    if is_task_activity(metadata):
+        references = activity_projects(user_id, metadata)
+        if references is None:
+            raise HTTPException(status_code=403, detail="Atividade sem projeto autorizado.")
+        metadata["taskProjects"] = references
+        users = (await read_user_store()).get("users", [])
+        recipients = {str(item["id"]) for item in users
+                      if item.get("status") == "ativo"
+                      and str(item.get("teamOwnerId") or item.get("id")) == team_id
+                      and all(project_visible(reference, str(item.get("id") or "")) for reference in references)}
     stored_attachments = save_attachments([
         AttachmentPayload.model_validate(item)
         for item in (attachments or [])
@@ -732,12 +759,18 @@ async def append_team_message_for_user(
         "metadata": {"readBy": {}, **(metadata or {})},
         "createdAt": now_iso(),
     }
+    if recipients is not None:
+        message["activityRecipientIds"] = sorted(recipients)
     async with chat_lock:
         store = await asyncio.to_thread(read_chat_store, team_id)
         store.setdefault("messages", []).append(message)
         store["messages"] = store["messages"][-2000:]
         await asyncio.to_thread(write_chat_store, team_id, store)
-    await manager.broadcast(team_id, {"type": "TEAM_CHAT_MESSAGE", "message": message})
+    if recipients is None:
+        await manager.broadcast(team_id, {"type": "TEAM_CHAT_MESSAGE", "message": message})
+    else:
+        recipients = {uid for uid in recipients if message_visible(message, uid)}
+        await manager.send_to_users(team_id, recipients, {"type": "TEAM_CHAT_MESSAGE", "message": message})
     await record_team_event(
         team_id,
         f"{sender_name} enviou mensagem ao time",
@@ -750,6 +783,7 @@ async def append_team_message_for_user(
             "threadId": "team",
             **(metadata or {}),
         },
+        user_ids=recipients,
     )
     return message
 
@@ -1232,8 +1266,8 @@ async def list_messages(
     await thread_participant_ids(user, store, scope, recipientId)
     thread_id = normalize_thread_id(scope, user_id, recipientId)
     messages = [
-        item for item in store.get("messages", [])
-        if isinstance(item, dict) and item.get("threadId") == thread_id and message_visible(item, user_id)
+        item for item in visible_messages(store.get("messages", []), user_id)
+        if item.get("threadId") == thread_id
     ]
     return {"threadId": thread_id, "messages": messages[-MESSAGE_HISTORY_LIMIT:]}
 
@@ -1246,8 +1280,8 @@ async def list_subteam_messages(subteam_id: str, user: dict[str, Any] = Depends(
     await thread_participant_ids(user, store, "subteam", subteam_id=subteam_id)
     thread_id = normalize_thread_id("subteam", user_id, None, subteam_id)
     messages = [
-        item for item in store.get("messages", [])
-        if isinstance(item, dict) and item.get("threadId") == thread_id and message_visible(item, user_id)
+        item for item in visible_messages(store.get("messages", []), user_id)
+        if item.get("threadId") == thread_id
     ]
     return {"threadId": thread_id, "messages": messages[-MESSAGE_HISTORY_LIMIT:]}
 

@@ -152,6 +152,19 @@ class NoraEmailApprovalTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- Cco: oculto@empresa.com", result["response"])
         self.assertEqual([], FakeGmail.sent)
 
+    async def test_complete_natural_request_goes_directly_to_preview(self) -> None:
+        agent = EmailAgent()
+        result = await agent.handle(
+            message="mande um e-mail para a@x.com sobre Reunião dizendo confirmo nossa conversa amanhã",
+            session_id=None,
+            user_id="owner-mail",
+        )
+        self.assertEqual("confirmar", result["status"])
+        self.assertEqual(["a@x.com"], result["preview"]["to"])
+        self.assertEqual([], result["preview"]["cc"])
+        self.assertEqual([], result["preview"]["bcc"])
+        self.assertEqual([], FakeGmail.sent)
+
     async def test_preview_edit_updates_draft(self) -> None:
         agent = EmailAgent()
         ready = await self.drive_to_preview(agent)

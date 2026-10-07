@@ -39,19 +39,32 @@ class NoraResearchUnavailable(ValueError):
 
 class NoraIAService:
     def __init__(self) -> None:
-        self.api_key = os.getenv("GROQ_API_KEY", "").strip()
-        self.base_url = "https://api.groq.com/openai/v1/chat/completions"
+        requested_provider = os.getenv("NORA_PROVIDER", "auto").strip().lower() or "auto"
+        openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+        groq_key = os.getenv("GROQ_API_KEY", "").strip()
+        self.provider = "openai" if requested_provider == "openai" or (requested_provider == "auto" and openai_key) else "groq"
+        self.api_key = openai_key if self.provider == "openai" else groq_key
+        self.base_url = (
+            "https://api.openai.com/v1/responses"
+            if self.provider == "openai"
+            else "https://api.groq.com/openai/v1/chat/completions"
+        )
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        self.model = os.getenv("NORA_MODEL", "openai/gpt-oss-20b").strip() or "openai/gpt-oss-20b"
-        configured_fallbacks = [
-            model.strip()
-            for model in os.getenv(
+        if self.provider == "openai":
+            self.model = os.getenv("NORA_OPENAI_MODEL", "gpt-6-astra").strip() or "gpt-6-astra"
+            fallback_setting = os.getenv("NORA_OPENAI_FALLBACK_MODELS", "gpt-6-sol")
+        else:
+            self.model = os.getenv("NORA_MODEL", "openai/gpt-oss-20b").strip() or "openai/gpt-oss-20b"
+            fallback_setting = os.getenv(
                 "NORA_FALLBACK_MODELS",
                 "openai/gpt-oss-20b,qwen/qwen3.6-27b,groq/compound-mini",
-            ).split(",")
+            )
+        configured_fallbacks = [
+            model.strip()
+            for model in fallback_setting.split(",")
             if model.strip()
         ]
         self.fallback_models = list(dict.fromkeys([self.model, *configured_fallbacks]))
@@ -73,6 +86,44 @@ class NoraIAService:
     def _models(self) -> list[str]:
         """Mantem a Nora operante quando um modelo configurado e retirado pelo provedor."""
         return list(dict.fromkeys([self.model, *self.fallback_models]))
+
+    @property
+    def _uses_responses_api(self) -> bool:
+        return self.provider == "openai"
+
+    def _request_payload(self, messages: list[dict[str, str]], max_tokens: int, *, stream: bool = False) -> dict[str, Any]:
+        if self._uses_responses_api:
+            system_parts = [item["content"] for item in messages if item.get("role") == "system"]
+            system = "\n\n".join(system_parts) or self.system_prompt
+            conversation = [item for item in messages if item.get("role") != "system"]
+            return {
+                "instructions": system,
+                "input": conversation,
+                "max_output_tokens": max_tokens,
+                "store": False,
+                "stream": stream,
+            }
+        return {
+            "messages": messages,
+            "temperature": 0.45,
+            "max_tokens": max_tokens,
+            **({"stream": True, "stream_options": {"include_usage": True}} if stream else {}),
+        }
+
+    def _response_text(self, data: dict[str, Any]) -> str:
+        if not self._uses_responses_api:
+            content = (data.get("choices") or [{}])[0].get("message", {}).get("content")
+            return content.strip() if isinstance(content, str) else ""
+        direct = data.get("output_text")
+        if isinstance(direct, str) and direct.strip():
+            return direct.strip()
+        return "".join(
+            str(part.get("text") or "")
+            for item in data.get("output") or []
+            if isinstance(item, dict) and item.get("type") == "message"
+            for part in item.get("content") or []
+            if isinstance(part, dict) and part.get("type") == "output_text"
+        ).strip()
 
     @staticmethod
     def _provider_error(status_code: int) -> str:
@@ -108,13 +159,11 @@ class NoraIAService:
         if not self.api_key:
             if research:
                 raise NoraResearchUnavailable("configuration")
-            return "A Nora está temporariamente sem acesso ao provedor de IA. Configure a GROQ_API_KEY no backend."
+            return "A Nora está temporariamente sem acesso ao provedor de IA. Configure OPENAI_API_KEY ou GROQ_API_KEY no backend."
 
-        payload: dict[str, Any] = {
-            "messages": self._build_payload_messages(mensagens, screen_context),
-            "temperature": 0.45,
-            "max_tokens": max(256, min(6000, max_tokens)),
-        }
+        built_messages = self._build_payload_messages(mensagens, screen_context)
+        output_budget = max(256, min(6000, max_tokens))
+        payload = self._request_payload(built_messages, output_budget)
 
         try:
             client = self._http_client()
@@ -129,15 +178,15 @@ class NoraIAService:
                         continue
                     await asyncio.sleep(not_before - time.monotonic())
                 settings = {**payload, "model": model}
-                if research and model.startswith("openai/gpt-oss"):
+                if not self._uses_responses_api and research and model.startswith("openai/gpt-oss"):
                     settings["reasoning_effort"] = "low"
                 elif research and model in {"qwen/qwen3.6-27b", "qwen/qwen3.8-27b"}:
                     settings["reasoning_effort"] = "none"
                 elif research and model.startswith("groq/compound"):
                     settings["compound_custom"] = {"tools": {"enabled_tools": []}}
                 try:
-                    async with Meter(self._billing_provider(model), settings["messages"], settings["max_tokens"], user_id=user_id, source="nora-research" if research else "nora") as meter:
-                        settings["max_tokens"] = meter.max_output
+                    async with Meter(self._billing_provider(model), built_messages, output_budget, user_id=user_id, source="nora-research" if research else "nora") as meter:
+                        settings["max_output_tokens" if self._uses_responses_api else "max_tokens"] = meter.max_output
                         meter.sent()
                         response = await client.post(self.base_url, json=settings, headers=self.headers)
                         if response.status_code == 200:
@@ -151,10 +200,14 @@ class NoraIAService:
                 last_status = response.status_code
                 if response.status_code == 200:
                     data = response.json()
-                    if require_complete and (data.get("choices") or [{}])[0].get("finish_reason") == "length":
+                    incomplete = (
+                        data.get("status") != "completed"
+                        if self._uses_responses_api
+                        else (data.get("choices") or [{}])[0].get("finish_reason") == "length"
+                    )
+                    if require_complete and incomplete:
                         raise NoraIncompleteResponse
-                    content = data.get("choices", [{}])[0].get("message", {}).get("content")
-                    answer = content.strip() if isinstance(content, str) else ""
+                    answer = self._response_text(data)
                     if answer:
                         self.model = model
                         return answer
@@ -183,26 +236,21 @@ class NoraIAService:
         self, mensagens: list[dict[str, str]], screen_context: str | None = None, *, user_id: str | None = None
     ) -> AsyncGenerator[str, None]:
         if not self.api_key:
-            yield "A Nora está temporariamente sem acesso ao provedor de IA. Configure a GROQ_API_KEY no backend."
+            yield "A Nora está temporariamente sem acesso ao provedor de IA. Configure OPENAI_API_KEY ou GROQ_API_KEY no backend."
             return
 
-        payload: dict[str, Any] = {
-            "messages": self._build_payload_messages(mensagens, screen_context),
-            "temperature": 0.45,
-            "max_tokens": 1400,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
+        built_messages = self._build_payload_messages(mensagens, screen_context)
+        payload = self._request_payload(built_messages, 1400, stream=True)
 
         try:
             client = self._http_client()
             last_status = 503
             for model in self._models():
                 received_text = False
-                async with Meter(self._billing_provider(model), payload["messages"], payload["max_tokens"], user_id=user_id, source="nora-stream") as meter, client.stream(
+                async with Meter(self._billing_provider(model), built_messages, 1400, user_id=user_id, source="nora-stream") as meter, client.stream(
                     "POST",
                     self.base_url,
-                    json={**payload, "model": model, "max_tokens": meter.max_output},
+                    json={**payload, "model": model, ("max_output_tokens" if self._uses_responses_api else "max_tokens"): meter.max_output},
                     headers=self.headers,
                 ) as response:
                     last_status = response.status_code
@@ -224,10 +272,15 @@ class NoraIAService:
                             chunk = json.loads(data)
                         except json.JSONDecodeError:
                             continue
-                        if chunk.get("usage") or (chunk.get("x_groq") or {}).get("usage"):
-                            usage_data = chunk
-                        choices = chunk.get("choices") or []
-                        delta = choices[0].get("delta", {}).get("content") if choices else None
+                        if self._uses_responses_api:
+                            if chunk.get("type") == "response.completed":
+                                usage_data = chunk.get("response") or chunk
+                            delta = chunk.get("delta") if chunk.get("type") == "response.output_text.delta" else None
+                        else:
+                            if chunk.get("usage") or (chunk.get("x_groq") or {}).get("usage"):
+                                usage_data = chunk
+                            choices = chunk.get("choices") or []
+                            delta = choices[0].get("delta", {}).get("content") if choices else None
                         if delta:
                             received_text = True
                             yield delta
@@ -243,6 +296,12 @@ class NoraIAService:
         except Exception:
             yield "A Nora não conseguiu acessar o servidor de IA. Nenhuma ação foi executada."
 
-    @staticmethod
-    def _billing_provider(model: str) -> dict:
-        return {"id": "nora-runtime", "provider": "groq", "model": model, "name": "Nora Runtime", "baseUrl": "https://api.groq.com/openai/v1", "managed": True}
+    def _billing_provider(self, model: str) -> dict:
+        return {
+            "id": "nora-runtime",
+            "provider": self.provider,
+            "model": model,
+            "name": "Nora Runtime",
+            "baseUrl": "https://api.openai.com/v1" if self._uses_responses_api else "https://api.groq.com/openai/v1",
+            "managed": True,
+        }

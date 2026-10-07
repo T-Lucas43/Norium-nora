@@ -27,7 +27,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
     def test_historical_manual_workflows_are_outside_active_directory(self):
         files = {path.name for path in Path("docs/archives/azure-workflows").glob("*.yml")}
-        self.assertEqual(len(files), 13)
+        self.assertEqual(len(files), 14)
+        self.assertIn("azure-container-apps-main-7075b65.yml", files)
         self.assertIn("azure-container-webapp.yml", files)
         self.assertIn("deploy-whatsapp-api.yml", files)
         self.assertIn("migrate-postgresql.yml", files)

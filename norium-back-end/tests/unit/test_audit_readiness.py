@@ -18,6 +18,7 @@ class ReadinessTests(unittest.TestCase):
         ):
             result = asyncio.run(readiness())
             self.assertEqual("ready", result["status"])
+            self.assertIs(True, result["ready"])
             self.assertEqual("ready", result["checks"]["persistence"]["status"])
             self.assertEqual([], list(Path(directory).glob(".readiness-*")))
 
@@ -33,6 +34,32 @@ class ReadinessTests(unittest.TestCase):
                     asyncio.run(readiness())
         self.assertEqual(503, error.exception.status_code)
         self.assertEqual("not_ready", error.exception.detail["status"])
+        self.assertIs(False, error.exception.detail["ready"])
+
+    def test_postgres_readiness_includes_boolean_contract(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.modules.system.router import router
+        app = FastAPI()
+        app.include_router(router)
+        with patch("app.infrastructure.persistence.postgres_store.configured", return_value=True), patch("app.infrastructure.persistence.postgres_store.ping", return_value={"status": "ready", "driver": "postgresql", "schema": 1}), patch("app.infrastructure.auth_sessions.readiness") as sessions_ready, patch.dict(os.environ, {"NORA_BRAIN_ENABLED": "0"}):
+            response = TestClient(app).get("/health/ready")
+        sessions_ready.assert_called_once()
+        self.assertEqual(200, response.status_code)
+        self.assertIs(True, response.json()["ready"])
+        self.assertEqual("postgresql", response.json()["checks"]["persistence"]["driver"])
+
+    def test_postgres_readiness_rejects_unavailable_session_registry(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.modules.system.router import router
+        from app.infrastructure.persistence.postgres_store import PostgresStoreError
+        app = FastAPI()
+        app.include_router(router)
+        with patch("app.infrastructure.persistence.postgres_store.configured", return_value=True), patch("app.infrastructure.persistence.postgres_store.ping", return_value={"status": "ready", "driver": "postgresql", "schema": 1}), patch("app.infrastructure.auth_sessions.readiness", side_effect=PostgresStoreError("synthetic-session-unavailable")), patch.dict(os.environ, {"NORA_BRAIN_ENABLED": "0"}):
+            response = TestClient(app).get("/health/ready")
+        self.assertEqual(503, response.status_code)
+        self.assertIs(False, response.json()["detail"]["ready"])
 
 
 if __name__ == "__main__":

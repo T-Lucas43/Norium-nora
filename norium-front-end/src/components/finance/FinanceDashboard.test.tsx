@@ -30,6 +30,8 @@ afterEach(() => {
 
 describe("FinanceDashboard", () => {
   it("filtra os dados atuais por mês e separa boletos abertos dos pagos sem consulta de CPF", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-15T12:00:00Z"));
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => financeData }));
     render(<FinanceDashboard userId="owner" />);
 
@@ -46,5 +48,20 @@ describe("FinanceDashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Pagos" }));
     expect(screen.getByText("Boleto quitado")).toBeInTheDocument();
     expect(screen.queryByText("Boleto aberto")).not.toBeInTheDocument();
+  });
+});
+
+describe("validação do financeiro", () => {
+  it.each(["0", "-1", "inválido", "Infinity"])("explica valor inválido %s sem enviar", async (amount) => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ lancamentos: [], programados: [], boletos: [], lembretes: [], stats: {} }) });
+    vi.stubGlobal("fetch", fetch);
+    render(<FinanceDashboard userId="synthetic" />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Novo lançamento" }));
+    fireEvent.change(screen.getByPlaceholderText("Titulo"), { target: { value: "Synthetic" } });
+    fireEvent.change(screen.getByPlaceholderText("Valor"), { target: { value: amount } });
+    fireEvent.click(screen.getByRole("button", { name: "Criar lancamento" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("valor maior que zero");
+    expect(fetch).toHaveBeenCalledOnce();
   });
 });

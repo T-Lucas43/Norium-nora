@@ -16,6 +16,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable
 
+from app.infrastructure.persistence.postgres_tls import production_tls_mode_allowed
+
 from .contracts import BrainError, Scope, Submit, TERMINAL, canonical, fingerprint
 
 
@@ -69,7 +71,7 @@ class Repository:
             from app.core.tenant import is_local_or_test_environment
             local = is_local_or_test_environment(require_explicit=True)
             sslmode = os.getenv("NORA_BRAIN_DB_SSLMODE", "prefer" if local else "verify-full").strip().lower()
-            if not local and sslmode not in {"verify-ca", "verify-full"}:
+            if not production_tls_mode_allowed(sslmode, local=local):
                 raise BrainError("postgresql_tls_verification_required", 503)
             sslrootcert = os.getenv("NORA_BRAIN_DB_SSLROOTCERT", "system" if not local and sslmode == "verify-full" else "").strip()
             tls_options = {"sslrootcert": sslrootcert} if sslrootcert else {}

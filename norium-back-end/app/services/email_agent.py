@@ -294,7 +294,7 @@ class EmailAgent:
             f"Texto base:\n{body}"
         )
         response = await self.nora.perguntar_nora([{"role": "user", "content": prompt}])
-        if "GROQ_API_KEY" in response or response.lower().startswith("ih, deu ruim"):
+        if "provedor de IA" in response or "servidor de IA" in response or response.lower().startswith("ih, deu ruim"):
             return body
         cleaned = self._clean_body_for_send(response)
         return cleaned or body
@@ -459,6 +459,13 @@ class EmailAgent:
             session.fields["body"] = self._clean_body_for_send(body)
             if not session.fields.get("subject"):
                 session.fields["subject"] = self._infer_subject_from_body(body)
+        # A complete natural-language request should go straight to a preview.
+        # Cc, Cco and attachments remain optional and editable from there.
+        if session.fields.get("to") and session.fields.get("subject") and session.fields.get("body"):
+            session.fields.setdefault("cc", [])
+            session.fields.setdefault("bcc", [])
+            session.fields.setdefault("attachments", [])
+            session.fields["_attachments_done"] = True
 
     def _summary(self, fields: dict[str, Any]) -> str:
         lines = [
@@ -491,7 +498,11 @@ class EmailAgent:
         )
         if match:
             return match.group(1).strip()[:12000]
-        marker = re.search(r"\b(?:para|pra)\s+[\w.+-]+@[\w-]+\.[\w.-]+(.+)$", text, re.I | re.S)
+        marker = re.search(
+            r"\b(?:para|pra)\s+[\w.+-]+@[\w-]+\.[\w.-]+(?:\s*[,;:-]\s*|\s+)(.+)$",
+            text,
+            re.I | re.S,
+        )
         return marker.group(1).strip(" ,.:;-")[:12000] if marker else ""
 
     def _infer_subject_from_body(self, body: str) -> str:

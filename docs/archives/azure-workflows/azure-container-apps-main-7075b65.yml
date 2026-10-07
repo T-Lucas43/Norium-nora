@@ -1,0 +1,608 @@
+name: Azure Container Apps
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# Serializa releases e a migração de dados no mesmo ambiente de produção.
+concurrency:
+  group: azure-container-apps-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: t-lucas43/norium-nora
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: norium-back-end/requirements.lock.txt
+
+      - name: Install backend dependencies
+        working-directory: norium-back-end
+        run: |
+          pip install -r requirements.lock.txt
+          pip install bandit pip-audit
+
+      - name: Validate backend
+        working-directory: norium-back-end
+        env:
+          ENVIRONMENT: test
+          APP_ENV: test
+          NORIUM_DATA_DIR: ${{ runner.temp }}/norium-test-data
+          PYTHON_DOTENV_DISABLED: "1"
+          NORIUM_AI_COSTS_SQLITE_VFS: unix-dotfile
+        run: |
+          python -m compileall app main.py
+          python ../scripts/run_backend_audit_tests.py --label ci-backend
+          python -m pip check
+
+      - name: Preserve isolated backend audit diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-audit-${{ github.sha }}
+          path: |
+            output/pos-correcao/ci-backend.json
+            output/pos-correcao/ci-backend.log
+          if-no-files-found: warn
+          retention-days: 5
+
+      - name: Scan backend dependencies and source
+        working-directory: norium-back-end
+        run: |
+          pip-audit -r requirements.lock.txt -f cyclonedx-json -o ../output/backend-sbom.cdx.json
+          bandit -q -r app -x tests -ll
+
+      - name: Preserve revision-bound backend SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-sbom-${{ github.sha }}
+          path: output/backend-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: norium-front-end/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: norium-front-end
+        run: npm ci
+
+      - name: Validate frontend
+        working-directory: norium-front-end
+        run: |
+          npm run lint
+          npm test
+          npm run build
+          npm audit --omit=dev --audit-level=high
+
+      - name: Scan repository for committed secrets
+        # Scanner failures (including service/licensing failures) block release.
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check production frontend for permanent call secrets and test harnesses
+        run: python norium-back-end/scripts/team_call_frontend_security.py norium-front-end
+
+      - name: Validate Azure infrastructure template
+        run: |
+          az bicep build --file infra/azure/main.bicep --stdout > /dev/null
+          az bicep build --file infra/azure/postgresql.bicep --stdout > /dev/null
+
+  postgres-persistence:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: norium
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d norium"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ENVIRONMENT: test
+      APP_ENV: test
+      NORIUM_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/norium
+      NORIUM_DATABASE_SSLMODE: disable
+      NORA_BRAIN_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/norium
+      NORA_BRAIN_DB_SSLMODE: disable
+      NORIUM_DATA_DIR: /tmp/norium-postgres-test-data
+      PYTHONPATH: norium-back-end
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: norium-back-end/requirements.lock.txt
+      - name: Install backend dependencies
+        run: pip install -r norium-back-end/requirements.lock.txt
+      - name: Prove JSONB, BYTEA, typed tables and idempotent import
+        run: python infra/azure/test_postgres_persistence.py
+
+  team-call-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      APP_ENV: test
+      CI: "true"
+      ENVIRONMENT: test
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: norium-back-end/requirements.lock.txt
+
+      - name: Install backend and browser-test dependencies
+        working-directory: norium-back-end
+        run: pip install -r requirements.lock.txt
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: norium-front-end/package-lock.json
+
+      - name: Install frontend and TURN-test dependencies
+        working-directory: norium-front-end
+        run: npm ci
+
+      - name: Install isolated Chromium runtime
+        run: python -m playwright install --with-deps chromium
+
+      - name: Exercise real browser media, signaling, and load gates three times
+        shell: bash
+        run: |
+          set +e
+          python norium-front-end/tests/browser/team_call_e2e.py \
+            --repeat 3 \
+            --artifacts-dir output/team-call-quality/browser
+          browser_status=$?
+          python norium-back-end/tests/team_call_load.py \
+            --repeat 3 \
+            --artifacts-dir output/team-call-quality/load
+          load_status=$?
+          if [[ "${browser_status}" -ne 0 || "${load_status}" -ne 0 ]]; then
+            echo "Team-call quality gate failed (browser=${browser_status}, load=${load_status})." >&2
+            exit 1
+          fi
+
+      - name: Preserve aggregate team-call quality evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: team-call-quality-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/team-call-quality/**
+          if-no-files-found: ignore
+          retention-days: 5
+
+  team-call-release:
+    if: ${{ github.event_name != 'pull_request' && vars.DEPLOY_AZURE_ENABLED != 'false' }}
+    needs: [validate, team-call-quality]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TEAM_CALL_RELEASE_PROFILE: ${{ vars.TEAM_CALL_RELEASE_PROFILE || 'public' }}
+      APP_ENV: test
+      ENVIRONMENT: test
+      TEAM_CALL_ENABLED: ${{ vars.TEAM_CALL_ENABLED || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && 'true' || 'false') }}
+      TEAM_CALL_ROLLOUT_PERCENT: ${{ vars.TEAM_CALL_ROLLOUT_PERCENT || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && '100' || '0') }}
+      TEAM_CALL_INTERNAL_TEAMS: ${{ vars.TEAM_CALL_INTERNAL_TEAMS }}
+      TEAM_CALL_RECORDING_ENABLED: 'false'
+      TEAM_CALL_SFU_ENABLED: 'false'
+      TEAM_CALL_TURN_REQUIRED: ${{ vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && 'false' || 'true' }}
+      TEAM_CALL_TURN_URLS: ${{ vars.TEAM_CALL_TURN_URLS }}
+      TEAM_CALL_TURN_SHARED_SECRET: ${{ secrets.TEAM_CALL_TURN_SHARED_SECRET }}
+      TEAM_CALL_METRICS_TOKEN: ${{ secrets.TEAM_CALL_METRICS_TOKEN }}
+      # Operator attestations require an externally reviewable evidence record.
+      # The preflight validates their presence, not actual alert delivery.
+      TEAM_CALL_METRICS_COLLECTOR_READY: ${{ vars.TEAM_CALL_METRICS_COLLECTOR_READY || 'false' }}
+      TEAM_CALL_ALERT_RECEIVER_READY: ${{ vars.TEAM_CALL_ALERT_RECEIVER_READY || 'false' }}
+      TEAM_CALL_ALERT_TEST_DELIVERED: ${{ vars.TEAM_CALL_ALERT_TEST_DELIVERED || 'false' }}
+      TEAM_CALL_OBSERVABILITY_EVIDENCE_URL: ${{ vars.TEAM_CALL_OBSERVABILITY_EVIDENCE_URL }}
+      TEAM_CALL_SMOKE_TEAM_ID: ${{ vars.TEAM_CALL_SMOKE_TEAM_ID }}
+      NORIUM_SMOKE_EMAIL: ${{ secrets.NORIUM_SMOKE_EMAIL }}
+      NORIUM_SMOKE_PASSWORD: ${{ secrets.NORIUM_SMOKE_PASSWORD }}
+      NORIUM_SMOKE_PEER_EMAIL: ${{ secrets.NORIUM_SMOKE_PEER_EMAIL }}
+      NORIUM_SMOKE_PEER_PASSWORD: ${{ secrets.NORIUM_SMOKE_PEER_PASSWORD }}
+      AZURE_PUBLIC_URL: ${{ vars.AZURE_PUBLIC_URL }}
+      AZURE_CONTAINER_APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+      - name: Install release dependencies
+        run: pip install -r norium-back-end/requirements.lock.txt
+      - name: Check release configuration before publishing anything
+        run: python norium-back-end/scripts/team_call_release_check.py --report output/team-call-release/preflight.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - name: Install real browser dependencies
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}
+        run: |
+          npm ci --prefix norium-front-end
+          python -m playwright install --with-deps chromium
+      - name: Prove external TLS relay with two independent browser sessions
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}
+        run: >-
+          python norium-front-end/tests/browser/team_call_e2e.py
+          --external-turn --scenario relay_only --repeat 3
+          --artifacts-dir output/team-call-release/external-turn
+      - name: Record explicitly deferred internal-test requirements
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' }}
+        run: echo 'Internal testing only. External TURN/TLS, external metrics/alert delivery and dedicated two-account smoke are deferred; see docs/operations/team-call-public-launch-checklist.md.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve aggregate release evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: team-call-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/team-call-release/preflight.json
+            output/team-call-release/external-turn/summary.json
+          retention-days: 14
+
+  publish-image:
+    # A desativação do ambiente legado também impede publicar sua imagem.
+    # Publica a imagem assim que a validação de código termina. Os gates longos
+    # de chamada continuam obrigatórios para promover a imagem no job deploy,
+    # mas não consomem todo o limite de runner antes de o build começar.
+    needs: [validate, postgres-persistence]
+    if: ${{ github.event_name != 'pull_request' && vars.DEPLOY_AZURE_ENABLED != 'false' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.reference }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Authenticate with GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Define immutable image reference
+        id: image
+        shell: bash
+        run: echo "reference=${REGISTRY}/${IMAGE_NAME}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish application image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile.azure
+          build-args: |
+            NORIUM_RELEASE_SHA=${{ github.sha }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ steps.image.outputs.reference }}
+          # Nao usa o cache remoto do Actions neste job critico. O backend de
+          # cache ja falhou depois de a imagem ter sido publicada no GHCR e
+          # transformou uma otimizacao opcional em falso bloqueio de deploy.
+          provenance: mode=max
+          sbom: true
+
+  deploy:
+    needs: [publish-image, team-call-release]
+    # Permite publicar e validar uma imagem sem promovê-la antes da autorização.
+    if: ${{ vars.DEPLOY_AZURE_ENABLED != 'false' && vars.AZURE_CONTAINER_APP_NAME != '' && vars.AZURE_RESOURCE_GROUP != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository for deployment verification
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Authenticate with Azure using OpenID Connect
+        uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate required application secrets
+        shell: bash
+        env:
+          WAPI_CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.WAPI_CREDENTIAL_ENCRYPTION_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          if [[ -z "${WAPI_CREDENTIAL_ENCRYPTION_KEY}" ]]; then
+            echo "Missing required GitHub secret WAPI_CREDENTIAL_ENCRYPTION_KEY." >&2
+            exit 1
+          fi
+          if [[ -z "${GEMINI_API_KEY}" ]]; then
+            echo "Missing required GitHub secret GEMINI_API_KEY." >&2
+            exit 1
+          fi
+          if [[ -z "${GROQ_API_KEY}" ]]; then
+            echo "Missing required GitHub secret GROQ_API_KEY for Nora reports." >&2
+            exit 1
+          fi
+
+      - name: Synchronize application secrets
+        shell: bash
+        run: >-
+          az containerapp secret set
+          --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+          --name "${{ vars.AZURE_CONTAINER_APP_NAME }}"
+          --secrets
+          gmail-client-id="${{ secrets.GMAIL_CLIENT_ID }}"
+          gmail-client-secret="${{ secrets.GMAIL_CLIENT_SECRET }}"
+          google-client-id="${{ secrets.GOOGLE_CLIENT_ID }}"
+          google-client-secret="${{ secrets.GOOGLE_CLIENT_SECRET }}"
+          wapi-master-api-key="${{ secrets.WAPI_MASTER_API_KEY }}"
+          wapi-credential-encryption-key="${{ secrets.WAPI_CREDENTIAL_ENCRYPTION_KEY }}"
+          wapi-webhook-secret="${{ secrets.WAPI_WEBHOOK_SECRET }}"
+          gemini-api-key="${{ secrets.GEMINI_API_KEY }}"
+          --output none
+
+      - name: Synchronize Nora provider secret
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: az containerapp secret set -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.AZURE_CONTAINER_APP_NAME }}" --secrets "groq-api-key=${GROQ_API_KEY}" --output none
+
+      - name: Synchronize runtime-only call secrets
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}
+        shell: bash
+        env:
+          TURN_SECRET: ${{ secrets.TEAM_CALL_TURN_SHARED_SECRET }}
+          METRICS_TOKEN: ${{ secrets.TEAM_CALL_METRICS_TOKEN }}
+        run: |
+          az containerapp secret set \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --secrets "team-call-turn=${TURN_SECRET}" "team-call-metrics=${METRICS_TOKEN}" --output none
+
+      - name: Record rollback image and enforce single revision
+        id: rollback
+        shell: bash
+        run: |
+          previous_image="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query 'properties.template.containers[0].image' --output tsv)"
+          test -n "${previous_image}"
+          echo "image=${previous_image}" >> "$GITHUB_OUTPUT"
+          echo "Previous immutable image: ${previous_image}" >> "$GITHUB_STEP_SUMMARY"
+          az containerapp revision set-mode --mode single \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" --output none
+
+      - name: Deploy immutable image
+        shell: bash
+        env:
+          CALL_RELEASE_PROFILE: ${{ vars.TEAM_CALL_RELEASE_PROFILE || 'public' }}
+        run: |
+          public_url="${{ vars.AZURE_PUBLIC_URL }}"
+          public_url="${public_url%/}"
+          call_connectivity=(TEAM_CALL_TURN_REQUIRED=false TEAM_CALL_TURN_URLS= TEAM_CALL_TURN_SHARED_SECRET= TEAM_CALL_METRICS_TOKEN=)
+          if [[ "${CALL_RELEASE_PROFILE}" != "internal-test" ]]; then
+            call_connectivity=(TEAM_CALL_TURN_REQUIRED=true "TEAM_CALL_TURN_URLS=${{ vars.TEAM_CALL_TURN_URLS }}" TEAM_CALL_TURN_SHARED_SECRET=secretref:team-call-turn TEAM_CALL_METRICS_TOKEN=secretref:team-call-metrics)
+          fi
+          postgres_environment=()
+          active_revision="$(az containerapp revision list \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query '[?properties.active].name | [0]' --output tsv)"
+          test -n "${active_revision}"
+          postgres_required="$(az containerapp revision show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --revision "${active_revision}" \
+            --query "properties.template.containers[0].env[?name=='NORIUM_POSTGRES_REQUIRED'].value | [0]" --output tsv)"
+          if [[ "${postgres_required}" = "1" ]]; then
+            postgres_secret_count="$(az containerapp secret list \
+              --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+              --query "length([?name=='norium-database-url'])" --output tsv)"
+            test "${postgres_secret_count}" = "1"
+            postgres_environment=(NORIUM_DATABASE_URL=secretref:norium-database-url NORIUM_POSTGRES_REQUIRED=1 \
+              NORIUM_DATABASE_SSLMODE=verify-full NORA_BRAIN_DATABASE_URL=secretref:norium-database-url \
+              NORA_BRAIN_DB_SSLMODE=verify-full)
+          fi
+          az containerapp update \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --image "${{ needs.publish-image.outputs.image }}" \
+            --cpu 1.0 \
+            --memory 2Gi \
+            --min-replicas 1 \
+            --max-replicas 1 \
+            --set-env-vars \
+            ENVIRONMENT=production \
+            WEB_CONCURRENCY=1 \
+            NORIUM_AI_COSTS_SQLITE_VFS=unix-dotfile \
+            NORIUM_SCHEDULING_SQLITE_VFS=unix-dotfile \
+            TEAM_CALL_RELEASE_PROFILE="${CALL_RELEASE_PROFILE}" \
+            TEAM_CALL_ENABLED="${{ vars.TEAM_CALL_ENABLED || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && 'true' || 'false') }}" \
+            TEAM_CALL_ROLLOUT_PERCENT="${{ vars.TEAM_CALL_ROLLOUT_PERCENT || (vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' && '100' || '0') }}" \
+            TEAM_CALL_INTERNAL_TEAMS="${{ vars.TEAM_CALL_INTERNAL_TEAMS }}" \
+            TEAM_CALL_RECORDING_ENABLED=false \
+            TEAM_CALL_SFU_ENABLED=false \
+            TEAM_CALL_MESH_MAX_PARTICIPANTS=6 \
+            TEAM_CALL_MAX_ACTIVE_TOTAL=25 \
+            TEAM_CALL_MAX_SOCKETS=100 \
+            "${call_connectivity[@]}" \
+            BACKEND_PUBLIC_URL="${public_url}" \
+            GMAIL_REDIRECT_URI="${public_url}/api/auth/callback/gmail" \
+            GOOGLE_REDIRECT_URI="${public_url}/api/integracoes/google/callback" \
+            WHATSAPP_WEBHOOK_DEBUG=true \
+            GMAIL_CLIENT_ID=secretref:gmail-client-id \
+            GMAIL_CLIENT_SECRET=secretref:gmail-client-secret \
+            GOOGLE_CLIENT_ID=secretref:google-client-id \
+            GOOGLE_CLIENT_SECRET=secretref:google-client-secret \
+            WAPI_BASE_URL=https://api.w-api.app \
+            WAPI_MASTER_API_KEY=secretref:wapi-master-api-key \
+            WAPI_CREDENTIAL_ENCRYPTION_KEY=secretref:wapi-credential-encryption-key \
+            WAPI_WEBHOOK_SECRET=secretref:wapi-webhook-secret \
+            GEMINI_API_KEY=secretref:gemini-api-key \
+            GROQ_API_KEY=secretref:groq-api-key \
+            GEMINI_MODEL=gemini-3.7-flash \
+            "${postgres_environment[@]}" \
+            --output none
+
+      - name: Verify deployed image reference
+        shell: bash
+        run: |
+          expected_image="${{ needs.publish-image.outputs.image }}"
+          active_image="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query 'properties.template.containers[0].image' \
+            --output tsv)"
+          if [[ "${active_image}" != "${expected_image}" ]]; then
+            echo "Expected ${expected_image}, but Azure reports ${active_image}." >&2
+            exit 1
+          fi
+
+      - name: Verify readiness endpoint
+        shell: bash
+        run: curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health/ready"
+
+      - name: Verify real Chromium navigation and click
+        shell: bash
+        run: curl --fail --max-time 60 --retry 3 --retry-delay 8 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health/browser"
+
+      - name: Verify admin AI costs in the deployed runtime
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APP_NAME: ${{ vars.AZURE_CONTAINER_APP_NAME }}
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          python -m pip install pexpect==4.9.0
+          python infra/azure/verify_ai_costs.py
+
+      - name: Verify application stability after Chromium
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            curl --fail --max-time 20 "${{ vars.AZURE_PUBLIC_URL }}/health"
+            if [[ "${attempt}" != "3" ]]; then sleep 3; fi
+          done
+
+      - name: Verify scheduling API responds without hanging
+        shell: bash
+        run: |
+          status="$(curl --silent --show-error --max-time 10 \
+            --output /tmp/scheduling-response.json --write-out '%{http_code}' \
+            "${{ vars.AZURE_PUBLIC_URL }}/api/scheduling/services")"
+          if [[ "${status}" != "401" ]]; then
+            echo "Expected scheduling API to reject anonymous access with 401, received ${status}." >&2
+            exit 1
+          fi
+
+      - name: Smoke test two production call sessions and protected metrics
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE != 'internal-test' }}
+        env:
+          NORIUM_SMOKE_EMAIL: ${{ secrets.NORIUM_SMOKE_EMAIL }}
+          NORIUM_SMOKE_PASSWORD: ${{ secrets.NORIUM_SMOKE_PASSWORD }}
+          NORIUM_SMOKE_PEER_EMAIL: ${{ secrets.NORIUM_SMOKE_PEER_EMAIL }}
+          NORIUM_SMOKE_PEER_PASSWORD: ${{ secrets.NORIUM_SMOKE_PEER_PASSWORD }}
+          TEAM_CALL_SMOKE_TEAM_ID: ${{ vars.TEAM_CALL_SMOKE_TEAM_ID }}
+          TEAM_CALL_METRICS_TOKEN: ${{ secrets.TEAM_CALL_METRICS_TOKEN }}
+        run: |
+          python -m pip install httpx websockets
+          python infra/azure/team_call_smoke.py "${{ vars.AZURE_PUBLIC_URL }}" --expected-revision "${{ github.sha }}"
+      - name: Smoke test internal deployment revision and private endpoints
+        if: ${{ vars.TEAM_CALL_RELEASE_PROFILE == 'internal-test' }}
+        env:
+          TEAM_CALL_AUTHENTICATED_SMOKE_REQUIRED: ${{ vars.TEAM_CALL_AUTHENTICATED_SMOKE_REQUIRED }}
+          NORIUM_SMOKE_EMAIL: ${{ secrets.NORIUM_SMOKE_EMAIL }}
+          NORIUM_SMOKE_PASSWORD: ${{ secrets.NORIUM_SMOKE_PASSWORD }}
+          NORIUM_SMOKE_PEER_EMAIL: ${{ secrets.NORIUM_SMOKE_PEER_EMAIL }}
+          NORIUM_SMOKE_PEER_PASSWORD: ${{ secrets.NORIUM_SMOKE_PEER_PASSWORD }}
+          TEAM_CALL_SMOKE_TEAM_ID: ${{ vars.TEAM_CALL_SMOKE_TEAM_ID }}
+        run: |
+          python -m pip install httpx websockets
+          python infra/azure/team_call_smoke.py "${{ vars.AZURE_PUBLIC_URL }}" --expected-revision "${{ github.sha }}" --internal-test
+
+      - name: Verify application secret references and OAuth callbacks
+        shell: bash
+        run: |
+          gmail_client_ref="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query "properties.template.containers[0].env[?name=='GMAIL_CLIENT_ID'].secretRef | [0]" \
+            --output tsv)"
+          google_client_ref="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query "properties.template.containers[0].env[?name=='GOOGLE_CLIENT_ID'].secretRef | [0]" \
+            --output tsv)"
+          gemini_api_ref="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query "properties.template.containers[0].env[?name=='GEMINI_API_KEY'].secretRef | [0]" \
+            --output tsv)"
+          test "${gmail_client_ref}" = "gmail-client-id"
+          test "${google_client_ref}" = "google-client-id"
+          test "${gemini_api_ref}" = "gemini-api-key"
+          GMAIL_CLIENT_ID="${{ secrets.GMAIL_CLIENT_ID }}" \
+          GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}" \
+          OAUTH_PUBLIC_URL="${{ vars.AZURE_PUBLIC_URL }}" \
+            python .github/scripts/verify-google-oauth.py
+
+      - name: Roll back automatically after a failed release gate
+        if: ${{ failure() && steps.rollback.outputs.image != '' }}
+        shell: bash
+        run: |
+          previous_image="${{ steps.rollback.outputs.image }}"
+          az containerapp update \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --image "${previous_image}" \
+            --min-replicas 1 --max-replicas 1 --output none
+          curl --fail --retry 18 --retry-delay 10 --retry-all-errors "${{ vars.AZURE_PUBLIC_URL }}/health/ready"
+          active_image="$(az containerapp show \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_CONTAINER_APP_NAME }}" \
+            --query 'properties.template.containers[0].image' --output tsv)"
+          test "${active_image}" = "${previous_image}"

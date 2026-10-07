@@ -92,19 +92,19 @@ class NoraConversationContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(["user", "assistant"] * 3, [item["role"] for item in messages])
 
     async def test_compaction_preserves_first_turn_and_recents_with_bounds(self) -> None:
-        for index in range(1, 36):
+        for index in range(1, 62):
             await nora_context.append_conversation_turn(
                 "owner-context", CONVERSATION_ID, f"turno {index} pergunta", f"turno {index} resposta",
             )
         snapshot, writable = nora_context.load_conversation_context("owner-context", CONVERSATION_ID)
         self.assertTrue(writable)
         turns = snapshot["turns"]
-        self.assertEqual(17, len(turns))
+        self.assertEqual(21, len(turns))
         self.assertIn("turno 1 pergunta", turns[0]["user"])
-        self.assertIn("turno 35 pergunta", turns[-1]["user"])
+        self.assertIn("turno 61 pergunta", turns[-1]["user"])
         self.assertLessEqual(len(snapshot["summary"]), nora_context.MAX_SUMMARY_CHARS)
         self.assertIn("turno 2 pergunta", snapshot["summary"])
-        self.assertNotIn("turno 30 pergunta", snapshot["summary"])
+        self.assertNotIn("turno 50 pergunta", snapshot["summary"])
         messages = nora_context.context_prompt_messages(snapshot)
         self.assertLessEqual(len(messages), nora_context.MAX_CONTEXT_MESSAGES)
         self.assertEqual("system", messages[0]["role"])
@@ -168,6 +168,35 @@ class NoraConversationContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(5, len(window))
         self.assertEqual("system", window[0].role)
         self.assertEqual(["m4", "m5", "m6", "m7"], [item.content for item in window[1:]])
+
+    def test_referential_followup_keeps_previous_agent_domain(self) -> None:
+        snapshot = {"turns": [{"intent": "email", "user": "redija um email", "ai": "rascunho pronto"}]}
+        resolution = chat_resolution()
+        self.assertEqual(
+            "email",
+            nora_router.contextual_continuation_intent(snapshot, "E envie também para Ana", resolution),
+        )
+        self.assertIsNone(
+            nora_router.contextual_continuation_intent(snapshot, "Qual a capital do Chile?", resolution),
+        )
+
+    def test_user_supplied_fact_question_stays_in_natural_chat(self) -> None:
+        self.assertTrue(nora_router.explicit_context_fact_question(
+            "O Projeto Atlas tem prazo em 30 de setembro de 2026. Qual é o prazo do projeto?",
+        ))
+        self.assertTrue(nora_router.explicit_context_fact_question(
+            "Meu código de referência é AZUL-482; qual é o código?",
+        ))
+        self.assertFalse(nora_router.explicit_context_fact_question(
+            "Crie uma tarefa no Projeto Atlas; qual é o prazo disponível?",
+        ))
+
+    def test_single_supporting_word_is_too_weak_to_hijack_chat(self) -> None:
+        resolution = nora_router.resolve_skill(
+            "Meu código de referência é AZUL-482. Responda apenas confirmando que entendeu.",
+        )
+        self.assertLessEqual(resolution.score, 2.5)
+        self.assertTrue(resolution.needs_semantic_fallback)
 
     async def test_invalid_conversation_id_is_ignored(self) -> None:
         for candidate in [None, "", "short", "has space in it!", "../escape", "a" * 81, 12345, "ok-but\nnewline"]:

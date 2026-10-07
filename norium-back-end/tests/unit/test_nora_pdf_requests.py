@@ -17,6 +17,7 @@ import time
 import unittest
 from io import BytesIO
 from unittest.mock import patch
+from unittest.mock import AsyncMock
 
 from fastapi import HTTPException
 
@@ -112,6 +113,38 @@ class NoraPdfRequestsTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["grounded"])
         self.assertIn("p. 2", result["response"])
         self.assertIn("rescisao", result["response"])
+
+    async def test_followup_resolves_pdf_named_in_recent_conversation(self) -> None:
+        user = user_for(self._testMethodName)
+        await upload_pdf(user, "Contrato Alfa", ["Prazo de entrega: 45 dias."])
+        await upload_pdf(user, "Contrato Beta", ["Prazo de entrega: 90 dias."])
+        result = await maybe_handle_pdf_request(
+            user,
+            "E o prazo?",
+            [{"role": "assistant", "content": "O Contrato Alfa foi selecionado para a análise."}],
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual("Contrato Alfa", result["document"]["title"])
+        self.assertIn("45 dias", result["response"])
+
+    async def test_model_synthesizes_only_locally_retrieved_pdf_evidence(self) -> None:
+        user = user_for(self._testMethodName)
+        await upload_pdf(user, "Contrato Síntese", ["Prazo de entrega: 30 dias."])
+        synthesizer = AsyncMock(return_value="O prazo confirmado é de 30 dias [p. 1].")
+        result = await maybe_handle_pdf_request(
+            user,
+            "Qual é o prazo do PDF Contrato Síntese?",
+            synthesizer=synthesizer,
+        )
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertTrue(result["modelAssisted"])
+        self.assertTrue(result["localExtraction"])
+        self.assertIn("[p. 1]", result["response"])
+        prompt = synthesizer.await_args.args[0][0]["content"]
+        self.assertIn("Evidências", prompt)
+        self.assertIn("Prazo de entrega: 30 dias", prompt)
 
     async def test_create_proposal_changes_only_requested_field(self) -> None:
         user = user_for(self._testMethodName)

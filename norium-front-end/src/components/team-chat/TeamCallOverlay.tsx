@@ -495,6 +495,7 @@ function CallPrejoin({ snapshot, commands, displayName, profilePhoto, mirrorLoca
 
       <div className="team-call-prejoin-status" aria-live="polite"><span className={entry.microphoneMode === "on" ? "is-ready" : ""}>{entry.microphoneMode === "on" ? <Mic size={15} /> : <MicOff size={15} />} Microfone {entry.microphoneMode === "on" ? "ligado" : entry.microphoneMode === "muted" ? "desligado" : "não solicitado"}</span><span className={entry.cameraEnabled ? "is-ready" : ""}>{entry.cameraEnabled ? <Camera size={15} /> : <CameraOff size={15} />} Câmera {entry.cameraEnabled ? "ligada" : "desligada"}</span></div>
       {snapshot.iceService && ["degraded", "unavailable"].includes(snapshot.iceService.status) && <p role="alert" className="team-call-prejoin-alert is-warning mx-6 mb-4">{snapshot.iceService.detail}</p>}
+      {snapshot.failureNotice && <p role="alert" className="team-call-prejoin-alert is-error mx-6 mb-4">{snapshot.failureNotice}</p>}
       <footer className="team-call-prejoin-footer"><p>As configurações podem ser alteradas durante a reunião.</p><div><button type="button" onClick={commands.cancelEntry} className="team-call-prejoin-cancel">Cancelar</button><button type="button" onClick={() => void commands.enter()} className="team-call-primary-button team-call-prejoin-enter">Entrar agora</button></div></footer>
     </section>
   </div>;

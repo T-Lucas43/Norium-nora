@@ -72,7 +72,7 @@ class Planner:
             raise BrainError("model_calls_not_enabled", 503)
         if provider == "openai":
             key = os.getenv("OPENAI_API_KEY", "")
-            model = os.getenv("NORA_BRAIN_ROUTINE_MODEL", "gpt-5.6-luna") if profile == "routine" else os.getenv("NORA_BRAIN_DOCUMENT_MODEL", "gpt-5.6-sol")
+            model = os.getenv("NORA_BRAIN_ROUTINE_MODEL", "gpt-6-sol") if profile == "routine" else os.getenv("NORA_BRAIN_DOCUMENT_MODEL", "gpt-6-astra")
         elif provider == "groq":
             key = os.getenv("GROQ_API_KEY", "")
             model = os.getenv("NORA_BRAIN_GROQ_MODEL", "openai/gpt-oss-20b")

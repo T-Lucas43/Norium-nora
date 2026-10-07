@@ -40,6 +40,15 @@ class NoraModuleHelpTest(unittest.TestCase):
                 self.assertEqual(answer["module"], expected_module)
                 self.assertGreater(len(answer["response"]), 80)
 
+    def test_message_templates_guidance_explains_reuse_and_send_boundary(self) -> None:
+        answer = answer_module_help("Explique a tela de Modelos de mensagens.")
+        self.assertIsNotNone(answer)
+        assert answer is not None
+        self.assertEqual("modelos de mensagens", answer["module"])
+        self.assertIn("WhatsApp", answer["response"])
+        self.assertIn("Duplicar", answer["response"])
+        self.assertIn("não envia mensagens", answer["response"])
+
     def test_does_not_intercept_real_module_actions(self) -> None:
         """Pedido de acao vai para o LLM; so orientacao e respondida pelo catalogo."""
         self.assertIsNone(answer_module_help("gastei 47 reais hoje no pix comprando comida"))

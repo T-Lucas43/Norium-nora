@@ -1016,6 +1016,18 @@ async def complete_with_provider(
                         "generation_config": {"thinking_level": "low", "max_output_tokens": meter.max_output},
                     },
                 )
+            elif provider_kind == "openai":
+                response = await client.post(
+                    f"{base_url}/responses",
+                    headers={"Authorization": f"Bearer {secret}", "Content-Type": "application/json"},
+                    json={
+                        "model": provider["model"],
+                        "instructions": system_prompt,
+                        "input": safe_messages,
+                        "store": False,
+                        "max_output_tokens": meter.max_output,
+                    },
+                )
             else:
                 response = await client.post(
                     f"{base_url}/chat/completions",
@@ -1039,6 +1051,14 @@ async def complete_with_provider(
             for step in steps or [] if isinstance(step, dict) and step.get("type") == "model_output"
             for content in step.get("content") or [] if isinstance(content, dict) and content.get("type") == "text"
         )
+    elif provider_kind == "openai":
+        answer = str(data.get("output_text") or "")
+        if not answer:
+            answer = "".join(
+                str(content.get("text") or "")
+                for item in data.get("output") or [] if isinstance(item, dict) and item.get("type") == "message"
+                for content in item.get("content") or [] if isinstance(content, dict) and content.get("type") == "output_text"
+            )
     else:
         choices = data.get("choices") if isinstance(data, dict) else []
         answer = str(((choices or [{}])[0].get("message") or {}).get("content") or "")

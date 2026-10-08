@@ -1,0 +1,17 @@
+.nora-mail-productivity,.nora-mail-job { border:1px solid var(--border); border-radius:16px; padding:18px; color:var(--text); background:var(--surface); font-size:14px; }
+.nora-mail-productivity { max-height:70vh; overflow:auto; margin:12px; }
+.nora-mail-productivity form { display:grid; gap:12px; margin:16px 0; }
+.nora-mail-productivity label { display:grid; gap:6px; font-size:13px; font-weight:600; }
+.nora-mail-productivity :is(input:not([type=checkbox]),select,textarea),.nora-mail-job input:not([type=checkbox]) { border:1px solid var(--border); border-radius:10px; padding:10px; background:var(--background); color:var(--text); width:100%; }
+.nora-mail-productivity textarea { min-height:90px; resize:vertical; }
+.nora-mail-productivity button,.nora-mail-job button { border:1px solid var(--border); border-radius:10px; padding:9px 12px; background:var(--background); color:var(--text); cursor:pointer; }
+.nora-mail-productivity button:hover,.nora-mail-job button:hover { background:var(--surface-hover); }
+.nora-mail-productivity button:disabled,.nora-mail-job button:disabled { opacity:.5; cursor:default; }
+.nora-mail-actions { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; align-items:center; }
+.nora-mail-job header { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.nora-mail-note { color:var(--text-secondary); font-size:12px; line-height:1.6; }
+.nora-mail-check { display:flex!important; flex-direction:row; align-items:center; gap:8px; }
+.nora-mail-review { padding:12px; border:1px solid var(--border); border-radius:12px; }
+.nora-mail-review pre { white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; }
+.nora-mail-job details { margin:12px 0; }
+.nora-mail-productivity [role=alert],.nora-mail-job [role=alert] { color:var(--text); border-left:3px solid #dc7256; padding:8px 12px; }

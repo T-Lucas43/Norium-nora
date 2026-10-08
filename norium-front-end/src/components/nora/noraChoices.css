@@ -1,0 +1,15 @@
+.nora-inline-choices { margin-top: 16px; color: var(--text-secondary); }
+.nora-inline-options { display:flex; flex-wrap:wrap; gap:8px; }
+.nora-inline-choices button { padding:9px 14px; border:1px solid var(--border); border-radius:12px; background:var(--surface); color:var(--text); font-size:13px; font-weight:650; cursor:pointer; }
+.nora-inline-choices button:hover { background:var(--surface-hover); }
+.nora-inline-choices button:disabled { cursor:default; opacity:.5; }
+.nora-inline-choices form { display:grid; gap:10px; margin-top:12px; }
+.nora-inline-choices label { display:grid; gap:8px; }
+.nora-inline-choices textarea { width:100%; min-height:80px; padding:12px; background:var(--background); color:var(--text); border:1px solid var(--border); border-radius:12px; }
+:is(.nora-composer,.nora-inline-choices,.norium-nora-quick-popover,.nora-mail-productivity) textarea:focus,
+:is(.nora-composer,.nora-inline-choices,.norium-nora-quick-popover,.nora-mail-productivity) input:focus { outline:none; border-color:var(--text-secondary); box-shadow:none; }
+:is(.nora-composer,.nora-inline-choices,.norium-nora-quick-popover,.nora-mail-productivity) :is(textarea,input):focus-visible { outline:2px solid var(--text-secondary); outline-offset:2px; }
+.nora-page .nora-composer > div:last-child:focus-within { border-color:var(--text-secondary)!important; box-shadow:0 12px 34px rgba(0,0,0,.22); }
+.norium-nora-quick-popover > form:focus-within { border-color:var(--text-secondary); box-shadow:none; }
+.nora-style-picker { display:flex; gap:8px; align-items:center; color:var(--text-secondary); font-size:12px; margin-bottom:8px; }
+.nora-style-picker select { background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:5px 8px; }

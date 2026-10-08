@@ -81,6 +81,7 @@ from app.modules.nora.context import (
     valid_conversation_id,
 )
 from app.modules.nora.brain.router import router as brain_router
+from app.modules.mail.productivity import requested_work
 from app.services.nora_files import (
     deterministic_file_command,
     is_deterministic_file_request,
@@ -1218,6 +1219,20 @@ async def _execute_natural_conversation(
     resolution = resolve_skill(texto)
 
     try:
+        from app.modules.mail.productivity import requested_work, require_mail, create as create_mail_work, WorkRequest
+        history_match = re.search(r"(?:busque|buscar|pesquise|pesquisar|encontre|localize).*?conversas?.*?(?:sobre|com)\s+(.+)", texto, re.I)
+        if history_match:
+            from app.modules.nora.conversations import search_history
+            records = await asyncio.to_thread(search_history, user["id"], history_match.group(1)[:160])
+            lines = [f"- **{row['title']}** — {row['updatedAt'][:10]} — {row['preview']}" for row in records]
+            return resposta_agente("operacoes", {"status": "consulta", "response": "Pesquisei os títulos e as prévias do seu histórico neste workspace.\n\n" + ("\n".join(lines) if lines else "Não encontrei conversas com esse filtro."), "historySources": records}, resolution=resolution)
+        work_kind = requested_work(texto)
+        if work_kind:
+            require_mail(user)
+            if work_kind == "campaign":
+                return resposta_agente("email", {"status": "precisa_dados", "response": "Vamos preparar sua campanha. Informe a finalidade, a lista exata de destinatários e a mensagem abaixo; você revisará tudo antes de aprovar o envio individual.", "mailWorkMode": "campaign"}, resolution=resolution)
+            job = await create_mail_work(user, WorkRequest(requestId=uuid.uuid4().hex, kind="mailbox"))
+            return resposta_agente("email", {"status": "preparado", "response": "Preparei uma leitura paginada da caixa de entrada, com progresso salvo e relatório. Esta primeira leitura usa assuntos e trechos; o limite é de 1.000 mensagens e pode ser ampliado. Use Continuar abaixo. Para incluir corpos ou análise de IA, prepare uma leitura com essas opções na tela E-mails.", "mailWorkId": job["id"]}, resolution=resolution)
         previous_user_text = next((item.content for item in reversed(payload.messages) if item.role == "user"), "")
         from app.modules.reports.nora_export import generate_chat_report
         report_result = await generate_chat_report(user, resolved_user_id, texto)
@@ -1629,6 +1644,8 @@ async def _execute_natural_conversation(
             "model_routing": model_routing,
             "knowledge_sources": knowledge_sources,
         }
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Falha na orquestracao natural da Nora.")
         raise HTTPException(status_code=500, detail="A Nora falhou temporariamente.") from exc
@@ -1668,6 +1685,8 @@ async def conversar_com_nora_natural_stream(
         or browser_tool_request(texto) is not None
         or bool(payload.model_id and payload.model_id != "nora-runtime")
         or resolve_read_query(texto, payload.messages) is not None
+        or requested_work(texto) is not None
+        or bool(re.search(r"(?:busque|buscar|pesquise|pesquisar|encontre|localize).*?conversas?.*?(?:sobre|com)\s+(.+)", texto, re.I))
     )
 
     resolution = resolve_skill(texto)

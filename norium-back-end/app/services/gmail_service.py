@@ -311,9 +311,47 @@ class GmailService:
         )
         return {**payload, **self.status(), "cacheSource": "gmail"}
 
+    def list_message_ids(self, *, folder: str = "inbox", query: str = "", page_token: str | None = None, max_results: int = 25) -> dict[str, Any]:
+        """Bounded ID discovery for resumable reading; do not hydrate an entire page."""
+        labels, query_parts = self._folder_filters(folder)
+        if query.strip():
+            query_parts.append(query.strip())
+        params: dict[str, Any] = {"userId": "me", "maxResults": max(1, min(max_results, 100))}
+        if labels:
+            params["labelIds"] = labels
+        if query_parts:
+            params["q"] = " ".join(query_parts)
+        if page_token:
+            params["pageToken"] = page_token
+        return self._service().users().messages().list(**params).execute()
+
     def get_message(self, message_id: str) -> dict[str, Any]:
         message = self._service().users().messages().get(userId="me", id=message_id, format="full").execute()
         return {"message": self._normalize_message(message, detail=True)}
+
+    def get_message_for_analysis(self, message_id: str, *, include_body: bool = False) -> dict[str, Any]:
+        """Read bounded text without fetching attachment IDs or rendering remote HTML."""
+        raw = self._service().users().messages().get(userId="me", id=message_id, format="full" if include_body else "metadata").execute()
+        message = self._normalize_message(raw)
+        plain, fallback_html = [], []
+        def visit(part):
+            if part.get("filename"):
+                message["hasAttachment"] = True
+            encoded = str((part.get("body") or {}).get("data") or "")
+            mime = part.get("mimeType")
+            if include_body and encoded and mime in {"text/plain", "text/html"} and not part.get("filename"):
+                import base64
+                prefix = encoded[:8192]
+                text = base64.urlsafe_b64decode(prefix + "=" * (-len(prefix) % 4)).decode("utf-8", errors="replace")
+                (plain if mime == "text/plain" else fallback_html).append(text)
+            for child in part.get("parts", [])[:100]:
+                visit(child)
+        visit(raw.get("payload") or {})
+        if include_body:
+            import re
+            text = "\n".join(plain) if plain else html.unescape(re.sub(r"<[^>]*>", " ", "\n".join(fallback_html)))
+            message["bodyText"] = text[:4001] or str(message.get("snippet") or "")
+        return {"message": message}
 
     def send_message(
         self,
@@ -869,7 +907,10 @@ class GmailService:
         message["Message-ID"] = make_msgid(domain="norium.local")
         for key, value in extra_headers.items():
             if key and value:
-                message[key] = value
+                if key.lower() == "message-id" and key in message:
+                    message.replace_header(key, value)
+                else:
+                    message[key] = value
         message.set_content(body or "")
 
         total_size = 0

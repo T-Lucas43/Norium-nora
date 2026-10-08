@@ -1001,8 +1001,8 @@
 }
 
 .nora-page .nora-composer > div:last-child:focus-within {
-  border-color: color-mix(in srgb, #38bdf8 55%, var(--border)) !important;
-  box-shadow: 0 14px 38px rgba(0, 0, 0, .24), 0 0 0 2px rgba(56, 189, 248, .08);
+  border-color: var(--text-secondary) !important;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .22);
 }
 
 .nora-page .nora-composer textarea {

@@ -57,10 +57,14 @@ class SavedMessage(StrictModel):
     responseView: ResponseView | None = None
     files: list[dict[str, Any]] | None = Field(default=None, max_length=20)
     approval: ApprovalSnapshot | None = None
+    choice: str | None = Field(default=None, max_length=4000)
+    mailWorkId: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    mailWorkMode: Literal["mailbox", "campaign"] | None = None
 
 
 class ConversationState(StrictModel):
     messages: list[SavedMessage] = Field(default_factory=list, max_length=500)
+    responseStyle: Literal["normal", "concise", "detailed", "formal"] = "normal"
     agendaSessionId: str | None = Field(default=None, max_length=180)
     agendaAgentActive: bool = False
     emailSessionId: str | None = Field(default=None, max_length=180)
@@ -88,6 +92,16 @@ def read_index(user_id: str) -> dict:
 
 def conversation_db(conversation_id: str) -> str:
     return f"nora_chat_{conversation_id}"
+
+
+def search_history(user_id: str, query: str) -> list[dict]:
+    import unicodedata
+    def normalized(value):
+        return "".join(char for char in unicodedata.normalize("NFKD", str(value).casefold()) if not unicodedata.combining(char))
+    words = normalized(query).split()
+    rows = read_index(user_id)["conversations"]
+    matching = [row for row in rows if all(word in normalized(str(row.get("title", "")) + " " + str(row.get("preview", ""))) for word in words)]
+    return [{key: row.get(key) for key in ("id", "title", "preview", "updatedAt")} for row in sorted(matching, key=lambda row: row.get("updatedAt", ""), reverse=True)[:20]]
 
 
 @router.get("")

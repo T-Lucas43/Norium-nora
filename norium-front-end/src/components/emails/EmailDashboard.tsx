@@ -45,6 +45,7 @@ import NoraSuggestionPanel from "./NoraSuggestionPanel";
 import MailToolbar from "./MailToolbar";
 import ComposeModal from "./modals/ComposeModal";
 import NoraMailDrawer from "./modals/NoraMailDrawer";
+import NoraMailWork from "../nora/NoraMailWork";
 import MailSettingsDrawer from "./modals/MailSettingsDrawer";
 import ProfilePopover from "./modals/ProfilePopover";
 export type { Email } from "../../features/mail/types";
@@ -77,6 +78,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
   const [searchQuery, setSearchQuery] = useState("");
   const [error, setError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workOpen, setWorkOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedMailFilters>(emptyAdvancedFilters);
   const [messageMenuOpen, setMessageMenuOpen] = useState(false);
@@ -453,6 +455,8 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
           onToggleProfile={() => setProfileOpen((value) => !value)}
         />
 
+        {canUseNora && status?.connected && <div className="px-4 py-2"><button type="button" className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm" aria-expanded={workOpen} onClick={() => setWorkOpen(!workOpen)}>Nora: caixa completa, relatórios e campanhas</button></div>}
+        {canUseNora && status?.connected && workOpen && <NoraMailWork identity={userId} />}
         {!status?.connected ? (
           <main className="flex flex-1 items-center justify-center p-8">
             <div className="mail-card w-full max-w-xl rounded-lg border border-white/12 bg-[#1A1B21] p-8 text-center shadow-2xl">

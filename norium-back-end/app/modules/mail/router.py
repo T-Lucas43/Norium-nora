@@ -22,6 +22,8 @@ from app.services.email_agent import shared_email_agent
 from app.services.gmail_service import GmailConfigError, GmailService
 
 router = APIRouter(tags=["Gmail"])
+from app.modules.mail.productivity import router as productivity_router
+router.include_router(productivity_router)
 email_agent = shared_email_agent
 logger = logging.getLogger(__name__)
 

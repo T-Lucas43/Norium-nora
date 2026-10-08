@@ -42,6 +42,8 @@ import { buildNoraResponseView, legacyFinanceView, legacyTaskView, type NoraResp
 import { drainNoraSseEvents, type NoraStreamEvent } from "../nora/noraStream";
 import NoraApprovalCard, { normalizeApprovalCard, type NoraApprovalSnapshot } from "../nora/NoraApprovalCard";
 import { NoraFileCards, type NoraChatFile } from "../nora/NoraFiles";
+import NoraMessageChoices from "../nora/NoraMessageChoices";
+import NoraMailWork, { NoraMailJobCard } from "../nora/NoraMailWork";
 import Button from "../shared/Button";
 import { speechTextFromDisplay, takeNaturalSpeechSegments } from "./noraSpeech";
 
@@ -129,10 +131,14 @@ export type Msg = {
   responseView?: NoraResponseView;
   files?: NoraChatFile[];
   approval?: NoraApprovalSnapshot | null;
+  choice?: string;
+  mailWorkId?: string;
+  mailWorkMode?: "mailbox" | "campaign";
 };
 
 export type NoraConversationState = {
   messages: Msg[];
+  responseStyle?: "normal" | "concise" | "detailed" | "formal";
   agendaSessionId?: string | null;
   agendaAgentActive?: boolean;
   emailSessionId?: string | null;
@@ -763,13 +769,14 @@ function NoraStructuredContent({ agent, text, emailMessages, agendaEvents, respo
   return markdownFallback(text);
 }
 
-function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onRegenerate, onApprovalDecision, actionsDisabled = false }: {
+function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onRegenerate, onApprovalDecision, onChoose, actionsDisabled = false }: {
   msg: Msg;
   onOpenEmail?: (messageId: string) => void;
   onAgendaPrompt?: (prompt: string) => void;
   onFeedback?: (feedback: "positive" | "negative") => void;
   onRegenerate?: () => void;
   onApprovalDecision?: (next: NoraApprovalSnapshot) => void;
+  onChoose?: (value: string) => Promise<void>;
   actionsDisabled?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
@@ -868,6 +875,8 @@ function NoraMessageBubble({ msg, onOpenEmail, onAgendaPrompt, onFeedback, onReg
           />
           {msg.files?.length ? <NoraFileCards files={msg.files} /> : null}
           {msg.approval && onApprovalDecision ? <NoraApprovalCard approval={msg.approval} onDecision={onApprovalDecision} /> : null}
+          {!msg.approval && !msg.mailWorkId && !msg.mailWorkMode && onChoose ? <NoraMessageChoices text={msg.text} status={msg.status} selected={msg.choice} disabled={actionsDisabled} onChoose={onChoose} /> : null}
+          {msg.mailWorkId ? <NoraMailJobCard jobId={msg.mailWorkId} /> : msg.mailWorkMode ? <NoraMailWork initialKind={msg.mailWorkMode} /> : null}
         </div>
         <span className="nora-message-actions" aria-label="Ações da mensagem">
           <button type="button" onClick={copyMessage} className="nora-message-action" title={copied ? "Mensagem copiada" : "Copiar mensagem"} aria-label={copied ? "Mensagem copiada" : "Copiar mensagem"}>
@@ -1204,7 +1213,9 @@ function interruptsActiveAgentSession(text: string) {
 }
 
 export default function Nora({ open, onClose, conversaId, conversationId, profile, eventsBySource, userId = "primary", activeTab, onOpenEmail, contextualRequest, variant = "drawer", initialState, onStateChange }: NoraProps) {
-  const screenContext = buildScreenContext(activeTab, eventsBySource);
+  const [responseStyle, setResponseStyle] = useState<NonNullable<NoraConversationState["responseStyle"]>>(initialState?.responseStyle || "normal");
+  const styleInstructions = { normal: "", concise: "Prefira respostas curtas e diretas.", detailed: "Explique com detalhes úteis e exemplos.", formal: "Use português formal e profissional." };
+  const screenContext = buildScreenContext(activeTab, eventsBySource).slice(0, 380) + (responseStyle !== "normal" ? `\nPreferência de comunicação: ${styleInstructions[responseStyle]}` : "");
   const welcomeName = (profile?.nome || "").trim().split(/\s+/)[0] || "";
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Msg[]>(() => initialState?.messages || []);
@@ -1286,8 +1297,8 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
   }, [open]);
 
   useEffect(() => {
-    onStateChange?.({ messages, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive }, loading);
-  }, [messages, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive, loading, onStateChange]);
+    onStateChange?.({ messages, responseStyle, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive }, loading);
+  }, [messages, responseStyle, agendaSessionId, agendaAgentActive, emailSessionId, emailAgentActive, commercialSessionId, commercialAgentActive, loading, onStateChange]);
 
   const effectiveModelId = modelChoice === "auto" ? "auto" : modelChoice;
 
@@ -1571,6 +1582,8 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
       let responseEmailMessages: NoraEmailMessage[] | undefined;
       let responseAgendaEvents: NoraAgendaEvent[] | undefined;
       let responseApproval: NoraApprovalSnapshot | null = null;
+      let responseMailWorkId: string | undefined;
+      let responseMailWorkMode: "mailbox" | "campaign" | undefined;
       let responseView: NoraResponseView | undefined;
       let responseFiles: NoraChatFile[] | undefined;
       let handledInline = false;
@@ -1765,6 +1778,8 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
           responseFiles = normalizeChatFiles(result.agent_result?.files);
           responseStatus = result.status;
           responseApproval = normalizeApprovalCard(result.agent_result?.approval);
+          if (typeof result.agent_result?.mailWorkId === "string") responseMailWorkId = result.agent_result.mailWorkId;
+          if (result.agent_result?.mailWorkMode === "mailbox" || result.agent_result?.mailWorkMode === "campaign") responseMailWorkMode = result.agent_result.mailWorkMode;
           if (result.intent === "email") {
             responseEmailMessages = normalizeEmailMessages(result.agent_result?.messages);
           }
@@ -1796,6 +1811,8 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
             responseView,
             files: responseFiles,
             approval: responseApproval,
+            mailWorkId: responseMailWorkId,
+            mailWorkMode: responseMailWorkMode,
           },
         ]);
       }
@@ -2383,6 +2400,10 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
                   onFeedback={msg.role === "ai" ? (feedback) => evaluateMessage(index, feedback) : undefined}
                   onRegenerate={msg.role === "ai" && messages.slice(0, index).some((item) => item.role === "user") ? () => regenerateMessage(index) : undefined}
                   onApprovalDecision={msg.role === "ai" && msg.approval ? (next) => updateMessageApproval(index, next) : undefined}
+                  onChoose={msg.role === "ai" && index === messages.length - 1 ? async (value) => {
+                    setMessages((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, choice: value } : item));
+                    await sendMessage(value);
+                  } : undefined}
                   actionsDisabled={loading}
                 />
               ))}
@@ -2464,6 +2485,7 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
                   </span>
                 </div>
               )}
+              <label className="nora-style-picker">Estilo de resposta <select aria-label="Estilo de resposta da Nora" value={responseStyle} onChange={(event) => setResponseStyle(event.target.value as NonNullable<NoraConversationState["responseStyle"]>)} disabled={loading}><option value="normal">Normal</option><option value="concise">Conciso</option><option value="detailed">Detalhado</option><option value="formal">Formal</option></select></label>
               {transcribing && (
                 <div className="mb-2 flex items-center gap-3 rounded-lg border border-blue-400/30 bg-blue-400/10 px-3 py-2 text-xs font-bold text-blue-100">
                   <Loader2 size={14} className="shrink-0 animate-spin" />

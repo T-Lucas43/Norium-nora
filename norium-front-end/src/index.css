@@ -3373,8 +3373,8 @@ html[data-norium-custom-theme="true"] .team-chat-drawer{
 }
 
 .norium-nora-quick-popover > form:focus-within{
-  border-color:rgba(39,130,255,.62);
-  box-shadow:0 0 0 3px rgba(39,130,255,.09);
+  border-color:var(--text-secondary);
+  box-shadow:none;
 }
 
 .norium-nora-quick-popover > form textarea{

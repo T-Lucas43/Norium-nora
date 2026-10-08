@@ -512,6 +512,7 @@ def preference_delete_tool(repo):
 
 def registry(repository):
     from .documents import document_tools
+    from .workspace_tools import workspace_tools
     from .dispatcher import web_tool
     legacy_tools = [
         Tool("tasks_query", "Buscar tarefas privadas por título, data e estado. Retorna IDs e paginação.", "tarefas", "C", TaskQuery, prepare_query, query_tasks),
@@ -526,6 +527,7 @@ def registry(repository):
         Tool("email_send", "Preparar e enviar email após revisão exata de remetente, destinatários, conteúdo e anexos.", ("emails", "integracao_gmail"), "R", Email, prepare_email, send_email),
         Tool("whatsapp_send", "Preparar e enviar texto após revisão exata de conta, destinatário e conteúdo.", ("chat", "integracao_whatsapp"), "R", WhatsAppText, prepare_whatsapp, send_whatsapp),
         *document_tools(),
+        *workspace_tools(),
     ]
     return Registry([
         *[web_tool(tool) for tool in legacy_tools],

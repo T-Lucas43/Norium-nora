@@ -207,6 +207,7 @@ const componentLibrary: Array<{
     items: [
       { title: "Enviar e-mail", description: "Envia ou responde uma mensagem pelo Gmail.", icon: "mail", kind: "action", category: "E-mail" },
       { title: "Agrupar e-mails por categoria", description: "Classifica mensagens recentes por principal, financeiro, trabalho e promocoes.", icon: "tags", kind: "action", category: "E-mail" },
+      { title: "Preparar leitura paginada de e-mails", description: "Cria trabalho revisável em E-mails: últimos 1 dia, limite de 100 mensagens. A leitura começa ao continuar; nenhum envio automático.", icon: "mail", kind: "action", category: "E-mail" },
       { title: "Enviar WhatsApp", description: "Envia mensagem para contato ou grupo.", icon: "message-square", kind: "action", category: "WhatsApp" },
       { title: "Criar tarefa", description: "Cria card com prioridade, prazo e etiquetas.", icon: "check-square", kind: "action", category: "Tarefas" },
       { title: "Registrar gasto", description: "Cria lançamento financeiro com categoria.", icon: "credit-card", kind: "action", category: "Gastos" },

@@ -549,6 +549,25 @@ async def apply_automation_effects(
 
     flow = automation.get("flow") if isinstance(automation.get("flow"), dict) else {}
     flow_nodes = flow.get("nodes") if isinstance(flow.get("nodes"), list) else []
+    for item in flow_nodes:
+        if not isinstance(item, dict) or item.get("kind") == "trigger":
+            continue
+        if normalize_text(str(item.get("title") or "")) != "preparar leitura paginada de e-mails":
+            continue
+        async def prepare_mailbox_work(current_item=item):
+            from app.modules.auth.router import read_user_store, find_user, sanitize_user
+            from app.modules.mail.productivity import WorkRequest, require_mail, create
+            raw = find_user(await read_user_store(), user_id)
+            if not raw or raw.get("status") != "ativo":
+                raise ValueError("A conta responsável não está ativa.")
+            actor = sanitize_user(raw)
+            require_mail(actor)
+            config = current_item.get("config") or {}
+            work = await create(actor, WorkRequest(requestId=uuid.uuid4().hex,
+                query=str(config.get("gmailQuery") or "newer_than:1d")[:600], messageBudget=100))
+            return {"description": f"Trabalho de leitura {work['id']} preparado em E-mails; aguardando continuação. Nenhum envio foi feito.",
+                    "variableUpdates": {"noraMailWorkId": work["id"]}}
+        await run_effect(f"mailbox:{item.get('id')}", prepare_mailbox_work)
     message_nodes = []
     for item in flow_nodes:
         if not isinstance(item, dict) or item.get("kind") == "trigger":

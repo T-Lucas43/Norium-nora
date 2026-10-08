@@ -1209,6 +1209,15 @@ async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str
     return result
 
 
+def natural_changes_forbidden(text: str) -> bool:
+    normalized = normalizar_intencao(text)
+    return bool(re.search(
+        r"\b(?:sem|nunca|evite|nao(?:\s+(?:quero|deve|pode|precisa|vamos))?(?:\s+que)?(?:\s+(?:voce|a nora))?)\s+"
+        r"(?:criar|crie|cria|alterar|altere|editar|edite|enviar|envie|envi[eoa]|excluir|exclua|apagar|apague|remover|remova|publicar|publique|executar|execute|fazer|faca|adicionar|adicione|agendar|agende|registrar|registre)\b",
+        normalized,
+    ))
+
+
 async def _execute_natural_conversation(
     payload: NoraNaturalPayload,
     user: dict[str, Any],
@@ -1219,6 +1228,26 @@ async def _execute_natural_conversation(
     resolution = resolve_skill(texto)
 
     try:
+        if natural_changes_forbidden(texto):
+            # A negative instruction takes precedence over keyword/semantic
+            # routing, context continuation and every specialist writer.
+            agenda_agent.cancel_session(payload.agenda_session_id)
+            team_meeting_agent.cancel_session(payload.agenda_session_id)
+            email_agent.cancel_session(payload.email_session_id)
+            cancel_commercial_session(payload.commercial_session_id)
+            payload.agenda_session_id = payload.email_session_id = payload.commercial_session_id = None
+            read_query = resolve_read_query(texto, payload.messages)
+            if read_query is not None:
+                read_intent, read_result = await answer_read_query(user, *read_query)
+                return resposta_agente(read_intent, read_result, resolution=resolution)
+            messages = [message.model_dump() for message in context_window(payload.messages, 12)]
+            messages.append({"role": "user", "content": texto})
+            screen_context = (payload.screen_context or "") + "\nEste turno permite somente conversa. Não crie, altere, envie ou exclua registros e não afirme que executou ações. Respeite a restrição explícita do usuário."
+            if payload.model_id and payload.model_id != "nora-runtime":
+                answer, _ = await complete_with_provider(user, payload.model_id, messages, nora_service.system_prompt + "\n" + screen_context)
+            else:
+                answer = await nora_service.perguntar_nora(messages, screen_context)
+            return resposta_agente("chat", {"status": "chat", "response": answer, "changesBlocked": True}, resolution=resolution)
         from app.modules.mail.productivity import requested_work, require_mail, create as create_mail_work, WorkRequest
         history_match = re.search(r"(?:busque|buscar|pesquise|pesquisar|encontre|localize).*?conversas?.*?(?:sobre|com)\s+(.+)", texto, re.I)
         if history_match:
@@ -1686,6 +1715,7 @@ async def conversar_com_nora_natural_stream(
         or bool(payload.model_id and payload.model_id != "nora-runtime")
         or resolve_read_query(texto, payload.messages) is not None
         or requested_work(texto) is not None
+        or natural_changes_forbidden(texto)
         or bool(re.search(r"(?:busque|buscar|pesquise|pesquisar|encontre|localize).*?conversas?.*?(?:sobre|com)\s+(.+)", texto, re.I))
     )
 

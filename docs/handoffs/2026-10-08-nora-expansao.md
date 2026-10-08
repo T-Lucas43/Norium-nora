@@ -42,6 +42,11 @@ Checkout original preservado; execução em worktree isolado, branch `codex/nora
 
 ## VPS
 
+- Primeiro deploy f8cd1fa confirmado com HTTPS pronto, PostgreSQL, mesma configuração e contêiner anterior preservado. UI confirmou opções inline, zero modais e foco cinza sem sombra; alternativa foi recebida e salva.
+- Smoke visual encontrou uma falha anterior do roteamento: a frase sintética "Prefiro uma única dica de organização, sem criar tarefas" criou uma tarefa na conta de teste. Correção: negações explícitas têm precedência sobre todos os especialistas e continuidade; permitem somente consulta nativa/conversa, encerrando fluxos ativos. Acrescentadas regressões com especialista/classificador proibidos nesse turno. Nova revisão e deploy corretivo pendentes.
+- A revisão corretiva passou 28 testes locais isolados de conversa, contexto e consultas, incluindo cancelamento dos fluxos ativos e preservação das consultas nativas. Nenhum socket externo ou dado real usado.
+- CI de main para f8cd1fa (`37837824459`) concluído com todos os cinco jobs aprovados, incluindo pacote de origem. A revisão corretiva deve passar os mesmos gates antes de nova promoção.
+
 Destino conferido ao vivo: `homologacao.norium-ai.com`, VPS `norium-homologacao` do painel Shard.
 Release atual observado antes da troca: `086de0749a3f5888c7866ff1008ec64d582b8f05`.
 Console autenticado disponível. A aplicação usa `/srv/norium/data`, uma instância API, UID10001 e rootfs somente leitura.

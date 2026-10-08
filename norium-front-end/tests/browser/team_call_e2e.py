@@ -1059,14 +1059,16 @@ async def scenario_multiple_tabs(runtime: ScenarioRuntime) -> dict[str, Any]:
 async def crash_page(session: BrowserSession) -> None:
     crashed = asyncio.Event()
     session.page.once("crash", lambda _: crashed.set())
-    # Ubuntu's crash handler can delay the event after navigation rejects.
-    # Share the scenario's existing end-to-end deadline; the caller subtracts
-    # this elapsed time from the participant-removal wait and checks the total.
+    # Chromium's kill URL terminates the renderer without page unload or call
+    # cleanup. Unlike chrome://crash, it does not wait for the OS crash-dump
+    # collector before releasing sockets. This gate measures participant removal
+    # after abrupt renderer loss, with the same complete 18s deadline.
+    # https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/common/chrome_debug_urls.cc
     async with asyncio.timeout(GHOST_DEADLINE_SECONDS):
         try:
-            # Chromium's own crash URL terminates only this renderer and leaves
+            # Chromium's own termination URL affects only this renderer and leaves
             # no unresolved DevTools Page.crash command that can poison the driver.
-            await session.page.goto("chrome://crash", wait_until="commit", timeout=5_000)
+            await session.page.goto("chrome://kill", wait_until="commit", timeout=5_000)
         except Exception:
             # Navigation is expected to reject because the target renderer exits.
             pass

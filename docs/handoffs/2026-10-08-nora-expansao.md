@@ -33,6 +33,13 @@ Checkout original preservado; execução em worktree isolado, branch `codex/nora
 - TypeScript, Vite e orçamento de bundle passaram. Bandit nas novas fontes passou com o nível exigido. Diff sem erros de whitespace.
 - CI e smokes da mesma revisão publicada ainda pendentes; atualizar este handoff com os recibos após a publicação.
 
+## Diagnóstico da validação de chamadas
+
+- PR #49, candidato inicial b2cf917: CI passou validação geral, PostgreSQL e segurança da imagem. O cenário de perda do renderer falhou em duas de três repetições no Ubuntu, também após uma repetição do job.
+- Execução local do mesmo cenário em Chromium: três de três passaram; o evento nativo de crash chegou em 0,309–0,735 s, e a remoção levou 8,429–8,886 s. A coleta de dump do sistema continua sendo hipótese para a diferença no Ubuntu.
+- O harness passa a provocar perda abrupta do renderer pela URL nativa `chrome://kill` do Chromium, que termina o processo sem unload/limpeza da chamada e sem coleta de dump. Continua exigindo o evento nativo de crash, os mesmos 18 s totais, todas as repetições e a limpeza isolada. Não altera código de chamadas ou controles de produção.
+- Referência verificada: https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/common/chrome_debug_urls.cc. A nova revisão ainda exige CI verde antes de promoção.
+
 ## VPS
 
 Destino conferido ao vivo: `homologacao.norium-ai.com`, VPS `norium-homologacao` do painel Shard.

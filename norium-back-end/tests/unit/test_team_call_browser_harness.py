@@ -31,8 +31,8 @@ class BrowserHarnessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([failure], harness.blocking_results([failure], 3))
 
     async def test_renderer_crash_can_arrive_after_navigation_rejects(self):
-        # Ubuntu's crash handler can delay the real crash event beyond five
-        # seconds. The complete participant-removal deadline remains 18s.
+        # Renderer termination still requires the native crash event, even when
+        # navigation rejects first. The complete removal deadline remains 18s.
         session = Mock()
         crash_listener = None
 
@@ -50,6 +50,8 @@ class BrowserHarnessTests(unittest.IsolatedAsyncioTestCase):
             5.1, lambda: crash_listener(session.page))
         try:
             await harness.crash_page(session)
+            self.assertEqual('chrome://kill', session.page.goto.call_args.args[0])
+            self.assertEqual(18.0, harness.GHOST_DEADLINE_SECONDS)
         finally:
             delivery.cancel()
 

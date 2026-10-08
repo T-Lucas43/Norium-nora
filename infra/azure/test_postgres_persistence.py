@@ -311,6 +311,49 @@ def verify_oauth_migration() -> None:
     print("postgres_oauth_migration_ci_passed: inventory, two workspaces, encrypted roundtrip, idempotency")
 
 
+def verify_checkout_after_disconnect() -> None:
+    """Terminate only our own disposable CI connection before its next use."""
+    import psycopg
+    from psycopg.conninfo import make_conninfo
+    from app.infrastructure.persistence import postgres_store
+
+    database_url = os.environ["NORIUM_DATABASE_URL"]
+    require_local_test_database(database_url)
+    label = "norium-ci-checkout-" + uuid.uuid4().hex
+    isolated_url = make_conninfo(database_url, application_name=label)
+    environment = {"NORIUM_DATABASE_URL": isolated_url,
+                   "NORA_BRAIN_DATABASE_URL": isolated_url,
+                   "NORIUM_DATABASE_POOL_SIZE": "1"}
+    with patch.dict(os.environ, environment), patch.object(postgres_store, "_pool", None):
+        pool = postgres_store._pool_instance()
+        try:
+            pool.wait(timeout=10)
+            with postgres_store.connection() as db:
+                original_pid = db.info.backend_pid
+                if db.execute("SELECT 1 AS value").fetchone()["value"] != 1:
+                    raise RuntimeError("pool checkout baseline failed")
+            # Guard the PID with database and unique application name. Never
+            # terminate another fixture or a live application's connection.
+            with psycopg.connect(database_url, autocommit=True) as admin:
+                terminated = admin.execute("""SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity WHERE pid=%s AND datname=current_database()
+                    AND application_name=%s AND pid<>pg_backend_pid()""",
+                    (original_pid, label)).fetchone()
+                if terminated != (True,):
+                    raise RuntimeError("owned disposable connection was not terminated")
+            operations = 0
+            with postgres_store.connection() as db:
+                operations += 1
+                result = db.execute("SELECT 1 AS value").fetchone()
+                if result["value"] != 1 or db.info.backend_pid == original_pid:
+                    raise RuntimeError("checkout reused a disconnected connection")
+            if operations != 1:
+                raise RuntimeError("application operation was replayed")
+        finally:
+            pool.close()
+    print("postgres_checkout_ci_passed: owned terminated socket replaced before one application operation")
+
+
 def main() -> None:
     database_url = os.environ["NORIUM_DATABASE_URL"]
     require_local_test_database(database_url)
@@ -344,6 +387,7 @@ def main() -> None:
     verify_document_quotas()
     verify_auth_sessions()
     verify_oauth_migration()
+    verify_checkout_after_disconnect()
     print("postgres_persistence_ci_passed")
 
 

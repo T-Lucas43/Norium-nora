@@ -56,6 +56,10 @@ def _pool_instance():
                 timeout=5,
                 max_waiting=32,
                 kwargs=connection_kwargs,
+                # A proxy may close an idle TLS socket while libpq still marks
+                # it open. Validate checkout before any application operation;
+                # never replay a write whose outcome could be uncertain.
+                check=ConnectionPool.check_connection,
                 open=True,
             )
     return _pool
@@ -63,6 +67,8 @@ def _pool_instance():
 
 @contextmanager
 def connection() -> Iterator[Any]:
+    from psycopg import InterfaceError, OperationalError
+
     try:
         pooled = _pool_instance().connection(timeout=5)
         db = pooled.__enter__()
@@ -73,10 +79,18 @@ def connection() -> Iterator[Any]:
     try:
         yield db
     except BaseException as exc:
-        pooled.__exit__(type(exc), exc, exc.__traceback__)
+        try:
+            pooled.__exit__(type(exc), exc, exc.__traceback__)
+        except (InterfaceError, OperationalError) as cleanup_error:
+            raise PostgresStoreError("postgresql_transaction_outcome_unknown") from cleanup_error
+        if isinstance(exc, (InterfaceError, OperationalError)):
+            raise PostgresStoreError("postgresql_operation_unavailable") from exc
         raise
     else:
-        pooled.__exit__(None, None, None)
+        try:
+            pooled.__exit__(None, None, None)
+        except (InterfaceError, OperationalError) as commit_error:
+            raise PostgresStoreError("postgresql_transaction_outcome_unknown") from commit_error
 
 
 def initialize() -> None:

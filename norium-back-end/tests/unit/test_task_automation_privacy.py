@@ -373,6 +373,8 @@ class TaskAutomationPrivacyTests(unittest.IsolatedAsyncioTestCase):
         result = await automations.execute_automation('collab', item['id'])
         self.assertEqual([ref], result['historyItem']['taskProjects'])
         self.assertNotIn('variableTaskProjects', result['automation'])
+        self.assertNotIn('variableTaskProjects', result['historyItem']['input'])
+        self.assertEqual({'lastModelOutput': [ref]}, automations.read_store('collab')['history'][0]['input']['variableTaskProjects'])
         for user in self.users:
             history = await team.list_messages(scope='team', recipientId=None, user=user)
             self.assertEqual(1 if user['id'] in {'owner', 'collab'} else 0, len(history['messages']))
@@ -419,7 +421,8 @@ class TaskAutomationPrivacyTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('variableTaskProjects', snapshot['content'])
         task_store.update_project('owner', 'private', {'sharedUserIds': []})
         response = await automations.listar_automacoes(self.users[1])
-        self.assertNotIn('lastModelOutput', response['history'][0]['input']['variables'])
+        self.assertEqual([], response['history'])
+        self.assertNotIn('lastModelOutput', automations.public_execution(legacy_log, 'collab')['input']['variables'])
         self.assertNotIn('variableTaskProjects', response['automations'][0])
         versions = await automations.listar_versoes_automacao(item['id'], self.users[1])
         self.assertEqual({'taskCategory': 'ordinary-config'}, versions['versions'][0]['content']['variables'])
@@ -495,6 +498,100 @@ class TaskAutomationPrivacyTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(1 if title.startswith('Preparar') else 0, work.await_count)
                 self.assertEqual(1 if title == 'Agente Navegador' else 0, plan.await_count)
                 self.assertEqual(1 if title == 'Agente Navegador' else 0, queue.await_count)
+
+
+    async def test_historical_private_input_cannot_borrow_new_public_output_provenance(self):
+        item = self.store_automation()
+        item['variables'] = {'lastModelOutput': 'Synthetic newer public output'}
+        item['variableTaskProjects'] = {'lastModelOutput': []}
+        private_producer = {'id': 'private-producer', 'automationId': item['id'],
+            'taskProjects': [{'ownerId': 'owner', 'projectId': 'private'}],
+            'effectCheckpoints': {'model:run': {'status': 'succeeded', 'result': {
+                'variableUpdates': {'lastModelOutput': 'Synthetic old private output'}}}}}
+        legacy_input = {'id': 'legacy-input', 'automationId': item['id'], 'input': {'variables': {
+            'lastModelOutput': 'Synthetic old private output', 'taskCategory': 'ordinary-config'}}}
+        item['logs'] = [legacy_input, private_producer]
+        write_user_db('collab', 'automacoes', {'automations': [item], 'history': [legacy_input, private_producer]})
+        task_store.update_project('owner', 'private', {'sharedUserIds': []})
+        response = await automations.listar_automacoes(self.users[1])
+        self.assertEqual('Synthetic newer public output', response['automations'][0]['variables']['lastModelOutput'])
+        self.assertEqual([], response['history'])
+        self.assertEqual([], response['automations'][0]['logs'])
+        self.assertEqual({'taskCategory': 'ordinary-config'}, automations.public_execution(legacy_input, 'collab')['input']['variables'])
+        self.assertEqual('Synthetic old private output', automations.read_store('collab')['history'][0]['input']['variables']['lastModelOutput'])
+
+
+    async def test_retry_keeps_original_private_output_scope_after_new_public_execution(self):
+        item = self.store_automation(nodes=[
+            {'id': 'model', 'kind': 'action', 'title': 'Roteamento de IA'},
+            {'id': 'notice', 'kind': 'action', 'title': 'Notificar equipe'}])
+        ref = {'ownerId': 'owner', 'projectId': 'private'}
+        item['variables'] = {'lastModelOutput': 'Synthetic private input'}
+        item['variableTaskProjects'] = {'lastModelOutput': [ref]}
+        write_user_db('collab', 'automacoes', {'automations': [item], 'history': []})
+        self.sent.side_effect = OSError('Synthetic transport rejected after durable message')
+        with patch('app.modules.intelligence.service.route_model', return_value={
+            'selected': {'id': 'synthetic-provider', 'name': 'Synthetic', 'model': 'fake'}}), patch(
+            'app.modules.intelligence.service.complete_with_provider', AsyncMock(side_effect=[
+                ('Synthetic private P', {'usage': {}}), ('Synthetic public Q', {'usage': {}})])) as model:
+            first = await automations.execute_automation('collab', item['id'])
+            self.assertEqual('erro', first['historyItem']['status'])
+            self.assertEqual('succeeded', first['historyItem']['effectCheckpoints']['model:model']['status'])
+            await automations.reconcile_automation_effect(item['id'], first['historyItem']['id'], 'team:notification',
+                automations.EffectReconciliationPayload(outcome='completed', note='Synthetic message confirmed in durable chat'), self.users[1])
+            current = automations.read_store('collab')
+            automation = automations.find_automation(current, item['id'])
+            automation['variables'] = {}
+            automation['variableTaskProjects'] = {}
+            automations.write_store('collab', current)
+            self.sent.side_effect = None
+            public = await automations.execute_automation('collab', item['id'])
+            self.assertEqual('sucesso', public['historyItem']['status'])
+            self.assertEqual([], automations.read_store('collab')['automations'][0]['variableTaskProjects']['lastModelOutput'])
+            public_ids = {event['id'] for event in await inbox.read_events('collab')
+                          if not event.get('metadata', {}).get('taskProjects')}
+            resumed = await automations.reexecutar_automacao(item['id'], first['historyItem']['id'], self.users[1])
+        self.assertEqual(2, model.await_count)
+        self.assertEqual('sucesso', resumed['lastExecution']['historyItem']['status'])
+        stored = automations.read_store('collab')
+        self.assertEqual('Synthetic private P', stored['automations'][0]['variables']['lastModelOutput'])
+        self.assertEqual([ref], stored['automations'][0]['variableTaskProjects']['lastModelOutput'])
+        self.assertEqual([ref], resumed['lastExecution']['historyItem']['taskProjects'])
+        task_store.update_project('owner', 'private', {'sharedUserIds': []})
+        after = await automations.listar_automacoes(self.users[1])
+        self.assertNotIn('lastModelOutput', after['automations'][0]['variables'])
+        self.assertEqual([public['historyItem']['id']], [log['id'] for log in after['history']])
+        self.assertEqual(public_ids, {event['id'] for event in await inbox.read_events('collab')})
+        self.assertEqual(3, len(automations.read_store('collab')['history']))
+
+
+    async def test_resume_revalidates_retained_input_before_new_log_or_transport(self):
+        item = self.store_automation()
+        ref = {'ownerId': 'owner', 'projectId': 'private'}
+        item['variables'] = {'lastModelOutput': 'Synthetic private input'}
+        item['variableTaskProjects'] = {'lastModelOutput': [ref]}
+        write_user_db('collab', 'automacoes', {'automations': [item], 'history': []})
+        self.sent.side_effect = OSError('Synthetic transport unavailable')
+        first = await automations.execute_automation('collab', item['id'])
+        current = automations.read_store('collab')
+        retained = current['history'][0]
+        # A retained input snapshot independently proves the original source,
+        # even if the older log did not also retain a top-level project list.
+        retained.pop('taskProjects', None)
+        automation = automations.find_automation(current, item['id'])
+        automation['variables'] = {'lastModelOutput': 'Synthetic newer public output'}
+        automation['variableTaskProjects'] = {'lastModelOutput': []}
+        automations.write_store('collab', current)
+        self.assertEqual([ref], automations.retained_execution_projects(retained, 'collab'))
+        task_store.update_project('owner', 'private', {'sharedUserIds': []})
+        self.sent.reset_mock()
+        with self.assertRaises(Exception) as denied:
+            await automations.execute_automation('collab', item['id'], resume_from=retained)
+        self.assertEqual(404, denied.exception.status_code)
+        self.assertEqual(1, len(automations.read_store('collab')['history']))
+        self.sent.assert_not_awaited()
+        self.assertEqual([], await inbox.read_events('collab'))
+        self.assertEqual(first['historyItem']['id'], automations.read_store('collab')['history'][0]['id'])
 
 
 if __name__ == '__main__':

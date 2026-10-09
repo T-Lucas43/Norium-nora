@@ -48,6 +48,11 @@ RUN apt-get update \
     && groupadd --gid 10001 norium \
     && useradd --uid 10001 --gid norium --no-create-home --shell /usr/sbin/nologin norium
 
+# The pinned Ubuntu base includes an unmanaged Pebble binary. Norium starts
+# Uvicorn directly, with no OCI entrypoint or Pebble services. Remove the unused
+# supervisor from the final filesystem instead of suppressing its vulnerabilities.
+RUN rm -f /usr/bin/pebble && test ! -e /usr/bin/pebble
+
 COPY --from=backend-build /opt/norium-venv /opt/norium-venv
 
 # Use the official, patched stable Chrome package. The bundled Playwright

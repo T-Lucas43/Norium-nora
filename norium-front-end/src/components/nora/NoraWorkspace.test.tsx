@@ -54,7 +54,12 @@ describe("NoraWorkspace", () => {
     expect(screen.getByText("O que vamos resolver hoje?")).toBeInTheDocument();
     expect(screen.getByText("Converse, crie e acione qualquer área do Norium.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Modelo e preferências da conversa" })).toBeInTheDocument();
-    expect(document.querySelector(".nora-empty-portrait")).not.toBeInTheDocument();
+    const portrait = document.querySelector(".nora-empty-portrait");
+    expect(portrait).toHaveAttribute("alt", "Nora");
+    expect(portrait?.nextElementSibling).toHaveTextContent("Olá, Tarcisio. O que vamos resolver hoje?");
+    const composer = document.querySelector(".nora-page-empty > .nora-composer");
+    expect(composer).toBeInTheDocument();
+    expect(composer?.nextElementSibling).toHaveClass("nora-quick-suggestions");
     for (const image of screen.getAllByRole("img", { name: "Nora" })) {
       expect(image).toHaveAttribute("src", expect.stringContaining("nora-brand.png"));
       expect(image).not.toHaveAttribute("src", expect.stringContaining("nora-avatar.jpeg"));

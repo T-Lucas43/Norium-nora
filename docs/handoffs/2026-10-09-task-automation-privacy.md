@@ -74,3 +74,13 @@ Preflight independente consultou manifest/config/camada oficiais da base ubuntu:
 Dockerfile.shard remove somente o binario nao utilizado /usr/bin/pebble do filesystem final e exige ausencia no build. Nao ha aptremove porque o arquivo nao pertence a um pacote. Nao mudou base, dependencias, entrypoint/CMD, usuario, mounts, workers, sandbox, CA nem politica de CVEs; todos os scans HIGH/CRITICAL e EOL continuam sem excecoes. Novo build/scan do SHA atualizado e obrigatorio. Este acrescimo de imagem deve integrar a revisao humana do PR52; fontes de privacidade bc7fa964 e seus resultados locais permanecem inalterados. Nao houve publicacao/restart na VPS.
 
 Validacao local da correcao de imagem: 26 testes de workflow/empacotamento PASS (9.336s); git diff --check PASS. Fontes backend/frontend e seus testes nao mudaram nesta etapa. CI de nova revisao e revisao independente deste diff pequeno ainda obrigatorios.
+
+## Diagnostico do gate de chamadas (2026-10-10)
+
+CI37996937767, SHA82fbf3e9636b2865c701fd1ca50efcc7c8820079: validate PASS (1383 backend, 26 empacotamento, 135 arquivos/831 frontend e build), postgres-persistence PASS, shard-image-security PASS (zero HIGH/CRITICAL). team-call-quality FAIL; shard-source-artifact SKIPPED. Evidencia preservada em ci-82fbf3e-first-attempt.json e ci-calls-82fbf3e na pasta local desta tarefa.
+
+Das 45 execucoes de browser, 43 passaram: call_studio falhou em duas de tres repeticoes aguardando RTP de audio recebido, antes de abrir o studio. Carga de 100 WebSockets em tres repeticoes PASS. Reproducao local page_reload/call_studio: 6/6 PASS; isso nao substitui o gate Linux nem comprova a causa. Nenhuma mudanca de produto foi atribuida a esse resultado.
+
+O harness acrescenta somente diagnostico de falha antes do fechamento das sessoes: estados enumerados de conexao/ICE/sinalizacao/AudioContext, estados booleanos de tracks e contadores agregados RTP. Nao coleta SDP, candidatos, enderecos, identificadores, tokens ou conteudo de midia. AudioContexts usam WeakRef para nao prolongar a vida dos objetos. Condicoes de sucesso, timeouts, camera e repeticoes permanecem iguais. Revisao independente: zero achados. Tres testes locais PASS (redacao, limites de formato e browser nativo com preservacao antes do teardown), 2.740s; helper local test_media_diagnostics.py. Nova execucao CI do SHA exato obrigatoria para obter a evidencia da causa, sem repetir apenas ate ficar verde.
+
+O PR52 permanece draft e sem aprovacao humana deste acrescimo critico. VPS permanece1878aa760398fc58edfc8c010b2b9d4097631bec; nenhuma publicacao, restart, migracao, reset ou remediacao historica ocorreu. Aceite completo continua false.

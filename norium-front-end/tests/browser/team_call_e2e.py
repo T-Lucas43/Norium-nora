@@ -371,6 +371,17 @@ INIT_SCRIPT = """
 ({apiUrl, wsUrl}) => {
   window.__NORIUM_CONFIG__ = { API_URL: apiUrl, WS_URL: wsUrl };
   window.__peerConnections = [];
+  window.__audioContexts = [];
+  const NativeAudioContext = window.AudioContext || window.webkitAudioContext;
+  if (NativeAudioContext) {
+    window.AudioContext = class FixtureAudioContext extends NativeAudioContext {
+      constructor(...args) {
+        super(...args);
+        // Diagnostics must not extend the lifetime of a native audio context.
+        window.__audioContexts.push(new WeakRef(this));
+      }
+    };
+  }
   const NativePeerConnection = window.RTCPeerConnection;
   window.RTCPeerConnection = class FixturePeerConnection extends NativePeerConnection {
     constructor(configuration) {
@@ -428,6 +439,89 @@ def sanitized_call_state(value: dict[str, Any]) -> dict[str, str]:
         key: item if isinstance(item := value.get(key), str) and item in choices else "unknown"
         for key, choices in allowed.items()
     }
+
+
+def sanitized_media_state(value: Any) -> dict[str, Any]:
+    """Retain only fixed media enums, booleans and nonnegative integer counters."""
+    value = value if isinstance(value, dict) else {}
+
+    def enum(item: Any, choices: set[str]) -> str:
+        return item if isinstance(item, str) and item in choices else "unknown"
+
+    def counter(item: Any) -> int:
+        return item if type(item) is int and 0 <= item <= 2**53 - 1 else 0
+
+    def audio_tracks(items: Any) -> list[dict[str, Any]]:
+        return [{
+            "enabled": item.get("enabled") is True,
+            "muted": item.get("muted") is True,
+            "readyState": enum(item.get("readyState"), {"live", "ended"}),
+        } for item in (items[:32] if isinstance(items, list) else []) if isinstance(item, dict)]
+
+    peers = []
+    for item in (value.get("peers") or [])[:32] if isinstance(value.get("peers"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        counters = item.get("rtp") if isinstance(item.get("rtp"), dict) else {}
+        rtp = {}
+        for kind in ("audio", "video"):
+            reports = counters.get(kind) if isinstance(counters.get(kind), dict) else {}
+            rtp[kind] = {}
+            for direction in ("inbound", "outbound"):
+                report = reports.get(direction) if isinstance(reports.get(direction), dict) else {}
+                rtp[kind][direction] = {key: counter(report.get(key)) for key in ("bytes", "packets")}
+        peers.append({
+            "connectionState": enum(item.get("connectionState"), {"new", "connecting", "connected", "disconnected", "failed", "closed"}),
+            "iceConnectionState": enum(item.get("iceConnectionState"), {"new", "checking", "connected", "completed", "disconnected", "failed", "closed"}),
+            "iceGatheringState": enum(item.get("iceGatheringState"), {"new", "gathering", "complete"}),
+            "signalingState": enum(item.get("signalingState"), {"stable", "have-local-offer", "have-remote-offer", "have-local-pranswer", "have-remote-pranswer", "closed"}),
+            "statsAvailable": item.get("statsAvailable") is True,
+            "senderAudioTracks": audio_tracks(item.get("senderAudioTracks")),
+            "receiverAudioTracks": audio_tracks(item.get("receiverAudioTracks")),
+            "rtp": rtp,
+        })
+    states = value.get("audioContextStates")
+    return {
+        "peerCount": counter(value.get("peerCount")),
+        "peers": peers,
+        "audioContextStates": [enum(item, {"running", "suspended", "interrupted", "closed"})
+                               for item in (states[:32] if isinstance(states, list) else [])],
+        "sourceAudioTracks": audio_tracks(value.get("sourceAudioTracks")),
+    }
+
+
+async def media_diagnostics(page: Page) -> dict[str, Any]:
+    # Read only selected properties; never inspect SDP, candidates or report IDs.
+    return await page.evaluate("""async () => {
+      const audioTracks = tracks => tracks.filter(track => track?.kind === 'audio').map(track => ({
+        enabled: track.enabled, muted: track.muted, readyState: track.readyState,
+      }));
+      const connections = window.__peerConnections || [];
+      const peers = [];
+      for (const peer of connections.slice(0, 32)) {
+        const rtp = Object.fromEntries(['audio', 'video'].map(kind => [kind,
+          Object.fromEntries(['inbound', 'outbound'].map(direction => [direction, {bytes: 0, packets: 0}]))]));
+        let statsAvailable = false;
+        try {
+          for (const report of (await peer.getStats()).values()) {
+            const kind = report.kind || report.mediaType;
+            const direction = report.type === 'inbound-rtp' ? 'inbound'
+              : report.type === 'outbound-rtp' ? 'outbound' : null;
+            if (!direction || !['audio', 'video'].includes(kind)) continue;
+            rtp[kind][direction].bytes += report.bytesReceived || report.bytesSent || 0;
+            rtp[kind][direction].packets += report.packetsReceived || report.packetsSent || 0;
+          }
+          statsAvailable = true;
+        } catch {}
+        peers.push({connectionState: peer.connectionState, iceConnectionState: peer.iceConnectionState,
+          iceGatheringState: peer.iceGatheringState, signalingState: peer.signalingState, statsAvailable,
+          senderAudioTracks: audioTracks(peer.getSenders().map(sender => sender.track)),
+          receiverAudioTracks: audioTracks(peer.getReceivers().map(receiver => receiver.track)), rtp});
+      }
+      return {peerCount: connections.length, peers,
+        audioContextStates: (window.__audioContexts || []).slice(0, 32).map(reference => reference.deref()?.state),
+        sourceAudioTracks: audioTracks((window.__callFixture?.userMediaStreams || []).flatMap(stream => stream.getTracks()))};
+    }""")
 
 
 class ScenarioRuntime:
@@ -514,6 +608,17 @@ class ScenarioRuntime:
                 states.append(sanitized_call_state(await diagnostics(session.page)))
         if states:
             write_json_atomic(failure_dir / "call-states.json", {"sessions": states})
+        media_path = failure_dir / "media-states.json"
+        if not media_path.exists():
+            media_states = []
+            for session in self.sessions:
+                if session.page.is_closed():
+                    continue
+                with contextlib.suppress(Exception):
+                    media_states.append(sanitized_media_state(
+                        await asyncio.wait_for(media_diagnostics(session.page), timeout=3)))
+            if media_states:
+                write_json_atomic(media_path, {"sessions": media_states})
         # Intentionally no screenshots, recordings, traces or network bodies.
 
     async def close(self, failure_dir: Path | None) -> None:

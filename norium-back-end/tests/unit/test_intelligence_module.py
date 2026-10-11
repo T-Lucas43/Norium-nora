@@ -200,6 +200,35 @@ class IntelligenceModuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("encryptedSecret", metadata["provider"])
         self.assertEqual(1, len(read_store(account["id"])["modelUsage"]))
 
+    async def test_model_gateway_masks_personal_data_before_sending(self) -> None:
+        account = user("gateway-lgpd-owner")
+        provider = await service.save_provider(account, {
+            "name": "Gateway LGPD", "provider": "openai-compatible", "model": "model-test", "baseUrl": "https://models.example.com/v1",
+            "secret": "segredo-lgpd-123", "enabled": True, "capabilities": ["text"], "contextWindow": 32000,
+            "inputCostPerMillion": 1, "outputCostPerMillion": 2, "dataPolicy": "private",
+        })
+        sent: list[str] = []
+
+        def responder(request: httpx.Request) -> httpx.Response:
+            sent.append(request.content.decode("utf-8"))
+            return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}], "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
+
+        transport_client = httpx.AsyncClient(transport=httpx.MockTransport(responder))
+        with (
+            patch.object(service, "assert_public_dns", AsyncMock()),
+            patch.object(service.httpx, "AsyncClient", return_value=transport_client),
+        ):
+            await service.complete_with_provider(
+                account,
+                provider["id"],
+                [{"role": "user", "content": "CPF 529.982.247-25 e cartao 4111 1111 1111 1111"}],
+                "Contexto com senha=abc123segredo",
+            )
+        body = sent[0]
+        self.assertNotIn("529.982.247-25", body)
+        self.assertNotIn("4111 1111 1111 1111", body)
+        self.assertNotIn("abc123segredo", body)
+
     async def test_automatic_gateway_falls_back_from_groq_to_gemini_interactions(self) -> None:
         account = user("automatic-gateway-owner")
         real_async_client = httpx.AsyncClient

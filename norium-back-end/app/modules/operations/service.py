@@ -574,17 +574,30 @@ async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]
     source = str(approval.get("source") or "").casefold()
     result: dict[str, Any]
 
+    finance_exact = payload.get("financeExact") if isinstance(payload.get("financeExact"), dict) else None
     try:
-        if not message and not (source == "email" and isinstance(payload.get("emailExact"), dict)):
+        if (
+            not message
+            and not (source == "email" and isinstance(payload.get("emailExact"), dict))
+            and not (source == "financeiro" and finance_exact)
+        ):
             raise ValueError("A solicitacao aprovada nao possui a instrucao original.")
         if source == "email" and isinstance(payload.get("emailExact"), dict):
             # Exact sends execute only the digest-bound payload captured at
             # preview time; they never re-run the agent from a message.
             result = await _execute_exact_email(user, approval)
+        elif source == "financeiro" and finance_exact:
+            # Exclusão/alteração aprovada: executa só o id aprovado, nunca reinterpreta texto.
+            from app.modules.finance.router import execute_finance_exact
+
+            owner_id = str(payload.get("ownerId") or "").strip()
+            if not owner_id:
+                raise ValueError("A aprovacao financeira nao possui o dono dos dados.")
+            result = await execute_finance_exact(owner_id, finance_exact)
         elif source == "financeiro":
             from app.routers.financeiro_router import handle_finance_agent
 
-            result = await handle_finance_agent(user_id, message)
+            result = await handle_finance_agent(user_id, message, user=user)
         elif source == "tarefas":
             from app.routers.tarefas_router import handle_task_agent
 
@@ -809,6 +822,47 @@ async def create_exact_email_approval(
                 "requiresExplicitDecision": True,
                 "tool": "gmail",
                 "version": EMAIL_EXACT_VERSION,
+            },
+            expiresAt=expires_at,
+            digest=digest,
+        ),
+    )
+
+
+FINANCE_EXACT_VERSION = "nora-finance-v1"
+FINANCE_APPROVAL_TTL = timedelta(hours=24)
+
+
+async def create_exact_finance_approval(
+    user: dict[str, Any],
+    owner_id: str,
+    exact: dict[str, Any],
+    title: str,
+    description: str,
+) -> dict[str, Any]:
+    """Aprovação vinculada a uma exclusão/alteração financeira exata (id + estado do item na prévia)."""
+    approver_id = str(user.get("id") or "").strip()
+    if not approver_id or not str(owner_id or "").strip():
+        raise PermissionError("Usuário não identificado para preparar a aprovação.")
+    workspace = current_workspace_id()
+    payload = {"kind": "nora_finance_exact", "ownerId": str(owner_id), "financeExact": exact}
+    expires_at = (datetime.now(timezone.utc) + FINANCE_APPROVAL_TTL).isoformat()
+    digest = approval_digest(
+        "nora_finance_exact", "financeiro", title, description, payload, workspace, approver_id, FINANCE_EXACT_VERSION
+    )
+    return await create_approval(
+        user,
+        ApprovalCreate(
+            title=title,
+            description=description,
+            action="nora_finance_exact",
+            source="financeiro",
+            payload=payload,
+            metadata={
+                "requestedBy": "nora",
+                "requiresExplicitDecision": True,
+                "tool": "financeiro",
+                "version": FINANCE_EXACT_VERSION,
             },
             expiresAt=expires_at,
             digest=digest,

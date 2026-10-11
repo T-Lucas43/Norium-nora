@@ -266,7 +266,7 @@ async def execute_agent_step(user: dict[str, Any], step: dict[str, Any]) -> dict
             ),
         }
     if agent == "financeiro":
-        return await handle_finance_agent(user_id, instruction)
+        return await handle_finance_agent(user_id, instruction, user=user)
     if agent == "tarefas":
         return await handle_task_agent(user_id, instruction)
     if agent == "email":

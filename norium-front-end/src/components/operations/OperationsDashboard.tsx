@@ -50,6 +50,7 @@ type Approval = {
   status: "pending" | "approved" | "rejected" | "cancelled" | "executed" | "failed";
   createdAt: string;
   requestedBy?: { name?: string };
+  digest?: string | null;
 };
 
 type IntegrationHealth = {
@@ -266,13 +267,14 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
     }
   }
 
-  async function decideApproval(approvalId: string, decision: "approved" | "rejected") {
+  async function decideApproval(approvalId: string, decision: "approved" | "rejected", expectedDigest?: string | null) {
     setDecisionId(approvalId);
     try {
       const response = await fetch(`${API_URL}/aprovacoes/${approvalId}`, {
         method: "PATCH",
         headers: headers(),
-        body: JSON.stringify({ decision, note: "Decisao registrada pelo painel operacional." }),
+        // Aprovações exatas só executam o conteúdo mostrado nesta tela.
+        body: JSON.stringify({ decision, note: "Decisao registrada pelo painel operacional.", expectedDigest: expectedDigest ?? undefined }),
       });
       if (!response.ok) throw new Error((await response.text()) || "Falha ao registrar a decisao.");
       setNotice(decision === "approved" ? "Solicitacao aprovada." : "Solicitacao rejeitada.");
@@ -464,7 +466,7 @@ export default function OperationsDashboard({ onNavigate, onOpenNora, userId }: 
                     <div className="flex shrink-0 gap-2">
                       <Button size="sm" disabled={decisionId === approval.id} onClick={() => openApprovalEditor(approval)}><Pencil size={14} /> Editar</Button>
                       <Button variant="danger" size="sm" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "rejected")} className="border-rose-500/25 text-rose-300 hover:bg-rose-500/10"><XCircle size={15} /> Rejeitar</Button>
-                      <Button variant="primary" size="sm" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "approved")} className="bg-emerald-600 hover:bg-emerald-500">{decisionId === approval.id ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />} Aprovar</Button>
+                      <Button variant="primary" size="sm" disabled={decisionId === approval.id} onClick={() => void decideApproval(approval.id, "approved", approval.digest)} className="bg-emerald-600 hover:bg-emerald-500">{decisionId === approval.id ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />} Aprovar</Button>
                     </div>
                   </article>
                 ))}

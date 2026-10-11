@@ -27,7 +27,7 @@ from app.shared.schemas import StrictModel
 from app.routers.agenda_router import agenda_agent
 from app.routers.automacoes_router import handle_automation_agent
 from app.routers.auth_router import current_user, read_user_store, effective_permissions
-from app.routers.financeiro_router import handle_finance_agent
+from app.routers.financeiro_router import handle_finance_agent, is_finance_destructive_message
 from app.routers.tarefas_router import handle_task_agent
 from app.routers.team_chat_router import append_team_message_for_user
 from app.services.agent_manager import AgentManager
@@ -1590,8 +1590,13 @@ async def _execute_natural_conversation(
             return approval_response
 
         if intent == "financeiro":
-            finance_message = await message_with_memory(user, texto, {"finance", "process", "general"})
-            result = await handle_finance_agent(resolved_user_id, finance_message)
+            # Memórias nunca entram no texto que decide exclusão/alteração financeira.
+            finance_message = (
+                texto
+                if is_finance_destructive_message(texto)
+                else await message_with_memory(user, texto, {"finance", "process", "general"})
+            )
+            result = await handle_finance_agent(resolved_user_id, finance_message, user=user)
             return resposta_agente("financeiro", result, resolution=resolution)
 
         if intent == "tarefas":

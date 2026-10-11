@@ -1,6 +1,8 @@
 import PdfVisualEditor from "./PdfVisualEditor";
 import type { PdfEdits } from "./pdfEditorModel";
 import "../shared/workspace.css";
+import "../../styles/screens/trabalho-comum.css";
+import "../../styles/screens/documentos.css";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -655,14 +657,14 @@ export default function CommercialEditor({
   if (pdfEditorBlob) return <PdfVisualEditor allowPageChanges={false} blob={pdfEditorBlob} title={title} initialEdits={pdfEditorSource?.pdfEdits} onClose={() => setPdfEditorBlob(null)} onSave={saveVisualPdf}/>;
 
   return (
-    <main className={`clean-workspace documents-editor ${fullScreen ? "fixed inset-0 z-[110]" : "min-h-0 flex-1"} flex flex-col overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
+    <main className={`clean-workspace nxw-screen nxw-remap nxe-editor documents-editor ${fullScreen ? "fixed inset-0 z-[110]" : "min-h-0 flex-1"} flex flex-col overflow-hidden bg-[var(--background)] text-[var(--text)]`}>
       <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
           <Button size="sm" iconOnly onClick={onBack} aria-label="Voltar para documentos"><ArrowLeft size={17} /></Button>
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/12 text-blue-400">{contract ? <FileCheck2 size={18} /> : isCommercialProposal ? <FileSignature size={18} /> : <FileText size={18} />}</span>
+          <span className="nxw-icon">{contract ? <FileCheck2 size={16} /> : isCommercialProposal ? <FileSignature size={16} /> : <FileText size={16} />}</span>
           <div className="min-w-0">
-            <input value={title} disabled={readOnly} onChange={(event) => setTitle(event.target.value)} className="block w-full min-w-0 bg-transparent text-base font-black outline-none" aria-label="Titulo do documento" />
-            <div className="mt-0.5 flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)]">
+            <input value={title} disabled={readOnly} onChange={(event) => setTitle(event.target.value)} className="block w-full min-w-0 bg-transparent text-[16px] font-semibold outline-none" aria-label="Titulo do documento" />
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--nx-text-3)]">
               <StatusPill status={sourceDocument.status} />
               <span>v{sourceDocument.version}</span>
               <SaveIndicator state={saveState} error={saveError} />
@@ -756,7 +758,7 @@ export default function CommercialEditor({
             {isCommercialProposal && <label className="flex items-center gap-2 text-xs font-bold uppercase text-[var(--text-secondary)]">Validade <input value={validUntil || ""} disabled={readOnly} onChange={(event) => setValidUntil(event.target.value || null)} type="date" className="commercial-field normal-case" /></label>}
           </div>
           <div className={`grid min-h-0 flex-1 ${!readOnly && toolbarDock === "right" ? "commercial-editor-with-side-toolbar grid-cols-[minmax(0,1fr)_240px]" : "grid-cols-1"}`}>
-          <div className="min-h-0 overflow-auto bg-[color-mix(in_srgb,var(--background)_88%,#64748b)] p-4 sm:p-8">
+          <div className="nxe-canvas min-h-0 overflow-auto bg-[var(--nx-bg)] p-4 sm:p-7">
             <div
               className="commercial-document-stack mx-auto w-full max-w-[794px]"
               style={{
@@ -851,12 +853,12 @@ export default function CommercialEditor({
           <div
             role="menu"
             aria-label="Compartilhar documento"
-            className="norium-modern-shell fixed z-[200] w-56 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1 text-[var(--text)] shadow-2xl"
+            className="norium-modern-shell fixed z-[200] w-56 overflow-hidden rounded-[10px] border border-[var(--nx-border)] bg-[var(--nx-surface)] p-1 text-[var(--nx-text)] shadow-[0_12px_32px_rgba(15,23,42,.16)]"
             style={shareMenuPosition}
           >
-            <button type="button" role="menuitem" onClick={() => { setShareMenuOpen(false); setAccessOpen(true); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-bold hover:bg-[var(--surface-hover)]"><UsersRound size={14} className="text-blue-400" /> Gerenciar acesso</button>
-            <button type="button" role="menuitem" onClick={() => void shareByEmail()} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-bold hover:bg-[var(--surface-hover)]"><Send size={14} className="text-blue-400" /> Enviar por e-mail</button>
-            <button type="button" role="menuitem" onClick={() => void shareWithTeam()} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-xs font-bold hover:bg-[var(--surface-hover)]"><UsersRound size={14} className="text-cyan-400" /> Avisar equipe</button>
+            <button type="button" role="menuitem" onClick={() => { setShareMenuOpen(false); setAccessOpen(true); }} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-[13px] font-medium hover:bg-[var(--nx-hover)]"><UsersRound size={14} className="text-[var(--nx-primary-text)]" /> Gerenciar acesso</button>
+            <button type="button" role="menuitem" onClick={() => void shareByEmail()} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-[13px] font-medium hover:bg-[var(--nx-hover)]"><Send size={14} className="text-[var(--nx-primary-text)]" /> Enviar por e-mail</button>
+            <button type="button" role="menuitem" onClick={() => void shareWithTeam()} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-[13px] font-medium hover:bg-[var(--nx-hover)]"><UsersRound size={14} className="text-[var(--nx-primary-text)]" /> Avisar equipe</button>
           </div>
         </>,
         document.body,
@@ -891,12 +893,12 @@ function WorkflowBar({
 }) {
   const proposal = isProposal(document);
   return (
-    <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--background)] px-4 py-2">
-      <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)]"><Clock3 size={13} /> Atualizado em {formatDate(document.updatedAt)}</div>
+    <div className="flex min-h-12 flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--nx-surface-2)] px-4 py-2">
+      <div className="flex items-center gap-2 text-xs text-[var(--nx-text-3)]"><Clock3 size={13} /> Atualizado em {formatDate(document.updatedAt)}</div>
       <div className="flex flex-wrap gap-2">
-        {proposal && commercialProposal && ["draft", "changes_requested", "rejected"].includes(document.status) && <Button size="sm" loading={busy} onClick={onSubmit} icon={<Send size={13} />}>Enviar para aprovacao</Button>}
+        {proposal && commercialProposal && ["draft", "changes_requested", "rejected"].includes(document.status) && <Button size="sm" loading={busy} onClick={onSubmit} icon={<Send size={13} />}>Enviar para aprovação</Button>}
         {proposal && commercialProposal && document.status === "in_review" && <>
-          <Button size="sm" loading={busy} onClick={onApprove} icon={<CheckCircle2 size={13} />} className="bg-emerald-500 text-white">Aprovar</Button>
+          <Button size="sm" variant="primary" loading={busy} onClick={onApprove} icon={<CheckCircle2 size={13} />}>Aprovar</Button>
           <Button size="sm" variant="secondary" disabled={busy} onClick={onRequestChanges}>Solicitar ajustes</Button>
         </>}
         {proposal && commercialProposal && ["approved", "sent", "accepted"].includes(document.status) && <Button size="sm" loading={busy} onClick={onGenerate} icon={<FileSignature size={13} />}>Gerar contrato</Button>}

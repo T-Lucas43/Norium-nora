@@ -35,7 +35,7 @@ import { useMessageDetail } from "../../features/mail/hooks/useMessageDetail";
 import { useCompose } from "../../features/mail/hooks/useCompose";
 import { useMailPreferences } from "../../features/mail/hooks/useMailPreferences";
 import { useNoraMail } from "../../features/mail/hooks/useNoraMail";
-import Button from "../shared/Button";
+import IntegrationLogo from "../shared/IntegrationLogo";
 import LabelDialog from "./modals/LabelDialog";
 import MailSidebar from "./MailSidebar";
 import MailMessageDetail from "./MailMessageDetail";
@@ -48,6 +48,7 @@ import NoraMailDrawer from "./modals/NoraMailDrawer";
 import NoraMailWork from "../nora/NoraMailWork";
 import MailSettingsDrawer from "./modals/MailSettingsDrawer";
 import ProfilePopover from "./modals/ProfilePopover";
+import "./emails.css";
 export type { Email } from "../../features/mail/types";
 
 
@@ -373,7 +374,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
       setNewLabelName("");
       setLabelDialogOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Nao foi possivel criar o marcador.");
+      setError(err instanceof Error ? err.message : "Não foi possível criar o marcador.");
     } finally {
       setLabelSaving(false);
     }
@@ -397,7 +398,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
 
   const visibleRange = messages.length ? `1-${messages.length}` : "0";
   const mailboxTitle = activeFilter === "unread"
-    ? "Nao lidos"
+    ? "Não lidos"
     : activeFolder.startsWith("label:")
       ? labelById.get(activeFolder.split(":", 2)[1])?.name || "Marcador"
       : systemFolders.find((folder) => folder.key === activeFolder)?.label || "Caixa De Entrada";
@@ -407,7 +408,7 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
 
 
   return (
-    <div className={`norium-mail ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} ${selectedMessage ? "mail-message-open" : ""} relative flex h-full min-h-0 w-full overflow-hidden bg-[#111113] text-white`}>
+    <div className={`norium-mail nx-mail ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} ${selectedMessage ? "mail-message-open" : ""} relative flex h-full min-h-0 w-full overflow-hidden`}>
       {mobileSidebarOpen && (
         <button
           type="button"
@@ -431,8 +432,9 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
         onClose={() => setMobileSidebarOpen(false)}
       />
 
-      <section className="mail-main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#151518]">
+      <section className="mail-main flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <MailToolbar
+          onCompose={() => setComposeOpen(true)}
           status={status}
           canUseNora={canUseNora}
           searchDraft={searchDraft}
@@ -455,40 +457,45 @@ export default function EmailDashboard({ active = true, userId = "primary", canU
           onToggleProfile={() => setProfileOpen((value) => !value)}
         />
 
-        {canUseNora && status?.connected && <div className="px-4 py-2"><button type="button" className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm" aria-expanded={workOpen} onClick={() => setWorkOpen(!workOpen)}>Nora: caixa completa, relatórios e campanhas</button></div>}
+        {canUseNora && status?.connected && (
+          <div className="nx-mail-work-bar">
+            <button type="button" className={`nx-btn is-sm${workOpen ? " is-active" : ""}`} aria-expanded={workOpen} onClick={() => setWorkOpen(!workOpen)}>
+              <Sparkles size={14} />
+              Nora: caixa completa, relatórios e campanhas
+            </button>
+          </div>
+        )}
         {canUseNora && status?.connected && workOpen && <NoraMailWork identity={userId} />}
         {!status?.connected ? (
-          <main className="flex flex-1 items-center justify-center p-8">
-            <div className="mail-card w-full max-w-xl rounded-lg border border-white/12 bg-[#1A1B21] p-8 text-center shadow-2xl">
-              <div className="mail-primary mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-lg bg-[#0EA5E9]">
-                <Mail size={26} />
+          <main className="nx-mail-connect">
+            <div className="nx-card">
+              <div className="nx-mail-connect-logo">
+                <IntegrationLogo name="Gmail" size={30} />
               </div>
-              <h1 className="text-2xl font-bold">Conectar Gmail</h1>
-              <p className="mx-auto mt-3 max-w-md text-sm font-medium leading-6 text-white/60">
-                O Norium Mail precisa de permissao do Google para listar, ler, marcar, responder e enviar e-mails pela sua conta.
+              <h1>Conectar Gmail</h1>
+              <p>
+                O Norium Mail precisa de permissão do Google para listar, ler, marcar, responder e enviar e-mails pela sua conta.
               </p>
-              {error && <p className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm font-bold text-red-200">{error}</p>}
-              <div className="mt-6 flex justify-center gap-3">
-                <Button variant="ghost" size="lg"
+              {error && <p className="nx-mail-error" role="alert">{error}</p>}
+              <div className="nx-mail-connect-actions">
+                <button type="button" className="nx-btn is-primary"
                   onClick={() => void connectGmail()}
                   disabled={gmailConnecting}
-                  className="mail-primary bg-[#0EA5E9] hover:bg-[#0284C7]"
                 >
-                  <Sparkles size={17} />
+                  <Mail size={16} />
                   {gmailConnecting ? "Abrindo Google..." : "Conectar Gmail"}
-                </Button>
-                <Button size="lg"
+                </button>
+                <button type="button" className="nx-btn"
                   onClick={() => void fetchStatus()}
-                  className="mail-hover border-white/12 text-white/80 hover:bg-white/7"
                 >
                   <RefreshCw size={16} />
-                  Ja autorizei
-                </Button>
+                  Já autorizei
+                </button>
               </div>
             </div>
           </main>
         ) : (
-          <main className="flex min-h-0 flex-1 overflow-hidden">
+          <main className="nx-mail-body">
             <MailMessageList
               title={mailboxTitle}
               unreadCount={visibleUnreadCount}

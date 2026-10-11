@@ -9,6 +9,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import Field
 
+from app.core.identity import require_team_id, require_user_id
 from app.shared.schemas import StrictModel
 
 from app.routers.auth_router import current_user, user_from_websocket_ticket, revalidate_socket_user, guarded_socket_receive
@@ -72,7 +73,7 @@ class NoraBoardPayload(StrictModel):
 
 
 def collaboration_tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("teamOwnerId") or user.get("id") or "lucas123")
+    return require_team_id(user)
 
 
 def require_brainstorm_access(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:

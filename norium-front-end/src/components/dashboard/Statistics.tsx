@@ -12,40 +12,37 @@ export default function Statistics({ metrics }: StatisticsProps) {
       value: metrics.total,
       hint: "consolidados na Central",
       icon: TrendingUp,
-      color: "text-blue-500",
-      tone: "blue",
+      tone: "is-blue",
     },
     {
       title: "Tarefas movimentadas",
       value: metrics.tasks,
       hint: "no Kanban recente",
       icon: CheckCircle2,
-      color: "text-emerald-500",
-      tone: "emerald",
+      tone: "is-green",
     },
     {
       title: "Canais ativos",
       value: 4,
       hint: "integrações ligadas",
       icon: Clock3,
-      color: "text-cyan-500",
-      tone: "cyan",
+      tone: "is-cyan",
     },
   ];
 
   return (
-    <section className="norium-dashboard-stats" aria-label="Indicadores da operação">
+    <section className="nxd-stats" aria-label="Indicadores da operação">
       {stats.map((item) => {
         const Icon = item.icon;
 
         return (
-          <div key={item.title} data-metric-tone={item.tone} className="norium-dashboard-stat-flat">
-            <div className={`flex h-11 w-11 items-center justify-center rounded-xl bg-current/10 ${item.color}`}>
-              <Icon className="metric-icon" size={22} aria-hidden="true" />
-            </div>
-            <div>
-              <p>{item.title}</p>
-              <h2 className="metric-value">{item.value} <small>{item.hint}</small></h2>
+          <div key={item.title} className="nx-card nxd-stat">
+            <span className={`nxd-ico ${item.tone}`}>
+              <Icon size={16} strokeWidth={1.75} aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="nxd-stat-l">{item.title}</p>
+              <h2 className="nxd-stat-v">{item.value} <small>{item.hint}</small></h2>
             </div>
           </div>
         );

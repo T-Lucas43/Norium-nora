@@ -1,0 +1,84 @@
+/*
+ * Tokens de design do Norium (Fase 2): uma unica camada para fonte, cor de destaque,
+ * status, raios e espacos. Temas personalizados continuam valendo: o destaque passa a
+ * seguir a cor primaria escolhida pela pessoa.
+ */
+:root {
+  --norium-font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --norium-accent: #2563eb;
+  --norium-accent-strong: #1d4ed8;
+  --norium-success: #047857;
+  --norium-warning: #b45309;
+  --norium-danger: #be123c;
+  --norium-violet: #7141b8;
+  --norium-cyan: #08728a;
+
+  --norium-radius-sm: 6px;
+  --norium-radius: 8px;
+  --norium-radius-lg: 12px;
+  --norium-radius-full: 999px;
+
+  --norium-text-xs: 12px;
+  --norium-text-sm: 13px;
+  --norium-text-base: 14px;
+  --norium-text-md: 16px;
+  --norium-text-lg: 20px;
+  --norium-text-xl: 24px;
+  --norium-text-2xl: 32px;
+
+  --norium-space-1: 4px;
+  --norium-space-2: 8px;
+  --norium-space-3: 12px;
+  --norium-space-4: 16px;
+  --norium-space-5: 20px;
+  --norium-space-6: 24px;
+  --norium-space-8: 32px;
+
+  --norium-shadow-float: 0 12px 32px rgba(15, 23, 42, .16);
+
+  /* Escala de pesos mais leve (sem negrito pesado): vale para as classes do Tailwind. */
+  --font-weight-black: 700;
+  --font-weight-extrabold: 650;
+  --font-weight-bold: 600;
+  --font-weight-semibold: 600;
+}
+
+.dark {
+  --norium-accent: #3b82f6;
+  --norium-accent-strong: #60a5fa;
+  --norium-success: #34d399;
+  --norium-warning: #fbbf24;
+  --norium-danger: #fb7185;
+  --norium-violet: #b794f6;
+  --norium-cyan: #22d3ee;
+  --norium-shadow-float: 0 12px 32px rgba(0, 0, 0, .45);
+}
+
+:root[data-norium-custom-theme="true"] {
+  --norium-accent: var(--primary);
+}
+
+body {
+  font-family: var(--norium-font);
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* Desempenho: sem tema personalizado o fundo e solido; as camadas animadas nao aparecem e nao precisam rodar. */
+:root:not([data-norium-custom-theme="true"]) body {
+  animation: none;
+  background-attachment: scroll;
+}
+
+:root:not([data-norium-custom-theme="true"]) body::before,
+:root:not([data-norium-custom-theme="true"]) body::after {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body,
+  body::before,
+  body::after {
+    animation: none !important;
+  }
+}

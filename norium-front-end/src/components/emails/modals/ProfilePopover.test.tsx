@@ -23,7 +23,7 @@ describe("ProfilePopover", () => {
   it("mostra textos neutros quando nao ha conta", () => {
     setup(null);
     expect(screen.getByText("Perfil Norium")).toBeInTheDocument();
-    expect(screen.getByText("Gmail nao conectado")).toBeInTheDocument();
+    expect(screen.getByText("Gmail não conectado")).toBeInTheDocument();
   });
 
   it("usa iniciais quando a conta nao tem foto", () => {
@@ -53,7 +53,7 @@ describe("ProfilePopover", () => {
 
   it("dispara cada acao do cartao", () => {
     const h = setup();
-    fireEvent.click(screen.getByRole("button", { name: /configuracoes/i }));
+    fireEvent.click(screen.getByRole("button", { name: /configurações/i }));
     fireEvent.click(screen.getByRole("button", { name: /atualizar perfil/i }));
     fireEvent.click(screen.getByRole("button", { name: /reconectar gmail/i }));
     fireEvent.click(screen.getByRole("button", { name: /sair desta conta/i }));

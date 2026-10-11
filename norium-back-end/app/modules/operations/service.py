@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from weakref import WeakKeyDictionary
 
+from app.core.identity import require_team_id, require_user_id
 from app.core.tenant import read_profile_db, get_data_root
 from app.core.request_context import current_workspace_id
 from fastapi import HTTPException
@@ -76,14 +77,14 @@ def actor_payload(user: dict[str, Any]) -> dict[str, str]:
 
 
 def _memory_owner_id(user: dict[str, Any], scope: str) -> str:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     if scope == "team":
         return str(user.get("teamOwnerId") or user_id)
     return user_id
 
 
 async def list_nora_memory(user: dict[str, Any]) -> list[dict[str, Any]]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     team_id = str(user.get("teamOwnerId") or user_id)
     personal, team = await asyncio.gather(
         list_items(user_id, MEMORY_DB),
@@ -95,7 +96,16 @@ async def list_nora_memory(user: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(unique.values(), key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
 
 
+def can_write_team_memory(user: dict[str, Any]) -> bool:
+    """Memória da equipe entra no contexto de todos; só quem gerencia a equipe grava."""
+    from app.routers.auth_router import can_manage_team
+
+    return can_manage_team(user)
+
+
 async def save_nora_memory(user: dict[str, Any], payload: NoraMemoryCreate) -> dict[str, Any]:
+    if payload.scope == "team" and not can_write_team_memory(user):
+        raise PermissionError("Somente quem gerencia a equipe pode salvar preferências para a equipe. Salve como pessoal.")
     owner_id = _memory_owner_id(user, payload.scope)
     items = await list_items(owner_id, MEMORY_DB)
     normalized_key = _search_text(payload.key).strip()
@@ -144,8 +154,8 @@ async def save_nora_memory(user: dict[str, Any], payload: NoraMemoryCreate) -> d
 
 async def remove_nora_memory(user: dict[str, Any], memory_id: str) -> bool:
     owners = {
-        str(user.get("id") or "lucas123"),
-        str(user.get("teamOwnerId") or user.get("id") or "lucas123"),
+        require_user_id(user),
+        require_team_id(user),
     }
     for owner_id in owners:
         if await delete_item(owner_id, MEMORY_DB, memory_id):
@@ -171,11 +181,11 @@ async def record_audit(user: dict[str, Any], payload: AuditCreate) -> dict[str, 
         "actor": actor_payload(user),
         "timestamp": now_iso(),
     }
-    return await prepend_item(str(user.get("id") or "lucas123"), AUDIT_DB, item)
+    return await prepend_item(require_user_id(user), AUDIT_DB, item)
 
 
 async def record_receipt(user: dict[str, Any], payload: ReceiptCreate) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     item = {
         "id": f"receipt_{uuid.uuid4().hex}",
         **payload.model_dump(),
@@ -199,7 +209,7 @@ async def record_receipt(user: dict[str, Any], payload: ReceiptCreate) -> dict[s
 
 
 async def undo_receipt(user: dict[str, Any], receipt_id: str) -> dict[str, Any] | None:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     receipts = await list_items(user_id, RECEIPT_DB)
     receipt = next((item for item in receipts if str(item.get("id")) == receipt_id), None)
     if receipt is None:
@@ -251,7 +261,7 @@ async def undo_receipt(user: dict[str, Any], receipt_id: str) -> dict[str, Any] 
 
 
 async def get_operation_settings(user: dict[str, Any]) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     items = await list_items(user_id, SETTINGS_DB)
     current = next((item for item in items if item.get("id") == "preferences"), {})
     return {
@@ -265,7 +275,7 @@ async def get_operation_settings(user: dict[str, Any]) -> dict[str, Any]:
 
 
 async def update_operation_settings(user: dict[str, Any], payload: OperationSettingsUpdate) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     current = await get_operation_settings(user)
     update = {**current, **payload.model_dump(exclude_none=True), "updatedAt": now_iso()}
     saved = await replace_item(user_id, SETTINGS_DB, "preferences", update)
@@ -294,7 +304,7 @@ async def create_template(user: dict[str, Any], payload: OperationTemplateCreate
         "updatedAt": now_iso(),
         "createdBy": actor_payload(user),
     }
-    await prepend_item(str(user.get("id") or "lucas123"), TEMPLATE_DB, item)
+    await prepend_item(require_user_id(user), TEMPLATE_DB, item)
     await record_audit(
         user,
         AuditCreate(
@@ -316,7 +326,7 @@ async def update_template(
     payload: OperationTemplateUpdate,
 ) -> dict[str, Any] | None:
     update = {**payload.model_dump(exclude_none=True), "updatedAt": now_iso()}
-    return await replace_item(str(user.get("id") or "lucas123"), TEMPLATE_DB, template_id, update)
+    return await replace_item(require_user_id(user), TEMPLATE_DB, template_id, update)
 
 
 async def create_follow_up(user: dict[str, Any], payload: FollowUpCreate) -> dict[str, Any]:
@@ -328,7 +338,7 @@ async def create_follow_up(user: dict[str, Any], payload: FollowUpCreate) -> dic
         "updatedAt": now_iso(),
         "createdBy": actor_payload(user),
     }
-    await prepend_item(str(user.get("id") or "lucas123"), FOLLOWUP_DB, item)
+    await prepend_item(require_user_id(user), FOLLOWUP_DB, item)
     return item
 
 
@@ -340,7 +350,7 @@ async def update_follow_up(
     update = {**payload.model_dump(exclude_none=True), "updatedAt": now_iso()}
     if update.get("status") == "done":
         update["completedAt"] = now_iso()
-    return await replace_item(str(user.get("id") or "lucas123"), FOLLOWUP_DB, follow_up_id, update)
+    return await replace_item(require_user_id(user), FOLLOWUP_DB, follow_up_id, update)
 
 
 APPROVAL_VERSION = 1
@@ -349,6 +359,10 @@ EMAIL_APPROVAL_TTL = timedelta(hours=24)
 EMAIL_RECONCILE_WINDOW = timedelta(minutes=10)
 EMAIL_SEND_RECIPIENT_CAP = 20
 EMAIL_SEND_ATTACHMENT_CAP = 8
+
+
+# Ações que só executam com aprovação vinculada ao conteúdo exato (digest obrigatório).
+DIGEST_REQUIRED_ACTIONS = frozenset({"nora_finance_exact"})
 
 
 def approval_digest(
@@ -429,12 +443,14 @@ async def _enforce_approval_binding(
     if bound_workspace and bound_workspace != current_workspace_id():
         raise ValueError("Esta aprovação pertence a outro ambiente de trabalho.")
     digest = str(current.get("digest") or "").strip()
+    if not digest and str(current.get("action") or "") in DIGEST_REQUIRED_ACTIONS:
+        raise ValueError("Esta aprovação não está vinculada ao conteúdo exato. Gere uma nova prévia para aprovar.")
     if digest and not hmac.compare_digest(str(payload.expectedDigest or ""), digest):
         raise ValueError("O conteúdo mudou após a preparação. Gere uma nova prévia para aprovar o conteúdo exato.")
 
 
 async def create_approval(user: dict[str, Any], payload: ApprovalCreate) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     item = {
         "id": f"approval_{uuid.uuid4().hex}",
         **payload.model_dump(),
@@ -491,7 +507,7 @@ async def decide_approval(
     approval_id: str,
     payload: ApprovalDecision,
 ) -> dict[str, Any] | None:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     async with approval_decision_lock(user_id, approval_id):
         return await _decide_approval_unlocked(user, approval_id, payload)
 
@@ -501,7 +517,7 @@ async def _decide_approval_unlocked(
     approval_id: str,
     payload: ApprovalDecision,
 ) -> dict[str, Any] | None:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     current_items = await list_items(user_id, APPROVAL_DB)
     current = next((item for item in current_items if str(item.get("id")) == approval_id), None)
     if current is None:
@@ -568,23 +584,34 @@ async def _decide_approval_unlocked(
 
 async def execute_approved_action(user: dict[str, Any], approval: dict[str, Any]) -> dict[str, Any]:
     """Execute the exact agent request captured before approval and persist proof."""
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
     message = str(payload.get("originalMessage") or "").strip()
     source = str(approval.get("source") or "").casefold()
     result: dict[str, Any]
 
+    finance_exact = payload.get("financeExact") if isinstance(payload.get("financeExact"), dict) else None
     try:
-        if not message and not (source == "email" and isinstance(payload.get("emailExact"), dict)):
+        if (
+            not message
+            and not (source == "email" and isinstance(payload.get("emailExact"), dict))
+            and not (source == "financeiro" and finance_exact)
+        ):
             raise ValueError("A solicitacao aprovada nao possui a instrucao original.")
         if source == "email" and isinstance(payload.get("emailExact"), dict):
             # Exact sends execute only the digest-bound payload captured at
             # preview time; they never re-run the agent from a message.
             result = await _execute_exact_email(user, approval)
+        elif source == "financeiro" and finance_exact:
+            # Exclusão/alteração aprovada: executa só o id aprovado, nunca reinterpreta texto.
+            from app.modules.finance.router import execute_finance_exact
+
+            owner_id = _verify_finance_exact_binding(user, approval)
+            result = await execute_finance_exact(owner_id, finance_exact)
         elif source == "financeiro":
             from app.routers.financeiro_router import handle_finance_agent
 
-            result = await handle_finance_agent(user_id, message)
+            result = await handle_finance_agent(user_id, message, user=user)
         elif source == "tarefas":
             from app.routers.tarefas_router import handle_task_agent
 
@@ -761,7 +788,7 @@ async def create_exact_email_approval(
     session_id: str | None,
 ) -> dict[str, Any]:
     """Create a digest-bound approval authorizing one exact Gmail send."""
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     workspace = current_workspace_id()
     recipients = _normalize_exact_recipients(exact.get("to"))
     if not recipients:
@@ -814,6 +841,82 @@ async def create_exact_email_approval(
             digest=digest,
         ),
     )
+
+
+FINANCE_EXACT_VERSION = "nora-finance-v1"
+FINANCE_APPROVAL_TTL = timedelta(hours=24)
+
+
+async def create_exact_finance_approval(
+    user: dict[str, Any],
+    owner_id: str,
+    exact: dict[str, Any],
+    title: str,
+    description: str,
+) -> dict[str, Any]:
+    """Aprovação vinculada a uma exclusão/alteração financeira exata (id + estado do item na prévia)."""
+    approver_id = str(user.get("id") or "").strip()
+    if not approver_id or not str(owner_id or "").strip():
+        raise PermissionError("Usuário não identificado para preparar a aprovação.")
+    if str(owner_id).strip() != approver_id:
+        raise PermissionError("Esta aprovação financeira pertence a outro usuário. Nada foi alterado.")
+    workspace = current_workspace_id()
+    payload = {"kind": "nora_finance_exact", "ownerId": str(owner_id), "financeExact": exact}
+    expires_at = (datetime.now(timezone.utc) + FINANCE_APPROVAL_TTL).isoformat()
+    digest = approval_digest(
+        "nora_finance_exact", "financeiro", title, description, payload, workspace, approver_id, FINANCE_EXACT_VERSION
+    )
+    return await create_approval(
+        user,
+        ApprovalCreate(
+            title=title,
+            description=description,
+            action="nora_finance_exact",
+            source="financeiro",
+            payload=payload,
+            metadata={
+                "requestedBy": "nora",
+                "requiresExplicitDecision": True,
+                "tool": "financeiro",
+                "version": FINANCE_EXACT_VERSION,
+            },
+            expiresAt=expires_at,
+            digest=digest,
+        ),
+    )
+
+
+def _verify_finance_exact_binding(user: dict[str, Any], approval: dict[str, Any]) -> str:
+    """Recusa execução financeira sem digest válido, de outro ambiente ou de outro dono."""
+    user_id = require_user_id(user)
+    from app.routers.auth_router import effective_permissions
+
+    if not effective_permissions(user).get("gastos"):
+        raise PermissionError("A conta não possui permissão para alterar dados financeiros. Nada foi alterado.")
+    payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
+    metadata = approval.get("metadata") if isinstance(approval.get("metadata"), dict) else {}
+    stored = str(approval.get("digest") or "").strip()
+    if str(approval.get("action") or "") != "nora_finance_exact" or not stored:
+        raise PermissionError("Aprovação financeira sem vínculo com o conteúdo exato. Nada foi alterado.")
+    owner_id = str(payload.get("ownerId") or "").strip()
+    if not owner_id or owner_id != user_id:
+        raise PermissionError("Esta aprovação financeira pertence a outro usuário. Nada foi alterado.")
+    workspace = str(metadata.get("workspace") or "").strip()
+    if not workspace or workspace != current_workspace_id():
+        raise PermissionError("Esta aprovação financeira pertence a outra empresa. Nada foi alterado.")
+    expected = approval_digest(
+        "nora_finance_exact",
+        "financeiro",
+        str(approval.get("title") or ""),
+        str(approval.get("description") or ""),
+        payload,
+        workspace,
+        user_id,
+        FINANCE_EXACT_VERSION,
+    )
+    if not hmac.compare_digest(expected, stored):
+        raise PermissionError("A aprovação financeira não confere com a prévia aprovada. Nada foi alterado.")
+    return owner_id
 
 
 def _safe_timestamp(value: Any) -> int:
@@ -872,7 +975,7 @@ async def _execute_exact_email(user: dict[str, Any], approval: dict[str, Any]) -
     from app.services.gmail_service import GmailService
     from app.services.nora_files import owned_bytes
 
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     approval_payload = approval.get("payload") if isinstance(approval.get("payload"), dict) else {}
     exact = approval_payload.get("emailExact") if isinstance(approval_payload.get("emailExact"), dict) else {}
     key = str(approval_payload.get("idempotencyKey") or "").strip()
@@ -969,7 +1072,7 @@ async def reconcile_email_send(user: dict[str, Any], approval_id: str) -> dict[s
     """Check the sent folder for an uncertain send; read-only, never resends."""
     from app.services.gmail_service import GmailService
 
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     items = await list_items(user_id, APPROVAL_DB)
     current = next((item for item in items if str(item.get("id")) == approval_id), None)
     if current is None:
@@ -1130,7 +1233,7 @@ async def edit_approval(
     approval_id: str,
     payload: ApprovalUpdate,
 ) -> dict[str, Any] | None:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     current_items = await list_items(user_id, APPROVAL_DB)
     current = next((item for item in current_items if str(item.get("id")) == approval_id), None)
     if current is None or current.get("status") != "pending":
@@ -1442,7 +1545,7 @@ def _matches(query: str, *values: Any) -> bool:
 
 async def global_search(user: dict[str, Any], query: str, limit: int = 20) -> dict[str, Any]:
     """Search tenant-owned operational data without exposing another user's records."""
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     normalized_query = _search_text(query).strip()
     if len(normalized_query) < 2:
         return {"query": query, "items": [], "total": 0}
@@ -1626,7 +1729,7 @@ async def global_search(user: dict[str, Any], query: str, limit: int = 20) -> di
 
 
 async def operations_overview(user: dict[str, Any]) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     events, approvals, audits, receipts, templates, follow_ups, tasks, finance, memory, settings = await asyncio.gather(
         read_events(user_id),
         list_items(user_id, APPROVAL_DB),

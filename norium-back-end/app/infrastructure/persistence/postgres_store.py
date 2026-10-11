@@ -141,21 +141,36 @@ def canonical_key(path: str | Path) -> str:
 
 
 def read_document(store_key: str) -> tuple[bool, Any]:
+    # Cache por usuário (fila LRU): evita baixar o mesmo documento do banco a cada requisição.
+    from app.infrastructure.persistence import document_cache
+
+    cached, exists, payload = document_cache.get(store_key)
+    if cached:
+        return exists, payload
     initialize()
     with connection() as db:
         row = db.execute("SELECT payload FROM norium_documents WHERE store_key=%s", (store_key,)).fetchone()
-    return (False, None) if row is None else (True, row["payload"])
+    result = (False, None) if row is None else (True, row["payload"])
+    document_cache.put(store_key, result[0], result[1])
+    return result
 
 
 def write_document(store_key: str, payload: Any) -> None:
     from psycopg.types.json import Jsonb
+    from app.infrastructure.persistence import document_cache
 
     initialize()
-    with connection() as db:
-        check_document_growth(db, store_key, payload)
-        db.execute("""INSERT INTO norium_documents(store_key,payload) VALUES (%s,%s)
-            ON CONFLICT (store_key) DO UPDATE SET payload=EXCLUDED.payload,
-            revision=norium_documents.revision+1,updated_at=clock_timestamp()""", (store_key, Jsonb(payload)))
+    try:
+        with connection() as db:
+            check_document_growth(db, store_key, payload)
+            db.execute("""INSERT INTO norium_documents(store_key,payload) VALUES (%s,%s)
+                ON CONFLICT (store_key) DO UPDATE SET payload=EXCLUDED.payload,
+                revision=norium_documents.revision+1,updated_at=clock_timestamp()""", (store_key, Jsonb(payload)))
+    except Exception:
+        # Resultado incerto: a próxima leitura busca o valor real no banco.
+        document_cache.forget(store_key)
+        raise
+    document_cache.put(store_key, True, payload)
 
 
 def _storage_usage(db, key: str, kind: str) -> dict:
@@ -195,9 +210,15 @@ def storage_bytes() -> int:
 
 
 def delete_document(store_key: str) -> bool:
+    from app.infrastructure.persistence import document_cache
+
     initialize()
-    with connection() as db:
-        return db.execute("DELETE FROM norium_documents WHERE store_key=%s", (store_key,)).rowcount == 1
+    document_cache.forget(store_key)
+    try:
+        with connection() as db:
+            return db.execute("DELETE FROM norium_documents WHERE store_key=%s", (store_key,)).rowcount == 1
+    finally:
+        document_cache.forget(store_key)
 
 
 def list_document_keys(prefix: str = "") -> list[str]:

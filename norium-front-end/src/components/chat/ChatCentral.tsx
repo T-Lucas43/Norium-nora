@@ -7,7 +7,7 @@ import WhatsAppProfileView from "./WhatsAppProfileView";
 import WhatsAppRail, { type WhatsAppSection } from "./WhatsAppRail";
 import WhatsAppStatusView from "./WhatsAppStatusView";
 import WhatsAppChannelsView from "./WhatsAppChannelsView";
-import { Menu, X, Search, User, Send } from "lucide-react";
+import { Menu, MessageCircle, RefreshCw, X, Search, TriangleAlert, User, Send } from "lucide-react";
 import type { AnexoPendente, ChatConversa, MsgConteudo, ParticipanteGrupo } from "./types";
 import { apiBaseUrl } from "../../utils/api";
 import StatusBanner from "../shared/StatusBanner";
@@ -41,6 +41,7 @@ import {
 import { authenticatedMediaRequestUrl, useAuthenticatedMedia } from "./useAuthenticatedMedia";
 import ChatWallpaperSettings from "./ChatWallpaperSettings";
 import { useChatWallpaper } from "./chatWallpaper";
+import "../../styles/screens/conversas.css";
 
 const BACKEND_URL = apiBaseUrl();
 
@@ -674,7 +675,8 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     }
 
     void checarAutenticacao();
-    const intervalo = window.setInterval(() => void checarAutenticacao(), 12_000);
+    // Economia de banda: a sessão muda raramente; não consulta com a aba oculta.
+    const intervalo = window.setInterval(() => { if (!document.hidden) void checarAutenticacao(); }, 30_000);
     return () => {
       active = false;
       window.clearInterval(intervalo);
@@ -723,7 +725,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
     };
 
     void atualizarQrCode();
-    const interval = window.setInterval(() => void atualizarQrCode(), 3000);
+    const interval = window.setInterval(() => { if (!document.hidden) void atualizarQrCode(); }, 4000);
     return () => {
       active = false;
       window.clearInterval(interval);
@@ -737,7 +739,8 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
         void carregarConversasDoBackend(true, false, false);
       }
     };
-    const intervaloChats = window.setInterval(atualizarSeVisivel, 3_000);
+    // Mensagens novas chegam pelo evento em tempo real (norium:whatsapp-event); isto é só a reserva.
+    const intervaloChats = window.setInterval(atualizarSeVisivel, 30_000);
     document.addEventListener("visibilitychange", atualizarSeVisivel);
     return () => {
       window.clearInterval(intervaloChats);
@@ -766,7 +769,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       if (!document.hidden) void carregarStatusDoBackend(false, true);
     };
     void atualizarStatusVisivel();
-    const interval = window.setInterval(atualizarStatusVisivel, 3_000);
+    const interval = window.setInterval(atualizarStatusVisivel, 30_000);
     return () => window.clearInterval(interval);
   }, [isActive, canaisStatus.whatsapp?.conectado, carregarStatusDoBackend, secaoWhatsApp]);
 
@@ -828,7 +831,7 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
       }
     };
     void consultarProgresso();
-    interval = window.setInterval(() => void consultarProgresso(), 2_500);
+    interval = window.setInterval(() => { if (!document.hidden) void consultarProgresso(); }, 2_500);
     return () => {
       active = false;
       controller.abort();
@@ -1581,21 +1584,24 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
   const paginaHistoricoAtiva = conversaSelecionada ? historicoRef.current.get(conversaSelecionada) : undefined;
   const nenhumConectado = !canaisStatus.whatsapp?.conectado;
 
-  if (loadingStatus) return <div className="w-full h-full flex items-center justify-center text-xs font-semibold opacity-50 text-[var(--text)]">Abrindo conversas...</div>;
+  if (loadingStatus) return <div className="nx-conv flex h-full w-full items-center justify-center gap-2 bg-[var(--nx-bg)] text-[13px] text-[var(--nx-text-3)]" role="status"><RefreshCw size={15} className="animate-spin" /> Abrindo conversas...</div>;
+
+  const connectScreenClass = "nx-conv flex h-full min-h-0 w-full items-start justify-center overflow-y-auto bg-[var(--nx-bg)] p-4 sm:items-center sm:p-7";
+  const connectErrorClass = "rounded-lg bg-[var(--nx-danger-soft)] px-3 py-2 text-left text-[12.5px] leading-5 text-[var(--nx-danger)]";
 
   if (nenhumConectado && !canalSelecionadoLogin) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-[var(--background)] p-6 font-sans">
-        <div className="w-[400px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-6 text-center text-xs font-bold shadow-2xl">
-          <h3 className="text-sm font-extrabold tracking-tight mb-4 text-[var(--text)]">Painel de Acesso Unificado</h3>
+      <div className={connectScreenClass}>
+        <div className="nx-card w-full max-w-[480px] p-6 sm:p-8">
+          <span className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--nx-success-soft)] text-[var(--nx-success)]"><MessageCircle size={20} /></span>
+          <h2 className="mt-4 text-[22px] font-semibold">Conectar o WhatsApp</h2>
+          <p className="mt-1.5 text-sm leading-6 text-[var(--nx-text-2)]">Conecte o WhatsApp da empresa para ver e responder as conversas aqui no Norium.</p>
           {canaisStatus.whatsapp?.detail && (
-            <p className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-left font-semibold leading-5 text-red-400">
+            <p className={`mt-4 ${connectErrorClass}`}>
               {canaisStatus.whatsapp.detail}
             </p>
           )}
-          <div className="space-y-3">
-            <button onClick={() => handleIniciarLogin("whatsapp")} className="h-12 w-full rounded-xl bg-[var(--primary)] text-white shadow-md">Conectar WhatsApp</button>
-          </div>
+          <button type="button" onClick={() => handleIniciarLogin("whatsapp")} className="nx-btn is-primary mt-6 w-full">Conectar WhatsApp</button>
         </div>
       </div>
     );
@@ -1603,54 +1609,56 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
 
   if (canalSelecionadoLogin === "whatsapp" && consentInfo && !consentInfo.accepted) {
     return (
-      <div className="w-full h-full min-h-0 overflow-y-auto flex items-start sm:items-center justify-center bg-[var(--background)] p-4 sm:p-6 font-sans">
-        <div className="w-full max-w-[520px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 sm:p-7 space-y-4 text-xs font-bold text-[var(--text)] shadow-2xl">
-          <div className="text-center">
-            <h3 className="text-base font-extrabold text-[var(--primary)]">Uso responsavel e risco de banimento</h3>
-            <p className="mt-2 text-[var(--text-secondary)] leading-5">
-              Antes de conectar, leia e confirme as orientacoes de uso responsavel. Nenhuma integracao consegue garantir ausencia de bloqueio ou banimento da conta.
+      <div className={connectScreenClass}>
+        <div className="nx-card w-full max-w-[640px] space-y-4 p-6 text-sm sm:p-8">
+          <div>
+            <div className="text-[12.5px] text-[var(--nx-text-3)]">Passo 1 de 3</div>
+            <h2 className="mt-1.5 text-[22px] font-semibold">Uso responsável e risco de banimento</h2>
+            <p className="mt-2 leading-6 text-[var(--nx-text-2)]">
+              Antes de conectar, leia e confirme as orientações de uso responsável. Nenhuma integração consegue garantir ausência de bloqueio ou banimento da conta.
             </p>
           </div>
-          <ul className="list-disc space-y-1.5 pl-5 text-left font-semibold leading-5 text-[var(--text-secondary)]">
+          <ul className="list-disc space-y-1.5 pl-5 leading-6 text-[var(--nx-text-2)]">
             <li>Use a conta de forma gradual e com comportamento natural.</li>
-            <li>Evite disparos em massa, spam, automacoes agressivas e volumes anormais.</li>
+            <li>Evite disparos em massa, spam, automações agressivas e volumes anormais.</li>
             <li>Envie mensagens apenas para pessoas que autorizaram o contato.</li>
-            <li>Respeite pedidos de descadastro e evite insistencia.</li>
-            <li>Evite conteudo enganoso, proibido ou que gere muitas denuncias e bloqueios.</li>
-            <li>Nao repita mensagens identicas nem inicie muitas conversas em sequencia.</li>
-            <li>Respeite os Termos de Servico e as politicas oficiais do WhatsApp.</li>
+            <li>Respeite pedidos de descadastro e evite insistência.</li>
+            <li>Evite conteúdo enganoso, proibido ou que gere muitas denúncias e bloqueios.</li>
+            <li>Não repita mensagens idênticas nem inicie muitas conversas em sequência.</li>
+            <li>Respeite os Termos de Serviço e as políticas oficiais do WhatsApp.</li>
           </ul>
-          <p className="text-left font-semibold leading-5 text-[var(--text-secondary)]">
+          <p className="leading-6 text-[var(--nx-text-2)]">
             Saiba mais:{" "}
-            <a href="https://docs.w-api.app/banimentos/intro" target="_blank" rel="noreferrer" className="text-[var(--primary)] underline">
-              orientacoes da W-API
+            <a href="https://docs.w-api.app/banimentos/intro" target="_blank" rel="noreferrer" className="font-medium text-[var(--nx-primary-text)] underline">
+              orientações da W-API
             </a>{" "}
             e{" "}
-            <a href="https://www.whatsapp.com/legal" target="_blank" rel="noreferrer" className="text-[var(--primary)] underline">
-              Termos e politicas do WhatsApp
+            <a href="https://www.whatsapp.com/legal" target="_blank" rel="noreferrer" className="font-medium text-[var(--nx-primary-text)] underline">
+              Termos e políticas do WhatsApp
             </a>.
           </p>
-          {erroLogin && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-left font-semibold leading-5 text-red-400">{erroLogin}</p>}
-          <label className="flex items-start gap-2 text-left font-semibold leading-5 text-[var(--text)] cursor-pointer">
+          {erroLogin && <p className={connectErrorClass}>{erroLogin}</p>}
+          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg bg-[var(--nx-warning-soft)] p-3 leading-6 text-[var(--nx-text)]">
             <input
               type="checkbox"
               checked={consentChecked}
               onChange={(e) => setConsentChecked(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
+              className="mt-1 h-4 w-4 shrink-0 accent-[var(--nx-primary)]"
             />
             <span>
-              Li as orientacoes de uso responsavel, compreendo o risco de bloqueio ou banimento da conta e concordo com os Termos de Uso e politicas aplicaveis.
+              Li as orientações de uso responsável, compreendo o risco de bloqueio ou banimento da conta e concordo com os Termos de Uso e políticas aplicáveis.
             </span>
           </label>
-          <Button
-            onClick={() => void handleAceitarConsentimento()}
-            className="w-full"
-            variant="primary"
-            disabled={!consentChecked || aceitandoConsent}
-          >
-            {aceitandoConsent ? "Registrando aceite..." : "Concordar e gerar QR Code"}
-          </Button>
-          <Button onClick={() => setCanalSelecionadoLogin(null)} className="w-full">Voltar</Button>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" onClick={() => setCanalSelecionadoLogin(null)} className="nx-btn">Voltar</button>
+            <Button
+              onClick={() => void handleAceitarConsentimento()}
+              variant="primary"
+              disabled={!consentChecked || aceitandoConsent}
+            >
+              {aceitandoConsent ? "Registrando aceite..." : "Concordar e gerar QR Code"}
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -1658,38 +1666,41 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
 
   if (canalSelecionadoLogin === "whatsapp" && planStep && !instancePlan) {
     return (
-      <div className="w-full h-full min-h-0 overflow-y-auto flex items-start sm:items-center justify-center bg-[var(--background)] p-4 sm:p-6 font-sans">
-        <div className="w-full max-w-[520px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 sm:p-7 space-y-4 text-xs font-bold text-[var(--text)] shadow-2xl">
-          <div className="text-center">
-            <h3 className="text-base font-extrabold text-[var(--primary)]">Escolha o plano da instância</h3>
-            <p className="mt-2 text-[var(--text-secondary)] leading-5">
+      <div className={connectScreenClass}>
+        <div className="nx-card w-full max-w-[640px] space-y-4 p-6 text-sm sm:p-8">
+          <div>
+            <div className="text-[12.5px] text-[var(--nx-text-3)]">Passo 2 de 3</div>
+            <h2 className="mt-1.5 text-[22px] font-semibold">Escolha o plano da instância</h2>
+            <p className="mt-2 leading-6 text-[var(--nx-text-2)]">
               O plano é definido na criação da instância. A troca depois exige desconectar e conectar novamente.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Plano da instância W-API">
-            <label className={`cursor-pointer rounded-2xl border p-4 text-left leading-5 ${selectedPlan === "lite" ? "border-[var(--primary)] bg-[var(--primary)]/10" : "border-[var(--border)]"}`}>
-              <input type="radio" name="wapi-plan" value="lite" checked={selectedPlan === "lite"} onChange={() => setSelectedPlan("lite")} className="accent-[var(--primary)]" />
-              <span className="ml-2 text-sm font-extrabold">LITE</span>
-              <span className="mt-2 block font-semibold text-[var(--text-secondary)]">Mensagens de texto e mídia, arquivos e webhooks. Ideal para conversas.</span>
+            <label className={`nx-conv-option leading-5 ${selectedPlan === "lite" ? "is-active" : ""}`}>
+              <input type="radio" name="wapi-plan" value="lite" checked={selectedPlan === "lite"} onChange={() => setSelectedPlan("lite")} className="accent-[var(--nx-primary)]" />
+              <span className="ml-2 font-semibold">LITE</span>
+              <span className="mt-2 block text-[12.5px] text-[var(--nx-text-2)]">Mensagens de texto e mídia, arquivos e webhooks. Ideal para conversas.</span>
             </label>
-            <label className={`cursor-pointer rounded-2xl border p-4 text-left leading-5 ${selectedPlan === "pro" ? "border-[var(--primary)] bg-[var(--primary)]/10" : "border-[var(--border)]"}`}>
-              <input type="radio" name="wapi-plan" value="pro" checked={selectedPlan === "pro"} onChange={() => setSelectedPlan("pro")} className="accent-[var(--primary)]" />
-              <span className="ml-2 text-sm font-extrabold">PRO</span>
-              <span className="mt-2 block font-semibold text-[var(--text-secondary)]">Tudo do LITE, mais mensagens interativas, logs completos e gestão de grupos.</span>
+            <label className={`nx-conv-option leading-5 ${selectedPlan === "pro" ? "is-active" : ""}`}>
+              <input type="radio" name="wapi-plan" value="pro" checked={selectedPlan === "pro"} onChange={() => setSelectedPlan("pro")} className="accent-[var(--nx-primary)]" />
+              <span className="ml-2 font-semibold">PRO</span>
+              <span className="mt-2 block text-[12.5px] text-[var(--nx-text-2)]">Tudo do LITE, mais mensagens interativas, logs completos e gestão de grupos.</span>
             </label>
           </div>
-          <p className="text-left font-semibold leading-5 text-[var(--text-secondary)]">
+          <p className="leading-6 text-[var(--nx-text-2)]">
             Mensagens de texto funcionam nos dois planos. Recursos PRO continuam bloqueados em instâncias LITE.
           </p>
-          {erroLogin && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-left font-semibold leading-5 text-red-400">{erroLogin}</p>}
-          <Button
-            onClick={() => { setPlanStep(false); void iniciarQrCode("whatsapp", selectedPlan); }}
-            className="w-full"
-            variant="primary"
-          >
-            Continuar e gerar QR Code
-          </Button>
-          <Button onClick={() => { setPlanStep(false); setCanalSelecionadoLogin(null); }} className="w-full">Voltar</Button>
+          {erroLogin && <p className={connectErrorClass}>{erroLogin}</p>}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" onClick={() => { setPlanStep(false); setCanalSelecionadoLogin(null); }} className="nx-btn">Voltar</button>
+            <button
+              type="button"
+              onClick={() => { setPlanStep(false); void iniciarQrCode("whatsapp", selectedPlan); }}
+              className="nx-btn is-primary"
+            >
+              Continuar e gerar QR Code
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1697,53 +1708,78 @@ export default function ChatCentral({ active: isActive = true, userId = "primary
 
   if (canalSelecionadoLogin === "whatsapp") {
     return (
-      <div className="w-full h-full min-h-0 overflow-y-auto flex items-start sm:items-center justify-center bg-[var(--background)] p-4 sm:p-6 font-sans">
-        <div className="w-full max-w-[420px] bg-[var(--surface)] border border-[var(--border)] rounded-2xl p-5 sm:p-7 text-center space-y-4 text-xs font-bold text-[var(--text)] shadow-2xl">
-          <div>
-            <h3 className="text-base font-extrabold text-[var(--primary)]">Conectar WhatsApp</h3>
-            <p className="mt-2 text-[var(--text-secondary)] leading-5">O QR Code e gerado com seguranca e atualizado automaticamente nesta tela.</p>
+      <div className={connectScreenClass}>
+        <div className="nx-card nx-conv-connect">
+          <div className="space-y-5 p-6 text-sm sm:p-8">
+            <div>
+              <div className="text-[12.5px] text-[var(--nx-text-3)]">Passo 3 de 3</div>
+              <h2 className="mt-1.5 text-[22px] font-semibold">Conectar o WhatsApp da empresa</h2>
+              <p className="mt-2 leading-6 text-[var(--nx-text-2)]">O QR Code é gerado com segurança e atualizado automaticamente nesta tela.</p>
+            </div>
+            <ol className="ml-[18px] flex list-decimal flex-col gap-3 leading-6 text-[var(--nx-text-2)]">
+              <li>Abra o WhatsApp no celular da empresa</li>
+              <li>Toque em <b className="font-semibold text-[var(--nx-text)]">Mais opções → Aparelhos conectados</b></li>
+              <li>Toque em <b className="font-semibold text-[var(--nx-text)]">Conectar um aparelho</b> e aponte para o código</li>
+            </ol>
             {instancePlan && (
-              <p className="mt-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-left font-semibold leading-5 text-[var(--text-secondary)]">
+              <p className="rounded-lg bg-[var(--nx-surface-2)] px-3 py-2 text-[12.5px] leading-5 text-[var(--nx-text-2)]">
                 Instância atual: {instancePlan === "pro" ? "PRO" : "LITE"}. A troca de plano exige desconectar e conectar novamente.
                 {requestedPlan && requestedPlan !== instancePlan && (
                   <> Você escolheu {requestedPlan === "pro" ? "PRO" : "LITE"}, mas a instância vinculada foi mantida.</>
                 )}
               </p>
             )}
-          </div>
-          <div className="aspect-square w-full max-w-[300px] bg-white mx-auto flex items-center justify-center rounded-2xl p-3 shadow-inner overflow-hidden">
-            {erroLogin ? (
-              <span className="text-red-600 px-4 leading-5">{erroLogin}</span>
-            ) : qrCodeString ? (
-              <img src={qrCodeString} alt="QR Code para conectar o WhatsApp ao Norium" className="w-full h-full object-contain" />
-            ) : canaisStatus.whatsapp?.conectado ? (
-              <span className="px-4 text-sm text-[var(--primary)]">Conectado</span>
-            ) : (
-              <span className="text-neutral-500 animate-pulse px-4">Gerando QR Code...</span>
-            )}
-          </div>
-          <p className="min-h-10 text-[var(--text-secondary)] leading-5">{mensagemLogin}</p>
-          {sincronizandoCatalogo && progressoSincronizacao && (
-            <div className="rounded-xl border border-[var(--primary)]/30 bg-[color-mix(in_srgb,var(--primary)_9%,transparent)] p-3 text-left" role="status" aria-live="polite">
-              <div className="flex items-center justify-between gap-3 text-[11px]"><span className="truncate">{progressoSincronizacao.message || "Sincronizando contatos e fotos"}</span><span className="text-[var(--primary)]">{Math.round(progressoSincronizacao.progress)}%</span></div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/45"><div className="h-full rounded-full bg-[var(--primary)] transition-[width]" style={{ width: `${progressoSincronizacao.progress}%` }} /></div>
+            <div className="flex gap-2.5 rounded-xl bg-[var(--nx-warning-soft)] px-3.5 py-3 text-[var(--nx-warning)]">
+              <TriangleAlert size={16} className="mt-0.5 shrink-0" />
+              <span className="text-[12.5px] leading-5">Use com responsabilidade: envios em massa para quem não conhece sua empresa podem causar bloqueio do número.</span>
             </div>
-          )}
-          {erroLogin && (
-            <Button onClick={() => void handleIniciarLogin("whatsapp")} className="w-full" variant="primary">
-              Tentar novamente
-            </Button>
-          )}
-          <Button onClick={() => setCanalSelecionadoLogin(null)} className="w-full">
-            {canaisStatus.whatsapp?.conectado ? "Abrir conversas" : "Voltar"}
-          </Button>
+            {(instancePlan || consentInfo?.accepted) && (
+              <div className="flex flex-wrap gap-2">
+                {instancePlan && <span className="nx-badge">Plano {instancePlan === "pro" ? "PRO" : "LITE"} · W-API</span>}
+                {consentInfo?.accepted && <span className="nx-badge is-green">Termo aceito</span>}
+              </div>
+            )}
+            {sincronizandoCatalogo && progressoSincronizacao && (
+              <div className="rounded-lg bg-[var(--nx-surface-2)] p-3" role="status" aria-live="polite">
+                <div className="flex items-center justify-between gap-3 text-xs"><span className="truncate text-[var(--nx-text-2)]">{progressoSincronizacao.message || "Sincronizando contatos e fotos"}</span><span className="font-medium text-[var(--nx-primary-text)]">{Math.round(progressoSincronizacao.progress)}%</span></div>
+                <div className="nx-conv-progress mt-2"><i style={{ width: `${progressoSincronizacao.progress}%` }} /></div>
+              </div>
+            )}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <button type="button" onClick={() => setCanalSelecionadoLogin(null)} className="nx-btn">
+                {canaisStatus.whatsapp?.conectado ? "Abrir conversas" : "Voltar"}
+              </button>
+              {erroLogin && (
+                <button type="button" onClick={() => void handleIniciarLogin("whatsapp")} className="nx-btn is-primary">
+                  Tentar novamente
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="nx-conv-connect-qr">
+            <div className="nx-conv-qr-box">
+              {erroLogin ? (
+                <span className="px-2 text-center text-[12.5px] leading-5 text-[#be123c]">{erroLogin}</span>
+              ) : qrCodeString ? (
+                <img src={qrCodeString} alt="QR Code para conectar o WhatsApp ao Norium" className="h-full w-full object-contain" />
+              ) : canaisStatus.whatsapp?.conectado ? (
+                <span className="text-sm font-medium text-[#047857]">Conectado</span>
+              ) : (
+                <span className="animate-pulse text-[12.5px] text-[#5e6470]">Gerando QR Code...</span>
+              )}
+            </div>
+            <p className="mt-3.5 flex min-h-10 items-start justify-center gap-1.5 text-center text-[12.5px] leading-5 text-[var(--nx-text-3)]">
+              {mensagemLogin && <RefreshCw size={13} className="mt-1 shrink-0" />}
+              <span>{mensagemLogin}</span>
+            </p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`norium-chat ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} relative flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)] font-sans`}>
+    <div className={`norium-chat nx-conv ${mobileSidebarOpen ? "mobile-sidebar-open" : ""} relative flex h-full min-h-0 w-full overflow-hidden bg-[var(--background)] font-sans`}>
       <button
         type="button"
         className="mobile-sidebar-toggle mobile-screen-fab"

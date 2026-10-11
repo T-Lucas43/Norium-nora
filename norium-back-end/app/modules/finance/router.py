@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import Field
 
+from app.core.identity import require_team_id, require_user_id
 from app.shared.schemas import StrictModel
 
 from app.routers.auth_router import current_user
@@ -116,7 +117,7 @@ class FinanceAgentPayload(StrictModel):
 
 
 def tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("id") or "lucas123")
+    return require_user_id(user)
 
 
 def finance_money(value: Any) -> str:
@@ -164,7 +165,7 @@ async def obter_financeiro(user_id: str = "lucas123", user: dict[str, Any] = Dep
 
 @router.post("/agente/mensagem")
 async def conversar_agente_financeiro(payload: FinanceAgentPayload, user: dict[str, Any] = Depends(current_user)):
-    return await handle_finance_agent(tenant_id(user), payload.message)
+    return await handle_finance_agent(tenant_id(user), payload.message, user=user)
 
 
 @router.post("/lancamentos")
@@ -600,7 +601,109 @@ def _money_value(value: Any) -> float:
         return 0.0
 
 
-async def handle_finance_agent(user_id: str, message: str) -> dict[str, Any]:
+def is_finance_destructive_message(message: str) -> bool:
+    """Exclusao ou alteracao de dados financeiros: sempre exige aprovacao exata."""
+    normalized = _normalize_text(message)
+    return (
+        _is_delete_programado_intent(normalized)
+        or _is_delete_lancamento_intent(normalized)
+        or _is_update_lancamento_intent(normalized)
+    )
+
+
+def _finance_snapshot(item: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    return {key: item.get(key) for key in keys}
+
+
+def _target_not_confirmed(candidates: list[dict[str, Any]], label: str) -> dict[str, Any]:
+    if not candidates:
+        return {"status": "nao_encontrado", "response": f"Nao achei esse {label}. Me diga o nome exato."}
+    options = "\n".join(f"- {item.get('title')} ({finance_money(item.get('amount'))})" for item in candidates[:5])
+    return {
+        "status": "precisa_confirmar_alvo",
+        "response": f"Encontrei mais de um {label} parecido. Diga o nome exato de qual deseja:\n{options}",
+        "candidates": [{"id": item.get("id"), "title": item.get("title")} for item in candidates[:5]],
+    }
+
+
+async def _request_finance_approval(
+    user: dict[str, Any] | None,
+    owner_id: str,
+    exact: dict[str, Any],
+    title: str,
+    description: str,
+) -> dict[str, Any]:
+    """Nunca exclui/altera direto: prepara a operacao exata e pede aprovacao humana."""
+    if not user:
+        return {
+            "status": "precisa_aprovacao",
+            "response": "Excluir ou alterar dados financeiros exige aprovacao. Peca pela Nora para gerar a previa. Nada foi alterado.",
+        }
+    from app.modules.operations.service import create_exact_finance_approval
+
+    approval = await create_exact_finance_approval(user, owner_id, exact, title[:180], description[:1200])
+    return {
+        "status": "aguardando_aprovacao",
+        "response": f"Preparei: {description} Nada foi alterado ainda. Revise e aprove ou rejeite na Central de aprovacoes.",
+        "approval": approval,
+    }
+
+
+async def execute_finance_exact(owner_id: str, exact: dict[str, Any]) -> dict[str, Any]:
+    """Executa somente a operacao aprovada, no id aprovado, se o item nao mudou desde a previa."""
+    operation = str(exact.get("operation") or "")
+    item_id = str(exact.get("itemId") or "")
+    snapshot = exact.get("snapshot") if isinstance(exact.get("snapshot"), dict) else {}
+    collection = {"delete_programado": "programados", "delete_lancamento": "lancamentos", "update_lancamento": "lancamentos"}.get(operation)
+    if not collection or not item_id:
+        return {"status": "falha_validacao", "response": "A aprovacao financeira esta incompleta. Nada foi alterado."}
+    current = next((item for item in list_finance(owner_id).get(collection, []) if str(item.get("id")) == item_id), None)
+    if current is None:
+        return {"status": "nao_encontrado", "response": "O item aprovado nao existe mais. Nada foi alterado."}
+    if any(str(current.get(key)) != str(value) for key, value in snapshot.items()):
+        return {"status": "falha_conflito", "response": "O item mudou depois da previa. Nada foi alterado; gere uma nova previa."}
+
+    if operation == "delete_programado":
+        delete_programado(owner_id, item_id)
+        await record_finance_event(
+            owner_id,
+            f"Nora excluiu gasto programado: {current.get('title')}",
+            f"Gasto programado removido apos aprovacao. Valor anterior {finance_money(current.get('amount'))}; frequencia {current.get('frequency')}.",
+            "nora_finance_scheduled_deleted",
+            {"scheduledId": item_id},
+        )
+        return {"status": "programado_excluido", "response": f"Exclui o gasto programado: {current.get('title')}."}
+    if operation == "delete_lancamento":
+        delete_lancamento(owner_id, item_id)
+        await record_finance_event(
+            owner_id,
+            f"Nora excluiu lancamento: {current.get('title')}",
+            f"Lancamento removido apos aprovacao. Valor anterior {finance_money(current.get('amount'))}; status anterior {current.get('status')}.",
+            "nora_finance_entry_deleted",
+            {"entryId": item_id},
+        )
+        return {"status": "lancamento_excluido", "response": f"Exclui o lancamento: {current.get('title')}."}
+
+    updates = exact.get("updates") if isinstance(exact.get("updates"), dict) else {}
+    allowed = {key: value for key, value in updates.items() if key in {"amount", "status", "paidAt", "dueDate", "category"}}
+    if not allowed:
+        return {"status": "sem_alteracao", "response": "A aprovacao nao tem alteracoes validas. Nada foi alterado."}
+    updated = update_lancamento(owner_id, item_id, allowed)
+    await record_finance_event(
+        owner_id,
+        f"Nora atualizou lancamento: {updated.get('title')}",
+        f"Campos alterados apos aprovacao: {', '.join(allowed.keys())}. Novo estado: {format_lancamento_line(updated)}",
+        "nora_finance_entry_updated",
+        {"entryId": updated.get("id"), "updates": allowed},
+    )
+    return {
+        "status": "lancamento_atualizado",
+        "response": f"Atualizei {updated['title']}: {format_lancamento_line(updated)}",
+        "lancamento": updated,
+    }
+
+
+async def handle_finance_agent(user_id: str, message: str, *, user: dict[str, Any] | None = None) -> dict[str, Any]:
     normalized = _normalize_text(message)
 
     if _is_boleto_intent(normalized):
@@ -626,18 +729,20 @@ async def handle_finance_agent(user_id: str, message: str) -> dict[str, Any]:
 
     if _is_delete_programado_intent(normalized):
         data = list_finance(user_id)
-        item = _find_item(data.get("programados", []), message)
+        item, candidates = _find_exact_target(data.get("programados", []), message)
         if not item:
-            return {"status": "nao_encontrado", "response": "Nao achei esse gasto programado. Me diga um trecho do nome."}
-        delete_programado(user_id, item["id"])
-        await record_finance_event(
+            return _target_not_confirmed(candidates, "gasto programado")
+        return await _request_finance_approval(
+            user,
             user_id,
-            f"Nora excluiu gasto programado: {item.get('title')}",
-            f"Gasto programado removido pela Nora. Valor anterior {finance_money(item.get('amount'))}; frequencia {item.get('frequency')}.",
-            "nora_finance_scheduled_deleted",
-            {"scheduledId": item.get("id")},
+            {
+                "operation": "delete_programado",
+                "itemId": item["id"],
+                "snapshot": _finance_snapshot(item, ("title", "amount", "frequency", "nextDueDate")),
+            },
+            f"Excluir gasto programado: {item.get('title')}",
+            f"Excluir o gasto programado \"{item.get('title')}\" ({finance_money(item.get('amount'))}, {item.get('frequency')}).",
         )
-        return {"status": "programado_excluido", "response": f"Exclui o gasto programado: {item['title']}."}
 
     if _is_programado_create_intent(normalized):
         amount = _extract_amount(message)
@@ -677,24 +782,26 @@ async def handle_finance_agent(user_id: str, message: str) -> dict[str, Any]:
 
     if _is_delete_lancamento_intent(normalized):
         data = list_finance(user_id)
-        item = _find_item(data.get("lancamentos", []), message)
+        item, candidates = _find_exact_target(data.get("lancamentos", []), message)
         if not item:
-            return {"status": "nao_encontrado", "response": "Nao achei esse lancamento. Me diga um trecho do titulo."}
-        delete_lancamento(user_id, item["id"])
-        await record_finance_event(
+            return _target_not_confirmed(candidates, "lancamento")
+        return await _request_finance_approval(
+            user,
             user_id,
-            f"Nora excluiu lancamento: {item.get('title')}",
-            f"Lancamento removido pela Nora. Valor anterior {finance_money(item.get('amount'))}; status anterior {item.get('status')}.",
-            "nora_finance_entry_deleted",
-            {"entryId": item.get("id")},
+            {
+                "operation": "delete_lancamento",
+                "itemId": item["id"],
+                "snapshot": _finance_snapshot(item, ("title", "amount", "status", "dueDate")),
+            },
+            f"Excluir lancamento: {item.get('title')}",
+            f"Excluir o lancamento \"{item.get('title')}\" ({finance_money(item.get('amount'))}, status {item.get('status')}).",
         )
-        return {"status": "lancamento_excluido", "response": f"Exclui o lancamento: {item['title']}."}
 
     if _is_update_lancamento_intent(normalized):
         data = list_finance(user_id)
-        item = _find_item(data.get("lancamentos", []), message)
+        item, candidates = _find_exact_target(data.get("lancamentos", []), message)
         if not item:
-            return {"status": "nao_encontrado", "response": "Nao achei esse lancamento para atualizar. Me diga um trecho do titulo."}
+            return _target_not_confirmed(candidates, "lancamento")
         updates: dict[str, Any] = {}
         amount = _extract_amount(message)
         if amount > 0:
@@ -711,19 +818,19 @@ async def handle_finance_agent(user_id: str, message: str) -> dict[str, Any]:
             updates["category"] = category
         if not updates:
             return {"status": "sem_alteracao", "response": "Diga o que quer alterar: valor, status, vencimento ou categoria."}
-        updated = update_lancamento(user_id, item["id"], updates)
-        await record_finance_event(
+        changes = ", ".join(f"{key}: {value}" for key, value in updates.items() if key != "paidAt")
+        return await _request_finance_approval(
+            user,
             user_id,
-            f"Nora atualizou lancamento: {updated.get('title')}",
-            f"Campos alterados: {', '.join(updates.keys())}. Novo estado: {format_lancamento_line(updated)}",
-            "nora_finance_entry_updated",
-            {"entryId": updated.get("id"), "updates": updates},
+            {
+                "operation": "update_lancamento",
+                "itemId": item["id"],
+                "snapshot": _finance_snapshot(item, ("title", "amount", "status", "dueDate", "category")),
+                "updates": updates,
+            },
+            f"Alterar lancamento: {item.get('title')}",
+            f"Alterar o lancamento \"{item.get('title')}\" ({finance_money(item.get('amount'))}). Mudancas: {changes}.",
         )
-        return {
-            "status": "lancamento_atualizado",
-            "response": f"Atualizei {updated['title']}: {format_lancamento_line(updated)}",
-            "lancamento": updated,
-        }
 
     if _is_lancamento_create_intent(normalized):
         amount = _extract_amount(message)
@@ -950,21 +1057,22 @@ def _extract_finance_title(message: str, *, fallback: str) -> str:
     return title[:160] or fallback
 
 
-def _find_item(items: list[dict[str, Any]], message: str) -> dict[str, Any] | None:
+def _find_exact_target(items: list[dict[str, Any]], message: str) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Alvo de exclusao/alteracao: somente id ou titulo exato. Semelhancas viram opcoes, nunca escolha automatica."""
     normalized = _normalize_text(message)
-    for item in items:
-        if str(item.get("id") or "").lower() in normalized:
-            return item
-    for item in items:
-        title = _normalize_text(str(item.get("title") or ""))
-        if title and title in normalized:
-            return item
-    tokens = [token for token in re.findall(r"[a-z0-9]{3,}", normalized) if token not in {"lancamento", "gasto", "programado", "pago", "pagar"}]
-    for item in items:
-        title = _normalize_text(str(item.get("title") or ""))
-        if any(token in title for token in tokens):
-            return item
-    return items[0] if len(items) == 1 else None
+    by_id = [item for item in items if str(item.get("id") or "").lower() and str(item.get("id")).lower() in normalized]
+    if len(by_id) == 1:
+        return by_id[0], []
+    titled = [(item, _normalize_text(str(item.get("title") or ""))) for item in items]
+    by_title = [(item, title) for item, title in titled if title and title in normalized]
+    if by_title:
+        longest = max(len(title) for _item, title in by_title)
+        best = [item for item, title in by_title if len(title) == longest]
+        return (best[0], []) if len(best) == 1 else (None, best)
+    tokens = [token for token in re.findall(r"[a-z0-9]{3,}", normalized) if token not in {"lancamento", "gasto", "programado", "pago", "pagar", "excluir", "exclua", "apagar", "apague", "remover", "remova", "alterar", "altere", "atualizar", "atualize"}]
+    candidates = [item for item, title in titled if title and any(token in title for token in tokens)]
+    return None, candidates
+
 
 
 def _is_boleto_intent(normalized: str) -> bool:

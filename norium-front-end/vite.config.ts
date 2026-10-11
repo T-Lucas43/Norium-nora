@@ -5,6 +5,8 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   server: {
     proxy: { "/api": { target: "http://127.0.0.1:8000", ws: true }, "/health": { target: "http://127.0.0.1:8000" } },
+    // Só em desenvolvimento: pré-processa a estrutura e as telas ao iniciar, para a primeira abertura não esperar a compilação.
+    warmup: { clientFiles: ["./src/main.tsx", "./src/app/**/*.tsx", "./src/components/layout/*.tsx", "./src/components/dashboard/Dashboard.tsx"] },
   },
   plugins: [
     react(),

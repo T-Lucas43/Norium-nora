@@ -23,6 +23,7 @@ import type { AuthSession, NoriumUser } from "../../types/auth";
 import { normalizePermissions, ownerPermissions, defaultMemberPermissions, permissionGroups, permissionLabels } from "../../types/auth";
 import { showAlert, showConfirm } from "../shared/AppDialogProvider";
 import { downloadWithAuth, openWithAuth } from "../../utils/download";
+import "../../styles/screens/inteligencia-equipe-conta.css";
 
 type PlatformArea = "overview" | "companies" | "knowledge" | "security";
 type JsonItem = Record<string, unknown> & { id: string; name?: string; title?: string };
@@ -145,38 +146,33 @@ export default function PlatformDashboard({ onNavigate }: PlatformDashboardProps
   );
 
   return (
-    <div className="norium-governance min-h-full bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
-      <div className="mx-auto w-full max-w-[1500px] space-y-4">
-        <header className="governance-hero flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="governance-hero-icon grid h-12 w-12 shrink-0 place-items-center rounded-xl text-blue-300">
-              <ShieldCheck size={22} />
-            </span>
-            <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-wider text-blue-300">Direção, controle e prestação de contas</p>
-              <h1 className="text-2xl font-black sm:text-3xl">Governança</h1>
-              <p className="max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
-                Estruture decisões, informação confiável, riscos, controles e evidências usando os recursos reais do Norium.
-              </p>
-            </div>
+    <div className="nx-page nxi-screen norium-governance">
+        <header className="nx-ph">
+          <div>
+            <h1>Governança</h1>
+            <p>Controles, riscos e trilha de auditoria · direção, informação confiável e prestação de contas com os recursos reais do Norium</p>
           </div>
-          <button className="norium-platform-button" type="button" onClick={() => void load()} disabled={loading}>
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-            Atualizar
-          </button>
+          <div className="nx-ph-actions">
+            <button className="nx-btn" type="button" onClick={() => void load()} disabled={loading}>
+              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+              Atualizar
+            </button>
+          </div>
         </header>
 
-        <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Areas da plataforma">
+        <nav className="nx-tabs" aria-label="Áreas da plataforma">
           {areas.map((item) => {
             const Icon = item.icon;
             return (
               <button
                 key={item.id}
                 type="button"
+                aria-current={area === item.id ? "page" : undefined}
                 onClick={() => { setNotice(""); setArea(item.id); }}
-                className={`norium-platform-tab ${area === item.id ? "is-active" : ""}`}
+                className={`nx-tab ${area === item.id ? "is-active" : ""}`}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
               >
-                <Icon size={16} />
+                <Icon size={15} />
                 {item.label}
               </button>
             );
@@ -186,8 +182,8 @@ export default function PlatformDashboard({ onNavigate }: PlatformDashboardProps
         {error && <StatusBanner tone="error">{error}</StatusBanner>}
         {notice && <StatusBanner tone="success">{notice}</StatusBanner>}
         {loading ? (
-          <div className="grid min-h-[420px] place-items-center">
-            <LoaderCircle className="animate-spin text-blue-400" size={28} />
+          <div className="nxi-empty" style={{ minHeight: 360 }} role="status" aria-label="Carregando">
+            <LoaderCircle className="animate-spin" size={26} style={{ color: "var(--nx-primary)" }} />
           </div>
         ) : !loadedAreas.current.has(area) ? null : (
           <>
@@ -217,44 +213,46 @@ export default function PlatformDashboard({ onNavigate }: PlatformDashboardProps
             )}
           </>
         )}
-      </div>
     </div>
   );
 }
 
 function OverviewArea({ summary, onSelect }: { summary: PlatformSummary; onSelect: (area: PlatformArea) => void }) {
   const principles = ["Integridade", "Transparência", "Equidade", "Responsabilização", "Sustentabilidade"];
-  return <div className="space-y-4">
-    <section className="governance-principles" aria-labelledby="governance-principles-title">
-      <div><p className="governance-kicker">Princípios de referência</p><h2 id="governance-principles-title">Governar é direcionar, monitorar e prestar contas</h2></div>
-      <div className="governance-principle-list">{principles.map((principle, index) => <span key={principle}><b>{String(index + 1).padStart(2, "0")}</b>{principle}</span>)}</div>
-    </section>
-
-    <section className="governance-cycle" aria-label="Ciclo de governança no Norium">
-      <button type="button" onClick={() => onSelect("companies")}><span>01</span><Building2 size={19} /><strong>Estruturar</strong><small>Ambientes e responsabilidades da operação.</small></button>
-      <button type="button" onClick={() => onSelect("knowledge")}><span>02</span><BookOpen size={19} /><strong>Informar</strong><small>Fontes verificáveis para decisões e para a Nora.</small></button>
-      <button type="button" onClick={() => onSelect("security")}><span>03</span><ShieldCheck size={19} /><strong>Controlar</strong><small>Permissões, riscos e controles proporcionais.</small></button>
-      <button type="button" onClick={() => onSelect("security")}><span>04</span><ScanSearch size={19} /><strong>Evidenciar</strong><small>Auditoria e rastreabilidade das ações sensíveis.</small></button>
-    </section>
-
-    <div className="grid gap-4 lg:grid-cols-[1fr_1fr_.9fr]">
+  const cycle = [
+    { area: "companies" as PlatformArea, icon: Building2, title: "Estruturar", text: "Ambientes e responsabilidades da operação." },
+    { area: "knowledge" as PlatformArea, icon: BookOpen, title: "Informar", text: "Fontes verificáveis para decisões e para a Nora." },
+    { area: "security" as PlatformArea, icon: ShieldCheck, title: "Controlar", text: "Permissões, riscos e controles proporcionais." },
+    { area: "security" as PlatformArea, icon: ScanSearch, title: "Evidenciar", text: "Auditoria e rastreabilidade das ações sensíveis." },
+  ];
+  return <div className="nxi-stack">
+    <div className="nxi-cards">
       <Panel title="Ambientes de trabalho" subtitle="Estruturas operacionais separadas e identificáveis." icon={Building2}>
-        <p className="governance-metric"><strong>{summary.workspaces ?? 0}</strong><span>ambientes cadastrados</span></p>
-        <button className="norium-platform-button" onClick={() => onSelect("companies")}>Gerenciar estrutura</button>
+        <p className="nx-kpi-v" style={{ margin: 0 }}>{summary.workspaces ?? 0}</p><p className="nx-kpi-s" style={{ margin: "2px 0 14px" }}>ambientes cadastrados</p>
+        <button className="nx-btn is-sm" onClick={() => onSelect("companies")}>Gerenciar estrutura</button>
       </Panel>
       <Panel title="Fontes de conhecimento" subtitle="Textos e PDFs pesquisáveis com consulta por fonte." icon={BookOpen}>
-        <p className="governance-metric"><strong>{summary.knowledgeDocuments ?? 0}</strong><span>fontes disponíveis</span></p>
-        <button className="norium-platform-button" onClick={() => onSelect("knowledge")}>Consultar conhecimento</button>
+        <p className="nx-kpi-v" style={{ margin: 0 }}>{summary.knowledgeDocuments ?? 0}</p><p className="nx-kpi-s" style={{ margin: "2px 0 14px" }}>fontes disponíveis</p>
+        <button className="nx-btn is-sm" onClick={() => onSelect("knowledge")}>Consultar conhecimento</button>
       </Panel>
       <Panel title="Riscos e prestação de contas" subtitle="Acesse a matriz de permissões e as evidências da operação." icon={ShieldCheck}>
-        <p className="mb-4 text-xs leading-5 text-[var(--text-secondary)]">A situação é apresentada com dados registrados; o painel não inventa indicadores ausentes.</p>
-        <button className="norium-platform-button" onClick={() => onSelect("security")}>Revisar controles</button>
+        <p className="nx-muted nx-small" style={{ margin: "0 0 14px", lineHeight: 1.5 }}>A situação é apresentada com dados registrados; o painel não inventa indicadores ausentes.</p>
+        <button className="nx-btn is-sm" onClick={() => onSelect("security")}>Revisar controles</button>
       </Panel>
     </div>
 
-    <section className="governance-references">
-      <div><p className="governance-kicker">Metodologia</p><h2>Referências usadas nesta estrutura</h2></div>
-      <div><a href="https://complianceenforcement.com.br/glossario/o-que-e-sistema-de-governanca/" target="_blank" rel="noreferrer">Sistema de governança · Compliance Enforcement</a><a href="https://www3.ibgc.org.br/conhecimento" target="_blank" rel="noreferrer">Princípios de governança · IBGC</a><a href="https://www.gov.br/cgu/pt-br/acesso-a-informacao/governanca/gestao-de-riscos" target="_blank" rel="noreferrer">Gestão de riscos · CGU</a></div>
+    <section className="nx-card" aria-labelledby="governance-principles-title">
+      <div className="nx-card-h"><h2 id="governance-principles-title">Governar é direcionar, monitorar e prestar contas</h2><span className="nx-faint nx-small">Princípios de referência</span></div>
+      <div className="nx-card-b nxi-chips">{principles.map((principle, index) => <span key={principle} className="nx-badge is-blue" style={{ height: 28, padding: "0 12px" }}><b style={{ fontWeight: 600 }}>{String(index + 1).padStart(2, "0")}</b> {principle}</span>)}</div>
+    </section>
+
+    <section className="nxi-cards is-4" aria-label="Ciclo de governança no Norium">
+      {cycle.map((step, index) => { const Icon = step.icon; return <button key={step.title} type="button" className="nxi-topic-card" onClick={() => onSelect(step.area)}><span style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}><span className="nxi-tile is-sm is-blue"><Icon size={18} /></span><span className="nx-faint nx-small">{String(index + 1).padStart(2, "0")}</span></span><strong>{step.title}</strong><small>{step.text}</small></button>; })}
+    </section>
+
+    <section className="nx-card">
+      <div className="nx-card-h"><h2>Referências usadas nesta estrutura</h2><span className="nx-faint nx-small">Metodologia</span></div>
+      <div className="nx-card-b" style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px" }}><a className="nxi-link" href="https://complianceenforcement.com.br/glossario/o-que-e-sistema-de-governanca/" target="_blank" rel="noreferrer">Sistema de governança · Compliance Enforcement</a><a className="nxi-link" href="https://www3.ibgc.org.br/conhecimento" target="_blank" rel="noreferrer">Princípios de governança · IBGC</a><a className="nxi-link" href="https://www.gov.br/cgu/pt-br/acesso-a-informacao/governanca/gestao-de-riscos" target="_blank" rel="noreferrer">Gestão de riscos · CGU</a></div>
     </section>
   </div>;
 }
@@ -288,13 +286,13 @@ function CompaniesArea({
       <Panel title="Ambientes de trabalho" subtitle="Cada ambiente possui dados separados. Os acessos são gerenciados pela equipe." icon={Building2}>
         <div className="grid gap-3 md:grid-cols-2">
           {companies.map((company) => (
-            <article key={company.id} className={`norium-platform-card ${activeId === company.id ? "is-selected" : ""}`}>
+            <article key={company.id} className="nx-card" style={{ padding: 16, borderColor: activeId === company.id ? "var(--nx-primary)" : undefined }}>
               <div className="flex items-center gap-3">
                 <span
                   className="grid h-10 w-10 place-items-center rounded-lg font-black"
                   style={{ backgroundColor: `${company.primaryColor || "#1677ff"}22`, color: company.primaryColor || "#1677ff" }}
                 >
-                  {company.logoUrl ? <img src={company.logoUrl} className="h-8 w-8 object-contain" alt="" /> : company.name[0]}
+                  <CompanyLogo src={company.logoUrl} name={company.name} />
                 </span>
                 <div className="min-w-0">
                   <strong className="block truncate">{company.name}</strong>
@@ -304,13 +302,13 @@ function CompaniesArea({
                 </div>
               </div>
               <div className="mt-5 flex flex-wrap gap-2">
-                <button type="button" className="norium-platform-button" disabled={activeId === company.id} onClick={() => switchCompany(company.id)}>
+                <button type="button" className="nx-btn" disabled={activeId === company.id} onClick={() => switchCompany(company.id)}>
                   {activeId === company.id ? "Em uso" : "Acessar"}
                 </button>
                 {company.id !== "primary" && (
                   <button
                     type="button"
-                    className="norium-platform-icon-button is-danger"
+                    className="nxi-icon-btn is-danger"
                     title="Excluir ambiente"
                     aria-label={`Excluir ${company.name}`}
                     onClick={async () => {
@@ -338,13 +336,13 @@ function CompaniesArea({
       </Panel>
 
       <Panel title="Novo ambiente" subtitle="Crie um workspace com identidade propria." icon={Plus}>
-        <label className="norium-platform-label">
+        <label className="nxi-label">
           Nome do ambiente
-          <input className="norium-platform-input" value={name} onChange={(event) => setName(event.target.value)} />
+          <input className="nxi-field" value={name} onChange={(event) => setName(event.target.value)} />
         </label>
         <button
           type="button"
-          className="norium-platform-button is-primary mt-4 w-full justify-center"
+          className="nx-btn is-primary mt-4 w-full justify-center"
           disabled={name.trim().length < 2 || busy === "company"}
           onClick={() =>
             void mutate(
@@ -396,11 +394,11 @@ function KnowledgeArea({
     <div className="grid gap-4 xl:grid-cols-2">
       <Panel title="Base de conhecimento" subtitle="A Nora responde somente com fontes autorizadas deste workspace." icon={BookOpen}>
         <div className="grid gap-2">
-          <input className="norium-platform-input" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Titulo do documento" />
-          <textarea className="norium-platform-input min-h-28 resize-y" value={content} onChange={(event) => setContent(event.target.value)} placeholder="Cole politica, manual, contrato ou procedimento." />
+          <input className="nxi-field" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Titulo do documento" />
+          <textarea className="nxi-field min-h-28 resize-y" value={content} onChange={(event) => setContent(event.target.value)} placeholder="Cole politica, manual, contrato ou procedimento." />
           <button
             type="button"
-            className="norium-platform-button is-primary"
+            className="nx-btn is-primary"
             disabled={title.trim().length < 2 || content.trim().length < 2 || busy === "knowledge"}
             onClick={() =>
               void mutate(
@@ -422,7 +420,7 @@ function KnowledgeArea({
           <div className="my-1 flex items-center gap-3 text-xs font-bold uppercase text-[var(--text-secondary)]">
             <span className="h-px flex-1 bg-[var(--border)]" /> ou envie um PDF <span className="h-px flex-1 bg-[var(--border)]" />
           </div>
-          <label className="norium-platform-file">
+          <label className="nxi-file">
             <FileUp size={18} />
             <span className="min-w-0">
               <strong className="block truncate">{pdfFile?.name || "Selecionar PDF pesquisavel"}</strong>
@@ -437,7 +435,7 @@ function KnowledgeArea({
           </label>
           <button
             type="button"
-            className="norium-platform-button"
+            className="nx-btn"
             disabled={!pdfFile || busy === "knowledge-pdf"}
             onClick={async () => {
               if (!pdfFile) return;
@@ -493,7 +491,7 @@ function KnowledgeArea({
                   <>
                     <button
                       type="button"
-                      className="norium-platform-icon-button"
+                      className="nxi-icon-btn"
                       title="Abrir PDF"
                       aria-label={`Abrir ${String(document.title || "PDF")}`}
                       onClick={() => void openWithAuth(String(document.sourceUrl))}
@@ -502,7 +500,7 @@ function KnowledgeArea({
                     </button>
                     <button
                       type="button"
-                      className="norium-platform-icon-button"
+                      className="nxi-icon-btn"
                       title="Baixar PDF"
                       aria-label={`Baixar ${String(document.title || "PDF")}`}
                       onClick={() => void downloadWithAuth(String(document.sourceUrl), String(document.fileName || "documento.pdf"))}
@@ -513,7 +511,7 @@ function KnowledgeArea({
                 )}
                 <button
                   type="button"
-                  className="norium-platform-icon-button text-rose-300"
+                  className="nxi-icon-btn is-danger"
                   title="Excluir fonte"
                   aria-label={`Excluir ${String(document.title || "documento")}`}
                   disabled={busy === `knowledge-delete-${document.id}`}
@@ -543,10 +541,10 @@ function KnowledgeArea({
 
       <Panel title="Consulta com citacoes" subtitle="Confira a resposta e a fonte utilizada." icon={ScanSearch}>
         <div className="flex gap-2">
-          <input className="norium-platform-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Qual e a politica de reembolso?" />
+          <input className="nxi-field" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Qual e a politica de reembolso?" />
           <button
             type="button"
-            className="norium-platform-button is-primary shrink-0"
+            className="nx-btn is-primary shrink-0"
             disabled={query.trim().length < 2 || busy === "query"}
             onClick={() => void mutate("query", async () => {
               const result = await apiRequest<{ answer: string; citations?: { title: string; excerpt: string }[] }>("/api/plataforma/conhecimento/consultar", {
@@ -578,34 +576,34 @@ function SecurityArea({
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       <Panel title="Mapa de riscos e controles" subtitle="Relação entre riscos relevantes e mecanismos que já existem no sistema." icon={ShieldCheck} className="xl:col-span-2">
-        <div className="governance-control-table" role="table" aria-label="Riscos e controles do sistema">
-          <div role="row"><strong role="columnheader">Risco</strong><strong role="columnheader">Controle existente</strong><strong role="columnheader">Evidência ou destino</strong></div>
-          <div role="row"><span role="cell">Acesso além da responsabilidade</span><span role="cell">Permissões por usuário e função</span><button role="cell" type="button" onClick={() => document.querySelector<HTMLElement>("[data-governance-permissions]")?.scrollIntoView({ behavior: "smooth" })}>Matriz abaixo</button></div>
-          <div role="row"><span role="cell">Ação sensível sem rastreabilidade</span><span role="cell">Trilha de auditoria operacional</span><button role="cell" type="button" disabled={!onNavigate} onClick={() => onNavigate?.("Controle")}>Abrir Controle</button></div>
-          <div role="row"><span role="cell">Resposta de IA sem base verificável</span><span role="cell">Conhecimento com consulta e citações</span><span role="cell">Aba Conhecimento</span></div>
-        </div>
+        <div className="nxi-table-wrap" style={{ margin: "0 -18px -16px" }}><table className="nx-table" aria-label="Riscos e controles do sistema">
+          <thead><tr><th>Risco</th><th>Controle existente</th><th>Evidência ou destino</th></tr></thead>
+          <tbody>
+            <tr><td style={{ fontWeight: 500 }}>Acesso além da responsabilidade</td><td className="nx-muted">Permissões por usuário e função</td><td><button className="nxi-link" type="button" onClick={() => document.querySelector<HTMLElement>("[data-governance-permissions]")?.scrollIntoView({ behavior: "smooth" })}>Matriz abaixo</button></td></tr>
+            <tr><td style={{ fontWeight: 500 }}>Ação sensível sem rastreabilidade</td><td className="nx-muted">Trilha de auditoria operacional</td><td><button className="nxi-link" type="button" disabled={!onNavigate} onClick={() => onNavigate?.("Controle")}>Abrir Controle</button></td></tr>
+            <tr><td style={{ fontWeight: 500 }}>Resposta de IA sem base verificável</td><td className="nx-muted">Conhecimento com consulta e citações</td><td><span className="nx-badge is-green">Aba Conhecimento</span></td></tr>
+          </tbody>
+        </table></div>
       </Panel>
       <Panel title="Trilha de auditoria" subtitle="Registro de acoes sensiveis do sistema, consolidado no Controle operacional." icon={ScanSearch}>
         {auditPreview.length === 0 ? (
           <EmptyState text="Nenhum evento de auditoria registrado ainda." />
         ) : (
-          <div className="mt-1 space-y-2">
+          <div className="mt-1">
             {auditPreview.map((entry) => (
-              <div key={entry.id} className="rounded-lg border border-[var(--border)] bg-black/10 px-3 py-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="min-w-0 truncate text-sm font-bold">{entry.description || entry.action || "Acao registrada"}</span>
-                  <span className="shrink-0 text-xs font-bold uppercase text-[var(--text-secondary)]">{entry.status || ""}</span>
+              <div key={entry.id} className="nx-row">
+                <div className="nx-grow">
+                  <span className="nx-row-t">{entry.actor?.name || "Sistema"}</span> <span className="nx-muted nx-small">{entry.description || entry.action || "Ação registrada"}</span>
+                  <div className="nx-row-sub">{entry.source || "geral"}{entry.status ? ` · ${entry.status}` : ""}</div>
                 </div>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                  {entry.actor?.name || "Sistema"} - {entry.source || "geral"}
-                </p>
+                <span className="nx-faint nx-small" style={{ whiteSpace: "nowrap" }}>{auditTime(entry.timestamp)}</span>
               </div>
             ))}
           </div>
         )}
         <button
           type="button"
-          className="norium-platform-button mt-3 w-full justify-center"
+          className="nx-btn mt-3 w-full justify-center"
           disabled={!onNavigate}
           onClick={() => onNavigate?.("Controle")}
         >
@@ -685,14 +683,14 @@ function Panel({
   className?: string;
 }) {
   return (
-    <section className={`norium-platform-card ${className}`}>
+    <section className={`nx-card min-w-0 ${className}`} style={{ padding: "16px 18px" }}>
       <div className="mb-4 flex items-start gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-400">
-          <Icon size={18} />
+        <span className="nxi-tile is-sm is-blue">
+          <Icon size={17} />
         </span>
-        <div>
-          <h2 className="font-black">{title}</h2>
-          <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{subtitle}</p>
+        <div className="min-w-0">
+          <h2 className="nxi-card-title" style={{ fontSize: 15 }}>{title}</h2>
+          <p className="nxi-card-sub">{subtitle}</p>
         </div>
       </div>
       {children}
@@ -700,17 +698,32 @@ function Panel({
   );
 }
 
+function CompanyLogo({ src, name }: { src?: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+  if (!src || failed) return <>{(name.trim()[0] || "N").toUpperCase()}</>;
+  return <img src={src} className="h-8 w-8 object-contain" alt="" onError={() => setFailed(true)} />;
+}
+
+function auditTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const today = new Date();
+  return date.toDateString() === today.toDateString()
+    ? date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+    : date.toLocaleDateString("pt-BR");
+}
+
 function EmptyState({ text }: { text: string }) {
-  return <p className="mt-4 rounded-lg border border-dashed border-[var(--border)] p-4 text-center text-xs text-[var(--text-secondary)]">{text}</p>;
+  return <p className="nxi-empty is-dashed mt-4" style={{ minHeight: 80 }}>{text}</p>;
 }
 
 function StatusBanner({ tone, children }: { tone: "error" | "success"; children: React.ReactNode }) {
   return (
     <div
       role={tone === "error" ? "alert" : "status"}
-      className={`rounded-lg border px-4 py-3 text-sm font-bold ${
-        tone === "error" ? "border-red-500/35 bg-red-500/10 text-red-300" : "border-emerald-500/35 bg-emerald-500/10 text-emerald-300"
-      }`}
+      className={`nxi-alert ${tone === "error" ? "is-error" : "is-success"}`}
     >
       {children}
     </div>

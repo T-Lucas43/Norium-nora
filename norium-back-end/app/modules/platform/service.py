@@ -17,6 +17,7 @@ from fastapi import HTTPException
 
 from cryptography.fernet import Fernet
 
+from app.core.identity import require_team_id, require_user_id
 from app.core.security import auth_secret
 from app.core.tenant import get_user_db_path, read_user_db
 from app.modules.platform.pdf_text import detect_value_conflicts, extract_pdf_pages_async, search_pdf_pages
@@ -35,11 +36,11 @@ def normalize_text(value: Any) -> str:
 
 
 def account_id(user: dict[str, Any]) -> str:
-    return str(user.get("teamOwnerId") or user.get("id") or "lucas123")
+    return require_team_id(user)
 
 
 def tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("id") or "lucas123")
+    return require_user_id(user)
 
 
 def _workspace_seed(user: dict[str, Any]) -> dict[str, Any]:

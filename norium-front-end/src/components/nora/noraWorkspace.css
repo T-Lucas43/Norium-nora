@@ -136,7 +136,7 @@
   color: #fff;
   background: linear-gradient(135deg, #2563eb, #06b6d4);
   font-size: 9px;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .nora-history {
@@ -212,7 +212,7 @@
   display: block;
   color: #38bdf8;
   font-size: 7px;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: .11em;
   text-transform: uppercase;
 }
@@ -221,7 +221,7 @@
   display: block;
   margin-top: 1px;
   font-size: 16px;
-  font-weight: 760;
+  font-weight: 600;
   line-height: 1.1;
 }
 
@@ -500,7 +500,7 @@
   margin: 7px;
   color: var(--text-secondary);
   font-size: 8px;
-  font-weight: 750;
+  font-weight: 600;
   letter-spacing: .06em;
   text-transform: uppercase;
 }
@@ -607,7 +607,7 @@
   margin-bottom: 2px;
   color: #38bdf8;
   font-size: 7px;
-  font-weight: 800;
+  font-weight: 650;
   letter-spacing: .08em;
   text-transform: uppercase;
 }
@@ -1235,5 +1235,764 @@
     width: 64px;
     height: 64px;
     margin-bottom: 16px;
+  }
+}
+
+/* ===== Layout aprovado (PDF "Nora / Respostas pendentes do WhatsApp") =====
+ * Só aparência: histórico à esquerda, conversa ao centro e campo de mensagem em cartão.
+ * Nenhum botão, estado ou atalho foi removido.
+ */
+.app-panel-nora > .nora-workspace,
+.dark .app-panel-nora > .nora-workspace {
+  background: var(--nx-bg);
+  color: var(--nx-text);
+  font-size: 14px;
+}
+
+.nora-workspace .font-bold,
+.nora-workspace .font-extrabold,
+.nora-workspace .font-black {
+  font-weight: 600 !important;
+}
+
+/* Barra compacta (aparece quando o histórico está recolhido ou em telas menores) */
+.nora-rail,
+.dark .nora-rail {
+  border-right: 1px solid var(--nx-border);
+  background: var(--nx-surface);
+}
+
+.nora-rail-logo {
+  width: 30px;
+  height: 30px;
+  border-color: var(--nx-border);
+  border-radius: 50%;
+  background: #050814;
+}
+
+.nora-rail > button {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: var(--nx-text-2);
+}
+
+.nora-rail > button:hover,
+.nora-rail > button:focus-visible {
+  background: var(--nx-hover);
+  color: var(--nx-text);
+}
+
+.nora-rail > button.is-active {
+  background: var(--nx-primary-soft);
+  color: var(--nx-primary-text);
+}
+
+.nora-rail > button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--nx-primary) 55%, transparent);
+}
+
+.nora-rail-profile {
+  width: 28px;
+  height: 28px;
+  background: var(--nx-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Histórico de conversas */
+.nora-history,
+.dark .nora-history {
+  width: 240px;
+  padding: 18px 14px 12px;
+  border-right: 1px solid var(--nx-border);
+  background: var(--nx-surface);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, .12);
+}
+
+.nora-history-brand {
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 0 2px;
+}
+
+.nora-history-logo {
+  width: 30px;
+  height: 30px;
+  border-color: var(--nx-border);
+  border-radius: 50%;
+  background: #050814;
+}
+
+.nora-history-brand-copy > span {
+  color: var(--nx-text-3);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.nora-history-brand-copy strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.nora-history-brand-copy small {
+  color: var(--nx-text-3);
+  font-size: 12px;
+}
+
+.nora-history-brand-copy small i {
+  background: var(--nx-success);
+}
+
+.nora-history-close {
+  padding: 6px;
+  color: var(--nx-text-3);
+}
+
+.nora-history-close:hover {
+  background: var(--nx-hover);
+  color: var(--nx-text);
+}
+
+.nora-workspace .nora-new-conversation {
+  min-height: 36px !important;
+  justify-content: center !important;
+  gap: 8px;
+  padding: 0 14px !important;
+  border: 1px solid var(--nx-primary) !important;
+  border-radius: 8px !important;
+  background: var(--nx-primary) !important;
+  color: #fff !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+}
+
+.nora-workspace .nora-new-conversation:hover {
+  background: color-mix(in srgb, var(--nx-primary) 88%, #000) !important;
+}
+
+.nora-history-search {
+  height: 36px;
+  margin-top: 12px;
+  padding: 0 12px;
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 8px;
+  background: var(--nx-surface);
+  color: var(--nx-text-3);
+}
+
+.nora-history-search:focus-within {
+  border-color: var(--nx-primary);
+  background: var(--nx-surface);
+}
+
+.nora-history-search input {
+  color: var(--nx-text);
+  font-size: 13px;
+}
+
+.nora-history-search input::placeholder {
+  color: var(--nx-text-3);
+}
+
+.nora-history-tabs {
+  display: flex;
+  gap: 0;
+  margin: 12px 0 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--nx-hover);
+}
+
+.nora-history-tabs button {
+  min-height: 28px;
+  flex: 1;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--nx-text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.nora-history-tabs button[aria-selected="true"] {
+  background: var(--nx-surface);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .08);
+  color: var(--nx-text);
+}
+
+.nora-history-tabs span {
+  min-width: 0;
+  height: auto;
+  margin-left: 2px;
+  background: transparent;
+  color: var(--nx-text-3);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.nora-history-date {
+  margin: 14px 6px 6px;
+  color: var(--nx-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+}
+
+.nora-history-item {
+  margin-top: 1px;
+  border: 0;
+  border-radius: 8px;
+}
+
+.nora-history-item:hover {
+  background: var(--nx-hover);
+}
+
+.nora-history-item.active {
+  border-color: transparent;
+  background: var(--nx-primary-soft);
+}
+
+.nora-history-item > button:first-child {
+  min-height: 34px;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+}
+
+/* Ícone decorativo da linha: o layout aprovado mostra só o título. */
+.nora-history-item > button:first-child > svg {
+  display: none;
+}
+
+.nora-history-item strong {
+  color: var(--nx-text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nora-history-item.active strong {
+  color: var(--nx-primary-text);
+  font-weight: 600;
+}
+
+.nora-history-item small {
+  color: var(--nx-text-3);
+  font-size: 12px;
+}
+
+.nora-history-item svg,
+.nora-conversation-action {
+  color: var(--nx-text-3);
+}
+
+.nora-history-item.active svg {
+  color: var(--nx-primary-text);
+}
+
+.nora-conversation-action {
+  padding: 6px 4px;
+  opacity: .75;
+}
+
+.nora-conversation-action:hover,
+.nora-conversation-action:focus-visible,
+.nora-conversation-action.is-saved {
+  opacity: 1;
+}
+
+.nora-conversation-action.is-saved,
+.nora-conversation-action.is-saved svg {
+  color: var(--nx-primary-text);
+}
+
+.nora-delete-conversation:hover svg {
+  color: var(--nx-danger);
+}
+
+.nora-history-empty,
+.nora-library-files-state {
+  color: var(--nx-text-2);
+  font-size: 12.5px;
+}
+
+.nora-history-empty > svg,
+.nora-library-files-state svg {
+  color: var(--nx-text-3);
+}
+
+.nora-history-empty strong,
+.nora-library-files-state strong {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.nora-library-files-state.is-error {
+  color: var(--nx-danger);
+}
+
+.nora-library-files-state button {
+  color: var(--nx-primary-text);
+  font-weight: 500;
+}
+
+.nora-library-files-heading,
+.nora-library-conversation-label {
+  color: var(--nx-text-3);
+  font-size: 11px;
+}
+
+.nora-library-files-heading strong {
+  background: var(--nx-primary-soft);
+  color: var(--nx-primary-text);
+  font-size: 11px;
+}
+
+.nora-history-footer {
+  border-top: 1px solid var(--nx-border);
+  color: var(--nx-text-3);
+  font-size: 12px;
+}
+
+.nora-history-footer > svg {
+  color: var(--nx-text-3);
+}
+
+/* Cabeçalho da conversa */
+.nora-workspace-header {
+  min-height: 56px;
+  gap: 12px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--nx-border);
+  background: var(--nx-surface);
+}
+
+.nora-workspace-header-avatar {
+  width: 30px;
+  height: 30px;
+  border-color: var(--nx-border);
+  border-radius: 50%;
+}
+
+.nora-workspace-kicker {
+  margin-bottom: 1px;
+  color: var(--nx-text-3);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.nora-workspace-title h1 {
+  color: var(--nx-text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.nora-workspace-title p {
+  margin-top: 1px;
+  color: var(--nx-text-3);
+  font-size: 12px;
+}
+
+.nora-workspace-seg {
+  flex-shrink: 0;
+}
+
+.nora-workspace-actions {
+  gap: 2px;
+}
+
+.nora-workspace-header > button:first-child,
+.nora-workspace-actions button {
+  border-radius: 8px !important;
+  color: var(--nx-text-2);
+}
+
+.nora-history-error {
+  padding: 10px 20px;
+  border-bottom: 1px solid color-mix(in srgb, var(--nx-danger) 25%, transparent);
+  background: var(--nx-danger-soft);
+  color: var(--nx-text);
+  font-size: 13px;
+}
+
+.nora-history-error button {
+  color: var(--nx-primary-text);
+  font-weight: 500;
+}
+
+.nora-switching {
+  background: color-mix(in srgb, var(--nx-bg) 86%, transparent);
+}
+
+/* Conversa */
+.nora-workspace .nora-page .nora-drawer-conversation {
+  padding: 28px max(56px, calc((100% - 960px) / 2)) 28px !important;
+}
+
+.nora-workspace .nora-page .nora-user-message-shell {
+  max-width: min(70%, 680px) !important;
+}
+
+.nora-workspace .nora-page .nora-user-message {
+  padding: 10px 13px !important;
+  border-radius: 12px 12px 4px 12px !important;
+  background: var(--nx-primary) !important;
+  background-image: none !important;
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 400 !important;
+  line-height: 1.45;
+}
+
+.nora-workspace .nora-page .nora-assistant-message {
+  gap: 12px !important;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.nora-workspace .nora-agent-portrait,
+.nora-workspace .nora-agent-portrait > img {
+  width: 30px;
+  height: 30px;
+  flex-basis: 30px;
+  border-radius: 50%;
+}
+
+.nora-workspace .nora-agent-badge {
+  border-color: var(--nx-bg);
+}
+
+.nora-workspace .nora-page .nora-assistant-meta strong {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.nora-workspace .nora-page .nora-assistant-meta > span {
+  border: 0;
+  background: var(--nx-hover);
+  color: var(--nx-text-2);
+  font-size: 12px;
+  font-weight: 500 !important;
+  text-transform: none;
+}
+
+.nora-workspace .nora-page .nora-message-action {
+  border-radius: 6px;
+  color: var(--nx-text-3);
+}
+
+.nora-workspace .nora-page .nora-message-action:hover,
+.nora-workspace .nora-page .nora-message-action:focus-visible {
+  background: var(--nx-hover);
+  color: var(--nx-text);
+}
+
+.nora-workspace .nora-page .nora-message-action.is-active {
+  background: var(--nx-primary-soft);
+  color: var(--nx-primary-text);
+}
+
+.nora-workspace .nora-page .nora-message-more-menu {
+  border-color: var(--nx-border);
+  border-radius: 10px;
+  background: var(--nx-surface);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .18);
+}
+
+.nora-workspace .nora-page .nora-message-more-menu button {
+  font-size: 13px;
+}
+
+.nora-workspace .nora-page .nora-message-more-menu button:hover,
+.nora-workspace .nora-page .nora-message-more-menu button:focus-visible {
+  background: var(--nx-hover);
+}
+
+.nora-workspace .nora-page .nora-typing {
+  color: var(--nx-text-2);
+  font-size: 13px;
+  font-weight: 500 !important;
+}
+
+.nora-workspace .nora-page .nora-typing svg {
+  color: var(--nx-primary);
+}
+
+/* Campo de mensagem em cartão: texto em cima, ferramentas embaixo */
+.nora-workspace .nora-page .nora-composer {
+  width: auto;
+  max-width: none;
+  margin: 0 max(56px, calc((100% - 960px) / 2)) 22px;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.nora-workspace .nora-page-empty .nora-composer {
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child {
+  display: grid !important;
+  min-height: 0;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px !important;
+  padding: 10px 12px !important;
+  border: 1px solid var(--nx-border-strong) !important;
+  border-radius: 12px !important;
+  background: var(--nx-surface) !important;
+  box-shadow: none;
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child:focus-within {
+  border-color: var(--nx-primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-primary) 12%, transparent);
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child > textarea {
+  min-height: 40px;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  padding: 0 !important;
+  color: var(--nx-text);
+  font-size: 13.5px;
+  font-weight: 400 !important;
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child > textarea::placeholder {
+  color: var(--nx-text-3);
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child > button {
+  width: 30px;
+  height: 30px;
+  grid-row: 2;
+  border: 0 !important;
+  border-radius: 8px !important;
+  color: var(--nx-text-3);
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child > button:first-child {
+  grid-column: 1;
+  background: transparent !important;
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child > button:first-child:hover,
+.nora-workspace .nora-page .nora-composer > div:last-child > .nora-voice-button:hover {
+  background: var(--nx-hover) !important;
+  color: var(--nx-text);
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child > .nora-voice-button {
+  grid-column: 2;
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child > .nora-composer-model {
+  width: auto;
+  max-width: 220px;
+  height: 22px;
+  grid-column: 3;
+  margin-left: 6px;
+  padding: 0 8px;
+  border-radius: 999px !important;
+  background: var(--nx-hover);
+  color: var(--nx-text-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child > .nora-composer-model span {
+  max-width: 170px;
+}
+
+.nora-workspace .nora-page .nora-composer > div:last-child > button:last-child {
+  grid-column: 5;
+  color: #fff;
+}
+
+.nora-workspace .nora-page .bg-gradient-to-r {
+  background-color: var(--nx-primary) !important;
+  background-image: none !important;
+  color: #fff !important;
+}
+
+.nora-workspace .nora-voice-button.is-recording {
+  background: var(--nx-primary-soft) !important;
+  box-shadow: none;
+  color: var(--nx-primary-text) !important;
+}
+
+.nora-workspace .nora-voice-waveform-status {
+  color: var(--nx-primary);
+}
+
+.nora-workspace .nora-listening-status {
+  border-color: color-mix(in srgb, var(--nx-primary) 30%, transparent) !important;
+  background: var(--nx-primary-soft) !important;
+}
+
+.nora-workspace .nora-composer .text-cyan-100,
+.nora-workspace .nora-composer .text-blue-100 {
+  color: var(--nx-primary-text) !important;
+}
+
+.nora-workspace .nora-composer .text-amber-300 {
+  color: var(--nx-warning) !important;
+}
+
+.nora-workspace .nora-style-picker {
+  color: var(--nx-text-3);
+  font-size: 12.5px;
+}
+
+.nora-workspace .nora-style-picker select {
+  border-color: var(--nx-border-strong);
+  background: var(--nx-surface);
+  color: var(--nx-text);
+  font-size: 12.5px;
+}
+
+/* Preferências da conversa (abre pelo seletor de modelo) */
+.nora-workspace .nora-page .nora-drawer-controls {
+  border-color: var(--nx-border) !important;
+  border-radius: 12px;
+  background: var(--nx-surface);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, .18);
+}
+
+.nora-workspace .nora-drawer-controls label,
+.nora-workspace .nora-drawer-controls button {
+  border-color: var(--nx-border) !important;
+  font-size: 13px;
+}
+
+.nora-workspace .nora-drawer-controls select {
+  border-color: var(--nx-border-strong);
+  background: var(--nx-surface);
+  font-size: 13px;
+}
+
+.nora-workspace .nora-drawer-controls .bg-cyan-400\/15 {
+  background: var(--nx-primary-soft) !important;
+  color: var(--nx-primary-text) !important;
+}
+
+/* Primeira tela vazia */
+.nora-workspace .nora-page .nora-empty-portrait {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 16px;
+  border-radius: 50%;
+}
+
+.nora-workspace .nora-page .nora-empty-state h3 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+
+.nora-workspace .nora-page .nora-empty-state p {
+  margin-top: 4px;
+  color: var(--nx-text-2);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.nora-workspace .nora-page .nora-quick-suggestion {
+  min-height: 30px !important;
+  gap: 6px !important;
+  padding: 0 10px !important;
+  border: 1px solid var(--nx-border-strong) !important;
+  border-radius: 8px !important;
+  background: var(--nx-surface) !important;
+  color: var(--nx-text) !important;
+}
+
+.nora-workspace .nora-page .nora-quick-suggestion:hover {
+  border-color: var(--nx-border-strong) !important;
+  background: var(--nx-hover) !important;
+}
+
+.nora-workspace .nora-page .nora-quick-suggestion-icon {
+  color: var(--nx-text-3);
+}
+
+.nora-workspace .nora-page .nora-quick-suggestion > span {
+  font-size: 12.5px !important;
+  font-weight: 500;
+}
+
+/* Telas largas: histórico fixo ao lado da conversa, sem sobrepor */
+@media (min-width: 1181px) {
+  .history-open .nora-history {
+    position: relative;
+    inset: auto;
+    flex: 0 0 240px;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .history-open .nora-history-backdrop,
+  .history-open .nora-rail {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .nora-history,
+  .dark .nora-history {
+    width: min(280px, calc(100vw - var(--nora-rail-width)));
+    background: var(--nx-surface);
+  }
+
+  .nora-workspace-header {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  .nora-workspace .nora-page .nora-drawer-conversation {
+    padding: 18px 14px 24px !important;
+  }
+
+  .nora-workspace .nora-page .nora-composer {
+    margin: 0 12px max(12px, env(safe-area-inset-bottom));
+  }
+
+  .nora-workspace .nora-page-empty .nora-composer {
+    margin: 0 auto;
+  }
+
+  .nora-workspace .nora-page .nora-composer > div:last-child > textarea {
+    font-size: 16px;
+  }
+
+  .nora-workspace .nora-page .nora-user-message-shell {
+    max-width: 88% !important;
+  }
+
+  .nora-workspace-seg > button {
+    padding: 5px 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .nora-workspace-header {
+    flex-wrap: wrap;
+    padding-block: 8px;
+  }
+
+  .nora-workspace-seg {
+    order: 5;
+    width: 100%;
+  }
+
+  .nora-workspace-seg > button {
+    flex: 1;
   }
 }

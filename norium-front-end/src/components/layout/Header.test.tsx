@@ -26,7 +26,7 @@ describe("Header Nora", () => {
   it("usa a marca do Norium no lugar do botao hamburguer", () => {
     const { container } = renderHeader();
     expect(container.querySelector('[data-lucide="menu"]')).toBeNull();
-    expect(screen.getByRole("button", { name: "Abrir navegação pelo logo do Norium" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abrir navegação" })).toBeInTheDocument();
     expect(screen.getByRole("status", { name: "Versão em execução" })).toBeInTheDocument();
   });
 

@@ -176,8 +176,19 @@ async def publish_event(event):
         return
     try:
         await asyncio.to_thread(enqueue_event, event, current_workspace_id())
+        _wake_worker()
     except Exception:
         logger.exception("Falha ao enfileirar evento de automação")
+
+
+# O worker dorme sem consultar o banco e acorda quando um evento é enfileirado.
+_wake: asyncio.Event | None = None
+_WORKER_IDLE_MAX_SECONDS = 30.0
+
+
+def _wake_worker() -> None:
+    if _wake is not None:
+        _wake.set()
 
 
 def claim_job():
@@ -290,13 +301,23 @@ async def process_job(job):
 
 
 async def worker():
+    global _wake
+    _wake = asyncio.Event()
+    idle = 1.0
     while True:
         try:
+            _wake.clear()
             job = await asyncio.to_thread(claim_job)
             if job:
+                idle = 1.0
                 await process_job(job)
             else:
-                await asyncio.sleep(1)
+                # Sem fila: espera crescente (1 s → 30 s) e acorda na hora com um evento novo.
+                try:
+                    await asyncio.wait_for(_wake.wait(), timeout=idle)
+                    idle = 1.0
+                except asyncio.TimeoutError:
+                    idle = min(idle * 2, _WORKER_IDLE_MAX_SECONDS)
         except asyncio.CancelledError:
             raise
         except Exception:

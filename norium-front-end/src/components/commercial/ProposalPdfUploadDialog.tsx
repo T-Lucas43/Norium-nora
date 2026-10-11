@@ -1,3 +1,4 @@
+import "../../styles/screens/trabalho-comum.css";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileCheck2, Upload, X } from "lucide-react";
@@ -39,7 +40,7 @@ export default function ProposalPdfUploadDialog({ proposal, clients = [], initia
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Não foi possível enviar o PDF."); }
     finally { setBusy(false); }
   }
-  return createPortal(<div className="proposal-upload-backdrop"><div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="proposal-upload-title" className="clean-workspace proposal-upload-dialog" onKeyDown={event => {
+  return createPortal(<div className="proposal-upload-backdrop"><div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="proposal-upload-title" className="clean-workspace nxw-remap proposal-upload-dialog" onKeyDown={event => {
     event.stopPropagation();
     if (event.key === "Escape" && !busy) onClose();
     if (event.key === "Tab") {

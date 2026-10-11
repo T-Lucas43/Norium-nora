@@ -2,7 +2,8 @@ import ProposalPdfUploadDialog from "./ProposalPdfUploadDialog";
 import ProposalPdfWorkspace from "./ProposalPdfWorkspace";
 import { proposalStatuses, statusLabels } from "./proposalWorkflow";
 import SignatureComposer from "./SignatureComposer";
-import WorkspaceHeader from "../shared/WorkspaceHeader";
+import "../../styles/screens/trabalho-comum.css";
+import "../../styles/screens/documentos.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -353,7 +354,7 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
   useEffect(() => {
     if (!data?.processingJobs.some((job) => job.status === "queued" || job.status === "processing")) return undefined;
     const timer = window.setInterval(() => {
-      void loadCommercialData().then(setData).catch(() => undefined);
+      if (!document.hidden) void loadCommercialData().then(setData).catch(() => undefined);
     }, 3000);
     return () => window.clearInterval(timer);
   }, [data?.processingJobs]);
@@ -884,7 +885,7 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
               const response = await instantiateContract(selected.id, projectId, projectName, calendar);
               replaceDocument(response.contract);
               setInstantiateOpen(false);
-            }, "Obrigacoes transformadas em tarefas e prazos.")}
+            }, "Obrigações transformadas em tarefas e prazos.")}
           />
         )}
         {contractProposal && data && (
@@ -909,16 +910,19 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
   }
 
   return (
-    <main className="clean-workspace documents-workspace min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
-      <div className="mx-auto max-w-[1660px]">
-        <WorkspaceHeader title="Documentos" description="Crie, edite e compartilhe documentos profissionais com a Nora e uma biblioteca completa de modelos." icon={FileText}>
+    <main className="clean-workspace nxw-screen nxw-remap nx-page nxd-page min-h-[calc(100dvh-74px)]">
+      <div className="nxd-inner">
+        <header className="nx-ph">
+          <div><h1>Documentos</h1><p>Propostas, contratos e PDFs gerados</p></div>
+          <div className="nx-ph-actions">
             <Button variant="secondary" loading={loading} onClick={() => void load()} icon={<RefreshCw size={15} />}>Atualizar</Button>
             <Button variant="secondary" onClick={() => { setProposalUploadTarget(undefined); setProposalUploadSigned(false); setProposalUploadOpen(true); void loadCreationOptions(); }} icon={<Upload size={15} />}>Importar proposta</Button>
             <Button variant="secondary" onClick={() => setImportOpen(true)} icon={<Upload size={15} />}>Importar arquivo</Button>
             <Button variant="secondary" onClick={() => void openPdfTools()} icon={<Wrench size={15} />}>Ferramentas PDF</Button>
-            <Button variant="secondary" onClick={() => onOpenNora("Quero criar um documento. Pergunte tudo o que for essencial em uma única mensagem e gere mesmo que alguns detalhes fiquem como A definir.")} icon={<Sparkles size={15} />}>Criar com Nora</Button>
-            <Button variant="primary" className="workspace-primary" onClick={() => openCreate()} icon={<Plus size={16} />}>Novo documento</Button>
-</WorkspaceHeader>
+            <Button variant="secondary" onClick={() => onOpenNora("Quero criar um documento. Pergunte tudo o que for essencial em uma única mensagem e gere mesmo que alguns detalhes fiquem como A definir.")} icon={<Sparkles size={15} />}>Criar com a Nora</Button>
+            <Button variant="primary" onClick={() => openCreate()} icon={<Plus size={16} />}>Novo documento</Button>
+          </div>
+        </header>
 
         {error && (
           <StatusBanner
@@ -932,16 +936,16 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
 
         {loading ? <LoadingState label="Carregando documentos comerciais..." /> : data && (
           <>
-            <section className="workspace-metrics documents-metrics mt-5">
+            <section className="nx-kpis" aria-label="Resumo dos documentos">
               <Metric tone="blue" label="Total" value={liveSummary?.documentCount || 0} icon={FileText} onClick={() => { setView("all"); setStatusFilter("all"); }} />
               <Metric tone="amber" label="Em aprovação" value={liveSummary?.reviewCount || 0} icon={UsersRound} onClick={() => { setView("proposals"); setStatusFilter("in_review"); }} />
               <Metric tone="amber" label="Aguardando assinatura" value={liveSummary?.awaitingSignatureCount || 0} icon={FileSignature} onClick={() => { setView("all"); setStatusFilter("awaiting_signatures"); }} />
               <Metric tone="emerald" label="Assinados" value={liveSummary?.signedCount || 0} icon={BadgeCheck} onClick={() => { setView("all"); setStatusFilter("signed"); }} />
             </section>
 
-            <section className="mt-5 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-              <div className="documents-toolbar flex gap-3 border-b border-[var(--border)] p-4">
-                <div className="workspace-tabs" aria-label="Tipos de documento">
+            <section className="nx-card nxd-main">
+              <div className="nxd-toolbar">
+                <div className="nx-tabs nxd-tabs" aria-label="Tipos de documento">
                   <ViewTab active={view === "all"} label="Todos" count={liveSummary?.documentCount || 0} onClick={() => { setView("all"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "mine"} label="Meus documentos" count={[...data.proposals, ...data.contracts].filter((item) => item.accessRole === "owner" || item.createdBy === session.user.id).length} onClick={() => { setView("mine"); setStatusFilter("all"); }} />
                   <ViewTab active={view === "shared"} label="Compartilhados" count={[...data.proposals, ...data.contracts].filter((item) => item.accessRole !== "owner" && item.createdBy !== session.user.id).length} onClick={() => { setView("shared"); setStatusFilter("all"); }} />
@@ -952,15 +956,15 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
                   <ViewTab active={view === "templates"} label="Modelos" count={data.templates.length} onClick={() => setView("templates")} />
                   <ViewTab active={view === "brands"} label="Marcas" count={data.brandProfiles.length} onClick={() => setView("brands")} />
                 </div>
-                <div className="documents-toolbar-controls flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-                  <label className="flex h-10 min-w-64 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Search size={15} className="text-[var(--text-secondary)]" /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Buscar documentos" placeholder="Buscar por documento ou cliente" className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none" /></label>
+                <div className="nxd-controls">
+                  <label className="nx-input nxd-search"><Search size={15} className="nx-faint" /><input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Buscar documentos" placeholder="Buscar por documento ou cliente" /></label>
                   {(view === "all" || view === "mine" || view === "shared" || view === "documents" || view === "proposals" || view === "contracts" || view === "files") && (
                     <>
-                      <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3"><Filter size={14} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="commercial-status-select min-w-[150px] bg-transparent text-xs font-bold outline-none"><option value="all">Todos os status</option>{view === "files" ? <><option value="pdf">PDFs</option><option value="sent">Enviados</option><option value="received">Recebidos</option><option value="archived">Arquivados</option></> : Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                      <select aria-label="Ordenar documentos" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="commercial-field h-10 w-auto min-w-[150px] text-xs font-bold"><option value="updated_desc">Mais recentes</option><option value="updated_asc">Mais antigos</option><option value="title">Titulo A-Z</option></select>
+                      <label className="nx-input"><Filter size={14} className="nx-faint" /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="commercial-status-select min-w-[150px]"><option value="all">Todos os status</option>{view === "files" ? <><option value="pdf">PDFs</option><option value="sent">Enviados</option><option value="received">Recebidos</option><option value="archived">Arquivados</option></> : Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+                      <select aria-label="Ordenar documentos" value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="nxw-field min-w-[150px]"><option value="updated_desc">Mais recentes</option><option value="updated_asc">Mais antigos</option><option value="title">Título A-Z</option></select>
                       <Button variant={favoritesOnly ? "primary" : "secondary"} iconOnly onClick={() => setFavoritesOnly((current) => !current)} aria-label="Mostrar favoritos" title="Favoritos"><Star size={15} fill={favoritesOnly ? "currentColor" : "none"} /></Button>
-                      <Button variant={displayMode === "list" ? "primary" : "secondary"} iconOnly onClick={() => setDisplayMode("list")} aria-label="Visualizacao em lista" title="Lista"><List size={15} /></Button>
-                      <Button variant={displayMode === "grid" ? "primary" : "secondary"} iconOnly onClick={() => setDisplayMode("grid")} aria-label="Visualizacao em grade" title="Grade"><Grid3X3 size={15} /></Button>
+                      <Button variant={displayMode === "list" ? "primary" : "secondary"} iconOnly onClick={() => setDisplayMode("list")} aria-label="Visualização em lista" title="Lista"><List size={15} /></Button>
+                      <Button variant={displayMode === "grid" ? "primary" : "secondary"} iconOnly onClick={() => setDisplayMode("grid")} aria-label="Visualização em grade" title="Grade"><Grid3X3 size={15} /></Button>
                     </>
                   )}
                 </div>
@@ -969,15 +973,15 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
               {(view === "all" || view === "mine" || view === "shared" || view === "documents" || view === "proposals" || view === "contracts") && (
                 <div className={`min-h-0 ${displayMode === "grid" ? "grid gap-3 p-4 sm:grid-cols-2 2xl:grid-cols-3" : ""}`}>
                   {currentItems.map((item) => (
-                    <article key={item.id} className={displayMode === "grid" ? "flex min-h-72 flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 transition hover:border-blue-400/30" : "grid grid-cols-[48px_minmax(0,1fr)] items-start gap-x-2 gap-y-2 border-b border-[var(--border)] p-4 transition hover:bg-[var(--surface-hover)] xl:grid-cols-[44px_minmax(180px,1fr)_100px_120px_100px_180px_minmax(250px,auto)] xl:items-center"}>
-                      <span className="row-start-1 grid h-11 w-11 place-items-center rounded-lg bg-blue-500/10 text-blue-400">{item.documentType === "contract" ? <FileCheck2 size={19} /> : (item.templateDocumentType || "proposal") === "proposal" ? <FileSignature size={19} /> : <FileText size={19} />}</span>
+                    <article key={item.id} className={displayMode === "grid" ? "nxd-doc-card flex min-h-72 flex-col gap-3 rounded-[12px] border border-[var(--border)] bg-[var(--surface)] p-4 transition" : "nxd-doc-row grid grid-cols-[44px_minmax(0,1fr)] items-start gap-x-3 gap-y-2 border-b border-[var(--border)] px-[18px] py-3 transition hover:bg-[var(--nx-surface-2)] xl:grid-cols-[34px_minmax(180px,1fr)_110px_150px_120px_180px_minmax(250px,auto)] xl:items-center"}>
+                      <span className={`nxw-icon row-start-1 ${item.documentType === "contract" ? "is-green" : (item.templateDocumentType || "proposal") === "proposal" ? "" : "is-violet"}`}>{item.documentType === "contract" ? <FileCheck2 size={16} /> : (item.templateDocumentType || "proposal") === "proposal" ? <FileSignature size={16} /> : <FileText size={16} />}</span>
                       <button type="button" disabled={openingDocumentId !== null} onClick={() => void openDocument(item)} className="min-w-0 text-left disabled:cursor-wait disabled:opacity-70">
-                        <strong className="block truncate text-sm">{item.title}</strong>
-                        <small className="mt-1 block truncate font-semibold text-[var(--text-secondary)]">{item.documentTypeLabel || (item.documentType === "contract" ? "Contrato" : "Proposta")}{item.client?.name ? ` · ${item.client.name}` : ""} {item.brainstormId ? "· vinculado ao Estúdio" : ""}{item.accessRole && item.accessRole !== "owner" ? ` · Compartilhado por ${item.createdByName || "membro da equipe"}` : ""}</small>
+                        <strong className="block truncate text-[13.5px] font-medium">{item.title}</strong>
+                        <small className="mt-0.5 block truncate text-[12.5px] text-[var(--nx-text-3)]">{item.documentTypeLabel || (item.documentType === "contract" ? "Contrato" : "Proposta")}{item.client?.name ? ` · ${item.client.name}` : ""} {item.brainstormId ? "· vinculado ao Estúdio" : ""}{item.accessRole && item.accessRole !== "owner" ? ` · Compartilhado por ${item.createdByName || "membro da equipe"}` : ""}</small>
                       </button>
-                      <span className="col-start-2 text-xs font-bold xl:col-auto">{(item.templateDocumentType || "proposal") === "proposal" || item.templateDocumentType === "budget" || item.documentType === "contract" ? formatMoney(item.amount, item.currency) : item.documentTypeLabel || "Documento"}</span>
+                      <span className="col-start-2 text-[13px] xl:col-auto">{(item.templateDocumentType || "proposal") === "proposal" || item.templateDocumentType === "budget" || item.documentType === "contract" ? formatMoney(item.amount, item.currency) : item.documentTypeLabel || "Documento"}</span>
                       <span className="col-start-2 xl:col-auto"><StatusChip status={item.status} /></span>
-                      <time className="col-start-2 text-xs font-bold text-[var(--text-secondary)] xl:col-auto">{formatDate(item.updatedAt)}</time>
+                      <time className="col-start-2 text-[12.5px] text-[var(--nx-text-2)] xl:col-auto">{formatDate(item.updatedAt)}</time>
                       <DocumentPreviewButton
                         title={item.title}
                         label={item.documentTypeLabel || (item.documentType === "contract" ? "Contrato" : "Proposta")}
@@ -991,7 +995,7 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
                         )}
                         {item.accessRole !== "view" && item.documentType === "proposal" && (item.templateDocumentType || "proposal") === "proposal" && (
                           <>
-                            <select aria-label={`Alterar status de ${item.title}`} value="" disabled={busy} onChange={(event) => event.target.value && void handleProposalStatus(item, event.target.value as CommercialProposal["status"])} className="commercial-status-select h-9 max-w-[160px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-2 text-xs font-bold"><option value="">Alterar status</option>{proposalStatuses.filter((status) => status !== item.status).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>
+                            <select aria-label={`Alterar status de ${item.title}`} value="" disabled={busy} onChange={(event) => event.target.value && void handleProposalStatus(item, event.target.value as CommercialProposal["status"])} className="commercial-status-select nxw-field max-w-[160px]"><option value="">Alterar status</option>{proposalStatuses.filter((status) => status !== item.status).map((status) => <option key={status} value={status}>{statusLabels[status]}</option>)}</select>
                             <Button variant="secondary" iconOnly onClick={() => void handleDuplicateProposal(item)} aria-label={`Duplicar proposta ${item.title}`} title="Duplicar proposta"><Copy size={15} /></Button>
                           </>
                         )}
@@ -1017,18 +1021,18 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
               {(view === "files" || view === "all") && (
                 <div className="documents-results">
                   {data.processingJobs.length > 0 && (
-                    <section className="mb-4 rounded-lg border border-blue-400/20 bg-blue-500/5 p-4">
-                      <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-black">Fila de processamento</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">Tentativas, progresso e resultados ficam registrados.</p></div><Wrench size={17} className="text-blue-300" /></div>
+                    <section className="nxd-queue">
+                      <div className="flex items-center justify-between gap-3"><div><h2 className="text-[14px] font-semibold">Fila de processamento</h2><p className="mt-1 text-[12.5px] text-[var(--nx-text-3)]">Tentativas, progresso e resultados ficam registrados.</p></div><Wrench size={17} className="text-blue-300" /></div>
                       <div className="mt-3 grid gap-2 lg:grid-cols-2">
-                        {data.processingJobs.slice(0, 6).map((job) => <article key={job.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="flex items-center justify-between gap-2"><strong className="truncate text-xs">{job.label}</strong><StatusChip status={job.status} /></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface-hover)]"><span className="block h-full bg-blue-500 transition-all" style={{ width: `${job.progress}%` }} /></div><p className="mt-2 text-xs font-semibold text-[var(--text-secondary)]">{job.message}</p></article>)}
+                        {data.processingJobs.slice(0, 6).map((job) => <article key={job.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3"><div className="flex items-center justify-between gap-2"><strong className="truncate text-xs">{job.label}</strong><StatusChip status={job.status} /></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface-hover)]"><span className="block h-full bg-[var(--nx-primary)] transition-all" style={{ width: `${job.progress}%` }} /></div><p className="mt-2 text-xs font-semibold text-[var(--text-secondary)]">{job.message}</p></article>)}
                       </div>
                     </section>
                   )}
                   <div className={displayMode === "grid" ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-3" : "space-y-2"}>
                     {currentFiles.map((document) => (
-                      <article key={document.id} className={`border border-[var(--border)] bg-[var(--background)] p-4 ${displayMode === "grid" ? "rounded-lg" : "flex flex-col gap-3 rounded-lg lg:flex-row lg:items-center"}`}>
-                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-cyan-500/10 text-cyan-300"><FileText size={19} /></span>
-                        <div className="min-w-0 flex-1"><strong className="block truncate text-sm">{document.title}</strong><p className="mt-1 truncate text-xs font-semibold text-[var(--text-secondary)]">{document.originalFileName} · {formatFileSize(document.size)}</p><div className="mt-2 flex flex-wrap gap-2"><StatusChip status={document.category} />{document.confidential && <span className="rounded-full bg-amber-500/10 px-2 py-1 text-xs font-bold text-amber-300">Confidencial</span>}<time className="px-1 py-1 text-xs font-bold text-[var(--text-secondary)]">{formatDate(document.updatedAt)}</time></div></div>
+                      <article key={document.id} className={`border border-[var(--border)] bg-[var(--surface)] p-4 ${displayMode === "grid" ? "rounded-[12px]" : "flex flex-col gap-3 rounded-[10px] lg:flex-row lg:items-center"}`}>
+                        <span className="nxw-icon is-red"><FileText size={16} /></span>
+                        <div className="min-w-0 flex-1"><strong className="block truncate text-[13.5px] font-medium">{document.title}</strong><p className="mt-0.5 truncate text-[12.5px] text-[var(--nx-text-3)]">{document.originalFileName} · {formatFileSize(document.size)}</p><div className="mt-2 flex flex-wrap gap-2"><StatusChip status={document.category} />{document.confidential && <span className="rounded-full bg-amber-500/10 px-2 py-1 text-xs font-bold text-amber-300">Confidencial</span>}<time className="px-1 py-1 text-xs font-bold text-[var(--text-secondary)]">{formatDate(document.updatedAt)}</time></div></div>
                         <div className="flex flex-wrap gap-2">
                           <Button variant="secondary" iconOnly onClick={() => void handleToggleFavorite(document)} aria-label={`Favoritar ${document.title}`} title="Favorito"><Star size={15} fill={document.favorite ? "currentColor" : "none"} /></Button>
                           <Button variant="secondary" onClick={() => void handleDownload(document)} icon={<ExternalLink size={14} />}>Baixar</Button>
@@ -1037,7 +1041,7 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
                       </article>
                     ))}
                   </div>
-                  {!currentFiles.length && view === "files" && <EmptyState title="Nenhum arquivo encontrado" description="Importe PDFs ou imagens para organizar e processar com seguranca." icon={Upload} className="min-h-[380px] border-none" />}
+                  {!currentFiles.length && view === "files" && <EmptyState title="Nenhum arquivo encontrado" description="Importe PDFs ou imagens para organizar e processar com segurança." icon={Upload} className="min-h-[380px] border-none" />}
                 </div>
               )}
 
@@ -1056,9 +1060,9 @@ export default function CommercialDashboard({ session, onOpenNora, initialPdfToo
               {view === "brands" && (
                 <LibraryView
                   title="Perfis de marca"
-                  description={data.summary.planMode === "solo" ? "Seu plano permite um perfil de marca pessoal." : "Gerencie marcas e subsidiarias sem misturar identidades."}
+                  description={data.summary.planMode === "solo" ? "Seu plano permite um perfil de marca pessoal." : "Gerencie marcas e subsidiárias sem misturar identidades."}
                   icon={Palette}
-                  items={data.brandProfiles.map((item) => ({ id: item.id, title: item.name, description: item.isDefault ? "Marca padrao" : item.branding.primaryColor }))}
+                  items={data.brandProfiles.map((item) => ({ id: item.id, title: item.name, description: item.isDefault ? "Marca padrão" : item.branding.primaryColor }))}
                   actionLabel="Nova marca"
                   onAction={() => setBrandOpen(true)}
                 />
@@ -2000,30 +2004,30 @@ function ImportDocumentDialog({ busy, onClose, onSubmit }: { busy: boolean; onCl
 }
 
 function Dialog({ title, subtitle, onClose, children, wide = false }: { title: string; subtitle: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
-  return <div className="fixed inset-0 z-[120] grid place-items-center bg-black/65 p-4" onClick={onClose}><section className={`w-full ${wide ? "max-w-6xl" : "max-w-xl"} rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-2xl`} onClick={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-3 border-b border-[var(--border)] p-5"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{subtitle}</p></div><Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar"><X size={17} /></Button></header><div className="max-h-[82dvh] overflow-y-auto p-5">{children}</div></section></div>;
+  return <div className="nxd-modal-backdrop fixed inset-0 z-[120] grid place-items-center p-4" onClick={onClose}><section className={`nx-card nxd-modal w-full ${wide ? "max-w-6xl" : "max-w-xl"}`} onClick={(event) => event.stopPropagation()}><header className="flex items-start justify-between gap-3 border-b border-[var(--nx-border)] px-5 py-4"><div><h2 className="text-[16px] font-semibold">{title}</h2><p className="mt-1 text-[12.5px] text-[var(--nx-text-2)]">{subtitle}</p></div><Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Fechar"><X size={17} /></Button></header><div className="max-h-[82dvh] overflow-y-auto p-5">{children}</div></section></div>;
 }
 
 function FormField({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="block"><span className="mb-1.5 block text-xs font-bold uppercase text-[var(--text-secondary)]">{label}</span>{children}</label>;
+  return <label className="block"><span className="mb-1.5 block text-[12.5px] font-medium text-[var(--nx-text-2)]">{label}</span>{children}</label>;
 }
 
 function Metric({ label, value, icon: Icon, onClick, tone = "blue" }: { label: string; value: number; icon: typeof FileSignature; onClick?: () => void; tone?: string }) {
-  return <button type="button" data-metric-tone={tone} onClick={onClick} className="workspace-metric flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-left transition hover:border-blue-400/35 hover:bg-blue-500/5"><span><small className="font-black uppercase text-[var(--text-secondary)]">{label}</small><strong className="metric-value mt-2 block text-2xl">{value}</strong></span><span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon className="metric-icon" size={18} /></span></button>;
+  return <button type="button" data-metric-tone={tone} onClick={onClick} className="nx-card nx-kpi nxd-kpi"><span className="nx-kpi-l"><Icon size={16} className="nx-faint" />{label}</span><strong className="nx-kpi-v">{value}</strong></button>;
 }
 
 function ViewTab({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
-  return <button type="button" aria-pressed={active} onClick={onClick} className={`flex h-10 items-center gap-2 whitespace-nowrap border-b-2 px-4 text-xs font-bold ${active ? "border-blue-500 text-blue-400" : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text)]"}`}>{label}<span className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-xs">{count}</span></button>;
+  return <button type="button" aria-pressed={active} onClick={onClick} className={`nx-tab ${active ? "is-active" : ""}`}>{label}<span className="nxw-tab-count">{count}</span></button>;
 }
 
 function StatusChip({ status }: { status: string }) {
   const tone = ["signed", "active", "approved", "completed", "ready"].includes(status)
-    ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-300"
+    ? "is-green"
     : ["rejected", "cancelled", "failed", "error"].includes(status)
-      ? "border-rose-400/25 bg-rose-500/10 text-rose-300"
+      ? "is-red"
       : ["in_review", "negotiating", "awaiting_signatures", "pending", "processing"].includes(status)
-        ? "border-amber-400/25 bg-amber-500/10 text-amber-300"
-        : "border-blue-400/20 bg-blue-500/10 text-blue-300";
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold uppercase ${tone}`}>{statusLabels[status] || status}</span>;
+        ? "is-amber"
+        : "is-blue";
+  return <span className={`nx-badge ${tone}`}>{statusLabels[status] || status}</span>;
 }
 
 function templateTypeLabel(value: TemplateDocumentType) {
@@ -2069,9 +2073,9 @@ function DocumentPreviewButton({
     >
       <DocumentCover label={label} primaryColor={primaryColor} />
       <span className="min-w-0">
-        <strong className="block truncate text-xs">Pre-visualizacao</strong>
-        <small className="mt-1 block truncate text-[var(--text-secondary)]">Documento A4</small>
-        <span className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-300"><Eye size={13} /> Visualizar</span>
+        <strong className="block truncate text-xs font-medium">Pré-visualização</strong>
+        <small className="mt-1 block truncate text-[var(--nx-text-3)]">Documento A4</small>
+        <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[var(--nx-primary-text)]"><Eye size={13} /> Visualizar</span>
       </span>
     </button>
   );
@@ -2094,7 +2098,7 @@ function LibraryView({
   onAction: () => void;
   onItemClick?: (id: string) => void;
 }) {
-  return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="grid min-h-48 grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><button type="button" disabled={!onItemClick} onClick={() => onItemClick?.(item.id)} className="self-start disabled:cursor-default" aria-label={onItemClick ? `Pre-visualizar ${item.title}` : undefined}>{item.template ? <DocumentCover label={templateTypeLabel(item.template.documentType)} primaryColor={item.template.branding?.primaryColor} secondaryColor={item.template.branding?.secondaryColor} /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span>}</button><div className="min-w-0"><strong className="block truncate text-sm">{item.title}</strong>{item.template?.paletteName && <small className="mt-1 block truncate text-[11px] font-bold text-cyan-300">{item.template.paletteName}</small>}<p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)} icon={<Eye size={14} />}>Visualizar em A4</Button>}</div></article>)}</div>{!items.length && <EmptyState title="Nenhum modelo encontrado" description="Ajuste a busca ou salve um modelo personalizado." icon={Icon} className="mt-5 min-h-72" />}</div>;
+  return <div className="min-h-[480px] p-5"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-black">{title}</h2><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{description}</p></div><Button onClick={onAction} icon={<Plus size={14} />}>{actionLabel}</Button></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{items.map((item) => <article key={item.id} className="grid min-h-48 grid-cols-[72px_minmax(0,1fr)] gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4"><button type="button" disabled={!onItemClick} onClick={() => onItemClick?.(item.id)} className="self-start disabled:cursor-default" aria-label={onItemClick ? `Pre-visualizar ${item.title}` : undefined}>{item.template ? <DocumentCover label={templateTypeLabel(item.template.documentType)} primaryColor={item.template.branding?.primaryColor} secondaryColor={item.template.branding?.secondaryColor} /> : <span className="grid h-12 w-12 place-items-center rounded-lg bg-blue-500/10 text-blue-400"><Icon size={18} /></span>}</button><div className="min-w-0"><strong className="block truncate text-[13.5px] font-medium">{item.title}</strong>{item.template?.paletteName && <small className="mt-1 block truncate text-[11px] font-bold text-cyan-300">{item.template.paletteName}</small>}<p className="mt-2 line-clamp-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</p>{onItemClick && <Button size="sm" variant="secondary" className="mt-4" onClick={() => onItemClick(item.id)} icon={<Eye size={14} />}>Visualizar em A4</Button>}</div></article>)}</div>{!items.length && <EmptyState title="Nenhum modelo encontrado" description="Ajuste a busca ou salve um modelo personalizado." icon={Icon} className="mt-5 min-h-72" />}</div>;
 }
 
 function TemplatePreviewDialog({ template, busy, onClose, onUse, onEditExample, onRename, onDuplicate, onDelete }: { template: CommercialTemplate; busy: boolean; onClose: () => void; onUse: () => void; onEditExample: () => void; onRename: () => void; onDuplicate: () => void; onDelete?: () => void }) {
@@ -2182,7 +2186,7 @@ function sanitizeTemplateHtml(value: string) {
 }
 
 function FloatingMessage({ kind, message, onClose }: { kind: "error" | "success"; message: string; onClose: () => void }) {
-  return createPortal(<div role={kind === "error" ? "alert" : "status"} className={`fixed bottom-5 left-1/2 z-[130] flex w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 items-center gap-3 rounded-lg border px-4 py-3 text-sm font-bold shadow-2xl ${kind === "error" ? "border-rose-500/40 bg-rose-950" : "border-emerald-500/40 bg-emerald-950"}`} style={{ color: "#fff" }}><span className="min-w-0 flex-1">{message}</span><button type="button" className="shrink-0 p-2" onClick={onClose} aria-label="Fechar aviso"><X size={15} /></button></div>, document.body);
+  return createPortal(<div role={kind === "error" ? "alert" : "status"} className={`nxw-alert nxd-toast ${kind === "error" ? "is-error" : "is-success"}`}><span className="min-w-0 flex-1">{message}</span><button type="button" className="shrink-0 p-2" onClick={onClose} aria-label="Fechar aviso"><X size={15} /></button></div>, document.body);
 }
 
 function messageFromError(error: unknown, fallback: string) {

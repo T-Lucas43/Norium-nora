@@ -1,6 +1,6 @@
-import { Bot, Check, Eye, Loader2, Menu, Search, Settings, SlidersHorizontal, X } from "lucide-react";
-import Button from "../shared/Button";
+import { Check, Eye, Loader2, Menu, PenLine, Search, Settings, SlidersHorizontal, X } from "lucide-react";
 import { cn } from "../../utils/cn";
+import NoraAvatar from "../layout/NoraAvatar";
 import AdvancedSearchPanel from "./AdvancedSearchPanel";
 import { accountInitials } from "../../features/mail/formatters";
 import type { AdvancedMailFilters } from "../../features/mail/queryBuilder";
@@ -24,6 +24,8 @@ type MailToolbarProps = {
   onTogglePreview: () => void;
   onOpenSettings: () => void;
   onToggleProfile: () => void;
+  /** Atalho de nova mensagem ao lado da busca, como no layout aprovado. */
+  onCompose?: () => void;
 };
 
 /** Barra superior do Norium Mail: busca, filtros e acoes da conta. */
@@ -45,45 +47,46 @@ export default function MailToolbar({
   onTogglePreview,
   onOpenSettings,
   onToggleProfile,
+  onCompose,
 }: MailToolbarProps) {
   return (
-    <header className="mail-toolbar mail-surface flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-4">
-      <div className="mail-toolbar-search-group flex min-w-0 items-center gap-4">
-        <button type="button" className="mobile-sidebar-toggle mail-navigation-toggle" aria-label="Abrir menu do e-mail" title="Pastas do e-mail" onClick={onOpenMobileSidebar}>
-          <Menu size={18} />
+    <div className="nx-mail-toolbar">
+      <div className="nx-mail-toolbar-search">
+        <button type="button" className="mobile-sidebar-toggle mail-navigation-toggle" aria-label="Abrir menu do e-mail" title="Pastas e marcadores" onClick={onOpenMobileSidebar}>
+          <Menu size={16} />
         </button>
 
-        <div className="mail-input relative flex h-11 w-[405px] max-w-[42vw] items-center gap-3 rounded-lg border border-white/12 bg-[#1C1C20] px-4">
-          <Search size={18} className="text-white/55" />
+        <div className="nx-input nx-mail-search">
+          <Search size={16} />
           <input
             value={searchDraft}
             onChange={(event) => onSearchDraftChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") onApplySearch();
             }}
-            placeholder="Pesquisar email"
-            className="min-w-0 flex-1 bg-transparent text-sm font-medium text-white outline-none placeholder:text-white/45"
+            placeholder="Buscar e-mails"
+            aria-label="Buscar e-mails"
           />
           {searchDraft && (
             <button
               type="button"
               onClick={onClearSearch}
-              className="text-white/45 hover:text-white"
+              className="nx-mail-iconbtn"
               title="Limpar pesquisa"
               aria-label="Limpar pesquisa"
             >
-              <X size={16} />
+              <X size={14} />
             </button>
           )}
           <button
             type="button"
             onClick={onToggleFilters}
-            className={cn("text-white/55 hover:text-white", filtersOpen && "text-cyan-300")}
-            title="Filtros avancados"
+            className={cn("nx-mail-iconbtn", filtersOpen && "is-active")}
+            title="Filtros avançados"
             aria-expanded={filtersOpen}
-            aria-label="Filtros avancados"
+            aria-label="Filtros avançados"
           >
-            <SlidersHorizontal size={17} />
+            <SlidersHorizontal size={15} />
           </button>
           {filtersOpen && (
             <AdvancedSearchPanel
@@ -96,68 +99,74 @@ export default function MailToolbar({
           )}
         </div>
 
+        {onCompose && (
+          <button type="button" className="nx-btn is-primary nx-mail-compose" onClick={onCompose} title="Nova mensagem" aria-label="Nova mensagem">
+            <PenLine size={16} />
+          </button>
+        )}
+
         {status?.connected && (
-          <div className="hidden min-w-0 text-xs font-semibold text-white/50 xl:block">
-            Conectado como <span className="text-white/80">{status.email}</span>
-          </div>
+          <span className="nx-mail-account">
+            Conectado como <b>{status.email}</b>
+          </span>
         )}
       </div>
 
-      <div className="mail-toolbar-actions flex items-center gap-2">
+      <div className="nx-mail-toolbar-actions">
         {canUseNora && status?.connected && (sync.active || sync.loaded > 0) && (
-          <div
-            className="mail-sync-progress hidden items-center gap-2 rounded-full border border-white/12 px-3 py-1.5 text-[11px] font-bold text-white/70 md:flex"
+          <span
+            className="nx-badge nx-mail-sync"
             role="status"
             aria-live="polite"
             title={sync.error ? `Sincronização parcial: ${sync.error}` : sync.active ? "Sincronizando todas as páginas da caixa atual…" : "Caixa sincronizada e guardada em memória."}
           >
-            {sync.active ? <Loader2 size={13} className="animate-spin text-cyan-300" /> : <Check size={13} className="text-emerald-300" />}
+            {sync.active ? <Loader2 size={13} className="nx-mail-spin" /> : <Check size={13} />}
             <span>{sync.active ? "Sincronizando" : "Sincronizado"} {sync.loaded}{sync.estimated > sync.loaded ? ` de ~${sync.estimated}` : ""}</span>
             {sync.active && sync.estimated > 0 && (
-              <span className="h-1 w-16 overflow-hidden rounded-full bg-white/15" aria-hidden="true">
-                <span className="block h-full rounded-full bg-cyan-300" style={{ width: `${Math.min(100, Math.round((sync.loaded / sync.estimated) * 100))}%` }} />
-              </span>
+              <i aria-hidden="true">
+                <b style={{ width: `${Math.min(100, Math.round((sync.loaded / sync.estimated) * 100))}%` }} />
+              </i>
             )}
-          </div>
+          </span>
         )}
         {canUseNora && (
-          <Button onClick={onOpenNora} className="rounded-full border-[#38BDF8] hover:bg-[#38BDF8]/12">
-            <Bot size={15} />
-            Nora para E-mails
-          </Button>
+          <button type="button" onClick={onOpenNora} className="nx-btn nx-mail-nora-btn" aria-label="Nora para E-mails">
+            <NoraAvatar className="rounded-full" />
+            <span>Nora para E-mails</span>
+          </button>
         )}
-        <Button
-          iconOnly
+        <button
+          type="button"
           onClick={onTogglePreview}
-          title="Alternar previa"
-          className="mail-hover rounded-full border-white/12 hover:bg-white/7"
-          aria-label="Alternar previa"
+          title="Alternar prévia"
+          className="nx-mail-iconbtn"
+          aria-label="Alternar prévia"
         >
-          <Eye size={17} />
-        </Button>
-        <Button
-          iconOnly
+          <Eye size={16} />
+        </button>
+        <button
+          type="button"
           onClick={onOpenSettings}
-          title="Configuracoes do Mail"
-          className="mail-hover rounded-full border-white/12 hover:bg-white/7"
-          aria-label="Configuracoes do Mail"
+          title="Configurações do e-mail"
+          className="nx-mail-iconbtn"
+          aria-label="Configurações do e-mail"
         >
-          <Settings size={17} />
-        </Button>
-        <Button
-          iconOnly
+          <Settings size={16} />
+        </button>
+        <button
+          type="button"
           onClick={onToggleProfile}
           title="Perfil"
-          className="mail-hover !h-9 !w-9 !min-w-9 shrink-0 overflow-hidden rounded-full border-white/12 bg-[#4A3B8F] !p-0"
+          className="nx-mail-profile"
           aria-label="Perfil"
         >
           {status?.picture ? (
-            <img src={status.picture} alt="Foto do perfil" className="block aspect-square h-9 w-9 max-w-none object-cover" />
+            <img src={status.picture} alt="Foto do perfil" onError={(event) => { event.currentTarget.style.display = "none"; }} />
           ) : (
             <span>{accountInitials(status)}</span>
           )}
-        </Button>
+        </button>
       </div>
-    </header>
+    </div>
   );
 }

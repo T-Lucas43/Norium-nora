@@ -24,7 +24,8 @@ function dateLabel(value: Date) {
   return value.toLocaleDateString("pt-BR", {
     weekday: "long",
     day: "2-digit",
-    month: "long",
+    month: "2-digit",
+    year: "numeric",
   });
 }
 
@@ -64,94 +65,122 @@ export default function DashboardRail({
         : { tab: "Central", label: "Ver a Central", detail: "Nenhuma pendência urgente" };
 
   return (
-    <aside className="norium-dashboard-rail" aria-label="Seu dia">
-      <section className="norium-dashboard-card norium-day-summary">
-        <p className="norium-dashboard-card-label">Seu dia</p>
-
-        <div className="norium-day-summary-row">
-          <Clock3 />
-          <div>
-            <strong>{now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</strong>
-            <span>{dateLabel(now)}</span>
+    <aside className="nxd-col nxd-rail" aria-label="Seu dia">
+      <section className="nx-card nxd-card">
+        <div className="nx-card-h">
+          <h2>Seu dia</h2>
+        </div>
+        <div className="nx-card-b">
+          <div className="nx-row">
+            <span className="nxd-ico is-blue"><Clock3 size={16} strokeWidth={1.75} /></span>
+            <div className="nx-grow">
+              <div className="nx-row-t">{now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</div>
+              <div className="nx-row-sub">{dateLabel(now)}</div>
+            </div>
           </div>
-        </div>
 
-        <div className="norium-day-summary-row">
-          <CloudSun className="is-weather" />
-          <div>
-            <strong>{weather?.loading ? "..." : weather ? `${weather.temperature}°C` : "--"}</strong>
-            <span>{weather?.description || "Informe seu CEP"}</span>
-          </div>
-        </div>
+          {weather && !weather.error ? (
+            <>
+              <div className="nx-row">
+                <span className="nxd-ico is-amber"><CloudSun size={16} strokeWidth={1.75} /></span>
+                <div className="nx-grow">
+                  <div className="nx-row-t">{weather.loading ? "..." : `${weather.temperature}°C`}</div>
+                  <div className="nx-row-sub">{weather.description}</div>
+                </div>
+              </div>
 
-        <div className="norium-day-summary-row">
-          <MapPin />
-          <div>
-            <strong>{weather?.city || "Localização não configurada"}</strong>
-            <span>
-              {weather && !weather.error
-                ? `Umidade ${weather.humidity ?? 0}% · Vento ${weather.wind ?? 0} km/h`
-                : "Atualize o CEP no perfil"}
-            </span>
-          </div>
-        </div>
-
-        <button type="button" className="norium-day-decision" onClick={() => onNavigate(decision.tab)}>
-          <span>
-            <small>Próxima decisão</small>
-            <strong>{decision.label}</strong>
-            <em>{decision.detail}</em>
-          </span>
-          <ArrowRight size={17} aria-hidden="true" />
-        </button>
-      </section>
-
-      <section className="norium-dashboard-card norium-next-steps">
-        <button type="button" onClick={() => onNavigate("Agenda")}>
-          <CalendarDays />
-          <span>
-            <small>Próximos passos · {todayEventCount} hoje</small>
-            <strong>{nextEvent?.title || "Agenda livre"}</strong>
-            <em>
-              {nextEvent
-                ? new Date(nextEvent.timestamp).toLocaleString("pt-BR", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })
-                : "Nenhum compromisso próximo"}
-            </em>
-          </span>
-        </button>
-
-        <button type="button" onClick={() => onNavigate("Tarefas")}>
-          <Crosshair className="is-focus" />
-          <span>
-            <small>Foco do dia{taskOverdueCount > 0 ? ` · ${taskOverdueCount} vencida${taskOverdueCount === 1 ? "" : "s"}` : ""}</small>
-            <strong>{focusTask?.title || "Sem tarefas atribuídas"}</strong>
-            <em>{focusTask?.meta || "Abra o Kanban para revisar"}</em>
-          </span>
-        </button>
-      </section>
-
-      <section className="norium-dashboard-card norium-finance-pending">
-        <div className="norium-finance-pending-heading">
-          <div><p className="norium-dashboard-card-label">Financeiro</p><h2>Contas a pagar</h2></div>
-          <button type="button" onClick={() => onNavigate("Financeiro")}>Abrir <ChevronRight size={14} /></button>
-        </div>
-        <div className="norium-finance-pending-summary">
-          <span><ReceiptText size={17} />{money.format(financePendingTotal)}</span>
-          {financeOverdueCount > 0 && <em><AlertTriangle size={13} />{financeOverdueCount} vencida{financeOverdueCount === 1 ? "" : "s"}</em>}
-        </div>
-        <div className="norium-finance-pending-list" aria-label="Pendências financeiras">
-          {financePending.map((item) => (
-            <button type="button" key={`${item.scheduled ? "scheduled" : "entry"}-${item.id}`} onClick={() => onNavigate("Financeiro")}>
-              <span><strong>{item.title}</strong><small>{item.scheduled ? "Programada" : "Pendente"}{item.dueDate ? ` · ${new Date(`${item.dueDate}T12:00:00`).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}` : " · Sem vencimento"}</small></span>
-              <b>{money.format(item.amount)}</b>
+              <div className="nx-row">
+                <span className="nxd-ico"><MapPin size={16} strokeWidth={1.75} /></span>
+                <div className="nx-grow">
+                  <div className="nx-row-t nx-ell">{weather.city || "Localização"}</div>
+                  <div className="nx-row-sub">{`Umidade ${weather.humidity ?? 0}% · Vento ${weather.wind ?? 0} km/h`}</div>
+                </div>
+              </div>
+            </>
+          ) : (
+            // Sem CEP (ou falha no clima): uma linha só, que leva ao perfil para informar o CEP.
+            <button type="button" className="nx-row nxd-setup" onClick={() => onNavigate("Perfil")}>
+              <span className="nxd-ico is-amber"><CloudSun size={16} strokeWidth={1.75} /></span>
+              <span className="nx-grow">
+                <span className="nx-row-t block">Clima e localização</span>
+                <span className="nx-row-sub block">{weather?.error ? "Não foi possível carregar · revisar CEP" : "Informe seu CEP no perfil para ver o clima"}</span>
+              </span>
+              <MapPin size={16} strokeWidth={1.75} aria-hidden="true" />
             </button>
-          ))}
-          {!financePending.length && <p>Nenhuma conta pendente.</p>}
+          )}
+
+          <button type="button" className="nxd-decision" onClick={() => onNavigate(decision.tab)}>
+            <span className="nx-grow">
+              <small>Próxima decisão</small>
+              <strong>{decision.label}</strong>
+              <em>{decision.detail}</em>
+            </span>
+            <ArrowRight size={16} strokeWidth={1.75} aria-hidden="true" />
+          </button>
+        </div>
+      </section>
+
+      <section className="nx-card nxd-card">
+        <div className="nx-card-b pt-2">
+          <button type="button" className="nx-row nxd-row" onClick={() => onNavigate("Agenda")}>
+            <span className="nxd-ico is-blue"><CalendarDays size={16} strokeWidth={1.75} /></span>
+            <span className="nx-grow">
+              <span className="nx-row-sub block">Próximos passos · {todayEventCount} hoje</span>
+              <span className="nx-row-t nx-ell block">{nextEvent?.title || "Agenda livre"}</span>
+              <span className="nx-row-sub block">
+                {nextEvent
+                  ? new Date(nextEvent.timestamp).toLocaleString("pt-BR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "Nenhum compromisso próximo"}
+              </span>
+            </span>
+          </button>
+
+          <button type="button" className="nx-row nxd-row" onClick={() => onNavigate("Tarefas")}>
+            <span className="nxd-ico is-green"><Crosshair size={16} strokeWidth={1.75} /></span>
+            <span className="nx-grow">
+              <span className="nx-row-sub block">Foco do dia{taskOverdueCount > 0 ? ` · ${taskOverdueCount} vencida${taskOverdueCount === 1 ? "" : "s"}` : ""}</span>
+              <span className="nx-row-t nx-ell block">{focusTask?.title || "Sem tarefas atribuídas"}</span>
+              <span className="nx-row-sub block">{focusTask?.meta || "Abra o Kanban para revisar"}</span>
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <section className="nx-card nxd-card">
+        <div className="nx-card-h">
+          <div className="nxd-card-h-col">
+            <p className="nxd-eyebrow">Financeiro</p>
+            <h2>Contas a pagar</h2>
+          </div>
+          <button type="button" className="nx-more inline-flex items-center gap-1" onClick={() => onNavigate("Financeiro")}>
+            Abrir <ChevronRight size={14} strokeWidth={1.75} />
+          </button>
+        </div>
+        <div className="nx-card-b">
+          <div className="nxd-total">
+            <span><ReceiptText size={16} strokeWidth={1.75} />{money.format(financePendingTotal)}</span>
+            {financeOverdueCount > 0 && (
+              <em className="nx-badge is-red not-italic"><AlertTriangle size={12} strokeWidth={1.75} />{financeOverdueCount} vencida{financeOverdueCount === 1 ? "" : "s"}</em>
+            )}
+          </div>
+          <div className="nxd-list" aria-label="Pendências financeiras">
+            {financePending.map((item) => (
+              <button type="button" className="nx-row nxd-row" key={`${item.scheduled ? "scheduled" : "entry"}-${item.id}`} onClick={() => onNavigate("Financeiro")}>
+                <span className="nx-grow">
+                  <strong className="nx-row-t nx-ell block">{item.title}</strong>
+                  <small className="nx-row-sub block">{item.scheduled ? "Programada" : "Pendente"}{item.dueDate ? ` · ${new Date(`${item.dueDate}T12:00:00`).toLocaleDateString("pt-BR")}` : " · Sem vencimento"}</small>
+                </span>
+                <b className="nxd-amount">{money.format(item.amount)}</b>
+              </button>
+            ))}
+            {!financePending.length && <p className="nxd-empty">Nenhuma conta pendente.</p>}
+          </div>
         </div>
       </section>
     </aside>

@@ -84,10 +84,33 @@ export function dateLabel(value?: string | null, time = false) {
   const date = value ? new Date(value) : null;
   return date && Number.isFinite(date.getTime())
     ? new Intl.DateTimeFormat("pt-BR", {
-        dateStyle: "medium",
-        ...(time ? { timeStyle: "short" as const } : {}),
-      }).format(date)
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        ...(time ? { hour: "2-digit" as const, minute: "2-digit" as const } : {}),
+      })
+        .format(date)
+        .replace(",", " às")
     : "Não definido";
+}
+/** CPF (000.000.000-00) ou CNPJ (00.000.000/0000-00) para exibição; outros valores ficam como vieram. */
+export function documentLabel(value?: string) {
+  const digits = (value || "").replace(/\D/g, "");
+  if (digits.length === 11)
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+  if (digits.length === 14)
+    return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+  return value || "";
+}
+/** Telefone brasileiro (00) 00000-0000 ou (00) 0000-0000 para exibição. */
+export function phoneLabel(value?: string) {
+  const digits = (value || "").replace(/\D/g, "");
+  const local = digits.length === 13 && digits.startsWith("55") ? digits.slice(2) : digits;
+  if (!/^\s*(?:\+|00)/.test(value || "") || local !== digits) {
+    if (local.length === 11) return local.replace(/(\d{2})(\d{5})(\d{4})/, "($1) $2-$3");
+    if (local.length === 10) return local.replace(/(\d{2})(\d{4})(\d{4})/, "($1) $2-$3");
+  }
+  return value || "";
 }
 export function whatsappUrl(phone: string): string | null {
   let number = phone.replace(/\D/g, "");

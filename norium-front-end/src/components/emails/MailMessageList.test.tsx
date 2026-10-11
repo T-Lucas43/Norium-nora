@@ -85,18 +85,18 @@ describe("MailMessageList", () => {
 
   it("desabilita paginacao sem proxima pagina", () => {
     setup();
-    expect(screen.getByRole("button", { name: /proxima pagina/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /próxima página/i })).toBeDisabled();
   });
 
   it("habilita a proxima pagina quando ha token", () => {
     const h = setup({ nextPageToken: "p2" });
-    fireEvent.click(screen.getByRole("button", { name: /proxima pagina/i }));
+    fireEvent.click(screen.getByRole("button", { name: /próxima página/i }));
     expect(h.onNextPage).toHaveBeenCalled();
   });
 
   it("desabilita voltar ao inicio quando cabe em uma pagina", () => {
     setup();
-    expect(screen.getByRole("button", { name: /voltar ao inicio/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /voltar ao início/i })).toBeDisabled();
   });
 
   it("so mostra acoes em lote quando ha selecao", () => {
@@ -114,12 +114,12 @@ describe("MailMessageList", () => {
 
   it("marca selecionar todos apenas quando todas estao marcadas", () => {
     setup({ selectedIds: new Set(["a"]) });
-    expect(screen.getByRole("button", { name: /selecionar todos/i }).className).not.toContain("bg-[#0EA5E9]");
+    expect(screen.getByRole("button", { name: /selecionar todos/i }).className).not.toContain("is-checked");
   });
 
   it("troca o filtro rapido", () => {
     const h = setup();
-    fireEvent.click(screen.getByRole("button", { name: /nao lidos/i }));
+    fireEvent.click(screen.getByRole("button", { name: /não lidos/i }));
     expect(h.onFilterChange).toHaveBeenCalledWith("unread");
   });
 
@@ -165,7 +165,7 @@ describe("MailMessageList", () => {
     try {
       const many = Array.from({ length: 51 }, (_, i) => msg(`m${i}`));
       setup({ messages: many });
-      fireEvent.click(screen.getByRole("button", { name: /voltar ao inicio/i }));
+      fireEvent.click(screen.getByRole("button", { name: /voltar ao início/i }));
       expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
     } finally {
       Reflect.deleteProperty(window.HTMLElement.prototype, "scrollTo");
@@ -174,9 +174,9 @@ describe("MailMessageList", () => {
 
   it("indica sincronizacao e trava a proxima pagina durante o sync", () => {
     const h = setup({ nextPageToken: "p2", syncActive: true });
-    expect(screen.getByRole("button", { name: /proxima pagina/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /próxima página/i })).toBeDisabled();
     expect(screen.getByText(/sincronizando…/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /proxima pagina/i }));
+    fireEvent.click(screen.getByRole("button", { name: /próxima página/i }));
     expect(h.onNextPage).not.toHaveBeenCalled();
   });
 });

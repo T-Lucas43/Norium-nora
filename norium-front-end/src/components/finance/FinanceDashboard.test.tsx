@@ -58,9 +58,9 @@ describe("validação do financeiro", () => {
     render(<FinanceDashboard userId="synthetic" />);
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     fireEvent.click(screen.getByRole("button", { name: "Novo lançamento" }));
-    fireEvent.change(screen.getByPlaceholderText("Titulo"), { target: { value: "Synthetic" } });
+    fireEvent.change(screen.getByPlaceholderText("Título"), { target: { value: "Synthetic" } });
     fireEvent.change(screen.getByPlaceholderText("Valor"), { target: { value: amount } });
-    fireEvent.click(screen.getByRole("button", { name: "Criar lancamento" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salvar lançamento" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("valor maior que zero");
     expect(fetch).toHaveBeenCalledOnce();
   });

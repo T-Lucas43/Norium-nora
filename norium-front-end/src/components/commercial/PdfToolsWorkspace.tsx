@@ -1,4 +1,6 @@
 import "../shared/workspace.css";
+import "../../styles/screens/trabalho-comum.css";
+import "../../styles/screens/documentos.css";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   ArrowLeft, Combine, Download, FileImage, FileSearch, FileText, Files,
@@ -29,25 +31,27 @@ type ToolMeta = {
 
 const toolMeta: Record<PdfOperation, ToolMeta> = {
   merge: { title: "Combinar PDF", description: "Una arquivos na ordem escolhida.", category: "Organizar", icon: Combine, accent: "from-blue-500 to-cyan-400" },
-  split: { title: "Separar PDF", description: "Extraia paginas em arquivos independentes.", category: "Organizar", icon: Split, accent: "from-violet-500 to-fuchsia-400" },
-  reorder: { title: "Organizar paginas", description: "Defina uma nova ordem para as paginas.", category: "Organizar", icon: Layers3, accent: "from-indigo-500 to-blue-400" },
-  delete_pages: { title: "Excluir paginas", description: "Remova paginas selecionadas com seguranca.", category: "Organizar", icon: Trash2, accent: "from-rose-500 to-orange-400" },
-  rotate: { title: "Girar PDF", description: "Corrija a orientacao de uma ou mais paginas.", category: "Organizar", icon: RotateCw, accent: "from-cyan-500 to-blue-400" },
+  split: { title: "Separar PDF", description: "Extraia páginas em arquivos independentes.", category: "Organizar", icon: Split, accent: "from-violet-500 to-fuchsia-400" },
+  reorder: { title: "Organizar páginas", description: "Defina uma nova ordem para as páginas.", category: "Organizar", icon: Layers3, accent: "from-indigo-500 to-blue-400" },
+  delete_pages: { title: "Excluir páginas", description: "Remova páginas selecionadas com segurança.", category: "Organizar", icon: Trash2, accent: "from-rose-500 to-orange-400" },
+  rotate: { title: "Girar PDF", description: "Corrija a orientação de uma ou mais páginas.", category: "Organizar", icon: RotateCw, accent: "from-cyan-500 to-blue-400" },
   compress: { title: "Comprimir PDF", description: "Reduza o tamanho preservando a leitura.", category: "Otimizar", icon: Minimize2, accent: "from-emerald-500 to-cyan-400" },
   remove_metadata: { title: "Limpar metadados", description: "Remova propriedades ocultas do documento.", category: "Otimizar", icon: ShieldCheck, accent: "from-slate-500 to-cyan-400" },
-  sanitize: { title: "Sanitizar PDF", description: "Reconstrua o arquivo em uma copia controlada.", category: "Otimizar", icon: RefreshCw, accent: "from-teal-500 to-emerald-400" },
+  sanitize: { title: "Sanitizar PDF", description: "Reconstrua o arquivo em uma cópia controlada.", category: "Otimizar", icon: RefreshCw, accent: "from-teal-500 to-emerald-400" },
   images_to_pdf: { title: "Imagens para PDF", description: "Converta JPG, PNG ou WebP em PDF.", category: "Converter", icon: ImagePlus, accent: "from-amber-500 to-orange-400" },
-  extract_text: { title: "PDF para texto", description: "Extraia o texto para um arquivo editavel.", category: "Converter", icon: FileText, accent: "from-sky-500 to-blue-400" },
-  ocr: { title: "OCR", description: "Transforme digitalizacoes em texto pesquisavel.", category: "Converter", icon: FileSearch, accent: "from-purple-500 to-indigo-400" },
+  extract_text: { title: "PDF para texto", description: "Extraia o texto para um arquivo editável.", category: "Converter", icon: FileText, accent: "from-sky-500 to-blue-400" },
+  ocr: { title: "OCR", description: "Transforme digitalizações em texto pesquisável.", category: "Converter", icon: FileSearch, accent: "from-purple-500 to-indigo-400" },
   edit_pdf: { title: "Editar PDF", description: "Edite texto, assine, desenhe e organize as páginas visualmente.", category: "Editar", icon: Pencil, accent: "from-blue-600 to-violet-500" },
-  watermark: { title: "Marca d'agua", description: "Aplique texto com opacidade e rotacao.", category: "Editar", icon: Highlighter, accent: "from-fuchsia-500 to-rose-400" },
-  page_numbers: { title: "Numerar paginas", description: "Inclua numeracao consistente no rodape.", category: "Editar", icon: ListFilter, accent: "from-cyan-500 to-indigo-400" },
+  watermark: { title: "Marca d'água", description: "Aplique texto com opacidade e rotação.", category: "Editar", icon: Highlighter, accent: "from-fuchsia-500 to-rose-400" },
+  page_numbers: { title: "Numerar páginas", description: "Inclua numeração consistente no rodapé.", category: "Editar", icon: ListFilter, accent: "from-cyan-500 to-indigo-400" },
   add_password: { title: "Proteger PDF", description: "Criptografe o documento com uma senha.", category: "Seguranca", icon: LockKeyhole, accent: "from-emerald-600 to-teal-400" },
-  remove_password: { title: "Desbloquear PDF", description: "Remova uma senha que voce esta autorizado a usar.", category: "Seguranca", icon: UnlockKeyhole, accent: "from-amber-500 to-yellow-300" },
-  compare: { title: "Comparar PDFs", description: "Gere um relatorio das diferencas textuais.", category: "Inteligencia", icon: Files, accent: "from-violet-600 to-blue-500" },
+  remove_password: { title: "Desbloquear PDF", description: "Remova uma senha que você está autorizado a usar.", category: "Seguranca", icon: UnlockKeyhole, accent: "from-amber-500 to-yellow-300" },
+  compare: { title: "Comparar PDFs", description: "Gere um relatório das diferenças textuais.", category: "Inteligencia", icon: Files, accent: "from-violet-600 to-blue-500" },
 };
 
 const categories = ["Todos", "Organizar", "Otimizar", "Converter", "Editar", "Seguranca", "Inteligencia"] as const;
+const categoryLabels: Record<(typeof categories)[number], string> = { Todos: "Todos", Organizar: "Organizar", Otimizar: "Otimizar", Converter: "Converter", Editar: "Editar", Seguranca: "Segurança", Inteligencia: "Inteligência" };
+const jobStatusLabels: Record<string, string> = { queued: "Na fila", processing: "Processando", completed: "Concluído", failed: "Falhou", cancelled: "Cancelado" };
 
 function fileSize(value: number) {
   if (value < 1024) return `${value} B`;
@@ -59,7 +63,7 @@ function fileDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("Nao foi possivel ler o arquivo selecionado."));
+    reader.onerror = () => reject(new Error("Não foi possível ler o arquivo selecionado."));
     reader.readAsDataURL(file);
   });
 }
@@ -93,6 +97,7 @@ export default function PdfToolsWorkspace({
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -130,7 +135,7 @@ export default function PdfToolsWorkspace({
         setPreviewUrl(objectUrl);
         setPreviewBlob(blob);
       })
-      .catch(() => active && setError("Nao foi possivel abrir a visualizacao deste arquivo."))
+      .catch(() => active && setError("Não foi possível abrir a visualização deste arquivo."))
       .finally(() => active && setPreviewLoading(false));
     return () => {
       active = false;
@@ -166,13 +171,17 @@ export default function PdfToolsWorkspace({
   async function importFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
+    await importFileList(files);
+  }
+
+  async function importFileList(files: File[]) {
     if (!files.length) return;
     setImporting(true); setError(""); setMessage("");
     try {
       const imported: UploadedDocument[] = [];
       for (const file of files) {
         if (!["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(file.type)) {
-          throw new Error(`Formato nao permitido: ${file.name}`);
+          throw new Error(`Formato não permitido: ${file.name}`);
         }
         const response = await importDocument({
           fileName: file.name,
@@ -185,7 +194,7 @@ export default function PdfToolsWorkspace({
       setSelectedIds((needsMany || operation === "images_to_pdf" ? imported : imported.slice(0, 1)).map((item) => item.id));
       setMessage(`${imported.length} arquivo(s) importado(s) para o workspace.`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Nao foi possivel importar os arquivos.");
+      setError(reason instanceof Error ? reason.message : "Não foi possível importar os arquivos.");
     } finally {
       setImporting(false);
     }
@@ -225,70 +234,68 @@ export default function PdfToolsWorkspace({
 
   if (editorOpen && previewBlob && selectedDocument) return <PdfVisualEditor blob={previewBlob} title={selectedDocument.title} onClose={() => setEditorOpen(false)} onSave={saveVisualEdits}/>;
 
-  if (!capabilities) return <main className="clean-workspace pdf-workspace min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 sm:p-6"><LoadingState label="Carregando o Norium PDF Studio..." /></main>;
+  if (!capabilities) return <main className="clean-workspace nxw-screen nxw-remap nx-page nxp-page min-h-[calc(100dvh-74px)]"><LoadingState label="Carregando o PDF Studio..." /></main>;
+
+  const maxUploadMb = Math.round((capabilities.maxUploadBytes || 0) / 1024 ** 2);
+  const toolGroups = categories.filter((item) => item !== "Todos").map((group) => ({ group, tools: availableTools.filter((tool) => toolMeta[tool.id].category === group) })).filter((entry) => entry.tools.length);
 
   return (
-    <main className="clean-workspace pdf-workspace min-h-[calc(100dvh-74px)] bg-[var(--background)] text-[var(--text)]">
+    <main className="clean-workspace nxw-screen nxw-remap nx-page nxp-page min-h-[calc(100dvh-74px)]">
       <input ref={fileInput} hidden multiple type="file" accept="application/pdf,image/png,image/jpeg,image/webp" onChange={(event) => void importFiles(event)} />
-      <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[color:var(--background)]/95 px-4 py-3 backdrop-blur sm:px-6">
-        <div className="mx-auto flex max-w-[1720px] flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3"><Button iconOnly variant="ghost" onClick={onBack} aria-label="Voltar para Documentos"><ArrowLeft size={18} /></Button><span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-400 text-white"><Wrench size={19} /></span><div><h1 className="font-black">Norium PDF Studio</h1><p className="text-xs font-semibold text-[var(--text-secondary)]">Editor, conversor e organizador privado</p></div></div>
-          <div className="flex gap-2"><Button variant="secondary" onClick={() => fileInput.current?.click()} loading={importing} icon={<Upload size={15} />}>Selecionar arquivos</Button>{operation && <Button variant="ghost" onClick={() => { setOperation(null); setSelectedIds([]); }}>Todas as ferramentas</Button>}</div>
+      <header className="nx-ph">
+        <button type="button" className="nxw-icon-btn" onClick={onBack} aria-label="Voltar para Documentos" title="Voltar para Documentos"><ArrowLeft size={16} /></button>
+        <div className="nx-grow"><h1>PDF Studio</h1><p>Ferramentas para organizar, converter e proteger PDFs</p></div>
+        <div className="nx-ph-actions">
+          {operation && <Button variant="ghost" onClick={() => { setOperation(null); setSelectedIds([]); }}>Todas as ferramentas</Button>}
+          <Button variant="secondary" onClick={() => fileInput.current?.click()} loading={importing} icon={<Upload size={15} />}>Selecionar arquivos</Button>
+          {!operation && <Button variant="primary" onClick={() => chooseTool("edit_pdf")} icon={<Pencil size={15} />}>Abrir editor</Button>}
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1720px] p-4 sm:p-6">
-        {error && <StatusBanner tone="error">{error}</StatusBanner>}
-        {message && <StatusBanner tone="success">{message}</StatusBanner>}
-        {activeJob && <div role="status" className="my-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"><strong>{processing ? "Preparando seu arquivo…" : activeJob.status === "completed" ? "Processamento concluído" : "Processamento interrompido"}</strong><p className="mt-1 text-xs text-[var(--text-secondary)]">{activeJob.message}</p>{processing && <progress className="mt-3 w-full accent-emerald-500" max={100} value={activeJob.progress}/>}</div>}
-        {resultDocuments.map(document => <PdfResult key={document.id} document={document}/>)}
-        {!operation ? (
-          <section className="pdf-home-shell">
-            <aside className="pdf-home-sidebar" aria-label="Navegação das ferramentas PDF">
-              <div className="pdf-home-sidebar-heading"><Wrench size={18} /><span><strong>Ferramentas</strong><small>{capabilities.operations.length} disponíveis</small></span></div>
-              <nav>{categories.map((item) => {
-                const count = item === "Todos" ? capabilities.operations.length : capabilities.operations.filter((tool) => toolMeta[tool.id].category === item).length;
-                return <button key={item} aria-pressed={category === item} onClick={() => setCategory(item)}><span>{item}</span><small>{count}</small></button>;
-              })}</nav>
-              <div className={`pdf-engine-status ${capabilities.stirling.available ? "is-online" : ""}`}>
-                <i aria-hidden="true" />
-                <span><strong>{capabilities.stirling.available ? "Stirling privado conectado" : "Motor nativo ativo"}</strong><small>{capabilities.stirling.message}</small></span>
-              </div>
-            </aside>
+      {error && <StatusBanner tone="error">{error}</StatusBanner>}
+      {message && <StatusBanner tone="success">{message}</StatusBanner>}
+      {activeJob && <div role="status" className="nx-card nxp-job"><strong>{processing ? "Preparando seu arquivo…" : activeJob.status === "completed" ? "Processamento concluído" : "Processamento interrompido"}</strong><p className="nx-muted nx-small" style={{ margin: "4px 0 0" }}>{activeJob.message}</p>{processing && <div className="nx-bar" style={{ marginTop: 10 }}><i style={{ width: `${activeJob.progress}%` }} /></div>}</div>}
+      {resultDocuments.map(document => <PdfResult key={document.id} document={document}/>)}
+      {!operation ? (
+        <>
+          <section className="nxp-filters" aria-label="Navegação das ferramentas PDF">
+            <label className="nx-input nxp-search"><Search size={15} className="nx-faint" /><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar entre edição, organização, OCR e segurança" /><kbd className="nxp-kbd">Ctrl K</kbd></label>
+            <div className="nx-seg nxp-seg">{categories.map((item) => {
+              const count = item === "Todos" ? capabilities.operations.length : capabilities.operations.filter((tool) => toolMeta[tool.id].category === item).length;
+              return <button key={item} type="button" aria-pressed={category === item} className={category === item ? "is-active" : ""} onClick={() => setCategory(item)}>{categoryLabels[item]} <span className="nx-faint">{count}</span></button>;
+            })}</div>
+            <span className={`nx-badge ${capabilities.stirling.available ? "is-green" : ""}`} title={capabilities.stirling.message}><ShieldCheck size={12} />{capabilities.stirling.available ? "Stirling privado conectado" : "Motor nativo ativo"}</span>
+          </section>
 
-            <div className="pdf-home-content">
-              <section className="pdf-library-intro">
-                <div className="pdf-library-copy">
-                  <span className="pdf-library-kicker"><ShieldCheck size={14} /> PDF Studio privado</span>
-                  <h2>Leia, edite ou transforme qualquer PDF.</h2>
-                  <p>Uma central completa para documentos, com processamento no ambiente do Norium e integração privada opcional.</p>
-                  <div className="pdf-library-actions">
-                    <Button variant="primary" onClick={() => chooseTool("edit_pdf")} icon={<Pencil size={16} />}>Abrir editor</Button>
-                    <Button variant="secondary" onClick={() => fileInput.current?.click()} loading={importing} icon={<Upload size={16} />}>Importar arquivos</Button>
-                  </div>
-                </div>
-                <div className="pdf-library-visual" aria-hidden="true"><span><FileText size={42} /></span><i /><i /><i /></div>
-              </section>
-
-              <label className="pdf-tool-search"><Search size={18} /><input ref={searchInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar entre edição, organização, OCR e segurança" /><kbd>Ctrl K</kbd></label>
-
-              <div className="pdf-section-heading"><div><span>{category === "Todos" ? "Todas as ferramentas" : category}</span><h3>Escolha o que deseja fazer</h3></div><small>{availableTools.length} resultado(s)</small></div>
-              <section className="pdf-tools-grid">{availableTools.map((tool) => { const item = toolMeta[tool.id]; const Icon = item.icon; const engine = capabilities.operations.find((candidate) => candidate.id === tool.id)?.engine; return <button key={tool.id} onClick={() => chooseTool(tool.id)} className="pdf-tool-card"><span className={`pdf-tool-icon bg-gradient-to-br ${item.accent}`}><Icon size={21} /></span><span className="pdf-tool-copy"><small>{item.category}</small><strong>{item.title}</strong><span>{item.description}</span></span><span className="pdf-tool-engine">{engine === "stirling" ? "Stirling" : "Norium"}</span><ArrowLeft className="pdf-tool-arrow rotate-180" size={15} /></button>; })}</section>
-              {!availableTools.length && <EmptyState title="Nenhuma ferramenta encontrada" description="Tente outra categoria ou termo de busca." icon={Search} className="mt-5 min-h-64" />}
-
-              <section className="pdf-home-bottom"><article><div className="pdf-section-heading"><div><span>Atividade</span><h3>Processamentos recentes</h3></div><Sparkles size={19} /></div><div className="pdf-recent-list">{jobs.slice(0, 5).map((job) => <div key={job.id}><span className="min-w-0"><strong>{job.label}</strong><small>{job.message}</small></span><em>{job.status}</em>{job.status === "completed" && <Button size="sm" onClick={() => setActiveJobId(job.id)}>Ver</Button>}</div>)}{!jobs.length && <p>Nenhum processamento realizado.</p>}</div></article><article className="pdf-privacy-card"><ShieldCheck size={23} /><h3>Privacidade por padrão</h3><p>O arquivo original é preservado. Cada resultado vira um novo documento e serviços externos só são usados quando uma instância privada autorizada confirma a operação.</p></article></section>
+          <div className="nxp-groups-meta nx-faint nx-small">{availableTools.length} ferramenta(s) · {capabilities.stirling.message}</div>
+          <section className="nxp-groups">{toolGroups.map(({ group, tools }) => (
+            <div key={group} className="nxp-group">
+              <div className="nxp-group-title">{categoryLabels[group]}</div>
+              <div className="nxp-group-list">{tools.map((tool) => { const item = toolMeta[tool.id]; const Icon = item.icon; const engine = capabilities.operations.find((candidate) => candidate.id === tool.id)?.engine; return <button key={tool.id} type="button" onClick={() => chooseTool(tool.id)} className="nx-card nxp-tool" title={item.description}><span className="nxw-icon is-sm"><Icon size={16} /></span><span className="nx-grow"><strong>{item.title}</strong><small>{item.description}</small><em>{engine === "stirling" ? "Stirling" : "Norium"}</em></span></button>; })}</div>
             </div>
-          </section>
-        ) : (
-          <section className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)_340px]">
-            <aside className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)]"><div className="flex items-center gap-3"><span className={`grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br ${meta?.accent} text-white`}>{SelectedToolIcon && <SelectedToolIcon size={20} />}</span><div><span className="text-xs font-black uppercase tracking-wide text-blue-300">{meta?.category}</span><h2 className="font-black">{meta?.title}</h2></div></div><p className="mt-3 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{meta?.description}</p><div className="mt-5 border-t border-[var(--border)] pt-4"><div className="flex items-center justify-between"><h3 className="text-xs font-black uppercase text-[var(--text-secondary)]">Arquivos</h3><button onClick={() => fileInput.current?.click()} className="text-xs font-black text-cyan-300">+ Importar</button></div><div className="mt-3 max-h-[52dvh] space-y-2 overflow-auto">{compatibleDocuments.map((document) => { const checked = selectedIds.includes(document.id); return <div key={document.id} className={`flex items-center gap-1 rounded-xl border pr-2 ${checked ? "border-blue-400/50 bg-blue-500/10" : "border-[var(--border)] bg-[var(--background)]"}`}><label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 p-3"><input type={needsMany || operation === "images_to_pdf" ? "checkbox" : "radio"} checked={checked} name="pdf-studio-document" onChange={() => toggleDocument(document.id)} /><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-300">{document.mimeType.startsWith("image/") ? <FileImage size={17} /> : <FileText size={17} />}</span><span className="min-w-0"><strong className="block truncate text-xs">{document.title}</strong><small className="text-[var(--text-secondary)]">{fileSize(document.size)}</small></span></label><button type="button" disabled={busy} onClick={() => void removeDocument(document)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-40" aria-label={`Excluir ${document.title}`} title="Excluir PDF"><Trash2 size={15} /></button></div>; })}{!compatibleDocuments.length && <p className="py-8 text-center text-xs font-semibold text-[var(--text-secondary)]">Importe um arquivo compativel.</p>}</div></div></aside>
+          ))}</section>
+          {!availableTools.length && <EmptyState title="Nenhuma ferramenta encontrada" description="Tente outra categoria ou termo de busca." icon={Search} className="min-h-64" />}
 
-            <article className="min-h-[68dvh] overflow-hidden rounded-2xl border border-[var(--border)] bg-slate-950 shadow-2xl"><header className="flex items-center justify-between border-b border-white/10 bg-slate-900 px-4 py-3 text-white"><span className="min-w-0"><strong className="block truncate text-sm">{selectedDocument?.title || "Visualizacao do documento"}</strong><small className="text-slate-400">{selectedDocument ? fileSize(selectedDocument.size) : "Selecione um arquivo ao lado"}</small></span><span className="flex items-center gap-1">{previewUrl && <a href={previewUrl} download={selectedDocument?.originalFileName} className="rounded-lg p-2 text-cyan-300 hover:bg-white/10" aria-label="Baixar arquivo original"><Download size={17} /></a>}{selectedDocument && <button type="button" disabled={busy} onClick={() => void removeDocument(selectedDocument)} className="rounded-lg p-2 text-rose-300 hover:bg-rose-500/10 disabled:opacity-40" aria-label={`Excluir ${selectedDocument.title}`} title="Excluir PDF"><Trash2 size={17} /></button>}</span></header>{selectedDocument?.securityReviewRequired && <div className="flex items-center gap-2 border-b border-amber-300/20 bg-amber-300/10 px-4 py-2 text-xs font-bold text-amber-100"><ShieldCheck size={14} /> Arquivo importado em visualizacao isolada; revisao de seguranca pendente.</div>}<div className="relative grid min-h-[62dvh] place-items-center overflow-auto bg-[radial-gradient(circle_at_top,#27354b,#0f172a_65%)] p-4">{previewLoading ? <LoadingState label="Preparando visualizacao..." /> : !previewUrl ? <div className="text-center text-slate-400"><FileText className="mx-auto" size={44} /><p className="mt-3 text-sm font-bold">Selecione um PDF para visualizar.</p></div> : selectedDocument?.mimeType.startsWith("image/") ? <img src={previewUrl} alt={selectedDocument.title} className="max-h-[58dvh] max-w-full rounded bg-white object-contain shadow-2xl" /> : <div className="relative h-[62dvh] w-full max-w-4xl overflow-hidden rounded bg-white shadow-2xl"><iframe title={`Visualizacao de ${selectedDocument?.title}`} src={previewUrl} className="h-full w-full" /></div>}</div></article>
+          <button type="button" className={`nx-card nxp-drop ${dragging ? "is-over" : ""}`} onClick={() => fileInput.current?.click()} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); void importFileList(Array.from(event.dataTransfer.files || [])); }} disabled={importing}>
+            <Upload size={26} className="nx-faint" />
+            <b>{importing ? "Importando arquivos..." : "Arraste PDFs aqui"}</b>
+            <span className="nx-faint nx-small">ou clique para escolher · PDF, PNG, JPG ou WebP{maxUploadMb ? ` · até ${maxUploadMb} MB por arquivo` : ""}</span>
+          </button>
 
-            <aside className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--glass-shadow)]"><h3 className="font-black">{operation === "edit_pdf" ? "Editor visual" : "Configurar resultado"}</h3><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">A visualizacao permanece ao centro durante a configuracao.</p><div className="mt-5 space-y-4" hidden={operation === "edit_pdf"}>{["split", "reorder", "delete_pages", "rotate"].includes(operation) && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Paginas<input value={pages} onChange={(event) => setPages(event.target.value)} placeholder="Vazio = todas; ex.: 1,3,4" className="commercial-field mt-2" /></label>}{operation === "watermark" && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Texto<input value={text} onChange={(event) => setText(event.target.value)} className="commercial-field mt-2" /></label>}{operation === "rotate" && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Rotacao<select value={degrees} onChange={(event) => setDegrees(Number(event.target.value))} className="commercial-field mt-2"><option value={90}>90 graus</option><option value={180}>180 graus</option><option value={270}>270 graus</option><option value={-90}>-90 graus</option></select></label>}{["add_password", "remove_password"].includes(operation) && <label className="block text-xs font-black uppercase text-[var(--text-secondary)]">Senha autorizada<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="commercial-field mt-2" /></label>}</div><div className="mt-6 border-t border-[var(--border)] pt-4"><div className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs font-semibold leading-5 text-[var(--text-secondary)]"><strong className="text-cyan-200">Motor:</strong> {capabilities?.operations.find((item) => item.id === operation)?.engine === "native" ? "Norium nativo" : "Stirling privado"}. O original permanece preservado e o resultado sera salvo como novo documento.</div><Button className="mt-4 w-full" loading={busy || processing} disabled={!validSelection || (operation === "edit_pdf" && !previewBlob) || ((operation === "add_password" && password.length < 8) || (operation === "remove_password" && !password.length))} onClick={() => operation === "edit_pdf" ? setEditorOpen(true) : void process()} icon={<Wrench size={15} />}>{operation === "edit_pdf" ? "Abrir editor de PDF" : `Processar ${meta?.title}`}</Button></div></aside>
+          <section className="nxp-bottom">
+            <article className="nx-card"><div className="nx-card-h"><h3>Processamentos recentes</h3><Sparkles size={16} className="nx-faint" style={{ marginLeft: "auto" }} /></div><div className="nx-card-b">{jobs.slice(0, 5).map((job) => <div key={job.id} className="nx-row"><span className="nx-grow"><span className="nx-row-t nx-ell" style={{ display: "block" }}>{job.label}</span><span className="nx-row-sub nx-ell" style={{ display: "block" }}>{job.message}</span></span><span className={`nx-badge ${job.status === "completed" ? "is-green" : job.status === "failed" || job.status === "cancelled" ? "is-red" : "is-amber"}`}>{jobStatusLabels[job.status] || job.status}</span>{job.status === "completed" && <Button size="sm" onClick={() => setActiveJobId(job.id)}>Ver</Button>}</div>)}{!jobs.length && <p className="nx-faint nx-small" style={{ margin: 0 }}>Nenhum processamento realizado.</p>}</div></article>
+            <article className="nx-card nxp-privacy"><ShieldCheck size={18} className="nx-muted" /><h3>Privacidade por padrão</h3><p>O arquivo original é preservado. Cada resultado vira um novo documento e serviços externos só são usados quando uma instância privada autorizada confirma a operação.</p></article>
           </section>
-        )}
-      </div>
+        </>
+      ) : (
+        <section className="nxp-work">
+          <aside className="nx-card nxp-side"><div className="nxp-side-h"><span className="nxw-icon">{SelectedToolIcon && <SelectedToolIcon size={16} />}</span><div><span className="nxp-eyebrow">{meta ? categoryLabels[meta.category] : ""}</span><h2>{meta?.title}</h2></div></div><p className="nx-muted nx-small" style={{ margin: "10px 0 0", lineHeight: 1.55 }}>{meta?.description}</p><div className="nxp-side-files"><div className="nxp-side-files-h"><h3>Arquivos</h3><button type="button" onClick={() => fileInput.current?.click()} className="nxp-link">+ Importar</button></div><div className="nxp-file-list">{compatibleDocuments.map((document) => { const checked = selectedIds.includes(document.id); return <div key={document.id} className={`nxp-file ${checked ? "is-checked" : ""}`}><label><input type={needsMany || operation === "images_to_pdf" ? "checkbox" : "radio"} checked={checked} name="pdf-studio-document" onChange={() => toggleDocument(document.id)} /><span className="nxw-icon is-sm is-red">{document.mimeType.startsWith("image/") ? <FileImage size={15} /> : <FileText size={15} />}</span><span className="nx-grow"><strong className="nx-ell" style={{ display: "block" }}>{document.title}</strong><small className="nx-faint">{fileSize(document.size)}</small></span></label><button type="button" disabled={busy} onClick={() => void removeDocument(document)} className="nxw-icon-btn is-sm is-plain nxp-danger" aria-label={`Excluir ${document.title}`} title="Excluir PDF"><Trash2 size={15} /></button></div>; })}{!compatibleDocuments.length && <p className="nx-faint nx-small" style={{ padding: "24px 0", textAlign: "center", margin: 0 }}>Importe um arquivo compatível.</p>}</div></div></aside>
+
+          <article className="nx-card nxp-viewer"><header className="nxp-viewer-h"><span className="nx-grow"><strong className="nx-ell" style={{ display: "block" }}>{selectedDocument?.title || "Visualização do documento"}</strong><small className="nx-faint">{selectedDocument ? fileSize(selectedDocument.size) : "Selecione um arquivo ao lado"}</small></span><span style={{ display: "flex", gap: 4 }}>{previewUrl && <a href={previewUrl} download={selectedDocument?.originalFileName} className="nxw-icon-btn is-sm is-plain" aria-label="Baixar arquivo original"><Download size={16} /></a>}{selectedDocument && <button type="button" disabled={busy} onClick={() => void removeDocument(selectedDocument)} className="nxw-icon-btn is-sm is-plain nxp-danger" aria-label={`Excluir ${selectedDocument.title}`} title="Excluir PDF"><Trash2 size={16} /></button>}</span></header>{selectedDocument?.securityReviewRequired && <div className="nxw-alert is-warning nxp-flat-alert"><ShieldCheck size={14} /><span>Arquivo importado em visualização isolada; revisão de segurança pendente.</span></div>}<div className="nxp-viewer-b">{previewLoading ? <LoadingState label="Preparando visualização..." /> : !previewUrl ? <div className="nxw-empty"><FileText size={36} /><strong>Selecione um PDF para visualizar.</strong></div> : selectedDocument?.mimeType.startsWith("image/") ? <img src={previewUrl} alt={selectedDocument.title} className="nxp-image" /> : <div className="nxp-frame"><iframe title={`Visualizacao de ${selectedDocument?.title}`} src={previewUrl} /></div>}</div></article>
+
+          <aside className="nx-card nxp-side"><h3 className="nxp-h3">{operation === "edit_pdf" ? "Editor visual" : "Configurar resultado"}</h3><p className="nx-muted nx-small" style={{ margin: "4px 0 0" }}>A visualização permanece ao centro durante a configuração.</p><div className="nxp-options" hidden={operation === "edit_pdf"}>{["split", "reorder", "delete_pages", "rotate"].includes(operation) && <label className="nxw-label">Páginas<input value={pages} onChange={(event) => setPages(event.target.value)} placeholder="Vazio = todas; ex.: 1,3,4" className="nxw-field" /></label>}{operation === "watermark" && <label className="nxw-label">Texto<input value={text} onChange={(event) => setText(event.target.value)} className="nxw-field" /></label>}{operation === "rotate" && <label className="nxw-label">Rotação<select value={degrees} onChange={(event) => setDegrees(Number(event.target.value))} className="nxw-field"><option value={90}>90 graus</option><option value={180}>180 graus</option><option value={270}>270 graus</option><option value={-90}>-90 graus</option></select></label>}{["add_password", "remove_password"].includes(operation) && <label className="nxw-label">Senha autorizada<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="nxw-field" /></label>}</div><div className="nxp-engine"><div className="nxw-action nx-small nx-muted" style={{ lineHeight: 1.55 }}><strong style={{ color: "var(--nx-text)" }}>Motor:</strong> {capabilities?.operations.find((item) => item.id === operation)?.engine === "native" ? "Norium nativo" : "Stirling privado"}. O original permanece preservado e o resultado será salvo como novo documento.</div><Button variant="primary" className="mt-4 w-full" loading={busy || processing} disabled={!validSelection || (operation === "edit_pdf" && !previewBlob) || ((operation === "add_password" && password.length < 8) || (operation === "remove_password" && !password.length))} onClick={() => operation === "edit_pdf" ? setEditorOpen(true) : void process()} icon={<Wrench size={15} />}>{operation === "edit_pdf" ? "Abrir editor de PDF" : `Processar ${meta?.title}`}</Button></div></aside>
+        </section>
+      )}
     </main>
   );
 }

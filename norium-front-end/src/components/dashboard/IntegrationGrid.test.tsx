@@ -20,7 +20,7 @@ describe("IntegrationGrid", () => {
 
     render(<IntegrationGrid onNavigate={onNavigate} />);
 
-    expect(screen.getByRole("button", { name: "Abrir Gmail" })).toHaveClass("min-h-[88px]");
+    expect(screen.getByRole("button", { name: "Abrir Gmail" })).toHaveClass("nxd-integration");
     expect(screen.getByRole("button", { name: "Abrir Chat da Equipe" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir Modelos de documentos" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abrir Nora para Clientes" })).toBeInTheDocument();

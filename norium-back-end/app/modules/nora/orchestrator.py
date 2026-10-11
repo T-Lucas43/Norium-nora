@@ -4,6 +4,7 @@ import re
 import unicodedata
 from typing import Any
 
+from app.core.identity import require_team_id, require_user_id
 from app.routers.agenda_router import agenda_agent
 from app.routers.automacoes_router import handle_automation_agent
 from app.routers.financeiro_router import handle_finance_agent
@@ -216,7 +217,7 @@ async def _execute_team_step(user: dict[str, Any], instruction: str) -> dict[str
     if not content or content == normalized:
         content = instruction.strip()
     item = await append_team_message_for_user(
-        str(user.get("id") or "lucas123"),
+        require_user_id(user),
         content[:1800],
         sender_id="nora",
         sender_name="Nora",
@@ -228,7 +229,7 @@ async def _execute_team_step(user: dict[str, Any], instruction: str) -> dict[str
 
 async def _execute_brainstorm_step(user: dict[str, Any], instruction: str) -> dict[str, Any]:
     normalized = normalize_text(instruction)
-    tenant_id = str(user.get("teamOwnerId") or user.get("id") or "lucas123")
+    tenant_id = require_team_id(user)
     if any(term in normalized for term in ("criar", "crie", "nova sessao", "novo brainstorm")):
         match = re.search(
             r"(?:brain\s*storm|sessao\s+de\s+ideias)(?:\s+(?:para|sobre|chamado|chamada))?\s+(.+)",
@@ -252,7 +253,7 @@ async def _execute_brainstorm_step(user: dict[str, Any], instruction: str) -> di
 
 
 async def execute_agent_step(user: dict[str, Any], step: dict[str, Any]) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     agent = str(step.get("agent") or "")
     instruction = str(step.get("instruction") or "").strip()
     if not instruction:
@@ -266,7 +267,7 @@ async def execute_agent_step(user: dict[str, Any], step: dict[str, Any]) -> dict
             ),
         }
     if agent == "financeiro":
-        return await handle_finance_agent(user_id, instruction)
+        return await handle_finance_agent(user_id, instruction, user=user)
     if agent == "tarefas":
         return await handle_task_agent(user_id, instruction)
     if agent == "email":

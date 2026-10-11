@@ -3,13 +3,13 @@
 .nora-assistant-content:has(>.nora-response-view) { padding:0; border:0; background:transparent; box-shadow:none; }
 .nora-response-intro { margin-bottom:18px; }
 .nora-response-section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 12px; }
-.nora-response-section-heading h3 { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; }
+.nora-response-section-heading h3 { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; }
 .nora-response-section-heading > span,.nora-response-eyebrow { font-size:11px; color:var(--text-secondary); }
 .nora-response-eyebrow { display:inline-flex; align-items:center; gap:6px; }
 .nora-task-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .nora-task-card { display:flex; flex-direction:column; gap:12px; padding:16px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
 .nora-task-card-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.nora-task-card h4,.nora-task-card h3 { margin:0; font-size:14px; font-weight:650; line-height:1.5; color:var(--text); }
+.nora-task-card h4,.nora-task-card h3 { margin:0; font-size:14px; font-weight:600; line-height:1.5; color:var(--text); }
 .nora-task-card p { margin:0; font-size:12px; line-height:1.6; color:var(--text-secondary); white-space:pre-wrap; }
 .nora-task-details { display:flex; flex-wrap:wrap; gap:8px 14px; padding-top:12px; margin-top:auto; border-top:1px solid color-mix(in srgb,var(--border) 65%,transparent); color:var(--text-secondary); font-size:11px; line-height:1.6; }
 .nora-task-details span { display:flex; align-items:center; gap:5px; }
@@ -24,11 +24,11 @@
 .nora-response-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:0 0 20px; }
 .nora-response-metrics > div { padding:14px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); }
 .nora-response-metrics dt { font-size:10px; font-weight:500; color:var(--text-secondary); margin-bottom:7px; }
-.nora-response-metrics dd { margin:0; font-size:17px; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.025em; line-height:1.4; }
+.nora-response-metrics dd { margin:0; font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; letter-spacing:-.025em; line-height:1.4; }
 .nora-response-metrics .is-negative { color:light-dark(#b32136,#ff8190); }
 .nora-response-indicators { display:flex; flex-wrap:wrap; gap:16px; margin:0 0 16px; font-size:11px; color:var(--text-secondary); }
 .nora-response-indicators > div { display:flex; gap:6px; align-items:center; }
-.nora-response-indicators dd { color:var(--text); font-weight:650; }
+.nora-response-indicators dd { color:var(--text); font-weight:600; }
 .nora-financial-records { border:1px solid var(--border); border-radius:12px; overflow:hidden; }
 .nora-financial-tabs { display:flex; flex-wrap:wrap; gap:4px; padding:8px; background:var(--surface); border-bottom:1px solid var(--border); }
 .nora-financial-tabs button { display:flex; align-items:center; gap:7px; border:0; border-radius:7px; background:transparent; padding:8px 10px; font-size:12px; font-weight:550; color:var(--text-secondary); cursor:pointer; }
@@ -45,7 +45,7 @@
 .nora-financial-table td:first-child { width:45%; min-width:170px; }
 .nora-financial-table strong { display:block; font-size:12px; font-weight:600; }
 .nora-financial-table small { display:block; margin-top:3px; font-size:10px; color:var(--text-secondary); }
-.nora-financial-table .nora-money-cell { text-align:right; font-weight:650; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.nora-financial-table .nora-money-cell { text-align:right; font-weight:600; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .nora-response-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; padding:12px 0 0; font-size:10px; color:var(--text-secondary); }
 .nora-financial-records .nora-response-footer { padding:12px 14px; border-top:1px solid var(--border); }
 .nora-response-footer button,.nora-response-footer a,.nora-response-text-button { border:0; padding:4px 0; background:transparent; color:var(--primary); cursor:pointer; font-size:11px; font-weight:600; text-decoration:none; }
@@ -54,7 +54,7 @@
 .nora-calendar-layout { display:grid; grid-template-columns:minmax(220px,.85fr) minmax(0,1.15fr); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
 .nora-calendar-month { padding:14px; background:var(--surface); }
 .nora-calendar-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:14px; }
-.nora-calendar-toolbar strong { font-size:12px; font-weight:650; text-transform:capitalize; }
+.nora-calendar-toolbar strong { font-size:12px; font-weight:600; text-transform:capitalize; }
 .nora-calendar-toolbar > div { display:flex; }
 .nora-calendar-toolbar button { display:grid; width:28px; height:28px; place-items:center; border:0; border-radius:6px; background:transparent; color:var(--text-secondary); cursor:pointer; }
 .nora-calendar-toolbar button:hover,.nora-calendar-days button:hover { background:var(--surface-hover); }
@@ -74,7 +74,7 @@
 .nora-calendar-event { padding:0 0 0 12px; border-left:2px solid var(--primary); margin-bottom:18px; }
 .nora-calendar-event:last-child { margin-bottom:0; }
 .nora-event-time { display:flex; align-items:center; gap:5px; font-size:10px; color:var(--primary); font-variant-numeric:tabular-nums; }
-.nora-calendar-event h4 { margin:6px 0; font-size:13px; line-height:1.5; font-weight:650; }
+.nora-calendar-event h4 { margin:6px 0; font-size:13px; line-height:1.5; font-weight:600; }
 .nora-calendar-event p { display:flex; align-items:flex-start; gap:5px; margin:5px 0; font-size:11px; line-height:1.5; color:var(--text-secondary); }
 .nora-calendar-event svg { flex-shrink:0; }
 .nora-calendar-event .nora-event-description { display:block; white-space:pre-wrap; }
@@ -83,7 +83,7 @@
 .nora-automation-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .nora-automation-card{display:flex;min-width:0;flex-direction:column;gap:14px;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
 .nora-automation-card-top{display:flex;align-items:center;justify-content:space-between;gap:10px}.nora-automation-icon{display:grid;width:32px;height:32px;place-items:center;border-radius:9px;background:color-mix(in srgb,var(--primary) 14%,var(--surface));color:var(--primary)}
-.nora-automation-card h4{margin:5px 0 0;font-size:14px;font-weight:650;line-height:1.45}.nora-automation-card p{margin:7px 0 0;color:var(--text-secondary);font-size:11px;line-height:1.6}
+.nora-automation-card h4{margin:5px 0 0;font-size:14px;font-weight:600;line-height:1.45}.nora-automation-card p{margin:7px 0 0;color:var(--text-secondary);font-size:11px;line-height:1.6}
 .nora-automation-trigger{display:flex;align-items:center;gap:8px;padding:10px;border:1px solid color-mix(in srgb,var(--border) 70%,transparent);border-radius:8px;background:var(--background);font-size:11px}.nora-automation-trigger>span{display:flex;min-width:0;flex-direction:column;gap:2px}.nora-automation-trigger small{color:var(--text-secondary);font-size:9px}.nora-automation-trigger svg{flex-shrink:0;color:var(--primary)}
 .nora-automation-actions{display:flex;flex-wrap:wrap;gap:6px}.nora-automation-actions span{padding:5px 7px;border-radius:6px;background:color-mix(in srgb,var(--primary) 9%,var(--surface));color:var(--text-secondary);font-size:9px;font-weight:600}
 .nora-automation-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:7px;margin-top:auto;padding-top:11px;border-top:1px solid color-mix(in srgb,var(--border) 65%,transparent);color:var(--text-secondary);font-size:9px}
@@ -99,9 +99,9 @@
 .nora-markdown-intro > :last-child,.nora-markdown-tabpanel > :last-child { margin-bottom:0; }
 .nora-markdown-tablist { display:flex; max-width:100%; gap:5px; overflow-x:auto; padding:4px; border:1px solid color-mix(in srgb,var(--border) 82%,transparent); border-radius:11px; background:color-mix(in srgb,var(--surface) 72%,var(--background)); scrollbar-width:none; }
 .nora-markdown-tablist::-webkit-scrollbar { display:none; }
-.nora-markdown-tablist button { flex:0 0 auto; border:0; border-radius:8px; padding:8px 11px; background:transparent; color:var(--text-secondary); font-size:11px; font-weight:650; line-height:1.2; cursor:pointer; white-space:nowrap; }
+.nora-markdown-tablist button { flex:0 0 auto; border:0; border-radius:8px; padding:8px 11px; background:transparent; color:var(--text-secondary); font-size:11px; font-weight:600; line-height:1.2; cursor:pointer; white-space:nowrap; }
 .nora-markdown-tablist button:hover { color:var(--text); background:var(--surface-hover); }
-.nora-markdown-tablist button[aria-selected="true"] { color:#fff; background:linear-gradient(135deg,#2563eb,#0891b2); box-shadow:0 5px 15px rgba(37,99,235,.18); }
+.nora-markdown-tablist button[aria-selected="true"] { color:#fff; background:var(--nx-primary,#2563eb); box-shadow:none; }
 .nora-markdown-tablist button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
 .nora-markdown-tabpanel { min-width:0; padding:2px 2px 0; }
 .nora-message-markdown .nora-table-scroll { scrollbar-width:none; }

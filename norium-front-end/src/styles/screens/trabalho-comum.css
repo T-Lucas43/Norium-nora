@@ -1,0 +1,251 @@
+/*
+ * Peças comuns das telas Central, Controle, Documentos, PDF Studio e Estúdio
+ * no layout aprovado. Só aparência; usa as variáveis --nx-* de ui-v2.css.
+ */
+
+.nxw-screen {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.nxw-screen *,
+.nxw-screen *::before,
+.nxw-screen *::after {
+  box-sizing: border-box;
+}
+
+.nxw-screen svg.lucide {
+  flex: none;
+}
+
+/* Ícone em quadro suave (lista de pendências, aprovações, ferramentas) */
+.nxw-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--nx-primary-soft);
+  color: var(--nx-primary-text);
+}
+
+.nxw-icon.is-sm { width: 32px; height: 32px; border-radius: 8px; }
+.nxw-icon.is-red { background: var(--nx-danger-soft); color: var(--nx-danger); }
+.nxw-icon.is-green { background: var(--nx-success-soft); color: var(--nx-success); }
+.nxw-icon.is-amber { background: var(--nx-warning-soft); color: var(--nx-warning); }
+.nxw-icon.is-cyan { background: var(--nx-cyan-soft); color: var(--nx-cyan); }
+.nxw-icon.is-violet { background: var(--nx-violet-soft); color: var(--nx-violet); }
+.nxw-icon.is-gray { background: var(--nx-hover); color: var(--nx-text-2); }
+
+/* Avisos de carregamento, erro e sucesso */
+.nxw-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--nx-border);
+  border-radius: 10px;
+  background: var(--nx-surface);
+  padding: 10px 14px;
+  color: var(--nx-text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nxw-alert > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.nxw-alert.is-error { border-color: color-mix(in srgb, var(--nx-danger) 28%, transparent); background: var(--nx-danger-soft); color: var(--nx-danger); }
+.nxw-alert.is-success { border-color: color-mix(in srgb, var(--nx-success) 28%, transparent); background: var(--nx-success-soft); color: var(--nx-success); }
+.nxw-alert.is-warning { border-color: color-mix(in srgb, var(--nx-warning) 28%, transparent); background: var(--nx-warning-soft); color: var(--nx-warning); }
+.nxw-alert.is-info { border-color: color-mix(in srgb, var(--nx-primary) 24%, transparent); background: var(--nx-primary-soft); color: var(--nx-primary-text); }
+
+/* Campos nativos no padrão do layout */
+.nxw-field {
+  height: 36px;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 8px;
+  background: var(--nx-surface);
+  padding: 0 12px;
+  color: var(--nx-text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  color-scheme: light;
+}
+
+.dark .nxw-field { color-scheme: dark; }
+textarea.nxw-field { height: auto; min-height: 88px; padding: 10px 12px; line-height: 1.5; resize: vertical; }
+.nxw-field:focus { border-color: var(--nx-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-primary) 16%, transparent); }
+.nxw-field::placeholder { color: var(--nx-text-3); }
+.nxw-field:disabled { cursor: not-allowed; opacity: 0.6; }
+
+.nxw-label {
+  display: grid;
+  gap: 6px;
+  color: var(--nx-text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* Linhas de lista dentro de cartões */
+.nxw-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 14px;
+  border: 0;
+  border-top: 1px solid var(--nx-border);
+  background: transparent;
+  padding: 13px 18px;
+  color: var(--nx-text);
+  text-align: left;
+}
+
+.nxw-row:first-child { border-top: 0; }
+button.nxw-row { cursor: pointer; }
+button.nxw-row:hover { background: var(--nx-surface-2); }
+.nxw-row-t { overflow-wrap: anywhere; font-size: 13.5px; font-weight: 500; }
+.nxw-row-sub { margin-top: 1px; overflow-wrap: anywhere; color: var(--nx-text-3); font-size: 12.5px; }
+
+/* Estado vazio */
+.nxw-empty {
+  display: grid;
+  min-height: 150px;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  padding: 24px 18px;
+  color: var(--nx-text-3);
+  text-align: center;
+  font-size: 13px;
+}
+
+.nxw-empty strong { color: var(--nx-text); font-weight: 600; }
+
+/* Contador junto da aba */
+.nxw-tab-count {
+  margin-left: 6px;
+  color: var(--nx-text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.nx-tab.is-active .nxw-tab-count { color: var(--nx-primary-text); }
+
+/* Botão só com ícone */
+.nxw-icon-btn {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 8px;
+  background: var(--nx-surface);
+  color: var(--nx-text-2);
+  cursor: pointer;
+}
+
+.nxw-icon-btn:hover { background: var(--nx-hover); color: var(--nx-text); }
+.nxw-icon-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+.nxw-icon-btn.is-sm { width: 30px; height: 30px; }
+.nxw-icon-btn.is-plain { border-color: transparent; background: transparent; }
+.nxw-icon-btn.is-active { border-color: var(--nx-primary); background: var(--nx-primary-soft); color: var(--nx-primary-text); }
+
+/* Botão em estado ligado (ex.: modo foco) */
+.nx-btn.is-on { border-color: var(--nx-primary); background: var(--nx-primary-soft); color: var(--nx-primary-text); }
+.nx-btn.is-danger { border-color: var(--nx-danger); background: var(--nx-danger); color: #fff; }
+.nx-btn.is-danger:hover { background: color-mix(in srgb, var(--nx-danger) 88%, #000); }
+
+/* Bloco de ação (mockup .action) */
+.nxw-action {
+  border: 1px solid var(--nx-border);
+  border-radius: 10px;
+  background: var(--nx-surface-2);
+  padding: 12px;
+}
+
+/* Rolagem horizontal contida (tabelas) */
+.nxw-scroll-x {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.nxw-spin { animation: nxw-spin 0.9s linear infinite; }
+
+@keyframes nxw-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 640px) {
+  .nxw-row { flex-wrap: wrap; gap: 10px 12px; padding: 12px 14px; }
+}
+
+/*
+ * Remapeamento para telas grandes que ainda usam utilitários antigos
+ * (Documentos, PDF Studio, editor). Mantém as cores do layout aprovado
+ * nos temas claro e escuro sem alterar a estrutura nem as funções.
+ */
+.nxw-remap.nxw-remap,
+.nxw-remap.nxw-remap.clean-workspace,
+.dark .nxw-remap.nxw-remap.clean-workspace {
+  --background: var(--nx-bg);
+  --surface: var(--nx-surface);
+  --surface-hover: var(--nx-hover);
+  --field: var(--nx-surface);
+  --border: var(--nx-border);
+  --text: var(--nx-text);
+  --text-primary: var(--nx-text);
+  --text-secondary: var(--nx-text-2);
+  --primary: var(--nx-primary);
+  --on-primary: #fff;
+  --danger: var(--nx-danger);
+  --success: var(--nx-success);
+  --warning: var(--nx-warning);
+  color: var(--nx-text);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+.nxw-remap :is(.font-black, .font-extrabold) { font-weight: 600 !important; }
+.nxw-remap .font-bold { font-weight: 600; }
+.nxw-remap .font-semibold { font-weight: 500; }
+.nxw-remap :is(label, small) .font-bold { font-weight: 500 !important; }
+.nxw-remap .uppercase { letter-spacing: 0.02em; }
+.nxw-remap :is(.shadow-lg, .shadow-xl, .shadow-2xl) { box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14) !important; }
+.nxw-remap :is(.rounded-xl, .rounded-2xl) { border-radius: 12px; }
+
+.nxw-remap :is(.text-blue-300, .text-blue-400, .text-blue-600, .text-cyan-200, .text-cyan-300, .text-cyan-400, .text-sky-300) { color: var(--nx-primary-text) !important; }
+.nxw-remap :is(.text-emerald-300, .text-emerald-400, .text-emerald-500) { color: var(--nx-success) !important; }
+.nxw-remap :is(.text-amber-100, .text-amber-200, .text-amber-300, .text-amber-400) { color: var(--nx-warning) !important; }
+.nxw-remap :is(.text-rose-100, .text-rose-300, .text-rose-400, .text-rose-500, .text-red-200, .text-red-300, .text-red-400) { color: var(--nx-danger) !important; }
+
+.nxw-remap :is(.bg-blue-500\/5, .bg-blue-500\/10, .bg-blue-500\/12, .bg-cyan-400\/5, .bg-cyan-400\/10, .bg-cyan-500\/5, .bg-cyan-500\/8, .bg-cyan-500\/10) { background-color: var(--nx-primary-soft) !important; }
+.nxw-remap :is(.bg-emerald-400\/10, .bg-emerald-500\/8, .bg-emerald-500\/10, .bg-emerald-500\/15) { background-color: var(--nx-success-soft) !important; }
+.nxw-remap :is(.bg-amber-300\/10, .bg-amber-400\/10, .bg-amber-500\/10) { background-color: var(--nx-warning-soft) !important; }
+.nxw-remap :is(.bg-rose-400\/10, .bg-rose-400\/15, .bg-rose-500\/8, .bg-rose-500\/10) { background-color: var(--nx-danger-soft) !important; }
+
+.nxw-remap :is(.border-blue-400\/20, .border-blue-400\/30, .border-blue-400\/50, .border-cyan-300\/35, .border-cyan-400\/20, .border-cyan-400\/30, .border-cyan-400\/35) { border-color: color-mix(in srgb, var(--nx-primary) 30%, var(--nx-border)) !important; }
+.nxw-remap :is(.border-emerald-400\/25, .border-emerald-500\/25, .border-emerald-500\/40) { border-color: color-mix(in srgb, var(--nx-success) 30%, var(--nx-border)) !important; }
+.nxw-remap :is(.border-amber-300\/20, .border-amber-400\/20, .border-amber-400\/25, .border-amber-500\/25) { border-color: color-mix(in srgb, var(--nx-warning) 30%, var(--nx-border)) !important; }
+.nxw-remap :is(.border-rose-300\/50, .border-rose-400\/25, .border-rose-500\/25, .border-rose-500\/40, .border-red-400\/20) { border-color: color-mix(in srgb, var(--nx-danger) 30%, var(--nx-border)) !important; }
+.nxw-remap :is(.border-blue-400, .border-blue-500, .border-cyan-400, .border-cyan-500) { border-color: var(--nx-primary) !important; }
+.nxw-remap :is(.hover\:bg-blue-500\/5, .hover\:bg-blue-500\/16, .hover\:bg-cyan-400\/10, .hover\:bg-cyan-400\/16):hover { background-color: var(--nx-primary-soft) !important; }
+.nxw-remap :is(.hover\:bg-rose-500\/10, .hover\:bg-red-500\/10):hover { background-color: var(--nx-danger-soft) !important; }
+
+/* Botões compartilhados (componente Button) no padrão nx-btn */
+.nxw-remap button[data-variant] {
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+}
+.nxw-remap button[data-variant="secondary"] { border-color: var(--nx-border-strong); background: var(--nx-surface); color: var(--nx-text); }
+.nxw-remap button[data-variant="secondary"]:hover:not(:disabled) { background: var(--nx-hover); }
+.nxw-remap button[data-variant="primary"]:not(:disabled) { border-color: var(--nx-primary); background: var(--nx-primary) !important; color: #fff !important; }
+.nxw-remap button[data-variant="primary"]:hover:not(:disabled) { background: color-mix(in srgb, var(--nx-primary) 88%, #000) !important; }
+.nxw-screen.nxw-remap button[data-variant="danger"]:not(:disabled) { border-color: var(--nx-border-strong) !important; background: var(--nx-surface) !important; color: var(--nx-danger) !important; }
+.nxw-screen.nxw-remap button[data-variant="danger"]:not(:disabled):hover { background: var(--nx-danger-soft) !important; }
+.nxw-screen.nxw-remap button[data-variant="danger"]:not(:disabled) svg { color: inherit !important; }
+.nxw-remap :is(input, select, textarea):focus-visible { outline: none; border-color: var(--nx-primary) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-primary) 16%, transparent) !important; }

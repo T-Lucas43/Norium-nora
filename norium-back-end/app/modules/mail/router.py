@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
 from pydantic import Field
 
+from app.core.identity import require_team_id, require_user_id
 from app.shared.schemas import StrictModel
 from app.infrastructure.http.oauth_result import oauth_result_html
 
@@ -95,7 +96,7 @@ class DisconnectPayload(StrictModel):
 
 
 def tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("id") or "lucas123")
+    return require_user_id(user)
 
 
 def gmail_event_timestamp(message: dict[str, Any]) -> str | None:

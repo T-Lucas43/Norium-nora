@@ -98,7 +98,8 @@ def read_json(path: str | Path, fallback: Any) -> Any:
             validate_shape(payload, fallback, path)
             if payload is None:
                 raise PersistenceError(path, "schema")
-            return copy.deepcopy(payload)
+            # read_document já entrega uma cópia própria (do banco ou do cache).
+            return payload
         except PersistenceError:
             raise
         except postgres_store.PostgresStoreError as exc:

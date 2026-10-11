@@ -1,7 +1,6 @@
 import { ArrowRight, CheckCircle2, Clock3, GitBranch, PlayCircle, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { apiBaseUrl, authToken } from "../../utils/api";
-import Button from "../shared/Button";
 
 type DashboardAutomation = {
   id: string;
@@ -48,12 +47,13 @@ function formatSavedMinutes(value?: number) {
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return "Ainda nao executada";
+  if (!value) return "Ainda não executada";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Ainda nao executada";
+  if (Number.isNaN(date.getTime())) return "Ainda não executada";
   return date.toLocaleString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
+    year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -77,20 +77,20 @@ export default function ActiveAutomations({ onNavigate }: ActiveAutomationsProps
           headers: authHeaders(),
         });
         const data = (await response.json().catch(() => ({}))) as AutomationsResponse;
-        if (!response.ok) throw new Error("Nao foi possivel carregar automacoes.");
+        if (!response.ok) throw new Error("Não foi possível carregar as automações.");
         if (cancelled) return;
         setAutomations(Array.isArray(data.automations) ? data.automations : []);
         setMetrics(data.metrics || {});
       } catch (err) {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Falha ao buscar automacoes.");
+        setError(err instanceof Error ? err.message : "Falha ao buscar automações.");
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
 
     void loadAutomations();
-    const interval = window.setInterval(loadAutomations, 60_000);
+    const interval = window.setInterval(() => { if (!document.hidden) void loadAutomations(); }, 120_000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -109,84 +109,75 @@ export default function ActiveAutomations({ onNavigate }: ActiveAutomationsProps
   const activeCount = metrics?.active ?? activeAutomations.length;
 
   return (
-    <section className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1 text-xs font-bold text-cyan-300">
-            <GitBranch size={14} />
-            Automacoes ativas
-          </div>
-          <h2 className="text-xl font-black text-[var(--text)]">Fluxos rodando no Norium</h2>
-          <p className="text-sm font-semibold text-[var(--text-secondary)]">
-            {activeCount} ativa(s), {metrics?.runsToday || 0} execucao(oes) hoje e {formatSavedMinutes(metrics?.savedMinutes)} economizados.
+    <section className="nx-card nxd-card">
+      <div className="nx-card-h flex-wrap">
+        <div className="nxd-card-h-col">
+          <span className="nx-badge is-violet mb-2"><GitBranch size={12} strokeWidth={1.75} />Automações ativas</span>
+          <h2>Fluxos rodando no Norium</h2>
+          <p className="nxd-card-sub">
+            {activeCount} ativa(s), {metrics?.runsToday || 0} execução(ões) hoje e {formatSavedMinutes(metrics?.savedMinutes)} economizados.
           </p>
         </div>
 
-        <Button
-          onClick={() => onNavigate("Automações")}
-         
-        >
-          Abrir automacoes
-          <ArrowRight size={15} />
-        </Button>
+        <button type="button" className="nx-btn is-sm ml-auto" onClick={() => onNavigate("Automações")}>
+          Abrir automações
+          <ArrowRight size={14} strokeWidth={1.75} />
+        </button>
       </div>
 
-      {loading ? (
-        <div className="grid min-h-28 place-items-center rounded-2xl border border-[var(--border)] bg-[var(--background)] text-sm font-bold text-[var(--text-secondary)]">
-          Carregando automacoes...
-        </div>
-      ) : error ? (
-        <div className="rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4 text-sm font-bold text-amber-200">{error}</div>
-      ) : activeAutomations.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--background)] p-5">
-          <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-500/10 text-blue-400">
-              <Zap size={22} />
-            </div>
-            <div>
-              <h3 className="font-black text-[var(--text)]">Nenhuma automacao ativa</h3>
-              <p className="text-sm font-semibold text-[var(--text-secondary)]">Ative um fluxo para acompanhar por aqui.</p>
+      <div className="nx-card-b">
+        {loading ? (
+          <div className="nxd-empty">
+            Carregando automações...
+          </div>
+        ) : error ? (
+          <div className="nxd-notice">{error}</div>
+        ) : activeAutomations.length === 0 ? (
+          <div className="nx-row">
+            <span className="nxd-ico is-blue"><Zap size={16} strokeWidth={1.75} /></span>
+            <div className="nx-grow">
+              <div className="nx-row-t">Nenhuma automação ativa</div>
+              <div className="nx-row-sub">Ative um fluxo para acompanhar por aqui.</div>
             </div>
           </div>
-        </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {activeAutomations.map((automation) => (
-            <button
-              key={automation.id}
-              onClick={() => onNavigate("Automações")}
-              className="group rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4 text-left transition hover:-translate-y-0.5 hover:border-cyan-300/35 hover:bg-[var(--surface-hover)]"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate font-black text-[var(--text)]">{automation.name}</p>
-                  <p className="mt-1 line-clamp-2 text-xs font-semibold text-[var(--text-secondary)]">
-                    {automation.description || automation.trigger || "Fluxo operacional ativo."}
-                  </p>
-                </div>
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-500/10 text-emerald-400">
-                  <CheckCircle2 size={19} />
+        ) : (
+          <div className="nxd-automations">
+            {activeAutomations.map((automation) => (
+              <button
+                type="button"
+                key={automation.id}
+                onClick={() => onNavigate("Automações")}
+                className="nxd-automation"
+              >
+                <span className="flex w-full items-start gap-3">
+                  <span className="nx-grow">
+                    <span className="nx-row-t nx-ell block">{automation.name}</span>
+                    <span className="nxd-automation-desc mt-1">
+                      {automation.description || automation.trigger || "Fluxo operacional ativo."}
+                    </span>
+                  </span>
+                  <span className="nxd-ico is-green"><CheckCircle2 size={16} strokeWidth={1.75} /></span>
                 </span>
-              </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-bold text-blue-300">
-                  <PlayCircle size={12} />
-                  {automation.executions || 0} exec.
+                <span className="nxd-badges">
+                  <span className="nx-badge is-blue">
+                    <PlayCircle size={12} strokeWidth={1.75} />
+                    {automation.executions || 0} exec.
+                  </span>
+                  <span className="nx-badge">
+                    <Clock3 size={12} strokeWidth={1.75} />
+                    {formatDateTime(automation.lastRunAt || automation.updatedAt)}
+                  </span>
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2.5 py-1 text-xs font-bold text-cyan-300">
-                  <Clock3 size={12} />
-                  {formatDateTime(automation.lastRunAt || automation.updatedAt)}
-                </span>
-              </div>
 
-              <p className="mt-3 truncate text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">
-                {automation.trigger || "Manual"} {"->"} {(automation.actions || []).slice(0, 2).join(", ") || "Nora operacional"}
-              </p>
-            </button>
-          ))}
-        </div>
-      )}
+                <span className="nx-row-sub nx-ell block w-full">
+                  {automation.trigger || "Manual"} {"→"} {(automation.actions || []).slice(0, 2).join(", ") || "Nora operacional"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   );
 }

@@ -9,7 +9,7 @@ import { initialMailboxSyncState } from "../types";
 /** Pastas pre-carregadas em segundo plano para a troca de caixa parecer instantanea. */
 const PREFETCH_FOLDERS = ["sent", "drafts", "scheduled", "starred", "important", "spam", "trash"];
 const PREFETCH_DELAY_MS = 700;
-const AUTO_REFRESH_MS = 45000;
+const AUTO_REFRESH_MS = 120_000;
 const SYNC_RETRY_DELAY_MS = 800;
 
 function sleep(ms: number) {
@@ -307,6 +307,7 @@ export function useMailbox({
   useEffect(() => {
     if (!connected || !autoRefresh) return undefined;
     const timer = window.setInterval(() => {
+      if (document.hidden) return;
       void refreshFirstPage();
       onRefreshLabelsRef.current();
     }, AUTO_REFRESH_MS);

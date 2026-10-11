@@ -5,6 +5,7 @@ import re
 import unicodedata
 from typing import Any
 
+from app.core.identity import require_team_id, require_user_id
 from app.modules.automations.router import read_store as read_automation_store, response_payload as automation_payload
 from app.modules.operations.service import operations_overview
 from app.modules.platform.service import list_collection
@@ -64,7 +65,7 @@ def resolve_read_query(message: str, messages: list[Any]) -> tuple[str, str] | N
 
 
 async def _overview(user: dict[str, Any], label: str) -> dict[str, Any]:
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     tasks = list_tasks(user_id, status="todas")
     task_stats = tasks.get("stats") if isinstance(tasks.get("stats"), dict) else {}
     finance_data = list_finance(user_id)
@@ -177,7 +178,7 @@ async def _operations(user: dict[str, Any]) -> dict[str, Any]:
 def _operations_fallback(user: dict[str, Any]) -> dict[str, Any]:
     """Mantém o resumo útil mesmo quando uma fonte agregada está indisponível."""
 
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     unavailable: list[str] = []
     task_stats: dict[str, Any] = {}
     tasks: list[dict[str, Any]] = []
@@ -261,7 +262,7 @@ def _operations_fallback(user: dict[str, Any]) -> dict[str, Any]:
 
 
 def _finance_analysis(user: dict[str, Any]) -> dict[str, Any]:
-    finance = list_finance(str(user.get("id") or "lucas123"))
+    finance = list_finance(require_user_id(user))
     summary = finance.get("resumo") or {}
     balance = float(summary.get("saldo") or 0)
     pending = float(summary.get("pendente") or 0)

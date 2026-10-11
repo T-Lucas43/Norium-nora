@@ -6,9 +6,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SystemNotification, SystemNotificationSeverity } from "../../types/omnichannel";
-import NotificationVisual from "./NotificationVisual";
 import { notificationVisual } from "./notificationVisualConfig";
-import Button from "../shared/Button";
+import "./SystemNotificationsCenter.css";
 
 type SystemNotificationsCenterProps = {
   notifications: SystemNotification[];
@@ -18,56 +17,47 @@ type SystemNotificationsCenterProps = {
 };
 
 type NotificationDensity = "compacta" | "media" | "ampla";
+type NotificationFilter = "todas" | "nao-lidas";
 
 const ORDER_STORAGE_KEY = "norium:system-notifications:order";
 const DENSITY_STORAGE_KEY = "norium:system-notifications:density";
 
-const severityConfig: Record<SystemNotificationSeverity, { label: string; className: string }> = {
-  info: {
-    label: "Informacao",
-    className: "bg-sky-500/12 text-sky-400 border-sky-400/25",
-  },
-  success: {
-    label: "Resolvido",
-    className: "bg-emerald-500/12 text-emerald-400 border-emerald-400/25",
-  },
-  warning: {
-    label: "Aviso",
-    className: "bg-amber-500/12 text-amber-400 border-amber-400/25",
-  },
-  error: {
-    label: "Critico",
-    className: "bg-red-500/12 text-red-400 border-red-400/25",
-  },
+const severityConfig: Record<SystemNotificationSeverity, { label: string; tone: string }> = {
+  info: { label: "Informação", tone: "is-blue" },
+  success: { label: "Resolvido", tone: "is-green" },
+  warning: { label: "Aviso", tone: "is-amber" },
+  error: { label: "Crítico", tone: "is-red" },
 };
 
-const densityConfig: Record<NotificationDensity, { label: string; row: string; description: string }> = {
-  compacta: {
-    label: "Compacta",
-    row: "px-4 py-3",
-    description: "line-clamp-1 text-xs leading-5",
-  },
-  media: {
-    label: "Media",
-    row: "px-4 py-4",
-    description: "line-clamp-2 text-sm leading-6",
-  },
-  ampla: {
-    label: "Ampla",
-    row: "px-5 py-5",
-    description: "line-clamp-3 text-sm leading-6",
-  },
+const densityConfig: Record<NotificationDensity, { label: string }> = {
+  compacta: { label: "Compacta" },
+  media: { label: "Média" },
+  ampla: { label: "Ampla" },
+};
+
+// Cor fixa por origem, como em "Tipos de notificação" do layout aprovado.
+const kindTone: Record<string, string> = {
+  "E-mail": "is-red",
+  WhatsApp: "is-green",
+  Agenda: "is-blue",
+  Tarefas: "is-amber",
+  Financeiro: "is-cyan",
+  "Automação": "is-violet",
+  Equipe: "is-blue",
+  Nora: "is-blue",
+  Sistema: "",
+  "Informação": "is-blue",
+  Resolvido: "is-green",
+  Aviso: "is-amber",
+  "Crítico": "is-red",
 };
 
 function formatNotificationTime(timestamp: string) {
   const parsed = new Date(timestamp);
   if (Number.isNaN(parsed.getTime())) return "--:--";
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(parsed);
+  const date = parsed.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const time = parsed.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return `${date} ${time}`;
 }
 
 export default function SystemNotificationsCenter({
@@ -77,6 +67,7 @@ export default function SystemNotificationsCenter({
   onNavigate,
 }: SystemNotificationsCenterProps) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<NotificationFilter>("todas");
   const [density, setDensity] = useState<NotificationDensity>(() => {
     if (typeof window === "undefined") return "media";
     const stored = window.localStorage.getItem(DENSITY_STORAGE_KEY) as NotificationDensity | null;
@@ -116,6 +107,12 @@ export default function SystemNotificationsCenter({
     return [...ordered, ...notifications.filter((notification) => !knownIds.has(notification.id))];
   }, [notifications, orderedIds]);
 
+  const unreadCount = useMemo(() => notifications.filter((notification) => !notification.read).length, [notifications]);
+  const visibleNotifications = useMemo(
+    () => (filter === "nao-lidas" ? orderedNotifications.filter((notification) => !notification.read) : orderedNotifications),
+    [filter, orderedNotifications],
+  );
+
   function moveNotification(targetId: string) {
     if (!draggedId || draggedId === targetId) return;
     setOrderedIds((current) => {
@@ -147,133 +144,142 @@ export default function SystemNotificationsCenter({
     return "Controle";
   }
 
-  const densityStyle = densityConfig[density];
+  const filters: Array<{ key: NotificationFilter; label: string; count: number }> = [
+    { key: "todas", label: "Todas", count: notifications.length },
+    { key: "nao-lidas", label: "Não lidas", count: unreadCount },
+  ];
 
   return (
-    <section className="system-notifications-center flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
-      <header className="system-notifications-header flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--primary)]">
-            <Bell size={21} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-bold">Notificacoes do Sistema</h1>
-            <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">
-              Alertas globais, conexoes e avisos operacionais do Norium
-            </p>
-          </div>
+    <section className="system-notifications-center nx-page nxn">
+      <header className="nx-ph">
+        <div className="min-w-0">
+          <h1>Notificações</h1>
+          <p>Alertas globais, conexões e avisos operacionais do Norium</p>
         </div>
 
-        <div className="system-notifications-actions flex shrink-0 items-center gap-3">
-          <label className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
-            Tamanho
-            <select
-              value={density}
-              onChange={(event) => setDensity(event.target.value as NotificationDensity)}
-              className="bg-transparent text-[var(--text)] outline-none"
-              title="Ajustar tamanho das notificacoes"
-            >
-              {Object.entries(densityConfig).map(([key, value]) => (
-                <option key={key} value={key} className="bg-[var(--surface)] text-[var(--text)]">
-                  {value.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${connected ? "bg-emerald-500/12 text-emerald-400" : "bg-amber-500/12 text-amber-400"}`}>
-            {connected ? "WebSocket online" : "WebSocket reconectando"}
-          </span>
-          <Button
+        <div className="nx-ph-actions">
+          <div className="nx-seg" role="group" aria-label="Ajustar tamanho das notificações" title="Ajustar tamanho das notificações">
+            {(Object.entries(densityConfig) as Array<[NotificationDensity, { label: string }]>).map(([key, value]) => (
+              <button
+                key={key}
+                type="button"
+                className={density === key ? "is-active" : ""}
+                aria-pressed={density === key}
+                onClick={() => setDensity(key)}
+              >
+                {value.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="nx-btn"
             onClick={onClear}
             disabled={notifications.length === 0}
-            className="text-[var(--text-secondary)] hover:text-[var(--text)]"
-            title="Limpar notificacoes"
-           aria-label="Limpar notificacoes">
-            <Trash2 size={15} />
+            title="Limpar notificações"
+            aria-label="Limpar notificações"
+          >
+            <Trash2 size={16} strokeWidth={1.75} />
             Limpar
-          </Button>
+          </button>
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        <div className="mx-auto max-w-5xl overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-          {notifications.length === 0 ? (
-            <div className="flex min-h-[420px] flex-col items-center justify-center px-6 text-center">
-              <span className="mb-3 grid h-14 w-14 place-items-center rounded-lg bg-[var(--background)] text-[var(--text-secondary)]">
-                <Bell size={26} />
-              </span>
-              <h2 className="text-lg font-black text-[var(--text)]">Nenhum alerta do sistema</h2>
-              <p className="mt-1 max-w-md text-sm font-semibold leading-6 text-[var(--text-secondary)]">
-                Este painel mostra apenas avisos globais, falhas de conexao e estados criticos do Norium.
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--border)]">
-              {orderedNotifications.map((notification) => {
-                const config = severityConfig[notification.severity];
-                const visual = notificationVisual(notification);
+      <div className="nxn-filters">
+        {filters.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={`nx-badge nxn-chip ${filter === item.key ? "is-blue" : ""}`}
+            aria-pressed={filter === item.key}
+            onClick={() => setFilter(item.key)}
+          >
+            {item.label} <span className="nxn-chip-count">{item.count}</span>
+          </button>
+        ))}
+        <span className="nxn-live" role="status">
+          <span className={`nxn-live-dot ${connected ? "" : "is-off"}`} aria-hidden="true" />
+          {connected ? "Tempo real ativo" : "Tempo real reconectando"}
+        </span>
+      </div>
 
-                return (
-                  <article
-                    key={notification.id}
-                    draggable
-                    onDragStart={() => setDraggedId(notification.id)}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={() => moveNotification(notification.id)}
-                    onDragEnd={() => setDraggedId(null)}
-                    className={`system-notification-row grid cursor-grab grid-cols-[20px_48px_1fr_auto] gap-4 transition hover:bg-[var(--surface-hover)] active:cursor-grabbing ${densityStyle.row}`}
-                  >
-                    <span className="mt-3 text-[var(--text-secondary)]">
-                      <GripVertical size={15} />
+      <div className="nx-card nxn-list">
+        {notifications.length === 0 ? (
+          <div className="nxn-empty">
+            <span className="nxn-empty-icon">
+              <Bell size={22} strokeWidth={1.75} />
+            </span>
+            <h2>Nenhum alerta do sistema</h2>
+            <p>
+              Este painel mostra apenas avisos globais, falhas de conexão e estados críticos do Norium.
+            </p>
+          </div>
+        ) : visibleNotifications.length === 0 ? (
+          <div className="nxn-empty">
+            <span className="nxn-empty-icon">
+              <Bell size={22} strokeWidth={1.75} />
+            </span>
+            <h2>Nenhuma notificação não lida</h2>
+            <p>Todas as notificações já foram vistas. Selecione “Todas” para ver o histórico.</p>
+          </div>
+        ) : (
+          visibleNotifications.map((notification) => {
+            const config = severityConfig[notification.severity];
+            const visual = notificationVisual(notification);
+            const Icon = visual.icon;
+
+            return (
+              <article
+                key={notification.id}
+                draggable
+                onDragStart={() => setDraggedId(notification.id)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => moveNotification(notification.id)}
+                onDragEnd={() => setDraggedId(null)}
+                className={`system-notification-row nxn-row density-${density} ${notification.read ? "" : "is-unread"}`}
+              >
+                <span className="nxn-grip" aria-hidden="true">
+                  <GripVertical size={15} strokeWidth={1.75} />
+                </span>
+                <span className={`nxn-icon ${kindTone[visual.label] ?? ""}`} title={visual.label} aria-label={visual.label}>
+                  <Icon size={16} strokeWidth={1.75} />
+                </span>
+
+                <div className="nx-grow">
+                  <h3 className="nxn-title">{notification.title}</h3>
+                  <p className="nxn-desc">{notification.description}</p>
+                </div>
+
+                <div className="nxn-meta">
+                  {!notification.read && (
+                    <span className="nx-badge is-blue">
+                      <span className="nxn-new" aria-hidden="true" />
+                      Novo
                     </span>
-                    <NotificationVisual notification={notification} />
-
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-xs font-bold text-[var(--text-secondary)]">
-                          {visual.label}
-                        </span>
-                        <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${config.className}`}>
-                          {config.label}
-                        </span>
-                        {!notification.read && (
-                          <span className="rounded-full bg-[var(--primary)]/14 px-2 py-0.5 text-xs font-bold text-[var(--primary)]">
-                            novo
-                          </span>
-                        )}
-                        <h3 className="min-w-0 truncate text-sm font-bold text-[var(--text)]">
-                          {notification.title}
-                        </h3>
-                      </div>
-                      <p className={`mt-1 font-semibold text-[var(--text-secondary)] ${densityStyle.description}`}>
-                        {notification.description}
-                      </p>
-                    </div>
-
-                    <div className="flex shrink-0 flex-col items-end gap-2">
-                      <time className="text-xs font-bold text-[var(--text-secondary)]">
-                        {formatNotificationTime(notification.timestamp)}
-                      </time>
-                      {onNavigate && (
-                        <Button
-                         
-                          onClick={() => {
-                            const tab = notificationTarget(notification);
-                            if (tab === "Chat da Equipe") window.dispatchEvent(new CustomEvent("norium:deep-link", { detail: { tab, entityType: "team-message", entityId: String(notification.metadata?.messageId || ""), metadata: notification.metadata } }));
-                            else onNavigate(tab);
-                          }}
-                          className="py-1 text-[var(--text-secondary)] hover:bg-[var(--background)] hover:text-[var(--text)]"
-                        >
-                          Abrir <ChevronRight size={13} />
-                        </Button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  )}
+                  <span className="nx-badge">{visual.label}</span>
+                  <span className={`nx-badge ${config.tone}`}>{config.label}</span>
+                  <time className="nxn-time" dateTime={notification.timestamp}>
+                    {formatNotificationTime(notification.timestamp)}
+                  </time>
+                  {onNavigate && (
+                    <button
+                      type="button"
+                      className="nxn-open"
+                      onClick={() => {
+                        const tab = notificationTarget(notification);
+                        if (tab === "Chat da Equipe") window.dispatchEvent(new CustomEvent("norium:deep-link", { detail: { tab, entityType: "team-message", entityId: String(notification.metadata?.messageId || ""), metadata: notification.metadata } }));
+                        else onNavigate(tab);
+                      }}
+                    >
+                      Abrir origem <ChevronRight size={14} strokeWidth={1.75} />
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })
+        )}
       </div>
     </section>
   );

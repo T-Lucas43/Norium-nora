@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
-  Building2,
-  Bot,
   CalendarClock,
   Camera,
   CheckCheck,
@@ -12,6 +10,7 @@ import {
   FileSignature,
   FileText,
   History,
+  Lock,
   Mail,
   MessageCircle,
   Pencil,
@@ -21,22 +20,23 @@ import {
   Sparkles,
   Tag,
   Trash2,
-  UserRound,
   UserRoundCheck,
   UsersRound,
+  Wallet,
   X,
 } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
-import WorkspaceHeader from "../shared/WorkspaceHeader";
-import Button from "../shared/Button";
 import { showConfirm } from "../shared/AppDialogProvider";
+import NoraAvatar from "../layout/NoraAvatar";
 import ClientAvatar from "./ClientAvatar";
 import ClientAccessDialog from "./ClientAccessDialog";
 import ClientEditor from "./ClientEditor";
 import { ClientContracts, ClientDocuments } from "./ClientAssets";
 import {
   dateLabel,
+  documentLabel,
   gmailUrl,
+  phoneLabel,
   saveBlob,
   stageLabels,
   statusLabels,
@@ -47,6 +47,12 @@ import {
   type ClientStatus,
 } from "./clientModel";
 import "./clients.css";
+
+const statusBadge: Record<ClientStatus, string> = {
+  active: "is-green",
+  lead: "is-blue",
+  inactive: "",
+};
 
 type DetailTab = "overview" | "contracts" | "documents" | "history";
 export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?: string) => void }) {
@@ -293,82 +299,89 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
       `clientes-norium-${new Date().toISOString().slice(0, 10)}.csv`,
     );
   }
+  const shown = Math.min(visible, filtered.length);
+  const accessSummary = (client: Client) => {
+    if (client.accessRole && client.accessRole !== "owner")
+      return `Compartilhado por ${client.createdByName || "membro da equipe"} · você pode ${client.accessRole === "edit" ? "editar" : "visualizar"}`;
+    const team = client.access?.teamPermission || "none";
+    const people = client.access?.people?.length || 0;
+    return [
+      team === "none" ? "Só você e as pessoas convidadas" : `Equipe inteira pode ${team === "edit" ? "editar" : "visualizar"}`,
+      people ? `${people} ${people === 1 ? "pessoa com acesso individual" : "pessoas com acesso individual"}` : "",
+    ].filter(Boolean).join(" · ");
+  };
   return (
-    <main className="clients-workspace clean-workspace">
-      <WorkspaceHeader
-        title="Clientes"
-        description="Pessoas, conversas e documentos. Tudo no mesmo lugar."
-        icon={UsersRound}
-      >
-        {onOpenNora && (
-          <Button size="sm" onClick={() => onOpenNora("Ajude-me a analisar minha carteira de clientes e definir prioridades.")}>
-            <Sparkles size={15} />
-            Perguntar à Nora
-          </Button>
-        )}
-        <Button
-          size="sm"
-          iconOnly
-          title="Atualizar clientes"
-          aria-label="Atualizar clientes"
-          disabled={loading}
-          onClick={() => void load()}
-        >
-          <RefreshCw size={16} />
-        </Button>
-        <Button size="sm" disabled={!filtered.length} onClick={exportClients}>
-          <Download size={15} />
-          Exportar
-        </Button>
-        <Button
-          className="client-main-action"
-          onClick={() => setEditor({ client: null })}
-        >
-          <Plus size={16} />
-          Novo cliente
-        </Button>
-      </WorkspaceHeader>
-      <div className="client-metrics">
-        <Metric
-          icon={UsersRound}
-          tone="violet"
-          value={clients.length}
-          label="Total de clientes"
-        />
-        <Metric
-          icon={UserRoundCheck}
-          tone="green"
-          value={clients.filter((item) => item.status === "active").length}
-          label="Clientes ativos"
-        />
-        <Metric
-          icon={MessageCircle}
-          tone="sky"
-          value={clients.filter((item) => item.status === "lead").length}
-          label="Em prospecção"
-        />
-        <Metric
-          icon={CalendarClock}
-          tone="amber"
-          value={nextContacts}
-          label="Contatos até os próximos 7 dias"
-        />
-      </div>
+    <main className="clients-workspace nx-page">
+      {!selected && (
+        <>
+          <div className="nx-ph">
+            <div>
+              <h1>Clientes</h1>
+              <p>
+                {clients.length} {clients.length === 1 ? "cliente" : "clientes"} ·{" "}
+                {clients.filter((item) => item.status === "active").length} ativos
+              </p>
+            </div>
+            <div className="nx-ph-actions">
+              {onOpenNora && (
+                <button type="button" className="nx-btn" onClick={() => onOpenNora("Ajude-me a analisar minha carteira de clientes e definir prioridades.")}>
+                  <Sparkles size={16} />
+                  Perguntar à Nora
+                </button>
+              )}
+              <button
+                type="button"
+                className="nx-btn client-icon-btn"
+                title="Atualizar clientes"
+                aria-label="Atualizar clientes"
+                disabled={loading}
+                onClick={() => void load()}
+              >
+                <RefreshCw size={16} />
+              </button>
+              <button type="button" className="nx-btn" disabled={!filtered.length} onClick={exportClients}>
+                <Download size={16} />
+                Exportar
+              </button>
+              <button
+                type="button"
+                className="nx-btn is-primary"
+                onClick={() => setEditor({ client: null })}
+              >
+                <Plus size={16} />
+                Novo cliente
+              </button>
+            </div>
+          </div>
+          <div className="nx-kpis">
+            <Metric icon={UsersRound} value={clients.length} label="Total de clientes" />
+            <Metric
+              icon={UserRoundCheck}
+              value={clients.filter((item) => item.status === "active").length}
+              label="Clientes ativos"
+            />
+            <Metric
+              icon={MessageCircle}
+              value={clients.filter((item) => item.status === "lead").length}
+              label="Em prospecção"
+            />
+            <Metric icon={CalendarClock} value={nextContacts} label="Contatos até os próximos 7 dias" />
+          </div>
+        </>
+      )}
       {error && (
         <div role="alert" className="client-error">
           {error}
         </div>
       )}
-      <div
-        className={`client-workbench ${selected ? "client-has-selection" : ""}`}
-      >
-        <aside className="client-sidebar" aria-label="Lista de clientes">
-          <div className="client-sidebar-tools">
-            <label className="client-search">
-              <Search size={17} />
+      {!selected ? (
+        <section className="client-list-section" aria-label="Lista de clientes">
+          <div className="client-toolbar">
+            <label className="nx-input client-search">
+              <Search size={16} />
               <input
                 aria-label="Buscar clientes"
-                placeholder="Buscar nome, empresa ou contato"
+                placeholder="Buscar por nome, empresa, CPF/CNPJ ou telefone"
                 value={query}
                 onChange={(event) => {
                   setQuery(event.target.value);
@@ -376,16 +389,18 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                 }}
               />
               {query && (
-                <button aria-label="Limpar busca" onClick={() => setQuery("")}>
+                <button type="button" aria-label="Limpar busca" onClick={() => setQuery("")}>
                   <X size={14} />
                 </button>
               )}
             </label>
-            <div className="client-filters">
+            <div className="nx-seg" role="group" aria-label="Filtrar por status">
               {(["all", "active", "lead", "inactive"] as const).map((value) => (
                 <button
+                  type="button"
                   key={value}
                   aria-pressed={filter === value}
+                  className={filter === value ? "is-active" : ""}
                   onClick={() => {
                     setFilter(value);
                     setVisible(25);
@@ -401,11 +416,8 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                 </button>
               ))}
             </div>
-            <div className="client-list-caption">
-              <span>
-                {filtered.length}{" "}
-                {filtered.length === 1 ? "cliente" : "clientes"}
-              </span>
+            <label className="nx-input client-sort">
+              <span className="nx-faint">Ordenar</span>
               <select
                 aria-label="Ordenar clientes"
                 value={sort}
@@ -415,38 +427,62 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                 <option value="name">Nome A–Z</option>
                 <option value="next">Próximo contato</option>
               </select>
-            </div>
+            </label>
+            <span className="client-count">
+              {filtered.length} {filtered.length === 1 ? "cliente" : "clientes"}
+            </span>
           </div>
-          <div className="client-list">
+          <div className="nx-card client-table-card">
             {loading ? (
               <p className="client-empty" role="status">
                 Carregando clientes…
               </p>
+            ) : filtered.length ? (
+              <table className="nx-table client-table" aria-label="Clientes">
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th className="client-col-md">CPF / CNPJ</th>
+                    <th className="client-col-sm">Telefone</th>
+                    <th>Status</th>
+                    <th className="client-col-md">Responsável</th>
+                    <th className="client-col-sm">Próximo contato</th>
+                    <th aria-hidden="true" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.slice(0, visible).map((client) => (
+                    <tr key={client.id} onClick={() => select(client.id)}>
+                      <td>
+                        <button
+                          type="button"
+                          className="client-row-open"
+                          aria-pressed={selectedId === client.id}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            select(client.id);
+                          }}
+                        >
+                          <ClientAvatar client={client} />
+                          <span>
+                            <strong>{client.name}</strong>
+                            <small>{client.company || client.email || "Cliente individual"}</small>
+                          </span>
+                        </button>
+                      </td>
+                      <td className="client-col-md nx-muted">{documentLabel(client.document) || "—"}</td>
+                      <td className="client-col-sm nx-muted">{phoneLabel(client.phone) || "—"}</td>
+                      <td>
+                        <span className={`nx-badge ${statusBadge[client.status]}`}>{statusLabels[client.status]}</span>
+                      </td>
+                      <td className="client-col-md nx-muted">{client.ownerName || "—"}</td>
+                      <td className="client-col-sm nx-muted">{client.nextActionAt ? dateLabel(client.nextActionAt) : "—"}</td>
+                      <td className="nx-faint client-col-arrow"><ChevronRight size={16} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             ) : (
-              filtered.slice(0, visible).map((client) => (
-                <button
-                  className={`client-list-item ${selectedId === client.id ? "is-selected" : ""}`}
-                  key={client.id}
-                  aria-pressed={selectedId === client.id}
-                  onClick={() => select(client.id)}
-                >
-                  <ClientAvatar client={client} />
-                  <span className="client-list-person">
-                    <strong>{client.name}</strong>
-                    <small>
-                      {client.company || client.email || "Cliente individual"}
-                    </small>
-                    <span
-                      className={`client-status-dot client-status-${client.status}`}
-                    >
-                      {statusLabels[client.status]}
-                    </span>
-                  </span>
-                  <ChevronRight size={15} />
-                </button>
-              ))
-            )}
-            {!loading && !filtered.length && (
               <div className="client-empty">
                 <Search size={24} />
                 <h4>
@@ -457,68 +493,67 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                 <p>
                   {query || filter !== "all"
                     ? "Ajuste a busca ou os filtros."
-                    : "Cadastre um cliente para organizar os contatos."}
+                    : "Cadastre um cliente para organizar os contatos, contratos e documentos."}
                 </p>
+                {!clients.length && (
+                  <button type="button" className="nx-btn is-primary" onClick={() => setEditor({ client: null })}>
+                    <Plus size={16} />
+                    Cadastrar primeiro cliente
+                  </button>
+                )}
               </div>
-            )}
-            {visible < filtered.length && (
-              <Button
-                className="client-load-more"
-                variant="ghost"
-                onClick={() => setVisible((value) => value + 25)}
-              >
-                Carregar mais clientes
-              </Button>
             )}
           </div>
-        </aside>
+          {!loading && filtered.length > 0 && (
+            <div className="client-pager">
+              <span>Mostrando 1–{shown} de {filtered.length}</span>
+              {visible < filtered.length && (
+                <button type="button" className="nx-btn is-sm" onClick={() => setVisible((value) => value + 25)}>
+                  Carregar mais clientes
+                </button>
+              )}
+            </div>
+          )}
+        </section>
+      ) : (
         <section className="client-detail" aria-label="Ficha do cliente">
-          {selected ? (
-            <>
-              <div className="client-detail-top">
-                <Button size="sm" variant="ghost" onClick={() => select(null)}>
-                  <ArrowLeft size={15} />
-                  <span>Clientes</span>
-                </Button>
-                <div>
-                  {canShareSelected && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setAccessClient(selected)}
-                    >
-                      <UsersRound size={14} />
-                      Compartilhar
-                    </Button>
-                  )}
-                  {canEditSelected && (
-                    <Button
-                      size="sm"
-                      disabled={photoBusy}
-                      onClick={() => setEditor({ client: selected })}
-                    >
-                      <Pencil size={14} />
-                      Editar
-                    </Button>
-                  )}
-                  {canShareSelected && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      iconOnly
-                      disabled={photoBusy}
-                      aria-label="Excluir cliente"
-                      title="Excluir cliente"
-                      onClick={() => void remove(selected)}
-                    >
-                      <Trash2 size={15} />
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <header className="client-profile">
+          <div className="client-detail-top">
+            <button type="button" className="nx-btn is-ghost is-sm" onClick={() => select(null)}>
+              <ArrowLeft size={15} />
+              <span>Clientes</span>
+            </button>
+            <div>
+              {canEditSelected && (
+                <button
+                  type="button"
+                  className="nx-btn is-sm"
+                  disabled={photoBusy}
+                  onClick={() => setEditor({ client: selected })}
+                >
+                  <Pencil size={14} />
+                  Editar
+                </button>
+              )}
+              {canShareSelected && (
+                <button
+                  type="button"
+                  className="nx-btn is-sm is-ghost client-danger"
+                  disabled={photoBusy}
+                  aria-label="Excluir cliente"
+                  title="Excluir cliente"
+                  onClick={() => void remove(selected)}
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="client-ficha">
+            <div className="nx-card client-profile">
+              <div className="client-profile-id">
                 <div className="client-photo-control">
                   <button
+                    type="button"
                     disabled={photoBusy || !canEditSelected}
                     className="client-photo-button"
                     aria-label={
@@ -531,11 +566,12 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                   >
                     <ClientAvatar client={selected} large />
                     <span>
-                      <Camera size={14} />
+                      <Camera size={12} />
                     </span>
                   </button>
                   {selected.avatarId && canEditSelected && (
                     <button
+                      type="button"
                       className="client-remove-photo"
                       disabled={photoBusy}
                       onClick={() => void removePhoto()}
@@ -552,78 +588,104 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                     onChange={(event) => void photo(event.target.files?.[0])}
                   />
                 </div>
-                <div className="client-profile-info">
-                  <div className="client-profile-status">
-                    <span
-                      className={`client-badge client-tone-${selected.status === "active" ? "green" : selected.status === "lead" ? "sky" : "neutral"}`}
-                    >
-                      {statusLabels[selected.status]}
-                    </span>
-                    <span>{stageLabels[selected.stage]}</span>
-                    {selected.accessRole && selected.accessRole !== "owner" && (
-                      <span>Compartilhado por {selected.createdByName || "membro da equipe"}</span>
-                    )}
-                  </div>
+                <div className="nx-grow">
                   <h2>{selected.name}</h2>
-                  <p>
-                    <Building2 size={14} />
+                  <p className="nx-faint nx-small">
                     {selected.company || "Cliente individual"}
-                    {selected.segment && <span> · {selected.segment}</span>}
+                    {selected.segment && ` · ${selected.segment}`}
                   </p>
                 </div>
-              </header>
+              </div>
               {photoBusy && (
                 <p role="status" className="client-hint">
                   Atualizando foto…
                 </p>
               )}
+              <div className="client-badges">
+                <span className={`nx-badge ${statusBadge[selected.status]}`}>{statusLabels[selected.status]}</span>
+                <span className="nx-badge">{stageLabels[selected.stage]}</span>
+                {selected.accessRole && selected.accessRole !== "owner" && (
+                  <span className="nx-badge is-violet">Compartilhado por {selected.createdByName || "membro da equipe"}</span>
+                )}
+              </div>
               <div className="client-contact-actions">
-                <ContactAction
-                  icon={Mail}
-                  label="Gmail"
-                  value={selected.email}
-                  href={gmailUrl(selected.email)}
-                  tone="red"
-                  onEdit={() => setEditor({ client: selected })}
-                />
                 <ContactAction
                   icon={MessageCircle}
                   label="WhatsApp"
                   value={selected.phone}
                   href={whatsappUrl(selected.phone)}
-                  tone="green"
+                  onEdit={() => setEditor({ client: selected })}
+                />
+                <ContactAction
+                  icon={Mail}
+                  label="Gmail"
+                  value={selected.email}
+                  href={gmailUrl(selected.email)}
                   onEdit={() => setEditor({ client: selected })}
                 />
               </div>
+              <dl className="client-info">
+                <Info label="CPF / CNPJ" value={documentLabel(selected.document)} />
+                <Info label="Telefone" value={phoneLabel(selected.phone)} />
+                <Info label="E-mail" value={selected.email} />
+                <Info label="Responsável" value={selected.ownerName} />
+                <Info
+                  label="Próximo contato"
+                  value={selected.nextActionAt ? dateLabel(selected.nextActionAt, true) : ""}
+                />
+                <Info label="Segmento" value={selected.segment} />
+              </dl>
+              <section className="client-block">
+                <h3>Sobre</h3>
+                <p className="client-notes">
+                  {selected.notes ||
+                    "Adicione observações para manter o contexto das próximas conversas."}
+                </p>
+              </section>
+              <section className="client-block">
+                <h3>
+                  <Tag size={14} />
+                  Marcadores
+                </h3>
+                {selected.tags.length ? (
+                  <div className="client-badges">
+                    {selected.tags.map((value) => (
+                      <span className="nx-badge" key={value}>{value}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="client-hint">Sem marcadores</p>
+                )}
+              </section>
+            </div>
+
+            <div className="nx-card client-center">
               <nav
-                className="client-detail-tabs"
+                className="nx-tabs client-detail-tabs"
                 aria-label="Seções da ficha"
                 role="tablist"
               >
                 {(
                   [
-                    { id: "overview", label: "Informações", icon: UserRound },
-                    {
-                      id: "contracts",
-                      label: "Contratos",
-                      icon: FileSignature,
-                    },
-                    { id: "documents", label: "Documentos", icon: FileText },
-                    { id: "history", label: "Histórico", icon: History },
+                    { id: "overview", label: "Visão geral" },
+                    { id: "history", label: "Linha do tempo" },
+                    { id: "contracts", label: "Contratos" },
+                    { id: "documents", label: "Documentos" },
                   ] as const
-                ).map(({ id, label, icon: Icon }) => (
+                ).map(({ id, label }) => (
                   <button
+                    type="button"
                     key={id}
                     role="tab"
                     aria-selected={tab === id}
+                    className={`nx-tab${tab === id ? " is-active" : ""}`}
                     id={`client-tab-${id}`}
                     aria-controls="client-detail-panel"
                     onClick={() => setTab(id)}
                   >
-                    <Icon size={15} />
                     {label}
                     {id === "documents" && !!selected.attachmentCount && (
-                      <span>{selected.attachmentCount}</span>
+                      <span className="nx-badge">{selected.attachmentCount}</span>
                     )}
                   </button>
                 ))}
@@ -632,78 +694,65 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                 role="tabpanel"
                 aria-labelledby={`client-tab-${tab}`}
                 id="client-detail-panel"
+                className="client-panel"
                 key={`${selected.id}-${tab}`}
               >
                 {tab === "overview" && (
                   <div className="client-overview">
-                    {onOpenNora && (
-                      <section className="client-nora-card">
-                        <span><Bot size={22} /></span>
-                        <div>
-                          <p>Nora para este cliente</p>
-                          <h3>Transforme a ficha em próximos passos</h3>
-                          <small>Resumo, riscos e documentos usando somente o contexto registrado.</small>
-                          <div>
-                            <button type="button" onClick={() => askNoraAboutClient()}>Resumo 360°</button>
-                            <button type="button" onClick={() => askNoraAboutClient("Identifique riscos, pendências e o próximo contato mais útil")}>Próxima ação</button>
-                            <button type="button" onClick={() => askNoraAboutClient("Sugira o documento mais adequado para este momento do relacionamento")}>Sugerir documento</button>
-                          </div>
-                        </div>
-                      </section>
-                    )}
-                    <dl className="client-details-grid">
-                      <Info label="Responsável" value={selected.ownerName} />
-                      <Info label="CPF / CNPJ" value={selected.document} />
-                      <Info label="Segmento" value={selected.segment} />
-                      <Info
-                        label="Última atualização"
-                        value={dateLabel(selected.updatedAt)}
-                      />
-                    </dl>
-                    <div className="client-next-contact">
-                      <span className="client-tone-amber">
-                        <CalendarClock size={20} />
-                      </span>
-                      <div>
-                        <h3>Próximo contato</h3>
-                        <p>
+                    <div className="nx-row">
+                      <span className="client-row-icon is-amber"><CalendarClock size={16} /></span>
+                      <div className="nx-grow">
+                        <div className="nx-row-t">Próximo contato</div>
+                        <div className="nx-row-sub">
                           {selected.nextActionAt
                             ? dateLabel(selected.nextActionAt, true)
                             : "Nenhum acompanhamento agendado"}
-                        </p>
+                        </div>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="ghost"
+                      <button
+                        type="button"
+                        className="nx-btn is-sm"
                         disabled={!canEditSelected}
                         onClick={() => setEditor({ client: selected })}
                       >
                         {selected.nextActionAt ? "Alterar" : "Agendar"}
                         <ArrowUpRight size={14} />
-                      </Button>
+                      </button>
                     </div>
-                    <section className="client-notes">
-                      <h3>Sobre o cliente</h3>
-                      <p>
-                        {selected.notes ||
-                          "Adicione observações para manter o contexto das próximas conversas."}
-                      </p>
-                    </section>
-                    <section className="client-tags">
-                      <h3>
-                        <Tag size={14} />
-                        Marcadores
-                      </h3>
-                      {selected.tags.length ? (
-                        <div>
-                          {selected.tags.map((value) => (
-                            <span key={value}>{value}</span>
-                          ))}
+                    <div className="nx-row">
+                      <span className="client-row-icon is-blue"><History size={16} /></span>
+                      <div className="nx-grow">
+                        <div className="nx-row-t">Linha do tempo</div>
+                        <div className="nx-row-sub">Conversas, e-mails, tarefas e pagamentos ligados ao cliente</div>
+                      </div>
+                      <button type="button" className="nx-btn is-sm is-ghost" onClick={() => setTab("history")}>
+                        Ver histórico
+                      </button>
+                    </div>
+                    <div className="nx-row">
+                      <span className="client-row-icon is-violet"><FileSignature size={16} /></span>
+                      <div className="nx-grow">
+                        <div className="nx-row-t">Contratos</div>
+                        <div className="nx-row-sub">Contratos vinculados a este cliente</div>
+                      </div>
+                      <button type="button" className="nx-btn is-sm is-ghost" onClick={() => setTab("contracts")}>
+                        Ver contratos
+                      </button>
+                    </div>
+                    <div className="nx-row">
+                      <span className="client-row-icon is-green"><FileText size={16} /></span>
+                      <div className="nx-grow">
+                        <div className="nx-row-t">Documentos</div>
+                        <div className="nx-row-sub">
+                          {selected.attachmentCount
+                            ? `${selected.attachmentCount} ${selected.attachmentCount === 1 ? "documento anexado" : "documentos anexados"}`
+                            : "Nenhum documento anexado"}
                         </div>
-                      ) : (
-                        <p className="client-hint">Sem marcadores</p>
-                      )}
-                    </section>
+                      </div>
+                      <button type="button" className="nx-btn is-sm is-ghost" onClick={() => setTab("documents")}>
+                        Ver documentos
+                      </button>
+                    </div>
                   </div>
                 )}
                 {tab === "documents" && (
@@ -726,44 +775,50 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
                 )}
                 {tab === "history" && <ClientHistory clientId={selected.id} />}
               </div>
-            </>
-          ) : (
-            <div className="client-welcome">
-              <span className="client-welcome-icon">
-                <UsersRound size={34} strokeWidth={1.3} />
-              </span>
-              <h2>Um lugar para cada relacionamento</h2>
-              <p>
-                Selecione um cliente para ver seus contatos, acompanhar
-                contratos e organizar documentos.
-              </p>
-              <div>
-                <span>
-                  <MessageCircle size={16} />
-                  Contato direto
-                </span>
-                <span>
-                  <FileSignature size={16} />
-                  Contratos
-                </span>
-                <span>
-                  <FileText size={16} />
-                  Documentos
-                </span>
-              </div>
-              {!clients.length && !loading && (
-                <Button
-                  className="client-main-action"
-                  onClick={() => setEditor({ client: null })}
-                >
-                  <Plus size={16} />
-                  Cadastrar primeiro cliente
-                </Button>
-              )}
             </div>
-          )}
+
+            <div className="client-aside">
+              {onOpenNora && (
+                <section className="nx-card client-side-card">
+                  <div className="client-side-h">
+                    <NoraAvatar className="rounded-full" />
+                    <b>Nora · visão 360°</b>
+                  </div>
+                  <p className="nx-muted nx-small">
+                    Resumo, riscos, próximo passo e documento sugerido usando somente o que está registrado nesta ficha.
+                  </p>
+                  <div className="client-side-actions">
+                    <button type="button" className="nx-btn is-sm is-primary" onClick={() => askNoraAboutClient()}>Resumo 360°</button>
+                    <button type="button" className="nx-btn is-sm" onClick={() => askNoraAboutClient("Identifique riscos, pendências e o próximo contato mais útil")}>Próxima ação</button>
+                    <button type="button" className="nx-btn is-sm" onClick={() => askNoraAboutClient("Sugira o documento mais adequado para este momento do relacionamento")}>Sugerir documento</button>
+                  </div>
+                </section>
+              )}
+              <section className="nx-card client-side-card">
+                <b className="client-side-title">Números</b>
+                <div className="client-num"><span className="nx-muted">Status</span><b>{statusLabels[selected.status]}</b></div>
+                <div className="client-num"><span className="nx-muted">Etapa</span><b>{stageLabels[selected.stage]}</b></div>
+                <div className="client-num"><span className="nx-muted">Documentos</span><b>{selected.attachmentCount || 0}</b></div>
+                <div className="client-num"><span className="nx-muted">Última atualização</span><b>{dateLabel(selected.updatedAt)}</b></div>
+              </section>
+              <section className="nx-card client-side-card">
+                <b className="client-side-title">Acesso</b>
+                <p className="nx-muted nx-small">{accessSummary(selected)}</p>
+                {canShareSelected && (
+                  <button
+                    type="button"
+                    className="nx-btn is-sm client-side-btn"
+                    onClick={() => setAccessClient(selected)}
+                  >
+                    <Lock size={14} />
+                    Compartilhar
+                  </button>
+                )}
+              </section>
+            </div>
+          </div>
         </section>
-      </div>
+      )}
       {editor && (
         <ClientEditor
           client={editor.client}
@@ -783,33 +838,29 @@ export default function ClientsDashboard({ onOpenNora }: { onOpenNora?: (prompt?
 }
 function Metric({
   icon: Icon,
-  tone,
   value,
   label,
 }: {
   icon: typeof UsersRound;
-  tone: string;
   value: number;
   label: string;
 }) {
   return (
-    <article className="client-metric">
-      <span className={`client-metric-icon client-tone-${tone}`}>
-        <Icon size={18} />
-      </span>
-      <div>
-        <strong>{value}</strong>
-        <p>{label}</p>
+    <article className="nx-card nx-kpi">
+      <div className="nx-kpi-l">
+        <Icon size={16} />
+        {label}
       </div>
+      <div className="nx-kpi-v">{value}</div>
     </article>
   );
 }
 function Info({ label, value }: { label: string; value?: string }) {
   return (
-    <div>
+    <>
       <dt>{label}</dt>
       <dd>{value || "Não informado"}</dd>
-    </div>
+    </>
   );
 }
 function ContactAction({
@@ -817,46 +868,41 @@ function ContactAction({
   label,
   value,
   href,
-  tone,
   onEdit,
 }: {
   icon: typeof Mail;
   label: string;
   value: string;
   href: string | null;
-  tone: string;
   onEdit: () => void;
 }) {
-  const content = (
-    <>
-      <span className={`client-contact-icon client-tone-${tone}`}>
-        <Icon size={18} />
-      </span>
-      <span>
-        <small>{label}</small>
-        <strong>
-          {value || `Adicionar ${label === "Gmail" ? "e-mail" : "telefone"}`}
-        </strong>
-      </span>
-      <ArrowUpRight size={16} />
-    </>
-  );
+  const text = label === "Gmail" ? "E-mail" : label;
   return href ? (
     <a
-      className="client-contact-action"
+      className="nx-btn is-sm"
       href={href}
       target="_blank"
       rel="noopener noreferrer"
       aria-label={`Abrir ${label} para ${value}`}
+      title={value}
     >
-      {content}
+      <Icon size={14} />
+      {text}
     </a>
   ) : (
-    <button className="client-contact-action" onClick={onEdit}>
-      {content}
+    <button type="button" className="nx-btn is-sm" onClick={onEdit} title={`Adicionar ${label === "Gmail" ? "e-mail" : "telefone"}`}>
+      <Icon size={14} />
+      {`Adicionar ${label === "Gmail" ? "e-mail" : "telefone"}`}
     </button>
   );
 }
+const historyIcon = (type: string) =>
+  /mail|email/i.test(type) ? Mail
+    : /message|whats|chat|conversa/i.test(type) ? MessageCircle
+      : /finan|pag|wallet/i.test(type) ? Wallet
+        : /calend|agenda|event/i.test(type) ? CalendarClock
+          : /attach|file|doc/i.test(type) ? FileText
+            : CheckCheck;
 function ClientHistory({ clientId }: { clientId: string }) {
   const [data, setData] = useState<Client360 | null>(null),
     [error, setError] = useState("");
@@ -887,12 +933,6 @@ function ClientHistory({ clientId }: { clientId: string }) {
     );
   return (
     <section className="client-section">
-      <header className="client-section-heading">
-        <div>
-          <h3>Histórico do relacionamento</h3>
-          <p>Conversas, entregas e atividades relacionadas ao cliente.</p>
-        </div>
-      </header>
       <div className="client-history-totals">
         {[
           ["E-mails", data.summary.emails],
@@ -902,47 +942,46 @@ function ClientHistory({ clientId }: { clientId: string }) {
           ["Agenda", data.summary.calendar],
           ["Anexos", data.summary.attachments],
           ["Acompanhamentos", data.summary.followUps],
-        ].map(([label, value], index) => (
-          <span key={String(label)}>
-            <strong
-              className={`client-tone-${["red", "green", "violet", "sky", "amber", "violet", "green"][index]}`}
-            >
-              {value}
-            </strong>
-            {label}
+        ].map(([label, value]) => (
+          <span className="nx-badge" key={String(label)}>
+            {label} <b>{value}</b>
           </span>
         ))}
       </div>
       <div className="client-history-list">
-        {data.timeline.map((item) => (
-          <button
-            key={`${item.type}-${item.id}`}
-            disabled={!item.deepLink}
-            onClick={() => {
-              if (item.deepLink) {
-                localStorage.setItem(
-                  "norium-deep-link",
-                  JSON.stringify(item.deepLink),
-                );
-                window.dispatchEvent(
-                  new CustomEvent("norium:deep-link", {
-                    detail: item.deepLink,
-                  }),
-                );
-              }
-            }}
-          >
-            <span className="client-history-mark">
-              <CheckCheck size={14} />
-            </span>
-            <span>
-              <strong>{item.title || "Atividade registrada"}</strong>
-              <p>{item.description}</p>
+        {data.timeline.map((item) => {
+          const Icon = historyIcon(item.type);
+          return (
+            <button
+              type="button"
+              key={`${item.type}-${item.id}`}
+              disabled={!item.deepLink}
+              onClick={() => {
+                if (item.deepLink) {
+                  localStorage.setItem(
+                    "norium-deep-link",
+                    JSON.stringify(item.deepLink),
+                  );
+                  window.dispatchEvent(
+                    new CustomEvent("norium:deep-link", {
+                      detail: item.deepLink,
+                    }),
+                  );
+                }
+              }}
+            >
+              <span className="client-history-mark">
+                <Icon size={15} />
+              </span>
+              <span className="nx-grow">
+                <strong>{item.title || "Atividade registrada"}</strong>
+                <p>{item.description}</p>
+              </span>
               <time>{dateLabel(item.timestamp, true)}</time>
-            </span>
-            {item.deepLink && <ArrowUpRight size={15} />}
-          </button>
-        ))}
+              {item.deepLink && <ArrowUpRight size={15} className="nx-faint" />}
+            </button>
+          );
+        })}
         {!data.timeline.length && (
           <div className="client-empty">
             <History size={26} />

@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
 
+from app.core.identity import require_team_id, require_user_id
 from app.shared.schemas import StrictModel
 
 from app.core.tenant import read_user_db, write_user_db
@@ -124,7 +125,7 @@ class AutomationEffectUncertain(RuntimeError):
 
 
 def tenant_id(user: dict[str, Any]) -> str:
-    return str(user.get("id") or "lucas123")
+    return require_user_id(user)
 
 
 def now_iso() -> str:

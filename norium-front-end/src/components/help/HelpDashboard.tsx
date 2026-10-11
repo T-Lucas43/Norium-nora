@@ -16,6 +16,8 @@ import {
   Sparkles,
   UsersRound,
 } from "lucide-react";
+import noraAvatar from "../../assets/nora-brand.webp";
+import "../../styles/screens/inteligencia-equipe-conta.css";
 
 type HelpDashboardProps = {
   onNavigate: (tab: string) => void;
@@ -115,86 +117,85 @@ export default function HelpDashboard({ onNavigate, onOpenNora }: HelpDashboardP
   }, [currentSection.topics, query]);
 
   return (
-    <main className="norium-help-dashboard">
-      <header className="norium-help-header">
-        <div>
-          <span className="norium-help-eyebrow"><CircleHelp size={15} /> Central de ajuda</span>
-          <h1>Como podemos ajudar?</h1>
+    <main className="nx-page nxi-screen">
+      <div className="nxi-help nxi-stack" style={{ gap: 20 }}>
+        <header className="nxi-help-hero">
+          <span className="nx-badge is-blue"><CircleHelp size={13} /> Central de ajuda</span>
+          <h1 style={{ marginTop: 10 }}>Como podemos ajudar?</h1>
           <p>Guia prático para usar o Norium, suas integrações e a Nora.</p>
-        </div>
-        <button type="button" className="norium-help-nora-button" onClick={onOpenNora}>
-          <Sparkles size={17} /> Perguntar à Nora
-        </button>
-      </header>
+          <label className="nxi-search is-lg">
+            <Search size={18} />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar na central de ajuda"
+              aria-label="Buscar no guia do Norium"
+            />
+            <kbd>Ctrl K</kbd>
+          </label>
+        </header>
 
-      <div className="norium-help-search">
-        <Search size={18} />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Buscar no guia..."
-          aria-label="Buscar no guia do Norium"
-        />
-        <kbd>Ctrl K</kbd>
-      </div>
-
-      <div className="norium-help-layout">
-        <nav className="norium-help-navigation" aria-label="Seções do guia">
+        <nav className="nxi-cards" aria-label="Seções do guia">
           {sections.map((section) => {
             const Icon = section.icon;
+            const active = section.id === activeSection && !query;
             return (
               <button
                 key={section.id}
                 type="button"
-                className={section.id === activeSection && !query ? "is-active" : ""}
+                aria-pressed={active}
+                className={`nxi-topic-card ${active ? "is-active" : ""}`}
                 onClick={() => {
                   setQuery("");
                   setActiveSection(section.id);
                 }}
               >
-                <span><Icon size={18} /></span>
-                <span>
-                  <strong>{section.title}</strong>
-                  <small>{section.description}</small>
-                </span>
+                <span className="nxi-tile is-sm is-blue"><Icon size={18} /></span>
+                <strong>{section.title}</strong>
+                <small>{section.description}</small>
               </button>
             );
           })}
         </nav>
 
-        <section className="norium-help-content">
-          <div className="norium-help-content-heading">
-            <div>
-              <p>{query ? "Resultados da busca" : currentSection.title}</p>
-              <span>{query ? `${filteredTopics.length} tópico(s) encontrado(s)` : currentSection.description}</span>
-            </div>
-            <div className="norium-help-module-icons" aria-hidden="true">
-              {moduleIcons.slice(0, 5).map((Icon, index) => <span key={index}><Icon size={15} /></span>)}
-            </div>
+        <section className="nx-card">
+          <div className="nx-card-h">
+            <h2>{query ? "Resultados da busca" : currentSection.title}</h2>
+            <span className="nx-faint nx-small" style={{ marginLeft: "auto" }}>{query ? `${filteredTopics.length} tópico(s) encontrado(s)` : currentSection.description}</span>
+            <span className="hidden gap-1 sm:flex" aria-hidden="true" style={{ color: "var(--nx-text-3)" }}>
+              {moduleIcons.slice(0, 5).map((Icon, index) => <Icon key={index} size={14} />)}
+            </span>
           </div>
-
-          <div className="norium-help-topic-list">
+          <div className="nx-card-b">
             {filteredTopics.map((topic) => (
-              <article key={`${topic.title}-${topic.description}`}>
-                <div>
-                  <h2>{topic.title}</h2>
-                  <p>{topic.description}</p>
+              <article key={`${topic.title}-${topic.description}`} className="nx-row" style={{ flexWrap: "wrap" }}>
+                <div className="nx-grow" style={{ flexBasis: 240 }}>
+                  <h3 className="nx-row-t" style={{ margin: 0 }}>{topic.title}</h3>
+                  <p className="nx-row-sub" style={{ margin: "2px 0 0", lineHeight: 1.45 }}>{topic.description}</p>
                 </div>
                 {topic.tab && topic.action && (
-                  <button type="button" onClick={() => onNavigate(topic.tab!)}>
-                    {topic.action} <ArrowRight size={15} />
+                  <button type="button" className="nx-btn is-sm" onClick={() => onNavigate(topic.tab!)}>
+                    {topic.action} <ArrowRight size={14} />
                   </button>
                 )}
               </article>
             ))}
             {!filteredTopics.length && (
-              <div className="norium-help-empty">
+              <div className="nxi-empty">
                 <CircleHelp size={22} />
                 <strong>Nenhum tópico encontrado</strong>
                 <span>Tente outra expressão ou pergunte diretamente à Nora.</span>
               </div>
             )}
           </div>
+        </section>
+
+        <section className="nx-card flex flex-wrap items-center gap-3.5" style={{ padding: "16px 18px" }}>
+          <img src={noraAvatar} alt="" className="nxi-nora-av" draggable={false} />
+          <div className="min-w-0 flex-1"><div style={{ fontWeight: 600 }}>Não encontrou?</div><div className="nx-muted nx-small">Pergunte à Nora sobre qualquer tela ou recurso do Norium.</div></div>
+          <button type="button" className="nx-btn is-primary" onClick={onOpenNora}>
+            <Sparkles size={16} /> Perguntar à Nora
+          </button>
         </section>
       </div>
     </main>

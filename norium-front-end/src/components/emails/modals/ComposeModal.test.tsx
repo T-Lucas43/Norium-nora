@@ -54,12 +54,12 @@ describe("ComposeModal", () => {
 
   it("esconde o botao da Nora quando a conta nao tem acesso", () => {
     setup({ canUseNora: false });
-    expect(screen.queryByRole("button", { name: /gerar sugestao/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /gerar sugestão/i })).not.toBeInTheDocument();
   });
 
   it("trava a sugestao enquanto outra esta sendo gerada", () => {
     setup({ noraSuggesting: "reply" });
-    expect(screen.getByRole("button", { name: /gerar sugestao/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /gerar sugestão/i })).toBeDisabled();
   });
 
   it("mostra anexos e permite remover", () => {

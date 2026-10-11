@@ -1,9 +1,8 @@
-import WorkspaceHeader from "../shared/WorkspaceHeader";
+import "../../styles/screens/trabalho-comum.css";
+import "../../styles/screens/central.css";
 import {
-  PanelsTopLeft,
-  ListChecks,
-  Clock3,
-  Zap,
+  Crosshair,
+  SquareCheck,
   type LucideIcon,
   ArchiveRestore,
   BellRing,
@@ -356,221 +355,244 @@ export default function WorkHubDashboard({
   }
 
   return (
-    <main className="clean-workspace workhub-workspace min-h-[calc(100dvh-74px)] bg-[var(--background)] p-4 text-[var(--text)] sm:p-6">
-      <div className="mx-auto max-w-[1600px]">
-        <WorkspaceHeader title="Central de trabalho" description="Suas prioridades, conversas e próximos passos em um só lugar." icon={PanelsTopLeft}>
-            <button type="button" onClick={() => onOpenNora("Analise a Central de trabalho, priorize o que exige atenção agora e proponha os próximos passos.")} className="workhub-button is-nora">
-              <Sparkles size={16} /> Priorizar com a Nora
-            </button>
-            <button type="button" onClick={() => void toggleFocus()} disabled={!data.focus || busy === "focus"} className={`workhub-button ${data.focus?.item.enabled ? "is-active" : ""}`}>
-              <Focus size={16} /> {data.focus?.item.enabled ? "Encerrar foco" : "Modo foco"}
-            </button>
-            <button type="button" onClick={() => void load()} className="workhub-icon-button" title="Atualizar" aria-label="Atualizar">
-              <RefreshCw className={loading ? "animate-spin" : ""} size={17} />
-            </button>
-</WorkspaceHeader>
+    <main className="nx-page nxw-screen nxc-page">
+      <header className="nx-ph">
+        <div>
+          <h1>Central de trabalho</h1>
+          <p>Tudo que está pendente na operação, em um lugar</p>
+        </div>
+        <div className="nx-ph-actions">
+          <button type="button" onClick={() => void load()} className="nxw-icon-btn" title="Atualizar" aria-label="Atualizar">
+            <RefreshCw className={loading ? "nxw-spin" : ""} size={16} />
+          </button>
+          <button type="button" onClick={() => void toggleFocus()} disabled={!data.focus || busy === "focus"} className={`nx-btn ${data.focus?.item.enabled ? "is-on" : ""}`}>
+            <Crosshair size={16} /> {data.focus?.item.enabled ? "Encerrar foco" : "Modo foco"}
+          </button>
+          <button type="button" onClick={() => onOpenNora("Analise a Central de trabalho, priorize o que exige atenção agora e proponha os próximos passos.")} className="nx-btn is-primary">
+            <Sparkles size={16} /> Priorizar com a Nora
+          </button>
+        </div>
+      </header>
 
-        <section className="workhub-kpis" aria-label="Resumo da Central">
-          <Kpi icon={ListChecks} tone="amber" label="Prioridades abertas" value={data.pending ? `${data.pending.total}${data.pending.complete ? "" : "+"}` : "—"} />
-          <Kpi icon={Inbox} tone="blue" label="Atendimentos em aberto" value={data.pending?.inboxOpen ?? "—"} />
-          <Kpi icon={Zap} tone="emerald" label="Ações nesta semana" value={data.weekly?.actionsExecuted ?? "—"} />
-          <Kpi icon={Clock3} tone="emerald" label="Horas economizadas" value={data.weekly ? `${data.weekly.estimatedHoursSaved} h` : "—"} />
-        </section>
+      <section className="nx-kpis" aria-label="Resumo da Central">
+        <Kpi label="Prioridades abertas" value={data.pending ? `${data.pending.total}${data.pending.complete ? "" : "+"}` : "—"} sub={data.pending ? `${data.pending.items.filter((item) => item.severity === "error").length} com prioridade alta` : undefined} />
+        <Kpi label="Atendimentos em aberto" value={data.pending?.inboxOpen ?? "—"} sub="na caixa compartilhada" />
+        <Kpi label="Ações nesta semana" value={data.weekly?.actionsExecuted ?? "—"} sub="ações comprovadas" />
+        <Kpi label="Horas economizadas" value={data.weekly ? `${data.weekly.estimatedHoursSaved} h` : "—"} sub="pela Nora e automações" />
+      </section>
 
-        {data.pending?.items[0] && <button type="button" className="workhub-recommendation" onClick={() => onOpenDeepLink(data.pending!.items[0].deepLink)}><span><strong>Próxima prioridade</strong><small>{data.pending.items[0].title} · {data.pending.items[0].description}</small></span><span>Abrir item <ChevronRight size={14} /></span></button>}
+      {data.pending?.items[0] && <button type="button" className="nx-card nxc-next" onClick={() => onOpenDeepLink(data.pending!.items[0].deepLink)}>
+        <span className="nxw-icon is-sm"><Target size={16} /></span>
+        <span className="nx-grow"><span className="nxw-row-t" style={{ display: "block", fontWeight: 600 }}>Próxima prioridade</span><span className="nxw-row-sub" style={{ display: "block" }}>{data.pending.items[0].title} · {data.pending.items[0].description}</span></span>
+        <span className="nxc-next-go">Abrir item <ChevronRight size={14} /></span>
+      </button>}
 
-        <nav className="workspace-tabs workhub-tabs" aria-label="Áreas da Central de trabalho">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-pressed={activeTab === tab.id} className={activeTab === tab.id ? "is-active" : ""}>
-                <Icon size={16} /> {tab.label}
-                {tab.id === "pending" && Boolean(data.pending?.total) && <span>{data.pending?.total}</span>}
-              </button>
-            );
-          })}
-        </nav>
+      <nav className="nx-tabs" aria-label="Áreas da Central de trabalho">
+        {tabs.map((tab) => (
+          <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} aria-pressed={activeTab === tab.id} className={`nx-tab ${activeTab === tab.id ? "is-active" : ""}`}>
+            {tab.label}
+            {tab.id === "pending" && Boolean(data.pending?.total) && <span className="nxw-tab-count">{data.pending?.total}</span>}
+          </button>
+        ))}
+      </nav>
 
-        {(activeTab === "pending" || activeTab === "followups") && <div className="workhub-sources" aria-label="Fontes das pendências">
-          {sources.map((source) => <span key={source.key} className={`workhub-source is-${source.status}`}>
-            {source.status === "loading" ? <LoaderCircle size={13} className="animate-spin" /> : source.status === "ready" ? <Check size={13} /> : <CircleAlert size={13} />}
-            {source.label}<small>{source.status === "loading" ? "Atualizando" : source.status === "error" ? "Atualização pendente" : "Atualizado"}</small>
-          </span>)}
-        </div>}
-        {loadErrors.map((failure) => <div key={failure.key} className="workhub-feedback is-error" role="alert"><span>{failure.label}: {failure.message}</span><button type="button" className="workhub-button" onClick={() => void failure.retry()}>Tentar novamente</button></div>)}
-        {tabLoading && <div className="workhub-feedback" role="status"><LoaderCircle className="animate-spin" size={18} /> Carregando {tabs.find((tab) => tab.id === activeTab)?.label.toLocaleLowerCase("pt-BR")}...</div>}
-        {error && <div className="workhub-feedback is-error">{error}</div>}
-        {notice && <div className="workhub-feedback is-success"><Check size={16} /> {notice}</div>}
+      {(activeTab === "pending" || activeTab === "followups") && <div className="nxc-sources" aria-label="Fontes das pendências">
+        {sources.map((source) => <span key={source.key} className={`nx-badge nxc-source is-${source.status}`}>
+          {source.status === "loading" ? <LoaderCircle size={13} className="nxw-spin" /> : source.status === "ready" ? <Check size={13} /> : <CircleAlert size={13} />}
+          {source.label}<small>{source.status === "loading" ? "Atualizando" : source.status === "error" ? "Atualização pendente" : "Atualizado"}</small>
+        </span>)}
+      </div>}
+      {loadErrors.map((failure) => <div key={failure.key} className="nxw-alert is-error" role="alert"><span>{failure.label}: {failure.message}</span><button type="button" className="nx-btn is-sm" onClick={() => void failure.retry()}>Tentar novamente</button></div>)}
+      {tabLoading && <div className="nxw-alert" role="status"><LoaderCircle className="nxw-spin" size={16} /> Carregando {tabs.find((tab) => tab.id === activeTab)?.label.toLocaleLowerCase("pt-BR")}...</div>}
+      {error && <div className="nxw-alert is-error">{error}</div>}
+      {notice && <div className="nxw-alert is-success"><Check size={16} /> {notice}</div>}
 
-        {activeTab === "pending" && data.pending && (
-          <section className="workhub-panel">
-            <div className="workhub-section-heading">
-              <div><h2>Pendências consolidadas</h2><p>Aprovações, atrasos, falhas e mensagens sem resposta.</p></div>
-              <strong>{data.pending.total} item(ns){!data.pending.complete && " · parcial"}</strong>
-            </div>
-            <div className="workhub-list">
-              {visiblePending.map((item) => {
-                const source = pendingSource(item);
-                const SourceIcon = source.icon;
-                return (
-                <button key={item.id} type="button" className={`workhub-row severity-${item.severity}`} onClick={() => onOpenDeepLink(item.deepLink)}>
-                  <span className="workhub-row-signal" />
-                  <span className={`workhub-row-icon ${source.tone}`}><SourceIcon size={17} /></span>
-                  <span className="workhub-row-copy"><span className="flex flex-wrap items-center gap-2"><strong>{item.title}</strong><em>{source.label}</em></span><small>{item.description}</small></span>
-                  <time>{formatDate(item.timestamp)}</time>
-                  <ChevronRight className="workhub-row-chevron" size={16} />
+      {activeTab === "pending" && data.pending && (
+        <section className="nx-card">
+          <div className="nx-card-h nxc-card-h">
+            <div><h2>Pendências consolidadas</h2><p>Aprovações, atrasos, falhas e mensagens sem resposta.</p></div>
+            <strong className="nxc-card-h-meta">{data.pending.total} item(ns){!data.pending.complete && " · parcial"}</strong>
+          </div>
+          <div>
+            {visiblePending.map((item) => {
+              const source = pendingSource(item);
+              const SourceIcon = source.icon;
+              const severity = severityBadge(item.severity);
+              return (
+                <button key={item.id} type="button" className="nxw-row" onClick={() => onOpenDeepLink(item.deepLink)}>
+                  <span className={`nxw-icon ${source.tone}`}><SourceIcon size={16} /></span>
+                  <span className="nx-grow"><span className="nxw-row-t" style={{ display: "block" }}>{item.title}</span><span className="nxw-row-sub" style={{ display: "block" }}>{item.description} · {source.label} · <time>{formatDate(item.timestamp)}</time></span></span>
+                  <span className="nxc-row-meta">
+                    <span className={`nx-badge ${severity.tone}`}>{severity.label}</span>
+                    <span className="nx-btn is-sm nxc-row-go">Abrir <ChevronRight size={14} /></span>
+                  </span>
                 </button>
-                );
-              })}
-              {!data.pending.items.length && <div className="workhub-empty">{data.pending.complete ? <Check size={24} /> : <CircleAlert size={24} />}<strong>{data.pending.complete ? "Nenhuma pendência." : "Nenhum item nas fontes carregadas."}</strong>{!data.pending.complete && <span>O total será consolidado quando todas as fontes estiverem disponíveis.</span>}</div>}
-            </div>
-            {data.pending.items.length > 0 && (
-              <footer className="workhub-pagination">
-                <span>Exibindo {(pendingPage - 1) * pendingPageSize + 1}–{Math.min(pendingPage * pendingPageSize, data.pending.items.length)} de {data.pending.total} itens</span>
-                <div>
-                  <button type="button" disabled={pendingPage === 1} onClick={() => setPendingPage((page) => Math.max(1, page - 1))} aria-label="Pagina anterior"><ChevronLeft size={16} /></button>
-                  {Array.from({ length: Math.min(5, pendingPageCount) }, (_, index) => {
-                    const start = Math.max(1, Math.min(pendingPage - 2, pendingPageCount - 4));
-                    const page = start + index;
-                    return <button key={page} type="button" onClick={() => setPendingPage(page)} className={page === pendingPage ? "is-active" : ""}>{page}</button>;
-                  })}
-                  <button type="button" disabled={pendingPage === pendingPageCount} onClick={() => setPendingPage((page) => Math.min(pendingPageCount, page + 1))} aria-label="Proxima pagina"><ChevronRight size={16} /></button>
-                </div>
-                <select value={pendingPageSize} onChange={(event) => { setPendingPageSize(Number(event.target.value)); setPendingPage(1); }} aria-label="Itens por pagina">
-                  <option value={10}>10 por página</option><option value={20}>20 por página</option><option value={50}>50 por página</option>
-                </select>
-              </footer>
-            )}
-          </section>
-        )}
-
-        {activeTab === "inbox" && data.inbox && (
-          <section className="workhub-panel">
-            <div className="workhub-section-heading">
-              <div><h2>Caixa de entrada compartilhada</h2><p>Atribua responsável, status, prioridade e prazo de atendimento.</p></div>
-              <select value={inboxFilter} onChange={(event) => setInboxFilter(event.target.value)}>
-                <option value="abertos">Em aberto</option><option value="meus">Atribuídos</option><option value="todos">Todos</option>
+              );
+            })}
+            {!data.pending.items.length && <div className="nxw-empty">{data.pending.complete ? <Check size={24} /> : <CircleAlert size={24} />}<strong>{data.pending.complete ? "Nenhuma pendência." : "Nenhum item nas fontes carregadas."}</strong>{!data.pending.complete && <span>O total será consolidado quando todas as fontes estiverem disponíveis.</span>}</div>}
+          </div>
+          {data.pending.items.length > 0 && (
+            <footer className="nxc-pagination">
+              <span>Exibindo {(pendingPage - 1) * pendingPageSize + 1}–{Math.min(pendingPage * pendingPageSize, data.pending.items.length)} de {data.pending.total} itens</span>
+              <div>
+                <button type="button" className="nxw-icon-btn is-sm" disabled={pendingPage === 1} onClick={() => setPendingPage((page) => Math.max(1, page - 1))} aria-label="Pagina anterior"><ChevronLeft size={16} /></button>
+                {Array.from({ length: Math.min(5, pendingPageCount) }, (_, index) => {
+                  const start = Math.max(1, Math.min(pendingPage - 2, pendingPageCount - 4));
+                  const page = start + index;
+                  return <button key={page} type="button" onClick={() => setPendingPage(page)} className={`nx-btn is-sm nxc-page-btn ${page === pendingPage ? "is-current" : ""}`}>{page}</button>;
+                })}
+                <button type="button" className="nxw-icon-btn is-sm" disabled={pendingPage === pendingPageCount} onClick={() => setPendingPage((page) => Math.min(pendingPageCount, page + 1))} aria-label="Proxima pagina"><ChevronRight size={16} /></button>
+              </div>
+              <select className="nxw-field" value={pendingPageSize} onChange={(event) => { setPendingPageSize(Number(event.target.value)); setPendingPage(1); }} aria-label="Itens por pagina">
+                <option value={10}>10 por página</option><option value={20}>20 por página</option><option value={50}>50 por página</option>
               </select>
-            </div>
-            <div className="workhub-list">
-              {visibleInbox.map((item) => (
-                <article key={item.id} className="workhub-inbox-row">
-                  <button type="button" className="workhub-inbox-open" onClick={() => onOpenDeepLink(item.deepLink)}>
-                    <span className={`source-${item.source}`}>{item.source}</span>
-                    <span><strong>{item.title}</strong><small>{item.counterpart || item.description}</small></span>
-                  </button>
-                  <select disabled={!data.members} value={item.assignedToId || ""} onChange={(event) => {
-                    const member = (data.members?.members || []).find((candidate) => candidate.id === event.target.value);
-                    void updateInbox(item, { assignedToId: member?.id || null, assignedToName: member?.nome || null });
-                  }}>
-                    <option value="">Sem responsável</option>
-                    {(data.members?.members || []).map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}
-                  </select>
-                  <select value={item.status} onChange={(event) => void updateInbox(item, { status: event.target.value })}>
-                    <option value="novo">Novo</option><option value="em_atendimento">Em atendimento</option><option value="aguardando">Aguardando</option><option value="resolvido">Resolvido</option><option value="arquivado">Arquivado</option>
-                  </select>
-                  <input type="datetime-local" value={item.dueAt?.slice(0, 16) || ""} onChange={(event) => void updateInbox(item, { dueAt: event.target.value || null })} aria-label="Prazo de atendimento" />
-                </article>
-              ))}
-              {!visibleInbox.length && <div className="workhub-empty"><Inbox size={24} /><strong>Nenhuma conversa neste filtro.</strong></div>}
-            </div>
-          </section>
-        )}
+            </footer>
+          )}
+        </section>
+      )}
 
-        {activeTab === "followups" && data.pending && (
-          <section className="workhub-panel">
-            <div className="workhub-section-heading">
-              <div><h2>Follow-ups inteligentes</h2><p>A Nora detecta conversas paradas e prazos próximos sem executar nada sem sua decisão.</p></div>
-              <button type="button" className="workhub-button" disabled={busy === "followups"} onClick={() => void mutate("followups", () => apiRequest("/api/operacao/acompanhamentos/detectar", { method: "POST" }), "Análise concluída.")}>
-                {busy === "followups" ? <LoaderCircle className="animate-spin" size={16} /> : <RefreshCw size={16} />} Detectar agora
-              </button>
-            </div>
-            <div className="workhub-list">
-              {data.pending.items.filter((item) => item.kind === "followup").map((item) => (
-                <button key={item.id} type="button" className="workhub-row severity-warning" onClick={() => onOpenDeepLink(item.deepLink)}>
-                  <span className="workhub-row-signal" /><span className="workhub-row-copy"><strong>{item.title}</strong><small>{item.description}</small></span><time>{formatDate(item.timestamp)}</time>
+      {activeTab === "inbox" && data.inbox && (
+        <section className="nx-card">
+          <div className="nx-card-h nxc-card-h">
+            <div><h2>Caixa de entrada compartilhada</h2><p>Atribua responsável, status, prioridade e prazo de atendimento.</p></div>
+            <select className="nxw-field" style={{ marginLeft: "auto" }} value={inboxFilter} onChange={(event) => setInboxFilter(event.target.value)}>
+              <option value="abertos">Em aberto</option><option value="meus">Atribuídos</option><option value="todos">Todos</option>
+            </select>
+          </div>
+          <div>
+            {visibleInbox.map((item) => (
+              <article key={item.id} className="nxc-inbox-row">
+                <button type="button" className="nxc-inbox-open" onClick={() => onOpenDeepLink(item.deepLink)}>
+                  <span className={`nx-badge ${item.source === "gmail" ? "is-red" : item.source === "whatsapp" ? "is-green" : ""}`}>{item.source}</span>
+                  <span className="nx-grow"><span className="nxw-row-t nx-ell" style={{ display: "block" }}>{item.title}</span><span className="nxw-row-sub nx-ell" style={{ display: "block" }}>{item.counterpart || item.description}</span></span>
                 </button>
-              ))}
-              {!data.pending.items.some((item) => item.kind === "followup") && <div className="workhub-empty"><MessageSquareReply size={24} /><strong>{data.pendingActivity ? "Nenhum follow-up aberto." : "Aguardando os acompanhamentos."}</strong>{data.pendingActivity && <span>Execute a detecção para analisar canais e prazos.</span>}</div>}
-            </div>
-          </section>
-        )}
+                <select className="nxw-field" disabled={!data.members} value={item.assignedToId || ""} onChange={(event) => {
+                  const member = (data.members?.members || []).find((candidate) => candidate.id === event.target.value);
+                  void updateInbox(item, { assignedToId: member?.id || null, assignedToName: member?.nome || null });
+                }}>
+                  <option value="">Sem responsável</option>
+                  {(data.members?.members || []).map((member) => <option key={member.id} value={member.id}>{member.nome}</option>)}
+                </select>
+                <select className="nxw-field" value={item.status} onChange={(event) => void updateInbox(item, { status: event.target.value })}>
+                  <option value="novo">Novo</option><option value="em_atendimento">Em atendimento</option><option value="aguardando">Aguardando</option><option value="resolvido">Resolvido</option><option value="arquivado">Arquivado</option>
+                </select>
+                <input className="nxw-field" type="datetime-local" value={item.dueAt?.slice(0, 16) || ""} onChange={(event) => void updateInbox(item, { dueAt: event.target.value || null })} aria-label="Prazo de atendimento" />
+              </article>
+            ))}
+            {!visibleInbox.length && <div className="nxw-empty"><Inbox size={24} /><strong>Nenhuma conversa neste filtro.</strong></div>}
+          </div>
+        </section>
+      )}
 
-        {activeTab === "team" && (
-          <section className="workhub-panel">
-            <div className="workhub-section-heading"><div><h2>Metas e indicadores da equipe</h2><p>Resultados úteis por responsável, sem pontuação artificial.</p></div></div>
-            <div className="workhub-goal-form">
-              <input value={goalTitle} onChange={(event) => setGoalTitle(event.target.value)} placeholder="Nome da meta" />
-              <select value={goalMetric} onChange={(event) => setGoalMetric(event.target.value)}><option value="completedTasks">Tarefas concluídas</option><option value="messagesHandled">Mensagens atendidas</option><option value="completedFollowUps">Follow-ups concluídos</option><option value="automationExecutions">Automações executadas</option></select>
-              <input type="number" min="1" value={goalTarget} onChange={(event) => setGoalTarget(event.target.value)} />
-              <button type="button" className="workhub-button" onClick={() => void createGoal()}><Target size={16} /> Criar meta</button>
-            </div>
-            <div className="workhub-goals">
-              {data.goals?.items.map((goal) => {
-                const progress = Math.min(100, Math.round((Number(goal.current || 0) / Math.max(goal.target, 1)) * 100));
-                return <article key={goal.id}><div><strong>{goal.title}</strong><small>{goal.current || 0} de {goal.target} · {goal.assigneeName || "Equipe"}</small></div><div className="workhub-progress"><span style={{ width: `${progress}%` }} /></div><b>{progress}%</b></article>;
-              })}
-            </div>
-            <div className="workhub-team-table">
-              <div className="workhub-team-head"><span>Membro</span><span>Concluídas</span><span>Pendentes</span><span>Em execução</span><span>Vencidas</span><span>Atendimentos</span></div>
-              {data.productivity?.members.map((member) => <div key={member.userId}><strong>{member.name}</strong><span>{member.completedTasks}</span><span>{member.pendingTasks}</span><span>{member.inProgressTasks}</span><span>{member.overdueTasks}</span><span>{member.messagesHandled}</span></div>)}
-            </div>
-            {data.weekly && <div className="workhub-weekly"><strong>{data.weekly.headline}</strong><span>{data.weekly.estimatedHoursSaved} h estimadas economizadas · {data.weekly.actionsExecuted} ações comprovadas</span></div>}
-          </section>
-        )}
+      {activeTab === "followups" && data.pending && (
+        <section className="nx-card">
+          <div className="nx-card-h nxc-card-h">
+            <div><h2>Follow-ups inteligentes</h2><p>A Nora detecta conversas paradas e prazos próximos sem executar nada sem sua decisão.</p></div>
+            <button type="button" className="nx-btn" style={{ marginLeft: "auto" }} disabled={busy === "followups"} onClick={() => void mutate("followups", () => apiRequest("/api/operacao/acompanhamentos/detectar", { method: "POST" }), "Análise concluída.")}>
+              {busy === "followups" ? <LoaderCircle className="nxw-spin" size={16} /> : <RefreshCw size={16} />} Detectar agora
+            </button>
+          </div>
+          <div>
+            {data.pending.items.filter((item) => item.kind === "followup").map((item) => (
+              <button key={item.id} type="button" className="nxw-row" onClick={() => onOpenDeepLink(item.deepLink)}>
+                <span className="nxw-icon is-amber"><MessageSquareReply size={16} /></span>
+                <span className="nx-grow"><span className="nxw-row-t" style={{ display: "block" }}>{item.title}</span><span className="nxw-row-sub" style={{ display: "block" }}>{item.description}</span></span>
+                <time className="nx-faint nx-small">{formatDate(item.timestamp)}</time>
+              </button>
+            ))}
+            {!data.pending.items.some((item) => item.kind === "followup") && <div className="nxw-empty"><MessageSquareReply size={24} /><strong>{data.pendingActivity ? "Nenhum follow-up aberto." : "Aguardando os acompanhamentos."}</strong>{data.pendingActivity && <span>Execute a detecção para analisar canais e prazos.</span>}</div>}
+          </div>
+        </section>
+      )}
 
-        {activeTab === "data" && (
-          <section className="workhub-panel">
-            <div className="workhub-section-heading"><div><h2>Dados, dispositivos e continuidade</h2><p>Importe, exporte, proteja e acompanhe o uso da conta.</p></div></div>
-            <div className="workhub-data-actions">
-              <button type="button" onClick={() => fileRef.current?.click()}><FileUp size={20} /><strong>Importar CSV</strong><small>Clientes, tarefas ou lançamentos, com pré-validação.</small></button>
-              <button type="button" onClick={() => void exportData("csv")}><CloudDownload size={20} /><strong>Exportar CSV</strong><small>Dados legíveis para planilhas.</small></button>
-              <button type="button" onClick={() => void exportData("json")}><CloudDownload size={20} /><strong>Exportar conta</strong><small>Arquivo completo e estruturado.</small></button>
-              <button type="button" onClick={() => void enablePush()}><BellRing size={20} /><strong>Ativar push</strong><small>Alertas no computador e celular.</small></button>
-              <button type="button" onClick={() => void mutate("backup", () => apiRequest("/api/operacao/backups", { method: "POST" }), "Backup criado.")}><DatabaseBackup size={20} /><strong>Criar backup</strong><small>Snapshot isolado desta conta.</small></button>
-              <button type="button" onClick={() => onNavigate("Controle")}><Focus size={20} /><strong>Saúde das integrações</strong><small>Testes, reconexão e auditoria.</small></button>
-            </div>
-            <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void importCsv(file);
-              event.currentTarget.value = "";
-            }} />
-            {data.usage && <div className="workhub-usage">
-              <Kpi label="Ações da Nora" value={data.usage.item.noraActions} />
-              <Kpi label="Eventos" value={data.usage.item.events} />
-              <Kpi label="Automações" value={data.usage.item.automations} />
-              <Kpi label="Execuções" value={data.usage.item.automationExecutions} />
-              <Kpi label="Integrações" value={data.usage.item.integrations} />
-              <Kpi label="Armazenamento MB" value={data.usage.item.storageMb} />
-            </div>}
-            {data.backups && <div className="workhub-backups">
-              <h3>Backups disponíveis</h3>
-              {data.backups.items.map((backup) => <article key={backup.id}><span><strong>{formatDate(backup.createdAt)}</strong><small>{backup.files.length} arquivo(s) · {(backup.sizeBytes / 1024).toFixed(1)} KB</small></span><button type="button" title="Restaurar backup" onClick={async () => {
-                const confirmed = await showConfirm({
-                  title: "Restaurar backup?",
-                  description: "A restauração substituirá os dados atuais deste ambiente.",
-                  confirmLabel: "Restaurar backup",
-                  tone: "warning",
-                });
-                if (confirmed) void mutate(`restore:${backup.id}`, () => apiRequest(`/api/operacao/backups/${backup.id}/restaurar`, { method: "POST", body: JSON.stringify({ confirmation: "RESTAURAR" }) }), "Backup restaurado.");
-              }} aria-label="Restaurar backup"><ArchiveRestore size={16} /></button></article>)}
-              {!data.backups.items.length && <p>Nenhum backup manual criado.</p>}
-            </div>}
-          </section>
-        )}
-      </div>
+      {activeTab === "team" && (
+        <section className="nx-card">
+          <div className="nx-card-h nxc-card-h"><div><h2>Metas e indicadores da equipe</h2><p>Resultados úteis por responsável, sem pontuação artificial.</p></div></div>
+          <div className="nxc-goal-form">
+            <input className="nxw-field" value={goalTitle} onChange={(event) => setGoalTitle(event.target.value)} placeholder="Nome da meta" />
+            <select className="nxw-field" value={goalMetric} onChange={(event) => setGoalMetric(event.target.value)}><option value="completedTasks">Tarefas concluídas</option><option value="messagesHandled">Mensagens atendidas</option><option value="completedFollowUps">Follow-ups concluídos</option><option value="automationExecutions">Automações executadas</option></select>
+            <input className="nxw-field" type="number" min="1" value={goalTarget} onChange={(event) => setGoalTarget(event.target.value)} />
+            <button type="button" className="nx-btn is-primary" onClick={() => void createGoal()}><Target size={16} /> Criar meta</button>
+          </div>
+          {Boolean(data.goals?.items.length) && <div className="nxc-goals">
+            {data.goals?.items.map((goal) => {
+              const progress = Math.min(100, Math.round((Number(goal.current || 0) / Math.max(goal.target, 1)) * 100));
+              return <article key={goal.id} className="nxc-goal"><div className="nx-grow"><div className="nxw-row-t">{goal.title}</div><div className="nxw-row-sub">{goal.current || 0} de {goal.target} · {goal.assigneeName || "Equipe"}</div></div><div className="nx-bar"><i style={{ width: `${progress}%` }} /></div><b style={{ fontWeight: 600 }}>{progress}%</b></article>;
+            })}
+          </div>}
+          <div className="nxw-scroll-x" style={{ borderTop: "1px solid var(--nx-border)" }}>
+            <table className="nx-table nxc-team-table">
+              <thead><tr><th>Membro</th><th>Concluídas</th><th>Pendentes</th><th>Em execução</th><th>Vencidas</th><th>Atendimentos</th></tr></thead>
+              <tbody>
+                {data.productivity?.members.map((member) => <tr key={member.userId}><td style={{ fontWeight: 500 }}>{member.name}</td><td>{member.completedTasks}</td><td>{member.pendingTasks}</td><td>{member.inProgressTasks}</td><td>{member.overdueTasks}</td><td>{member.messagesHandled}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
+          {data.weekly && <div className="nxc-weekly"><div className="nxw-row-t" style={{ fontWeight: 600 }}>{data.weekly.headline}</div><div className="nxw-row-sub">{data.weekly.estimatedHoursSaved} h estimadas economizadas · {data.weekly.actionsExecuted} ações comprovadas</div></div>}
+        </section>
+      )}
+
+      {activeTab === "data" && (
+        <section className="nx-card">
+          <div className="nx-card-h nxc-card-h"><div><h2>Dados, dispositivos e continuidade</h2><p>Importe, exporte, proteja e acompanhe o uso da conta.</p></div></div>
+          <div className="nxc-data-actions">
+            <DataAction icon={FileUp} title="Importar CSV" text="Clientes, tarefas ou lançamentos, com pré-validação." onClick={() => fileRef.current?.click()} />
+            <DataAction icon={CloudDownload} title="Exportar CSV" text="Dados legíveis para planilhas." onClick={() => void exportData("csv")} />
+            <DataAction icon={CloudDownload} title="Exportar conta" text="Arquivo completo e estruturado." onClick={() => void exportData("json")} />
+            <DataAction icon={BellRing} title="Ativar push" text="Alertas no computador e celular." onClick={() => void enablePush()} />
+            <DataAction icon={DatabaseBackup} title="Criar backup" text="Snapshot isolado desta conta." onClick={() => void mutate("backup", () => apiRequest("/api/operacao/backups", { method: "POST" }), "Backup criado.")} />
+            <DataAction icon={Focus} title="Saúde das integrações" text="Testes, reconexão e auditoria." onClick={() => onNavigate("Controle")} />
+          </div>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void importCsv(file);
+            event.currentTarget.value = "";
+          }} />
+          {data.usage && <div className="nxc-usage">
+            <Kpi label="Ações da Nora" value={data.usage.item.noraActions} />
+            <Kpi label="Eventos" value={data.usage.item.events} />
+            <Kpi label="Automações" value={data.usage.item.automations} />
+            <Kpi label="Execuções" value={data.usage.item.automationExecutions} />
+            <Kpi label="Integrações" value={data.usage.item.integrations} />
+            <Kpi label="Armazenamento MB" value={data.usage.item.storageMb} />
+          </div>}
+          {data.backups && <div style={{ borderTop: "1px solid var(--nx-border)" }}>
+            <div className="nx-card-h"><h3>Backups disponíveis</h3></div>
+            {data.backups.items.map((backup) => <article key={backup.id} className="nxw-row"><span className="nxw-icon is-gray is-sm"><DatabaseBackup size={16} /></span><span className="nx-grow"><span className="nxw-row-t" style={{ display: "block" }}>{formatDate(backup.createdAt)}</span><span className="nxw-row-sub" style={{ display: "block" }}>{backup.files.length} arquivo(s) · {(backup.sizeBytes / 1024).toFixed(1).replace(".", ",")} KB</span></span><button type="button" className="nxw-icon-btn is-sm" title="Restaurar backup" onClick={async () => {
+              const confirmed = await showConfirm({
+                title: "Restaurar backup?",
+                description: "A restauração substituirá os dados atuais deste ambiente.",
+                confirmLabel: "Restaurar backup",
+                tone: "warning",
+              });
+              if (confirmed) void mutate(`restore:${backup.id}`, () => apiRequest(`/api/operacao/backups/${backup.id}/restaurar`, { method: "POST", body: JSON.stringify({ confirmation: "RESTAURAR" }) }), "Backup restaurado.");
+            }} aria-label="Restaurar backup"><ArchiveRestore size={16} /></button></article>)}
+            {!data.backups.items.length && <p className="nx-faint nx-small" style={{ margin: 0, padding: "0 18px 16px" }}>Nenhum backup manual criado.</p>}
+          </div>}
+        </section>
+      )}
     </main>
   );
 }
 
 function pendingSource(item: PendingItem) {
   const tab = `${item.deepLink?.tab || ""} ${item.kind || ""}`.toLocaleLowerCase("pt-BR");
-  if (tab.includes("email")) return { label: "Externo", icon: Mail, tone: "is-email" };
-  if (tab.includes("chat") || tab.includes("whatsapp")) return { label: item.severity === "warning" ? "Atenção" : "Não lida", icon: MessageCircle, tone: "is-whatsapp" };
-  if (tab.includes("tarefa")) return { label: "Tarefa", icon: Check, tone: "is-task" };
-  return { label: "Operação", icon: CircleAlert, tone: "is-default" };
+  if (tab.includes("email")) return { label: "Externo", icon: Mail, tone: "is-red" };
+  if (tab.includes("chat") || tab.includes("whatsapp")) return { label: item.severity === "warning" ? "Atenção" : "Não lida", icon: MessageCircle, tone: "is-green" };
+  if (tab.includes("tarefa")) return { label: "Tarefa", icon: SquareCheck, tone: "is-amber" };
+  return { label: "Operação", icon: CircleAlert, tone: "" };
 }
 
-function Kpi({ label, value, icon: Icon, tone = "blue" }: { label: string; value: string | number; icon?: LucideIcon; tone?: string }) {
-  return <article className="workhub-kpi" data-metric-tone={tone}>{Icon && <Icon size={18} className="metric-icon" />}<strong className="metric-value">{value}</strong><span>{label}</span></article>;
+function severityBadge(severity: PendingItem["severity"]) {
+  if (severity === "error") return { label: "Alta", tone: "is-red" };
+  if (severity === "warning") return { label: "Média", tone: "is-amber" };
+  return { label: "Baixa", tone: "" };
+}
+
+function Kpi({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+  return <article className="nx-card nx-kpi"><div className="nx-kpi-l">{label}</div><div className="nx-kpi-v">{value}</div>{sub && <div className="nx-kpi-s">{sub}</div>}</article>;
+}
+
+function DataAction({ icon: Icon, title, text, onClick }: { icon: LucideIcon; title: string; text: string; onClick: () => void }) {
+  return <button type="button" className="nx-card nxc-data-action" onClick={onClick}><span className="nxw-icon is-sm"><Icon size={16} /></span><span className="nx-grow"><span className="nxw-row-t" style={{ display: "block" }}>{title}</span><span className="nxw-row-sub" style={{ display: "block" }}>{text}</span></span></button>;
 }

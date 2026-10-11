@@ -8,16 +8,16 @@ type RecentActivityProps = {
 };
 
 const config: Record<EventSource, { icon: LucideIcon; color: string; tab: string }> = {
-  gmail: { icon: Mail, color: "bg-red-500/10 text-red-500", tab: "E-mails" },
-  whatsapp: { icon: MessageSquare, color: "bg-emerald-500/10 text-emerald-500", tab: "Chat" },
-  calendar: { icon: CalendarDays, color: "bg-blue-500/10 text-blue-500", tab: "Agenda" },
-  kanban: { icon: CheckCircle2, color: "bg-cyan-500/10 text-cyan-500", tab: "Tarefas" },
-  financeiro: { icon: CreditCard, color: "bg-teal-500/10 text-teal-500", tab: "Gastos" },
-  equipe: { icon: UsersRound, color: "bg-indigo-500/10 text-indigo-500", tab: "Equipe" },
-  automacoes: { icon: GitBranch, color: "bg-sky-500/10 text-sky-500", tab: "Automações" },
-  brainstorm: { icon: Lightbulb, color: "bg-cyan-500/10 text-cyan-400", tab: "Brainstorm" },
-  relatorios: { icon: BarChart3, color: "bg-amber-500/10 text-amber-500", tab: "Relatorios" },
-  sistema: { icon: ShieldAlert, color: "bg-violet-500/10 text-violet-500", tab: "Central" },
+  gmail: { icon: Mail, color: "is-red", tab: "E-mails" },
+  whatsapp: { icon: MessageSquare, color: "is-green", tab: "Chat" },
+  calendar: { icon: CalendarDays, color: "is-blue", tab: "Agenda" },
+  kanban: { icon: CheckCircle2, color: "is-amber", tab: "Tarefas" },
+  financeiro: { icon: CreditCard, color: "is-cyan", tab: "Gastos" },
+  equipe: { icon: UsersRound, color: "is-blue", tab: "Equipe" },
+  automacoes: { icon: GitBranch, color: "is-violet", tab: "Automações" },
+  brainstorm: { icon: Lightbulb, color: "is-cyan", tab: "Brainstorm" },
+  relatorios: { icon: BarChart3, color: "is-amber", tab: "Relatorios" },
+  sistema: { icon: ShieldAlert, color: "", tab: "Central" },
 };
 
 function timeLabel(timestamp: string) {
@@ -34,51 +34,52 @@ function timeLabel(timestamp: string) {
 
 export default function RecentActivity({ events, onNavigate }: RecentActivityProps) {
   return (
-    <section className="norium-dashboard-card norium-recent-activity min-w-0 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-sm">
-      <div className="mb-5 flex items-center justify-between">
-        <div className="min-w-0">
-          <h2 className="text-xl font-bold text-[var(--text)]">Atividade recente</h2>
-          <p className="text-sm font-semibold text-[var(--text-secondary)]">Ultimas acoes recebidas em tempo real.</p>
+    <section className="nx-card nxd-card nxd-activity min-w-0">
+      <div className="nx-card-h">
+        <div className="nxd-card-h-col">
+          <h2>Atividade recente</h2>
+          <p className="nxd-card-sub">Últimas ações recebidas em tempo real.</p>
         </div>
       </div>
 
-      <div className="max-h-[318px] space-y-2 overflow-y-auto overscroll-contain pr-1">
-        {events.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[var(--border)] p-6 text-sm font-semibold text-[var(--text-secondary)]">
-            Nenhuma atividade recente ainda.
-          </div>
-        ) : (
-          events.map((event) => {
-            const item = config[event.source];
-            const Icon = item.icon;
+      <div className="nx-card-b">
+        <div className="nxd-list">
+          {events.length === 0 ? (
+            <div className="nxd-empty">
+              Nenhuma atividade recente ainda.
+            </div>
+          ) : (
+            events.map((event) => {
+              const item = config[event.source];
+              const Icon = item.icon;
 
-            return (
-              <button
-                key={event.id}
-                onClick={() => onNavigate(item.tab)}
-                className="flex min-w-0 w-full items-center justify-between gap-3 rounded-xl border border-[var(--border)] p-3 text-left transition-all duration-300 hover:border-blue-500/45 hover:shadow-md"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${item.color}`}>
-                    <Icon size={18} />
-                  </div>
+              return (
+                <button
+                  type="button"
+                  key={event.id}
+                  onClick={() => onNavigate(item.tab)}
+                  className="nx-row nxd-row"
+                >
+                  <span className={`nxd-ico ${item.color}`}>
+                    <Icon size={16} strokeWidth={1.75} />
+                  </span>
 
-                  <div className="min-w-0">
-                    <h3 className="truncate text-sm font-bold text-[var(--text)]">{event.title}</h3>
-                    <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">
-                      {event.description || "Evento sem descricao"}
-                    </p>
-                  </div>
-                </div>
+                  <span className="nx-grow">
+                    <strong className="nx-row-t nx-ell block">{event.title}</strong>
+                    <small className="nx-row-sub block">
+                      {event.description || "Evento sem descrição"}
+                    </small>
+                  </span>
 
-                <div className="flex shrink-0 items-center gap-2 text-xs font-bold text-[var(--text-secondary)]">
-                  <Clock3 size={14} />
-                  {timeLabel(event.timestamp)}
-                </div>
-              </button>
-            );
-          })
-        )}
+                  <span className="nxd-date inline-flex items-center gap-1">
+                    <Clock3 size={14} strokeWidth={1.75} />
+                    {timeLabel(event.timestamp)}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
       </div>
     </section>
   );

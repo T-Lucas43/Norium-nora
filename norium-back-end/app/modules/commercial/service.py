@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
 
+from app.core.identity import require_team_id, require_user_id
 from app.core.security import auth_secret
 from app.modules.clients.repository import list_clients
 from app.modules.commercial.repository import STORE_LOCK, read_store, write_store
@@ -146,7 +147,7 @@ def collaboration_tenant_id(user: dict[str, Any]) -> str:
     # Documentos comerciais são privados por autor. Reutilizar o proprietário
     # da equipe aqui fazia propostas, currículos e arquivos aparecerem para
     # todos os membros vinculados à mesma conta principal.
-    return str(user.get("id") or "lucas123")
+    return require_user_id(user)
 
 
 def is_team_plan(user: dict[str, Any]) -> bool:
@@ -1807,7 +1808,7 @@ async def create_smart_document(user: dict[str, Any], payload: SmartDocumentRequ
     from app.services.nora_files import save_bytes
 
     artifact = save_bytes(
-        str(user.get("id") or "lucas123"),
+        require_user_id(user),
         pdf_bytes,
         pdf_name,
         "application/pdf",
@@ -3822,7 +3823,7 @@ async def ensure_pdf_creation_audit(user: dict[str, Any], result: dict[str, Any]
 
     proposal = result["proposal"]
     entity_id = str(proposal.get("id") or "")
-    user_id = str(user.get("id") or "lucas123")
+    user_id = require_user_id(user)
     existing = await list_items(user_id, AUDIT_DB)
     if any(
         item.get("action") == "proposal_created_from_pdf"

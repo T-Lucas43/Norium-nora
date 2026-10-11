@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { Loader2, Paperclip, Send, Sparkles, X } from "lucide-react";
-import Button from "../../shared/Button";
 import AttachmentPreview from "../AttachmentPreview";
 import type { ComposeState } from "../../../features/mail/types";
 import MessageTemplatePicker from "../../message-templates/MessageTemplatePicker";
@@ -22,7 +21,7 @@ type ComposeModalProps = {
   onClose: () => void;
 };
 
-/** Janela de nova mensagem. */
+/** Janela de nova mensagem (canto inferior direito, como no layout aprovado). */
 export default function ComposeModal({
   compose,
   sending,
@@ -40,41 +39,50 @@ export default function ComposeModal({
   const semDestinatario = !compose.to.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-end bg-black/45 p-6">
-      <div className="mail-modal flex h-[680px] w-[680px] max-w-[calc(100vw-48px)] flex-col overflow-hidden rounded-lg border border-white/12 bg-[#18181B] shadow-2xl">
-        <div className="flex h-12 items-center justify-between border-b border-white/10 px-4">
-          <h2 className="text-sm font-bold">Nova mensagem</h2>
-          <Button variant="ghost" size="sm" iconOnly onClick={onClose} className="hover:bg-white/7" aria-label="Fechar">
-            <X size={17} />
-          </Button>
+    <div className="nx-mail-layer nx-mail-compose-wrap">
+      <div className="nx-mail-compose-card" role="dialog" aria-label="Nova mensagem">
+        <div className="nx-mail-compose-h">
+          <h2>Nova mensagem</h2>
+          <button type="button" onClick={onClose} className="nx-mail-iconbtn" aria-label="Fechar">
+            <X size={16} />
+          </button>
         </div>
 
-        <div className="grid gap-0 border-b border-white/10">
+        <div className="nx-mail-compose-row">
+          <span>Para</span>
           <input
             value={compose.to}
             onChange={(event) => onChange({ ...compose, to: event.target.value })}
             placeholder="Para"
-            className="h-11 border-b border-white/8 bg-transparent px-4 text-sm outline-none placeholder:text-white/35"
+            aria-label="Para"
+            className="nx-mail-field"
           />
-          <div className="grid grid-cols-2 border-b border-white/8">
-            <input
-              value={compose.cc}
-              onChange={(event) => onChange({ ...compose, cc: event.target.value })}
-              placeholder="Cc"
-              className="h-11 border-r border-white/8 bg-transparent px-4 text-sm outline-none placeholder:text-white/35"
-            />
-            <input
-              value={compose.bcc}
-              onChange={(event) => onChange({ ...compose, bcc: event.target.value })}
-              placeholder="Cco"
-              className="h-11 bg-transparent px-4 text-sm outline-none placeholder:text-white/35"
-            />
-          </div>
+        </div>
+        <div className="nx-mail-compose-row">
+          <span>Cc / Cco</span>
+          <input
+            value={compose.cc}
+            onChange={(event) => onChange({ ...compose, cc: event.target.value })}
+            placeholder="Cc"
+            aria-label="Cc"
+            className="nx-mail-field"
+          />
+          <input
+            value={compose.bcc}
+            onChange={(event) => onChange({ ...compose, bcc: event.target.value })}
+            placeholder="Cco"
+            aria-label="Cco"
+            className="nx-mail-field"
+          />
+        </div>
+        <div className="nx-mail-compose-row">
+          <span>Assunto</span>
           <input
             value={compose.subject}
             onChange={(event) => onChange({ ...compose, subject: event.target.value })}
             placeholder="Assunto"
-            className="h-11 bg-transparent px-4 text-sm outline-none placeholder:text-white/35"
+            aria-label="Assunto"
+            className="nx-mail-field"
           />
         </div>
 
@@ -82,7 +90,8 @@ export default function ComposeModal({
           value={compose.body}
           onChange={(event) => onChange({ ...compose, body: event.target.value })}
           placeholder="Digite sua mensagem"
-          className="min-h-0 flex-1 resize-none bg-transparent p-4 text-sm leading-6 outline-none placeholder:text-white/35"
+          aria-label="Mensagem"
+          className="nx-mail-compose-body"
         />
 
         {compose.attachments.length > 0 && (
@@ -90,36 +99,36 @@ export default function ComposeModal({
         )}
         {suggestionPanel}
 
-        <div className="flex items-center justify-between border-t border-white/10 p-3">
-          <div className="flex items-center gap-2">
-            <label className="mail-hover flex h-10 w-10 items-center justify-center rounded-lg border border-white/12 text-white/75 hover:bg-white/7">
-              <Paperclip size={18} />
-              <span className="sr-only">Anexar arquivo</span>
-              <input type="file" multiple className="hidden" onChange={(event) => onAddFiles(event.target.files)} />
-            </label>
-            <MessageTemplatePicker channel="email" onApply={({ subject, body }) => onChange({ ...compose, subject: subject || compose.subject, body })} />
-            {canUseNora && (
-              <Button
-                onClick={onAskNora}
-                disabled={noraSuggesting !== null}
-                className="mail-hover border-cyan-400/25 text-cyan-300 hover:bg-cyan-400/10"
-              >
-                {noraSuggesting === "compose" ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                Gerar sugestao
-              </Button>
-            )}
-            <Button
-              onClick={onSaveDraft}
-              disabled={sending || semDestinatario}
-              className="mail-hover border-white/12 text-white/75 hover:bg-white/7"
-            >
-              Salvar rascunho
-            </Button>
-          </div>
-          <Button variant="ghost" onClick={onSend} disabled={sending || semDestinatario} className="mail-primary bg-[#0EA5E9]">
-            {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+        <div className="nx-mail-compose-foot">
+          <button type="button" onClick={onSend} disabled={sending || semDestinatario} className="nx-btn is-primary">
+            {sending ? <Loader2 size={15} className="nx-mail-spin" /> : <Send size={15} />}
             Enviar
-          </Button>
+          </button>
+          <button
+            type="button"
+            onClick={onSaveDraft}
+            disabled={sending || semDestinatario}
+            className="nx-btn is-sm is-ghost"
+          >
+            Salvar rascunho
+          </button>
+          <label className="nx-mail-attach-btn" title="Anexar arquivo">
+            <Paperclip size={16} />
+            <span className="sr-only">Anexar arquivo</span>
+            <input type="file" multiple className="hidden" onChange={(event) => onAddFiles(event.target.files)} />
+          </label>
+          <MessageTemplatePicker channel="email" onApply={({ subject, body }) => onChange({ ...compose, subject: subject || compose.subject, body })} />
+          {canUseNora && (
+            <button
+              type="button"
+              onClick={onAskNora}
+              disabled={noraSuggesting !== null}
+              className="nx-btn is-sm nx-mail-push"
+            >
+              {noraSuggesting === "compose" ? <Loader2 size={14} className="nx-mail-spin" /> : <Sparkles size={14} />}
+              Gerar sugestão
+            </button>
+          )}
         </div>
       </div>
     </div>

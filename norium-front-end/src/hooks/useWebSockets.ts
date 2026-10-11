@@ -539,8 +539,8 @@ export function useWebSockets(
       void syncIntegrationEvents();
     }, 8000);
     const timer = window.setInterval(() => {
-      void syncIntegrationEvents();
-    }, 120000);
+      if (!document.hidden) void syncIntegrationEvents();
+    }, 300_000);
 
     return () => {
       window.clearTimeout(firstSyncTimer);
@@ -554,13 +554,22 @@ export function useWebSockets(
       return undefined;
     }
     let cancelled = false;
+    let reconnectAttempts = 0;
 
+    // Backoff exponencial com variação (1,8s até 60s): evita laço de reconexão gastando banda e tickets.
     function scheduleReconnect() {
       if (cancelled || reconnectTimerRef.current !== null) return;
+      const base = Math.min(60_000, 1800 * 2 ** Math.min(reconnectAttempts, 6));
+      reconnectAttempts += 1;
+      const delay = Math.round(base * (0.8 + Math.random() * 0.4));
       reconnectTimerRef.current = window.setTimeout(() => {
         reconnectTimerRef.current = null;
+        if (document.hidden) {
+          scheduleReconnect();
+          return;
+        }
         void connect();
-      }, 1800);
+      }, delay);
     }
 
     async function connect() {
@@ -589,6 +598,7 @@ export function useWebSockets(
           socket.close();
           return;
         }
+        reconnectAttempts = 0;
         reportConnectionState("online");
         socket.send(JSON.stringify({ type: "PING" }));
       };

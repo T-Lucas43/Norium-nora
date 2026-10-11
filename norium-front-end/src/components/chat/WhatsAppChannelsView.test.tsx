@@ -77,7 +77,7 @@ describe("area de canais do WhatsApp", () => {
     );
     expect(apiClient.apiBlobRequest).toHaveBeenCalledWith(
       `/api/chat/media-proxy?url=${encodeURIComponent(source)}`,
-      { cache: "no-store" },
+      { cache: "default" },
     );
   });
 
@@ -135,7 +135,7 @@ describe("area de canais do WhatsApp", () => {
     expect(apiClient.apiBlobRequest).toHaveBeenNthCalledWith(
       2,
       `/api/chat/media-proxy?url=${encodeURIComponent(source)}`,
-      { cache: "no-store" },
+      { cache: "default" },
     );
   });
 

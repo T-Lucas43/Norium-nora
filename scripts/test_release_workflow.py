@@ -16,9 +16,9 @@ class ReleaseWorkflowTests(unittest.TestCase):
         active = {path.name for pattern in ("*.yml", "*.yaml") for path in WORKFLOW_PATH.parent.glob(pattern)}
         self.assertEqual(active, {WORKFLOW_PATH.name})
         workflow = self.workflow()
-        self.assertEqual(workflow["name"], "Shard Cloud - validacao e pacote")
+        self.assertEqual(workflow["name"], "Shard Cloud - validacao e homologacao")
         self.assertEqual(set(workflow["jobs"]), {
-            "validate", "postgres-persistence", "team-call-quality", "shard-image-security", "shard-source-artifact",
+            "validate", "postgres-persistence", "team-call-quality", "shard-image-security", "shard-source-artifact", "deploy-homologacao",
         })
         text = WORKFLOW_PATH.read_text(encoding="utf-8")
         for forbidden in ("azure/login", "AZURE_", "az bicep", "az containerapp", "az webapp", "Dockerfile.azure"):
@@ -182,6 +182,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(commands.count("--cap-drop=ALL"), 2)
         self.assertNotIn("continue-on-error", smoke)
 
+    def test_runtime_excludes_unused_pebble_and_preserves_application_tools(self):
+        runtime = Path("Dockerfile.shard").read_text(encoding="utf-8").split("FROM ${NORIUM_RUNTIME_BASE} AS runtime", 1)[1]
+        self.assertIn("ENTRYPOINT []", runtime)
+        self.assertIn('Path("/usr/bin/pebble").unlink(missing_ok=True)', runtime)
+        self.assertIn('if Path("/usr/bin/pebble").exists()', runtime)
+        self.assertIn("ca-certificates python3.14 ffmpeg", runtime)
+        self.assertIn("google-chrome-stable", runtime)
+        self.assertIn("exec uvicorn --app-dir /opt/norium", runtime)
+        self.assertIn("--workers 1", runtime)
+
     def test_shard_source_artifact_requires_all_gates_and_has_no_provider_credentials(self):
         workflow = self.workflow()
         job = workflow["jobs"]["shard-source-artifact"]
@@ -195,6 +205,34 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn("secrets.", str(job))
         self.assertNotIn("environment", job)
         self.assertTrue(any("scripts.test_shard_release_package" in step.get("run", "") for step in workflow["jobs"]["validate"]["steps"]))
+
+    def test_deploy_is_explicit_main_only_and_depends_on_every_gate(self):
+        workflow = self.workflow()
+        job = workflow["jobs"]["deploy-homologacao"]
+        self.assertEqual(set(job["needs"]), set(workflow["jobs"]) - {"deploy-homologacao"})
+        self.assertEqual(job["if"], "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_homologacao")
+        self.assertEqual(job["environment"], "homologacao")
+        self.assertFalse(job["concurrency"]["cancel-in-progress"])
+        events = workflow.get("on", workflow.get(True))
+        self.assertFalse(events["workflow_dispatch"]["inputs"]["deploy_homologacao"]["default"])
+        for step in job["steps"]:
+            self.assertNotIn("continue-on-error", step)
+        steps = str(job["steps"])
+        self.assertNotIn("docker build", steps)
+        self.assertNotIn("StrictHostKeyChecking=no", steps)
+        self.assertNotIn("ssh-keyscan", steps)
+        self.assertNotIn("SHARD_PASSWORD", steps)
+
+    def test_deploy_transports_the_same_audited_image(self):
+        jobs = self.workflow()["jobs"]
+        export = next(step for step in jobs["shard-image-security"]["steps"] if step.get("name") == "Export the exact audited image for the homologation deployment")
+        self.assertEqual(export["shell"], "bash")
+        self.assertIn('docker save "$image_id"', export["run"])
+        self.assertIn("image-audit-receipt.json", export["run"])
+        self.assertIn("sha256sum image.tar.gz", export["run"])
+        download = next(step for step in jobs["deploy-homologacao"]["steps"] if step.get("uses", "").startswith("actions/download-artifact@"))
+        self.assertEqual(download["with"]["name"], "shard-deploy-image-${{ github.sha }}")
+        self.assertEqual(len(download["uses"].split("@")[1]), 40)
 
 
 if __name__ == "__main__":

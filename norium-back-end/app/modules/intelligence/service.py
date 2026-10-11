@@ -16,6 +16,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from fastapi import HTTPException
 
+from app.core.ai_guardrails import minimize_for_ai
 from app.core.tenant import read_user_db, write_user_db
 from app.infrastructure.public_http import PublicHTTPTransport, assert_public_dns, host_matches, validate_public_url
 from app.services.ai_costs import Meter, apply_provider_prices
@@ -987,10 +988,15 @@ async def complete_with_provider(
         raise HTTPException(status_code=409, detail="Configure a URL base do provedor.")
     _, host = validate_public_url(base_url)
     await assert_public_dns(host)
+    # LGPD: segredos, CPF e cartao saem de toda chamada, inclusive pesquisa web e provedores extras.
     safe_messages = [
-        {"role": item.get("role") if item.get("role") in {"user", "assistant"} else "user", "content": str(item.get("content") or "")[:20_000]}
+        {
+            "role": item.get("role") if item.get("role") in {"user", "assistant"} else "user",
+            "content": minimize_for_ai(str(item.get("content") or ""), max_chars=20_000),
+        }
         for item in messages[-12:]
     ]
+    system_prompt = minimize_for_ai(system_prompt)
     timeout = httpx.Timeout(45, connect=8)
     try:
         async with Meter(provider, [system_prompt, *safe_messages], 1400, user_id=user_id, source="model-gateway") as meter, httpx.AsyncClient(timeout=timeout, follow_redirects=False, trust_env=False, transport=PublicHTTPTransport([host])) as client:

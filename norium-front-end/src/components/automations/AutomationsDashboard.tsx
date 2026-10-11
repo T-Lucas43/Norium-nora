@@ -4,7 +4,6 @@ import IntegrationLogo from "../shared/IntegrationLogo";
 import MessageActionFields, { messageIssues } from "./MessageActionFields";
 import "./automationBuilder.css";
 import AutomationFlowPreview from "./AutomationFlowPreview";
-import WorkspaceHeader from "../shared/WorkspaceHeader";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -70,7 +69,6 @@ import type {
   StepKind,
   TaskProject,
 } from "../../features/automations/types";
-import Button from "../shared/Button";
 
 type AutomationsDashboardProps = {
   onOpenNora?: () => void;
@@ -273,10 +271,10 @@ function formatDuration(ms: number) {
 }
 
 function executionStatusClass(status: string) {
-  if (status === "erro") return "bg-rose-400/14 text-rose-200";
-  if (status === "simulado") return "bg-cyan-400/14 text-cyan-100";
-  if (status === "executando") return "bg-amber-400/14 text-amber-100";
-  return "bg-emerald-400/14 text-emerald-200";
+  if (status === "erro") return "is-red";
+  if (status === "simulado") return "is-blue";
+  if (status === "executando") return "is-amber";
+  return "is-green";
 }
 
 function formatSavedTime(minutes: number) {
@@ -473,23 +471,13 @@ async function apiJson<T>(path = "", init?: RequestInit): Promise<T> {
   return automationsApiRequest<T>(path, init);
 }
 
-function StatCard({ title, value, icon: Icon, detail, tone = "blue" }: { title: string; value: string | number; icon: LucideIcon; detail: string; tone?: "blue" | "green" | "amber" }) {
-  const accent = { blue: "text-blue-300", green: "text-emerald-300", amber: "text-amber-300" }[tone];
+function StatCard({ title, value, icon: Icon, detail }: { title: string; value: string | number; icon: LucideIcon; detail: string }) {
   return (
-    <motion.article
-      className="workspace-metric"
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">{title}</p>
-          <strong className={`mt-3 block text-3xl font-black ${accent}`}>{value}</strong>
-          <span className="mt-1 block text-xs font-semibold text-[var(--text-secondary)]">{detail}</span>
-        </div>
-        <span className={`grid h-11 w-11 place-items-center rounded-lg ${accent}`}>
-          <Icon size={21} />
-        </span>
-      </div>
-    </motion.article>
+    <article className="nx-card nx-kpi">
+      <div className="nx-kpi-l"><Icon size={16} />{title}</div>
+      <strong className="nx-kpi-v" style={{ display: "block" }}>{value}</strong>
+      <span className="nx-kpi-s" style={{ display: "block" }}>{detail}</span>
+    </article>
   );
 }
 
@@ -500,16 +488,10 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (next: bool
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`automation-toggle relative h-7 w-12 rounded-full border transition ${
-        checked ? "border-emerald-300/40 bg-emerald-400/45" : "border-[var(--border)] bg-[var(--background)]"
-      }`}
-      aria-label={checked ? "Desativar automacao" : "Ativar automacao"}
+      className={`automation-toggle auto-switch ${checked ? "is-on" : ""}`}
+      aria-label={checked ? "Desativar automação" : "Ativar automação"}
     >
-      <span
-        className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-lg transition ${
-          checked ? "left-6" : "left-1"
-        }`}
-      />
+      <span />
     </button>
   );
 }
@@ -1134,94 +1116,61 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
   const selectedBuilderNode = builderFlow.nodes.find((nodeItem) => nodeItem.id === selectedBuilderNodeId) || builderFlow.nodes[0] || null;
 
   if (builderOpen) {
+    const canvasWidth = Math.max(900, ...builderFlow.nodes.map((node) => node.x + 280));
+    const canvasHeight = Math.max(600, ...builderFlow.nodes.map((node) => node.y + 230));
     return (
-      <main className="clean-workspace automation-builder professional-automation-builder h-full min-h-[calc(100dvh-78px)] overflow-hidden bg-[var(--background)] text-[var(--text)]">
-        <div className="flex h-full min-h-[calc(100dvh-78px)] flex-col">
-          <header className="flex shrink-0 flex-col gap-4 border-b border-[var(--border)] bg-[var(--surface)]/92 p-4 backdrop-blur-2xl xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <Button size="lg" iconOnly
-                onClick={() => setBuilderOpen(false)}
-                className="bg-[var(--background)]"
-                title="Voltar"
-               aria-label="Voltar">
-                <X size={18} />
-              </Button>
-              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-blue-500/18 text-cyan-100">
-                <GitBranch size={23} />
-              </span>
-              <div className="min-w-0">
-                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[var(--text-secondary)]">
-                  Construtor visual
-                </p>
+      <main className="automation-builder professional-automation-builder auto-v2">
+        <div className="auto-builder-shell">
+          <header className="auto-builder-head">
+            <div className="auto-builder-title">
+              <button type="button" className="auto-icon-btn" onClick={() => setBuilderOpen(false)} title="Voltar" aria-label="Voltar">
+                <X size={16} />
+              </button>
+              <div className="nx-grow">
+                <p>Construtor visual</p>
                 <input
                   aria-label="Nome da automação"
                   value={form.name}
                   onChange={(event) => setForm({ ...form, name: event.target.value })}
-                  className="mt-1 w-full max-w-xl bg-transparent text-2xl font-black outline-none"
                   placeholder="Nome da automação"
                 />
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="builder-help inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--background)] px-3 text-xs font-bold text-[var(--text-secondary)]">
-                <MousePointer2 size={14} />
-                Clique para inserir, arraste para posicionar
-              </span>
+            <div className="auto-builder-actions">
+              <span className="builder-help"><MousePointer2 size={14} />Clique para inserir, arraste para posicionar</span>
               <span className="builder-status-label">{form.active ? "Ativa ao salvar" : "Desativada"}</span><Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
-              <Button size="lg" onClick={() => setBuilderPreview((current) => !current)} icon={<Network size={16} />}>{builderPreview ? "Voltar ao editor" : "Pré-visualizar"}</Button>
-              <Button size="lg"
-                onClick={validateBuilderFlow}
-                className="border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
-              >
-                <CheckSquare size={17} />
-                Validar fluxo
-              </Button>
-              <Button size="lg"
-                onClick={() => setBuilderOpen(false)}
-                className="bg-[var(--background)]"
-              >
-                Cancelar
-              </Button>
-              <Button variant="primary" size="lg"
-                onClick={() => void saveBuilderAutomation()}
-                disabled={saving || !form.name.trim()}
-                className="shadow-lg shadow-blue-950/20"
-              >
-                <Save size={17} />
+              <button type="button" className="nx-btn is-sm" onClick={() => setBuilderPreview((current) => !current)}><Network size={14} />{builderPreview ? "Voltar ao editor" : "Pré-visualizar"}</button>
+              <button type="button" className="nx-btn is-sm" onClick={validateBuilderFlow}><Play size={14} />Validar fluxo</button>
+              <button type="button" className="nx-btn is-sm" onClick={() => setBuilderOpen(false)}>Cancelar</button>
+              <button type="button" className="nx-btn is-sm is-primary" onClick={() => void saveBuilderAutomation()} disabled={saving || !form.name.trim()}>
+                <Save size={14} />
                 {saving ? "Salvando..." : "Salvar fluxo"}
-              </Button>
+              </button>
             </div>
           </header>
 
           {error && <div role="alert" className="builder-error">{error}</div>}
-          <section className="automation-builder-grid grid min-h-0 flex-1 grid-cols-[290px_minmax(0,1fr)_320px] overflow-hidden max-xl:grid-cols-1">
-            <aside className="min-h-0 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)]/82 p-4 backdrop-blur-2xl max-xl:max-h-[320px] max-xl:border-b max-xl:border-r-0">
-              <div className="mb-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3">
-                <p className="text-sm font-bold">Componentes</p>
-                <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
-                  Insira gatilhos, ações e blocos da Nora no fluxo.
-                </p>
-              </div>
-              <label className="builder-library-search"><Search size={15} /><input aria-label="Buscar componentes" placeholder="Buscar gatilho ou ação" value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} /></label>
-              <div className="space-y-4">
-                {componentLibrary.map((group) => ({ ...group, items: group.items.filter((item) => `${item.title} ${item.description}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").includes(libraryQuery.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim())) })).filter((group) => group.items.length > 0).map((group) => (
+          <section className="automation-builder-grid auto-builder-grid">
+            <aside className="auto-library">
+              <p className="auto-library-intro">Insira gatilhos, ações e blocos da Nora no fluxo.</p>
+              <label className="builder-library-search nx-input"><Search size={15} /><input aria-label="Buscar componentes" placeholder="Buscar bloco" value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} /></label>
+              <div>
+                {componentLibrary.map((group) => ({ ...group, items: group.items.filter((item) => `${item.title} ${item.description}`.normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("pt-BR").includes(libraryQuery.normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("pt-BR").trim())) })).filter((group) => group.items.length > 0).map((group) => (
                   <section key={group.group}>
-                    <h2 className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{group.group}</h2>
-                    <div className="space-y-2">
+                    <h2 className="auto-library-group">{group.group}</h2>
+                    <div className="auto-library-items">
                       {group.items.map((item) => (
                         <button
                           key={`${group.group}-${item.title}`}
                           type="button"
                           onClick={() => addBuilderComponent(item)}
-                          className="flex w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-left transition hover:border-cyan-300/50 hover:bg-[var(--surface-hover)]"
+                          className="auto-library-item"
                         >
-                          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/16 text-cyan-100">
-                            <IconByName name={item.icon} size={18} />
-                          </span>
-                          <span className="min-w-0">
-                            <strong className="block truncate text-sm font-bold">{item.title}</strong>
-                            <span className="mt-0.5 line-clamp-2 block text-xs font-semibold leading-5 text-[var(--text-secondary)]">{item.description}</span>
+                          <IconByName name={item.icon} size={16} />
+                          <span className="nx-grow">
+                            <strong>{item.title}</strong>
+                            <small>{item.description}</small>
                           </span>
                         </button>
                       ))}
@@ -1231,28 +1180,21 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
               </div>
             </aside>
 
-            <div className={`builder-work-area ${builderPreview ? "is-preview" : ""} relative min-h-[620px] min-w-0 overflow-auto bg-[#101316]`}>
+            <div className={`builder-work-area auto-canvas ${builderPreview ? "is-preview" : ""}`}>
               {builderPreview ? <AutomationFlowPreview flow={builderFlow} /> : <>
-              <div className="sticky top-0 z-20 flex items-center justify-between border-b border-white/10 bg-[#17191c]/92 px-4 py-3 text-white backdrop-blur-xl">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/8 px-3 py-1.5 text-xs font-bold">
-                    <Layers size={14} />
-                    Editor
-                  </span>
-                  <span className="rounded-lg border border-emerald-400/25 bg-emerald-400/12 px-3 py-1.5 text-xs font-bold text-emerald-200">
-                    {builderFlow.nodes.length} bloco(s)
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={() => setBuilderZoom((current) => Math.max(0.62, current - 0.08))} className="border-white/12 bg-white/8">-</Button>
-                  <span className="w-14 text-center text-xs font-bold">{Math.round(builderZoom * 100)}%</span>
-                  <Button size="sm" onClick={() => setBuilderZoom((current) => Math.min(1.28, current + 0.08))} className="border-white/12 bg-white/8">+</Button>
-                </div>
+              <div className="auto-canvas-bar">
+                <span className="nx-badge">{builderFlow.nodes.length} bloco(s) · {builderFlow.connections.length} conexões</span>
+                {builderValidation.length > 0 ? <span className="nx-badge is-amber">{builderValidation.length} item(ns) para revisar</span> : statusMessage === "Fluxo validado e pronto para executar." ? <span className="nx-badge is-green"><CheckSquare size={12} />Sem erros</span> : null}
+                <span className="nx-seg auto-zoom" style={{ marginLeft: "auto" }}>
+                  <button type="button" aria-label="Diminuir zoom" onClick={() => setBuilderZoom((current) => Math.max(0.62, current - 0.08))}>−</button>
+                  <span className="auto-zoom-value" aria-label="Zoom do editor">{Math.round(builderZoom * 100)}%</span>
+                  <button type="button" aria-label="Aumentar zoom" onClick={() => setBuilderZoom((current) => Math.min(1.28, current + 0.08))}>+</button>
+                </span>
               </div>
 
-              <div className="relative builder-canvas-scroll bg-[radial-gradient(circle_at_1px_1px,rgba(148,163,184,.24)_1px,transparent_0)] [background-size:22px_22px]" style={{ width: Math.max(900, ...builderFlow.nodes.map((node) => node.x + 280)) * builderZoom, height: Math.max(600, ...builderFlow.nodes.map((node) => node.y + 230)) * builderZoom }}>
-                <div className="absolute inset-0 origin-top-left" style={{ transform: `scale(${builderZoom})`, width: Math.max(900, ...builderFlow.nodes.map((node) => node.x + 280)), height: Math.max(600, ...builderFlow.nodes.map((node) => node.y + 230)) }}>
-                  <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
+              <div className="builder-canvas-scroll" style={{ position: "relative", width: canvasWidth * builderZoom, height: canvasHeight * builderZoom }}>
+                <div style={{ position: "absolute", inset: 0, transformOrigin: "top left", transform: `scale(${builderZoom})`, width: canvasWidth, height: canvasHeight }}>
+                  <svg className="auto-canvas-lines" aria-hidden="true">
                     {builderFlow.connections.map((connection) => {
                       const source = builderFlow.nodes.find((item) => item.id === connection.source);
                       const target = builderFlow.nodes.find((item) => item.id === connection.target);
@@ -1266,17 +1208,16 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                           key={`${connection.source}-${connection.target}`}
                           d={`M ${x1} ${y1} C ${x1 + 90} ${y1}, ${x2 - 90} ${y2}, ${x2} ${y2}`}
                           fill="none"
-                          stroke="rgba(16,185,129,.76)"
-                          strokeWidth="3"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
                         />
                       );
                     })}
                   </svg>
 
                   {builderFlow.nodes.map((nodeItem) => (
-                    <motion.div
+                    <div
                       key={nodeItem.id}
-                      whileHover={{ scale: 1.02 }}
                       onClick={() => { setSelectedBuilderNodeId(nodeItem.id); setInspectorTab("block"); }}
                       role="button" tabIndex={0} aria-label={`Selecionar bloco ${nodeItem.title}`} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedBuilderNodeId(nodeItem.id); setInspectorTab("block"); } }}
                       onPointerDown={(event) => {
@@ -1288,252 +1229,218 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                           originalY: nodeItem.y,
                         };
                       }}
-                      className={`absolute w-[220px] cursor-grab rounded-xl border p-4 text-white shadow-2xl active:cursor-grabbing ${
-                        selectedBuilderNodeId === nodeItem.id ? "border-cyan-300 bg-[#1f2937]" : "border-white/16 bg-[#1a1d21]"
-                      }`}
+                      className={`auto-node ${selectedBuilderNodeId === nodeItem.id ? "is-selected" : ""}`}
                       style={{ left: nodeItem.x, top: nodeItem.y }}
                     >
                       {nodeItem.kind !== "trigger" && <span className="automation-node-port is-input" aria-hidden="true" />}
                       <span className="automation-node-port is-output" aria-hidden="true" />
-                      <div className="flex items-start justify-between gap-3">
-                        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-lg ${nodeItem.kind === "nora" ? "bg-cyan-400/18 text-cyan-100" : nodeItem.kind === "trigger" ? "bg-emerald-400/18 text-emerald-100" : "bg-blue-400/18 text-blue-100"}`}>
-                          <IconByName name={nodeItem.icon} size={20} />
-                        </span>
-                        <span className="rounded-full border border-white/10 px-2 py-1 text-xs font-bold uppercase text-white/60">{nodeItem.kind === "trigger" ? "Gatilho" : nodeItem.kind === "nora" ? "Nora IA" : "Ação"}</span>
-                      </div>
-                      <h3 className="mt-3 text-sm font-bold">{nodeItem.title}</h3>
-                      {nodeItem.kind === "trigger" && <span className="text-xs text-emerald-300">{nodeItem.config?.automatic === "true" ? "Disparo automático ativado" : "Execução manual"}</span>}
-                      <p className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-white/62">{nodeItem.description}</p>
+                      <KindBadge kind={nodeItem.kind} icon={nodeItem.icon} />
+                      <h3>{nodeItem.title}</h3>
+                      {nodeItem.kind === "trigger" && <span className="auto-node-trigger">{nodeItem.config?.automatic === "true" ? "Disparo automático ativado" : "Execução manual"}</span>}
+                      <p>{nodeItem.description}</p>
                       <div className="automation-node-footer"><span><i /> Configurado</span><small>{nodeItem.kind === "nora" ? "IA supervisionada" : nodeItem.kind === "trigger" ? "Entrada" : "Ação"}</small></div>
-                    </motion.div>
+                    </div>
                   ))}
                 </div>
               </div></>}
             </div>
 
-            <aside className="builder-inspector min-h-0 overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)]/86 p-4 backdrop-blur-2xl max-xl:border-l-0 max-xl:border-t">
-              <nav className="builder-inspector-tabs" aria-label="Configurações do editor"><button type="button" aria-pressed={inspectorTab === "block"} onClick={() => setInspectorTab("block")}>Bloco</button><button type="button" aria-pressed={inspectorTab === "settings"} onClick={() => setInspectorTab("settings")}>Automação</button></nav>
-              <section hidden={inspectorTab !== "settings"} className="rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <h2 className="text-sm font-bold">Configuração do fluxo</h2>
-                <div className="mt-4 space-y-3">
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-bold text-[var(--text-secondary)]">Descrição</span>
-                    <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
-                  </label>
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-bold text-[var(--text-secondary)]">Categoria</span>
-                    <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
-                  </label>
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-bold text-[var(--text-secondary)]">Projeto para tarefas</span>
-                    <select
-                      value={form.taskProjectId}
-                      onChange={(event) => {
-                        const project = taskProjects.find((item) => item.id === event.target.value);
-                        setForm({
-                          ...form,
-                          taskProjectId: event.target.value,
-                          taskProjectName: project?.name || event.target.value,
-                        });
-                      }}
-                      className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"
-                    >
-                      {taskProjects.map((project) => (
-                        <option key={project.id} value={project.id}>
-                          {project.name}
-                        </option>
-                      ))}
+            <aside className="builder-inspector auto-inspector">
+              <nav className="builder-inspector-tabs nx-seg" aria-label="Configurações do editor"><button type="button" className={inspectorTab === "block" ? "is-active" : ""} aria-pressed={inspectorTab === "block"} onClick={() => setInspectorTab("block")}>Bloco</button><button type="button" className={inspectorTab === "settings" ? "is-active" : ""} aria-pressed={inspectorTab === "settings"} onClick={() => setInspectorTab("settings")}>Automação</button></nav>
+              <section hidden={inspectorTab !== "settings"} className="auto-inspector-section">
+                <h2>Configuração do fluxo</h2>
+                <label className="auto-label">
+                  <span>Descrição</span>
+                  <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className="auto-field" />
+                </label>
+                <label className="auto-label">
+                  <span>Categoria</span>
+                  <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="auto-field" />
+                </label>
+                <label className="auto-label">
+                  <span>Projeto para tarefas</span>
+                  <select
+                    value={form.taskProjectId}
+                    onChange={(event) => {
+                      const project = taskProjects.find((item) => item.id === event.target.value);
+                      setForm({
+                        ...form,
+                        taskProjectId: event.target.value,
+                        taskProjectName: project?.name || event.target.value,
+                      });
+                    }}
+                    className="auto-field"
+                  >
+                    {taskProjects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="auto-label">
+                  <span>Categoria da tarefa</span>
+                  <select value={form.taskCategory} onChange={(event) => setForm({ ...form, taskCategory: event.target.value })} className="auto-field">
+                    {taskCategoryOptions.map((category) => (
+                      <option key={category.value} value={category.value}>
+                        {category.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="auto-label">
+                  <span>Categoria de e-mail</span>
+                  <select value={form.emailCategory} onChange={(event) => setForm({ ...form, emailCategory: event.target.value })} className="auto-field">
+                    {emailCategoryOptions.map((category) => (
+                      <option key={category.value} value={category.value}>
+                        {category.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="auto-label">
+                  <span>Agendamento</span>
+                  <select value={form.schedule} onChange={(event) => setForm({ ...form, schedule: event.target.value })} className="auto-field">
+                    <option value="">Manual</option>
+                    <option value="A cada hora">A cada hora</option>
+                    <option value="Diariamente as 09:00">Diariamente às 09:00</option>
+                    <option value="Dias uteis as 09:00">Dias úteis às 09:00</option>
+                    <option value="Semanalmente, segunda as 09:00">Semanalmente</option>
+                    <option value="Mensalmente, dia 1 as 09:00">Mensalmente</option>
+                  </select>
+                </label>
+                <div className="auto-two">
+                  <label className="auto-label">
+                    <span>Tentativas após falha</span>
+                    <select value={form.retryPolicy} onChange={(event) => setForm({ ...form, retryPolicy: event.target.value as AutomationFormState["retryPolicy"] })} className="auto-field">
+                      <option value="none">Não repetir</option>
+                      <option value="once">Repetir uma vez</option>
+                      <option value="three_times">Repetir três vezes</option>
                     </select>
                   </label>
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-bold text-[var(--text-secondary)]">Categoria da tarefa</span>
-                    <select
-                      value={form.taskCategory}
-                      onChange={(event) => setForm({ ...form, taskCategory: event.target.value })}
-                      className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"
-                    >
-                      {taskCategoryOptions.map((category) => (
-                        <option key={category.value} value={category.value}>
-                          {category.label}
-                        </option>
-                      ))}
+                  <label className="auto-label">
+                    <span>Se ainda falhar</span>
+                    <select value={form.failureAction} onChange={(event) => setForm({ ...form, failureAction: event.target.value as AutomationFormState["failureAction"] })} className="auto-field">
+                      <option value="notify">Notificar responsável</option>
+                      <option value="pause">Pausar automação</option>
+                      <option value="continue">Continuar fluxo</option>
                     </select>
                   </label>
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-bold text-[var(--text-secondary)]">Categoria de e-mail</span>
-                    <select
-                      value={form.emailCategory}
-                      onChange={(event) => setForm({ ...form, emailCategory: event.target.value })}
-                      className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"
-                    >
-                      {emailCategoryOptions.map((category) => (
-                        <option key={category.value} value={category.value}>
-                          {category.label}
-                        </option>
-                      ))}
-                    </select>
+                </div>
+                <div className="auto-switches">
+                  <label>
+                    <span>Exigir aprovação para ações sensíveis</span>
+                    <input type="checkbox" checked={form.approvalRequired} onChange={(event) => setForm({ ...form, approvalRequired: event.target.checked })} />
                   </label>
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-bold text-[var(--text-secondary)]">Agendamento</span>
-                    <select value={form.schedule} onChange={(event) => setForm({ ...form, schedule: event.target.value })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none">
-                      <option value="">Manual</option>
-                      <option value="A cada hora">A cada hora</option>
-                      <option value="Diariamente as 09:00">Diariamente as 09:00</option>
-                      <option value="Dias uteis as 09:00">Dias uteis as 09:00</option>
-                      <option value="Semanalmente, segunda as 09:00">Semanalmente</option>
-                      <option value="Mensalmente, dia 1 as 09:00">Mensalmente</option>
-                    </select>
+                  <label>
+                    <span>Notificar quando concluir</span>
+                    <input type="checkbox" checked={form.notifyOnSuccess} onChange={(event) => setForm({ ...form, notifyOnSuccess: event.target.checked })} />
                   </label>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block space-y-1.5">
-                      <span className="text-xs font-bold text-[var(--text-secondary)]">Tentativas após falha</span>
-                      <select value={form.retryPolicy} onChange={(event) => setForm({ ...form, retryPolicy: event.target.value as AutomationFormState["retryPolicy"] })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none">
-                        <option value="none">Não repetir</option>
-                        <option value="once">Repetir uma vez</option>
-                        <option value="three_times">Repetir três vezes</option>
-                      </select>
-                    </label>
-                    <label className="block space-y-1.5">
-                      <span className="text-xs font-bold text-[var(--text-secondary)]">Se ainda falhar</span>
-                      <select value={form.failureAction} onChange={(event) => setForm({ ...form, failureAction: event.target.value as AutomationFormState["failureAction"] })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none">
-                        <option value="notify">Notificar responsável</option>
-                        <option value="pause">Pausar automação</option>
-                        <option value="continue">Continuar fluxo</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-                    <label className="flex items-center justify-between gap-3 text-xs font-bold">
-                      <span>Exigir aprovação para ações sensíveis</span>
-                      <input type="checkbox" checked={form.approvalRequired} onChange={(event) => setForm({ ...form, approvalRequired: event.target.checked })} />
-                    </label>
-                    <label className="flex items-center justify-between gap-3 text-xs font-bold">
-                      <span>Notificar quando concluir</span>
-                      <input type="checkbox" checked={form.notifyOnSuccess} onChange={(event) => setForm({ ...form, notifyOnSuccess: event.target.checked })} />
-                    </label>
-                    <label className="flex items-center justify-between gap-3 text-xs font-bold">
-                      <span>Notificar quando falhar</span>
-                      <input type="checkbox" checked={form.notifyOnFailure} onChange={(event) => setForm({ ...form, notifyOnFailure: event.target.checked })} />
-                    </label>
-                  </div>
+                  <label>
+                    <span>Notificar quando falhar</span>
+                    <input type="checkbox" checked={form.notifyOnFailure} onChange={(event) => setForm({ ...form, notifyOnFailure: event.target.checked })} />
+                  </label>
                 </div>
               </section>
 
-              <section hidden={inspectorTab !== "block"} className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <h2 className="text-sm font-bold">Bloco selecionado</h2>
+              <section hidden={inspectorTab !== "block"} className="auto-inspector-section">
+                <h2 className="nx-faint" style={{ fontWeight: 500, fontSize: 12.5 }}>Bloco selecionado</h2>
                 {selectedBuilderNode ? (
-                  <div className="mt-4 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <span className="grid h-11 w-11 place-items-center rounded-lg bg-blue-500/16 text-cyan-100">
-                        <IconByName name={selectedBuilderNode.icon} size={20} />
-                      </span>
-                      <div className="min-w-0">
-                        <strong className="block truncate text-sm font-bold">{selectedBuilderNode.title}</strong>
-                        <span className="text-xs font-semibold text-[var(--text-secondary)]">{selectedBuilderNode.kind === "trigger" ? "Gatilho" : selectedBuilderNode.kind === "nora" ? "Nora IA" : "Ação"}</span>
-                      </div>
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                      <KindBadge kind={selectedBuilderNode.kind} icon={selectedBuilderNode.icon} />
+                      <b className="nx-ell" style={{ fontSize: 14 }}>{selectedBuilderNode.title}</b>
                     </div>
                     <MessageActionFields key={selectedBuilderNode.id} node={selectedBuilderNode} onChange={(config) => updateBuilderNode(selectedBuilderNode.id, { config })} />
                     {selectedBuilderNode.kind === "trigger" && <EventTriggerFields key={`event-${selectedBuilderNode.id}`} node={selectedBuilderNode} onChange={(config) => { const event = eventTriggers.find(item => item.value === config.eventType); updateBuilderNode(selectedBuilderNode.id, { config, ...(event ? { title: event.title, icon: event.icon } : {}) }); }} />}
-                    <label className="block space-y-1.5">
-                      <span className="text-xs font-bold text-[var(--text-secondary)]">Nome do bloco</span>
-                      <input
-                        value={selectedBuilderNode.title}
-                        onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { title: event.target.value })}
-                        className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"
-                      />
+                    <label className="auto-label">
+                      <span>Nome do bloco</span>
+                      <input value={selectedBuilderNode.title} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { title: event.target.value })} className="auto-field" />
                     </label>
-                    <label className="block space-y-1.5">
-                      <span className="text-xs font-bold text-[var(--text-secondary)]">Instrução do bloco</span>
-                      <textarea
-                        value={selectedBuilderNode.description}
-                        onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { description: event.target.value })}
-                        rows={4}
-                        className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none"
-                      />
+                    <label className="auto-label">
+                      <span>Instrução do bloco</span>
+                      <textarea value={selectedBuilderNode.description} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { description: event.target.value })} rows={4} className="auto-field" />
                     </label>
 
                     {selectedBuilderNode.title.toLowerCase().includes("navegador") && (
                       <>
-                        <label className="block space-y-1.5">
-                          <span className="text-xs font-bold text-[var(--text-secondary)]">URL pública autorizada</span>
-                          <input type="url" value={selectedBuilderNode.config?.targetUrl || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), targetUrl: event.target.value } })} placeholder="https://exemplo.com/pagina" className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                        <label className="auto-label">
+                          <span>URL pública autorizada</span>
+                          <input type="url" value={selectedBuilderNode.config?.targetUrl || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), targetUrl: event.target.value } })} placeholder="https://exemplo.com/pagina" className="auto-field" />
                         </label>
-                        <label className="block space-y-1.5">
-                          <span className="text-xs font-bold text-[var(--text-secondary)]">Objetivo da tarefa</span>
-                          <textarea value={selectedBuilderNode.config?.objective || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), objective: event.target.value } })} rows={3} placeholder="Pesquisar, preencher o formulário e baixar o comprovante" className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
+                        <label className="auto-label">
+                          <span>Objetivo da tarefa</span>
+                          <textarea value={selectedBuilderNode.config?.objective || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), objective: event.target.value } })} rows={3} placeholder="Pesquisar, preencher o formulário e baixar o comprovante" className="auto-field" />
                         </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="block space-y-1.5">
-                            <span className="text-xs font-bold text-[var(--text-secondary)]">Modo</span>
-                            <select value={selectedBuilderNode.config?.executionMode || "automatic"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), executionMode: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"><option value="automatic">Automático</option><option value="assisted">Assistido por etapa</option></select>
+                        <div className="auto-two">
+                          <label className="auto-label">
+                            <span>Modo</span>
+                            <select value={selectedBuilderNode.config?.executionMode || "automatic"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), executionMode: event.target.value } })} className="auto-field"><option value="automatic">Automático</option><option value="assisted">Assistido por etapa</option></select>
                           </label>
-                          <label className="block space-y-1.5">
-                            <span className="text-xs font-bold text-[var(--text-secondary)]">Resultado</span>
-                            <select value={selectedBuilderNode.config?.expectedResult || "structured"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), expectedResult: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none"><option value="structured">Dados estruturados</option><option value="summary">Resumo</option><option value="files">Arquivos</option></select>
+                          <label className="auto-label">
+                            <span>Resultado</span>
+                            <select value={selectedBuilderNode.config?.expectedResult || "structured"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), expectedResult: event.target.value } })} className="auto-field"><option value="structured">Dados estruturados</option><option value="summary">Resumo</option><option value="files">Arquivos</option></select>
                           </label>
-                          <label className="block space-y-1.5">
-                            <span className="text-xs font-bold text-[var(--text-secondary)]">Máximo de etapas</span>
-                            <input type="number" min="1" max="40" value={selectedBuilderNode.config?.maxSteps || "20"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), maxSteps: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                          <label className="auto-label">
+                            <span>Máximo de etapas</span>
+                            <input type="number" min="1" max="40" value={selectedBuilderNode.config?.maxSteps || "20"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), maxSteps: event.target.value } })} className="auto-field" />
                           </label>
-                          <label className="block space-y-1.5">
-                            <span className="text-xs font-bold text-[var(--text-secondary)]">Tempo limite (s)</span>
-                            <input type="number" min="30" max="900" value={selectedBuilderNode.config?.timeoutSeconds || "300"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), timeoutSeconds: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                          <label className="auto-label">
+                            <span>Tempo limite (s)</span>
+                            <input type="number" min="30" max="900" value={selectedBuilderNode.config?.timeoutSeconds || "300"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), timeoutSeconds: event.target.value } })} className="auto-field" />
                           </label>
                         </div>
-                        <label className="block space-y-1.5">
-                          <span className="text-xs font-bold text-[var(--text-secondary)]">ID do perfil seguro (opcional)</span>
-                          <input value={selectedBuilderNode.config?.profileId || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), profileId: event.target.value } })} placeholder="browser-profile-..." className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                        <label className="auto-label">
+                          <span>ID do perfil seguro (opcional)</span>
+                          <input value={selectedBuilderNode.config?.profileId || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), profileId: event.target.value } })} placeholder="browser-profile-..." className="auto-field" />
                         </label>
                       </>
                     )}
                     {selectedBuilderNode.title.toLowerCase().includes("roteamento") && selectedBuilderNode.title.toLowerCase().includes("ia") && (
                       <>
-                        <label className="block space-y-1.5">
-                          <span className="text-xs font-bold text-[var(--text-secondary)]">ID da política (opcional)</span>
-                          <input value={selectedBuilderNode.config?.policyId || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), policyId: event.target.value } })} placeholder="policy_..." className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none" />
+                        <label className="auto-label">
+                          <span>ID da política (opcional)</span>
+                          <input value={selectedBuilderNode.config?.policyId || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), policyId: event.target.value } })} placeholder="policy_..." className="auto-field" />
                         </label>
-                        <label className="block space-y-1.5">
-                          <span className="text-xs font-bold text-[var(--text-secondary)]">Privacidade mínima</span>
-                          <select value={selectedBuilderNode.config?.privacy || "any"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), privacy: event.target.value } })} className="h-10 w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold outline-none">
+                        <label className="auto-label">
+                          <span>Privacidade mínima</span>
+                          <select value={selectedBuilderNode.config?.privacy || "any"} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), privacy: event.target.value } })} className="auto-field">
                             <option value="any">Qualquer provedor permitido</option><option value="private">Privado ou local</option><option value="local">Somente local</option>
                           </select>
                         </label>
-                        <label className="block space-y-1.5">
-                          <span className="text-xs font-bold text-[var(--text-secondary)]">Prompt executado pelo modelo</span>
-                          <textarea value={selectedBuilderNode.config?.prompt || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), prompt: event.target.value } })} rows={3} placeholder="Resuma os dados recebidos e devolva próximos passos." className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold outline-none" />
+                        <label className="auto-label">
+                          <span>Prompt executado pelo modelo</span>
+                          <textarea value={selectedBuilderNode.config?.prompt || ""} onChange={(event) => updateBuilderNode(selectedBuilderNode.id, { config: { ...(selectedBuilderNode.config || {}), prompt: event.target.value } })} rows={3} placeholder="Resuma os dados recebidos e devolva próximos passos." className="auto-field" />
                         </label>
                       </>
                     )}
-                    <button
-                      onClick={() => removeBuilderNode(selectedBuilderNode.id)}
-                      className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-rose-300/30 text-xs font-bold text-rose-200"
-                    >
+                    <button type="button" className="nx-btn auto-danger" style={{ width: "100%" }} onClick={() => removeBuilderNode(selectedBuilderNode.id)}>
                       <Trash2 size={15} />
                       Remover bloco
                     </button>
-                  </div>
+                  </>
                 ) : (
-                  <p className="mt-3 text-xs font-semibold text-[var(--text-secondary)]">Selecione um bloco no canvas.</p>
+                  <p className="nx-muted nx-small">Selecione um bloco no canvas.</p>
                 )}
               </section>
 
               {builderValidation.length > 0 && (
-                <section className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-4">
-                  <h2 className="text-sm font-bold text-amber-100">Itens para revisar</h2>
-                  <ul className="mt-2 space-y-1 text-xs font-semibold text-amber-100/85">
-                    {builderValidation.map((issue) => <li key={issue}>• {issue}</li>)}
+                <section className="auto-note is-warn">
+                  <h2>Itens para revisar</h2>
+                  <ul>
+                    {builderValidation.map((issue) => <li key={issue}>{issue}</li>)}
                   </ul>
                 </section>
               )}
 
               {builderValidation.length === 0 && statusMessage === "Fluxo validado e pronto para executar." && (
-                <section className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-300/10 p-4 text-sm font-bold text-emerald-100">
+                <section className="auto-note is-ok">
                   {statusMessage}
                 </section>
               )}
 
-              <section className="builder-sequence mt-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                <h2 className="text-sm font-bold">Ordem de execução</h2><ol>{builderFlow.nodes.map((node, index) => <li key={node.id}><button type="button" onClick={() => { setSelectedBuilderNodeId(node.id); setInspectorTab("block"); }}><span>{index + 1}</span>{node.title}</button><Button size="sm" iconOnly disabled={node.kind === "trigger" || index < 2} aria-label={`Mover ${node.title} para cima`} onClick={() => moveBuilderNode(index, -1)}><ArrowUp size={14} /></Button><Button size="sm" iconOnly disabled={node.kind === "trigger" || index === builderFlow.nodes.length - 1} aria-label={`Mover ${node.title} para baixo`} onClick={() => moveBuilderNode(index, 1)}><ArrowDown size={14} /></Button></li>)}</ol>
+              <section className="builder-sequence auto-inspector-section">
+                <h2>Ordem de execução</h2><ol>{builderFlow.nodes.map((node, index) => <li key={node.id}><button type="button" onClick={() => { setSelectedBuilderNodeId(node.id); setInspectorTab("block"); }}><span>{index + 1}</span>{node.title}</button><button type="button" className="auto-icon-btn is-sm" disabled={node.kind === "trigger" || index < 2} aria-label={`Mover ${node.title} para cima`} onClick={() => moveBuilderNode(index, -1)}><ArrowUp size={14} /></button><button type="button" className="auto-icon-btn is-sm" disabled={node.kind === "trigger" || index === builderFlow.nodes.length - 1} aria-label={`Mover ${node.title} para baixo`} onClick={() => moveBuilderNode(index, 1)}><ArrowDown size={14} /></button></li>)}</ol>
               </section>
             </aside>
           </section>
@@ -1542,52 +1449,55 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
     );
   }
 
-  return (
-    <main className="clean-workspace automations-workspace mx-auto w-full max-w-[1700px] space-y-5 p-4 sm:p-6 text-[var(--text)]">
-      <WorkspaceHeader title="Automações" description="Crie fluxos, acompanhe execuções e simplifique a rotina." icon={Workflow}>
-        <Button onClick={onOpenNora}><Sparkles size={16} />Criar com Nora</Button>
-        <Button variant="primary" className="workspace-primary" onClick={() => openCreateModal()}><Plus size={16} />Nova automação</Button>
-      </WorkspaceHeader>
+  const failedRuns = data.history.filter((item) => item.status === "erro").length;
 
-      <section className="workspace-metrics grid grid-cols-2 gap-3 xl:grid-cols-4">
+  return (
+    <main className="nx-page automations-workspace auto-v2">
+      <div className="nx-ph">
+        <div>
+          <h1>Automações</h1>
+          <p>{data.metrics.active} ativa(s) · {data.metrics.runsToday} execução(ões) hoje</p>
+        </div>
+        <div className="nx-ph-actions">
+          <button type="button" className="nx-btn" onClick={onOpenNora}><Sparkles size={16} />Descrever para a Nora</button>
+          <button type="button" className="nx-btn is-primary" onClick={() => openCreateModal()}><Plus size={16} />Nova automação</button>
+        </div>
+      </div>
+
+      <section className="nx-kpis" aria-label="Indicadores das automações">
         <StatCard title="Total de automações" value={data.metrics.total} icon={GitBranch} detail="Fluxos configurados" />
-        <StatCard title="Ativas" value={data.metrics.active} icon={Zap} detail="Prontas para executar" tone="green" />
+        <StatCard title="Ativas" value={data.metrics.active} icon={Zap} detail="Prontas para executar" />
         <StatCard title="Execuções hoje" value={data.metrics.runsToday} icon={Activity} detail="Disparos registrados" />
-        <StatCard title="Tempo economizado" value={formatSavedTime(data.metrics.savedMinutes)} icon={Clock3} detail="Estimativa operacional" tone="amber" />
+        <StatCard title="Tempo economizado" value={formatSavedTime(data.metrics.savedMinutes)} icon={Clock3} detail="Estimativa operacional" />
       </section>
 
-      <nav className="workspace-tabs" aria-label="Áreas de automações">
+      <nav className="nx-tabs" aria-label="Áreas de automações">
         {([
           ["flows", "Meus fluxos", Workflow], ["templates", "Modelos", Layers], ["history", "Histórico e dados", History], ["preview", "Visão do fluxo", Network],
-        ] as const).map(([view, label, Icon]) => <button key={view} type="button" aria-pressed={dashboardView === view} onClick={() => setDashboardView(view)}><Icon size={16} />{label}{view === "flows" && <span>{data.automations.length}</span>}</button>)}
+        ] as const).map(([view, label, Icon]) => <button key={view} type="button" className={`nx-tab auto-tab ${dashboardView === view ? "is-active" : ""}`} aria-pressed={dashboardView === view} onClick={() => setDashboardView(view)}><Icon size={15} />{label}{view === "flows" && <span className="nx-badge">{data.automations.length}</span>}</button>)}
       </nav>
-      {dashboardView === "flows" && <section className="workspace-toolbar">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <label className="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4">
-            <Search size={18} className="text-[var(--text-secondary)]" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              aria-label="Pesquisar automações" placeholder="Pesquisar automações..."
-              className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none"
-            />
-          </label>
-          <div className="workspace-tabs automation-filters">
-            {filters.map((item) => (
-              <button
-                key={item.key}
-                aria-pressed={filter === item.key}
-                onClick={() => setFilter(item.key)}
-                className={`h-10 shrink-0 rounded-full border px-4 text-xs font-bold transition ${
-                  filter === item.key
-                    ? "border-blue-300/50 bg-blue-500/24 text-[var(--text)]"
-                    : "border-[var(--border)] bg-[var(--background)] text-[var(--text-secondary)] hover:bg-[var(--surface-hover)]"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+
+      {dashboardView === "flows" && <section className="auto-toolbar">
+        <label className="nx-input auto-search">
+          <Search size={16} />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            aria-label="Pesquisar automações" placeholder="Pesquisar automações..."
+          />
+        </label>
+        <div className="nx-seg auto-filters" role="group" aria-label="Filtrar automações">
+          {filters.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              aria-pressed={filter === item.key}
+              className={filter === item.key ? "is-active" : ""}
+              onClick={() => setFilter(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
       </section>}
 
@@ -1597,266 +1507,192 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className={`rounded-lg border px-4 py-3 text-sm font-bold ${
-              error
-                ? "border-rose-400/35 bg-rose-500/12 text-rose-100"
-                : "border-emerald-300/35 bg-emerald-500/12 text-emerald-100"
-            }`}
+            className={`auto-alert ${error ? "is-error" : "is-ok"}`}
           >
             {error || statusMessage}
           </motion.div>
         )}
       </AnimatePresence>
 
-      <section className="automation-library grid gap-4">
-        {(dashboardView === "flows" || dashboardView === "templates") && <div className="min-w-0 space-y-4">
-          {dashboardView === "flows" && <div className="automation-cards grid gap-4">
-            {loading ? (
-              <div className="col-span-full rounded-lg border border-[var(--border)] bg-[var(--surface)]">
-                <LoadingState label="Carregando automações..." />
-              </div>
-            ) : (
-              filteredAutomations.map((automation, index) => (
-                <motion.article
-                  key={automation.id}
-                  initial={{ opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: Math.min(index * 0.035, 0.24) }}
-                  onClick={() => setSelectedId(automation.id)}
-                  className={`workspace-card min-w-0 p-5 transition ${
-                    selectedAutomation?.id === automation.id ? "border-cyan-300/55" : "border-[var(--border)]"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-blue-500/14 text-cyan-200">
-                        <IconByName name={automation.icon} size={22} />
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <h2 className="min-w-0"><button type="button" className="automation-card-select truncate" title={`Ver fluxo ${automation.name}`} onClick={() => { setSelectedId(automation.id); setDashboardView("preview"); }}>{automation.name}</button></h2>
-                          {automation.favorite && <Star size={14} className="shrink-0 fill-amber-300 text-amber-300" />}
+      {dashboardView === "flows" && (loading ? (
+        <div className="nx-card">
+          <LoadingState label="Carregando automações..." />
+        </div>
+      ) : filteredAutomations.length === 0 ? (
+        <div className="auto-empty"><Workflow size={28} /><strong>{data.automations.length ? "Nenhum fluxo neste filtro" : "Sua primeira automação começa aqui"}</strong><p>{data.automations.length ? "Ajuste a busca ou mostre todos os fluxos." : "Crie um fluxo ou comece com um modelo pronto."}</p><button type="button" className="nx-btn is-sm" onClick={() => { if (data.automations.length) { setQuery(""); setFilter("todas"); } else { setDashboardView("templates"); } }}>{data.automations.length ? "Limpar filtros" : "Explorar modelos"}</button></div>
+      ) : (
+        <div className="auto-flows-grid">
+          <div className="nx-card auto-table-card">
+            <div className="auto-table-wrap">
+              <table className="nx-table">
+                <thead>
+                  <tr><th>Automação</th><th>Gatilho</th><th>Execuções</th><th>Última</th><th>Status</th><th className="auto-num">Ações</th></tr>
+                </thead>
+                <tbody>
+                  {filteredAutomations.map((automation) => (
+                    <tr key={automation.id} className={selectedAutomation?.id === automation.id ? "is-selected" : ""} onClick={() => setSelectedId(automation.id)}>
+                      <td>
+                        <div className="auto-name-cell">
+                          <button type="button" className="automation-card-select" title={`Ver fluxo ${automation.name}`} onClick={(event) => { event.stopPropagation(); setSelectedId(automation.id); setDashboardView("preview"); }}>{automation.name}</button>
+                          {automation.favorite && <Star size={13} className="auto-star" aria-label="Favorita" />}
                         </div>
-                        <p className="mt-1 line-clamp-2 text-sm font-semibold leading-6 text-[var(--text-secondary)]">{automation.description}</p>
-                      </div>
+                        <div className="auto-cell-tags">
+                          <span className={`nx-badge ${automation.active ? "is-green" : ""}`}>{automation.active ? "Ativa" : "Desativada"}</span>
+                          <span className="nx-badge">{automation.category}</span>
+                          {automation.aiEnabled && <span className="nx-badge is-violet">Nora IA</span>}
+                        </div>
+                      </td>
+                      <td className="nx-muted">{automation.trigger}</td>
+                      <td className="nx-muted">{automation.executions}</td>
+                      <td className="nx-muted">{formatDateTime(automation.lastRunAt)}</td>
+                      <td onClick={(event) => event.stopPropagation()}><Toggle checked={automation.active} onChange={(next) => void updateAutomation(automation.id, { active: next, status: next ? "ativa" : "desativada" } as Partial<Automation>)} /></td>
+                      <td onClick={(event) => event.stopPropagation()}>
+                        <div className="auto-row-actions">
+                          <button type="button" className="auto-icon-btn" disabled={saving || !automation.active} onClick={() => void executeAutomation(automation)} title="Executar" aria-label={`Executar ${automation.name}`}><Play size={15} /></button>
+                          <button type="button" className="auto-icon-btn" disabled={saving} onClick={() => void simulateAutomation(automation)} title="Testar fluxo" aria-label={`Testar fluxo ${automation.name}`}><FlaskConical size={15} /></button>
+                          <button type="button" className="auto-icon-btn" onClick={() => openEditModal(automation)} title="Editar" aria-label={`Editar ${automation.name}`}><Settings2 size={15} /></button>
+                          <button type="button" className="auto-icon-btn" onClick={() => void duplicateAutomation(automation)} title="Duplicar" aria-label={`Duplicar ${automation.name}`}><Copy size={15} /></button>
+                          <button type="button" className={`auto-icon-btn ${automation.favorite ? "is-fav" : ""}`} aria-pressed={automation.favorite} onClick={() => void updateAutomation(automation.id, { favorite: !automation.favorite } as Partial<Automation>)} title="Favorito" aria-label={`Favorito ${automation.name}`}><Star size={15} /></button>
+                          <button type="button" className="auto-icon-btn" onClick={() => setLogAutomation(automation)} title="Logs e versões" aria-label={`Logs e versões de ${automation.name}`}><History size={15} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {selectedAutomation && (
+            <aside className="nx-card auto-flow-card" aria-label="Fluxo selecionado">
+              <div style={{ fontWeight: 600 }}>{selectedAutomation.name}</div>
+              <div className="nx-faint nx-small" style={{ marginTop: 2 }}>{selectedAutomation.description || "Fluxo"}</div>
+              <ol className="auto-steps">
+                {(selectedAutomation.flow?.nodes || []).map((nodeItem) => (
+                  <li key={nodeItem.id}>
+                    <span className={`auto-step-icon is-${nodeItem.kind}`}><IconByName name={nodeItem.icon} size={16} /></span>
+                    <div>
+                      <b>{nodeItem.kind === "trigger" ? "Quando" : nodeItem.title}</b>
+                      <span>{nodeItem.kind === "trigger" ? nodeItem.title : nodeItem.description}</span>
                     </div>
-                    <Toggle checked={automation.active} onChange={(next) => void updateAutomation(automation.id, { active: next, status: next ? "ativa" : "desativada" } as Partial<Automation>)} />
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${automation.active ? "bg-emerald-400/14 text-emerald-200" : "bg-slate-400/14 text-[var(--text-secondary)]"}`}>
-                      {automation.active ? "Ativa" : "Desativada"}
-                    </span>
-                    <span className="rounded-full bg-blue-500/12 px-2.5 py-1 text-xs font-bold text-cyan-100">{automation.category}</span>
-                    {automation.aiEnabled && <span className="rounded-full bg-cyan-400/14 px-2.5 py-1 text-xs font-bold text-cyan-100">Nora IA</span>}
-                  </div>
-
-                  <div className="automation-card-details mt-4 grid grid-cols-3 gap-3 text-xs text-[var(--text-secondary)]">
-                    <span>
-                      <strong className="block text-[var(--text)]">Ultima execucao</strong>
-                      {formatDateTime(automation.lastRunAt)}
-                    </span>
-                    <span>
-                      <strong className="block text-[var(--text)]">{automation.executions}</strong>
-                      execuções
-                    </span>
-                    <span>
-                      <strong className="block text-[var(--text)]">{formatSavedTime(automation.savedMinutes)}</strong>
-                      economizados
-                    </span>
-                  </div>
-
-                  <div className="automation-card-actions mt-4 flex flex-wrap"><Button size="sm" onClick={() => { setSelectedId(automation.id); setDashboardView("preview"); }} icon={<Network size={15} />}>Pré-visualizar fluxo</Button>
-                    <Button variant="primary"
-                     
-                      disabled={saving || !automation.active}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void executeAutomation(automation);
-                      }}
-                      className="hover:brightness-110disabled:cursor-not-allowed"
-                    >
-                      <Play size={15} />
-                      Executar
-                    </Button>
-                    <Button
-                     
-                      disabled={saving}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void simulateAutomation(automation);
-                      }}
-                      className="border-cyan-400/30 bg-cyan-500/8 text-cyan-100 hover:bg-cyan-500/14"
-                    >
-                      <FlaskConical size={15} />
-                      Testar fluxo
-                    </Button>
-                    <Button
-                     
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openEditModal(automation);
-                      }}
-                      className="bg-[var(--background)]"
-                    >
-                      <Settings2 size={15} />
-                      Editar
-                    </Button>
-                    <Button iconOnly
-                     
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void duplicateAutomation(automation);
-                      }}
-                      className="bg-[var(--background)]"
-                      title="Duplicar"
-                     aria-label="Duplicar">
-                      <Copy size={15} />
-                    </Button>
-                    <Button iconOnly
-                     
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void updateAutomation(automation.id, { favorite: !automation.favorite } as Partial<Automation>);
-                      }}
-                      className="bg-[var(--background)]"
-                      title="Favorito"
-                     aria-label="Favorito">
-                      <Star size={15} className={automation.favorite ? "fill-amber-300 text-amber-300" : ""} />
-                    </Button>
-                    <Button iconOnly
-                     
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setLogAutomation(automation);
-                      }}
-                      className="bg-[var(--background)]"
-                      title="Logs e versoes"
-                     aria-label="Logs e versoes">
-                      <History size={15} />
-                    </Button>
-                  </div>
-                </motion.article>
-              ))
-            )}
-            {!loading && filteredAutomations.length === 0 && <div className="workspace-empty col-span-full"><Workflow size={30} /><strong>{data.automations.length ? "Nenhum fluxo neste filtro" : "Sua primeira automação começa aqui"}</strong><p>{data.automations.length ? "Ajuste a busca ou mostre todos os fluxos." : "Crie um fluxo ou comece com um modelo pronto."}</p><button type="button" onClick={() => { if (data.automations.length) { setQuery(""); setFilter("todas"); } else { setDashboardView("templates"); } }}>{data.automations.length ? "Limpar filtros" : "Explorar modelos"}</button></div>}
-          </div>}
-
-          {dashboardView === "templates" && <section className="workspace-panel p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-black">Comece com um modelo</h2>
-                <p className="text-sm font-semibold text-[var(--text-secondary)]">Fluxos prontos para criar em um clique.</p>
+                  </li>
+                ))}
+                {!(selectedAutomation.flow?.nodes || []).length && <li className="nx-muted nx-small">Este fluxo ainda não tem blocos.</li>}
+              </ol>
+              <div className="auto-flow-actions">
+                <button type="button" className="nx-btn is-sm" onClick={() => openEditModal(selectedAutomation)}><Plus size={14} />Adicionar etapa</button>
+                <button type="button" className="nx-btn is-sm" onClick={() => setDashboardView("preview")}><Network size={14} />Pré-visualizar fluxo</button>
+                <button type="button" className="nx-btn is-sm is-primary" disabled={saving || !selectedAutomation.active} onClick={() => void executeAutomation(selectedAutomation)}><Play size={14} />Executar</button>
               </div>
-              <Rocket size={22} className="text-cyan-200" />
-            </div>
-            <div className="automation-templates grid gap-3">
-              {data.templates.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  onClick={() => openCreateModal(template)}
-                  className="flex min-h-24 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 text-left transition hover:bg-[var(--surface-hover)]"
-                >
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-blue-500/14 text-cyan-200">
-                    <IconByName name={template.icon} size={19} />
-                  </span>
-                  <span className="min-w-0">
-                    <strong className="block text-sm font-bold">{template.title}</strong>
-                    <span className="mt-1 line-clamp-2 text-xs font-semibold leading-5 text-[var(--text-secondary)]">{template.description}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>}
-        </div>}
-
-        {dashboardView === "preview" && <div className="automation-preview min-w-0 space-y-4">
-          <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--glass-shadow)] backdrop-blur-2xl">
-            <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] p-4">
-              <div>
-                <h2 className="text-lg font-black">Visão do fluxo</h2>
-                <p className="text-xs font-semibold text-[var(--text-secondary)]">
-                  <select aria-label="Automação para pré-visualizar" value={selectedAutomation?.id || ""} onChange={(event) => setSelectedId(event.target.value)}>{!data.automations.length && <option value="">Selecione uma automação</option>}{data.automations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-                </p>
+              <div className="auto-flow-stats">
+                <span><b>{selectedAutomation.executions}</b>execuções</span>
+                <span><b>{formatSavedTime(selectedAutomation.savedMinutes)}</b>economizados</span>
+                <span><b>{formatDateTime(selectedAutomation.lastRunAt)}</b>última execução</span>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" disabled={!selectedAutomation} onClick={() => selectedAutomation && openEditModal(selectedAutomation)}><Settings2 size={14} />Editar fluxo</Button>
-              </div>
-            </header>
+            </aside>
+          )}
+        </div>
+      ))}
 
-            {!selectedAutomation && <div className="workspace-empty"><Workflow size={28} /><strong>Selecione um fluxo para visualizar</strong><button type="button" onClick={() => setDashboardView("flows")}>Ver meus fluxos</button></div>}
-            {selectedAutomation && <AutomationFlowPreview key={selectedAutomation.id} flow={selectedAutomation.flow} />}
-          </section>
+      {dashboardView === "templates" && <section className="auto-templates-section">
+        <div className="auto-section-head">
+          <div>
+            <h2>Comece com um modelo</h2>
+            <p>Fluxos prontos para criar em um clique.</p>
+          </div>
+        </div>
+        <div className="automation-templates auto-templates">
+          {data.templates.map((template) => (
+            <button
+              key={template.id}
+              type="button"
+              onClick={() => openCreateModal(template)}
+              className="nx-card auto-template"
+            >
+              <span className="auto-template-head">
+                <span className="auto-template-icon"><IconByName name={template.icon} size={16} /></span>
+                <strong>{template.title}</strong>
+              </span>
+              <span className="nx-muted nx-small">{template.description}</span>
+              <span className="auto-template-use">Usar modelo</span>
+            </button>
+          ))}
+        </div>
+      </section>}
 
-          <section className="rounded-lg border border-cyan-200/24 bg-[var(--dashboard-nora-bg)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/12 px-3 py-1 text-xs font-bold">
-                  <Sparkles size={14} />
-                  Bloco especial
-                </span>
-                <h2 className="mt-3 text-2xl font-black">Nora IA</h2>
-                <p className="mt-1 text-sm font-semibold leading-6 text-[var(--text-secondary)]">
-                  Use a Nora dentro dos fluxos para raciocinar sobre textos, conversas, e-mails, gastos e tarefas.
-                </p>
-              </div>
-              <Button variant="primary" size="lg" iconOnly onClick={onOpenNora}>
-                <Sparkles size={20} />
-              </Button>
+      {dashboardView === "preview" && <div className="automation-preview auto-preview">
+        <section className="nx-card" style={{ overflow: "hidden" }}>
+          <header className="auto-card-head">
+            <div className="nx-grow">
+              <h2>Visão do fluxo</h2>
+              <select className="auto-field" style={{ marginTop: 6, maxWidth: 360 }} aria-label="Automação para pré-visualizar" value={selectedAutomation?.id || ""} onChange={(event) => setSelectedId(event.target.value)}>{!data.automations.length && <option value="">Selecione uma automação</option>}{data.automations.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {noraAbilities.map((ability) => (
-                <span key={ability} className="rounded-full border border-white/18 bg-white/12 px-3 py-1 text-xs font-bold">
-                  {ability}
-                </span>
-              ))}
-            </div>
-          </section>
-        </div>}
-      </section>
-
-      {dashboardView === "history" && <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(360px,0.8fr)]">
-        <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[var(--glass-shadow)] backdrop-blur-2xl">
-          <header className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
-            <div>
-              <h2 className="text-lg font-black">Histórico de execuções</h2>
-              <p className="text-xs font-semibold text-[var(--text-secondary)]">Auditoria das últimas automações disparadas.</p>
-            </div>
-            <History size={20} className="text-cyan-200" />
+            <button type="button" className="nx-btn is-sm" disabled={!selectedAutomation} onClick={() => selectedAutomation && openEditModal(selectedAutomation)}><Settings2 size={14} />Editar fluxo</button>
           </header>
-          <div className="max-h-[360px] overflow-auto">
-            <table className="w-full min-w-[780px] text-left text-sm">
-              <thead className="sticky top-0 bg-[var(--surface)] text-xs uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+
+          {!selectedAutomation && <div className="auto-empty is-flat"><Workflow size={28} /><strong>Selecione um fluxo para visualizar</strong><button type="button" className="nx-btn is-sm" onClick={() => setDashboardView("flows")}>Ver meus fluxos</button></div>}
+          {selectedAutomation && <AutomationFlowPreview key={selectedAutomation.id} flow={selectedAutomation.flow} />}
+        </section>
+
+        <section className="nx-card auto-nora-card">
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <div className="nx-grow">
+              <span className="nx-badge is-violet"><Sparkles size={12} />Bloco especial</span>
+              <h2>Nora IA</h2>
+              <p className="nx-muted" style={{ margin: "4px 0 0", fontSize: 13.5 }}>
+                Use a Nora dentro dos fluxos para raciocinar sobre textos, conversas, e-mails, gastos e tarefas.
+              </p>
+            </div>
+            <button type="button" className="nx-btn is-primary" style={{ width: 36, padding: 0 }} onClick={onOpenNora} title="Abrir Nora" aria-label="Abrir Nora">
+              <Sparkles size={16} />
+            </button>
+          </div>
+          <div className="auto-cell-tags" style={{ marginTop: 14 }}>
+            {noraAbilities.map((ability) => (
+              <span key={ability} className="nx-badge">{ability}</span>
+            ))}
+          </div>
+        </section>
+      </div>}
+
+      {dashboardView === "history" && <section className="auto-history-grid">
+        <div className="nx-card" style={{ overflow: "hidden", minWidth: 0 }}>
+          <header className="auto-card-head">
+            <div className="nx-grow">
+              <h2>Histórico de execuções</h2>
+              <p>{data.history.length} execução(ões) registradas{failedRuns ? ` · ${failedRuns} falha(s)` : ""}</p>
+            </div>
+          </header>
+          <div className="auto-table-wrap" style={{ maxHeight: 520 }}>
+            <table className="nx-table" style={{ minWidth: 780 }}>
+              <thead>
                 <tr>
-                  <th className="px-5 py-3">Automacao</th>
-                  <th className="px-5 py-3">Horario</th>
-                  <th className="px-5 py-3">Status</th>
-                  <th className="px-5 py-3">Tempo</th>
-                  <th className="px-5 py-3">Resultado</th>
-                  <th className="px-5 py-3">Executada por</th>
+                  <th>Automação</th>
+                  <th>Horário</th>
+                  <th>Status</th>
+                  <th>Duração</th>
+                  <th>Resultado</th>
+                  <th>Executada por</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[var(--border)]">
+              <tbody>
                 {data.history.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center font-semibold text-[var(--text-secondary)]">
+                    <td colSpan={6} className="nx-muted" style={{ padding: "32px 18px", textAlign: "center" }}>
                       Nenhuma execução registrada ainda.
                     </td>
                   </tr>
                 ) : (
                   data.history.map((item) => (
-                    <tr key={item.id} className="transition hover:bg-[var(--surface-hover)]">
-                      <td className="px-5 py-3 font-black">{item.automationName}</td>
-                      <td className="px-5 py-3 text-[var(--text-secondary)]">{formatDateTime(item.timestamp)}</td>
-                      <td className="px-5 py-3">
-                        <span className="rounded-full bg-emerald-400/14 px-2 py-1 text-xs font-bold text-emerald-200">{item.status}</span>
+                    <tr key={item.id} className={item.status === "erro" ? "is-failed" : ""}>
+                      <td style={{ fontWeight: 500 }}>{item.automationName}</td>
+                      <td className="nx-muted">{formatDateTime(item.timestamp)}</td>
+                      <td><span className={`nx-badge ${executionStatusClass(item.status)}`}>{item.status}</span></td>
+                      <td className="nx-muted">{formatDuration(item.durationMs)}</td>
+                      <td className="nx-muted" style={{ maxWidth: 300 }}>
+                        <span className="auto-clamp">{item.result}</span>
                       </td>
-                      <td className="px-5 py-3 text-[var(--text-secondary)]">{formatDuration(item.durationMs)}</td>
-                      <td className="max-w-[300px] px-5 py-3 text-[var(--text-secondary)]">
-                        <span className="line-clamp-2">{item.result}</span>
-                      </td>
-                      <td className="px-5 py-3 text-[var(--text-secondary)]">{item.executedBy}</td>
+                      <td className="nx-muted">{item.executedBy}</td>
                     </tr>
                   ))
                 )}
@@ -1865,54 +1701,55 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
           </div>
         </div>
 
-        <aside className="space-y-4">
+        <aside className="auto-history-aside">
           {!localMode && <AutomaticEventHistory automations={data.automations} />}
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
-            <h2 className="text-lg font-black">Integrações disponíveis</h2>
-            <div className="mt-4 space-y-2">
-              {!data.integrations.length && <p className="text-sm text-[var(--text-secondary)]">Nenhuma integração informada para os fluxos.</p>}
+          <section className="nx-card auto-side-card">
+            <h2>Integrações disponíveis</h2>
+            <div className="auto-side-list">
+              {!data.integrations.length && <p className="nx-muted nx-small">Nenhuma integração informada para os fluxos.</p>}
               {data.integrations.map((integration) => (
-                <div key={integration.name} className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-3">
-                  <span className="flex items-center gap-3 font-black"><IntegrationLogo name={integration.name} />{integration.name}</span>
-                  <span className="rounded-full bg-[var(--surface-hover)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]">{integration.status}</span>
+                <div key={integration.name} className="nx-row">
+                  <span className="nx-grow" style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 500 }}><IntegrationLogo name={integration.name} />{integration.name}</span>
+                  <span className="nx-badge">{integration.status}</span>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--glass-shadow)] backdrop-blur-2xl">
-            <h2 className="text-lg font-black">Importação e registros</h2>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <Button size="lg" onClick={exportAutomations} className="bg-[var(--background)]">
+          <section className="nx-card auto-side-card">
+            <h2>Importação e registros</h2>
+            <div className="auto-side-buttons">
+              <button type="button" className="nx-btn" onClick={exportAutomations}>
                 <Download size={15} />
                 Exportar
-              </Button>
-              <Button size="lg" onClick={() => importRef.current?.click()} className="bg-[var(--background)]">
+              </button>
+              <button type="button" className="nx-btn" onClick={() => importRef.current?.click()}>
                 <Upload size={15} />
                 Importar
-              </Button>
-              <Button size="lg" disabled={!selectedAutomation} onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
+              </button>
+              <button type="button" className="nx-btn" disabled={!selectedAutomation} onClick={() => setLogAutomation(selectedAutomation)}>
                 <History size={15} />
                 Logs
-              </Button>
-              <Button size="lg" disabled={!selectedAutomation} onClick={() => setLogAutomation(selectedAutomation)} className="bg-[var(--background)]">
+              </button>
+              <button type="button" className="nx-btn" disabled={!selectedAutomation} onClick={() => setLogAutomation(selectedAutomation)}>
                 <GitBranch size={15} />
-                Versoes
-              </Button>
-              <Button size="lg" onClick={() => { setFilter("ia"); setDashboardView("flows"); }} className="bg-[var(--background)]">
+                Versões
+              </button>
+              <button type="button" className="nx-btn" onClick={() => { setFilter("ia"); setDashboardView("flows"); }}>
                 <Filter size={15} />
                 Fluxos com IA
-              </Button>
-              <Button size="lg" onClick={onOpenNora} className="bg-[var(--background)]">
+              </button>
+              <button type="button" className="nx-btn" onClick={onOpenNora}>
                 <Variable size={15} />
                 Consultar Nora
-              </Button>
+              </button>
             </div>
             <input
               ref={importRef}
               type="file"
               accept="application/json"
               className="hidden"
+              style={{ display: "none" }}
               onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (!file) return;
@@ -1926,71 +1763,74 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
 
       <AnimatePresence>
         {modal && (
-          <motion.div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div className="auto-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.div
-              initial={{ scale: 0.96, y: 12 }}
+              initial={{ scale: 0.98, y: 8 }}
               animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.96, y: 12 }}
-              className="w-full max-w-2xl overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl backdrop-blur-2xl"
+              exit={{ scale: 0.98, y: 8 }}
+              className="auto-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="auto-modal-title"
             >
-              <header className="flex items-center justify-between border-b border-[var(--border)] p-5">
-                <div>
-                  <h2 className="text-lg font-black">{modal === "edit" ? "Editar automacao" : "Nova automacao"}</h2>
-                  <p className="text-xs font-semibold text-[var(--text-secondary)]">Configure gatilho, ações e participação da Nora.</p>
+              <header className="auto-modal-h">
+                <div className="nx-grow">
+                  <h2 id="auto-modal-title">{modal === "edit" ? "Editar automação" : "Nova automação"}</h2>
+                  <p>Configure gatilho, ações e participação da Nora.</p>
                 </div>
-                <Button variant="ghost" size="sm" iconOnly onClick={() => setModal(null)}>
-                  <X size={18} />
-                </Button>
+                <button type="button" className="auto-icon-btn" onClick={() => setModal(null)} aria-label="Fechar" title="Fechar">
+                  <X size={16} />
+                </button>
               </header>
-              <div className="grid gap-4 p-5 md:grid-cols-2">
-                <label className="space-y-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Nome</span>
-                  <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none" />
+              <div className="auto-modal-b auto-two">
+                <label className="auto-label">
+                  <span>Nome</span>
+                  <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="auto-field" />
                 </label>
-                <label className="space-y-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Gatilho</span>
-                  <select value={form.trigger} onChange={(event) => setForm({ ...form, trigger: event.target.value })} className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none">
+                <label className="auto-label">
+                  <span>Gatilho</span>
+                  <select value={form.trigger} onChange={(event) => setForm({ ...form, trigger: event.target.value })} className="auto-field">
                     {triggers.map((trigger) => (
                       <option key={trigger}>{trigger}</option>
                     ))}
                   </select>
                 </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Descrição</span>
-                  <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-3 text-sm font-semibold outline-none" />
+                <label className="auto-label is-full">
+                  <span>Descrição</span>
+                  <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={3} className="auto-field" />
                 </label>
-                <label className="space-y-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Categoria</span>
-                  <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none" />
+                <label className="auto-label">
+                  <span>Categoria</span>
+                  <input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="auto-field" />
                 </label>
-                <label className="space-y-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Agendamento</span>
-                  <input value={form.schedule} onChange={(event) => setForm({ ...form, schedule: event.target.value })} placeholder="Manual, diario, semanal..." className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none" />
+                <label className="auto-label">
+                  <span>Agendamento</span>
+                  <input value={form.schedule} onChange={(event) => setForm({ ...form, schedule: event.target.value })} placeholder="Manual, diário, semanal..." className="auto-field" />
                 </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Ações</span>
-                  <input value={form.actions} onChange={(event) => setForm({ ...form, actions: event.target.value })} placeholder={actions.slice(0, 4).join(", ")} className="h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm font-semibold outline-none" />
+                <label className="auto-label is-full">
+                  <span>Ações</span>
+                  <input value={form.actions} onChange={(event) => setForm({ ...form, actions: event.target.value })} placeholder={actions.slice(0, 4).join(", ")} className="auto-field" />
                 </label>
-                <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                  <span>
-                    <strong className="block text-sm font-bold">Ativa</strong>
-                    <span className="text-xs font-semibold text-[var(--text-secondary)]">Permite execução manual e agendada.</span>
+                <div className="auto-switch-box">
+                  <span className="nx-grow">
+                    <strong>Ativa</strong>
+                    <small>Permite execução manual e agendada.</small>
                   </span>
                   <span className="builder-status-label">{form.active ? "Ativa ao salvar" : "Desativada"}</span><Toggle checked={form.active} onChange={(next) => setForm({ ...form, active: next })} />
                 </div>
-                <div className="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--background)] p-4">
-                  <span>
-                    <strong className="block text-sm font-bold">Nora IA</strong>
-                    <span className="text-xs font-semibold text-[var(--text-secondary)]">Inclui raciocinio, resumo ou classificacao.</span>
+                <div className="auto-switch-box">
+                  <span className="nx-grow">
+                    <strong>Nora IA</strong>
+                    <small>Inclui raciocínio, resumo ou classificação.</small>
                   </span>
                   <Toggle checked={form.aiEnabled} onChange={(next) => setForm({ ...form, aiEnabled: next })} />
                 </div>
               </div>
-              <footer className="flex justify-end gap-3 border-t border-[var(--border)] p-5">
-                <Button size="lg" onClick={() => setModal(null)}>Cancelar</Button>
-                <Button variant="primary" size="lg" onClick={() => void submitForm()} disabled={saving || !form.name.trim()}>
+              <footer className="auto-modal-f">
+                <button type="button" className="nx-btn" onClick={() => setModal(null)}>Cancelar</button>
+                <button type="button" className="nx-btn is-primary" onClick={() => void submitForm()} disabled={saving || !form.name.trim()}>
                   {saving ? "Salvando..." : "Salvar automação"}
-                </Button>
+                </button>
               </footer>
             </motion.div>
           </motion.div>
@@ -1999,78 +1839,65 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
 
       <AnimatePresence>
         {logAutomation && (
-          <motion.div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div className="auto-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.div
-              initial={{ scale: 0.96, y: 12 }}
+              initial={{ scale: 0.98, y: 8 }}
               animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.96, y: 12 }}
-              className="w-full max-w-2xl overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-2xl backdrop-blur-2xl"
+              exit={{ scale: 0.98, y: 8 }}
+              className="auto-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="auto-log-title"
             >
-              <header className="flex items-center justify-between border-b border-[var(--border)] p-5">
-                <div>
-                  <h2 className="text-lg font-black">Logs e versoes</h2>
-                  <p className="text-xs font-semibold text-[var(--text-secondary)]">
-                    {logAutomation.name} - versao {logAutomation.version}
-                  </p>
+              <header className="auto-modal-h">
+                <div className="nx-grow">
+                  <h2 id="auto-log-title">Logs e versões</h2>
+                  <p>{logAutomation.name} · versão {logAutomation.version}</p>
                 </div>
-                <Button variant="ghost" size="sm" iconOnly onClick={() => setLogAutomation(null)}>
-                  <X size={18} />
-                </Button>
+                <button type="button" className="auto-icon-btn" onClick={() => setLogAutomation(null)} aria-label="Fechar" title="Fechar">
+                  <X size={16} />
+                </button>
               </header>
-              <div className="max-h-[420px] overflow-y-auto p-5">
-                <div className="mb-4 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
-                    <span className="text-xs font-bold text-[var(--text-secondary)]">Versao</span>
-                    <strong className="block text-2xl font-black">{logAutomation.version}</strong>
-                  </div>
-                  <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
-                    <span className="text-xs font-bold text-[var(--text-secondary)]">Execuções</span>
-                    <strong className="block text-2xl font-black">{logAutomation.executions}</strong>
-                  </div>
-                  <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
-                    <span className="text-xs font-bold text-[var(--text-secondary)]">Tempo salvo</span>
-                    <strong className="block text-2xl font-black">{formatSavedTime(logAutomation.savedMinutes)}</strong>
-                  </div>
+              <div className="auto-modal-b" style={{ maxHeight: 460 }}>
+                <div className="auto-log-kpis">
+                  <div><span>Versão</span><strong>{logAutomation.version}</strong></div>
+                  <div><span>Execuções</span><strong>{logAutomation.executions}</strong></div>
+                  <div><span>Tempo salvo</span><strong>{formatSavedTime(logAutomation.savedMinutes)}</strong></div>
                 </div>
-                <div className="space-y-3">
+                <div className="auto-log-list">
                   {(logAutomation.logs || []).length === 0 ? (
-                    <p className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-5 text-sm font-semibold text-[var(--text-secondary)]">
+                    <p className="auto-log-empty">
                       Nenhum log específico desta automação ainda.
                     </p>
                   ) : (
                     logAutomation.logs.map((log) => (
-                      <article key={log.id} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <strong className="font-black">{formatDateTime(log.timestamp)}</strong>
-                          <span className={`rounded-full px-2 py-1 text-xs font-bold ${executionStatusClass(log.status)}`}>
+                      <article key={log.id} className="auto-log">
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                          <strong>{formatDateTime(log.timestamp)}</strong>
+                          <span className={`nx-badge ${executionStatusClass(log.status)}`}>
                             {log.status}
                           </span>
                         </div>
-                        <p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">{log.result}</p>
-                        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-[var(--text-secondary)]">
+                        <p className="nx-muted" style={{ margin: "8px 0 0", fontSize: 13.5 }}>{log.result}</p>
+                        <div className="auto-log-meta">
                           <span>{formatDuration(log.durationMs)}</span>
                           <span>Tentativa {log.attempt || 1}</span>
-                          <span>{log.sideEffects === false ? "Sem efeitos reais" : "Execucao real"}</span>
+                          <span>{log.sideEffects === false ? "Sem efeitos reais" : "Execução real"}</span>
                         </div>
                         {log.steps && log.steps.length > 0 && (
-                          <div className="mt-4 space-y-2 border-t border-[var(--border)] pt-3">
+                          <div className="auto-log-steps">
                             {log.steps.map((step, index) => (
-                              <div
-                                key={`${log.id}-${step.id}`}
-                                className="grid gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 sm:grid-cols-[28px_minmax(0,1fr)_auto]"
-                              >
-                                <span className="grid h-7 w-7 place-items-center rounded-lg bg-blue-500/10 text-xs font-bold text-blue-200">
-                                  {index + 1}
-                                </span>
-                                <span className="min-w-0">
-                                  <strong className="block truncate text-xs font-bold">{step.title}</strong>
+                              <div key={`${log.id}-${step.id}`} className="auto-log-step">
+                                <span className="auto-log-step-n">{index + 1}</span>
+                                <span style={{ minWidth: 0 }}>
+                                  <strong className="nx-ell" style={{ display: "block", fontSize: 12.5 }}>{step.title}</strong>
                                   {(step.preview || step.error) && (
-                                    <span className={`mt-0.5 block text-xs font-semibold ${step.error ? "text-rose-200" : "text-[var(--text-secondary)]"}`}>
+                                    <span className={step.error ? "nx-down" : "nx-muted"} style={{ display: "block", marginTop: 2, fontSize: 12 }}>
                                       {step.error || step.preview}
                                     </span>
                                   )}
                                 </span>
-                                <span className={`self-start rounded-full px-2 py-1 text-xs font-bold ${executionStatusClass(step.status)}`}>
+                                <span className={`nx-badge ${executionStatusClass(step.status)}`}>
                                   {step.status}
                                 </span>
                               </div>
@@ -2078,29 +1905,24 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
                           </div>
                         )}
                         {log.status === "erro" && (
-                          <Button size="sm"
-                           
-                            disabled={saving}
-                            onClick={() => void retryAutomation(logAutomation, log.id)}
-                            className="mt-4 border-amber-400/30 text-amber-100 hover:bg-amber-500/10"
-                          >
+                          <button type="button" className="nx-btn is-sm" style={{ marginTop: 12 }} disabled={saving} onClick={() => void retryAutomation(logAutomation, log.id)}>
                             <RotateCcw size={14} />
                             Reexecutar da falha
-                          </Button>
+                          </button>
                         )}
                       </article>
                     ))
                   )}
                 </div>
               </div>
-              <footer className="flex justify-between gap-3 border-t border-[var(--border)] p-5">
-                <Button size="lg" onClick={() => void deleteAutomation(logAutomation).then(() => setLogAutomation(null))} className="border-rose-300/30 text-rose-200">
-                  <Trash2 size={16} />
+              <footer className="auto-modal-f" style={{ justifyContent: "space-between" }}>
+                <button type="button" className="nx-btn auto-danger" onClick={() => void deleteAutomation(logAutomation).then(() => setLogAutomation(null))}>
+                  <Trash2 size={15} />
                   Excluir
-                </Button>
-                <Button variant="primary" size="lg" onClick={() => setLogAutomation(null)}>
+                </button>
+                <button type="button" className="nx-btn is-primary" onClick={() => setLogAutomation(null)}>
                   Fechar
-                </Button>
+                </button>
               </footer>
             </motion.div>
           </motion.div>
@@ -2108,4 +1930,10 @@ export default function AutomationsDashboard({ onOpenNora, userId }: Automations
       </AnimatePresence>
     </main>
   );
+}
+
+function KindBadge({ kind, icon }: { kind: StepKind; icon: string }) {
+  const label = kind === "trigger" ? "Gatilho" : kind === "nora" ? "Nora IA" : "Ação";
+  const tone = kind === "trigger" ? "is-amber" : kind === "nora" ? "is-violet" : "is-blue";
+  return <span className={`nx-badge ${tone} auto-kind`}>{kind === "nora" ? <Sparkles size={12} /> : <IconByName name={icon} size={12} />}{label}</span>;
 }

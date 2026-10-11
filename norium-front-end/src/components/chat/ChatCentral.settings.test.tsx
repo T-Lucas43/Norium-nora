@@ -71,7 +71,7 @@ describe("diálogo de configurações do WhatsApp", () => {
     const user = userEvent.setup();
     let statusPoll: (() => void) | undefined;
     const intervalSpy = vi.spyOn(window, "setInterval").mockImplementation(((handler: TimerHandler, timeout?: number) => {
-      if (timeout === 12_000 && typeof handler === "function") statusPoll = handler as () => void;
+      if (timeout === 30_000 && typeof handler === "function" && !statusPoll) statusPoll = handler as () => void;
       return 1;
     }) as typeof window.setInterval);
 

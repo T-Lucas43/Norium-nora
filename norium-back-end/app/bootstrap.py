@@ -155,6 +155,8 @@ public_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
 auth_ip_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=15 * 60)
 webhook_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
 ai_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=60)
+# A voz ao vivo sintetiza uma requisicao por frase; um limite proprio evita cortar a fala no meio.
+voice_limiter = SlidingWindowRateLimiter(limit=120, window_seconds=60)
 message_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
 admin_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
 internal_limiter = SlidingWindowRateLimiter(limit=240, window_seconds=60)
@@ -165,6 +167,8 @@ def rate_limit_bucket(path: str) -> str:
         return "internal"
     if path.startswith("/api/whatsapp/webhook"):
         return "webhook"
+    if path == "/api/nora/voz":
+        return "voice"
     if path.startswith(("/api/nora", "/api/brainstorm/sessions")):
         return "ai"
     if path.startswith(("/api/chat/enviar", "/api/team-chat/messages")):
@@ -186,6 +190,7 @@ async def enforce_rate_limit(path: str, key: str) -> None:
         "auth": auth_ip_limiter,
         "webhook": webhook_limiter,
         "ai": ai_limiter,
+        "voice": voice_limiter,
         "message": message_limiter,
         "admin": admin_limiter,
         "internal": internal_limiter,
@@ -432,12 +437,17 @@ def create_app() -> FastAPI:
                 "media-src 'self' data: blob: https:; frame-src 'self' data: blob:; "
                 "connect-src 'self' https: wss:"
             )
-            if request.url.path.startswith("/api/"):
+            # Rotas de mídia definem a própria validade (ex.: foto privada por 5 min);
+            # sobrescrever com no-store fazia o navegador baixar tudo de novo.
+            if request.url.path.startswith("/api/") and "cache-control" not in response.headers:
                 response.headers["Cache-Control"] = "no-store"
             if is_shared_environment():
                 response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             record_request(request.url.path, method, response.status_code, duration_ms, request_id)
-            if request.url.path.startswith("/api/") and request.url.path != "/api/auth/admin/system-logs":
+            # Leituras rápidas e bem-sucedidas ficam só nas métricas em memória; gravar
+            # cada uma no banco gerava uma escrita por tela aberta ou atualização automática.
+            routine_read = method in {"GET", "HEAD", "OPTIONS"} and response.status_code < 400 and duration_ms < 1500
+            if request.url.path.startswith("/api/") and request.url.path != "/api/auth/admin/system-logs" and not routine_read:
                 await asyncio.to_thread(
                     record_system_log,
                     "http_request",

@@ -1,3 +1,4 @@
+import "../../styles/screens/trabalho-comum.css";
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { ArrowLeft, ArrowDown, ArrowUp, Check, Circle, Copy, Download, FilePenLine, Highlighter, ImagePlus, Minus, MousePointer2, PenLine, Plus, Redo2, RotateCw, Save, Signature, Square, Trash2, Type, Undo2, X } from "lucide-react";
@@ -112,7 +113,7 @@ export default function PdfVisualEditor({ blob, title, initialEdits, onClose, on
   async function upload(file?: File) { if (!file) return; try { const image = await imageData(file); const width = .35, height = Math.min(.65, width * size.width / size.height * image.ratio); add("image", { dataUrl: image.dataUrl, width, height }); } catch (reason) { setError((reason as Error).message); } }
   function reorder(direction: number) { const pages = [...edits.pages], index = pages.findIndex(page => page.source === currentPage), target = index + direction; if (target < 0 || target >= pages.length) return; [pages[index], pages[target]] = [pages[target], pages[index]]; commit({ ...edits, pages }); }
   const tools = [["select", "Selecionar", MousePointer2], ["editText", "Editar texto", FilePenLine], ["draw", "Lápis", PenLine], ["highlight", "Destacar", Highlighter], ["rectangle", "Retângulo", Square], ["ellipse", "Elipse", Circle], ["cover", "Cobrir", Square]] as const;
-  return <main aria-busy={saving} className="clean-workspace pdf-visual-editor" onKeyDown={event => {
+  return <main aria-busy={saving} className="clean-workspace nxw-remap pdf-visual-editor" onKeyDown={event => {
     if ((event.target as HTMLElement).matches("input,textarea,select")) return;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") { event.preventDefault(); if (event.shiftKey) redo(); else undo(); }
     if (event.key === "Delete" && selected) { event.preventDefault(); commit({ ...edits, layers: edits.layers.filter(layer => layer.id !== selected.id) }); setSelectedId(""); }

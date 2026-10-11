@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Mail, ShieldCheck } from "lucide-react";
+import { ArrowLeft, KeyRound, LockKeyhole, Mail, MailCheck, MailOpen } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
-import BrandLogo from "../layout/BrandLogo";
+import AuthLayout from "./AuthLayout";
 
 export type EmailActionMode = "forgot" | "reset" | "verify";
 
@@ -15,7 +15,7 @@ export default function AccountEmailAction({ mode, token = "", onBack, onReset }
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const title = mode === "forgot" ? "Recupere seu acesso" : mode === "reset" ? "Crie uma nova senha" : "Confirme seu e-mail";
-  const inputClass = "mt-2 h-12 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 text-sm outline-none focus:border-[var(--primary)]";
+  const Icon = mode === "forgot" ? KeyRound : mode === "reset" ? LockKeyhole : MailOpen;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -32,19 +32,19 @@ export default function AccountEmailAction({ mode, token = "", onBack, onReset }
     finally { setBusy(false); }
   }
 
-  return <main className="norium-modern-shell norium-auth-shell norium-auth-dark grid min-h-dvh place-items-center bg-[var(--background)] p-5 text-[var(--text)]">
-    <section className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl sm:p-9">
-      <BrandLogo className="h-12 w-36" />
-      <div className="mb-5 mt-8 grid h-12 w-12 place-items-center rounded-xl bg-blue-500/15 text-cyan-400">{message ? <ShieldCheck /> : <Mail />}</div>
-      <h1 className="text-2xl font-bold">{title}</h1>
-      <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">{mode === "forgot" ? "Informe o e-mail da sua conta. Enviaremos um link para você redefinir a senha." : mode === "reset" ? "Use pelo menos 10 caracteres. Suas sessões anteriores serão encerradas." : "Confirme este endereço para receber os avisos de tarefas, reuniões e outras atualizações da sua conta."}</p>
-      {message ? <p role="status" className="mt-5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 p-4 text-sm leading-6 text-emerald-300">{message}</p> : <form onSubmit={(event) => void submit(event)} className="mt-6 space-y-4">
-        {mode === "forgot" && <label className="block text-sm font-semibold">E-mail<input type="email" autoComplete="email" required maxLength={180} value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} /></label>}
-        {mode === "reset" && <><label className="block text-sm font-semibold">Nova senha<input type="password" autoComplete="new-password" required minLength={10} maxLength={180} value={password} onChange={(event) => setPassword(event.target.value)} className={inputClass} /></label><label className="block text-sm font-semibold">Repita a nova senha<input type="password" autoComplete="new-password" required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className={inputClass} /></label></>}
-        {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
-        <button disabled={busy} className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-cyan-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">{busy ? "Aguarde..." : mode === "forgot" ? "Enviar link de recuperação" : mode === "reset" ? "Redefinir senha" : "Confirmar meu e-mail"}</button>
-      </form>}
-      <button type="button" onClick={onBack} className="mt-6 w-full py-2 text-sm font-semibold text-[var(--text-secondary)]">Voltar ao Norium</button>
-    </section>
-  </main>;
+  return <AuthLayout>
+    <div className="ac-icon"><Icon size={22} aria-hidden="true" /></div>
+    <h1 className="ac-title">{title}</h1>
+    <p className="ac-sub">{mode === "forgot" ? "Informe o e-mail da sua conta. Enviaremos um link para você redefinir a senha." : mode === "reset" ? "Use pelo menos 10 caracteres. Suas sessões anteriores serão encerradas." : "Confirme este endereço para receber os avisos de tarefas, reuniões e outras atualizações da sua conta."}</p>
+    {message ? <p role="status" className="ac-ok"><MailCheck size={18} aria-hidden="true" /><span>{message}</span></p> : <form onSubmit={(event) => void submit(event)} className="ac-form">
+      {mode === "forgot" && <div className="ac-field"><label className="ac-label" htmlFor="account-email">E-mail</label><span className="ac-input"><Mail size={16} aria-hidden="true" /><input id="account-email" type="email" autoComplete="email" required maxLength={180} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="voce@email.com" /></span></div>}
+      {mode === "reset" && <>
+        <div className="ac-field"><label className="ac-label" htmlFor="account-new-password">Nova senha</label><span className="ac-input"><LockKeyhole size={16} aria-hidden="true" /><input id="account-new-password" type="password" autoComplete="new-password" required minLength={10} maxLength={180} value={password} onChange={(event) => setPassword(event.target.value)} /></span></div>
+        <div className="ac-field"><label className="ac-label" htmlFor="account-confirm-password">Repita a nova senha</label><span className="ac-input"><LockKeyhole size={16} aria-hidden="true" /><input id="account-confirm-password" type="password" autoComplete="new-password" required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></span></div>
+      </>}
+      {error && <p role="alert" className="ac-alert">{error}</p>}
+      <button disabled={busy} className="ac-btn is-primary">{busy ? "Aguarde..." : mode === "forgot" ? "Enviar link de recuperação" : mode === "reset" ? "Redefinir senha" : "Confirmar meu e-mail"}</button>
+    </form>}
+    <button type="button" onClick={onBack} className="ac-link ac-back" style={{ marginTop: 20 }}><ArrowLeft size={14} aria-hidden="true" />Voltar ao Norium</button>
+  </AuthLayout>;
 }

@@ -1,11 +1,20 @@
 import { useRef } from "react";
-import { BellRing, Bot, Check, ChevronLeft, ChevronRight, Filter, Inbox, Loader2, MailOpen, Megaphone, RefreshCw, Tags, UsersRound } from "lucide-react";
-import Button from "../shared/Button";
+import { Archive, BellRing, Check, ChevronLeft, ChevronRight, Filter, Inbox, Loader2, MailOpen, Megaphone, RefreshCw, Tags, Trash2, UsersRound } from "lucide-react";
 import { cn } from "../../utils/cn";
+import NoraAvatar from "../layout/NoraAvatar";
 import MailMessageRow from "./MailMessageRow";
+import { mailCategoryBadge } from "./mailCategoryTone";
 import { emailCategoryMeta, inboxCategoryMeta, type EmailCategoryKey, type InboxCategoryKey } from "../../features/mail/formatters";
 import { GMAIL_PAGE_SIZE } from "../../features/mail/queryBuilder";
 import { quickFilters, type GmailMessage, type MailQuickFilter } from "../../features/mail/types";
+
+/** Rotulos exibidos dos filtros rapidos (pt-BR com acentuacao). */
+const quickFilterLabels: Record<MailQuickFilter, string> = {
+  all: "Todo o correio",
+  unread: "Não lidos",
+  read: "Lidos",
+  starred: "Com estrela",
+};
 
 type MailMessageListProps = {
   title: string;
@@ -46,7 +55,7 @@ type MailMessageListProps = {
   onAskNora: () => void;
 };
 
-/** Coluna central: cabecalho da caixa, filtros rapidos, acoes em lote e a lista. */
+/** Coluna da lista: cabecalho da caixa, categorias, filtros rapidos, acoes em lote e mensagens. */
 export default function MailMessageList({
   title,
   unreadCount,
@@ -107,17 +116,48 @@ export default function MailMessageList({
   );
 
   return (
-    <div className="mail-message-list flex min-w-0 flex-1 flex-col">
-      <div className={cn("mail-list-heading flex h-[104px] shrink-0 items-center justify-between px-4", showInboxCategories && "mail-inbox-heading")}>
-        <div>
-          <h1 className="text-xl font-bold">{title}</h1>
-          <p className="mt-1 text-xs font-semibold text-white/45">
-            {unreadCount} {unreadCount === 1 ? "não lido" : "não lidos"}{showInboxCategories ? ` em ${inboxCategoryMeta[activeInboxCategory].label}` : ""} · {autoRefresh ? "sincronização em tempo real a cada 45s" : "atualização manual"}
-          </p>
+    <div className="mail-message-list">
+      <div className="nx-mail-list-head">
+        <div className="nx-mail-list-title">
+          <div>
+            <h1>{title}</h1>
+            <p>
+              {unreadCount} {unreadCount === 1 ? "não lido" : "não lidos"}{showInboxCategories ? ` em ${inboxCategoryMeta[activeInboxCategory].label}` : ""} · {autoRefresh ? "sincronização em tempo real a cada 45s" : "atualização manual"}
+            </p>
+          </div>
+
+          <div className="nx-mail-pager">
+            <button type="button" onClick={onRefresh} className="nx-mail-iconbtn" aria-label="Atualizar lista" title="Atualizar lista">
+              {loading ? <Loader2 size={15} className="nx-mail-spin" /> : <RefreshCw size={15} />}
+            </button>
+            <span>
+              {visibleRange} / {resultSize || messages.length}{syncActive ? " · sincronizando…" : ""}
+            </span>
+            <button
+              type="button"
+              disabled={messages.length <= GMAIL_PAGE_SIZE}
+              onClick={() => listScrollRef.current?.scrollTo?.({ top: 0 })}
+              title="Voltar ao início"
+              className="nx-mail-iconbtn"
+              aria-label="Voltar ao início"
+            >
+              <ChevronLeft size={15} />
+            </button>
+            <button
+              type="button"
+              disabled={!nextPageToken || syncActive}
+              onClick={onNextPage}
+              className="nx-mail-iconbtn"
+              title="Próxima página"
+              aria-label="Próxima página"
+            >
+              <ChevronRight size={15} />
+            </button>
+          </div>
         </div>
 
         {showInboxCategories && (
-          <nav className="mail-category-tabs" aria-label="Categorias da caixa de entrada" role="tablist">
+          <nav className="nx-tabs nx-mail-cats" aria-label="Categorias da caixa de entrada" role="tablist">
             {(Object.keys(inboxCategoryMeta) as InboxCategoryKey[]).map((category) => {
               const meta = inboxCategoryMeta[category];
               const Icon = inboxCategoryIcons[category];
@@ -130,7 +170,7 @@ export default function MailMessageList({
                   aria-selected={activeInboxCategory === category}
                   aria-label={`${meta.label}${unread > 0 ? ` ${unread} ${unread === 1 ? "novo" : "novos"}` : ""}`}
                   title={meta.description}
-                  className={cn("mail-category-tab", activeInboxCategory === category && "is-active")}
+                  className={cn("nx-tab", activeInboxCategory === category && "is-active")}
                   onClick={() => onInboxCategoryChange(category)}
                 >
                   <Icon size={14} aria-hidden="true" />
@@ -141,119 +181,82 @@ export default function MailMessageList({
             })}
           </nav>
         )}
-
-        <div className="mail-list-pagination flex items-center gap-2 text-xs font-bold text-white/60">
-          <Button variant="ghost" size="sm" iconOnly onClick={onRefresh} className="hover:bg-white/7" aria-label="Atualizar lista">
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-          </Button>
-          <span>
-            {visibleRange} / {resultSize || messages.length}{syncActive ? " · sincronizando…" : ""}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            iconOnly
-            disabled={messages.length <= GMAIL_PAGE_SIZE}
-            onClick={() => listScrollRef.current?.scrollTo?.({ top: 0 })}
-            title="Voltar ao inicio"
-            className="hover:bg-white/7"
-            aria-label="Voltar ao inicio"
-          >
-            <ChevronLeft size={16} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            iconOnly
-            disabled={!nextPageToken || syncActive}
-            onClick={onNextPage}
-            className="hover:bg-white/7"
-            aria-label="Proxima pagina"
-          >
-            <ChevronRight size={16} />
-          </Button>
-        </div>
       </div>
 
-      <div className="mail-list-filters flex h-14 shrink-0 items-center justify-between border-y border-white/10 px-4 py-3">
-        <div className="mail-list-quick-filters flex items-center gap-2">
-          <button
-            onClick={onToggleSelectAll}
-            aria-label="Selecionar todos"
-            className={cn(
-              "flex h-5 w-5 items-center justify-center rounded border border-white/18",
-              allSelected && "bg-[#0EA5E9] border-[#0EA5E9]",
-            )}
-          >
-            {allSelected && <Check size={13} />}
-          </button>
+      <div className={cn("nx-mail-filters", !showInboxCategories && "mt-3 border-t border-[var(--nx-border)]")}>
+        <button
+          type="button"
+          onClick={onToggleSelectAll}
+          aria-label="Selecionar todos"
+          aria-pressed={allSelected}
+          className={cn("nx-mail-check", allSelected && "is-checked")}
+        >
+          {allSelected && <Check size={12} />}
+        </button>
 
+        <div className="nx-seg nx-mail-seg">
           {quickFilters.map((filter) => (
             <button
+              type="button"
               key={filter.key}
+              aria-pressed={activeFilter === filter.key}
               onClick={() => onFilterChange(filter.key)}
-              className={cn(
-                "mail-hover rounded-full border border-white/12 px-3 py-1.5 text-xs font-bold transition",
-                activeFilter === filter.key ? "mail-active bg-white text-black" : "text-white hover:bg-white/7",
-              )}
+              className={cn(activeFilter === filter.key && "is-active")}
             >
-              {filter.label}
+              {quickFilterLabels[filter.key] || filter.label}
             </button>
           ))}
         </div>
 
-        <div className="mail-list-actions flex items-center gap-2">
+        <div className="nx-mail-filter-actions">
           {selectedIds.size > 0 && (
             <>
-              <Button onClick={() => onBulkAction("archive")} className="mail-hover border-white/12 py-2 hover:bg-white/7">
+              <button type="button" onClick={() => onBulkAction("archive")} className="nx-btn is-sm">
+                <Archive size={14} />
                 Arquivar
-              </Button>
-              <Button onClick={() => onBulkAction("trash")} className="mail-hover border-white/12 py-2 hover:bg-white/7">
+              </button>
+              <button type="button" onClick={() => onBulkAction("trash")} className="nx-btn is-sm">
+                <Trash2 size={14} />
                 Lixeira
-              </Button>
+              </button>
             </>
           )}
           {!showInboxCategories && (
             <button
+              type="button"
               onClick={onToggleGroupByCategory}
-              className={cn(
-                "mail-hover flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-bold",
-                groupByCategory ? "border-cyan-300/35 bg-cyan-300/12 text-cyan-100" : "border-white/12 text-white/70 hover:bg-white/7",
-              )}
+              aria-pressed={groupByCategory}
+              className={cn("nx-btn is-sm", groupByCategory && "is-active")}
             >
               <Tags size={14} />
               Agrupar categorias
             </button>
           )}
-          <Button size="sm" onClick={onOpenFilters} className="mail-hover border-white/12 text-white/70 hover:bg-white/7">
+          <button type="button" onClick={onOpenFilters} className="nx-btn is-sm">
             <Filter size={14} />
             Filtros
-          </Button>
+          </button>
         </div>
       </div>
 
       {canUseNora && (
-        <div className="mail-banner flex h-12 shrink-0 items-center bg-[#075985] px-4 text-sm font-bold">
-          <div className="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-white text-black">
-            <Bot size={18} />
-          </div>
-          <span className="min-w-0 flex-1 truncate">
-            A Nora agora esta na sua caixa de entrada. Elabore, resuma e responda de forma mais inteligente.
-          </span>
-          <Button variant="ghost" onClick={onAskNora} className="mail-primary bg-[#0EA5E9] py-2">
+        <div className="nx-mail-nora-tip">
+          <NoraAvatar className="rounded-full" />
+          <span>A Nora agora está na sua caixa de entrada. Elabore, resuma e responda de forma mais inteligente.</span>
+          <button type="button" onClick={onAskNora} className="nx-btn is-sm is-primary">
             Experimente
-          </Button>
+          </button>
         </div>
       )}
 
       {!showInboxCategories && !groupByCategory && groupedMessages.length > 0 && (
-        <div className="mail-mobile-categories" aria-label="Categorias do e-mail">
+        <div className="nx-mail-quick-cats" aria-label="Categorias do e-mail">
           {groupedMessages.slice(0, 3).map(([category, items]) => {
             const meta = emailCategoryMeta[category];
             return (
               <button key={category} type="button" onClick={onToggleGroupByCategory}>
-                <span className={meta.tone}><Tags size={15} /></span>
-                <span><strong>{meta.label}</strong><small>{items.length} e-mail(s)</small></span>
+                <span className={cn("nx-badge", mailCategoryBadge[category])}><Tags size={12} />{meta.label}</span>
+                <span>{items.length} e-mail(s)</span>
                 <b>+{items.length}</b>
               </button>
             );
@@ -262,28 +265,28 @@ export default function MailMessageList({
       )}
 
       {error && (
-        <div className="border-b border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-200">{error}</div>
+        <div className="nx-mail-error" role="alert">{error}</div>
       )}
 
-      <div ref={listScrollRef} className="mail-list-scroll min-h-0 flex-1 overflow-y-auto">
+      <div ref={listScrollRef} className="nx-mail-scroll">
         {loading && !messages.length ? (
-          <div className="flex h-full items-center justify-center text-sm font-bold text-white/50">
-            <Loader2 size={18} className="mr-2 animate-spin" />
+          <div className="nx-mail-state" role="status">
+            <Loader2 size={18} className="nx-mail-spin" />
             Sincronizando Gmail...
           </div>
         ) : messages.length ? (
           groupByCategory ? (
-            <div className="divide-y divide-white/8">
+            <div>
               {groupedMessages.map(([category, items]) => {
                 const meta = emailCategoryMeta[category];
                 return (
                   <section key={category}>
-                    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-white/8 bg-[var(--surface)] px-4 py-2 backdrop-blur-xl">
-                      <span className={cn("inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-black", meta.tone)}>
-                        <Tags size={14} />
+                    <div className="nx-mail-group-h">
+                      <span className={cn("nx-badge", mailCategoryBadge[category])}>
+                        <Tags size={12} />
                         {meta.label}
                       </span>
-                      <span className="text-xs font-bold text-white/55">{items.length} e-mail(s)</span>
+                      <span>{items.length} e-mail(s)</span>
                     </div>
                     {items.map(row)}
                   </section>
@@ -294,9 +297,9 @@ export default function MailMessageList({
             messages.map(row)
           )
         ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center text-white/45">
-            <MailOpen size={34} className="mb-3" />
-            <p className="text-sm font-bold">
+          <div className="nx-mail-state">
+            <MailOpen size={28} strokeWidth={1.5} />
+            <p>
               {showInboxCategories
                 ? `Nenhum e-mail em ${inboxCategoryMeta[activeInboxCategory].label}.`
                 : "Nenhum e-mail encontrado nesse filtro."}

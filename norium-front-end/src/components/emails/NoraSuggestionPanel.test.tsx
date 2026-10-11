@@ -25,7 +25,7 @@ describe("NoraSuggestionPanel", () => {
 
   it("aceita e descarta a sugestao", () => {
     const h = setup();
-    fireEvent.click(screen.getByRole("button", { name: /aceitar sugestao/i }));
+    fireEvent.click(screen.getByRole("button", { name: /aceitar sugestão/i }));
     fireEvent.click(screen.getByRole("button", { name: /descartar/i }));
     expect(h.onAccept).toHaveBeenCalled();
     expect(h.onDiscard).toHaveBeenCalled();
@@ -73,6 +73,6 @@ describe("NoraSuggestionPanel", () => {
 
   it("aceitar continua liberado mesmo ocupado, para nao perder o texto ja pronto", () => {
     setup({ busy: true });
-    expect(screen.getByRole("button", { name: /aceitar sugestao/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /aceitar sugestão/i })).toBeEnabled();
   });
 });

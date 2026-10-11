@@ -9,7 +9,6 @@ import {
   Palette,
   RotateCcw,
   Save,
-  Settings2,
   ShieldCheck,
   SlidersHorizontal,
   Sun,
@@ -26,6 +25,8 @@ import {
 } from "../profile/profileService";
 import Button from "../shared/Button";
 import { apiBlobRequest, apiRequest } from "../../core/api/client";
+import "../../styles/screens/inteligencia-equipe-conta.css";
+import SettingsNav, { readSettingsSection, storeSettingsSection, type SettingsSection } from "./SettingsNav";
 
 type SettingsDashboardProps = {
   userId?: string;
@@ -33,6 +34,15 @@ type SettingsDashboardProps = {
   onSaved: (profile: PerfilOperador) => void;
   onOpenAdmin?: () => void;
   onLogout?: () => void;
+  onNavigate?: (tab: string) => void;
+};
+
+const sectionHeads: Record<Exclude<SettingsSection, "perfil">, { title: string; subtitle: string }> = {
+  nora: { title: "Nora e IA", subtitle: "Personalidade da sua assistente." },
+  aparencia: { title: "Aparência e acessibilidade", subtitle: "Ajuste o Norium ao seu jeito de trabalhar. O tema é aplicado imediatamente em todo o Norium." },
+  notificacoes: { title: "Notificações", subtitle: "Alertas visuais e atualizações em tempo real." },
+  privacidade: { title: "Seus dados e privacidade", subtitle: "Baixe uma cópia portátil dos dados pessoais da conta. A exclusão revoga as sessões, elimina o diretório pessoal e anonimiza o cadastro e a auditoria." },
+  admin: { title: "Painel administrativo", subtitle: "Gerencie usuários, planos, equipes e permissões sem sair da sua sessão atual." },
 };
 
 const colorGroups: Array<{
@@ -78,7 +88,21 @@ export default function SettingsDashboard({
   onSaved,
   onOpenAdmin,
   onLogout,
+  onNavigate,
 }: SettingsDashboardProps) {
+  const showAdmin = Boolean(currentUser?.systemAdmin && onOpenAdmin);
+  const showPrivacy = Boolean(currentUser);
+  const [storedSection, setSection] = useState<SettingsSection>(() => readSettingsSection() || "aparencia");
+  const section: Exclude<SettingsSection, "perfil"> = storedSection === "perfil" || (storedSection === "admin" && !showAdmin) || (storedSection === "privacidade" && !showPrivacy) ? "aparencia" : storedSection;
+  function selectSection(next: SettingsSection) {
+    storeSettingsSection(next);
+    if (next === "perfil") {
+      if (onNavigate) onNavigate("Perfil");
+      return;
+    }
+    setSection(next);
+  }
+  const head = sectionHeads[section];
   const [profile, setProfile] = useState<PerfilOperador>(createDefaultProfile);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -204,41 +228,33 @@ export default function SettingsDashboard({
   }
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-col bg-[var(--background)] text-[var(--text)]">
-      <header className="flex shrink-0 flex-wrap gap-3 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-6 py-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-[var(--border)] bg-[var(--background)] text-[var(--primary)]">
-            <Settings2 size={22} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-bold">Configurações</h1>
-            <p className="truncate text-xs font-semibold text-[var(--text-secondary)]">
-              Leitura, acessibilidade, notificações, Nora e aparência
-            </p>
-          </div>
-        </div>
-        <Button variant="primary"
-         
-          onClick={() => void save()}
-          disabled={saving || loading}
-         
-        >
-          <Save size={16} />
-          {saving ? "Salvando..." : "Salvar configurações"}
-        </Button>
-      </header>
+    <section className="nx-page nxi-screen">
+      <div className="nxi-cfg">
+        <SettingsNav active={section} onSelect={selectSection} showPrivacy={showPrivacy} showAdmin={showAdmin} />
+        <div className="nxi-cfg-main" style={{ maxWidth: 1080 }}>
+          <header className="nxi-cfg-head">
+            <div><h2 className="nxi-h2">{head.title}</h2><p>{head.subtitle}</p></div>
+            <Button variant="primary"
+              onClick={() => void save()}
+              disabled={saving || loading}
+            >
+              <Save size={16} />
+              {saving ? "Salvando..." : "Salvar configurações"}
+            </Button>
+          </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-6xl space-y-5">
-          {currentUser?.systemAdmin && onOpenAdmin && (
-            <section className="flex flex-col gap-4 rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 p-5 sm:flex-row sm:items-center sm:justify-between">
+          {error && <p role="alert" className="nxi-alert is-error">{error}</p>}
+          {message && <p role="status" className="nxi-alert is-success">{message}</p>}
+
+          {showAdmin && (
+            <section hidden={section !== "admin"} className="nx-card nxi-card-pad flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[var(--primary)]/16 text-[var(--primary)]">
-                  <ShieldCheck size={21} />
+                <span className="nxi-tile is-blue">
+                  <ShieldCheck size={19} />
                 </span>
                 <div>
-                  <h2 className="text-sm font-bold">Painel administrativo</h2>
-                  <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
+                  <h2 className="nxi-card-title">Painel administrativo</h2>
+                  <p className="nxi-card-sub">
                     Gerencie usuários, planos, equipes e permissões sem sair da sua sessão atual.
                   </p>
                 </div>
@@ -249,79 +265,37 @@ export default function SettingsDashboard({
             </section>
           )}
 
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-            <h2 className="text-sm font-bold">Leitura e acessibilidade</h2>
-            <p className="mt-1 mb-4 text-xs text-[var(--text-secondary)]">As preferências abaixo são aplicadas ao salvar e ficam vinculadas ao seu perfil.</p>
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="block text-sm font-bold">Estilo do menu
-                <select className="norium-platform-input mt-2" value={preferences.navigationStyle} onChange={event => updatePreference("navigationStyle", event.target.value as InterfacePreferences["navigationStyle"])}>
-                  <option value="grouped">Menu atual · categorias recolhíveis</option>
-                  <option value="classic">Menu antigo · lista completa</option>
-                </select>
-                <small className="mt-2 block font-normal text-[var(--text-secondary)]">Escolha entre os grupos atuais ou a navegação clássica do Norium.</small>
-              </label>
-              <label className="block text-sm font-bold">Tamanho do texto
-                <select className="norium-platform-input mt-2" value={preferences.textSize} onChange={event => updatePreference("textSize", event.target.value as InterfacePreferences["textSize"])}>
-                  <option value="normal">Padrão</option><option value="large">Grande</option><option value="extra">Extra grande</option>
-                </select>
-                <small className="mt-2 block font-normal text-[var(--text-secondary)]">Amplia textos e elementos dimensionados pela fonte do sistema.</small>
-              </label>
-              <PreferenceToggle label="Reduzir animações" hint="Reduz transições da interface e movimento dos alertas." checked={preferences.reducedMotion} onChange={value => updatePreference("reducedMotion", value)} />
-              <PreferenceToggle label="Destacar navegação por teclado" hint="Reforça o contorno do elemento selecionado com Tab." checked={preferences.strongFocus} onChange={value => updatePreference("strongFocus", value)} />
-              <PreferenceToggle label="Sublinhar links" hint="Facilita identificar links nos conteúdos e menus." checked={preferences.underlineLinks} onChange={value => updatePreference("underlineLinks", value)} />
-              <PreferenceToggle label="Ajuda contextual nas telas" hint="Mostra orientações de uso e sugestões de perguntas para a Nora." checked={preferences.showGuides} onChange={value => updatePreference("showGuides", value)} />
-            </div>
-            <Button className="mt-4" onClick={() => setProfile(current => ({ ...current, interface_preferences: { ...defaultInterfacePreferences } }))}><RotateCcw size={14} /> Restaurar preferências de interface</Button>
-          </section>
-
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-            <div className="mb-5 flex items-center gap-3">
-              <span className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--primary)]/12 text-[var(--primary)]">
-                <Palette size={19} />
-              </span>
-              <div>
-                <h2 className="text-sm font-bold">Aparência do sistema</h2>
-                <p className="text-xs font-semibold text-[var(--text-secondary)]">
-                  O tema escolhido é aplicado imediatamente em todo o Norium.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(["escuro", "claro"] as PerfilTema[]).map((theme) => {
+          <div className="nxi-stack" hidden={section !== "aparencia"}>
+          <section className="nx-card nxi-card-pad">
+            <h3 className="nxi-card-title" style={{ display: "flex", alignItems: "center", gap: 8 }}><Palette size={16} /> Tema</h3>
+            <div className="flex flex-wrap gap-4" style={{ marginTop: 14 }} role="group" aria-label="Tema do sistema">
+              {(["claro", "escuro"] as PerfilTema[]).map((theme) => {
                 const Icon = theme === "escuro" ? Moon : Sun;
                 const active = profile.tema === theme;
                 return (
                   <button
                     key={theme}
                     type="button"
+                    aria-pressed={active}
                     onClick={() => updateTheme(theme)}
-                    className={`flex min-h-16 items-center gap-3 rounded-lg border px-4 text-left transition ${
-                      active
-                        ? "border-[var(--primary)] bg-[var(--primary)]/12"
-                        : "border-[var(--border)] bg-[var(--background)] hover:bg-[var(--surface-hover)]"
-                    }`}
+                    className={`nxi-theme-opt ${active ? "is-active" : ""}`}
                   >
-                    <Icon size={19} className={active ? "text-[var(--primary)]" : ""} />
-                    <span className="min-w-0 flex-1">
-                      <strong className="block text-sm">{theme === "escuro" ? "Tema escuro" : "Tema claro"}</strong>
-                      <small className="text-xs font-semibold text-[var(--text-secondary)]">Padrão Norium</small>
-                    </span>
-                    {active && <Check size={17} className="text-[var(--primary)]" />}
+                    <span className="nxi-theme-prev" style={{ display: "block", background: theme === "escuro" ? "#0c0d10" : "#f5f6f8" }}><span style={{ background: theme === "escuro" ? "#16171c" : "#fff" }} /></span>
+                    <strong><Icon size={14} /> {theme === "escuro" ? "Escuro" : "Claro"}{active && <Check size={14} style={{ color: "var(--nx-primary)" }} />}</strong>
                   </button>
                 );
               })}
             </div>
 
-            <div className={`mt-5 rounded-lg border p-4 ${canCustomizeTheme ? "border-[var(--border)] bg-[var(--background)]" : "border-amber-400/25 bg-amber-400/8"}`}>
+            <div style={{ marginTop: 18, borderTop: "1px solid var(--nx-border)", paddingTop: 16 }}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <span className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--primary)]/12 text-[var(--primary)]">
-                    {canCustomizeTheme ? <Palette size={18} /> : <LockKeyhole size={18} />}
+                  <span className={`nxi-tile is-sm ${canCustomizeTheme ? "is-blue" : "is-amber"}`}>
+                    {canCustomizeTheme ? <Palette size={17} /> : <LockKeyhole size={17} />}
                   </span>
                   <div>
-                    <h3 className="text-sm font-bold">Personalização avançada</h3>
-                    <p className="text-xs font-semibold text-[var(--text-secondary)]">
+                    <h3 className="text-[13.5px] font-semibold">Personalização avançada</h3>
+                    <p className="nxi-card-sub">
                       Altere apenas as cores, mantendo o layout atual.
                     </p>
                   </div>
@@ -351,11 +325,8 @@ export default function SettingsDashboard({
                         enabled: !customization.enabled,
                       }))
                     }
-                    className={`h-9 rounded-lg px-4 text-xs font-bold ${
-                      customizationEnabled && canCustomizeTheme
-                        ? "bg-[var(--primary)] text-white"
-                        : "border border-[var(--border)]"
-                    } disabled:opacity-45`}
+                    aria-pressed={customizationEnabled && canCustomizeTheme}
+                    className={`nx-btn is-sm ${customizationEnabled && canCustomizeTheme ? "is-primary" : ""}`}
                   >
                     {customizationEnabled && canCustomizeTheme ? "Ativa" : "Ativar"}
                   </button>
@@ -363,14 +334,14 @@ export default function SettingsDashboard({
               </div>
 
               {!canCustomizeTheme ? (
-                <p className="mt-4 rounded-lg border border-amber-400/20 bg-amber-400/8 p-3 text-xs font-bold text-amber-300">
+                <p className="nxi-alert is-warning mt-4">
                   A personalização avançada está disponível no plano Enterprise.
                 </p>
               ) : (
                 <div className={`mt-4 space-y-4 ${customizationEnabled ? "" : "pointer-events-none opacity-50"}`}>
                   {colorGroups.map((group) => (
-                    <div key={group.title} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
-                      <p className="mb-3 text-xs font-bold uppercase text-[var(--text-secondary)]">{group.title}</p>
+                    <div key={group.title}>
+                      <p className="mb-3 text-[13px] font-semibold">{group.title}</p>
                       <div className="grid gap-3 md:grid-cols-2">
                         {group.fields.map((field) => (
                           <label key={field.key} className="flex min-w-0 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
@@ -378,13 +349,13 @@ export default function SettingsDashboard({
                               type="color"
                               value={activePalette[field.key]}
                               onChange={(event) => updateColor(field.key, event.target.value)}
-                              className="h-10 w-12 shrink-0 cursor-pointer rounded-lg border border-[var(--border)] bg-transparent p-1"
+                              className="h-9 w-11 shrink-0 cursor-pointer rounded-lg border border-[var(--border)] bg-transparent p-1"
                             />
                             <span className="min-w-0 flex-1">
-                              <strong className="block text-xs">{field.label}</strong>
-                              <small className="block truncate text-xs font-semibold text-[var(--text-secondary)]">{field.hint}</small>
+                              <strong className="block text-[13px] font-medium">{field.label}</strong>
+                              <small className="block truncate text-xs text-[var(--nx-text-3)]">{field.hint}</small>
                             </span>
-                            <code className="text-xs font-bold text-[var(--text-secondary)]">{activePalette[field.key]}</code>
+                            <code className="nxi-code">{activePalette[field.key]}</code>
                           </label>
                         ))}
                       </div>
@@ -395,19 +366,46 @@ export default function SettingsDashboard({
             </div>
           </section>
 
-          <div className="grid gap-5 lg:grid-cols-2">
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-              <div className="mb-5 flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-lg bg-cyan-500/12 text-cyan-400"><Bot size={19} /></span>
+          <section className="nx-card nxi-card-pad" style={{ paddingTop: 12, paddingBottom: 12 }}>
+            <h3 className="nxi-card-title" style={{ paddingTop: 8 }}>Leitura e acessibilidade</h3>
+            <p className="nxi-card-sub">As preferências abaixo são aplicadas ao salvar e ficam vinculadas ao seu perfil.</p>
+            <div className="nxi-cols" style={{ margin: "14px 0 6px" }}>
+              <label className="nxi-label">Estilo do menu
+                <select className="nxi-field" value={preferences.navigationStyle} onChange={event => updatePreference("navigationStyle", event.target.value as InterfacePreferences["navigationStyle"])}>
+                  <option value="grouped">Menu atual · categorias recolhíveis</option>
+                  <option value="classic">Menu antigo · lista completa</option>
+                </select>
+                <small>Escolha entre os grupos atuais ou a navegação clássica do Norium.</small>
+              </label>
+              <label className="nxi-label">Tamanho do texto
+                <select className="nxi-field" value={preferences.textSize} onChange={event => updatePreference("textSize", event.target.value as InterfacePreferences["textSize"])}>
+                  <option value="normal">Padrão</option><option value="large">Grande</option><option value="extra">Extra grande</option>
+                </select>
+                <small>Amplia textos e elementos dimensionados pela fonte do sistema.</small>
+              </label>
+            </div>
+            <PreferenceToggle label="Reduzir animações" hint="Reduz transições da interface e movimento dos alertas." checked={preferences.reducedMotion} onChange={value => updatePreference("reducedMotion", value)} />
+            <PreferenceToggle label="Destacar navegação por teclado" hint="Reforça o contorno do elemento selecionado com Tab." checked={preferences.strongFocus} onChange={value => updatePreference("strongFocus", value)} />
+            <PreferenceToggle label="Sublinhar links" hint="Facilita identificar links nos conteúdos e menus." checked={preferences.underlineLinks} onChange={value => updatePreference("underlineLinks", value)} />
+            <PreferenceToggle label="Ajuda contextual nas telas" hint="Mostra orientações de uso e sugestões de perguntas para a Nora." checked={preferences.showGuides} onChange={value => updatePreference("showGuides", value)} />
+            <div style={{ borderTop: "1px solid var(--nx-border)", padding: "12px 0 8px" }}>
+              <Button size="sm" onClick={() => setProfile(current => ({ ...current, interface_preferences: { ...defaultInterfacePreferences } }))}><RotateCcw size={14} /> Restaurar preferências de interface</Button>
+            </div>
+          </section>
+          </div>
+
+            <section className="nx-card nxi-card-pad" hidden={section !== "nora"}>
+              <div className="mb-4 flex items-center gap-3">
+                <span className="nxi-tile is-sm is-blue"><Bot size={17} /></span>
                 <div>
-                  <h2 className="text-sm font-bold">Nora</h2>
-                  <p className="text-xs font-semibold text-[var(--text-secondary)]">Personalidade da sua assistente.</p>
+                  <h3 className="nxi-card-title">Nora</h3>
+                  <p className="nxi-card-sub">Tom das respostas da sua assistente.</p>
                 </div>
               </div>
               <label className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold">Nível de sarcasmo</span>
-                  <span className="rounded-full bg-[var(--primary)]/12 px-3 py-1 text-xs font-bold text-[var(--primary)]">
+                  <span className="text-[13.5px] font-medium">Nível de sarcasmo</span>
+                  <span className="nx-badge is-blue">
                     {profile.configuracoes_nora.sarcasmo}%
                   </span>
                 </div>
@@ -427,84 +425,79 @@ export default function SettingsDashboard({
               </label>
             </section>
 
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-              <div className="mb-5 flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-lg bg-blue-500/12 text-blue-400"><Bell size={19} /></span>
+            <div className="nxi-stack" hidden={section !== "notificacoes"}>
+            <section className="nx-card nxi-card-pad" style={{ paddingBottom: 8 }}>
+              <div className="mb-2 flex items-center gap-3">
+                <span className="nxi-tile is-sm is-blue"><Bell size={17} /></span>
                 <div>
-                  <h2 className="text-sm font-bold">Notificações</h2>
-                  <p className="text-xs font-semibold text-[var(--text-secondary)]">Alertas visuais e atualizações em tempo real.</p>
+                  <h3 className="nxi-card-title">Alertas no Norium</h3>
+                  <p className="nxi-card-sub">Avisos flutuantes sobre as telas.</p>
                 </div>
               </div>
-              <div className="space-y-3">
-                <PreferenceToggle label="Alertas flutuantes" hint="Exibe novos avisos sobre as telas. O histórico continua disponível na central." checked={preferences.showToasts} onChange={value => updatePreference("showToasts", value)} />
-                <PreferenceToggle label="Mostrar prévia dos alertas" hint="Exibe título e descrição nos alertas flutuantes. Desative para mais privacidade." checked={preferences.toastPreview} onChange={value => updatePreference("toastPreview", value)} />
-                <label className="block text-sm font-bold">Posição dos alertas
-                  <select className="norium-platform-input mt-2" value={preferences.toastPosition} onChange={event => updatePreference("toastPosition", event.target.value as InterfacePreferences["toastPosition"])}>
-                    <option value="top">Canto superior direito</option><option value="bottom">Canto inferior direito</option>
-                  </select>
-                </label>
-              </div>
+              <PreferenceToggle label="Alertas flutuantes" hint="Exibe novos avisos sobre as telas. O histórico continua disponível na central." checked={preferences.showToasts} onChange={value => updatePreference("showToasts", value)} />
+              <PreferenceToggle label="Mostrar prévia dos alertas" hint="Exibe título e descrição nos alertas flutuantes. Desative para mais privacidade." checked={preferences.toastPreview} onChange={value => updatePreference("toastPreview", value)} />
+              <label className="nxi-swrow" style={{ flexWrap: "wrap" }}>
+                <span className="nxi-swrow-t nx-grow">Posição dos alertas flutuantes</span>
+                <select className="nxi-field" style={{ width: 220 }} value={preferences.toastPosition} onChange={event => updatePreference("toastPosition", event.target.value as InterfacePreferences["toastPosition"])}>
+                  <option value="top">Canto superior direito</option><option value="bottom">Canto inferior direito</option>
+                </select>
+              </label>
             </section>
-          </div>
 
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+          <section className="nx-card nxi-card-pad is-sm">
             <div className="flex items-center gap-3">
-              <SlidersHorizontal size={18} className="text-[var(--primary)]" />
+              <SlidersHorizontal size={17} style={{ color: "var(--nx-primary)" }} />
               <div>
-                <h2 className="text-sm font-bold">Escopo global</h2>
-                <p className="text-xs font-semibold text-[var(--text-secondary)]">
+                <h3 className="nxi-card-title">Escopo global</h3>
+                <p className="nxi-card-sub">
                   Preferências pessoais salvas no seu perfil. Alertas flutuantes não alteram o histórico da central nem as permissões de acesso.
                 </p>
               </div>
             </div>
           </section>
+          </div>
 
           {currentUser && (
-            <section className="rounded-lg border border-red-500/25 bg-red-500/5 p-5" aria-labelledby="privacy-rights-title">
-              <div className="flex items-start gap-3">
-                <ShieldCheck size={19} className="mt-0.5 text-[var(--primary)]" />
-                <div>
-                  <h2 id="privacy-rights-title" className="text-sm font-bold">Seus dados e privacidade</h2>
-                  <p className="mt-1 text-xs font-semibold leading-5 text-[var(--text-secondary)]">
-                    Baixe uma cópia portátil dos dados pessoais da conta. A exclusão revoga as sessões, elimina o diretório pessoal e anonimiza o cadastro e a auditoria.
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <Button size="sm" onClick={() => void exportPersonalData()} disabled={exportingData}>
-                  <Download size={14} /> {exportingData ? "Preparando…" : "Exportar meus dados"}
+            <section className="nxi-stack is-sm" hidden={section !== "privacidade"} aria-label="Seus dados e privacidade">
+              <div className="nx-card nxi-card-pad flex flex-wrap items-center gap-3">
+                <div className="nx-grow"><h3 className="nxi-card-title">Exportar meus dados</h3><p className="nxi-card-sub">Arquivo compactado com seus dados pessoais e manifesto de integridade.</p></div>
+                <Button onClick={() => void exportPersonalData()} disabled={exportingData}>
+                  <Download size={15} /> {exportingData ? "Preparando…" : "Exportar meus dados"}
                 </Button>
               </div>
-              <div className="mt-5 grid gap-3 border-t border-red-500/20 pt-5 md:grid-cols-2">
-                <label className="text-xs font-bold">Senha atual
-                  <input type="password" autoComplete="current-password" className="norium-platform-input mt-2" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} />
-                </label>
-                <label className="text-xs font-bold">Digite EXCLUIR MINHA CONTA
-                  <input className="norium-platform-input mt-2" value={deletionConfirmation} onChange={event => setDeletionConfirmation(event.target.value)} />
-                </label>
+              <div className="nx-card nxi-card-pad nxi-danger-card">
+                <h3 className="nxi-card-title" style={{ color: "var(--nx-danger)" }}>Excluir minha conta</h3>
+                <p className="nxi-card-sub">Ação permanente. Para confirmar, informe sua senha e digite EXCLUIR MINHA CONTA.</p>
+                <form className="nxi-cols" style={{ marginTop: 14 }} autoComplete="off" onSubmit={event => event.preventDefault()}>
+                  <input type="text" name="username" autoComplete="username" value={currentUser.email || ""} readOnly hidden aria-hidden="true" tabIndex={-1} />
+                  <label className="nxi-label">Senha atual
+                    <input type="password" name="current-password" autoComplete="current-password" className="nxi-field" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} />
+                  </label>
+                  <label className="nxi-label">Digite EXCLUIR MINHA CONTA
+                    <input className="nxi-field" name="delete-confirmation" autoComplete="off" value={deletionConfirmation} onChange={event => setDeletionConfirmation(event.target.value)} />
+                  </label>
+                </form>
+                <div className="nxi-actions is-end" style={{ marginTop: 14 }}>
+                  <Button
+                    variant="danger"
+                    onClick={() => void deleteAccount()}
+                    disabled={deletingAccount || !currentPassword || deletionConfirmation !== "EXCLUIR MINHA CONTA"}
+                  >
+                    <Trash2 size={15} /> {deletingAccount ? "Excluindo…" : "Excluir minha conta"}
+                  </Button>
+                </div>
               </div>
-              <Button
-                size="sm"
-                className="mt-3"
-                onClick={() => void deleteAccount()}
-                disabled={deletingAccount || !currentPassword || deletionConfirmation !== "EXCLUIR MINHA CONTA"}
-              >
-                <Trash2 size={14} /> {deletingAccount ? "Excluindo…" : "Excluir minha conta"}
-              </Button>
             </section>
           )}
-
-          {error && <p role="alert" className="rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm font-bold text-red-300">{error}</p>}
-          {message && <p role="status" className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm font-bold text-emerald-300">{message}</p>}
         </div>
-      </main>
+      </div>
     </section>
   );
 }
 
 function PreferenceToggle({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="flex items-start justify-between gap-4 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 cursor-pointer">
-    <span><strong className="block text-sm">{label}</strong><small className="mt-1 block text-xs text-[var(--text-secondary)]">{hint}</small></span>
-    <input type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-[var(--primary)]" checked={checked} onChange={event => onChange(event.target.checked)} />
+  return <label className="nxi-swrow">
+    <span className="nx-grow"><span className="nxi-swrow-t">{label}</span><span className="nxi-swrow-d">{hint}</span></span>
+    <input type="checkbox" className="nxi-switch" checked={checked} onChange={event => onChange(event.target.checked)} />
   </label>;
 }

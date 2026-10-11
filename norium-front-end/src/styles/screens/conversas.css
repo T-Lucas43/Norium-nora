@@ -1,0 +1,385 @@
+/*
+ * Conversas (WhatsApp) no layout aprovado (PDF "Norium — Novo layout").
+ * Só aparência: lista, conversa, Status, Canais, Contatos, Grupos, Perfil e
+ * conexão. Nenhuma função é escondida por estas regras.
+ */
+
+.nx-conv {
+  --background: var(--nx-bg) !important;
+  --surface: var(--nx-surface) !important;
+  --surface-hover: var(--nx-hover) !important;
+  --border: var(--nx-border) !important;
+  --text: var(--nx-text) !important;
+  --text-primary: var(--nx-text) !important;
+  --text-secondary: var(--nx-text-2) !important;
+  --nx-bubble: #dbeafe;
+  color: var(--nx-text);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.dark .nx-conv,
+:root[data-theme="dark"] .nx-conv {
+  --nx-bubble: #1e3a6e;
+}
+
+/* Pesos 400-600, cantos 8-12px e sombras leves, como no layout. */
+.nx-conv :is(.font-black, .font-extrabold, .font-bold) { font-weight: 600; }
+.nx-conv .rounded-2xl { border-radius: 12px; }
+.nx-conv .rounded-3xl { border-radius: 14px; }
+.nx-conv .shadow-2xl { box-shadow: 0 12px 32px rgba(16, 24, 40, 0.14); }
+.dark .nx-conv .shadow-2xl { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+.nx-conv svg.lucide { stroke-width: 1.75; }
+.nx-conv button[data-variant] { font-weight: 500; }
+.nx-conv button[data-variant="secondary"] { border-color: var(--nx-border-strong); }
+
+/* Tela inteira (lista + conversa) */
+.norium-chat.nx-conv { background: var(--nx-bg); }
+
+/* Menu lateral do WhatsApp (Conversas, Status, Contatos, Grupos, Canais) */
+.nx-conv-rail {
+  background: var(--nx-surface);
+  border-right: 1px solid var(--nx-border);
+  color: var(--nx-text-2);
+}
+
+.nx-conv-rail-btn {
+  position: relative;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--nx-text-2);
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.nx-conv-rail-btn:hover { background: var(--nx-hover); color: var(--nx-text); }
+.nx-conv-rail-btn[aria-current="page"] { background: var(--nx-primary-soft); color: var(--nx-primary-text); }
+
+.nx-conv-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--nx-primary);
+  padding: 0 6px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.nx-conv-rail .nx-conv-count {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  border: 2px solid var(--nx-surface);
+}
+
+/* Coluna da lista de conversas (300px no layout) */
+.nx-conv .norium-chat-sidebar { background: var(--nx-surface); }
+
+.nx-conv-search {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 8px;
+  background: var(--nx-surface);
+  padding: 0 12px;
+  color: var(--nx-text-3);
+  font-size: 13px;
+}
+
+.nx-conv-search:focus-within { border-color: var(--nx-primary); }
+
+.nx-conv-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--nx-text);
+  font: inherit;
+  outline: none;
+}
+
+.nx-conv-search input::placeholder { color: var(--nx-text-3); }
+
+.nx-conv-seg {
+  display: flex;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-radius: 8px;
+  background: var(--nx-hover);
+  padding: 3px;
+}
+
+.nx-conv-seg::-webkit-scrollbar { display: none; }
+
+.nx-conv-seg > button {
+  flex: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: var(--nx-text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.nx-conv-seg > button[aria-pressed="true"] {
+  background: var(--nx-surface);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+  color: var(--nx-text);
+}
+
+.nx-conv-row {
+  border-top: 1px solid var(--nx-border);
+  transition: background-color 0.15s;
+}
+
+.nx-conv-row:hover { background: var(--nx-surface-2); }
+.nx-conv-row.is-selected { background: var(--nx-primary-soft); }
+
+.nx-conv-av {
+  display: grid;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.nx-conv-av.is-photo { background: var(--nx-hover); color: var(--nx-text-2); }
+
+.nx-conv-iconbtn {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--nx-text-2);
+}
+
+.nx-conv-iconbtn:hover { background: var(--nx-hover); color: var(--nx-text); }
+.nx-conv-iconbtn:disabled { cursor: not-allowed; opacity: 0.5; }
+.nx-conv-iconbtn[aria-pressed="true"] { background: var(--nx-primary-soft); color: var(--nx-primary-text); }
+
+/* Avisos (sincronização, erros) com as cores do layout */
+.nx-conv-alert {
+  border-bottom: 1px solid var(--nx-border);
+  background: var(--nx-warning-soft);
+  padding: 12px 16px;
+  color: var(--nx-warning);
+}
+
+.nx-conv-alert button {
+  margin-top: 8px;
+  border: 1px solid color-mix(in srgb, var(--nx-warning) 35%, transparent);
+  border-radius: 8px;
+  background: transparent;
+  padding: 5px 10px;
+  color: var(--nx-warning);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.nx-conv-alert button:hover { background: color-mix(in srgb, var(--nx-warning) 10%, transparent); }
+
+.nx-conv-progress {
+  overflow: hidden;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--nx-hover);
+}
+
+.nx-conv-progress > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--nx-primary);
+  transition: width 0.3s;
+}
+
+/* Conversa aberta */
+.nx-conv .norium-chat-thread { background: var(--nx-bg); }
+
+.nx-conv-thread-head {
+  display: flex;
+  height: 60px;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--nx-border);
+  background: var(--nx-surface);
+  padding: 0 20px;
+}
+
+.nx-conv .norium-chat-wallpaper { background-color: var(--nx-bg) !important; }
+
+.nx-conv .norium-message-bubble {
+  max-width: min(62%, 620px) !important;
+  border-radius: 10px;
+  padding: 9px 12px;
+  box-shadow: none;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.nx-conv .norium-message-outgoing {
+  border: 1px solid transparent !important;
+  background: var(--nx-bubble) !important;
+  color: var(--nx-text);
+}
+
+.nx-conv .norium-message-incoming {
+  border: 1px solid var(--nx-border) !important;
+  background: var(--nx-surface) !important;
+  color: var(--nx-text);
+}
+
+.nx-conv-msg-time { color: var(--nx-text-3); font-size: 11px; }
+
+.nx-conv-day {
+  color: var(--nx-text-3);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+/* Campo de mensagem: cartão com texto em cima e ferramentas embaixo */
+.nx-conv .norium-chat-composer {
+  border-top: 0;
+  background: transparent;
+  padding: 0 20px 18px;
+}
+
+.nx-conv-composer-box {
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 12px;
+  background: var(--nx-surface);
+  padding: 10px 12px;
+}
+
+.nx-conv-composer-box:focus-within { border-color: var(--nx-primary); }
+
+.nx-conv-composer-input {
+  width: 100%;
+  height: 38px;
+  border: 0;
+  background: transparent;
+  color: var(--nx-text);
+  font-size: 13.5px;
+  outline: none;
+}
+
+.nx-conv-composer-input::placeholder { color: var(--nx-text-3); }
+
+.nx-conv-send {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--nx-primary);
+  color: #fff;
+}
+
+.nx-conv-send:disabled { cursor: not-allowed; opacity: 0.5; }
+
+/* Menus flutuantes (renderizados fora da tela, no body) */
+.nx-conv-menu {
+  border: 1px solid var(--nx-border);
+  border-radius: 10px;
+  background: var(--nx-surface);
+  color: var(--nx-text);
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.14);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.dark .nx-conv-menu { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+.nx-conv-menu button:hover { background: var(--nx-hover); }
+.nx-conv-menu .is-danger { color: var(--nx-danger); }
+.nx-conv-menu .is-danger:hover { background: var(--nx-danger-soft); }
+.nx-conv-menu-label { color: var(--nx-text-3); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+
+/* Painéis e diálogos dentro das Conversas */
+.nx-conv-panel {
+  border: 1px solid var(--nx-border);
+  border-radius: 12px;
+  background: var(--nx-surface);
+  color: var(--nx-text);
+}
+
+.nx-conv-field {
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 8px;
+  background: var(--nx-surface);
+  color: var(--nx-text);
+  outline: none;
+}
+
+.nx-conv-field:focus { border-color: var(--nx-primary); }
+.nx-conv-field::placeholder { color: var(--nx-text-3); }
+
+.nx-conv-label { color: var(--nx-text-2); font-size: 12.5px; font-weight: 500; }
+
+/* Conectar WhatsApp */
+.nx-conv-connect {
+  display: grid;
+  width: min(880px, 100%);
+  grid-template-columns: minmax(0, 1fr) 320px;
+  overflow: hidden;
+}
+
+.nx-conv-connect-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid var(--nx-border);
+  background: var(--nx-surface-2);
+  padding: 28px;
+}
+
+.nx-conv-qr-box {
+  display: grid;
+  width: 220px;
+  height: 220px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px;
+}
+
+.nx-conv-option {
+  cursor: pointer;
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.nx-conv-option.is-active { border-color: var(--nx-primary); background: var(--nx-primary-soft); }
+
+@media (max-width: 900px) {
+  .nx-conv-connect { grid-template-columns: minmax(0, 1fr); }
+  .nx-conv-connect-qr { border-top: 1px solid var(--nx-border); border-left: 0; }
+}
+
+@media (max-width: 640px) {
+  .nx-conv .norium-message-bubble { max-width: 88% !important; }
+  .nx-conv .norium-chat-composer { padding: 0 10px 10px !important; }
+  .nx-conv-thread-head { padding: 0 12px; }
+  .nx-conv-qr-box { width: min(220px, 100%); height: auto; aspect-ratio: 1; }
+  .nx-conv .norium-chat-composer .nx-conv-tools button { width: auto !important; min-width: 30px !important; height: 30px !important; }
+  .nx-conv .norium-chat-composer input.nx-conv-composer-input { height: 38px !important; padding-inline: 0 !important; }
+}

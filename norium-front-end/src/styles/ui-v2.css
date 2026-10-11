@@ -1,0 +1,377 @@
+/*
+ * Componentes visuais do layout aprovado (PDF "Norium — Novo layout").
+ * Prefixo nx-: cabeçalho de página, cartões, indicadores, etiquetas, abas, botões e tabelas.
+ * Só aparência; as telas mantêm todas as funções.
+ */
+
+:root {
+  --nx-bg: #f5f6f8;
+  --nx-surface: #ffffff;
+  --nx-surface-2: #f9fafb;
+  --nx-hover: #eef0f3;
+  --nx-border: #e3e5ea;
+  --nx-border-strong: #d5d8df;
+  --nx-text: #1d2027;
+  --nx-text-2: #5e6470;
+  --nx-text-3: #8b909b;
+  --nx-primary: #2563eb;
+  --nx-primary-soft: #eef3fe;
+  --nx-primary-text: #1d4ed8;
+  --nx-success: #047857;
+  --nx-success-soft: #ecfdf5;
+  --nx-warning: #b45309;
+  --nx-warning-soft: #fffbeb;
+  --nx-danger: #be123c;
+  --nx-danger-soft: #fff1f3;
+  --nx-violet: #7141b8;
+  --nx-violet-soft: #f4effc;
+  --nx-cyan: #08728a;
+  --nx-cyan-soft: #ecfbfe;
+}
+
+.dark,
+:root[data-theme="dark"] {
+  --nx-bg: #0c0d10;
+  --nx-surface: #16171c;
+  --nx-surface-2: #1b1d23;
+  --nx-hover: #22242b;
+  --nx-border: #262830;
+  --nx-border-strong: #30323c;
+  --nx-text: #f3f4f6;
+  --nx-text-2: #a6a9b4;
+  --nx-text-3: #737784;
+  --nx-primary: #3b82f6;
+  --nx-primary-soft: #172036;
+  --nx-primary-text: #93b4fb;
+  --nx-success: #34d399;
+  --nx-success-soft: #0f2a22;
+  --nx-warning: #fbbf24;
+  --nx-warning-soft: #2b2310;
+  --nx-danger: #fb7185;
+  --nx-danger-soft: #2e1519;
+  --nx-violet: #b794f6;
+  --nx-violet-soft: #231b33;
+  --nx-cyan: #22d3ee;
+  --nx-cyan-soft: #0f2a30;
+}
+
+/* Área de conteúdo de uma tela */
+.nx-page {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 20px;
+  background: var(--nx-bg);
+  padding: 24px 28px;
+  color: var(--nx-text);
+  font-size: 14px;
+}
+
+.nx-page.is-flush {
+  gap: 0;
+  padding: 0;
+}
+
+/* Cabeçalho: título, subtítulo e ações à direita */
+.nx-ph {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.nx-ph h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.nx-ph p {
+  margin: 4px 0 0;
+  color: var(--nx-text-2);
+  font-size: 14px;
+}
+
+.nx-ph-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Cartões */
+.nx-card {
+  border: 1px solid var(--nx-border);
+  border-radius: 12px;
+  background: var(--nx-surface);
+}
+
+.nx-card-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 18px 12px;
+}
+
+.nx-card-h h2,
+.nx-card-h h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.nx-card-h .nx-more {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--nx-primary-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.nx-card-b {
+  padding: 0 18px 16px;
+}
+
+/* Indicadores (4 por linha) */
+.nx-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.nx-kpi {
+  padding: 16px 18px;
+}
+
+.nx-kpi-l {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--nx-text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nx-kpi-v {
+  margin-top: 10px;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+.nx-kpi-s {
+  margin-top: 2px;
+  color: var(--nx-text-3);
+  font-size: 12.5px;
+}
+
+.nx-up { color: var(--nx-success); font-weight: 500; }
+.nx-down { color: var(--nx-danger); font-weight: 500; }
+
+/* Linhas de lista */
+.nx-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--nx-border);
+  padding: 11px 0;
+}
+
+.nx-row:first-child { border-top: 0; }
+.nx-row-t { font-size: 13.5px; font-weight: 500; }
+.nx-row-sub { margin-top: 1px; color: var(--nx-text-3); font-size: 12.5px; }
+.nx-grow { min-width: 0; flex: 1; }
+.nx-ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nx-muted { color: var(--nx-text-2); }
+.nx-faint { color: var(--nx-text-3); }
+.nx-small { font-size: 12.5px; }
+
+/* Etiquetas */
+.nx-badge {
+  display: inline-flex;
+  height: 22px;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  background: var(--nx-hover);
+  padding: 0 8px;
+  color: var(--nx-text-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.nx-badge.is-blue { background: var(--nx-primary-soft); color: var(--nx-primary-text); }
+.nx-badge.is-green { background: var(--nx-success-soft); color: var(--nx-success); }
+.nx-badge.is-amber { background: var(--nx-warning-soft); color: var(--nx-warning); }
+.nx-badge.is-red { background: var(--nx-danger-soft); color: var(--nx-danger); }
+.nx-badge.is-violet { background: var(--nx-violet-soft); color: var(--nx-violet); }
+
+/* Botões */
+.nx-btn {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 8px;
+  background: var(--nx-surface);
+  padding: 0 14px;
+  color: var(--nx-text);
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.nx-btn:hover { background: var(--nx-hover); }
+.nx-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+.nx-btn.is-primary { border-color: var(--nx-primary); background: var(--nx-primary); color: #fff; }
+.nx-btn.is-primary:hover { background: color-mix(in srgb, var(--nx-primary) 88%, #000); }
+.nx-btn.is-ghost { border-color: transparent; background: transparent; color: var(--nx-text-2); }
+.nx-btn.is-sm { height: 30px; padding: 0 10px; font-size: 12.5px; }
+
+/* Abas sublinhadas e seletor segmentado */
+.nx-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--nx-border);
+}
+
+.nx-tab {
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: 8px 12px 10px;
+  color: var(--nx-text-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.nx-tab.is-active { border-bottom-color: var(--nx-primary); color: var(--nx-text); font-weight: 600; }
+
+.nx-seg {
+  display: inline-flex;
+  border-radius: 8px;
+  background: var(--nx-hover);
+  padding: 3px;
+}
+
+.nx-seg > button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 5px 12px;
+  color: var(--nx-text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.nx-seg > button.is-active {
+  background: var(--nx-surface);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+  color: var(--nx-text);
+}
+
+/* Tabelas */
+.nx-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.nx-table th {
+  border-bottom: 1px solid var(--nx-border);
+  background: var(--nx-surface-2);
+  padding: 10px 18px;
+  color: var(--nx-text-3);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.nx-table td {
+  border-bottom: 1px solid var(--nx-border);
+  padding: 12px 18px;
+  font-size: 13.5px;
+}
+
+.nx-table tr:last-child td { border-bottom: 0; }
+
+/* Campos */
+.nx-input {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--nx-border-strong);
+  border-radius: 8px;
+  background: var(--nx-surface);
+  padding: 0 12px;
+  color: var(--nx-text);
+  font-size: 13px;
+}
+
+.nx-input input,
+.nx-input select {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+/* Barra de progresso */
+.nx-bar {
+  overflow: hidden;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--nx-hover);
+}
+
+.nx-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--nx-primary);
+}
+
+/* Avatar de iniciais */
+.nx-av {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Grade de duas colunas comum nas telas */
+.nx-grid-2 { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; }
+.nx-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+
+@media (max-width: 1100px) {
+  .nx-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nx-grid-2, .nx-grid-3 { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .nx-page { padding: 16px; }
+  .nx-kpis { grid-template-columns: minmax(0, 1fr); }
+  .nx-ph-actions { margin-left: 0; }
+}

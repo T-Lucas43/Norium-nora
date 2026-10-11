@@ -1,7 +1,7 @@
-import Button from "../shared/Button";
+import NoraAvatar from "../layout/NoraAvatar";
 
 /** Instrucao fixa do botao "Refazer" - reescreve mantendo o sentido. */
-const REFAZER_INSTRUCAO = "Refaca a resposta com outra abordagem, mantendo o sentido e sendo mais precisa.";
+const REFAZER_INSTRUCAO = "Refaça a resposta com outra abordagem, mantendo o sentido e sendo mais precisa.";
 
 type NoraSuggestionPanelProps = {
   text: string;
@@ -27,55 +27,57 @@ export default function NoraSuggestionPanel({
   onRegenerate,
 }: NoraSuggestionPanelProps) {
   return (
-    <div className="border-t border-cyan-300/15 bg-cyan-400/[0.06] p-3">
-      <div className="rounded-xl border border-cyan-300/20 bg-slate-950/25 p-3">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-cyan-200">Sugestao da Nora</p>
-            <p className="text-xs font-semibold text-white/50">Revise antes de colocar no e-mail.</p>
-          </div>
-          <Button onClick={onDiscard} className="border-white/10 py-1 text-white/55 hover:bg-white/7">
-            Descartar
-          </Button>
+    <div className="nx-mail-suggest">
+      <div className="nx-mail-suggest-h">
+        <NoraAvatar className="rounded-full" />
+        <div className="nx-grow">
+          <b>Sugestão da Nora</b>
+          <p>Revise antes de colocar no e-mail.</p>
         </div>
+      </div>
 
-        <textarea
-          value={text}
-          onChange={(event) => onTextChange(event.target.value)}
-          aria-label="Texto sugerido pela Nora"
-          className="h-36 w-full resize-none rounded-lg border border-white/10 bg-black/20 p-3 text-sm font-medium leading-6 text-white outline-none"
+      <textarea
+        value={text}
+        onChange={(event) => onTextChange(event.target.value)}
+        aria-label="Texto sugerido pela Nora"
+        className="nx-mail-textarea"
+      />
+
+      <label className="nx-input">
+        <input
+          value={instruction}
+          onChange={(event) => onInstructionChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && instruction.trim()) onRegenerate(instruction);
+          }}
+          aria-label="Ajuste para a Nora"
+          placeholder="Ex.: deixe mais curto, mais firme, acrescente que retorno amanhã..."
         />
+      </label>
 
-        <div className="mt-3 grid gap-2">
-          <input
-            value={instruction}
-            onChange={(event) => onInstructionChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && instruction.trim()) onRegenerate(instruction);
-            }}
-            placeholder="Ex: deixe mais curto, mais firme, acrescente que retorno amanha..."
-            className="h-10 rounded-lg border border-white/10 bg-black/20 px-3 text-xs font-semibold text-white outline-none placeholder:text-white/35"
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" onClick={onAccept} className="mail-primary bg-[#0EA5E9] py-2">
-              Aceitar sugestao
-            </Button>
-            <Button
-              onClick={() => onRegenerate(REFAZER_INSTRUCAO)}
-              disabled={busy}
-              className="mail-hover border-white/12 py-2 text-white/75 hover:bg-white/7"
-            >
-              Refazer
-            </Button>
-            <Button
-              onClick={() => onRegenerate(instruction)}
-              disabled={busy || !instruction.trim()}
-              className="mail-hover border-cyan-400/25 py-2 text-cyan-200 hover:bg-cyan-400/10"
-            >
-              Aplicar ajuste
-            </Button>
-          </div>
-        </div>
+      <div className="nx-mail-suggest-actions">
+        <button type="button" onClick={onAccept} className="nx-btn is-sm is-primary">
+          Aceitar sugestão
+        </button>
+        <button
+          type="button"
+          onClick={() => onRegenerate(REFAZER_INSTRUCAO)}
+          disabled={busy}
+          className="nx-btn is-sm"
+        >
+          Refazer
+        </button>
+        <button
+          type="button"
+          onClick={() => onRegenerate(instruction)}
+          disabled={busy || !instruction.trim()}
+          className="nx-btn is-sm"
+        >
+          Aplicar ajuste
+        </button>
+        <button type="button" onClick={onDiscard} className="nx-btn is-sm is-ghost">
+          Descartar
+        </button>
       </div>
     </div>
   );

@@ -156,7 +156,7 @@ export default function NoriumApp() {
     preloadPanel(nextTab);
     if (nextTab !== "Chat da Equipe") setTeamChatOpen(false);
     setActiveTab(nextTab);
-    setSidebarCollapsed(true);
+    // O menu fica aberto ao navegar (layout novo); recolher continua manual.
     setMobileSidebarOpen(false);
     navigateNoriumTab(nextTab, options);
   }, []);
@@ -381,6 +381,7 @@ export default function NoriumApp() {
         onCloseMobile={() => setMobileSidebarOpen(false)}
         onNavigate={navigateTab}
         onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+        counts={{ "Chat da Equipe": teamChatEnabled ? teamChatUnreadCount : 0, "Notificações": systemUnreadCount }}
       />
 
       <div className="norium-workspace flex h-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -420,6 +421,7 @@ export default function NoriumApp() {
           <AppPanels
             key={`panels-${authSession.user.id}`}
             activeTab={activeTab}
+            allowedTabs={allowedTabs}
             authSession={authSession}
             canUseNora={canAccessPermission("nora")}
             connected={connected}

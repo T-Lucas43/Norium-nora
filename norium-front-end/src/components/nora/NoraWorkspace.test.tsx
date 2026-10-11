@@ -61,7 +61,7 @@ describe("NoraWorkspace", () => {
     expect(composer).toBeInTheDocument();
     expect(composer?.nextElementSibling).toHaveClass("nora-quick-suggestions");
     for (const image of screen.getAllByRole("img", { name: "Nora" })) {
-      expect(image).toHaveAttribute("src", expect.stringContaining("nora-brand.png"));
+      expect(image).toHaveAttribute("src", expect.stringContaining("nora-brand"));
       expect(image).not.toHaveAttribute("src", expect.stringContaining("nora-avatar.jpeg"));
     }
   });

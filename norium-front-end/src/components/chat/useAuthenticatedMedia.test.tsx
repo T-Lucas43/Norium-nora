@@ -45,7 +45,7 @@ describe("useAuthenticatedMediaState", () => {
     const { result } = renderHook(() => useAuthenticatedMediaState(source));
 
     await waitFor(() => expect(result.current.source).toBe("blob:image/png"));
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(source, { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(source, { cache: "default" });
   });
 
   it("baixa pela mesma origem do proxy local com autenticação", async () => {
@@ -57,7 +57,7 @@ describe("useAuthenticatedMediaState", () => {
     await waitFor(() => expect(result.current.source).toBe("blob:image/png"));
     expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(
       source,
-      { cache: "no-store" },
+      { cache: "default" },
     );
   });
 
@@ -71,7 +71,7 @@ describe("useAuthenticatedMediaState", () => {
     const { result } = renderHook(() => useAuthenticatedMediaState(source));
 
     await waitFor(() => expect(result.current.source).toBe("blob:image/png"));
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(proxyUrl(source), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(proxyUrl(source), { cache: "default" });
     expect(mediaApi.apiBlobRequest).not.toHaveBeenCalledWith(source, expect.anything());
   });
 
@@ -108,7 +108,7 @@ describe("useAuthenticatedMediaState", () => {
       expect(view.getByRole("img", { name: "Imagem protegida" })).toHaveAttribute("src", "blob:image/jpeg");
       expect(view.getByLabelText("Audio protegido")).toHaveAttribute("src", "blob:audio/ogg");
     });
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(proxyUrl(imageSource), { cache: "no-store" });
-    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(proxyUrl(audioSource), { cache: "no-store" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(proxyUrl(imageSource), { cache: "default" });
+    expect(mediaApi.apiBlobRequest).toHaveBeenCalledWith(proxyUrl(audioSource), { cache: "default" });
   });
 });

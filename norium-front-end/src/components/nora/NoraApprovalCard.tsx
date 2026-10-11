@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
+import { Check, Fingerprint, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import { apiRequest } from "../../core/api/client";
 
 export type NoraApprovalSnapshot = {
@@ -69,11 +69,18 @@ function statusLabel(status: string, uncertain: boolean): string {
   return status;
 }
 
+function approvalTone(status: string): string {
+  if (status === "pending") return "is-amber";
+  if (status === "approved" || status === "executed") return "is-green";
+  if (status === "rejected" || status === "failed" || status === "expired") return "is-red";
+  return "";
+}
+
 function formatExpiry(value: string | null | undefined): string | null {
   if (!value) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return parsed.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 export default function NoraApprovalCard({
@@ -138,50 +145,50 @@ export default function NoraApprovalCard({
   return (
     <article
       aria-label={`Aprovação: ${approval.title || "ação sensível"}`}
-      className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 text-sm"
+      className="nx-card nora-approval-card mt-3 p-4 text-[13.5px]"
     >
-      <div className="flex items-center gap-2 font-semibold text-[var(--text)]">
+      <div className="flex items-center gap-2 text-[14px] font-semibold text-[var(--nx-text)]">
         {decided ? (
           approval.status === "rejected" || approval.status === "cancelled" ? (
-            <ShieldX size={17} className="text-red-400" aria-hidden="true" />
+            <ShieldX size={16} className="text-[var(--nx-danger)]" aria-hidden="true" />
           ) : (
-            <ShieldCheck size={17} className="text-emerald-400" aria-hidden="true" />
+            <ShieldCheck size={16} className="text-[var(--nx-success)]" aria-hidden="true" />
           )
         ) : (
-          <ShieldAlert size={17} className="text-amber-400" aria-hidden="true" />
+          <ShieldAlert size={16} className="text-[var(--nx-warning)]" aria-hidden="true" />
         )}
         <span>{decided ? "Permissão decidida" : "Permissão necessária"}</span>
-        <span className="ml-auto rounded-full border border-[var(--border)] px-2 py-0.5 text-xs font-medium text-[var(--text-secondary)]">
+        <span className={`nx-badge ml-auto ${approvalTone(approval.status)}`}>
           {statusLabel(approval.status, approval.uncertain === true)}
         </span>
       </div>
 
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[var(--text-secondary)]">
-        <dt className="font-medium text-[var(--text)]">Ação</dt>
+      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-[10px] border border-[var(--nx-border)] bg-[var(--nx-surface-2)] p-3 text-[var(--nx-text-2)]">
+        <dt className="font-medium text-[var(--nx-text)]">Ação</dt>
         <dd className="break-words">{approval.title || approval.action || "Ação sensível"}</dd>
         {approval.recipients.length > 0 && (
           <>
-            <dt className="font-medium text-[var(--text)]">Destinatários</dt>
+            <dt className="font-medium text-[var(--nx-text)]">Destinatários</dt>
             <dd className="break-words">{approval.recipients.join(", ")}</dd>
           </>
         )}
         {approval.summary && (
           <>
-            <dt className="font-medium text-[var(--text)]">Detalhes</dt>
+            <dt className="font-medium text-[var(--nx-text)]">Detalhes</dt>
             <dd className="whitespace-pre-wrap break-words">{approval.summary}</dd>
           </>
         )}
         {approval.workspace && (
           <>
-            <dt className="font-medium text-[var(--text)]">Workspace</dt>
+            <dt className="font-medium text-[var(--nx-text)]">Workspace</dt>
             <dd className="break-words">{approval.workspace}</dd>
           </>
         )}
-        <dt className="font-medium text-[var(--text)]">Versão</dt>
+        <dt className="font-medium text-[var(--nx-text)]">Versão</dt>
         <dd className="break-words">{approval.version || "—"}</dd>
         {digestShort && (
           <>
-            <dt className="font-medium text-[var(--text)]">Conteúdo</dt>
+            <dt className="font-medium text-[var(--nx-text)]">Conteúdo</dt>
             <dd className="break-all font-mono text-xs" title={approval.digest || undefined}>
               {digestShort}
             </dd>
@@ -189,33 +196,35 @@ export default function NoraApprovalCard({
         )}
         {expiry && (
           <>
-            <dt className="font-medium text-[var(--text)]">Expira em</dt>
+            <dt className="font-medium text-[var(--nx-text)]">Expira em</dt>
             <dd>{expiry}</dd>
           </>
         )}
       </dl>
 
-      <p className="mt-3 text-xs text-[var(--text-secondary)]">
+      <p className="mt-3 flex items-center gap-1.5 text-[12.5px] text-[var(--nx-text-3)]">
+        <Fingerprint size={14} aria-hidden="true" className="shrink-0" />
         A permissão vale somente para este conteúdo exato. Qualquer edição gera uma nova aprovação.
       </p>
 
       {!decided && (
-        <div className="mt-3 flex flex-wrap gap-2" aria-busy={busy}>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void decide("approved")}
-            className="rounded-lg bg-cyan-500 px-4 py-2 font-semibold text-white transition hover:bg-cyan-400 disabled:opacity-50"
-          >
-            {pending === "approved" ? "Permitindo…" : "Permitir esta ação"}
-          </button>
+        <div className="mt-3 flex flex-wrap justify-end gap-2" aria-busy={busy}>
           <button
             type="button"
             disabled={busy}
             onClick={() => void decide("rejected")}
-            className="rounded-lg border border-red-400/60 px-4 py-2 font-semibold text-red-300 transition hover:bg-red-500/10 disabled:opacity-50"
+            className="nx-btn is-sm"
           >
             {pending === "rejected" ? "Negando…" : "Negar"}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void decide("approved")}
+            className="nx-btn is-sm is-primary"
+          >
+            <Check size={14} aria-hidden="true" />
+            {pending === "approved" ? "Permitindo…" : "Permitir esta ação"}
           </button>
         </div>
       )}
@@ -226,7 +235,7 @@ export default function NoraApprovalCard({
             type="button"
             disabled={busy}
             onClick={() => void reconcile()}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 font-semibold text-[var(--text)] transition hover:bg-[var(--surface-hover)] disabled:opacity-50"
+            className="nx-btn is-sm"
           >
             {pending === "reconcile" ? "Verificando…" : "Verificar envio"}
           </button>
@@ -234,17 +243,17 @@ export default function NoraApprovalCard({
       )}
 
       {approval.outcome && (
-        <p role="status" className="mt-3 whitespace-pre-wrap break-words text-[var(--text)]">
+        <p role="status" className="mt-3 whitespace-pre-wrap break-words text-[var(--nx-text)]">
           {approval.outcome}
         </p>
       )}
       {notice && !approval.outcome && (
-        <p role="status" className="mt-2 text-[var(--text-secondary)]">
+        <p role="status" className="mt-2 text-[var(--nx-text-2)]">
           {notice}
         </p>
       )}
       {error && (
-        <p role="alert" className="mt-2 text-red-300">
+        <p role="alert" className="mt-2 text-[var(--nx-danger)]">
           {error}
         </p>
       )}

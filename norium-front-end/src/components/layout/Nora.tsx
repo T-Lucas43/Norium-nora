@@ -1962,7 +1962,11 @@ export default function Nora({ open, onClose, conversaId, conversationId, profil
           if (audio.size < 800) throw new Error("O audio ficou curto demais para transcrever.");
           const response = await fetch(`${BACKEND_URL}/api/nora/transcrever`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...(authToken() ? { Authorization: `Bearer ${authToken()}` } : {}),
+              "X-Norium-Workspace": localStorage.getItem("norium-workspace-id") || "primary",
+            },
             body: JSON.stringify({ audio_data_url: await blobToDataUrl(audio), mime_type: audio.type || "audio/webm" }),
           });
           const result = await response.json().catch(() => ({}));

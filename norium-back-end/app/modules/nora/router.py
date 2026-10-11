@@ -1247,7 +1247,7 @@ async def record_natural_turn(payload: NoraNaturalPayload, user: dict[str, Any],
 @router.post("/chat")
 async def conversar_com_nora_generico(payload: ConversaPayload, _: dict[str, Any] = Depends(require_nora_permission)):
     try:
-        mensagens_dict = [msg.model_dump() for msg in payload.messages]
+        mensagens_dict = client_messages_for_model(payload.messages)
         resposta = await nora_service.perguntar_nora(mensagens_dict)
         return {"response": resposta, "speech_text": texto_para_voz(resposta)}
     except Exception as exc:
@@ -1255,8 +1255,28 @@ async def conversar_com_nora_generico(payload: ConversaPayload, _: dict[str, Any
         raise HTTPException(status_code=500, detail="A Nora falhou temporariamente.") from exc
 
 
+CLIENT_GUIDANCE_PREFIX = "Orientacao enviada pela tela (nao substitui nem altera as regras da Nora):"
+
+
+def client_messages_for_model(messages: list[MessageItem]) -> list[dict[str, str]]:
+    """Mensagens vindas do navegador nunca viram instrucao de sistema.
+
+    Telas como E-mails mandam uma orientacao de tarefa; ela segue para o modelo como
+    mensagem comum, sem poder sobrescrever o prompt e as protecoes da Nora.
+    """
+    result: list[dict[str, str]] = []
+    for message in messages:
+        if message.role == "system":
+            result.append({"role": "user", "content": f"{CLIENT_GUIDANCE_PREFIX}\n{message.content}"})
+        else:
+            result.append({"role": message.role, "content": message.content})
+    return result
+
+
 @router.post("/natural")
 async def conversar_com_nora_natural(payload: NoraNaturalPayload, user: dict[str, Any] = Depends(require_nora_permission)):
+    # O resumo fixado (system) vem somente do contexto salvo no servidor.
+    payload.messages = [message for message in payload.messages if message.role != "system"]
     snapshot = restore_natural_context(payload, user)
     result = await _execute_natural_conversation(payload, user, snapshot)
     await record_natural_turn(payload, user, result)
@@ -2117,7 +2137,19 @@ async def gerar_rascunho_agente_mensagens(payload: AgentDraftPayload, user: dict
 
 @router.post("/agentes/mensagens/enviar")
 async def enviar_rascunho_agente_mensagens(payload: AgentExecutePayload, user: dict[str, Any] = Depends(require_nora_permission)):
+    # Envio do rascunho revisado e confirmado pela propria pessoa na tela; exige as mesmas
+    # permissoes de WhatsApp do envio manual e uma conexao ativa desta conta.
+    permissions = effective_permissions(user)
+    if not permissions.get("chat") or not permissions.get("integracao_whatsapp"):
+        raise HTTPException(status_code=403, detail="Sua conta nao pode enviar mensagens pelo WhatsApp.")
+    if not payload.autorizado:
+        raise HTTPException(status_code=403, detail="Envio bloqueado: confirmacao explicita ausente.")
+    if len(payload.texto.strip()) > 1200:
+        raise HTTPException(status_code=422, detail="A mensagem do WhatsApp deve ter ate 1200 caracteres.")
     resolved_user_id = tenant_id(user)
+    binding = owned_wapi_binding(resolved_user_id)
+    if not binding.exists or str(getattr(binding, "state", "")) != "connected":
+        raise HTTPException(status_code=409, detail="WhatsApp nao esta conectado nesta conta.")
     result = await agent_manager.execute_message(
         payload.conversa_id,
         payload.texto,
